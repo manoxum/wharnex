@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "session_id", "type", "timestamp", "data"],
+  "properties": {
+    "id": {"type": "string"},
+    "session_id": {"type": "string"},
+    "type": {"type": "string"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "data": {"type": "object"}
+  }
+}

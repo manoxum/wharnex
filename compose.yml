@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: ./services/backend
+    environment:
+      HARNESS_ADDR: ":8080"
+      HARNESS_PLANNER: "${HARNESS_PLANNER:-manual}"
+      HARNESS_SANDBOX: "docker"
+      HARNESS_RUNNER_IMAGE: "kernl-runner:local"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.6-sol}"
+    ports:
+      - "8080:8080"
+    # Docker CLI orchestration requires access to a Docker daemon.
+    # Prefer a dedicated/rootless daemon in production. This development
+    # compose example intentionally does NOT mount the host docker socket.
+
+  frontend:
+    build:
+      context: ./services/frontend
+    environment:
+      VITE_API_URL: "http://localhost:8080"
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend

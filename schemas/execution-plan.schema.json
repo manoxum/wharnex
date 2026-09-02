@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernl.local/schemas/execution-plan.schema.json",
+  "title": "Wharness Execution Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"],
+  "properties": {
+    "protocol": {"const": "harness.execution/v1"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "request_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["ready", "blocked"]},
+    "summary": {"type": "string"},
+    "risk": {"enum": ["low", "medium", "high"]},
+    "requires_approval": {"type": "boolean"},
+    "operations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/operation"}
+    },
+    "verification": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/command"}
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "cwd", "timeout_seconds", "network", "expected_exit_codes"],
+      "properties": {
+        "argv": {"type": "array", "items": {"type": "string"}},
+        "cwd": {"type": "string"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800},
+        "network": {"type": "boolean"},
+        "expected_exit_codes": {"type": "array", "items": {"type": "integer"}}
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "patch", "command"],
+      "properties": {
+        "type": {"enum": ["apply_patch", "command"]},
+        "patch": {"type": "string"},
+        "command": {"$ref": "#/$defs/command"}
+      }
+    }
+  }
+}

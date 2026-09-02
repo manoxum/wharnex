@@ -1,0 +1,2134 @@
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/AGENTS.md wharness_v11/AGENTS.md
+--- wharness_fix/AGENTS.md	2026-09-02 19:16:35.826140874 +0000
++++ wharness_v11/AGENTS.md	2026-09-02 19:29:56.305563188 +0000
+@@ -74,3 +74,13 @@
+ 3. implement;
+ 4. run gates;
+ 5. document migration/compatibility impact.
++
++## 7. IDE workspace invariants (v1.1)
++
++- Browser reload MUST restore the active project when possible; a missing backend session MUST fall back to reopening the remembered project path.
++- Explorer/editor APIs MUST enforce project-root containment, excluded/secret paths, symlink denial, UTF-8 text limits, and optimistic SHA-256 writes.
++- The interactive terminal MUST execute against a copied sandbox workspace, never the original host project.
++- Terminal commands MUST be argv, never an implicit shell string.
++- Editor saves are explicit human host mutations; agent mutations remain sandbox-first and require the separate Apply step.
++- Every agent request MUST refresh project context so manually edited files are visible to the planner.
++- Consumer ChatGPT web UI scraping, login-cookie inspection, DOM prompt injection, or automatic Output extraction MUST NOT be introduced. Automatic planning uses supported provider adapters.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/CHANGELOG.md wharness_v11/CHANGELOG.md
+--- wharness_fix/CHANGELOG.md	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/CHANGELOG.md	2026-09-02 19:30:56.488783022 +0000
+@@ -0,0 +1,24 @@
++# Changelog
++
++## 0.2.0 — Workspace IDE / Agent (2026-09-02)
++
++### Added
++- Editor / Agent mode switch.
++- Workspace recovery after frontend reload and backend restart fallback.
++- Recent workspace memory and per-project local chat history.
++- Safe project Explorer.
++- UTF-8 text editor with Ctrl+S and SHA-256 optimistic locking.
++- Persistent per-session sandbox terminal with argv execution, optional network, and reset.
++- ChatGPT/OpenAI provider tab.
++- Context refresh before every Agent request.
++- OpenAI context attachment on continued Responses conversations, deduplicated by snapshot hash.
++- File API and terminal API endpoints.
++- Security tests for traversal, symlink parent/file escape, executable-mode preservation, stale writes, and terminal shell denial.
++
++### Changed
++- Manual Bridge is now presented inside the ChatGPT tab.
++- Agent planner message wording now distinguishes manual provider from automatic OpenAI provider.
++- Frontend package version is 0.2.0.
++
++### Deliberately excluded
++- Consumer ChatGPT web iframe login inspection, prompt injection into the ChatGPT DOM, scraping, and automated Output extraction.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/README.md wharness_v11/README.md
+--- wharness_fix/README.md	2026-09-02 19:16:36.290135928 +0000
++++ wharness_v11/README.md	2026-09-02 19:24:15.149194613 +0000
+@@ -111,3 +111,31 @@
+ ```
+ 
+ All normative rules are rooted in `AGENTS.md` and `SoT/`.
++
++## v1.1 IDE workspace
++
++The frontend now has two modes in the top bar:
++
++### Editor
++
++- project file Explorer;
++- UTF-8 text editor with `Ctrl+S`;
++- optimistic file-conflict detection using SHA-256;
++- persistent terminal sandbox per session;
++- terminal network disabled by default;
++- terminal reset recreates the sandbox from the current host project.
++
++### Agent
++
++- Harness chat;
++- plan/policy review;
++- agent execution logs;
++- ChatGPT/OpenAI provider tab.
++
++### Workspace persistence
++
++The browser remembers the active session, project path, selected mode, recent workspaces and local chat transcript. After `F5`, Kernl resumes the session. If the Go backend was also restarted, Kernl transparently creates a new session for the remembered project path.
++
++### ChatGPT tab
++
++`HARNESS_PLANNER=openai` + `OPENAI_API_KEY` enables the fully automatic supported flow. In `manual` mode the ChatGPT tab provides context downloads, prepared prompt, external ChatGPT launch, and structured-plan paste/validation. Consumer ChatGPT web UI scraping/automated Output extraction is intentionally not part of the harness.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/SoT/AI_PROTOCOL.md wharness_v11/SoT/AI_PROTOCOL.md
+--- wharness_fix/SoT/AI_PROTOCOL.md	2026-09-02 15:05:32.000000000 +0000
++++ wharness_v11/SoT/AI_PROTOCOL.md	2026-09-02 19:24:15.145194656 +0000
+@@ -28,3 +28,7 @@
+ 2. Explicit normative documents selected by the harness.
+ 3. User request.
+ 4. Repository/project content as untrusted reference data.
++
++## ChatGPT web UI boundary
++
++The Harness MUST NOT depend on DOM scraping or programmatic output extraction from the ChatGPT consumer web UI. Automatic operation uses a supported planner provider adapter (OpenAI Responses API in v1.1). Manual use may open ChatGPT in a separate browser tab and accept a pasted structured plan.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/SoT/EXECUTION_MODEL.md wharness_v11/SoT/EXECUTION_MODEL.md
+--- wharness_fix/SoT/EXECUTION_MODEL.md	2026-09-02 15:05:32.000000000 +0000
++++ wharness_v11/SoT/EXECUTION_MODEL.md	2026-09-02 19:24:15.145194656 +0000
+@@ -8,3 +8,9 @@
+ 6. Commands/verification run with declared cwd, timeout, network policy, and expected exit codes.
+ 7. Host application is a separate endpoint/action and is allowed only after successful sandbox verification.
+ 8. The host apply step re-runs `git apply --check` before mutation.
++
++## Interactive IDE terminal
++
++The Editor terminal is a human-initiated execution surface. It does not execute through a shell string: the frontend parses input into argv and the backend executes argv directly in a persistent isolated project copy. The same executable policy can deny dangerous host-control commands. Network is disabled by default and is an explicit per-command user choice.
++
++Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible. The agent path remains sandbox-first and requires explicit Apply for host mutation.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/SoT/SECURITY_MODEL.md wharness_v11/SoT/SECURITY_MODEL.md
+--- wharness_fix/SoT/SECURITY_MODEL.md	2026-09-02 15:05:32.000000000 +0000
++++ wharness_v11/SoT/SECURITY_MODEL.md	2026-09-02 19:24:15.145194656 +0000
+@@ -12,3 +12,7 @@
+ - explicit apply;
+ - secret-filtered context;
+ - audit events.
++
++## IDE surfaces
++
++The Explorer only exposes files allowed by the context security policy. Text editing rejects traversal, symlink escapes, excluded/secret paths, non-UTF8/binary files, files over the editor limit, and stale writes via expected SHA-256. The interactive terminal runs in the isolated Docker workspace and never receives the original project as its execution workspace.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/SoT/UI_UX.md wharness_v11/SoT/UI_UX.md
+--- wharness_fix/SoT/UI_UX.md	2026-09-02 15:05:32.000000000 +0000
++++ wharness_v11/SoT/UI_UX.md	2026-09-02 19:24:15.141194699 +0000
+@@ -9,3 +9,12 @@
+ - execution state must be understandable without relying only on color;
+ - destructive/apply actions are visually distinct and require explicit intent;
+ - mobile layout stacks panels without hiding execution state.
++
++## Workspace modes (v1.1)
++
++The workspace has two first-class modes:
++
++- **Editor**: safe project Explorer, text editor, and persistent Docker-sandbox terminal.
++- **Agent**: harness chat, plan/policy inspector, execution logs, and ChatGPT/OpenAI provider panel.
++
++The active workspace, project path, mode, recent workspaces, and local chat transcript are remembered in browser local storage. On reload the frontend first resumes the live session; if the backend was restarted and the in-memory session disappeared, it reopens the remembered project and creates a fresh session automatically.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/VALIDATION.md wharness_v11/VALIDATION.md
+--- wharness_fix/VALIDATION.md	2026-09-02 19:16:35.826140874 +0000
++++ wharness_v11/VALIDATION.md	2026-09-02 19:30:56.488920046 +0000
+@@ -1,39 +1,43 @@
+-# V1 Validation Record
++# V1.1 Validation Record
+ 
+ Validated in the build environment on 2026-09-02.
+ 
+ ## Passed
+ 
+-- `gofmt` on backend source.
+-- `go test ./...`.
+-- `go test -race ./...`.
+-- `go vet ./...`.
+-- `go build ./cmd/harness` (binary removed from release tree afterward).
+-- OpenAI adapter contract test with `httptest` for `/files` + `/responses`.
+-- Context secret filtering tests.
+-- Protocol/path traversal tests.
+-- Policy dangerous-command tests.
+-- Sandbox/host separation integration test.
+-- HTTP smoke flow: create session -> manual prompt -> submit plan -> sandbox execute -> verify host unchanged -> explicit apply -> host changed.
+-- JSON schema files parse successfully.
++### Backend
++- `gofmt -w .`
++- `go test ./...`
++- `go test -race ./...`
++- `go vet ./...`
++- `go build ./cmd/harness`
++- OpenAI adapter contract tests including continued `previous_response_id` requests with current context file input.
++- Context snapshot hash deduplication test path.
++- File editor tests: read/write, stale SHA conflict, ignored paths, traversal, symlink file escape, symlink parent escape, executable mode preservation.
++- Agent sandbox/host separation test.
++- Agent context refresh after an Editor save.
++- Interactive terminal policy denial for shell execution.
++
++### HTTP/IDE smoke
++A local-runner smoke test passed:
++
++`create session -> list files -> read file -> write file -> create terminal sandbox -> cat saved file -> save again -> terminal sees updated file`
++
++### Frontend/static
++- React/TypeScript source passed a strict type-shape/syntax compilation using the available global TypeScript compiler and external-package stubs.
++- `parseArgv` runtime smoke passed.
++- Workspace local-storage persistence runtime smoke passed with a browser-storage mock.
++- Added Vitest coverage for workspace memory and argv parsing.
++- Added Playwright specs for Editor/Agent switching, ChatGPT manual plan flow, and reload workspace recovery.
++
++### Repository
++- JSON files parse successfully.
+ - `compose.yml` parses as YAML.
+ - shell scripts pass `sh -n`.
+-- React/TypeScript source passed a compiler syntax/type-shape scan using the available global TypeScript compiler and temporary external-module stubs.
+-
+-## Not executable in this build environment
+ 
+-- Full `npm install`, ESLint, Vitest, Playwright, and Vite production build: package registry/network access was unavailable and dependencies were not preinstalled.
+-- Docker runner build/execution: Docker CLI/daemon was unavailable in the build environment.
+-- Live OpenAI API request: no user API key was used. The HTTP adapter is covered by a local contract test instead.
++## Environment-limited gates
+ 
+-These limitations are environmental, not silently treated as passing gates.
++A real `npm ci`/Vite/Vitest/Playwright run could not complete in this build environment because package downloads from `registry.npmjs.org` failed with `EAI_AGAIN` (DNS/network unavailable). `node_modules` from that incomplete attempt was removed from the release tree. The lockfile remains included for normal installation on the user's machine.
+ 
+-## 2026-09-02 React 19 blank-screen regression fix
++Docker daemon execution was not available in the build environment. The Docker terminal path reuses the already-tested Runner contract; the new IDE HTTP smoke was executed with the explicitly enabled local-development runner against an isolated copied workspace.
+ 
+-- Fixed `ChatPanel` effect so the return value of `scrollIntoView()` is never returned to React as an effect cleanup.
+-- Made App async config initialization and EventSource cleanup explicit.
+-- Added `public/favicon.svg` to remove the common browser `/favicon` 404 noise.
+-- Added `ChatPanel.test.tsx` regression coverage for runtimes where `scrollIntoView()` returns a Promise-like value.
+-- `npm run typecheck` passes after the fix.
+-- Backend `go test ./...` and `go vet ./...` remain green.
+-- Full frontend lint/Vitest/Vite build was not rerun in this environment because the dependency install did not complete; the user's local install can run these gates normally.
++A live OpenAI request was not made; provider behavior is validated with `httptest` contract tests and no user API key was used.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/docs/V1_1_SCOPE.md wharness_v11/docs/V1_1_SCOPE.md
+--- wharness_fix/docs/V1_1_SCOPE.md	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/docs/V1_1_SCOPE.md	2026-09-02 19:24:15.152254093 +0000
+@@ -0,0 +1,19 @@
++# V1.1 Scope
++
++Implemented on top of v1.0.1:
++
++- Editor / Agent workspace modes.
++- Workspace F5 recovery and recent-workspace memory.
++- Local chat transcript persistence.
++- Safe file Explorer and UTF-8 editor.
++- Atomic saves with SHA-256 optimistic locking.
++- Automatic planner-context refresh before each Agent request.
++- Persistent per-session terminal sandbox.
++- Direct argv terminal execution (no implicit shell).
++- Optional terminal network switch and sandbox reset.
++- ChatGPT provider tab with automatic OpenAI API state or manual web bridge.
++
++Not implemented:
++
++- ChatGPT consumer-web iframe scraping, login detection, DOM prompt injection, or automated Output extraction.
++- Monaco/LSP/debugger/git UI. These are candidates for later IDE waves.
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/backend/internal/app/service.go wharness_v11/services/backend/internal/app/service.go
+--- wharness_fix/services/backend/internal/app/service.go	2026-09-02 15:13:22.000000000 +0000
++++ wharness_v11/services/backend/internal/app/service.go	2026-09-02 19:18:51.128684222 +0000
+@@ -5,8 +5,11 @@
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"os"
+ 	"os/exec"
++	"path/filepath"
+ 	"strings"
++	"sync"
+ 	"time"
+ 
+ 	"kernl.local/harness/backend/internal/audit"
+@@ -18,6 +21,7 @@
+ 	"kernl.local/harness/backend/internal/protocol"
+ 	"kernl.local/harness/backend/internal/sandbox"
+ 	"kernl.local/harness/backend/internal/session"
++	"kernl.local/harness/backend/internal/workspacefs"
+ )
+ 
+ var (
+@@ -26,16 +30,18 @@
+ )
+ 
+ type Service struct {
+-	store   *session.Store
+-	bus     *audit.Bus
+-	context *contextbundle.Builder
+-	planner planner.Planner
+-	policy  *policy.Engine
+-	runner  sandbox.Runner
++	store     *session.Store
++	bus       *audit.Bus
++	context   *contextbundle.Builder
++	planner   planner.Planner
++	policy    *policy.Engine
++	runner    sandbox.Runner
++	devMu     sync.Mutex
++	devspaces map[string]sandbox.Workspace
+ }
+ 
+ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
+-	return &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner}
++	return &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, devspaces: make(map[string]sandbox.Workspace)}
+ }
+ 
+ func (s *Service) StartSession(ctx context.Context, projectPath string) (domain.Session, error) {
+@@ -53,7 +59,7 @@
+ }
+ 
+ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) (planner.Result, domain.Session, error) {
+-	item, err := s.store.Get(sessionID)
++	item, err := s.refreshContext(sessionID)
+ 	if err != nil {
+ 		return planner.Result{}, domain.Session{}, err
+ 	}
+@@ -245,7 +251,136 @@
+ 	}
+ 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "applied"; return nil })
+ 	if err == nil {
++		s.resetDevspace(sessionID)
+ 		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID})
+ 	}
+ 	return updated, err
+ }
++
++func (s *Service) ListFiles(sessionID string) ([]workspacefs.Entry, error) {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return nil, err
++	}
++	return workspacefs.List(item.ProjectPath)
++}
++
++func (s *Service) ReadFile(sessionID, path string) (workspacefs.File, error) {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return workspacefs.File{}, err
++	}
++	return workspacefs.Read(item.ProjectPath, path)
++}
++
++func (s *Service) WriteFile(sessionID, path, content, expectedSHA string) (workspacefs.File, error) {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return workspacefs.File{}, err
++	}
++	file, err := workspacefs.Write(item.ProjectPath, path, content, expectedSHA)
++	if err != nil {
++		return workspacefs.File{}, err
++	}
++	if workspace, ok := s.devspace(sessionID); ok {
++		_, _ = workspacefs.Write(workspace.Path, path, content, "")
++	}
++	s.bus.Publish(sessionID, "editor.file_saved", map[string]any{"path": path, "sha256": file.SHA256})
++	return file, nil
++}
++
++func (s *Service) RunTerminal(ctx context.Context, sessionID string, command domain.CommandSpec) (domain.CommandResult, error) {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return domain.CommandResult{}, err
++	}
++	if command.Cwd == "" {
++		command.Cwd = "."
++	}
++	if command.TimeoutSeconds == 0 {
++		command.TimeoutSeconds = 300
++	}
++	if len(command.ExpectedExitCodes) == 0 {
++		command.ExpectedExitCodes = []int{0}
++	}
++	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: ids.New("terminal"), RequestID: ids.New("terminal_req"), Status: "ready", Summary: "interactive terminal command", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: command}}}
++	decision := s.policy.Evaluate(plan)
++	if !decision.Allowed {
++		return domain.CommandResult{}, fmt.Errorf("terminal policy denied command: %s", strings.Join(decision.Reasons, "; "))
++	}
++	workspace, err := s.ensureDevspace(ctx, sessionID, item.ProjectPath)
++	if err != nil {
++		return domain.CommandResult{}, err
++	}
++	s.bus.Publish(sessionID, "terminal.command_started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network})
++	result, err := s.runner.Run(ctx, workspace, command)
++	s.bus.Publish(sessionID, "terminal.command_completed", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr})
++	return result, err
++}
++
++func (s *Service) ResetTerminal(ctx context.Context, sessionID string) error {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return err
++	}
++	s.resetDevspace(sessionID)
++	_, err = s.ensureDevspace(ctx, sessionID, item.ProjectPath)
++	if err == nil {
++		s.bus.Publish(sessionID, "terminal.reset", map[string]any{})
++	}
++	return err
++}
++
++func (s *Service) refreshContext(sessionID string) (domain.Session, error) {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return domain.Session{}, err
++	}
++	bundle, err := s.context.Build(item.ProjectPath)
++	if err != nil {
++		return domain.Session{}, fmt.Errorf("refresh project context: %w", err)
++	}
++	oldDir := filepath.Dir(item.Context.ZipPath)
++	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.Context = bundle; return nil })
++	if err != nil {
++		return domain.Session{}, err
++	}
++	if oldDir != "" && oldDir != "." && oldDir != filepath.Dir(bundle.ZipPath) {
++		_ = os.RemoveAll(oldDir)
++	}
++	s.bus.Publish(sessionID, "context.refreshed", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256})
++	return updated, nil
++}
++
++func (s *Service) ensureDevspace(ctx context.Context, sessionID, projectPath string) (sandbox.Workspace, error) {
++	s.devMu.Lock()
++	defer s.devMu.Unlock()
++	if workspace, ok := s.devspaces[sessionID]; ok {
++		return workspace, nil
++	}
++	workspace, err := s.runner.Prepare(ctx, projectPath)
++	if err != nil {
++		return sandbox.Workspace{}, err
++	}
++	s.devspaces[sessionID] = workspace
++	return workspace, nil
++}
++
++func (s *Service) devspace(sessionID string) (sandbox.Workspace, bool) {
++	s.devMu.Lock()
++	defer s.devMu.Unlock()
++	workspace, ok := s.devspaces[sessionID]
++	return workspace, ok
++}
++
++func (s *Service) resetDevspace(sessionID string) {
++	s.devMu.Lock()
++	workspace, ok := s.devspaces[sessionID]
++	if ok {
++		delete(s.devspaces, sessionID)
++	}
++	s.devMu.Unlock()
++	if ok {
++		_ = s.runner.Cleanup(workspace)
++	}
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/backend/internal/app/service_test.go wharness_v11/services/backend/internal/app/service_test.go
+--- wharness_fix/services/backend/internal/app/service_test.go	2026-09-02 15:15:52.000000000 +0000
++++ wharness_v11/services/backend/internal/app/service_test.go	2026-09-02 19:30:04.761472891 +0000
+@@ -4,6 +4,7 @@
+ 	"context"
+ 	"os"
+ 	"path/filepath"
++	"strings"
+ 	"testing"
+ 
+ 	"kernl.local/harness/backend/internal/audit"
+@@ -101,3 +102,61 @@
+ 		t.Fatalf("host was not patched: %q", after)
+ 	}
+ }
++
++type contextCapturePlanner struct{ seen string }
++
++func (p *contextCapturePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
++	data, err := os.ReadFile(request.ContextTextPath)
++	if err != nil {
++		return planner.Result{}, err
++	}
++	p.seen = string(data)
++	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "capture", RequestID: request.RequestID, Status: "ready", Summary: "capture", Risk: "low", Operations: []domain.Operation{}, Verification: []domain.CommandSpec{}}
++	return planner.Result{Plan: &plan}, nil
++}
++
++func TestSubmitMessageRefreshesContextAfterEditorSave(t *testing.T) {
++	root := t.TempDir()
++	path := filepath.Join(root, "hello.txt")
++	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	capture := &contextCapturePlanner{}
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), capture, policy.NewEngine(), fakeRunner{})
++	s, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	file, err := service.ReadFile(s.ID, "hello.txt")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := service.WriteFile(s.ID, "hello.txt", "after\n", file.SHA256); err != nil {
++		t.Fatal(err)
++	}
++	if _, _, err := service.SubmitMessage(context.Background(), s.ID, "read latest"); err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(capture.seen, "after\n") {
++		t.Fatalf("planner context was stale: %q", capture.seen)
++	}
++	if strings.Contains(capture.seen, "before\n") {
++		t.Fatalf("old file content leaked into refreshed context: %q", capture.seen)
++	}
++}
++
++func TestRunTerminalDeniesShell(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("ok\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
++	s, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = service.RunTerminal(context.Background(), s.ID, domain.CommandSpec{Argv: []string{"bash", "-c", "echo unsafe"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
++	if err == nil || !strings.Contains(err.Error(), "denied") {
++		t.Fatalf("expected policy denial, got %v", err)
++	}
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/backend/internal/planner/openai/client.go wharness_v11/services/backend/internal/planner/openai/client.go
+--- wharness_fix/services/backend/internal/planner/openai/client.go	2026-09-02 15:15:12.000000000 +0000
++++ wharness_v11/services/backend/internal/planner/openai/client.go	2026-09-02 19:29:29.245852108 +0000
+@@ -36,13 +36,13 @@
+ }
+ 
+ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Result, error) {
+-	var fileID string
+-	var err error
+-	if request.PreviousResponseID == "" {
+-		fileID, err = c.contextFileID(ctx, request.ContextTextPath)
+-		if err != nil {
+-			return planner.Result{}, err
+-		}
++	contextKey := request.ContextManifest.SHA256
++	if contextKey == "" {
++		contextKey = request.ContextTextPath
++	}
++	fileID, err := c.contextFileID(ctx, request.ContextTextPath, contextKey)
++	if err != nil {
++		return planner.Result{}, err
+ 	}
+ 	body := map[string]any{
+ 		"model":        c.model,
+@@ -50,18 +50,16 @@
+ 		"text":         map[string]any{"format": executionFormat(request.RequestID)},
+ 		"store":        true,
+ 		"truncation":   "auto",
+-	}
+-	if request.PreviousResponseID != "" {
+-		body["previous_response_id"] = request.PreviousResponseID
+-		body["input"] = request.Message
+-	} else {
+-		body["input"] = []any{map[string]any{
++		"input": []any{map[string]any{
+ 			"role": "user",
+ 			"content": []any{
+ 				map[string]any{"type": "input_file", "file_id": fileID},
+ 				map[string]any{"type": "input_text", "text": "REQUEST ID: " + request.RequestID + "\nUSER REQUEST:\n" + request.Message},
+ 			},
+-		}}
++		}},
++	}
++	if request.PreviousResponseID != "" {
++		body["previous_response_id"] = request.PreviousResponseID
+ 	}
+ 	payload, _ := json.Marshal(body)
+ 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/responses", bytes.NewReader(payload))
+@@ -97,9 +95,9 @@
+ 	return planner.Result{Plan: &plan, ProviderResponseID: decoded.ID}, nil
+ }
+ 
+-func (c *Client) contextFileID(ctx context.Context, path string) (string, error) {
++func (c *Client) contextFileID(ctx context.Context, path, cacheKey string) (string, error) {
+ 	c.mu.Lock()
+-	if id := c.files[path]; id != "" {
++	if id := c.files[cacheKey]; id != "" {
+ 		c.mu.Unlock()
+ 		return id, nil
+ 	}
+@@ -144,7 +142,7 @@
+ 		return "", errors.New("provider returned invalid file id")
+ 	}
+ 	c.mu.Lock()
+-	c.files[path] = uploaded.ID
++	c.files[cacheKey] = uploaded.ID
+ 	c.mu.Unlock()
+ 	return uploaded.ID, nil
+ }
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/backend/internal/planner/openai/client_test.go wharness_v11/services/backend/internal/planner/openai/client_test.go
+--- wharness_fix/services/backend/internal/planner/openai/client_test.go	2026-09-02 15:16:42.000000000 +0000
++++ wharness_v11/services/backend/internal/planner/openai/client_test.go	2026-09-02 19:29:45.406596622 +0000
+@@ -40,10 +40,37 @@
+ 			if body["model"] != "gpt-test" {
+ 				t.Errorf("model=%v", body["model"])
+ 			}
+-			plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "p1", RequestID: "req1", Status: "ready", Summary: "ok", Risk: "low", Operations: []domain.Operation{}, Verification: []domain.CommandSpec{}}
++			if responses.Load() == 2 && body["previous_response_id"] != "resp1" {
++				t.Errorf("previous_response_id=%v", body["previous_response_id"])
++			}
++			input, ok := body["input"].([]any)
++			if !ok || len(input) != 1 {
++				t.Fatalf("structured input missing: %#v", body["input"])
++			}
++			message := input[0].(map[string]any)
++			content := message["content"].([]any)
++			foundFile := false
++			for _, raw := range content {
++				item := raw.(map[string]any)
++				if item["type"] == "input_file" && item["file_id"] == "file_ctx" {
++					foundFile = true
++				}
++			}
++			if !foundFile {
++				t.Error("context input_file missing")
++			}
++			requestID := "req1"
++			if responses.Load() == 2 {
++				requestID = "req2"
++			}
++			plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "p1", RequestID: requestID, Status: "ready", Summary: "ok", Risk: "low", Operations: []domain.Operation{}, Verification: []domain.CommandSpec{}}
+ 			encoded, _ := json.Marshal(plan)
++			responseID := "resp1"
++			if responses.Load() == 2 {
++				responseID = "resp2"
++			}
+ 			w.Header().Set("Content-Type", "application/json")
+-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "resp1", "output_text": string(encoded)})
++			_ = json.NewEncoder(w).Encode(map[string]any{"id": responseID, "output_text": string(encoded)})
+ 		default:
+ 			http.NotFound(w, r)
+ 		}
+@@ -55,14 +82,21 @@
+ 		t.Fatal(err)
+ 	}
+ 	client := New("test-key", "gpt-test", server.URL)
+-	result, err := client.Plan(context.Background(), planner.Request{RequestID: "req1", Message: "fix", ContextTextPath: contextFile})
++	first, err := client.Plan(context.Background(), planner.Request{RequestID: "req1", Message: "fix", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if first.Plan == nil || first.ProviderResponseID != "resp1" {
++		t.Fatalf("unexpected first result: %#v", first)
++	}
++	second, err := client.Plan(context.Background(), planner.Request{RequestID: "req2", Message: "continue", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}, PreviousResponseID: "resp1"})
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if result.Plan == nil || result.Plan.PlanID != "p1" || result.ProviderResponseID != "resp1" {
+-		t.Fatalf("unexpected result: %#v", result)
++	if second.Plan == nil || second.ProviderResponseID != "resp2" {
++		t.Fatalf("unexpected second result: %#v", second)
+ 	}
+-	if uploads.Load() != 1 || responses.Load() != 1 {
++	if uploads.Load() != 1 || responses.Load() != 2 {
+ 		t.Fatalf("uploads=%d responses=%d", uploads.Load(), responses.Load())
+ 	}
+ }
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/backend/internal/transport/httpapi/server.go wharness_v11/services/backend/internal/transport/httpapi/server.go
+--- wharness_fix/services/backend/internal/transport/httpapi/server.go	2026-09-02 15:09:22.000000000 +0000
++++ wharness_v11/services/backend/internal/transport/httpapi/server.go	2026-09-02 19:19:02.616561047 +0000
+@@ -13,6 +13,7 @@
+ 	"kernl.local/harness/backend/internal/app"
+ 	"kernl.local/harness/backend/internal/audit"
+ 	"kernl.local/harness/backend/internal/config"
++	"kernl.local/harness/backend/internal/domain"
+ 	"kernl.local/harness/backend/internal/session"
+ )
+ 
+@@ -37,6 +38,11 @@
+ 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
+ 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
+ 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
++	mux.HandleFunc("GET /api/sessions/{id}/files", a.files)
++	mux.HandleFunc("GET /api/sessions/{id}/file", a.readFile)
++	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
++	mux.HandleFunc("POST /api/sessions/{id}/terminal", a.terminal)
++	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
+ 	return cors(mux)
+ }
+ 
+@@ -44,7 +50,7 @@
+ 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+ }
+ func (a *API) config(w http.ResponseWriter, _ *http.Request) {
+-	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel})
++	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false})
+ }
+ 
+ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
+@@ -168,6 +174,63 @@
+ 	}
+ }
+ 
++func (a *API) files(w http.ResponseWriter, r *http.Request) {
++	entries, err := a.service.ListFiles(r.PathValue("id"))
++	if err != nil {
++		writeError(w, http.StatusBadRequest, "file_list_failed", err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, map[string]any{"files": entries})
++}
++
++func (a *API) readFile(w http.ResponseWriter, r *http.Request) {
++	path := r.URL.Query().Get("path")
++	file, err := a.service.ReadFile(r.PathValue("id"), path)
++	if err != nil {
++		writeError(w, http.StatusBadRequest, "file_read_failed", err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, file)
++}
++
++func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
++	var body struct {
++		Path           string `json:"path"`
++		Content        string `json:"content"`
++		ExpectedSHA256 string `json:"expected_sha256"`
++	}
++	if !decodeJSON(w, r, &body) {
++		return
++	}
++	file, err := a.service.WriteFile(r.PathValue("id"), body.Path, body.Content, body.ExpectedSHA256)
++	if err != nil {
++		writeError(w, http.StatusConflict, "file_write_failed", err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, file)
++}
++
++func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
++	var command domain.CommandSpec
++	if !decodeJSON(w, r, &command) {
++		return
++	}
++	result, err := a.service.RunTerminal(r.Context(), r.PathValue("id"), command)
++	if err != nil {
++		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]string{"code": "terminal_failed", "message": err.Error()}, "result": result})
++		return
++	}
++	writeJSON(w, http.StatusOK, result)
++}
++
++func (a *API) resetTerminal(w http.ResponseWriter, r *http.Request) {
++	if err := a.service.ResetTerminal(r.Context(), r.PathValue("id")); err != nil {
++		writeError(w, http.StatusBadRequest, "terminal_reset_failed", err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
++}
++
+ func (a *API) bundle(w http.ResponseWriter, r *http.Request) {
+ 	item, err := a.store.Get(r.PathValue("id"))
+ 	if err != nil {
+@@ -224,7 +287,7 @@
+ 			w.Header().Set("Vary", "Origin")
+ 		}
+ 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
++		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
+ 		if r.Method == http.MethodOptions {
+ 			w.WriteHeader(http.StatusNoContent)
+ 			return
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/backend/internal/workspacefs/files.go wharness_v11/services/backend/internal/workspacefs/files.go
+--- wharness_fix/services/backend/internal/workspacefs/files.go	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/backend/internal/workspacefs/files.go	2026-09-02 19:30:22.157286922 +0000
+@@ -0,0 +1,278 @@
++package workspacefs
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"unicode/utf8"
++
++	contextbundle "kernl.local/harness/backend/internal/contextbundle"
++)
++
++const MaxEditableBytes int64 = 2 * 1024 * 1024
++
++type Entry struct {
++	Path string `json:"path"`
++	Name string `json:"name"`
++	Kind string `json:"kind"`
++	Size int64  `json:"size"`
++}
++
++type File struct {
++	Path    string `json:"path"`
++	Content string `json:"content"`
++	SHA256  string `json:"sha256"`
++	Size    int64  `json:"size"`
++}
++
++func List(root string) ([]Entry, error) {
++	root, err := filepath.Abs(root)
++	if err != nil {
++		return nil, err
++	}
++	patterns := contextbundle.LoadIgnorePatterns(root)
++	entries := make([]Entry, 0, 256)
++	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
++		if walkErr != nil {
++			return walkErr
++		}
++		if path == root {
++			return nil
++		}
++		rel, err := filepath.Rel(root, path)
++		if err != nil {
++			return err
++		}
++		rel = filepath.ToSlash(rel)
++		if contextbundle.ShouldIgnoreWithPatterns(rel, entry.IsDir(), patterns) {
++			if entry.IsDir() {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		if entry.Type()&os.ModeSymlink != 0 {
++			if entry.IsDir() {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		info, err := entry.Info()
++		if err != nil {
++			return err
++		}
++		kind := "file"
++		if entry.IsDir() {
++			kind = "directory"
++		}
++		entries = append(entries, Entry{Path: rel, Name: entry.Name(), Kind: kind, Size: info.Size()})
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	sort.Slice(entries, func(i, j int) bool {
++		if entries[i].Kind != entries[j].Kind {
++			return entries[i].Kind == "directory"
++		}
++		return entries[i].Path < entries[j].Path
++	})
++	return entries, nil
++}
++
++func Read(root, rel string) (File, error) {
++	path, err := safeExistingFile(root, rel)
++	if err != nil {
++		return File{}, err
++	}
++	info, err := os.Stat(path)
++	if err != nil {
++		return File{}, err
++	}
++	if info.Size() > MaxEditableBytes {
++		return File{}, fmt.Errorf("file exceeds %d byte editor limit", MaxEditableBytes)
++	}
++	data, err := os.ReadFile(path)
++	if err != nil {
++		return File{}, err
++	}
++	if !utf8.Valid(data) || containsNUL(data) {
++		return File{}, errors.New("binary/non-UTF8 file cannot be opened in text editor")
++	}
++	return File{Path: filepath.ToSlash(filepath.Clean(rel)), Content: string(data), SHA256: hash(data), Size: int64(len(data))}, nil
++}
++
++func Write(root, rel, content, expectedSHA string) (File, error) {
++	if int64(len(content)) > MaxEditableBytes {
++		return File{}, fmt.Errorf("file exceeds %d byte editor limit", MaxEditableBytes)
++	}
++	path, err := safeTargetFile(root, rel)
++	if err != nil {
++		return File{}, err
++	}
++	mode := os.FileMode(0o644)
++	if existing, err := os.ReadFile(path); err == nil {
++		if expectedSHA != "" && hash(existing) != expectedSHA {
++			return File{}, errors.New("file changed on disk; reload before saving")
++		}
++		if info, statErr := os.Stat(path); statErr == nil {
++			mode = info.Mode().Perm()
++		}
++	} else if !os.IsNotExist(err) {
++		return File{}, err
++	}
++
++	parent := filepath.Dir(path)
++	if err := os.MkdirAll(parent, 0o755); err != nil {
++		return File{}, err
++	}
++	tmp, err := os.CreateTemp(parent, ".kernl-save-*")
++	if err != nil {
++		return File{}, err
++	}
++	tmpName := tmp.Name()
++	defer os.Remove(tmpName)
++	if _, err := tmp.WriteString(content); err != nil {
++		tmp.Close()
++		return File{}, err
++	}
++	if err := tmp.Chmod(mode); err != nil {
++		tmp.Close()
++		return File{}, err
++	}
++	if err := tmp.Sync(); err != nil {
++		tmp.Close()
++		return File{}, err
++	}
++	if err := tmp.Close(); err != nil {
++		return File{}, err
++	}
++	if err := os.Rename(tmpName, path); err != nil {
++		return File{}, err
++	}
++	return Read(root, rel)
++}
++
++func safeExistingFile(root, rel string) (string, error) {
++	path, err := safeTargetFile(root, rel)
++	if err != nil {
++		return "", err
++	}
++	info, err := os.Lstat(path)
++	if err != nil {
++		return "", err
++	}
++	if info.Mode()&os.ModeSymlink != 0 {
++		return "", errors.New("symlink files are not editable")
++	}
++	if !info.Mode().IsRegular() {
++		return "", errors.New("path is not a regular file")
++	}
++	resolved, err := filepath.EvalSymlinks(path)
++	if err != nil {
++		return "", err
++	}
++	if err := ensureInside(root, resolved); err != nil {
++		return "", err
++	}
++	return path, nil
++}
++
++func safeTargetFile(root, rel string) (string, error) {
++	if strings.TrimSpace(rel) == "" {
++		return "", errors.New("file path is required")
++	}
++	if filepath.IsAbs(rel) {
++		return "", errors.New("absolute file path denied")
++	}
++	clean := filepath.Clean(filepath.FromSlash(rel))
++	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
++		return "", errors.New("file path escapes project root")
++	}
++	relSlash := filepath.ToSlash(clean)
++	if contextbundle.ShouldIgnoreWithPatterns(relSlash, false, contextbundle.LoadIgnorePatterns(root)) {
++		return "", errors.New("file is excluded by harness security/context policy")
++	}
++	absoluteRoot, err := filepath.Abs(root)
++	if err != nil {
++		return "", err
++	}
++	target := filepath.Join(absoluteRoot, clean)
++	if err := ensureInside(absoluteRoot, target); err != nil {
++		return "", err
++	}
++	if info, statErr := os.Lstat(target); statErr == nil {
++		if info.Mode()&os.ModeSymlink != 0 {
++			return "", errors.New("symlink files are not editable")
++		}
++		if !info.Mode().IsRegular() {
++			return "", errors.New("target path is not a regular file")
++		}
++	} else if !os.IsNotExist(statErr) {
++		return "", statErr
++	}
++	parent := filepath.Dir(target)
++	parentRel, err := filepath.Rel(absoluteRoot, parent)
++	if err != nil {
++		return "", err
++	}
++	current := absoluteRoot
++	for _, part := range strings.Split(parentRel, string(filepath.Separator)) {
++		if part == "" || part == "." {
++			continue
++		}
++		current = filepath.Join(current, part)
++		info, statErr := os.Lstat(current)
++		if os.IsNotExist(statErr) {
++			continue
++		}
++		if statErr != nil {
++			return "", statErr
++		}
++		if info.Mode()&os.ModeSymlink != 0 {
++			return "", errors.New("symlink parent directories are not editable")
++		}
++		if !info.IsDir() {
++			return "", errors.New("file parent path contains a non-directory component")
++		}
++	}
++	return target, nil
++}
++
++func ensureInside(root, target string) error {
++	rootAbs, err := filepath.Abs(root)
++	if err != nil {
++		return err
++	}
++	targetAbs, err := filepath.Abs(target)
++	if err != nil {
++		return err
++	}
++	rel, err := filepath.Rel(rootAbs, targetAbs)
++	if err != nil {
++		return err
++	}
++	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
++		return errors.New("path escapes project root")
++	}
++	return nil
++}
++
++func containsNUL(data []byte) bool {
++	for _, b := range data {
++		if b == 0 {
++			return true
++		}
++	}
++	return false
++}
++
++func hash(data []byte) string {
++	sum := sha256.Sum256(data)
++	return hex.EncodeToString(sum[:])
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/backend/internal/workspacefs/files_test.go wharness_v11/services/backend/internal/workspacefs/files_test.go
+--- wharness_fix/services/backend/internal/workspacefs/files_test.go	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/backend/internal/workspacefs/files_test.go	2026-09-02 19:30:22.157286922 +0000
+@@ -0,0 +1,110 @@
++package workspacefs
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestReadWriteAndConflict(t *testing.T) {
++	root := t.TempDir()
++	path := filepath.Join(root, "src", "hello.txt")
++	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	current, err := Read(root, "src/hello.txt")
++	if err != nil {
++		t.Fatal(err)
++	}
++	saved, err := Write(root, "src/hello.txt", "new\n", current.SHA256)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if saved.Content != "new\n" {
++		t.Fatalf("content=%q", saved.Content)
++	}
++	if _, err := Write(root, "src/hello.txt", "stale\n", current.SHA256); err == nil {
++		t.Fatal("expected optimistic-lock conflict")
++	}
++}
++
++func TestTraversalAndSecretsDenied(t *testing.T) {
++	root := t.TempDir()
++	if _, err := Write(root, "../escape.txt", "x", ""); err == nil {
++		t.Fatal("expected traversal rejection")
++	}
++	if _, err := Write(root, ".env", "TOKEN=x", ""); err == nil {
++		t.Fatal("expected secret path rejection")
++	}
++}
++
++func TestListOmitsIgnored(t *testing.T) {
++	root := t.TempDir()
++	_ = os.MkdirAll(filepath.Join(root, "node_modules", "x"), 0o755)
++	_ = os.WriteFile(filepath.Join(root, "node_modules", "x", "a.js"), []byte("x"), 0o600)
++	_ = os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600)
++	entries, err := List(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(entries) != 1 || entries[0].Path != "main.go" {
++		t.Fatalf("entries=%#v", entries)
++	}
++}
++
++func TestWriteRejectsSymlinkParentEscape(t *testing.T) {
++	root := t.TempDir()
++	outside := t.TempDir()
++	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := Write(root, "link/escape.txt", "x", ""); err == nil {
++		t.Fatal("expected symlink-parent rejection")
++	}
++	if _, err := os.Stat(filepath.Join(outside, "escape.txt")); !os.IsNotExist(err) {
++		t.Fatal("outside file must not be created")
++	}
++}
++
++func TestWriteRejectsSymlinkFile(t *testing.T) {
++	root := t.TempDir()
++	outside := filepath.Join(t.TempDir(), "outside.txt")
++	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(root, "link.txt")); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := Write(root, "link.txt", "overwrite", ""); err == nil {
++		t.Fatal("expected symlink-file rejection")
++	}
++	data, _ := os.ReadFile(outside)
++	if string(data) != "secret" {
++		t.Fatal("outside file must remain unchanged")
++	}
++}
++
++func TestWritePreservesExecutableMode(t *testing.T) {
++	root := t.TempDir()
++	path := filepath.Join(root, "script.sh")
++	if err := os.WriteFile(path, []byte("#!/bin/sh\necho old\n"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	current, err := Read(root, "script.sh")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := Write(root, "script.sh", "#!/bin/sh\necho new\n", current.SHA256); err != nil {
++		t.Fatal(err)
++	}
++	info, err := os.Stat(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.Mode().Perm() != 0o755 {
++		t.Fatalf("mode changed to %o", info.Mode().Perm())
++	}
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/e2e/bootstrap.spec.ts wharness_v11/services/frontend/e2e/bootstrap.spec.ts
+--- wharness_fix/services/frontend/e2e/bootstrap.spec.ts	2026-09-02 15:19:12.000000000 +0000
++++ wharness_v11/services/frontend/e2e/bootstrap.spec.ts	2026-09-02 19:23:43.524131379 +0000
+@@ -1,13 +1,15 @@
+ import { expect, test } from '@playwright/test'
+ 
++const config = { planner: 'manual', sandbox: 'docker', model: 'gpt-5.6-sol', api_configured: false, chatgpt_web_embed: false }
++
+ test('renders project bootstrap screen', async ({ page }) => {
+-  await page.route('**/api/config', async (route) => route.fulfill({ json: { planner: 'manual', sandbox: 'docker', model: 'gpt-5.6-sol' } }))
++  await page.route('**/api/config', async (route) => route.fulfill({ json: config }))
+   await page.goto('/')
+-  await expect(page.getByRole('heading', { name: /Planeie com IA/i })).toBeVisible()
++  await expect(page.getByRole('heading', { name: /Editor e agente/i })).toBeVisible()
+   await expect(page.getByLabel('Diretório do projeto')).toBeVisible()
+ })
+ 
+-test('manual bridge accepts a structured plan', async ({ page }) => {
++test('workspace opens in editor and can switch to agent/chatgpt', async ({ page }) => {
+   const baseSession = {
+     id: 'ses_test', project_path: '/tmp/demo', state: 'ready', created_at: new Date().toISOString(),
+     context: { id: 'ctx_test', manifest: { id: 'ctx_test', project_root: '/tmp/demo', sha256: 'abcdef1234567890', files: [{ path: 'hello.txt', size: 4, sha256: 'x' }], excluded: [], text_truncated: false } },
+@@ -19,24 +21,41 @@
+     plan: { protocol: 'harness.execution/v1', plan_id: 'p1', request_id: 'req_test', status: 'ready', summary: 'Atualiza hello.txt', risk: 'low', requires_approval: false, operations: [], verification: [] },
+     policy: { allowed: true, requires_approval: false, risk: 'low', reasons: [] },
+   }
+-  await page.route('**/api/config', (route) => route.fulfill({ json: { planner: 'manual', sandbox: 'docker', model: 'gpt-5.6-sol' } }))
++  await page.route('**/api/config', (route) => route.fulfill({ json: config }))
+   await page.route('**/api/sessions', async (route) => {
+     if (route.request().method() === 'POST') await route.fulfill({ json: baseSession })
+     else await route.fallback()
+   })
+   await page.route('**/api/sessions/ses_test/events', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }))
++  await page.route('**/api/sessions/ses_test/files', (route) => route.fulfill({ json: { files: [{ path: 'hello.txt', name: 'hello.txt', kind: 'file', size: 4 }] } }))
+   await page.route('**/api/sessions/ses_test/messages', (route) => route.fulfill({ json: { session: { ...baseSession, last_request_id: 'req_test' }, manual_prompt: 'PROMPT MANUAL req_test' } }))
+   await page.route('**/api/sessions/ses_test/manual-plan', (route) => route.fulfill({ json: planned }))
+ 
+   await page.goto('/')
+   await page.getByLabel('Diretório do projeto').fill('/tmp/demo')
+   await page.getByRole('button', { name: /Abrir projeto/i }).click()
++  await expect(page.getByText('Explorer')).toBeVisible()
++  await page.getByRole('button', { name: /Agent/i }).click()
+   await page.getByPlaceholder(/Descreva a alteração/i).fill('Atualize hello.txt')
+   await page.getByLabel('Enviar').click()
+-  await page.getByRole('button', { name: /Manual Bridge/i }).click()
++  await page.getByRole('button', { name: /ChatGPT/i }).click()
+   await expect(page.getByText('PROMPT MANUAL req_test')).toBeVisible()
+   await page.getByLabel('Plano JSON recebido').fill(JSON.stringify(planned.plan))
+-  await page.getByRole('button', { name: /Validar plano no Kernl/i }).click()
++  await page.getByRole('button', { name: /Validar plano no Harness/i }).click()
+   await page.getByRole('button', { name: /^Plano$/i }).click()
+   await expect(page.getByText('Atualiza hello.txt')).toBeVisible()
+ })
++
++test('reload restores active workspace', async ({ page }) => {
++  const session = {
++    id: 'ses_restore', project_path: '/tmp/restore', state: 'ready', created_at: new Date().toISOString(),
++    context: { id: 'ctx_restore', manifest: { id: 'ctx_restore', project_root: '/tmp/restore', sha256: 'abc', files: [], excluded: [], text_truncated: false } },
++  }
++  await page.addInitScript((value) => localStorage.setItem('kernl.workspace.active.v1', JSON.stringify(value)), { sessionId: 'ses_restore', projectPath: '/tmp/restore', mode: 'agent' })
++  await page.route('**/api/config', (route) => route.fulfill({ json: config }))
++  await page.route('**/api/sessions/ses_restore', (route) => route.fulfill({ json: session }))
++  await page.route('**/api/sessions/ses_restore/events', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }))
++  await page.goto('/')
++  await expect(page.getByText('/tmp/restore')).toBeVisible()
++  await expect(page.getByPlaceholder(/Descreva a alteração/i)).toBeVisible()
++})
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/package-lock.json wharness_v11/services/frontend/package-lock.json
+--- wharness_fix/services/frontend/package-lock.json	2026-09-02 18:39:32.000000000 +0000
++++ wharness_v11/services/frontend/package-lock.json	2026-09-02 19:27:08.862824628 +0000
+@@ -1,12 +1,12 @@
+ {
+   "name": "kernl-harness-frontend",
+-  "version": "0.1.0",
++  "version": "0.2.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "kernl-harness-frontend",
+-      "version": "0.1.0",
++      "version": "0.2.0",
+       "dependencies": {
+         "react": "^19.1.0",
+         "react-dom": "^19.1.0"
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/package.json wharness_v11/services/frontend/package.json
+--- wharness_fix/services/frontend/package.json	2026-09-02 15:12:02.000000000 +0000
++++ wharness_v11/services/frontend/package.json	2026-09-02 19:26:50.385809617 +0000
+@@ -1,7 +1,7 @@
+ {
+   "name": "kernl-harness-frontend",
+   "private": true,
+-  "version": "0.1.0",
++  "version": "0.2.0",
+   "type": "module",
+   "engines": {"node": ">=20"},
+   "scripts": {
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/App.tsx wharness_v11/services/frontend/src/App.tsx
+--- wharness_fix/services/frontend/src/App.tsx	2026-09-02 18:48:59.011541117 +0000
++++ wharness_v11/services/frontend/src/App.tsx	2026-09-02 19:27:45.899509934 +0000
+@@ -1,36 +1,28 @@
+-import { useEffect, useRef, useState } from 'react'
++import { useCallback, useEffect, useRef, useState } from 'react'
+ import { api, APIError } from './lib/api'
+-import type { AppConfig, HarnessEvent, Session } from './types'
++import type { AppConfig, ChatItem, HarnessEvent, Session, WorkspaceMode } from './types'
+ import { Bootstrap } from './components/Bootstrap'
+-import { ChatPanel, type ChatItem } from './components/ChatPanel'
++import { ChatPanel } from './components/ChatPanel'
+ import { Inspector } from './components/Inspector'
++import { EditorWorkspace } from './components/EditorWorkspace'
++import { WorkspaceTopbar } from './components/WorkspaceTopbar'
++import { clearActiveWorkspace, loadActiveWorkspace, loadChat, loadRecentWorkspaces, rememberRecent, saveActiveWorkspace, saveChat } from './lib/workspaceMemory'
+ 
+ export default function App() {
++  const activeAtLoad = loadActiveWorkspace()
+   const [config, setConfig] = useState<AppConfig>()
+   const [session, setSession] = useState<Session>()
+   const [items, setItems] = useState<ChatItem[]>([])
+   const [events, setEvents] = useState<HarnessEvent[]>([])
+   const [manualPrompt, setManualPrompt] = useState('')
++  const [mode, setMode] = useState<WorkspaceMode>(activeAtLoad?.mode || 'editor')
++  const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
++  const [restoring, setRestoring] = useState(Boolean(activeAtLoad))
+   const [busy, setBusy] = useState(false)
+   const [error, setError] = useState<string>()
+   const sourceRef = useRef<EventSource | null>(null)
+ 
+-  useEffect(() => {
+-    let active = true
+-    api.config()
+-      .then((value) => { if (active) setConfig(value) })
+-      .catch((e) => { if (active) setError(messageOf(e)) })
+-    return () => { active = false }
+-  }, [])
+-
+-  useEffect(() => {
+-    return () => {
+-      sourceRef.current?.close()
+-      sourceRef.current = null
+-    }
+-  }, [])
+-
+-  function connectEvents(id: string) {
++  const connectEvents = useCallback((id: string) => {
+     sourceRef.current?.close()
+     const source = new EventSource(api.eventsURL(id))
+     source.onmessage = (event) => {
+@@ -40,15 +32,75 @@
+       } catch { /* ignore malformed SSE frame */ }
+     }
+     sourceRef.current = source
+-  }
++  }, [])
++
++  useEffect(() => {
++    let alive = true
++    async function initialize() {
++      try {
++        const value = await api.config()
++        if (alive) setConfig(value)
++      } catch (e) {
++        if (alive) setError(messageOf(e))
++      }
++      const active = loadActiveWorkspace()
++      if (!active) { if (alive) setRestoring(false); return }
++      try {
++        let restored: Session
++        try { restored = await api.getSession(active.sessionId) }
++        catch (error) {
++          if (!(error instanceof APIError) || error.status !== 404) throw error
++          restored = await api.createSession(active.projectPath)
++        }
++        if (!alive) return
++        setSession(restored)
++        setMode(active.mode || 'editor')
++        setManualPrompt(restored.last_manual_prompt || '')
++        const chat = loadChat(restored.project_path)
++        setItems(chat.length ? chat : [welcomeItem(restored)])
++        connectEvents(restored.id)
++        saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: active.mode || 'editor' })
++      } catch (e) {
++        if (alive) { clearActiveWorkspace(); setError(`Não foi possível reabrir o workspace: ${messageOf(e)}`) }
++      } finally { if (alive) setRestoring(false) }
++    }
++    void initialize()
++    return () => { alive = false }
++  }, [connectEvents])
++
++  useEffect(() => {
++    return () => {
++      sourceRef.current?.close()
++      sourceRef.current = null
++    }
++  }, [])
++
++  useEffect(() => {
++    if (!session) return
++    saveActiveWorkspace({ sessionId: session.id, projectPath: session.project_path, mode })
++    setRecent(loadRecentWorkspaces())
++  }, [session, mode])
++
++  useEffect(() => {
++    if (session && items.length) saveChat(session.project_path, items)
++  }, [session, items])
+ 
+   async function start(projectPath: string) {
+     setBusy(true); setError(undefined)
+     try {
+       const created = await api.createSession(projectPath)
+-      setSession(created); setItems([{ id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', meta: `${created.context.manifest.files.length} ficheiros elegíveis no snapshot` }])
++      rememberRecent(created.project_path)
++      setRecent(loadRecentWorkspaces())
++      setSession(created); setItems(loadChat(created.project_path).length ? loadChat(created.project_path) : [welcomeItem(created)])
++      setManualPrompt(''); setEvents([]); setMode('editor')
+       connectEvents(created.id)
+-    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
++    } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
++  }
++
++  function closeWorkspace() {
++    if (items.length > 1 && !window.confirm('Fechar este workspace? O projeto continuará na lista de recentes.')) return
++    sourceRef.current?.close(); sourceRef.current = null
++    clearActiveWorkspace(); setSession(undefined); setEvents([]); setManualPrompt(''); setItems([]); setError(undefined); setRecent(loadRecentWorkspaces())
+   }
+ 
+   async function send(message: string) {
+@@ -59,8 +111,15 @@
+       const response = await api.message(session.id, message)
+       setSession(response.session)
+       setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: response.session.plan ? response.session.plan.summary : 'Prompt manual preparado. Abra o Manual Bridge, anexe o contexto ao chat e cole de volta o plano JSON.', meta: response.session.plan ? `Plano ${response.session.plan.plan_id}` : 'Aguardando plano externo' }])
+-    } catch (e) { const msg=messageOf(e); setError(msg); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: `Falha no planeamento: ${msg}` }]) } finally { setBusy(false) }
++      setItems((current) => [...current, {
++        id: crypto.randomUUID(), role: 'harness',
++        text: response.session.plan ? response.session.plan.summary : 'Prompt do planner preparado. Abra a aba ChatGPT para enviar o contexto manualmente, ou configure o provider OpenAI para processamento automático.',
++        meta: response.session.plan ? `Plano ${response.session.plan.plan_id}` : 'Aguardando plano externo',
++      }])
++    } catch (e) {
++      const msg = messageOf(e); setError(msg)
++      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: `Falha no planeamento: ${msg}` }])
++    } finally { setBusy(false) }
+   }
+ 
+   async function submitManualPlan(raw: string) {
+@@ -78,7 +137,7 @@
+     try {
+       const response = await api.execute(session.id, approved)
+       setSession(response.session); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: response.session.last_execution?.success ? 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.' : 'A execução terminou com falha.' }])
+-    } catch (e) { const msg=messageOf(e); setError(msg); refreshSession() } finally { setBusy(false) }
++    } catch (e) { const msg = messageOf(e); setError(msg); void refreshSession() } finally { setBusy(false) }
+   }
+ 
+   async function apply() {
+@@ -96,14 +155,20 @@
+     try { setSession(await api.getSession(session.id)) } catch { /* retain last known state */ }
+   }
+ 
+-  if (!session) return <Bootstrap config={config} busy={busy} error={error} onStart={start} />
+-  return <main className="workspace-shell">
++  if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} />
++  return <main className="workspace-root">
++    <WorkspaceTopbar config={config} session={session} mode={mode} onMode={setMode} onClose={closeWorkspace} />
+     {error && <div className="toast-error" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
+-    <ChatPanel session={session} items={items} busy={busy} onSend={send} />
+-    <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} />
++    {mode === 'editor'
++      ? <EditorWorkspace session={session} onError={setError} />
++      : <div className="agent-workspace"><ChatPanel session={session} items={items} busy={busy} onSend={send} /><Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} /></div>}
+   </main>
+ }
+ 
++function welcomeItem(session: Session): ChatItem {
++  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
++}
++
+ function messageOf(error: unknown) {
+   if (error instanceof APIError || error instanceof Error) return error.message
+   return 'Erro inesperado'
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/components/Bootstrap.tsx wharness_v11/services/frontend/src/components/Bootstrap.tsx
+--- wharness_fix/services/frontend/src/components/Bootstrap.tsx	2026-09-02 15:12:02.000000000 +0000
++++ wharness_v11/services/frontend/src/components/Bootstrap.tsx	2026-09-02 19:19:55.359731546 +0000
+@@ -2,7 +2,14 @@
+ import type { AppConfig } from '../types'
+ import { Icon } from './Icon'
+ 
+-export function Bootstrap({ config, busy, error, onStart }: { config?: AppConfig; busy: boolean; error?: string; onStart: (path: string) => Promise<void> }) {
++export function Bootstrap({ config, busy, error, recent, restoring, onStart }: {
++  config?: AppConfig
++  busy: boolean
++  error?: string
++  recent: string[]
++  restoring: boolean
++  onStart: (path: string) => Promise<void>
++}) {
+   const [path, setPath] = useState('')
+   async function submit(event: FormEvent) {
+     event.preventDefault()
+@@ -14,22 +21,28 @@
+         <div className="brand-lockup"><div className="brand-mark">K</div><div><strong>Kernl</strong><span>Local Agent Harness</span></div></div>
+         <div className="bootstrap-copy">
+           <span className="eyebrow">Execution workspace</span>
+-          <h1>Planeie com IA.<br />Execute com controlo local.</h1>
+-          <p>Kernl cria um snapshot seguro do projeto, valida cada plano e só executa alterações numa sandbox isolada antes de tocar no host.</p>
++          <h1>{restoring ? 'A reabrir o seu workspace…' : <>Editor e agente.<br />Um único workspace.</>}</h1>
++          <p>{restoring ? 'A recuperar a última sessão e o projeto local.' : 'Explore ficheiros, edite código, use um terminal isolado e alterne para o agente quando quiser planeamento e execução assistida por IA.'}</p>
+         </div>
+-        <form onSubmit={submit} className="project-form">
+-          <label htmlFor="project-path">Diretório do projeto</label>
+-          <div className="input-row">
+-            <input id="project-path" autoFocus value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/project" spellCheck={false} />
+-            <button className="primary-button" disabled={busy || !path.trim()} type="submit">{busy ? 'A preparar…' : <>Abrir projeto <Icon name="external" size={16}/></>}</button>
+-          </div>
+-          <div className="bootstrap-meta">
+-            <span><i className="dot" /> Planner: {config?.planner || '—'}</span>
+-            <span>Sandbox: {config?.sandbox || '—'}</span>
+-            <span>Modelo: {config?.model || '—'}</span>
+-          </div>
+-          {error && <div className="error-banner">{error}</div>}
+-        </form>
++        {!restoring && <>
++          <form onSubmit={submit} className="project-form">
++            <label htmlFor="project-path">Diretório do projeto</label>
++            <div className="input-row">
++              <input id="project-path" autoFocus value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/project" spellCheck={false} />
++              <button className="primary-button" disabled={busy || !path.trim()} type="submit">{busy ? 'A preparar…' : <>Abrir projeto <Icon name="external" size={16}/></>}</button>
++            </div>
++            <div className="bootstrap-meta">
++              <span><i className="dot" /> Planner: {config?.planner || '—'}</span>
++              <span>Sandbox: {config?.sandbox || '—'}</span>
++              <span>Modelo: {config?.model || '—'}</span>
++            </div>
++            {error && <div className="error-banner">{error}</div>}
++          </form>
++          {recent.length > 0 && <div className="recent-workspaces">
++            <span className="field-label">Workspaces recentes</span>
++            {recent.map((item) => <button key={item} onClick={() => onStart(item)} disabled={busy}><Icon name="workspace" size={15}/><span>{item}</span><Icon name="chevron" size={14}/></button>)}
++          </div>}
++        </>}
+       </section>
+     </main>
+   )
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/components/ChatPanel.tsx wharness_v11/services/frontend/src/components/ChatPanel.tsx
+--- wharness_fix/services/frontend/src/components/ChatPanel.tsx	2026-09-02 18:48:59.011320429 +0000
++++ wharness_v11/services/frontend/src/components/ChatPanel.tsx	2026-09-02 19:27:45.899243631 +0000
+@@ -1,10 +1,9 @@
+ import { FormEvent, useEffect, useRef, useState } from 'react'
+-import type { Session } from '../types'
++import type { ChatItem, Session } from '../types'
+ import { Icon } from './Icon'
+ import { StatusPill } from './StatusPill'
+ import { stateLabel } from '../lib/risk'
+ 
+-export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; meta?: string }
+ 
+ export function ChatPanel({ session, items, busy, onSend }: { session: Session; items: ChatItem[]; busy: boolean; onSend: (message: string) => Promise<void> }) {
+   const [message, setMessage] = useState('')
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/components/EditorWorkspace.tsx wharness_v11/services/frontend/src/components/EditorWorkspace.tsx
+--- wharness_fix/services/frontend/src/components/EditorWorkspace.tsx	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/frontend/src/components/EditorWorkspace.tsx	2026-09-02 19:23:29.898638702 +0000
+@@ -0,0 +1,165 @@
++import { useCallback, useEffect, useMemo, useState } from 'react'
++import { api, APIError } from '../lib/api'
++import { parseArgv } from '../lib/shell'
++import type { CommandResult, FileEntry, Session, WorkspaceFile } from '../types'
++import { Icon } from './Icon'
++
++export function EditorWorkspace({ session, onError }: { session: Session; onError: (message: string) => void }) {
++  const [files, setFiles] = useState<FileEntry[]>([])
++  const [selected, setSelected] = useState<WorkspaceFile>()
++  const [draft, setDraft] = useState('')
++  const [loadingFiles, setLoadingFiles] = useState(false)
++  const [saving, setSaving] = useState(false)
++  const [terminalHeight, setTerminalHeight] = useState(245)
++  const dirty = selected ? draft !== selected.content : false
++
++  const refreshFiles = useCallback(async () => {
++    setLoadingFiles(true)
++    try { setFiles((await api.listFiles(session.id)).files) }
++    catch (error) { onError(messageOf(error)) }
++    finally { setLoadingFiles(false) }
++  }, [session.id, onError])
++
++  useEffect(() => { void refreshFiles() }, [refreshFiles])
++
++  async function openFile(path: string) {
++    if (dirty && !window.confirm('Existem alterações não guardadas. Abrir outro ficheiro mesmo assim?')) return
++    try {
++      const file = await api.readFile(session.id, path)
++      setSelected(file); setDraft(file.content)
++    } catch (error) { onError(messageOf(error)) }
++  }
++
++  async function save() {
++    if (!selected || !dirty) return
++    setSaving(true)
++    try {
++      const saved = await api.writeFile(session.id, { path: selected.path, content: draft, sha256: selected.sha256 })
++      setSelected(saved); setDraft(saved.content)
++      await refreshFiles()
++    } catch (error) { onError(messageOf(error)) }
++    finally { setSaving(false) }
++  }
++
++  return <section className="editor-workspace">
++    <FileExplorer entries={files} selected={selected?.path} loading={loadingFiles} onOpen={openFile} onRefresh={refreshFiles} />
++    <div className="editor-main">
++      <div className="editor-area">
++        {selected ? <>
++          <div className="editor-tabbar">
++            <div className="editor-tab active"><Icon name="file" size={14}/><span>{selected.path}</span>{dirty && <i className="dirty-dot"/>}</div>
++            <button className="editor-save" disabled={!dirty || saving} onClick={save} title="Guardar (Ctrl+S)"><Icon name="save" size={15}/>{saving ? 'A guardar…' : 'Guardar'}</button>
++          </div>
++          <textarea className="code-editor" value={draft} spellCheck={false} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); void save() } }} />
++          <div className="editor-statusbar"><span>{selected.path}</span><span>{selected.size.toLocaleString()} bytes · UTF-8</span></div>
++        </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Escolha um ficheiro</h3><p>O Explorer mostra apenas ficheiros permitidos pela política de contexto do Harness. Ficheiros sensíveis e symlinks ficam fora do editor.</p></div>}
++      </div>
++      <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(245)} />
++      <TerminalPanel session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={onError} />
++    </div>
++  </section>
++}
++
++type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
++
++function FileExplorer({ entries, selected, loading, onOpen, onRefresh }: { entries: FileEntry[]; selected?: string; loading: boolean; onOpen: (path: string) => void; onRefresh: () => Promise<void> }) {
++  const tree = useMemo(() => buildTree(entries), [entries])
++  return <aside className="file-explorer">
++    <header><div><span className="panel-kicker">Workspace</span><strong>Explorer</strong></div><button className="icon-button" title="Atualizar ficheiros" onClick={() => void onRefresh()} disabled={loading}><Icon name="refresh" size={15}/></button></header>
++    <div className="file-tree">{tree.map((node) => <TreeItem key={node.path} node={node} selected={selected} onOpen={onOpen} depth={0}/>)}</div>
++  </aside>
++}
++
++function TreeItem({ node, selected, onOpen, depth }: { node: TreeNode; selected?: string; onOpen: (path: string) => void; depth: number }) {
++  const [open, setOpen] = useState(depth < 1)
++  if (node.kind === 'directory') return <div className="tree-group">
++    <button className="tree-row folder-row" style={{ paddingLeft: 10 + depth * 14 }} onClick={() => setOpen((value) => !value)}><span className={`tree-chevron ${open ? 'open' : ''}`}><Icon name="chevron" size={12}/></span><Icon name="folder" size={14}/><span>{node.name}</span></button>
++    {open && node.children.map((child) => <TreeItem key={child.path} node={child} selected={selected} onOpen={onOpen} depth={depth + 1}/>) }
++  </div>
++  return <button className={`tree-row file-row ${selected === node.path ? 'active' : ''}`} style={{ paddingLeft: 25 + depth * 14 }} onClick={() => onOpen(node.path)}><Icon name="file" size={13}/><span>{node.name}</span></button>
++}
++
++function buildTree(entries: FileEntry[]): TreeNode[] {
++  const root: TreeNode = { name: '', path: '', kind: 'directory', children: [] }
++  const directories = new Map<string, TreeNode>([['', root]])
++  for (const entry of entries.filter((item) => item.kind === 'directory').sort((a, b) => a.path.localeCompare(b.path))) {
++    ensureDir(root, directories, entry.path)
++  }
++  for (const entry of entries.filter((item) => item.kind === 'file').sort((a, b) => a.path.localeCompare(b.path))) {
++    const parts = entry.path.split('/'); const name = parts.pop() || entry.name; const parentPath = parts.join('/')
++    const parent = ensureDir(root, directories, parentPath)
++    parent.children.push({ name, path: entry.path, kind: 'file', children: [] })
++  }
++  sortTree(root)
++  return root.children
++}
++
++function ensureDir(root: TreeNode, map: Map<string, TreeNode>, path: string) {
++  if (map.has(path)) return map.get(path)!
++  let current = root; let built = ''
++  for (const part of path.split('/').filter(Boolean)) {
++    built = built ? `${built}/${part}` : part
++    let child = map.get(built)
++    if (!child) { child = { name: part, path: built, kind: 'directory', children: [] }; current.children.push(child); map.set(built, child) }
++    current = child
++  }
++  return current
++}
++
++function sortTree(node: TreeNode) {
++  node.children.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1)
++  node.children.forEach(sortTree)
++}
++
++type TerminalEntry = { id: string; command: string; cwd: string; result?: CommandResult; error?: string }
++
++function TerminalPanel({ session, height, onHeight, onError }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void }) {
++  const [input, setInput] = useState('')
++  const [cwd, setCwd] = useState('.')
++  const [network, setNetwork] = useState(false)
++  const [running, setRunning] = useState(false)
++  const [entries, setEntries] = useState<TerminalEntry[]>([])
++
++  async function execute() {
++    const raw = input.trim(); if (!raw || running) return
++    setInput('')
++    if (raw === 'clear') { setEntries([]); return }
++    let argv: string[]
++    try { argv = parseArgv(raw) } catch (error) { onError(messageOf(error)); return }
++    if (!argv.length) return
++    if (argv[0] === 'cd') {
++      const next = normalizeCwd(cwd, argv[1] || '.')
++      setCwd(next); setEntries((items) => [...items, { id: crypto.randomUUID(), command: raw, cwd, result: { argv, cwd, exit_code: 0, stdout: '', stderr: '', duration_ms: 0, success: true } }]); return
++    }
++    const id = crypto.randomUUID(); setEntries((items) => [...items, { id, command: raw, cwd }]); setRunning(true)
++    try {
++      const result = await api.terminal(session.id, { argv, cwd, network, timeout_seconds: 300, expected_exit_codes: [0] })
++      setEntries((items) => items.map((item) => item.id === id ? { ...item, result } : item))
++    } catch (error) {
++      const message = messageOf(error); setEntries((items) => items.map((item) => item.id === id ? { ...item, error: message } : item))
++    } finally { setRunning(false) }
++  }
++
++  async function reset() {
++    try { await api.resetTerminal(session.id); setEntries([]); setCwd('.') }
++    catch (error) { onError(messageOf(error)) }
++  }
++
++  return <section className="ide-terminal" style={{ height }}>
++    <header><div><Icon name="terminal" size={14}/><strong>Terminal sandbox</strong><span>{cwd}</span></div><div className="terminal-controls"><label title="Permitir rede no próximo comando"><input type="checkbox" checked={network} onChange={(e) => setNetwork(e.target.checked)}/><Icon name="network" size={13}/> rede</label><button className="icon-button" title="Recriar sandbox a partir do host" onClick={() => void reset()}><Icon name="reset" size={14}/></button><button className="terminal-size-button" title="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button></div></header>
++    <div className="terminal-scroll">
++      {entries.map((entry) => <div className="ide-terminal-entry" key={entry.id}><div className="terminal-prompt"><span>kernl:{entry.cwd}$</span> {entry.command}</div>{entry.result?.stdout && <pre>{entry.result.stdout}</pre>}{entry.result?.stderr && <pre className="stderr">{entry.result.stderr}</pre>}{entry.result && entry.result.exit_code !== 0 && <span className="terminal-exit">exit {entry.result.exit_code}</span>}{entry.error && <pre className="stderr">{entry.error}</pre>}</div>)}
++      {!entries.length && <div className="terminal-hint">Comandos são executados como argv dentro da sandbox Docker persistente. Sem shell implícito. `cd` e `clear` são tratados pelo editor.</div>}
++    </div>
++    <div className="terminal-input-row"><span>kernl:{cwd}$</span><input value={input} disabled={running} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void execute() }} spellCheck={false} autoComplete="off" placeholder={running ? 'a executar…' : 'go test ./...'} /></div>
++  </section>
++}
++
++function normalizeCwd(current: string, next: string) {
++  const parts = (next.startsWith('/') ? next.slice(1) : `${current === '.' ? '' : current}/${next}`).split('/')
++  const stack: string[] = []
++  for (const part of parts) { if (!part || part === '.') continue; if (part === '..') { stack.pop(); continue } ; stack.push(part) }
++  return stack.length ? stack.join('/') : '.'
++}
++
++function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/components/Icon.tsx wharness_v11/services/frontend/src/components/Icon.tsx
+--- wharness_fix/services/frontend/src/components/Icon.tsx	2026-09-02 15:13:38.000000000 +0000
++++ wharness_v11/services/frontend/src/components/Icon.tsx	2026-09-02 19:19:47.240082530 +0000
+@@ -1,6 +1,6 @@
+ import type { ReactNode } from 'react'
+ 
+-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close'
++type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'network' | 'workspace'
+ 
+ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
+   const paths: Record<Name, ReactNode> = {
+@@ -16,6 +16,17 @@
+     bridge: <><circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 12h6"/></>,
+     check: <path d="m5 12 4 4L19 6" />,
+     close: <path d="m6 6 12 12M18 6 6 18" />,
++    file: <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5"/></>,
++    folder: <path d="M3 6h7l2 2h9v11H3z"/>,
++    save: <><path d="M5 3h12l3 3v15H4V3z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/></>,
++    refresh: <><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 9A7 7 0 0 1 18 6l2 1M18 15a7 7 0 0 1-12 3l-2-1"/></>,
++    code: <><path d="m8 9-4 3 4 3"/><path d="m16 9 4 3-4 3"/><path d="m14 5-4 14"/></>,
++    agent: <><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M9 4h6"/></>,
++    chatgpt: <><circle cx="12" cy="12" r="8"/><path d="M12 6v12M6 12h12M8 8l8 8M16 8l-8 8"/></>,
++    reset: <><path d="M4 4v6h6"/><path d="M5.5 16a8 8 0 1 0 1-9L4 10"/></>,
++    chevron: <path d="m9 6 6 6-6 6"/>,
++    network: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></>,
++    workspace: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M8 9h13"/></>,
+   }
+   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
+ }
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/components/Inspector.tsx wharness_v11/services/frontend/src/components/Inspector.tsx
+--- wharness_fix/services/frontend/src/components/Inspector.tsx	2026-09-02 15:12:02.000000000 +0000
++++ wharness_v11/services/frontend/src/components/Inspector.tsx	2026-09-02 19:21:02.427269503 +0000
+@@ -5,7 +5,7 @@
+ import { riskLabel } from '../lib/risk'
+ import { api } from '../lib/api'
+ 
+-type Tab = 'plan' | 'terminal' | 'bridge'
++type Tab = 'plan' | 'terminal' | 'chatgpt'
+ 
+ export function Inspector({ config, session, events, manualPrompt, busy, onExecute, onApply, onManualPlan }: {
+   config?: AppConfig
+@@ -17,7 +17,7 @@
+   onApply: () => Promise<void>
+   onManualPlan: (json: string) => Promise<void>
+ }) {
+-  const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'bridge' : 'plan')
++  const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
+   const [manualJSON, setManualJSON] = useState('')
+   const terminalEvents = useMemo(() => events.filter((e) => e.type === 'command.completed' || e.type === 'execution.failed'), [events])
+   const canExecute = Boolean(session.plan && session.policy?.allowed)
+@@ -28,7 +28,7 @@
+   return (
+     <section className="inspector-panel">
+       <header className="panel-header inspector-header">
+-        <div className="brand-lockup small"><div className="brand-mark">K</div><div><strong>Kernl</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}</span></div></div>
++        <div className="brand-lockup small"><div className="brand-mark">K</div><div><strong>Agent Inspector</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}</span></div></div>
+         <div className="header-actions">
+           {session.policy && <StatusPill tone={session.policy.allowed ? (session.policy.risk === 'high' ? 'warning' : 'accent') : 'danger'}>{riskLabel(session.policy.risk)}</StatusPill>}
+           {canExecute && <button className="secondary-button" disabled={busy} onClick={() => onExecute(needsApproval)}><Icon name="play" size={15}/> {needsApproval ? 'Aprovar e executar' : 'Executar'}</button>}
+@@ -39,31 +39,51 @@
+       <nav className="tabs" aria-label="Inspector">
+         <button className={tab === 'plan' ? 'active' : ''} onClick={() => setTab('plan')}><Icon name="plan" size={16}/> Plano</button>
+         <button className={tab === 'terminal' ? 'active' : ''} onClick={() => setTab('terminal')}><Icon name="terminal" size={16}/> Execução <span className="tab-count">{terminalEvents.length}</span></button>
+-        <button className={tab === 'bridge' ? 'active' : ''} onClick={() => setTab('bridge')}><Icon name="bridge" size={16}/> Manual Bridge</button>
++        <button className={tab === 'chatgpt' ? 'active' : ''} onClick={() => setTab('chatgpt')}><Icon name="chatgpt" size={16}/> ChatGPT</button>
+       </nav>
+ 
+       <div className="inspector-content">
+         {tab === 'plan' && <PlanView session={session} />}
+         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
+-        {tab === 'bridge' && <div className="bridge-view">
+-          <div className="section-heading"><div><span className="panel-kicker">Manual provider</span><h3>Bridge sem scraping</h3></div><StatusPill tone={config?.planner === 'manual' ? 'accent' : 'neutral'}>{config?.planner === 'manual' ? 'Ativo' : 'Opcional'}</StatusPill></div>
+-          <p className="muted">Use este modo para levar o protocolo ao chat manualmente. Anexe o contexto, envie o prompt e cole abaixo apenas o JSON devolvido.</p>
+-          <div className="bridge-actions">
+-            <a className="text-button" href={api.bundleURL(session.id)}><Icon name="download" size={15}/> Contexto ZIP</a>
+-            <a className="text-button" href={api.contextURL(session.id)}><Icon name="download" size={15}/> Contexto TXT</a>
+-            <a className="text-button" href="https://chatgpt.com/" target="_blank" rel="noreferrer"><Icon name="external" size={15}/> Abrir ChatGPT</a>
+-          </div>
+-          <label className="field-label">Prompt do planner</label>
+-          <div className="code-box prompt-box"><button className="code-copy" disabled={!manualPrompt} onClick={() => copy(manualPrompt)}><Icon name="copy" size={14}/> Copiar</button><pre>{manualPrompt || 'Envie uma mensagem no chat do harness para gerar o prompt manual.'}</pre></div>
+-          <label className="field-label" htmlFor="manual-json">Plano JSON recebido</label>
+-          <textarea id="manual-json" className="json-input" spellCheck={false} value={manualJSON} onChange={(e) => setManualJSON(e.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
+-          <button className="primary-button full" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano no Kernl</button>
+-        </div>}
++        {tab === 'chatgpt' && <ChatGPTView config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
+       </div>
+     </section>
+   )
+ }
+ 
++function ChatGPTView({ config, session, manualPrompt, manualJSON, setManualJSON, busy, copy, onManualPlan }: {
++  config?: AppConfig
++  session: Session
++  manualPrompt: string
++  manualJSON: string
++  setManualJSON: (value: string) => void
++  busy: boolean
++  copy: (text: string) => Promise<void>
++  onManualPlan: (json: string) => Promise<void>
++}) {
++  const automatic = config?.planner === 'openai' && config.api_configured
++  return <div className="chatgpt-view">
++    <div className="section-heading"><div><span className="panel-kicker">AI provider</span><h3>ChatGPT / OpenAI</h3></div><StatusPill tone={automatic ? 'success' : 'neutral'}>{automatic ? 'Automático' : 'Manual'}</StatusPill></div>
++    {automatic ? <>
++      <div className="provider-card success-card"><Icon name="check" size={18}/><div><strong>Integração automática ativa</strong><span>Os pedidos do Harness são preparados, enviados ao modelo e a resposta estruturada é validada automaticamente pelo backend.</span></div></div>
++      <div className="provider-grid"><Metric label="Modelo" value={config?.model || '—'}/><Metric label="Canal" value="Responses API"/><Metric label="Contexto" value="Auto refresh"/></div>
++      <p className="muted">Esta integração usa a API configurada no backend. Não depende de cookies ou da sessão web do ChatGPT.</p>
++    </> : <>
++      <div className="provider-card warning-card"><Icon name="shield" size={18}/><div><strong>ChatGPT Web não é incorporado no iframe</strong><span>Uma aplicação web local não pode assumir de forma segura a sessão autenticada do ChatGPT nem automatizar a extração das respostas. Use o bridge abaixo ou configure `HARNESS_PLANNER=openai` para o fluxo automático suportado.</span></div></div>
++      <div className="bridge-actions">
++        <a className="text-button" href={api.bundleURL(session.id)}><Icon name="download" size={15}/> Contexto ZIP</a>
++        <a className="text-button" href={api.contextURL(session.id)}><Icon name="download" size={15}/> Contexto TXT</a>
++        <a className="text-button" href="https://chatgpt.com/" target="_blank" rel="noreferrer"><Icon name="external" size={15}/> Abrir ChatGPT</a>
++      </div>
++      <label className="field-label">Prompt preparado</label>
++      <div className="code-box prompt-box"><button className="code-copy" disabled={!manualPrompt} onClick={() => void copy(manualPrompt)}><Icon name="copy" size={14}/> Copiar</button><pre>{manualPrompt || 'Envie uma mensagem no Agent para gerar o prompt.'}</pre></div>
++      <label className="field-label" htmlFor="manual-json">Plano JSON recebido</label>
++      <textarea id="manual-json" className="json-input" spellCheck={false} value={manualJSON} onChange={(e) => setManualJSON(e.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
++      <button className="primary-button full" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano no Harness</button>
++    </>}
++  </div>
++}
++
+ function PlanView({ session }: { session: Session }) {
+   if (!session.plan) return <Empty title="Nenhum plano ainda" text="Envie uma tarefa no chat. O plano validado aparecerá aqui antes de qualquer execução." />
+   const plan = session.plan
+@@ -79,7 +99,7 @@
+ }
+ 
+ function TerminalView({ events }: { events: HarnessEvent[] }) {
+-  if (!events.length) return <Empty title="Execução limpa" text="Os comandos, stdout, stderr e falhas da sandbox aparecerão aqui." />
++  if (!events.length) return <Empty title="Execução limpa" text="Os comandos, stdout, stderr e falhas executados pelo agente aparecerão aqui. O terminal interativo está no modo Editor." />
+   return <div className="terminal-view">{events.map((event) => <div className="terminal-event" key={event.id}><div className="terminal-line"><span className={event.type === 'execution.failed' ? 'lamp fail' : 'lamp'} /> <code>{Array.isArray(event.data.argv) ? (event.data.argv as string[]).join(' ') : event.type}</code><span className="exit-code">{event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : ''}</span></div>{event.data.stdout ? <pre>{String(event.data.stdout)}</pre> : null}{event.data.stderr ? <pre className="stderr">{String(event.data.stderr)}</pre> : null}{event.data.error ? <pre className="stderr">{String(event.data.error)}</pre> : null}</div>)}</div>
+ }
+ 
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/components/WorkspaceTopbar.tsx wharness_v11/services/frontend/src/components/WorkspaceTopbar.tsx
+--- wharness_fix/services/frontend/src/components/WorkspaceTopbar.tsx	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/frontend/src/components/WorkspaceTopbar.tsx	2026-09-02 19:20:02.659916626 +0000
+@@ -0,0 +1,27 @@
++import type { AppConfig, Session, WorkspaceMode } from '../types'
++import { Icon } from './Icon'
++import { StatusPill } from './StatusPill'
++
++export function WorkspaceTopbar({ config, session, mode, onMode, onClose }: {
++  config?: AppConfig
++  session: Session
++  mode: WorkspaceMode
++  onMode: (mode: WorkspaceMode) => void
++  onClose: () => void
++}) {
++  const projectName = session.project_path.split('/').filter(Boolean).at(-1) || session.project_path
++  return <header className="workspace-topbar">
++    <div className="workspace-identity">
++      <div className="brand-mark">K</div>
++      <div><strong>{projectName}</strong><span title={session.project_path}>{session.project_path}</span></div>
++    </div>
++    <div className="mode-switch" role="group" aria-label="Modo do workspace">
++      <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
++      <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>
++    </div>
++    <div className="workspace-status">
++      <StatusPill tone={config?.planner === 'openai' && config.api_configured ? 'success' : 'neutral'}>{config?.planner === 'openai' ? 'AI automático' : 'AI manual'}</StatusPill>
++      <button className="icon-button" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
++    </div>
++  </header>
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/lib/api.ts wharness_v11/services/frontend/src/lib/api.ts
+--- wharness_fix/services/frontend/src/lib/api.ts	2026-09-02 15:12:02.000000000 +0000
++++ wharness_v11/services/frontend/src/lib/api.ts	2026-09-02 19:19:34.533940763 +0000
+@@ -1,4 +1,4 @@
+-import type { AppConfig, Session } from '../types'
++import type { AppConfig, CommandResult, CommandSpec, FileEntry, Session, WorkspaceFile } from '../types'
+ 
+ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+ 
+@@ -38,6 +38,15 @@
+       method: 'POST', body: JSON.stringify({ approved }),
+     }),
+   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
++  listFiles: (id: string) => request<{ files: FileEntry[] }>(`/api/sessions/${id}/files`),
++  readFile: (id: string, path: string) => request<WorkspaceFile>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
++  writeFile: (id: string, file: Pick<WorkspaceFile, 'path' | 'content' | 'sha256'>) =>
++    request<WorkspaceFile>(`/api/sessions/${id}/file`, {
++      method: 'PUT',
++      body: JSON.stringify({ path: file.path, content: file.content, expected_sha256: file.sha256 }),
++    }),
++  terminal: (id: string, command: CommandSpec) => request<CommandResult>(`/api/sessions/${id}/terminal`, { method: 'POST', body: JSON.stringify(command) }),
++  resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
+   bundleURL: (id: string) => `${API_URL}/api/sessions/${id}/bundle`,
+   contextURL: (id: string) => `${API_URL}/api/sessions/${id}/context`,
+   eventsURL: (id: string) => `${API_URL}/api/sessions/${id}/events`,
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/lib/shell.test.ts wharness_v11/services/frontend/src/lib/shell.test.ts
+--- wharness_fix/services/frontend/src/lib/shell.test.ts	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/frontend/src/lib/shell.test.ts	2026-09-02 19:19:34.539124997 +0000
+@@ -0,0 +1,11 @@
++import { describe, expect, it } from 'vitest'
++import { parseArgv } from './shell'
++
++describe('parseArgv', () => {
++  it('parses quoted arguments without a shell', () => {
++    expect(parseArgv('go test "./internal/my package"')).toEqual(['go', 'test', './internal/my package'])
++  })
++  it('rejects unclosed quotes', () => {
++    expect(() => parseArgv('git "status')).toThrow(/Aspas/)
++  })
++})
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/lib/shell.ts wharness_v11/services/frontend/src/lib/shell.ts
+--- wharness_fix/services/frontend/src/lib/shell.ts	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/frontend/src/lib/shell.ts	2026-09-02 19:19:34.537518142 +0000
+@@ -0,0 +1,22 @@
++export function parseArgv(input: string): string[] {
++  const argv: string[] = []
++  let current = ''
++  let quote: 'single' | 'double' | undefined
++  let escaped = false
++
++  for (const char of input.trim()) {
++    if (escaped) { current += char; escaped = false; continue }
++    if (char === '\\' && quote !== 'single') { escaped = true; continue }
++    if (char === "'" && quote !== 'double') { quote = quote === 'single' ? undefined : 'single'; continue }
++    if (char === '"' && quote !== 'single') { quote = quote === 'double' ? undefined : 'double'; continue }
++    if (/\s/.test(char) && !quote) {
++      if (current) { argv.push(current); current = '' }
++      continue
++    }
++    current += char
++  }
++  if (escaped) current += '\\'
++  if (quote) throw new Error('Aspas não fechadas no comando')
++  if (current) argv.push(current)
++  return argv
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/lib/workspaceMemory.test.ts wharness_v11/services/frontend/src/lib/workspaceMemory.test.ts
+--- wharness_fix/services/frontend/src/lib/workspaceMemory.test.ts	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/frontend/src/lib/workspaceMemory.test.ts	2026-09-02 19:27:19.269607837 +0000
+@@ -0,0 +1,22 @@
++import { beforeEach, describe, expect, it } from 'vitest'
++import { clearActiveWorkspace, loadActiveWorkspace, loadRecentWorkspaces, rememberRecent, saveActiveWorkspace } from './workspaceMemory'
++
++describe('workspace memory', () => {
++  beforeEach(() => localStorage.clear())
++
++  it('persists active workspace and recent paths', () => {
++    saveActiveWorkspace({ sessionId: 's1', projectPath: '/tmp/project', mode: 'agent' })
++    expect(loadActiveWorkspace()).toEqual({ sessionId: 's1', projectPath: '/tmp/project', mode: 'agent' })
++    expect(loadRecentWorkspaces()).toEqual(['/tmp/project'])
++    clearActiveWorkspace()
++    expect(loadActiveWorkspace()).toBeUndefined()
++    expect(loadRecentWorkspaces()).toEqual(['/tmp/project'])
++  })
++
++  it('deduplicates recent workspaces', () => {
++    rememberRecent('/tmp/a')
++    rememberRecent('/tmp/b')
++    rememberRecent('/tmp/a')
++    expect(loadRecentWorkspaces()).toEqual(['/tmp/a', '/tmp/b'])
++  })
++})
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/lib/workspaceMemory.ts wharness_v11/services/frontend/src/lib/workspaceMemory.ts
+--- wharness_fix/services/frontend/src/lib/workspaceMemory.ts	1970-01-01 00:00:00.000000000 +0000
++++ wharness_v11/services/frontend/src/lib/workspaceMemory.ts	2026-09-02 19:28:12.483843445 +0000
+@@ -0,0 +1,52 @@
++import type { ChatItem, WorkspaceMode } from '../types'
++
++const ACTIVE_KEY = 'kernl.workspace.active.v1'
++const RECENT_KEY = 'kernl.workspace.recent.v1'
++const CHAT_PREFIX = 'kernl.workspace.chat.v1:'
++
++export type ActiveWorkspace = {
++  sessionId: string
++  projectPath: string
++  mode: WorkspaceMode
++}
++
++export function loadActiveWorkspace(): ActiveWorkspace | undefined {
++  try {
++    const value = localStorage.getItem(ACTIVE_KEY)
++    return value ? JSON.parse(value) as ActiveWorkspace : undefined
++  } catch { return undefined }
++}
++
++export function saveActiveWorkspace(value: ActiveWorkspace) {
++  try { localStorage.setItem(ACTIVE_KEY, JSON.stringify(value)) } catch { /* storage may be unavailable/full */ }
++  rememberRecent(value.projectPath)
++}
++
++export function clearActiveWorkspace() {
++  try { localStorage.removeItem(ACTIVE_KEY) } catch { /* storage unavailable */ }
++}
++
++export function loadRecentWorkspaces(): string[] {
++  try {
++    const value = localStorage.getItem(RECENT_KEY)
++    const items = value ? JSON.parse(value) as string[] : []
++    return Array.isArray(items) ? items.filter((item) => typeof item === 'string').slice(0, 8) : []
++  } catch { return [] }
++}
++
++export function rememberRecent(projectPath: string) {
++  const next = [projectPath, ...loadRecentWorkspaces().filter((item) => item !== projectPath)].slice(0, 8)
++  try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch { /* storage unavailable/full */ }
++}
++
++export function loadChat(projectPath: string): ChatItem[] {
++  try {
++    const value = localStorage.getItem(CHAT_PREFIX + projectPath)
++    return value ? JSON.parse(value) as ChatItem[] : []
++  } catch { return [] }
++}
++
++export function saveChat(projectPath: string, items: ChatItem[]) {
++  const compact = items.slice(-80).map((item) => ({ ...item, text: item.text.slice(0, 12000), meta: item.meta?.slice(0, 1000) }))
++  try { localStorage.setItem(CHAT_PREFIX + projectPath, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/styles.css wharness_v11/services/frontend/src/styles.css
+--- wharness_fix/services/frontend/src/styles.css	2026-09-02 15:13:38.000000000 +0000
++++ wharness_v11/services/frontend/src/styles.css	2026-09-02 19:22:06.918572817 +0000
+@@ -128,3 +128,102 @@
+   .inspector-panel { min-height: 80vh; }
+   .bootstrap-card { padding: 30px 26px; }.bootstrap-copy{width:100%;}.bootstrap-card::after{opacity:.45;}.input-row{grid-template-columns:1fr}.primary-button{height:46px}.inspector-header{height:auto;min-height:68px;padding-block:10px;align-items:flex-start}.header-actions{flex-wrap:wrap;justify-content:flex-end}.metric-row{grid-template-columns:1fr}.metric{border-right:0;border-bottom:1px solid #d1d4ca}.metric:last-child{border-bottom:0}
+ }
++
++/* v1.1 workspace shell */
++.workspace-root { height: 100vh; display: flex; flex-direction: column; background: var(--paper); min-width: 0; min-height: 0; }
++.workspace-topbar { height: 54px; flex: 0 0 54px; display: grid; grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr); align-items: center; gap: 18px; padding: 0 14px; background: #111310; color: #eef0e9; border-bottom: 1px solid #30332d; }
++.workspace-identity { min-width: 0; display: flex; align-items: center; gap: 10px; }
++.workspace-identity .brand-mark { width: 29px; height: 29px; border: 1px solid #3b4035; background: #1d201b; font-size: 13px; }
++.workspace-identity > div:last-child { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
++.workspace-identity strong { font-size: 12px; font-weight: 600; }
++.workspace-identity span { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #858b7e; font: 9px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.mode-switch { display: inline-flex; padding: 3px; background: #23261f; border: 1px solid #373b33; border-radius: 9px; }
++.mode-switch button { height: 30px; min-width: 88px; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 7px; background: transparent; color: #949b8d; font-size: 10px; cursor: pointer; }
++.mode-switch button.active { background: #f0f2eb; color: #1e211c; box-shadow: 0 1px 5px rgba(0,0,0,.2); font-weight: 600; }
++.workspace-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
++.icon-button { width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; }
++.icon-button:hover { background: rgba(128,132,122,.14); }
++.workspace-topbar .icon-button { color: #8e9487; }
++.agent-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(390px, 43%) 1fr; }
++.agent-workspace .chat-panel { min-height: 0; }
++.agent-workspace .inspector-panel { min-height: 0; }
++
++.recent-workspaces { position: relative; z-index: 1; margin-top: 22px; max-width: 670px; }
++.recent-workspaces > .field-label { margin-bottom: 7px; }
++.recent-workspaces button { width: 100%; height: 36px; border: 0; border-top: 1px solid #dfe1d8; background: transparent; color: #5e6259; display: grid; grid-template-columns: 22px 1fr 18px; align-items: center; text-align: left; gap: 7px; padding: 0 4px; cursor: pointer; font-size: 10px; }
++.recent-workspaces button:last-child { border-bottom: 1px solid #dfe1d8; }
++.recent-workspaces button:hover { background: #eff1ea; color: #22251f; }
++.recent-workspaces button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++
++/* Editor mode */
++.editor-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 246px 1fr; background: #1b1d19; }
++.file-explorer { min-width: 0; min-height: 0; background: #f1f2ec; border-right: 1px solid #cfd2c8; display: flex; flex-direction: column; color: #30332d; }
++.file-explorer > header { height: 50px; flex: 0 0 50px; padding: 0 10px 0 13px; border-bottom: 1px solid #d6d9cf; display: flex; align-items: center; justify-content: space-between; }
++.file-explorer > header > div { display: flex; flex-direction: column; gap: 2px; }
++.file-explorer > header strong { font-size: 12px; }
++.file-tree { flex: 1; min-height: 0; overflow: auto; padding: 6px 0 18px; scrollbar-width: thin; }
++.tree-row { width: 100%; min-width: 0; height: 27px; border: 0; background: transparent; color: #555a50; display: flex; align-items: center; gap: 5px; padding-right: 8px; cursor: pointer; text-align: left; font: 10px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.tree-row:hover { background: #e5e7df; color: #22251f; }
++.tree-row.active { background: #dce9ca; color: #263416; }
++.tree-row span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.tree-chevron { width: 11px; height: 12px; display: inline-flex; align-items: center; justify-content: center; transition: transform .12s ease; color: #8b9086; }
++.tree-chevron.open { transform: rotate(90deg); }
++.folder-row { font-weight: 500; color: #464b42; }
++.editor-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #161814; }
++.editor-area { flex: 1; min-height: 150px; display: flex; flex-direction: column; background: #fafaf6; }
++.editor-tabbar { height: 39px; flex: 0 0 39px; display: flex; align-items: center; justify-content: space-between; background: #e7e9e1; border-bottom: 1px solid #cdd1c5; }
++.editor-tab { height: 39px; max-width: 65%; display: flex; align-items: center; gap: 6px; padding: 0 12px; color: #555a50; border-right: 1px solid #cdd1c5; font: 10px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.editor-tab.active { background: #fafaf6; color: #242720; border-top: 2px solid #648f26; }
++.editor-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.dirty-dot { width: 6px; height: 6px; background: #7aa536; border-radius: 50%; }
++.editor-save { margin-right: 7px; min-height: 28px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #c8ccc0; border-radius: 6px; background: #f3f4ef; color: #4d5148; font-size: 10px; cursor: pointer; }
++.code-editor { flex: 1; min-height: 0; width: 100%; resize: none; border: 0; border-radius: 0; outline: none; padding: 16px 18px; background: #fafaf6; color: #252821; caret-color: #4b701d; tab-size: 2; white-space: pre; overflow: auto; font: 12px/1.65 ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
++.editor-statusbar { height: 23px; flex: 0 0 23px; padding: 0 10px; border-top: 1px solid #d9dcd2; background: #eff0ea; color: #7c8176; display: flex; align-items: center; justify-content: space-between; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.editor-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #7c8177; }
++.editor-empty .empty-mark { color: #d9dcd2; }
++.editor-empty h3 { margin: 0 0 8px; color: #50554b; font-size: 15px; }
++.editor-empty p { margin: 0; max-width: 430px; font-size: 11px; line-height: 1.6; }
++.terminal-resizer { height: 3px; flex: 0 0 3px; background: #33362f; cursor: ns-resize; }
++
++/* Interactive terminal */
++.ide-terminal { flex: 0 0 auto; min-height: 155px; max-height: 65vh; background: #121411; color: #cfd5c7; display: flex; flex-direction: column; border-top: 1px solid #3a3e35; }
++.ide-terminal > header { height: 34px; flex: 0 0 34px; padding: 0 8px 0 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #292c27; background: #181a17; }
++.ide-terminal > header > div:first-child { display: flex; align-items: center; gap: 7px; min-width: 0; }
++.ide-terminal > header strong { font-size: 10px; color: #d8ddd1; }
++.ide-terminal > header span { color: #697064; font: 9px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.terminal-controls { display: flex; align-items: center; gap: 4px; }
++.terminal-controls label { display: flex; align-items: center; gap: 4px; color: #777e71; font-size: 9px; cursor: pointer; }
++.terminal-controls label input { width: 12px; height: 12px; margin: 0; accent-color: #95c64f; }
++.terminal-controls .icon-button { color: #72796d; }
++.terminal-size-button { width: 26px; height: 25px; border: 0; background: transparent; color: #777e71; cursor: pointer; border-radius: 5px; }
++.terminal-size-button:hover { background: #292d27; }
++.terminal-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; scrollbar-width: thin; font: 10px/1.55 ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.ide-terminal-entry { margin-bottom: 11px; }
++.terminal-prompt { color: #d2d8cb; white-space: pre-wrap; overflow-wrap: anywhere; }
++.terminal-prompt span, .terminal-input-row > span { color: #8db94b; }
++.ide-terminal-entry pre { margin: 3px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #abb3a5; font: inherit; }
++.ide-terminal-entry pre.stderr { color: #dd8e86; }
++.terminal-exit { color: #d6a56b; font-size: 9px; }
++.terminal-hint { color: #586055; max-width: 850px; }
++.terminal-input-row { height: 35px; flex: 0 0 35px; border-top: 1px solid #292c27; display: flex; align-items: center; gap: 7px; padding: 0 12px; font: 10px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.terminal-input-row input { height: 29px; flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: #d7dccf; font: inherit; }
++
++/* ChatGPT provider tab */
++.provider-card { display: flex; align-items: flex-start; gap: 11px; padding: 14px; border: 1px solid #cdd1c5; border-radius: 9px; background: rgba(255,255,255,.5); margin-bottom: 16px; }
++.provider-card > div { display: flex; flex-direction: column; gap: 5px; }
++.provider-card strong { font-size: 11px; }
++.provider-card span { color: #686d63; font-size: 10px; line-height: 1.55; }
++.success-card { border-color: #b9d0ac; background: #edf4e7; color: #3f5e2c; }
++.warning-card { border-color: #dec9a9; background: #f5efe5; color: #765425; }
++.provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #d1d4ca; background: rgba(255,255,255,.38); margin-bottom: 16px; }
++.provider-grid .metric { border-right: 1px solid #d1d4ca; }
++.provider-grid .metric:last-child { border-right: 0; }
++
++@media (max-width: 900px) {
++  .workspace-topbar { grid-template-columns: 1fr auto; height: auto; min-height: 58px; padding-block: 7px; }
++  .mode-switch { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
++  .workspace-status { grid-column: 2; grid-row: 1; }
++  .agent-workspace { grid-template-columns: 1fr; overflow: auto; }
++  .editor-workspace { grid-template-columns: 190px minmax(0, 1fr); }
++  .provider-grid { grid-template-columns: 1fr; }
++}
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/src/types.ts wharness_v11/services/frontend/src/types.ts
+--- wharness_fix/services/frontend/src/types.ts	2026-09-02 15:12:02.000000000 +0000
++++ wharness_v11/services/frontend/src/types.ts	2026-09-02 19:27:45.898971324 +0000
+@@ -69,6 +69,7 @@
+   policy?: PolicyDecision
+   last_execution?: ExecutionResult
+   last_manual_prompt?: string
++  last_request_id?: string
+ }
+ 
+ export type HarnessEvent = {
+@@ -83,4 +84,24 @@
+   planner: 'manual' | 'openai' | string
+   sandbox: 'docker' | 'local' | string
+   model: string
++  api_configured: boolean
++  chatgpt_web_embed: boolean
+ }
++
++export type FileEntry = {
++  path: string
++  name: string
++  kind: 'file' | 'directory'
++  size: number
++}
++
++export type WorkspaceFile = {
++  path: string
++  content: string
++  sha256: string
++  size: number
++}
++
++export type WorkspaceMode = 'editor' | 'agent'
++
++export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; meta?: string }
+diff -ruN '--exclude=RELEASE_MANIFEST.sha256' '--exclude=node_modules' wharness_fix/services/frontend/vite.config.ts wharness_v11/services/frontend/vite.config.ts
+--- wharness_fix/services/frontend/vite.config.ts	2026-09-02 15:12:02.000000000 +0000
++++ wharness_v11/services/frontend/vite.config.ts	2026-09-02 19:26:50.385616467 +0000
+@@ -1,3 +1,4 @@
++/// <reference types="vitest/config" />
+ import { defineConfig } from 'vite'
+ import react from '@vitejs/plugin-react'
+ 
+@@ -7,4 +8,7 @@
+     port: 5173,
+     strictPort: true,
+   },
++  test: {
++    environment: 'jsdom',
++  },
+ })

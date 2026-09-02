@@ -1,0 +1,223 @@
+package openai
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/planner"
+)
+
+type Client struct {
+	apiKey  string
+	model   string
+	baseURL string
+	http    *http.Client
+	mu      sync.Mutex
+	files   map[string]string
+}
+
+func New(apiKey, model, baseURL string) *Client {
+	return &Client{
+		apiKey: apiKey, model: model, baseURL: strings.TrimRight(baseURL, "/"),
+		http: &http.Client{Timeout: 20 * time.Minute}, files: make(map[string]string),
+	}
+}
+
+func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Result, error) {
+	contextKey := request.ContextManifest.SHA256
+	if contextKey == "" {
+		contextKey = request.ContextTextPath
+	}
+	fileID, err := c.contextFileID(ctx, request.ContextTextPath, contextKey)
+	if err != nil {
+		return planner.Result{}, err
+	}
+	body := map[string]any{
+		"model":        c.model,
+		"instructions": planner.SystemProtocol,
+		"text":         map[string]any{"format": executionFormat(request.RequestID)},
+		"store":        true,
+		"truncation":   "auto",
+		"input": []any{map[string]any{
+			"role": "user",
+			"content": []any{
+				map[string]any{"type": "input_file", "file_id": fileID},
+				map[string]any{"type": "input_text", "text": "REQUEST ID: " + request.RequestID + "\nUSER REQUEST:\n" + request.Message},
+			},
+		}},
+	}
+	if request.PreviousResponseID != "" {
+		body["previous_response_id"] = request.PreviousResponseID
+	}
+	payload, _ := json.Marshal(body)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/responses", bytes.NewReader(payload))
+	if err != nil {
+		return planner.Result{}, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(httpReq)
+	if err != nil {
+		return planner.Result{}, fmt.Errorf("openai responses request: %w", err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return planner.Result{}, fmt.Errorf("openai responses status %d: %s", resp.StatusCode, sanitizeProviderError(data))
+	}
+	var decoded responsePayload
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return planner.Result{}, fmt.Errorf("decode provider response: %w", err)
+	}
+	text := decoded.OutputText
+	if text == "" {
+		text = collectOutputText(decoded.Output)
+	}
+	if text == "" {
+		return planner.Result{}, errors.New("provider returned no structured output text")
+	}
+	var plan domain.ExecutionPlan
+	if err := json.Unmarshal([]byte(text), &plan); err != nil {
+		return planner.Result{}, fmt.Errorf("decode execution plan: %w", err)
+	}
+	return planner.Result{Plan: &plan, ProviderResponseID: decoded.ID}, nil
+}
+
+func (c *Client) contextFileID(ctx context.Context, path, cacheKey string) (string, error) {
+	c.mu.Lock()
+	if id := c.files[cacheKey]; id != "" {
+		c.mu.Unlock()
+		return id, nil
+	}
+	c.mu.Unlock()
+
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("purpose", "user_data")
+	part, err := mw.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return "", err
+	}
+	_ = mw.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/files", &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("upload context: %w", err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("upload context status %d: %s", resp.StatusCode, sanitizeProviderError(data))
+	}
+	var uploaded struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(data, &uploaded); err != nil || uploaded.ID == "" {
+		return "", errors.New("provider returned invalid file id")
+	}
+	c.mu.Lock()
+	c.files[cacheKey] = uploaded.ID
+	c.mu.Unlock()
+	return uploaded.ID, nil
+}
+
+type responsePayload struct {
+	ID         string `json:"id"`
+	OutputText string `json:"output_text"`
+	Output     []struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"output"`
+}
+
+func collectOutputText(items []struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+}) string {
+	var out strings.Builder
+	for _, item := range items {
+		for _, content := range item.Content {
+			if content.Type == "output_text" {
+				out.WriteString(content.Text)
+			}
+		}
+	}
+	return out.String()
+}
+
+func sanitizeProviderError(data []byte) string {
+	s := string(data)
+	if len(s) > 800 {
+		s = s[:800] + "…"
+	}
+	return strings.ReplaceAll(s, "\n", " ")
+}
+
+func executionFormat(requestID string) map[string]any {
+	command := map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required": []string{"argv", "cwd", "timeout_seconds", "network", "expected_exit_codes"},
+		"properties": map[string]any{
+			"argv":                map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"cwd":                 map[string]any{"type": "string"},
+			"timeout_seconds":     map[string]any{"type": "integer", "minimum": 1, "maximum": 1800},
+			"network":             map[string]any{"type": "boolean"},
+			"expected_exit_codes": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
+		},
+	}
+	operation := map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required": []string{"type", "patch", "command"},
+		"properties": map[string]any{
+			"type":    map[string]any{"type": "string", "enum": []string{"apply_patch", "command"}},
+			"patch":   map[string]any{"type": "string"},
+			"command": command,
+		},
+	}
+	schema := map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required": []string{"protocol", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"},
+		"properties": map[string]any{
+			"protocol":          map[string]any{"type": "string", "const": domain.ProtocolV1},
+			"plan_id":           map[string]any{"type": "string"},
+			"request_id":        map[string]any{"type": "string", "const": requestID},
+			"status":            map[string]any{"type": "string", "enum": []string{"ready", "blocked"}},
+			"summary":           map[string]any{"type": "string"},
+			"risk":              map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}},
+			"requires_approval": map[string]any{"type": "boolean"},
+			"operations":        map[string]any{"type": "array", "items": operation},
+			"verification":      map[string]any{"type": "array", "items": command},
+		},
+	}
+	return map[string]any{"type": "json_schema", "name": "kernl_execution_plan", "strict": true, "schema": schema}
+}

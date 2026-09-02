@@ -1,0 +1,14 @@
+/.env
+/.harness/
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+services/frontend/playwright-report/
+services/frontend/test-results/
+*.tsbuildinfo
+*.orig
+*.rej
+kernl-context-*/
+kernl-context-*.zip

@@ -1,0 +1,97 @@
+--- a/services/frontend/src/components/ChatPanel.tsx
++++ b/services/frontend/src/components/ChatPanel.tsx
+@@ -9,7 +9,9 @@
+ export function ChatPanel({ session, items, busy, onSend }: { session: Session; items: ChatItem[]; busy: boolean; onSend: (message: string) => Promise<void> }) {
+   const [message, setMessage] = useState('')
+   const endRef = useRef<HTMLDivElement>(null)
+-  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [items, busy])
++  useEffect(() => {
++    endRef.current?.scrollIntoView({ behavior: 'smooth' })
++  }, [items, busy])
+   async function submit(event: FormEvent) {
+     event.preventDefault()
+     const text = message.trim()
+--- a/services/frontend/src/App.tsx
++++ b/services/frontend/src/App.tsx
+@@ -15,8 +15,20 @@
+   const [error, setError] = useState<string>()
+   const sourceRef = useRef<EventSource | null>(null)
+ 
+-  useEffect(() => { api.config().then(setConfig).catch((e) => setError(messageOf(e))) }, [])
+-  useEffect(() => () => sourceRef.current?.close(), [])
++  useEffect(() => {
++    let active = true
++    api.config()
++      .then((value) => { if (active) setConfig(value) })
++      .catch((e) => { if (active) setError(messageOf(e)) })
++    return () => { active = false }
++  }, [])
++
++  useEffect(() => {
++    return () => {
++      sourceRef.current?.close()
++      sourceRef.current = null
++    }
++  }, [])
+ 
+   function connectEvents(id: string) {
+     sourceRef.current?.close()
+--- a/services/frontend/index.html
++++ b/services/frontend/index.html
+@@ -4,6 +4,7 @@
+     <meta charset="UTF-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+     <meta name="theme-color" content="#111310" />
++    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+     <meta name="description" content="Kernl local coding-agent harness" />
+     <title>Kernl Harness</title>
+   </head>
+--- /dev/null
++++ b/services/frontend/public/favicon.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#111310"/><path d="M18 14h9v14l13-14h11L35 31l17 19H40L27 35v15h-9z" fill="#b9ff56"/></svg>
+\ No newline at end of file
+--- /dev/null
++++ b/services/frontend/src/components/ChatPanel.test.tsx
+@@ -0,0 +1,41 @@
++import { render } from '@testing-library/react'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { ChatPanel } from './ChatPanel'
++import type { Session } from '../types'
++
++const session = {
++  id: 'ses-test',
++  project_path: '/tmp/demo',
++  state: 'ready',
++  created_at: new Date().toISOString(),
++  context: {
++    id: 'ctx-test',
++    manifest: {
++      id: 'ctx-test',
++      project_root: '/tmp/demo',
++      sha256: 'abcdef1234567890',
++      files: [],
++      excluded: [],
++      text_truncated: false,
++    },
++  },
++} satisfies Session
++
++describe('ChatPanel', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  it('does not return scrollIntoView result as an effect cleanup', () => {
++    const scrollIntoView = vi.fn(() => Promise.resolve())
++    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
++      configurable: true,
++      value: scrollIntoView,
++    })
++
++    const view = render(
++      <ChatPanel session={session} items={[]} busy={false} onSend={async () => undefined} />,
++    )
++
++    expect(scrollIntoView).toHaveBeenCalled()
++    expect(() => view.unmount()).not.toThrow()
++  })
++})

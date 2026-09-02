@@ -1,0 +1,30 @@
+# VCS / dependencies / generated
+.git
+node_modules
+dist
+build
+coverage
+.next
+.vite
+vendor
+
+# local harness state
+.harness
+
+# credentials / secrets
+.env
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials.json
+secrets
+
+# large/binary runtime data
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
