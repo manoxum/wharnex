@@ -75,6 +75,22 @@ func (s *Service) StartSession(ctx context.Context, projectPath string, requeste
 	return item, nil
 }
 
+func (s *Service) DeleteSession(sessionID string) error {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return err
+	}
+	s.resetDevspace(sessionID)
+	if err := s.store.Delete(sessionID); err != nil {
+		return err
+	}
+	if dir := filepath.Dir(item.Context.ZipPath); dir != "" && dir != "." && strings.HasPrefix(filepath.Base(dir), "wharness-context-") {
+		_ = os.RemoveAll(dir)
+	}
+	s.bus.Publish(sessionID, "session.deleted", map[string]any{})
+	return nil
+}
+
 func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) (domain.Session, error) {
 	if !domain.ValidExecutionMode(mode) {
 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)

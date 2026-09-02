@@ -27,6 +27,7 @@ export const api = {
   createSession: (projectPath: string, executionMode: ExecutionMode = 'protected') =>
     request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode }) }),
   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
+  deleteSession: (id: string) => request<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
   setExecutionMode: (id: string, executionMode: ExecutionMode) =>
     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
   message: (id: string, message: string) =>

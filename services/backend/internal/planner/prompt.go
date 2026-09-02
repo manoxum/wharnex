@@ -31,7 +31,9 @@ WIRE CONTRACT — MANDATORY:
 - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
 - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
 - Return raw JSON only. Do not use Markdown fences or explanatory prose.
-- The response MUST be syntactically valid JSON. Because patch is a JSON string, EVERY double quote that belongs to source code inside patch MUST be JSON-escaped as \". Example CSS inside patch: content: \"\";. Never emit raw source-code quotes inside the patch JSON string.
+- The response MUST be syntactically valid JSON. EVERY double quote inside ANY JSON string value must be JSON-escaped as \".
+- Keep summary plain and quote-free: do NOT put literal double-quoted labels, filenames, or source snippets in summary. Rephrase them without quotes or use single quotes.
+- Because patch is a JSON string, EVERY double quote that belongs to source code inside patch MUST be JSON-escaped as \". Example CSS inside patch: content: \"\";. Never emit raw source-code quotes inside the patch JSON string.
 
 Exact shape:
 {

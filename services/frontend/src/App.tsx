@@ -9,7 +9,7 @@ import { WorkspaceTopbar } from './components/WorkspaceTopbar'
 import {
   clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadExecutionMode, loadLegacyChat,
   loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
-  saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
+  removeChat as removeStoredChat, saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 export default function App() {
@@ -163,6 +163,53 @@ export default function App() {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
+  async function deleteChat(chatId: string) {
+    if (!session || busy) return
+    const target = chats.find((chat) => chat.id === chatId)
+    if (!target) return
+    if (!window.confirm(`Remover o Harness Chat "${target.title}"?\n\nA conversa correspondente na tua conta ChatGPT NÃO será apagada; apenas o vínculo local será removido.`)) return
+
+    setBusy(true); setError(undefined)
+    try {
+      try { await api.deleteSession(target.sessionId) }
+      catch (error) { if (!(error instanceof APIError) || error.status !== 404) throw error }
+
+      const projectPath = session.project_path
+      const remaining = removeStoredChat(projectPath, chatId)
+      if (chatId !== activeChatId) {
+        persistChats(projectPath, remaining)
+        return
+      }
+
+      sourceRef.current?.close(); sourceRef.current = null
+      let nextChats = remaining
+      let nextChat = nextChats[0]
+      let restored: Session
+      if (nextChat) {
+        try {
+          restored = await api.getSession(nextChat.sessionId)
+          if (restored.execution_mode !== executionMode) restored = await api.setExecutionMode(restored.id, executionMode)
+        } catch (error) {
+          if (!(error instanceof APIError) || error.status !== 404) throw error
+          restored = await api.createSession(projectPath, executionMode)
+          nextChat = { ...nextChat, sessionId: restored.id, updatedAt: new Date().toISOString() }
+          nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
+        }
+      } else {
+        restored = await api.createSession(projectPath, executionMode)
+        nextChat = newWorkspaceChat(restored.id, 'Chat principal')
+        nextChats = [nextChat]
+      }
+
+      persistChats(projectPath, nextChats)
+      setActiveChatId(nextChat.id); setSession(restored); setEvents([])
+      setManualPrompt(restored.last_manual_prompt || '')
+      const chatItems = loadChat(projectPath, nextChat.id)
+      setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
+      connectEvents(restored.id)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
   async function selectChat(chatId: string) {
     if (!session || chatId === activeChatId || busy) return
     const selected = chats.find((chat) => chat.id === chatId)
@@ -282,7 +329,7 @@ export default function App() {
     {mode === 'editor'
       ? <EditorWorkspace session={session} onError={setError} />
       : <div className="agent-workspace">
-          <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} onSend={send} onNewChat={newChat} onSelectChat={selectChat} />
+          <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} onSend={send} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
           <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onSession={setSession} />
         </div>}
   </main>

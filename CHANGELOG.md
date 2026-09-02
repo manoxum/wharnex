@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.8.4
+
+- Repair malformed manual-plan quotes in both `summary` and `patch` string fields before strict v1 validation.
+- Harness Chat conversations can be removed from the UI with explicit confirmation. Removing a Harness Chat deletes its local history/session/link but does not delete the remote ChatGPT conversation.
+- Deleting the active/last chat automatically selects another chat or creates a fresh one.
+
+
 ## v1.2.8 — Per-project Protected/Unprotected execution + patch diagnostics
 
 - Adds a project-scoped Protected/Unprotected Agent execution switch directly in the workspace UI and persists it per project.

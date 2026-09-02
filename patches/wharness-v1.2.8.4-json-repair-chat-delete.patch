@@ -1,0 +1,527 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6810db9..1fa11b6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,12 @@
+ # Changelog
+ 
++## v1.2.8.4
++
++- Repair malformed manual-plan quotes in both `summary` and `patch` string fields before strict v1 validation.
++- Harness Chat conversations can be removed from the UI with explicit confirmation. Removing a Harness Chat deletes its local history/session/link but does not delete the remote ChatGPT conversation.
++- Deleting the active/last chat automatically selects another chat or creates a fresh one.
++
++
+ ## v1.2.8 — Per-project Protected/Unprotected execution + patch diagnostics
+ 
+ - Adds a project-scoped Protected/Unprotected Agent execution switch directly in the workspace UI and persists it per project.
+diff --git a/services/backend/internal/app/service.go b/services/backend/internal/app/service.go
+index 2e99b95..2e55e5e 100644
+--- a/services/backend/internal/app/service.go
++++ b/services/backend/internal/app/service.go
+@@ -75,6 +75,22 @@ func (s *Service) StartSession(ctx context.Context, projectPath string, requeste
+ 	return item, nil
+ }
+ 
++func (s *Service) DeleteSession(sessionID string) error {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return err
++	}
++	s.resetDevspace(sessionID)
++	if err := s.store.Delete(sessionID); err != nil {
++		return err
++	}
++	if dir := filepath.Dir(item.Context.ZipPath); dir != "" && dir != "." && strings.HasPrefix(filepath.Base(dir), "wharness-context-") {
++		_ = os.RemoveAll(dir)
++	}
++	s.bus.Publish(sessionID, "session.deleted", map[string]any{})
++	return nil
++}
++
+ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) (domain.Session, error) {
+ 	if !domain.ValidExecutionMode(mode) {
+ 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
+diff --git a/services/backend/internal/planner/prompt.go b/services/backend/internal/planner/prompt.go
+index 2179d9f..4aa400c 100644
+--- a/services/backend/internal/planner/prompt.go
++++ b/services/backend/internal/planner/prompt.go
+@@ -31,7 +31,9 @@ WIRE CONTRACT — MANDATORY:
+ - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
+ - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
+ - Return raw JSON only. Do not use Markdown fences or explanatory prose.
+-- The response MUST be syntactically valid JSON. Because patch is a JSON string, EVERY double quote that belongs to source code inside patch MUST be JSON-escaped as \". Example CSS inside patch: content: \"\";. Never emit raw source-code quotes inside the patch JSON string.
++- The response MUST be syntactically valid JSON. EVERY double quote inside ANY JSON string value must be JSON-escaped as \".
++- Keep summary plain and quote-free: do NOT put literal double-quoted labels, filenames, or source snippets in summary. Rephrase them without quotes or use single quotes.
++- Because patch is a JSON string, EVERY double quote that belongs to source code inside patch MUST be JSON-escaped as \". Example CSS inside patch: content: \"\";. Never emit raw source-code quotes inside the patch JSON string.
+ 
+ Exact shape:
+ {
+diff --git a/services/backend/internal/protocol/manual.go b/services/backend/internal/protocol/manual.go
+index dea45e8..94e2f2d 100644
+--- a/services/backend/internal/protocol/manual.go
++++ b/services/backend/internal/protocol/manual.go
+@@ -112,7 +112,10 @@ func NormalizeManualPlan(raw []byte, activeRequestID string) (domain.ExecutionPl
+ 	return plan, nil
+ }
+ 
+-var patchCommandBoundary = regexp.MustCompile(`"\s*,\s*"command"\s*:`)
++var (
++	patchCommandBoundary = regexp.MustCompile(`"\s*,\s*"command"\s*:`)
++	summaryFieldBoundary = regexp.MustCompile(`"\s*,\s*"(?:risk|requires_approval|operations)"\s*:`)
++)
+ 
+ // prepareManualJSON keeps the strict execution-plan validator authoritative, but
+ // repairs one narrow transport failure commonly produced by chat UIs: an
+@@ -125,17 +128,28 @@ func prepareManualJSON(raw []byte) ([]byte, error) {
+ 	if json.Valid(candidate) {
+ 		return candidate, nil
+ 	}
+-	repaired, changed, err := repairMalformedPatchStrings(candidate)
++	repaired := append([]byte(nil), candidate...)
++	changed := false
++
++	var repairedField bool
++	repaired, repairedField, err := repairLooseStringField(repaired, "summary", summaryFieldBoundary, nil)
++	if err != nil {
++		return nil, err
++	}
++	changed = changed || repairedField
++
++	repaired, repairedField, err = repairMalformedPatchStrings(repaired)
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	changed = changed || repairedField
+ 	if changed && json.Valid(repaired) {
+ 		return repaired, nil
+ 	}
+ 	var syntaxErr *json.SyntaxError
+ 	if err := json.Unmarshal(candidate, &map[string]any{}); err != nil {
+ 		if errors.As(err, &syntaxErr) {
+-			return nil, fmt.Errorf("invalid JSON execution plan near byte %d; ensure double quotes inside patch are escaped as \\\"", syntaxErr.Offset)
++			return nil, fmt.Errorf("invalid JSON execution plan near byte %d; ensure double quotes inside summary/patch strings are JSON-escaped as \\\"", syntaxErr.Offset)
+ 		}
+ 		return nil, fmt.Errorf("invalid JSON execution plan: %w", err)
+ 	}
+@@ -158,6 +172,59 @@ func stripMarkdownFence(raw []byte) []byte {
+ 	return body
+ }
+ 
++// repairLooseStringField repairs a single known JSON string field whose value
++// contains unescaped source/text quotes. The boundary is a fixed structural key
++// that follows the value in the v1 wire contract. This is transport repair only:
++// the resulting JSON is still decoded, validated and evaluated by policy.
++func repairLooseStringField(raw []byte, field string, boundary *regexp.Regexp, acceptedPrefixes [][]byte) ([]byte, bool, error) {
++	key := []byte(`"` + field + `"`)
++	keyPos := bytes.Index(raw, key)
++	if keyPos < 0 {
++		return raw, false, nil
++	}
++	colonRel := bytes.IndexByte(raw[keyPos+len(key):], ':')
++	if colonRel < 0 {
++		return raw, false, nil
++	}
++	colon := keyPos + len(key) + colonRel
++	valueStart := colon + 1
++	for valueStart < len(raw) && (raw[valueStart] == ' ' || raw[valueStart] == '\t' || raw[valueStart] == '\r' || raw[valueStart] == '\n') {
++		valueStart++
++	}
++	if valueStart >= len(raw) || raw[valueStart] != '"' {
++		return raw, false, nil
++	}
++	contentStart := valueStart + 1
++	if len(acceptedPrefixes) > 0 {
++		accepted := false
++		for _, prefix := range acceptedPrefixes {
++			if bytes.HasPrefix(raw[contentStart:], prefix) {
++				accepted = true
++				break
++			}
++		}
++		if !accepted {
++			return raw, false, nil
++		}
++	}
++	boundaryMatch := boundary.FindIndex(raw[contentStart:])
++	if boundaryMatch == nil {
++		return raw, false, nil
++	}
++	closingQuote := contentStart + boundaryMatch[0]
++	fragment := raw[contentStart:closingQuote]
++	decoded, err := decodeLooseJSONStringFragment(fragment)
++	if err != nil {
++		return nil, false, fmt.Errorf("invalid JSON %s string: %w", field, err)
++	}
++	encoded, _ := json.Marshal(decoded)
++	replacement := make([]byte, 0, len(raw)-len(fragment)+len(encoded))
++	replacement = append(replacement, raw[:valueStart]...)
++	replacement = append(replacement, encoded...)
++	replacement = append(replacement, raw[closingQuote+1:]...)
++	return replacement, true, nil
++}
++
+ func repairMalformedPatchStrings(raw []byte) ([]byte, bool, error) {
+ 	const key = `"patch"`
+ 	out := append([]byte(nil), raw...)
+diff --git a/services/backend/internal/protocol/manual_test.go b/services/backend/internal/protocol/manual_test.go
+index b2571ac..8f9080a 100644
+--- a/services/backend/internal/protocol/manual_test.go
++++ b/services/backend/internal/protocol/manual_test.go
+@@ -127,3 +127,42 @@ func TestNormalizeManualPlanDoesNotRepairMalformedNonPatchJSON(t *testing.T) {
+ 		t.Fatalf("expected actionable JSON error, got %v", err)
+ 	}
+ }
++
++func TestNormalizeManualPlanRepairsUnescapedQuotesInsideSummaryAndPatch(t *testing.T) {
++	raw := []byte(`{
++      "protocol":"harness.execution/v1",
++      "plan_id":"plan_1",
++      "request_id":"req_1",
++      "status":"ready",
++      "summary":"Replace textual buttons "Baixar novamente" and "Criar molde" with icon actions.",
++      "risk":"low",
++      "requires_approval":false,
++      "operations":[{
++        "type":"apply_patch",
++        "patch":"diff --git a/x.tsx b/x.tsx\n--- a/x.tsx\n+++ b/x.tsx\n@@ -1 +1 @@\n-const label = "Baixar novamente";\n+const label = "Download";\n",
++        "command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}
++      }],
++      "verification":[{"argv":["git","diff","--check"],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}]
++    }`)
++	plan, err := NormalizeManualPlan(raw, "req_1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if plan.Summary != `Replace textual buttons "Baixar novamente" and "Criar molde" with icon actions.` {
++		t.Fatalf("summary quotes were not preserved: %q", plan.Summary)
++	}
++	if !strings.Contains(plan.Operations[0].Patch, `const label = "Baixar novamente";`) {
++		t.Fatalf("patch quotes were not preserved: %q", plan.Operations[0].Patch)
++	}
++	if err := Validate(plan); err != nil {
++		t.Fatalf("repaired plan should validate: %v", err)
++	}
++}
++
++func TestNormalizeManualPlanDoesNotRepairStructuralQuoteInjectionOutsideKnownStringFields(t *testing.T) {
++	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"p" "request_id":"req_1","status":"ready","summary":"x","risk":"low","requires_approval":false,"operations":[],"verification":[]}`)
++	_, err := NormalizeManualPlan(raw, "req_1")
++	if err == nil || !strings.Contains(err.Error(), "invalid JSON execution plan") {
++		t.Fatalf("expected malformed structure to remain rejected, got %v", err)
++	}
++}
+diff --git a/services/backend/internal/session/store.go b/services/backend/internal/session/store.go
+index 6377721..28d0815 100644
+--- a/services/backend/internal/session/store.go
++++ b/services/backend/internal/session/store.go
+@@ -32,6 +32,16 @@ func (s *Store) Get(id string) (domain.Session, error) {
+ 	return item, nil
+ }
+ 
++func (s *Store) Delete(id string) error {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if _, ok := s.items[id]; !ok {
++		return ErrNotFound
++	}
++	delete(s.items, id)
++	return nil
++}
++
+ func (s *Store) Update(id string, fn func(*domain.Session) error) (domain.Session, error) {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
+diff --git a/services/backend/internal/session/store_test.go b/services/backend/internal/session/store_test.go
+new file mode 100644
+index 0000000..a0e088d
+--- /dev/null
++++ b/services/backend/internal/session/store_test.go
+@@ -0,0 +1,25 @@
++package session
++
++import (
++	"testing"
++
++	"kernl.local/harness/backend/internal/domain"
++)
++
++func TestStoreDeleteRemovesOnlyRequestedSession(t *testing.T) {
++	store := NewStore()
++	store.Put(domain.Session{ID: "a"})
++	store.Put(domain.Session{ID: "b"})
++	if err := store.Delete("a"); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.Get("a"); err != ErrNotFound {
++		t.Fatalf("expected a to be deleted, got %v", err)
++	}
++	if _, err := store.Get("b"); err != nil {
++		t.Fatalf("b should remain: %v", err)
++	}
++	if err := store.Delete("missing"); err != ErrNotFound {
++		t.Fatalf("expected ErrNotFound, got %v", err)
++	}
++}
+diff --git a/services/backend/internal/transport/httpapi/server.go b/services/backend/internal/transport/httpapi/server.go
+index e6e8d68..c4a7ca7 100644
+--- a/services/backend/internal/transport/httpapi/server.go
++++ b/services/backend/internal/transport/httpapi/server.go
+@@ -31,6 +31,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
+ 	mux.HandleFunc("GET /api/config", a.config)
+ 	mux.HandleFunc("POST /api/sessions", a.createSession)
+ 	mux.HandleFunc("GET /api/sessions/{id}", a.getSession)
++	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
+ 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
+ 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
+ 	mux.HandleFunc("POST /api/sessions/{id}/manual-plan", a.manualPlan)
+@@ -75,6 +76,18 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
+ 	writeJSON(w, http.StatusCreated, item)
+ }
+ 
++func (a *API) deleteSession(w http.ResponseWriter, r *http.Request) {
++	if err := a.service.DeleteSession(r.PathValue("id")); err != nil {
++		if errors.Is(err, session.ErrNotFound) {
++			writeError(w, http.StatusNotFound, "session_not_found", "session not found")
++			return
++		}
++		writeError(w, http.StatusBadRequest, "session_delete_failed", err.Error())
++		return
++	}
++	w.WriteHeader(http.StatusNoContent)
++}
++
+ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
+ 	item, err := a.store.Get(r.PathValue("id"))
+ 	if err != nil {
+@@ -314,7 +327,7 @@ func cors(next http.Handler) http.Handler {
+ 			w.Header().Set("Vary", "Origin")
+ 		}
+ 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
++		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+ 		if r.Method == http.MethodOptions {
+ 			w.WriteHeader(http.StatusNoContent)
+ 			return
+diff --git a/services/frontend/src/App.tsx b/services/frontend/src/App.tsx
+index 89560ca..068c0a6 100644
+--- a/services/frontend/src/App.tsx
++++ b/services/frontend/src/App.tsx
+@@ -9,7 +9,7 @@ import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+ import {
+   clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadExecutionMode, loadLegacyChat,
+   loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
+-  saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
++  removeChat as removeStoredChat, saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
+ } from './lib/workspaceMemory'
+ 
+ export default function App() {
+@@ -163,6 +163,53 @@ export default function App() {
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
++  async function deleteChat(chatId: string) {
++    if (!session || busy) return
++    const target = chats.find((chat) => chat.id === chatId)
++    if (!target) return
++    if (!window.confirm(`Remover o Harness Chat "${target.title}"?\n\nA conversa correspondente na tua conta ChatGPT NÃO será apagada; apenas o vínculo local será removido.`)) return
++
++    setBusy(true); setError(undefined)
++    try {
++      try { await api.deleteSession(target.sessionId) }
++      catch (error) { if (!(error instanceof APIError) || error.status !== 404) throw error }
++
++      const projectPath = session.project_path
++      const remaining = removeStoredChat(projectPath, chatId)
++      if (chatId !== activeChatId) {
++        persistChats(projectPath, remaining)
++        return
++      }
++
++      sourceRef.current?.close(); sourceRef.current = null
++      let nextChats = remaining
++      let nextChat = nextChats[0]
++      let restored: Session
++      if (nextChat) {
++        try {
++          restored = await api.getSession(nextChat.sessionId)
++          if (restored.execution_mode !== executionMode) restored = await api.setExecutionMode(restored.id, executionMode)
++        } catch (error) {
++          if (!(error instanceof APIError) || error.status !== 404) throw error
++          restored = await api.createSession(projectPath, executionMode)
++          nextChat = { ...nextChat, sessionId: restored.id, updatedAt: new Date().toISOString() }
++          nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
++        }
++      } else {
++        restored = await api.createSession(projectPath, executionMode)
++        nextChat = newWorkspaceChat(restored.id, 'Chat principal')
++        nextChats = [nextChat]
++      }
++
++      persistChats(projectPath, nextChats)
++      setActiveChatId(nextChat.id); setSession(restored); setEvents([])
++      setManualPrompt(restored.last_manual_prompt || '')
++      const chatItems = loadChat(projectPath, nextChat.id)
++      setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
++      connectEvents(restored.id)
++    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
++  }
++
+   async function selectChat(chatId: string) {
+     if (!session || chatId === activeChatId || busy) return
+     const selected = chats.find((chat) => chat.id === chatId)
+@@ -282,7 +329,7 @@ export default function App() {
+     {mode === 'editor'
+       ? <EditorWorkspace session={session} onError={setError} />
+       : <div className="agent-workspace">
+-          <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} onSend={send} onNewChat={newChat} onSelectChat={selectChat} />
++          <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} onSend={send} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
+           <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onSession={setSession} />
+         </div>}
+   </main>
+diff --git a/services/frontend/src/components/ChatPanel.tsx b/services/frontend/src/components/ChatPanel.tsx
+index f011585..1b0c4af 100644
+--- a/services/frontend/src/components/ChatPanel.tsx
++++ b/services/frontend/src/components/ChatPanel.tsx
+@@ -5,7 +5,7 @@ import { Icon } from './Icon'
+ import { StatusPill } from './StatusPill'
+ import { stateLabel } from '../lib/risk'
+ 
+-export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, onNewChat, onSelectChat }: {
++export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, onNewChat, onSelectChat, onDeleteChat }: {
+   session: Session
+   items: ChatItem[]
+   chats: WorkspaceChat[]
+@@ -14,6 +14,7 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, o
+   onSend: (message: string) => Promise<void>
+   onNewChat: () => Promise<void>
+   onSelectChat: (chatId: string) => Promise<void>
++  onDeleteChat?: (chatId: string) => Promise<void>
+ }) {
+   const [message, setMessage] = useState('')
+   const endRef = useRef<HTMLDivElement>(null)
+@@ -36,16 +37,24 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, o
+     <div className="chat-switcher" aria-label="Conversas do Harness">
+       <button className="chat-new-button" disabled={busy} onClick={() => void onNewChat()} title="Novo chat"><Icon name="plus" size={14}/> Novo</button>
+       <div className="chat-tabs">
+-        {chats.map((chat) => <button
+-          key={chat.id}
+-          className={chat.id === activeChatId ? 'chat-tab active' : 'chat-tab'}
+-          disabled={busy}
+-          onClick={() => void onSelectChat(chat.id)}
+-          title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}
+-        >
+-          <span>{chat.title}</span>
+-          <i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" />
+-        </button>)}
++        {chats.map((chat) => <div key={chat.id} className={chat.id === activeChatId ? 'chat-tab-group active' : 'chat-tab-group'}>
++          <button
++            className={chat.id === activeChatId ? 'chat-tab active' : 'chat-tab'}
++            disabled={busy}
++            onClick={() => void onSelectChat(chat.id)}
++            title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}
++          >
++            <span>{chat.title}</span>
++            <i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" />
++          </button>
++          {onDeleteChat && <button
++            className="chat-tab-remove"
++            disabled={busy}
++            onClick={() => void onDeleteChat(chat.id)}
++            title={`Remover ${chat.title}`}
++            aria-label={`Remover chat ${chat.title}`}
++          ><Icon name="close" size={11}/></button>}
++        </div>)}
+       </div>
+     </div>
+ 
+diff --git a/services/frontend/src/lib/api.ts b/services/frontend/src/lib/api.ts
+index 4df6137..acece5b 100644
+--- a/services/frontend/src/lib/api.ts
++++ b/services/frontend/src/lib/api.ts
+@@ -27,6 +27,7 @@ export const api = {
+   createSession: (projectPath: string, executionMode: ExecutionMode = 'protected') =>
+     request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode }) }),
+   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
++  deleteSession: (id: string) => request<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
+   setExecutionMode: (id: string, executionMode: ExecutionMode) =>
+     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
+   message: (id: string, message: string) =>
+diff --git a/services/frontend/src/lib/workspaceMemory.test.ts b/services/frontend/src/lib/workspaceMemory.test.ts
+index 0cb159f..9e92de0 100644
+--- a/services/frontend/src/lib/workspaceMemory.test.ts
++++ b/services/frontend/src/lib/workspaceMemory.test.ts
+@@ -1,7 +1,7 @@
+ import { beforeEach, describe, expect, it } from 'vitest'
+ import {
+   clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadExecutionMode, loadRecentWorkspaces,
+-  loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace, saveChat, saveExecutionMode, saveWorkspaceChats,
++  loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeChat, saveActiveWorkspace, saveChat, saveExecutionMode, saveWorkspaceChats,
+ } from './workspaceMemory'
+ 
+ beforeEach(() => localStorage.clear())
+@@ -44,6 +44,20 @@ describe('workspace memory', () => {
+     expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
+   })
+ 
++  it('removes one Harness chat and its local history without affecting other chats', () => {
++    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa' }
++    const second = { ...newWorkspaceChat('ses-2', 'Segundo'), chatgptUrl: 'https://chatgpt.com/c/bbb' }
++    saveWorkspaceChats('/tmp/project', [first, second])
++    saveChat('/tmp/project', first.id, [{ id: 'm1', role: 'user', text: 'A' }])
++    saveChat('/tmp/project', second.id, [{ id: 'm2', role: 'user', text: 'B' }])
++
++    const remaining = removeChat('/tmp/project', first.id)
++    expect(remaining.map((chat) => chat.id)).toEqual([second.id])
++    expect(loadWorkspaceChats('/tmp/project').map((chat) => chat.id)).toEqual([second.id])
++    expect(loadChat('/tmp/project', first.id)).toEqual([])
++    expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
++  })
++
+   it('derives compact chat titles from the first request', () => {
+     expect(deriveChatTitle('  corrigir   o erro do login  ')).toBe('corrigir o erro do login')
+     expect(deriveChatTitle('x'.repeat(80)).length).toBeLessThanOrEqual(46)
+diff --git a/services/frontend/src/lib/workspaceMemory.ts b/services/frontend/src/lib/workspaceMemory.ts
+index 81704fe..61d05b0 100644
+--- a/services/frontend/src/lib/workspaceMemory.ts
++++ b/services/frontend/src/lib/workspaceMemory.ts
+@@ -99,6 +99,13 @@ export function saveChat(projectPath: string, chatId: string, items: ChatItem[])
+   try { localStorage.setItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
+ }
+ 
++export function removeChat(projectPath: string, chatId: string) {
++  try { localStorage.removeItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`) } catch { /* storage unavailable */ }
++  const remaining = loadWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)
++  saveWorkspaceChats(projectPath, remaining)
++  return remaining
++}
++
+ export function loadLegacyChat(projectPath: string): ChatItem[] {
+   try {
+     const value = localStorage.getItem(LEGACY_CHAT_PREFIX + projectPath)
+diff --git a/services/frontend/src/styles.css b/services/frontend/src/styles.css
+index c3ef67f..ea29d17 100644
+--- a/services/frontend/src/styles.css
++++ b/services/frontend/src/styles.css
+@@ -274,10 +274,17 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .chat-switcher { flex: 0 0 auto; min-height: 43px; padding: 6px 9px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid #d8dbd1; background: #eeefe9; }
+ .chat-new-button { height: 29px; flex: 0 0 auto; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cbd0c5; border-radius: 7px; background: #f8f8f4; color: #454a41; font-size: 9px; font-weight: 600; cursor: pointer; }
+ .chat-tabs { min-width: 0; flex: 1; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: thin; }
+-.chat-tab { height: 29px; max-width: 190px; flex: 0 0 auto; padding: 0 9px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #6d7268; font-size: 9px; cursor: pointer; }
+-.chat-tab:hover { background: #e4e6de; color: #363a33; }
+-.chat-tab.active { border-color: #c8cec0; background: #fff; color: #262a23; box-shadow: 0 1px 4px rgba(20,25,16,.04); }
+-.chat-tab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.chat-tab-group { height: 29px; max-width: 210px; flex: 0 0 auto; display: inline-flex; align-items: center; border: 1px solid transparent; border-radius: 7px; background: transparent; overflow: hidden; }
++.chat-tab-group:hover { background: #e4e6de; }
++.chat-tab-group.active { border-color: #c8cec0; background: #fff; box-shadow: 0 1px 4px rgba(20,25,16,.04); }
++.chat-tab { height: 27px; min-width: 0; max-width: 182px; padding: 0 7px 0 9px; display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: #6d7268; font-size: 9px; cursor: pointer; }
++.chat-tab:hover { color: #363a33; }
++.chat-tab.active { color: #262a23; }
++.chat-tab > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.chat-tab-remove { width: 25px; height: 27px; flex: 0 0 auto; display: inline-grid; place-items: center; border: 0; border-left: 1px solid transparent; background: transparent; color: #959a90; opacity: 0; cursor: pointer; transition: opacity .12s ease, color .12s ease, background .12s ease; }
++.chat-tab-group:hover .chat-tab-remove, .chat-tab-group.active .chat-tab-remove, .chat-tab-remove:focus-visible { opacity: 1; }
++.chat-tab-remove:hover { background: #f4e7e3; color: #a34d3f; }
++.chat-tab-remove:focus-visible { outline: 2px solid #87a899; outline-offset: -2px; }
+ .chat-link-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #b9bdb4; }
+ .chat-link-dot.linked { background: #76a83b; box-shadow: 0 0 0 2px #e4edd9; }
+ .chatgpt-link-warning { flex: 0 0 auto; min-height: 34px; padding: 5px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid #dec9a9; background: #f5efe5; color: #765425; font-size: 9px; }

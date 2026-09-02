@@ -112,7 +112,10 @@ func NormalizeManualPlan(raw []byte, activeRequestID string) (domain.ExecutionPl
 	return plan, nil
 }
 
-var patchCommandBoundary = regexp.MustCompile(`"\s*,\s*"command"\s*:`)
+var (
+	patchCommandBoundary = regexp.MustCompile(`"\s*,\s*"command"\s*:`)
+	summaryFieldBoundary = regexp.MustCompile(`"\s*,\s*"(?:risk|requires_approval|operations)"\s*:`)
+)
 
 // prepareManualJSON keeps the strict execution-plan validator authoritative, but
 // repairs one narrow transport failure commonly produced by chat UIs: an
@@ -125,17 +128,28 @@ func prepareManualJSON(raw []byte) ([]byte, error) {
 	if json.Valid(candidate) {
 		return candidate, nil
 	}
-	repaired, changed, err := repairMalformedPatchStrings(candidate)
+	repaired := append([]byte(nil), candidate...)
+	changed := false
+
+	var repairedField bool
+	repaired, repairedField, err := repairLooseStringField(repaired, "summary", summaryFieldBoundary, nil)
 	if err != nil {
 		return nil, err
 	}
+	changed = changed || repairedField
+
+	repaired, repairedField, err = repairMalformedPatchStrings(repaired)
+	if err != nil {
+		return nil, err
+	}
+	changed = changed || repairedField
 	if changed && json.Valid(repaired) {
 		return repaired, nil
 	}
 	var syntaxErr *json.SyntaxError
 	if err := json.Unmarshal(candidate, &map[string]any{}); err != nil {
 		if errors.As(err, &syntaxErr) {
-			return nil, fmt.Errorf("invalid JSON execution plan near byte %d; ensure double quotes inside patch are escaped as \\\"", syntaxErr.Offset)
+			return nil, fmt.Errorf("invalid JSON execution plan near byte %d; ensure double quotes inside summary/patch strings are JSON-escaped as \\\"", syntaxErr.Offset)
 		}
 		return nil, fmt.Errorf("invalid JSON execution plan: %w", err)
 	}
@@ -156,6 +170,59 @@ func stripMarkdownFence(raw []byte) []byte {
 		body = bytes.TrimSpace(body[:len(body)-3])
 	}
 	return body
+}
+
+// repairLooseStringField repairs a single known JSON string field whose value
+// contains unescaped source/text quotes. The boundary is a fixed structural key
+// that follows the value in the v1 wire contract. This is transport repair only:
+// the resulting JSON is still decoded, validated and evaluated by policy.
+func repairLooseStringField(raw []byte, field string, boundary *regexp.Regexp, acceptedPrefixes [][]byte) ([]byte, bool, error) {
+	key := []byte(`"` + field + `"`)
+	keyPos := bytes.Index(raw, key)
+	if keyPos < 0 {
+		return raw, false, nil
+	}
+	colonRel := bytes.IndexByte(raw[keyPos+len(key):], ':')
+	if colonRel < 0 {
+		return raw, false, nil
+	}
+	colon := keyPos + len(key) + colonRel
+	valueStart := colon + 1
+	for valueStart < len(raw) && (raw[valueStart] == ' ' || raw[valueStart] == '\t' || raw[valueStart] == '\r' || raw[valueStart] == '\n') {
+		valueStart++
+	}
+	if valueStart >= len(raw) || raw[valueStart] != '"' {
+		return raw, false, nil
+	}
+	contentStart := valueStart + 1
+	if len(acceptedPrefixes) > 0 {
+		accepted := false
+		for _, prefix := range acceptedPrefixes {
+			if bytes.HasPrefix(raw[contentStart:], prefix) {
+				accepted = true
+				break
+			}
+		}
+		if !accepted {
+			return raw, false, nil
+		}
+	}
+	boundaryMatch := boundary.FindIndex(raw[contentStart:])
+	if boundaryMatch == nil {
+		return raw, false, nil
+	}
+	closingQuote := contentStart + boundaryMatch[0]
+	fragment := raw[contentStart:closingQuote]
+	decoded, err := decodeLooseJSONStringFragment(fragment)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid JSON %s string: %w", field, err)
+	}
+	encoded, _ := json.Marshal(decoded)
+	replacement := make([]byte, 0, len(raw)-len(fragment)+len(encoded))
+	replacement = append(replacement, raw[:valueStart]...)
+	replacement = append(replacement, encoded...)
+	replacement = append(replacement, raw[closingQuote+1:]...)
+	return replacement, true, nil
 }
 
 func repairMalformedPatchStrings(raw []byte) ([]byte, bool, error) {

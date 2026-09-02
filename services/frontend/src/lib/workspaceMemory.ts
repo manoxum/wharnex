@@ -99,6 +99,13 @@ export function saveChat(projectPath: string, chatId: string, items: ChatItem[])
   try { localStorage.setItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
 }
 
+export function removeChat(projectPath: string, chatId: string) {
+  try { localStorage.removeItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`) } catch { /* storage unavailable */ }
+  const remaining = loadWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)
+  saveWorkspaceChats(projectPath, remaining)
+  return remaining
+}
+
 export function loadLegacyChat(projectPath: string): ChatItem[] {
   try {
     const value = localStorage.getItem(LEGACY_CHAT_PREFIX + projectPath)

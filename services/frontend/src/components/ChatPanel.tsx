@@ -5,7 +5,7 @@ import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 import { stateLabel } from '../lib/risk'
 
-export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, onNewChat, onSelectChat }: {
+export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, onNewChat, onSelectChat, onDeleteChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -14,6 +14,7 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, o
   onSend: (message: string) => Promise<void>
   onNewChat: () => Promise<void>
   onSelectChat: (chatId: string) => Promise<void>
+  onDeleteChat?: (chatId: string) => Promise<void>
 }) {
   const [message, setMessage] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
@@ -36,16 +37,24 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, onSend, o
     <div className="chat-switcher" aria-label="Conversas do Harness">
       <button className="chat-new-button" disabled={busy} onClick={() => void onNewChat()} title="Novo chat"><Icon name="plus" size={14}/> Novo</button>
       <div className="chat-tabs">
-        {chats.map((chat) => <button
-          key={chat.id}
-          className={chat.id === activeChatId ? 'chat-tab active' : 'chat-tab'}
-          disabled={busy}
-          onClick={() => void onSelectChat(chat.id)}
-          title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}
-        >
-          <span>{chat.title}</span>
-          <i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" />
-        </button>)}
+        {chats.map((chat) => <div key={chat.id} className={chat.id === activeChatId ? 'chat-tab-group active' : 'chat-tab-group'}>
+          <button
+            className={chat.id === activeChatId ? 'chat-tab active' : 'chat-tab'}
+            disabled={busy}
+            onClick={() => void onSelectChat(chat.id)}
+            title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}
+          >
+            <span>{chat.title}</span>
+            <i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" />
+          </button>
+          {onDeleteChat && <button
+            className="chat-tab-remove"
+            disabled={busy}
+            onClick={() => void onDeleteChat(chat.id)}
+            title={`Remover ${chat.title}`}
+            aria-label={`Remover chat ${chat.title}`}
+          ><Icon name="close" size={11}/></button>}
+        </div>)}
       </div>
     </div>
 

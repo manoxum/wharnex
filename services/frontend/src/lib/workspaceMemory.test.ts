@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace, saveChat, saveExecutionMode, saveWorkspaceChats,
+  loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeChat, saveActiveWorkspace, saveChat, saveExecutionMode, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -41,6 +41,20 @@ describe('workspace memory', () => {
     expect(loaded).toHaveLength(2)
     expect(loaded.map((item) => item.chatgptUrl).sort()).toEqual(['https://chatgpt.com/c/aaa', 'https://chatgpt.com/c/bbb'])
     expect(loadChat('/tmp/project', first.id)[0].text).toBe('A')
+    expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
+  })
+
+  it('removes one Harness chat and its local history without affecting other chats', () => {
+    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa' }
+    const second = { ...newWorkspaceChat('ses-2', 'Segundo'), chatgptUrl: 'https://chatgpt.com/c/bbb' }
+    saveWorkspaceChats('/tmp/project', [first, second])
+    saveChat('/tmp/project', first.id, [{ id: 'm1', role: 'user', text: 'A' }])
+    saveChat('/tmp/project', second.id, [{ id: 'm2', role: 'user', text: 'B' }])
+
+    const remaining = removeChat('/tmp/project', first.id)
+    expect(remaining.map((chat) => chat.id)).toEqual([second.id])
+    expect(loadWorkspaceChats('/tmp/project').map((chat) => chat.id)).toEqual([second.id])
+    expect(loadChat('/tmp/project', first.id)).toEqual([])
     expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
   })
 

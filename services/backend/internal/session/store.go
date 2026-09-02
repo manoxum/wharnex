@@ -32,6 +32,16 @@ func (s *Store) Get(id string) (domain.Session, error) {
 	return item, nil
 }
 
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.items[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.items, id)
+	return nil
+}
+
 func (s *Store) Update(id string, fn func(*domain.Session) error) (domain.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

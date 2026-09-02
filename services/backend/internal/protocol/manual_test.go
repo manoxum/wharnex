@@ -127,3 +127,42 @@ func TestNormalizeManualPlanDoesNotRepairMalformedNonPatchJSON(t *testing.T) {
 		t.Fatalf("expected actionable JSON error, got %v", err)
 	}
 }
+
+func TestNormalizeManualPlanRepairsUnescapedQuotesInsideSummaryAndPatch(t *testing.T) {
+	raw := []byte(`{
+      "protocol":"harness.execution/v1",
+      "plan_id":"plan_1",
+      "request_id":"req_1",
+      "status":"ready",
+      "summary":"Replace textual buttons "Baixar novamente" and "Criar molde" with icon actions.",
+      "risk":"low",
+      "requires_approval":false,
+      "operations":[{
+        "type":"apply_patch",
+        "patch":"diff --git a/x.tsx b/x.tsx\n--- a/x.tsx\n+++ b/x.tsx\n@@ -1 +1 @@\n-const label = "Baixar novamente";\n+const label = "Download";\n",
+        "command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}
+      }],
+      "verification":[{"argv":["git","diff","--check"],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}]
+    }`)
+	plan, err := NormalizeManualPlan(raw, "req_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary != `Replace textual buttons "Baixar novamente" and "Criar molde" with icon actions.` {
+		t.Fatalf("summary quotes were not preserved: %q", plan.Summary)
+	}
+	if !strings.Contains(plan.Operations[0].Patch, `const label = "Baixar novamente";`) {
+		t.Fatalf("patch quotes were not preserved: %q", plan.Operations[0].Patch)
+	}
+	if err := Validate(plan); err != nil {
+		t.Fatalf("repaired plan should validate: %v", err)
+	}
+}
+
+func TestNormalizeManualPlanDoesNotRepairStructuralQuoteInjectionOutsideKnownStringFields(t *testing.T) {
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"p" "request_id":"req_1","status":"ready","summary":"x","risk":"low","requires_approval":false,"operations":[],"verification":[]}`)
+	_, err := NormalizeManualPlan(raw, "req_1")
+	if err == nil || !strings.Contains(err.Error(), "invalid JSON execution plan") {
+		t.Fatalf("expected malformed structure to remain rejected, got %v", err)
+	}
+}
