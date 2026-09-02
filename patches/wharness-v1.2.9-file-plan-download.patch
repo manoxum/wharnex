@@ -1,0 +1,679 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index d6e5f21..c1465c9 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -130,3 +130,10 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Never broaden this into a general "best effort" parser that invents operations, paths, commands, protocol values, or security-sensitive semantics.
+ - Every normalized plan MUST still pass `protocol.Validate` and the policy engine unchanged.
+ 
++
++
++## Planner file transport invariant
++- Manual ChatGPT delivery is file-first: `wharness-plan-<request_id>.json`.
++- Never broaden Electron download interception to arbitrary filenames or arbitrary webContents.
++- Never treat a downloaded plan as trusted merely because the filename matches; validate JSON/protocol/request id and submit it through the backend plan validation/policy path.
++- Keep clipboard JSON import as fallback only.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 1fa11b6..4779829 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,23 @@
+ # Changelog
+ 
++## 1.2.9 — File-first planner delivery (2026-09-02)
++
++### Added
++- Manual ChatGPT planner responses are delivered as downloadable `wharness-plan-<request_id>.json` files.
++- Electron intercepts only matching plan downloads from the embedded ChatGPT WebContentsView.
++- Downloaded plan files are limited to 2 MiB, validated as JSON, checked for `harness.execution/v1`, and must match the request id encoded in the filename.
++- Plan downloads are imported automatically into the Harness Chat owning the pending request and the Inspector switches to the Plan tab after successful validation.
++
++### Changed
++- The planner prompt requires the model to serialize the plan with a real JSON encoder instead of hand-writing JSON, preventing TSX/CSS quotes from corrupting transport.
++- Clipboard/manual JSON remains available only as a fallback.
++- Harness Chat deletion remains local: removing a chat closes its backend session and unlinks its ChatGPT URL without deleting the remote ChatGPT conversation.
++
++### Security
++- Non-Wharness downloads remain normal downloads and are not read by the harness.
++- Temporary plan files are deleted after import.
++- The backend remains authoritative for request correlation, protocol validation, policy evaluation and execution.
++
+ ## v1.2.8.4
+ 
+ - Repair malformed manual-plan quotes in both `summary` and `patch` string fields before strict v1 validation.
+diff --git a/README.md b/README.md
+index 23ad050..8949435 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,7 @@ Wharness is a local coding-agent harness and lightweight IDE. It combines a Reac
+ - Multiple Harness chats per workspace, each with its own backend session, local transcript, title, and persistent ChatGPT conversation URL.
+ - Switching Harness chats automatically navigates the embedded ChatGPT view back to the conversation linked to that chat.
+ - New Harness chats start on a fresh ChatGPT surface and automatically bind the first concrete `chatgpt.com/c/...` conversation URL.
+-- Clipboard JSON import for the response plan.
++- File-first planner import: ChatGPT generates `wharness-plan-<request_id>.json`; the Desktop intercepts its Download and validates/imports it automatically. Clipboard JSON is fallback only.
+ - Per-project **Protected / Unprotected** Agent execution switch in the workspace UI, persisted independently for each project.
+ - Protected remains the default; Unprotected executes validated Agent plans directly in the host project after explicit confirmation.
+ - Patch application diagnostics now surface Git stderr and can conservatively retry malformed hunk counts with `git apply --recount` (and checked `--3way` when Git blob metadata is present).
+@@ -140,20 +140,18 @@ The default remains `HARNESS_PLANNER=manual`.
+ 
+ ## Manual ChatGPT workflow inside one window
+ 
+-1. Open a project and switch to **Agent**.
+-2. Send the request to the Harness. It prepares the planner prompt.
+-3. Open the **ChatGPT** tab. The actual ChatGPT site is displayed inside Wharness Desktop.
+-4. Click **Copiar contexto ZIP**. Wharness refreshes the project snapshot and places the ZIP on the native system clipboard.
+-5. Click the ChatGPT composer and press `Ctrl+V` to attach the ZIP.
+-6. Click **Copiar prompt**, then paste the prompt into ChatGPT.
+-7. When ChatGPT returns the plan JSON, copy it.
+-8. Click **Colar resposta JSON**, review it, then **Validar plano**.
++1. Open a workspace and enter **Agent**.
++2. Send a task in the Harness Chat. Wharness refreshes context and creates a unique request id.
++3. Open the **ChatGPT** tab.
++4. Use **Copiar contexto ZIP** and paste/attach the ZIP in ChatGPT.
++5. Use **Copiar prompt** and send it. The prompt requires ChatGPT to create a downloadable file named exactly `wharness-plan-<request_id>.json`.
++6. Click **Download** on that file in ChatGPT. Electron intercepts only matching Wharness plan filenames, stores the file temporarily, verifies size/JSON/protocol/request-id consistency and forwards it to the trusted local UI.
++7. The UI finds the Harness Chat whose backend session still owns that pending request, imports the file through the normal backend manual-plan endpoint, and switches to **Plano** after successful validation.
++8. Execute under the workspace's **Protected** or **Unprotected** mode.
+ 
+-Manual import is transport-resilient: Wharness accepts fenced JSON and can repair the narrow case where a unified-diff `patch` contains unescaped source-code quotes (for example CSS `content: "";`). The repaired plan is still subjected to the same strict protocol/path/policy validation before execution.
+-9. In **Protected**, execute in the sandbox and Apply only after verification. In **Unprotected**, the execution button requires confirmation and runs the validated plan directly on the project; there is no separate Apply step.
+-
+-The file clipboard behavior uses the OS native copied-file representation. Acceptance of pasted file attachments remains a capability of the destination web application; if a particular ChatGPT UI version does not accept file paste, the ZIP remains available in the OS clipboard/temp path for normal attachment selection.
++The file must be generated using a real JSON serializer. This removes the old failure mode where TSX/CSS double quotes inside a large `patch` string broke clipboard JSON. The manual text field is retained only as a recovery path.
+ 
++Removing a Harness Chat removes only local transcript/session/request state and its ChatGPT URL binding. It does not delete the remote ChatGPT conversation.
+ 
+ ## Protected / Unprotected per project
+ 
+diff --git a/SECURITY.md b/SECURITY.md
+index 4d120d3..e276a91 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -42,3 +42,8 @@ The embedded ChatGPT renderer is remote and untrusted. Never add a preload to it
+ The ChatGPT persistent partition contains normal web-session state and may include sensitive authentication cookies managed by Chromium. Wharness code must not enumerate, log, export, inspect, or synchronize those cookies.
+ 
+ Desktop clipboard operations are explicit user actions. The context-copy capability accepts only a Wharness session ID; do not extend it into a generic local URL fetch, arbitrary file-copy API, or filesystem bridge.
++
++
++## ChatGPT plan downloads
++
++Wharness Desktop may intercept a user-initiated download only when it originates from the embedded ChatGPT `WebContentsView` and its filename exactly matches `wharness-plan-req_<id>.json`. The file is capped at 2 MiB, parsed as JSON before trusted-renderer delivery, must declare `harness.execution/v1`, and its `request_id` must match the filename. It is stored under an application temporary directory with restrictive permissions and deleted after processing. Ordinary downloads are not inspected or redirected by this mechanism. The downloaded plan never bypasses backend protocol, request-correlation, policy, sandbox/host-mode, or verification checks.
+diff --git a/SoT/AI_PROTOCOL.md b/SoT/AI_PROTOCOL.md
+index 2ea856d..4ee1dc6 100644
+--- a/SoT/AI_PROTOCOL.md
++++ b/SoT/AI_PROTOCOL.md
+@@ -6,7 +6,7 @@
+ 
+ ## AI output rule
+ 
+-The planner returns a single structured JSON `ExecutionPlan`. Markdown command extraction and regex-based shell scraping are forbidden.
++The planner returns a single structured JSON `ExecutionPlan`. For the manual Desktop provider, the preferred transport is a downloadable UTF-8 file named `wharness-plan-<request_id>.json`; clipboard text is fallback only. Markdown command extraction and regex-based shell scraping are forbidden.
+ 
+ ## Command representation
+ 
+@@ -31,4 +31,9 @@ Source mutation uses unified diff text in `apply_patch` operations. Paths must b
+ 
+ ## ChatGPT web UI boundary
+ 
+-The Harness MUST NOT depend on DOM scraping or programmatic output extraction from the ChatGPT consumer web UI. Automatic operation uses a supported planner provider adapter (OpenAI Responses API in v1.1). Manual use may open ChatGPT in a separate browser tab and accept a pasted structured plan.
++The Harness MUST NOT depend on DOM scraping or programmatic output extraction from the ChatGPT consumer web UI. Automatic operation uses a supported planner provider adapter (OpenAI Responses API in v1.1). Manual Desktop use may embed ChatGPT as an isolated remote `WebContentsView`. The harness does not scrape its DOM. A user-initiated download whose filename exactly matches the Wharness plan contract may be intercepted and passed to the normal plan decoder. Other downloads are not inspected.
++
++
++## Manual plan file transport
++
++The canonical filename is `wharness-plan-<request_id>.json`. The file must contain exactly one JSON object and must be produced with a real JSON serializer so source-code quotes/newlines inside unified diffs are escaped correctly. Desktop interception is constrained to the embedded ChatGPT webContents, exact filename pattern, and a 2 MiB maximum. The filename request id must equal the JSON `request_id`; the backend still validates pending-request ownership, protocol, policy and execution constraints. Temporary files are removed after processing.
+diff --git a/VALIDATION.md b/VALIDATION.md
+index 8d0b287..2dcd7b3 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -77,3 +77,10 @@ Validated for this update:
+ - `npm run check` in `services/desktop` — PASS (10/10 security/runtime tests).
+ 
+ The frontend Vitest/Vite build suite was not re-run in this container because a fresh `npm install` did not complete within the available registry/network window; no new frontend dependency was added. TypeScript compilation succeeded against the available toolchain.
++
++
++## v1.2.9 file-first planner validation
++- Desktop security tests cover strict plan filename parsing and request-id/protocol matching.
++- Electron plan downloads are capped at 2 MiB and temporary files are deleted after processing.
++- Frontend imports a matching downloaded plan through the existing backend manual-plan endpoint and routes it to the Harness Chat owning the pending request.
++- Manual clipboard import remains a fallback.
+diff --git a/services/backend/internal/planner/prompt.go b/services/backend/internal/planner/prompt.go
+index 4aa400c..f0cb291 100644
+--- a/services/backend/internal/planner/prompt.go
++++ b/services/backend/internal/planner/prompt.go
+@@ -30,7 +30,7 @@ WIRE CONTRACT — MANDATORY:
+ - Include every top-level key: protocol, plan_id, request_id, status, summary, risk, requires_approval, operations, verification.
+ - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
+ - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
+-- Return raw JSON only. Do not use Markdown fences or explanatory prose.
++- The execution-plan payload contains JSON only. Do not wrap it in Markdown fences or mix explanatory prose into the payload.
+ - The response MUST be syntactically valid JSON. EVERY double quote inside ANY JSON string value must be JSON-escaped as \".
+ - Keep summary plain and quote-free: do NOT put literal double-quoted labels, filenames, or source snippets in summary. Rephrase them without quotes or use single quotes.
+ - Because patch is a JSON string, EVERY double quote that belongs to source code inside patch MUST be JSON-escaped as \". Example CSS inside patch: content: \"\";. Never emit raw source-code quotes inside the patch JSON string.
+@@ -68,7 +68,7 @@ Exact shape:
+   ]
+ }
+ 
+-Return only the structured execution plan requested by this contract.`
++Produce only the structured execution plan requested by this contract; the transport may place that JSON payload in a file.`
+ 
+ func BuildManualPrompt(req Request) string {
+ 	manifest, _ := json.MarshalIndent(req.ContextManifest, "", "  ")
+@@ -81,5 +81,18 @@ USER REQUEST:
+ PROJECT MANIFEST:
+ %s
+ 
+-Attach the Wharness context ZIP or text export to the chat, then return ONLY the raw JSON object. The request_id MUST be exactly %q.`, SystemProtocol, req.RequestID, req.Message, manifest, req.RequestID)
++Attach the Wharness context ZIP to this chat.
++
++MANUAL DESKTOP DELIVERY — MANDATORY:
++- DO NOT paste the execution-plan JSON inline in the conversation.
++- Create a downloadable UTF-8 JSON file named exactly: wharness-plan-%s.json
++- The file content MUST be exactly one JSON object matching harness.execution/v1 and the wire contract above.
++- Build the plan as a structured object and serialize it with a real JSON encoder (for example JSON.stringify or Python json.dump); DO NOT hand-concatenate JSON text. This is mandatory so TSX/CSS/source-code quotes inside patch are escaped correctly.
++- Use ChatGPT's available file-generation capability so the response contains a downloadable file attachment.
++- The request_id inside the file MUST be exactly %q.
++- The filename request id and the JSON request_id must refer to the same request.
++- Do not add Markdown fences, comments, BOM text, or prose inside the file.
++- After attaching the file, a short human note outside the file is allowed, but do not duplicate the JSON into the conversation.
++
++The Wharness Desktop will intercept the download of that exact filename and import it automatically.`, SystemProtocol, req.RequestID, req.Message, manifest, req.RequestID, req.RequestID)
+ }
+diff --git a/services/backend/internal/planner/prompt_test.go b/services/backend/internal/planner/prompt_test.go
+new file mode 100644
+index 0000000..9051895
+--- /dev/null
++++ b/services/backend/internal/planner/prompt_test.go
+@@ -0,0 +1,22 @@
++package planner
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestBuildManualPromptUsesFileFirstDelivery(t *testing.T) {
++	const requestID = "req_20260902T222529_d18d51d84abc677c"
++	prompt := BuildManualPrompt(Request{RequestID: requestID, Message: "update UI"})
++
++	for _, want := range []string{
++		"wharness-plan-" + requestID + ".json",
++		"DO NOT paste the execution-plan JSON inline",
++		"serialize it with a real JSON encoder",
++		requestID,
++	} {
++		if !strings.Contains(prompt, want) {
++			t.Fatalf("manual prompt missing %q", want)
++		}
++	}
++}
+diff --git a/services/desktop/main.mjs b/services/desktop/main.mjs
+index a58476f..0f74dfe 100644
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -1,8 +1,9 @@
+ import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, ipcMain, session, shell } from 'electron'
+-import { mkdir, writeFile } from 'node:fs/promises'
++import { mkdirSync } from 'node:fs'
++import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+ import path from 'node:path'
+ import { fileURLToPath, pathToFileURL } from 'node:url'
+-import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
++import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeDiagnosticURL, sanitizeSessionId, validateWharnessPlanFile, wharnessPlanRequestIdFromFilename } from './security.mjs'
+ 
+ const here = path.dirname(fileURLToPath(import.meta.url))
+ const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
+@@ -11,6 +12,7 @@ const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
+ const CHATGPT_URL = 'https://chatgpt.com/'
+ const CHATGPT_PARTITION = 'persist:wharness-chatgpt'
+ const MAX_CONTEXT_BYTES = 256 * 1024 * 1024
++const MAX_PLAN_BYTES = 2 * 1024 * 1024
+ const CHATGPT_CHROMIUM_VERSION = '152.0.7977.65'
+ const CHATGPT_USER_AGENT = chromeCompatibleUserAgent(process.platform, CHATGPT_CHROMIUM_VERSION)
+ const CHATGPT_ACCEPT_LANGUAGES = 'pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+@@ -58,6 +60,68 @@ function publishChatGPTState() {
+   if (!mainWindow?.isDestroyed()) mainWindow.webContents.send('wharness:chatgpt:state', currentChatGPTState())
+ }
+ 
++function publishPlanDownload(payload) {
++  if (!mainWindow?.isDestroyed()) mainWindow.webContents.send('wharness:chatgpt:plan-downloaded', payload)
++}
++
++function publishPlanDownloadError(message, filename = '') {
++  console.error(`[chatgpt-plan-download] ${message}${filename ? ` file=${filename}` : ''}`)
++  if (!mainWindow?.isDestroyed()) mainWindow.webContents.send('wharness:chatgpt:plan-download-error', { message, filename })
++}
++
++function registerChatGPTPlanDownloads(chatSession) {
++  chatSession.on('will-download', (_event, item, sourceWebContents) => {
++    if (!chatgptView || sourceWebContents !== chatgptView.webContents) return
++    const filename = item.getFilename()
++    const requestId = wharnessPlanRequestIdFromFilename(filename)
++    if (!requestId) return
++
++    const total = item.getTotalBytes()
++    if (total > MAX_PLAN_BYTES) {
++      item.cancel()
++      publishPlanDownloadError('Plano Wharness excede o limite de 2 MiB.', filename)
++      return
++    }
++
++    const dir = path.join(app.getPath('temp'), 'wharness-plans')
++    const savePath = path.join(dir, filename)
++    try {
++      mkdirSync(dir, { recursive: true, mode: 0o700 })
++      item.setSavePath(savePath)
++    } catch (error) {
++      item.cancel()
++      publishPlanDownloadError(`Não foi possível preparar o download: ${error instanceof Error ? error.message : String(error)}`, filename)
++      return
++    }
++
++    item.on('updated', () => {
++      if (item.getReceivedBytes() > MAX_PLAN_BYTES) {
++        item.cancel()
++        publishPlanDownloadError('Plano Wharness excede o limite de 2 MiB.', filename)
++      }
++    })
++
++    item.once('done', async (_doneEvent, state) => {
++      if (state !== 'completed') {
++        if (state !== 'cancelled') publishPlanDownloadError(`Download do plano terminou em estado ${state}.`, filename)
++        return
++      }
++      try {
++        const bytes = await readFile(savePath)
++        if (bytes.byteLength > MAX_PLAN_BYTES) throw new Error('Plano Wharness excede o limite de 2 MiB.')
++        const text = bytes.toString('utf8')
++        const validated = validateWharnessPlanFile(filename, text)
++        publishPlanDownload({ filename, requestId: validated.requestId, text: validated.text, bytes: bytes.byteLength })
++        console.log(`[chatgpt-plan-download] imported file=${filename} bytes=${bytes.byteLength}`)
++      } catch (error) {
++        publishPlanDownloadError(error instanceof Error ? error.message : String(error), filename)
++      } finally {
++        try { await rm(savePath, { force: true }) } catch { /* best effort temp cleanup */ }
++      }
++    })
++  })
++}
++
+ function createChatGPTView() {
+   chatgptView = new WebContentsView({
+     webPreferences: securePreferences({ partition: CHATGPT_PARTITION }),
+@@ -208,6 +272,7 @@ function registerIPC() {
+ app.whenReady().then(async () => {
+   const chatSession = session.fromPartition(CHATGPT_PARTITION)
+   chatSession.setUserAgent(CHATGPT_USER_AGENT, CHATGPT_ACCEPT_LANGUAGES)
++  registerChatGPTPlanDownloads(chatSession)
+ 
+   const remoteFilter = {
+     urls: [
+diff --git a/services/desktop/package.json b/services/desktop/package.json
+index 1194dfe..1123b0c 100644
+--- a/services/desktop/package.json
++++ b/services/desktop/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "wharness-desktop",
+   "private": true,
+-  "version": "1.2.8",
++  "version": "1.2.9",
+   "type": "module",
+   "main": "main.mjs",
+   "scripts": {
+diff --git a/services/desktop/preload.cjs b/services/desktop/preload.cjs
+index 37cf290..b580b62 100644
+--- a/services/desktop/preload.cjs
++++ b/services/desktop/preload.cjs
+@@ -28,6 +28,18 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
+       ipcRenderer.on('wharness:chatgpt:external-auth', handler)
+       return () => ipcRenderer.removeListener('wharness:chatgpt:external-auth', handler)
+     },
++    onPlanDownloaded: (callback) => {
++      if (typeof callback !== 'function') return () => {}
++      const handler = (_event, payload) => callback(payload)
++      ipcRenderer.on('wharness:chatgpt:plan-downloaded', handler)
++      return () => ipcRenderer.removeListener('wharness:chatgpt:plan-downloaded', handler)
++    },
++    onPlanDownloadError: (callback) => {
++      if (typeof callback !== 'function') return () => {}
++      const handler = (_event, payload) => callback(payload)
++      ipcRenderer.on('wharness:chatgpt:plan-download-error', handler)
++      return () => ipcRenderer.removeListener('wharness:chatgpt:plan-download-error', handler)
++    },
+   }),
+   clipboard: Object.freeze({
+     copyContextZip: (request) => invoke('wharness:clipboard:copy-context-zip', request),
+diff --git a/services/desktop/security.mjs b/services/desktop/security.mjs
+index 28660b4..5bb9972 100644
+--- a/services/desktop/security.mjs
++++ b/services/desktop/security.mjs
+@@ -69,6 +69,13 @@ export function externalAuthProvider(value) {
+   return ''
+ }
+ 
++
++export function wharnessPlanRequestIdFromFilename(value) {
++  const name = String(value || '')
++  const match = /^wharness-plan-(req_[A-Za-z0-9_-]{8,180})\.json$/.exec(name)
++  return match ? match[1] : ''
++}
++
+ export function chromeCompatibleUserAgent(platform = process.platform, chromiumVersion = '152.0.7977.65') {
+   const version = String(chromiumVersion || '152.0.7977.65').replace(/[^0-9.]/g, '') || '152.0.7977.65'
+   const os = platform === 'win32'
+@@ -87,3 +94,16 @@ export function sanitizeDiagnosticURL(value) {
+     return '<invalid-url>'
+   }
+ }
++
++export function validateWharnessPlanFile(filename, text) {
++  const requestId = wharnessPlanRequestIdFromFilename(filename)
++  if (!requestId) throw new Error('Nome de ficheiro de plano inválido.')
++  const source = String(text || '').replace(/^\uFEFF/, '').trim()
++  if (!source) throw new Error('O ficheiro de plano está vazio.')
++  let plan
++  try { plan = JSON.parse(source) } catch { throw new Error('O ficheiro de plano não contém JSON válido.') }
++  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('O ficheiro de plano deve conter um objeto JSON.')
++  if (plan.protocol !== 'harness.execution/v1') throw new Error('O ficheiro de plano usa um protocolo inválido.')
++  if (plan.request_id !== requestId) throw new Error('O request_id do ficheiro não corresponde ao nome do plano.')
++  return { requestId, text: source }
++}
+diff --git a/services/desktop/security.test.mjs b/services/desktop/security.test.mjs
+index 1199b9a..2cfe790 100644
+--- a/services/desktop/security.test.mjs
++++ b/services/desktop/security.test.mjs
+@@ -1,6 +1,6 @@
+ import test from 'node:test'
+ import assert from 'node:assert/strict'
+-import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
++import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeDiagnosticURL, sanitizeSessionId, validateWharnessPlanFile, wharnessPlanRequestIdFromFilename } from './security.mjs'
+ 
+ test('session ids are strictly allowlisted', () => {
+   assert.equal(sanitizeSessionId('ses_20260902_abc-123'), 'ses_20260902_abc-123')
+@@ -68,3 +68,19 @@ test('ChatGPT navigation URLs are restricted to the trusted remote surface', ()
+   assert.throws(() => requireTrustedChatGPTURL('http://chatgpt.com/c/abc'))
+   assert.throws(() => requireTrustedChatGPTURL('https://user:secret@chatgpt.com/c/abc'))
+ })
++
++
++test('Wharness plan filenames are strict and expose the request id', () => {
++  assert.equal(wharnessPlanRequestIdFromFilename('wharness-plan-req_20260902T222529_d18d51d84abc677c.json'), 'req_20260902T222529_d18d51d84abc677c')
++  assert.equal(wharnessPlanRequestIdFromFilename('plan.json'), '')
++  assert.equal(wharnessPlanRequestIdFromFilename('wharness-plan-../../evil.json'), '')
++})
++
++test('downloaded plan JSON must match filename request id and protocol', () => {
++  const filename = 'wharness-plan-req_20260902T222529_d18d51d84abc677c.json'
++  const valid = JSON.stringify({ protocol: 'harness.execution/v1', request_id: 'req_20260902T222529_d18d51d84abc677c' })
++  assert.equal(validateWharnessPlanFile(filename, valid).requestId, 'req_20260902T222529_d18d51d84abc677c')
++  assert.throws(() => validateWharnessPlanFile(filename, '{bad json'))
++  assert.throws(() => validateWharnessPlanFile(filename, JSON.stringify({ protocol: 'other', request_id: 'req_20260902T222529_d18d51d84abc677c' })))
++  assert.throws(() => validateWharnessPlanFile(filename, JSON.stringify({ protocol: 'harness.execution/v1', request_id: 'req_other_12345678' })))
++})
+diff --git a/services/frontend/src/App.tsx b/services/frontend/src/App.tsx
+index 068c0a6..e533735 100644
+--- a/services/frontend/src/App.tsx
++++ b/services/frontend/src/App.tsx
+@@ -255,7 +255,7 @@ export default function App() {
+       setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+       setItems((current) => [...current, {
+         id: crypto.randomUUID(), role: 'harness',
+-        text: response.session.plan ? response.session.plan.summary : 'Prompt do planner preparado. Abra a aba ChatGPT para enviar o contexto manualmente, ou configure o provider OpenAI para processamento automático.',
++        text: response.session.plan ? response.session.plan.summary : 'Prompt do planner preparado. No ChatGPT, gere o ficheiro JSON solicitado e clique em Download; o Desktop irá importá-lo automaticamente.',
+         meta: response.session.plan ? `Plano ${response.session.plan.plan_id}` : 'Aguardando plano externo',
+       }])
+     } catch (e) {
+@@ -273,6 +273,58 @@ export default function App() {
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
++  async function submitPlanFile(raw: string, requestId: string) {
++    if (!session) throw new Error('Nenhum workspace ativo.')
++    setBusy(true); setError(undefined)
++    try {
++      let targetSession = session
++      let targetChat = chats.find((chat) => chat.id === activeChatId)
++
++      if (!sessionHasPendingRequest(targetSession, requestId)) {
++        targetSession = undefined as unknown as Session
++        targetChat = undefined
++        for (const chat of chats) {
++          if (chat.id === activeChatId) continue
++          try {
++            const candidate = await api.getSession(chat.sessionId)
++            if (sessionHasPendingRequest(candidate, requestId)) { targetSession = candidate; targetChat = chat; break }
++          } catch (error) {
++            if (!(error instanceof APIError) || error.status !== 404) throw error
++          }
++        }
++      }
++
++      if (!targetChat || !targetSession?.id) {
++        throw new Error(`O ficheiro pertence ao pedido ${requestId}, mas esse pedido não está pendente em nenhum Harness Chat deste workspace.`)
++      }
++
++      const updated = await api.manualPlan(targetSession.id, raw)
++      const planItem: ChatItem = {
++        id: crypto.randomUUID(), role: 'harness',
++        text: updated.plan?.summary || 'Plano importado do ficheiro JSON.',
++        meta: updated.policy?.allowed ? 'Ficheiro importado · Policy validada' : 'Ficheiro importado · Policy bloqueou o plano',
++      }
++
++      if (targetChat.id === activeChatId) {
++        setSession(updated)
++        setItems((current) => [...current, planItem])
++      } else {
++        const prior = loadChat(updated.project_path, targetChat.id)
++        saveChat(updated.project_path, targetChat.id, [...prior, planItem])
++        setChats((current) => {
++          const next = current.map((chat) => chat.id === targetChat!.id ? { ...chat, updatedAt: new Date().toISOString() } : chat)
++          saveWorkspaceChats(updated.project_path, next)
++          return next
++        })
++      }
++      return `Plano ${updated.plan?.plan_id || requestId} importado e validado no Harness Chat “${targetChat.title}”.`
++    } catch (e) {
++      const message = messageOf(e)
++      setError(message)
++      throw new Error(message)
++    } finally { setBusy(false) }
++  }
++
+   async function execute(approved: boolean) {
+     if (!session) return
+     const direct = executionMode === 'unprotected'
+@@ -330,11 +382,15 @@ export default function App() {
+       ? <EditorWorkspace session={session} onError={setError} />
+       : <div className="agent-workspace">
+           <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} onSend={send} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
+-          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onSession={setSession} />
++          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onSession={setSession} />
+         </div>}
+   </main>
+ }
+ 
++function sessionHasPendingRequest(session: Session, requestId: string) {
++  return Boolean(session.pending_manual_request_ids?.includes(requestId) || session.last_request_id === requestId)
++}
++
+ function welcomeItem(session: Session): ChatItem {
+   return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+ }
+diff --git a/services/frontend/src/components/ChatGPTDesktopPane.tsx b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+index ee24454..969ad7f 100644
+--- a/services/frontend/src/components/ChatGPTDesktopPane.tsx
++++ b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+@@ -7,7 +7,7 @@ import { StatusPill } from './StatusPill'
+ 
+ const CHATGPT_HOME = 'https://chatgpt.com/'
+ 
+-export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onSession, onManualPlan }: {
++export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onSession, onManualPlan, onPlanFile }: {
+   session: Session
+   manualPrompt: string
+   busy: boolean
+@@ -17,17 +17,19 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
+   onChatGPTURL: (url: string) => void
+   onSession: (session: Session) => void
+   onManualPlan: (json: string) => Promise<void>
++  onPlanFile: (json: string, requestId: string) => Promise<string>
+ }) {
+   const hostRef = useRef<HTMLDivElement>(null)
+   const bindingReadyRef = useRef(false)
+   const linkedURLRef = useRef(chatgptUrl)
+   const onURLRef = useRef(onChatGPTURL)
++  const onPlanFileRef = useRef(onPlanFile)
+   const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false })
+   const [notice, setNotice] = useState('')
+   const [manualJSON, setManualJSON] = useState('')
+   const bridge = desktopBridge()
+ 
+-  useEffect(() => { linkedURLRef.current = chatgptUrl; onURLRef.current = onChatGPTURL }, [chatgptUrl, onChatGPTURL])
++  useEffect(() => { linkedURLRef.current = chatgptUrl; onURLRef.current = onChatGPTURL; onPlanFileRef.current = onPlanFile }, [chatgptUrl, onChatGPTURL, onPlanFile])
+ 
+   useEffect(() => {
+     if (!bridge || !hostRef.current) return
+@@ -53,9 +55,17 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
+     const unsubscribeAuth = bridge.chatgpt.onExternalAuth(({ provider }) => {
+       setNotice(`${provider} foi aberto no navegador do sistema. A sessão remota do ChatGPT continua isolada no Wharness Desktop.`)
+     })
++    const unsubscribePlan = bridge.chatgpt.onPlanDownloaded(({ filename, requestId, text, bytes }) => {
++      setManualJSON(text)
++      setNotice(`Plano ${filename} descarregado (${formatBytes(bytes)}). A importar automaticamente…`)
++      void onPlanFileRef.current(text, requestId)
++        .then((message) => setNotice(message))
++        .catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o ficheiro de plano.'))
++    })
++    const unsubscribePlanError = bridge.chatgpt.onPlanDownloadError(({ message }) => setNotice(message))
+     return () => {
+       cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync)
+-      unsubscribe(); unsubscribeAuth(); void bridge.chatgpt.hide()
++      unsubscribe(); unsubscribeAuth(); unsubscribePlan(); unsubscribePlanError(); void bridge.chatgpt.hide()
+     }
+   }, [bridge])
+ 
+@@ -117,7 +127,8 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
+   }
+ 
+   const currentConversation = chatgptConversationURL(state.url)
+-  const mismatch = Boolean(chatgptUrl && currentConversation && currentConversation !== chatgptConversationURL(chatgptUrl) || chatgptUrl)
++  const linkedConversation = chatgptConversationURL(chatgptUrl || '')
++  const mismatch = Boolean(chatgptUrl && currentConversation && currentConversation !== linkedConversation)
+ 
+   return <div className="desktop-chatgpt-shell">
+     <div className="desktop-chatgpt-toolbar">
+@@ -137,19 +148,24 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
+     <div className="desktop-chatgpt-actions">
+       <div className="desktop-step"><span>1</span><button className="secondary-button" disabled={busy} onClick={() => void copyContext()}><Icon name="copy" size={15}/> Copiar contexto ZIP</button><small>Clique no composer e use Ctrl+V ou o botão Colar.</small></div>
+       <div className="desktop-step"><span>2</span><button className="secondary-button" disabled={!manualPrompt} onClick={() => void copyPrompt()}><Icon name="copy" size={15}/> Copiar prompt</button><small>Depois do ZIP, cole o prompt no composer.</small></div>
+-      <div className="desktop-step"><span>3</span><button className="secondary-button" onClick={() => void pastePlanFromClipboard()}><Icon name="clipboard" size={15}/> Colar resposta JSON</button><small>Copie o JSON no ChatGPT e importe-o aqui.</small></div>
++      <div className="desktop-step"><span>3</span><strong className="desktop-step-title"><Icon name="download" size={15}/> Baixar ficheiro do plano</strong><small>Clique em Download no ficheiro JSON criado pelo ChatGPT. O Wharness intercepta e valida automaticamente.</small></div>
+     </div>
+     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
+ 
+     <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado"><div className="desktop-chatgpt-loading">A carregar ChatGPT…</div></div>
+ 
+-    <div className="desktop-plan-import">
+-      <label className="field-label" htmlFor="desktop-manual-json">Plano JSON devolvido pelo ChatGPT</label>
++    <details className="desktop-plan-import desktop-plan-fallback">
++      <summary>Fallback manual</summary>
++      <p className="muted-copy">Use apenas se o ChatGPT não conseguir gerar o ficheiro. O fluxo normal é descarregar <code>wharness-plan-{session.last_request_id || 'request_id'}.json</code>.</p>
++      <div className="bridge-actions">
++        <button className="text-button" type="button" onClick={() => void pastePlanFromClipboard()}><Icon name="clipboard" size={15}/> Ler JSON do clipboard</button>
++      </div>
++      <label className="field-label" htmlFor="desktop-manual-json">JSON manual</label>
+       <div className="desktop-plan-import-row">
+         <textarea id="desktop-manual-json" className="json-input compact" spellCheck={false} value={manualJSON} onChange={(event) => setManualJSON(event.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
+         <button className="primary-button" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano</button>
+       </div>
+-    </div>
++    </details>
+   </div>
+ }
+ 
+diff --git a/services/frontend/src/components/Inspector.tsx b/services/frontend/src/components/Inspector.tsx
+index 75267a9..e21996d 100644
+--- a/services/frontend/src/components/Inspector.tsx
++++ b/services/frontend/src/components/Inspector.tsx
+@@ -10,7 +10,7 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
+ 
+ type Tab = 'plan' | 'terminal' | 'chatgpt'
+ 
+-export function Inspector({ config, session, events, manualPrompt, busy, chat, onChatGPTURL, onExecute, onApply, onManualPlan, onSession }: {
++export function Inspector({ config, session, events, manualPrompt, busy, chat, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onSession }: {
+   config?: AppConfig
+   session: Session
+   events: HarnessEvent[]
+@@ -21,6 +21,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, o
+   onExecute: (approved: boolean) => Promise<void>
+   onApply: () => Promise<void>
+   onManualPlan: (json: string) => Promise<void>
++  onPlanFile: (json: string, requestId: string) => Promise<string>
+   onSession: (session: Session) => void
+ }) {
+   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
+@@ -34,6 +35,11 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, o
+   const desktop = isDesktop()
+ 
+   async function copy(text: string) { await navigator.clipboard.writeText(text) }
++  async function importPlanFile(json: string, requestId: string) {
++    const message = await onPlanFile(json, requestId)
++    setTab('plan')
++    return message
++  }
+   return (
+     <section className="inspector-panel">
+       <header className="panel-header inspector-header">
+@@ -56,7 +62,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, o
+         {tab === 'plan' && <PlanView session={session} />}
+         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
+         {tab === 'chatgpt' && (desktop
+-          ? <ChatGPTDesktopPane session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onSession={onSession} onManualPlan={onManualPlan} />
++          ? <ChatGPTDesktopPane session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} />
+           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
+       </div>
+     </section>
+@@ -84,7 +90,7 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
+     </div>
+     <label className="field-label">Prompt preparado</label>
+     <div className="code-box prompt-box"><button className="code-copy" disabled={!manualPrompt} onClick={() => void copy(manualPrompt)}><Icon name="copy" size={14}/> Copiar</button><pre>{manualPrompt || 'Envie uma mensagem no Agent para gerar o prompt.'}</pre></div>
+-    <label className="field-label" htmlFor="manual-json">Plano JSON recebido</label>
++    <label className="field-label" htmlFor="manual-json">Plano JSON recebido (fallback web)</label>
+     <textarea id="manual-json" className="json-input" spellCheck={false} value={manualJSON} onChange={(e) => setManualJSON(e.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
+     <button className="primary-button full" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano no Harness</button>
+   </div>
+diff --git a/services/frontend/src/desktop.d.ts b/services/frontend/src/desktop.d.ts
+index f451856..899a956 100644
+--- a/services/frontend/src/desktop.d.ts
++++ b/services/frontend/src/desktop.d.ts
+@@ -2,6 +2,8 @@ type DesktopBounds = { x: number; y: number; width: number; height: number }
+ type DesktopChatGPTState = { url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+ type ContextClipboardResult = { ok: boolean; filePath: string; bytes: number }
+ type DesktopExternalAuthState = { provider: string; url: string }
++type DesktopPlanDownload = { filename: string; requestId: string; text: string; bytes: number }
++type DesktopPlanDownloadError = { filename?: string; message: string }
+ 
+ interface WharnessDesktopBridge {
+   platform: string
+@@ -19,6 +21,8 @@ interface WharnessDesktopBridge {
+     openExternal(): Promise<{ ok: boolean }>
+     onState(callback: (state: DesktopChatGPTState) => void): () => void
+     onExternalAuth(callback: (state: DesktopExternalAuthState) => void): () => void
++    onPlanDownloaded(callback: (plan: DesktopPlanDownload) => void): () => void
++    onPlanDownloadError(callback: (error: DesktopPlanDownloadError) => void): () => void
+   }
+   clipboard: {
+     copyContextZip(request: { sessionId: string }): Promise<ContextClipboardResult>
+diff --git a/services/frontend/src/types.ts b/services/frontend/src/types.ts
+index ca71059..aa4b69d 100644
+--- a/services/frontend/src/types.ts
++++ b/services/frontend/src/types.ts
+@@ -73,6 +73,7 @@ export type Session = {
+   last_execution?: ExecutionResult
+   last_manual_prompt?: string
+   last_request_id?: string
++  pending_manual_request_ids?: string[]
+ }
+ 
+ export type HarnessEvent = {
