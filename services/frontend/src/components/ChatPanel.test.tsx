@@ -7,6 +7,7 @@ const session = {
   id: 'ses-test',
   project_path: '/tmp/demo',
   state: 'ready',
+  execution_mode: 'protected',
   created_at: new Date().toISOString(),
   context: {
     id: 'ctx-test',
@@ -32,7 +33,7 @@ describe('ChatPanel', () => {
     })
 
     const view = render(
-      <ChatPanel session={session} items={[]} busy={false} onSend={async () => undefined} />,
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onNewChat={async () => undefined} onSelectChat={async () => undefined} />,
     )
 
     expect(scrollIntoView).toHaveBeenCalled()

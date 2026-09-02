@@ -9,6 +9,7 @@ interface WharnessDesktopBridge {
     show(bounds: DesktopBounds): Promise<{ ok: boolean }>
     hide(): Promise<{ ok: boolean }>
     setBounds(bounds: DesktopBounds): Promise<{ ok: boolean }>
+    navigate(url: string): Promise<DesktopChatGPTState>
     reload(): Promise<{ ok: boolean }>
     focus(): Promise<{ ok: boolean }>
     back(): Promise<{ ok: boolean }>

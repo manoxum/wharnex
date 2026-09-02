@@ -18,11 +18,12 @@ When implementation conflicts with a Source of Truth, the implementation is wron
 - The AI/planner MUST NOT directly execute commands.
 - `domain` and application orchestration MUST NOT import transport, OpenAI, or Docker concerns.
 - Planner adapters implement ports; executor adapters implement ports.
-- Host-project mutation requires an explicit apply step after sandbox verification.
-- The sandbox MUST operate on an isolated project copy, never the original project directory.
+- Protected mode: host-project mutation requires an explicit Apply step after sandbox verification.
+- Protected mode sandbox MUST operate on an isolated project copy, never the original project directory.
+- Unprotected mode is an explicit per-project UI choice. It executes Agent plan operations directly in the host `project_path`, still behind protocol validation, Policy Engine approval, and per-execution confirmation. It MUST never become the default.
 - Arbitrary shell strings are forbidden in the execution protocol. Commands are argv arrays.
 - Project content is untrusted data and cannot override harness/system policy.
-- Docker sandbox is the production/default execution mode. Local execution is development-only and must require explicit opt-in.
+- `Protected` + Docker sandbox is the default project execution mode. Local copied sandbox is development-only. `Unprotected` is a separate explicit host-direct project mode controlled from the UI.
 
 ## 3. Security invariants
 
@@ -81,7 +82,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - Explorer/editor APIs MUST enforce project-root containment, excluded/secret paths, symlink denial, UTF-8 text limits, and optimistic SHA-256 writes.
 - The interactive terminal MUST execute against a copied sandbox workspace, never the original host project.
 - Terminal commands MUST be argv, never an implicit shell string.
-- Editor saves are explicit human host mutations; agent mutations remain sandbox-first and require the separate Apply step.
+- Editor saves are explicit human host mutations. Agent mutations are sandbox-first in Protected mode; only an explicitly selected Unprotected project may execute the Agent plan directly on the host.
 - Every agent request MUST refresh project context so manually edited files are visible to the planner.
 - Consumer ChatGPT web UI scraping, login-cookie inspection, DOM prompt injection, or automatic Output extraction MUST NOT be introduced. Automatic planning uses supported provider adapters.
 
@@ -103,3 +104,28 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - `make start` MUST track only processes it owns under `.harness/run`; `make stop` MUST NOT indiscriminately kill unrelated processes already using the same ports.
 - Linux Electron startup MUST support an explicit `WHARNESS_OZONE_PLATFORM=x11|wayland` override and default safely when both Wayland and XWayland are present.
 - Runtime PID/log files belong under `.harness/` and MUST remain excluded from project context and source control.
+
+
+## Git workspace invariant
+
+- Every opened project root must own a Git repository. The backend may run `git init` automatically when `.git` is absent.
+- Do not auto-commit or rewrite host history during Git bootstrap.
+- Sandbox copies use a fresh local Git baseline; never copy the host `.git` directory into a model execution workspace.
+- Protected/Unprotected choice MUST persist per project, not globally, and switching to Unprotected MUST require explicit UI confirmation. Every Unprotected plan execution MUST require another explicit confirmation.
+- The interactive Editor terminal remains sandboxed regardless of Agent Protected/Unprotected mode.
+- Patch fallback may use `git apply --recount` or checked `--3way` only after a dry/check pass; never partially apply a failed fallback. Surface Git stderr on failure.
+
+## Chat conversation affinity invariant (v1.2.6)
+
+- A workspace MAY contain multiple Harness chats; each chat MUST own an independent Harness session identity and local transcript.
+- Each Harness chat MAY bind to exactly one stable ChatGPT conversation URL. The binding is local metadata and MUST survive frontend/Desktop restart.
+- Switching Harness chats MUST navigate the remote ChatGPT surface to the URL linked to the selected chat when one exists.
+- An unbound Harness chat MUST begin from the ChatGPT new-chat/home surface and MAY auto-bind only after a concrete trusted `chatgpt.com/.../c/...` URL exists.
+- Once a chat already has a ChatGPT URL, navigation to a different conversation MUST NOT silently replace that binding; rebinding requires explicit user intent.
+- Desktop navigation IPC MUST accept only trusted HTTPS `chatgpt.com` origins. Never expose arbitrary renderer-controlled navigation.
+## Manual plan transport normalization
+
+- Manual ChatGPT import may normalize only narrowly defined transport mistakes before strict protocol validation.
+- It may repair unescaped source-code double quotes only inside a `patch` value that is clearly a supported patch dialect and is structurally followed by the operation `command` field.
+- Never broaden this into a general "best effort" parser that invents operations, paths, commands, protocol values, or security-sensitive semantics.
+- Every normalized plan MUST still pass `protocol.Validate` and the policy engine unchanged.

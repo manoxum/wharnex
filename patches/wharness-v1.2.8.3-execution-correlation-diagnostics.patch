@@ -1,0 +1,255 @@
+diff --git a/services/backend/internal/app/service.go b/services/backend/internal/app/service.go
+index 5cfc225..2e99b95 100644
+--- a/services/backend/internal/app/service.go
++++ b/services/backend/internal/app/service.go
+@@ -106,6 +106,9 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string)
+ 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+ 		current.LastManualPrompt = result.ManualPrompt
+ 		current.LastRequestID = requestID
++		if result.Plan == nil && result.ManualPrompt != "" {
++			current.PendingManualRequestIDs = appendPendingManualRequest(current.PendingManualRequestIDs, requestID)
++		}
+ 		if result.ProviderResponseID != "" {
+ 			current.LastProviderResponseID = result.ProviderResponseID
+ 		}
+@@ -148,8 +151,8 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
+ 	if err := protocol.Validate(plan); err != nil {
+ 		return domain.Session{}, err
+ 	}
+-	if current.LastRequestID == "" || plan.RequestID != current.LastRequestID {
+-		return domain.Session{}, fmt.Errorf("manual plan request_id does not match the active request")
++	if !containsString(current.PendingManualRequestIDs, plan.RequestID) {
++		return domain.Session{}, fmt.Errorf("manual plan request_id %q is not pending for this chat/session", plan.RequestID)
+ 	}
+ 	decision := s.policy.Evaluate(plan)
+ 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+@@ -157,6 +160,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
+ 		current.Policy = &decision
+ 		current.State = "planned"
+ 		current.LastExecution = nil
++		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, plan.RequestID)
+ 		return nil
+ 	})
+ 	if err == nil {
+@@ -231,7 +235,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 		result.Commands = append(result.Commands, commandResult)
+ 		if runErr != nil || !commandResult.Success {
+ 			if runErr == nil {
+-				runErr = fmt.Errorf("verification exited with %d", commandResult.ExitCode)
++				runErr = fmt.Errorf("verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), commandResult.ExitCode, commandResultDiagnostic(commandResult))
+ 			}
+ 			return s.failExecution(sessionID, result, runErr)
+ 		}
+@@ -265,6 +269,45 @@ func (s *Service) runCommand(ctx context.Context, sessionID string, workspace sa
+ 	return s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "sandbox")
+ }
+ 
++func appendPendingManualRequest(values []string, requestID string) []string {
++	const maxPending = 32
++	values = removeString(values, requestID)
++	values = append(values, requestID)
++	if len(values) > maxPending {
++		values = append([]string(nil), values[len(values)-maxPending:]...)
++	}
++	return values
++}
++
++func containsString(values []string, target string) bool {
++	for _, value := range values {
++		if value == target {
++			return true
++		}
++	}
++	return false
++}
++
++func removeString(values []string, target string) []string {
++	out := values[:0]
++	for _, value := range values {
++		if value != target {
++			out = append(out, value)
++		}
++	}
++	return out
++}
++
++func commandResultDiagnostic(result domain.CommandResult) string {
++	if text := strings.TrimSpace(result.Stderr); text != "" {
++		return text
++	}
++	if text := strings.TrimSpace(result.Stdout); text != "" {
++		return text
++	}
++	return "no stdout/stderr"
++}
++
+ func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
+ 	s.bus.Publish(sessionID, "command.started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
+ 	result, err := runner.Run(ctx, workspace, command)
+diff --git a/services/backend/internal/app/service_test.go b/services/backend/internal/app/service_test.go
+index b69ecad..82d3ffa 100644
+--- a/services/backend/internal/app/service_test.go
++++ b/services/backend/internal/app/service_test.go
+@@ -3,6 +3,7 @@ package app
+ import (
+ 	"context"
+ 	"errors"
++	"fmt"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+@@ -300,3 +301,48 @@ func TestExecutionModeCanChangePerSession(t *testing.T) {
+ 		t.Fatal("invalid execution mode should be rejected")
+ 	}
+ }
++
++func TestManualPlanCanMatchEarlierPendingRequest(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("demo\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
++	s, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, s, err = service.SubmitMessage(context.Background(), s.ID, "pedido A")
++	if err != nil {
++		t.Fatal(err)
++	}
++	requestA := s.LastRequestID
++	_, s, err = service.SubmitMessage(context.Background(), s.ID, "pedido B")
++	if err != nil {
++		t.Fatal(err)
++	}
++	requestB := s.LastRequestID
++	if requestA == requestB || len(s.PendingManualRequestIDs) != 2 {
++		t.Fatalf("expected two distinct pending requests, got %#v", s.PendingManualRequestIDs)
++	}
++
++	rawA := []byte(`{"protocol":"harness.execution/v1","plan_id":"plan-a","request_id":"` + requestA + `","status":"ready","summary":"A","risk":"low","requires_approval":false,"operations":[],"verification":[]}`)
++	s, err = service.SubmitManualPlan(s.ID, rawA)
++	if err != nil {
++		t.Fatalf("earlier pending request should be accepted: %v", err)
++	}
++	if containsString(s.PendingManualRequestIDs, requestA) || !containsString(s.PendingManualRequestIDs, requestB) {
++		t.Fatalf("wrong pending request consumption: %#v", s.PendingManualRequestIDs)
++	}
++	if _, err := service.SubmitManualPlan(s.ID, rawA); err == nil || !strings.Contains(err.Error(), "not pending") {
++		t.Fatalf("replayed plan must be rejected, got %v", err)
++	}
++}
++
++func TestVerificationFailureIncludesCommandAndStderr(t *testing.T) {
++	result := domain.CommandResult{ExitCode: 2, Stderr: "src/App.tsx(10,2): error TS2322: example"}
++	got := fmt.Sprintf("verification failed: %s (exit %d): %s", strings.Join([]string{"npm", "run", "build"}, " "), result.ExitCode, commandResultDiagnostic(result))
++	if !strings.Contains(got, "npm run build") || !strings.Contains(got, "TS2322") {
++		t.Fatalf("diagnostic lost useful context: %q", got)
++	}
++}
+diff --git a/services/backend/internal/domain/types.go b/services/backend/internal/domain/types.go
+index 87a60f7..0e675c3 100644
+--- a/services/backend/internal/domain/types.go
++++ b/services/backend/internal/domain/types.go
+@@ -90,18 +90,19 @@ type ContextBundle struct {
+ }
+ 
+ type Session struct {
+-	ID                     string           `json:"id"`
+-	ProjectPath            string           `json:"project_path"`
+-	ExecutionMode          ExecutionMode    `json:"execution_mode"`
+-	State                  string           `json:"state"`
+-	CreatedAt              time.Time        `json:"created_at"`
+-	Context                ContextBundle    `json:"context"`
+-	Plan                   *ExecutionPlan   `json:"plan,omitempty"`
+-	Policy                 *PolicyDecision  `json:"policy,omitempty"`
+-	LastExecution          *ExecutionResult `json:"last_execution,omitempty"`
+-	LastProviderResponseID string           `json:"-"`
+-	LastRequestID          string           `json:"last_request_id,omitempty"`
+-	LastManualPrompt       string           `json:"last_manual_prompt,omitempty"`
++	ID                      string           `json:"id"`
++	ProjectPath             string           `json:"project_path"`
++	ExecutionMode           ExecutionMode    `json:"execution_mode"`
++	State                   string           `json:"state"`
++	CreatedAt               time.Time        `json:"created_at"`
++	Context                 ContextBundle    `json:"context"`
++	Plan                    *ExecutionPlan   `json:"plan,omitempty"`
++	Policy                  *PolicyDecision  `json:"policy,omitempty"`
++	LastExecution           *ExecutionResult `json:"last_execution,omitempty"`
++	LastProviderResponseID  string           `json:"-"`
++	LastRequestID           string           `json:"last_request_id,omitempty"`
++	PendingManualRequestIDs []string         `json:"pending_manual_request_ids,omitempty"`
++	LastManualPrompt        string           `json:"last_manual_prompt,omitempty"`
+ }
+ 
+ type Event struct {
+diff --git a/services/backend/internal/sandbox/patch_strategy.go b/services/backend/internal/sandbox/patch_strategy.go
+index 22ca44e..6b24abc 100644
+--- a/services/backend/internal/sandbox/patch_strategy.go
++++ b/services/backend/internal/sandbox/patch_strategy.go
+@@ -50,6 +50,25 @@ func applyPatchWithStrategies(ctx context.Context, workspace Workspace, patch, p
+ 		}
+ 		return result, nil
+ 	}
++	// A repeated/manual plan can legitimately target a change that has already
++	// reached the current workspace. In that case, the reverse patch applies
++	// cleanly. Treat it as an idempotent no-op; never actually reverse it.
++	reverseAttempts := []patchAttempt{
++		{name: "git apply --reverse", check: []string{"git", "apply", "--reverse", "--check", patchArg}},
++		{name: "git apply --reverse --recount", check: []string{"git", "apply", "--reverse", "--recount", "--check", patchArg}},
++	}
++	for _, attempt := range reverseAttempts {
++		check := domain.CommandSpec{Argv: attempt.check, Cwd: ".", TimeoutSeconds: timeoutSeconds, ExpectedExitCodes: []int{0}}
++		result, err := run(ctx, workspace, check)
++		if err == nil && result.Success {
++			result.Argv = []string{"git", "apply", "<already-applied>"}
++			result.Stdout = "patch already applied; no changes needed"
++			result.Stderr = ""
++			result.Success = true
++			return result, nil
++		}
++	}
++
+ 	if len(diagnostics) == 0 {
+ 		diagnostics = append(diagnostics, "git apply rejected the patch")
+ 	}
+diff --git a/services/backend/internal/sandbox/patch_strategy_test.go b/services/backend/internal/sandbox/patch_strategy_test.go
+new file mode 100644
+index 0000000..ab4653b
+--- /dev/null
++++ b/services/backend/internal/sandbox/patch_strategy_test.go
+@@ -0,0 +1,34 @@
++package sandbox
++
++import (
++	"context"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestLocalRunnerTreatsAlreadyAppliedPatchAsSuccess(t *testing.T) {
++	if _, err := exec.LookPath("git"); err != nil {
++		t.Skip("git unavailable")
++	}
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("new\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	runner := NewLocalRunner()
++	workspace, err := runner.Prepare(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer runner.Cleanup(workspace)
++	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"
++	result, err := runner.ApplyPatch(context.Background(), workspace, patch)
++	if err != nil {
++		t.Fatalf("already applied patch should be idempotent: %v", err)
++	}
++	if !result.Success || !strings.Contains(result.Stdout, "already applied") {
++		t.Fatalf("expected already-applied success, got %#v", result)
++	}
++}

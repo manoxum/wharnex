@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AppConfig, HarnessEvent, Session } from '../types'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
@@ -6,15 +6,18 @@ import { riskLabel } from '../lib/risk'
 import { api } from '../lib/api'
 import { isDesktop } from '../lib/desktop'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import type { WorkspaceChat } from '../lib/workspaceMemory'
 
 type Tab = 'plan' | 'terminal' | 'chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, onExecute, onApply, onManualPlan, onSession }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, onChatGPTURL, onExecute, onApply, onManualPlan, onSession }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
   manualPrompt: string
   busy: boolean
+  chat?: WorkspaceChat
+  onChatGPTURL: (url: string) => void
   onExecute: (approved: boolean) => Promise<void>
   onApply: () => Promise<void>
   onManualPlan: (json: string) => Promise<void>
@@ -22,10 +25,12 @@ export function Inspector({ config, session, events, manualPrompt, busy, onExecu
 }) {
   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [manualJSON, setManualJSON] = useState('')
+  useEffect(() => { setManualJSON('') }, [chat?.id])
   const terminalEvents = useMemo(() => events.filter((e) => e.type === 'command.completed' || e.type === 'execution.failed'), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed)
   const needsApproval = Boolean(session.policy?.requires_approval)
-  const canApply = Boolean(session.last_execution?.success && session.state === 'verified')
+  const direct = session.execution_mode === 'unprotected'
+  const canApply = Boolean(!direct && session.last_execution?.success && session.state === 'verified')
   const desktop = isDesktop()
 
   async function copy(text: string) { await navigator.clipboard.writeText(text) }
@@ -35,7 +40,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, onExecu
         <div className="brand-lockup small"><div className="brand-mark">K</div><div><strong>Agent Inspector</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}{desktop ? ' · desktop' : ''}</span></div></div>
         <div className="header-actions">
           {session.policy && <StatusPill tone={session.policy.allowed ? (session.policy.risk === 'high' ? 'warning' : 'accent') : 'danger'}>{riskLabel(session.policy.risk)}</StatusPill>}
-          {canExecute && <button className="secondary-button" disabled={busy} onClick={() => onExecute(needsApproval)}><Icon name="play" size={15}/> {needsApproval ? 'Aprovar e executar' : 'Executar'}</button>}
+          {direct && <StatusPill tone="warning">Unprotected</StatusPill>}
+          {canExecute && <button className={direct ? 'danger-button' : 'secondary-button'} disabled={busy} onClick={() => onExecute(needsApproval || direct)}><Icon name="play" size={15}/> {direct ? 'Executar no host' : (needsApproval ? 'Aprovar e executar' : 'Executar')}</button>}
           {canApply && <button className="apply-button" disabled={busy} onClick={onApply}><Icon name="apply" size={16}/> Aplicar no host</button>}
         </div>
       </header>
@@ -50,7 +56,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, onExecu
         {tab === 'plan' && <PlanView session={session} />}
         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
         {tab === 'chatgpt' && (desktop
-          ? <ChatGPTDesktopPane session={session} manualPrompt={manualPrompt} busy={busy} onSession={onSession} onManualPlan={onManualPlan} />
+          ? <ChatGPTDesktopPane session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onSession={onSession} onManualPlan={onManualPlan} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
       </div>
     </section>

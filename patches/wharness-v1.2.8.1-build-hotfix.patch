@@ -1,0 +1,97 @@
+diff --git a/Makefile b/Makefile
+index e914302..242b40c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -3,6 +3,7 @@ NPM_CACHE ?= $(HOME)/.cache/wharness-npm
+ RUNNER_IMAGE ?= kernl-runner:local
+ DIST_DIR ?= $(ROOT_DIR)/dist
+ BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
++BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
+ 
+ .PHONY: help deps build build-backend build-frontend build-desktop build-runner \
+ 	backend-check frontend-check desktop-check check test start stop restart status logs \
+@@ -47,11 +48,14 @@ build-runner:
+ 	docker build -t "$(RUNNER_IMAGE)" -f "$(ROOT_DIR)/docker/runner/Dockerfile" "$(ROOT_DIR)"
+ 
+ build:
++	@rm -f "$(BUILD_STAMP)"
+ 	@$(MAKE) --no-print-directory deps
+ 	@$(MAKE) --no-print-directory build-backend
+ 	@$(MAKE) --no-print-directory build-frontend
+ 	@$(MAKE) --no-print-directory build-desktop
+ 	@$(MAKE) --no-print-directory build-runner
++	@mkdir -p "$(dir $(BUILD_STAMP))"
++	@touch "$(BUILD_STAMP)"
+ 	@printf '\nWharness build complete. Start with: make start\n'
+ 
+ backend-check:
+@@ -95,7 +99,7 @@ run-desktop:
+ 
+ clean:
+ 	@$(MAKE) --no-print-directory stop || true
+-	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs"
++	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" "$(BUILD_STAMP)"
+ 
+ EXPORT_ARCHIVE ?= $(DIST_DIR)/wharness.zip
+ export:
+diff --git a/scripts/start.sh b/scripts/start.sh
+index b28cae6..e161c1c 100755
+--- a/scripts/start.sh
++++ b/scripts/start.sh
+@@ -6,6 +6,7 @@ RUN_DIR="$ROOT/.harness/run"
+ LOG_DIR="$ROOT/.harness/logs"
+ PID_FILE="$RUN_DIR/coordinator.pid"
+ LOG_FILE="$LOG_DIR/desktop.log"
++BUILD_STAMP="$ROOT/.harness/build-success"
+ 
+ mkdir -p "$RUN_DIR" "$LOG_DIR"
+ 
+@@ -23,6 +24,36 @@ if [ -f "$PID_FILE" ]; then
+   rm -f "$PID_FILE"
+ fi
+ 
++if [ ! -f "$BUILD_STAMP" ]; then
++  echo 'No successful Wharness build is recorded. Run: make build' >&2
++  exit 1
++fi
++
++# Refuse to launch stale compiled artifacts after source/configuration changes.
++if find \
++  "$ROOT/Makefile" \
++  "$ROOT/scripts" \
++  "$ROOT/docker" \
++  "$ROOT/services/backend" \
++  "$ROOT/services/frontend/src" \
++  "$ROOT/services/frontend/index.html" \
++  "$ROOT/services/frontend/package.json" \
++  "$ROOT/services/frontend/package-lock.json" \
++  "$ROOT/services/frontend/vite.config.ts" \
++  "$ROOT/services/frontend/tsconfig.json" \
++  "$ROOT/services/frontend/tsconfig.app.json" \
++  "$ROOT/services/frontend/tsconfig.node.json" \
++  "$ROOT/services/desktop" \
++  -type f -newer "$BUILD_STAMP" \
++  ! -path '*/node_modules/*' \
++  ! -path '*/dist/*' \
++  ! -name '*.log' \
++  ! -name '*.tsbuildinfo' \
++  -print -quit 2>/dev/null | grep -q .; then
++  echo 'Wharness build is stale because source/configuration files changed. Run: make build' >&2
++  exit 1
++fi
++
+ if [ ! -x "$ROOT/services/desktop/node_modules/.bin/electron" ]; then
+   echo 'Electron dependencies are missing. Run: make build' >&2
+   exit 1
+diff --git a/services/frontend/src/components/ChatPanel.test.tsx b/services/frontend/src/components/ChatPanel.test.tsx
+index 0e58f9b..5a01c40 100644
+--- a/services/frontend/src/components/ChatPanel.test.tsx
++++ b/services/frontend/src/components/ChatPanel.test.tsx
+@@ -7,6 +7,7 @@ const session = {
+   id: 'ses-test',
+   project_path: '/tmp/demo',
+   state: 'ready',
++  execution_mode: 'protected',
+   created_at: new Date().toISOString(),
+   context: {
+     id: 'ctx-test',

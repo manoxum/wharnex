@@ -1,0 +1,310 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index e699857..cba1cdb 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -119,3 +119,10 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - An unbound Harness chat MUST begin from the ChatGPT new-chat/home surface and MAY auto-bind only after a concrete trusted `chatgpt.com/.../c/...` URL exists.
+ - Once a chat already has a ChatGPT URL, navigation to a different conversation MUST NOT silently replace that binding; rebinding requires explicit user intent.
+ - Desktop navigation IPC MUST accept only trusted HTTPS `chatgpt.com` origins. Never expose arbitrary renderer-controlled navigation.
++## Manual plan transport normalization
++
++- Manual ChatGPT import may normalize only narrowly defined transport mistakes before strict protocol validation.
++- It may repair unescaped source-code double quotes only inside a `patch` value that is clearly a supported patch dialect and is structurally followed by the operation `command` field.
++- Never broaden this into a general "best effort" parser that invents operations, paths, commands, protocol values, or security-sensitive semantics.
++- Every normalized plan MUST still pass `protocol.Validate` and the policy engine unchanged.
++
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 5a6a55b..25e9d3d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,13 @@
+ # Changelog
+ 
++## v1.2.7 — Resilient manual JSON patch transport
++
++- Repairs the narrow, common ChatGPT transport failure where source-code double quotes inside an otherwise valid `patch` JSON string were not escaped.
++- Repair is limited to `patch` values that clearly start with a supported patch dialect and are immediately followed by the operation `command` field; strict protocol validation and policy still run afterward.
++- Accepts JSON wrapped in a Markdown `json` fence for manual import.
++- Returns a clearer syntax error with the approximate byte offset when malformed JSON cannot be safely repaired.
++- Strengthens the manual planner contract: every source-code quote inside the JSON `patch` string must be escaped as `\"`.
++
+ ## v1.2.6 — Multi-chat + ChatGPT conversation affinity
+ 
+ - Adds multiple Harness chats per workspace with independent local histories and backend session IDs.
+diff --git a/README.md b/README.md
+index c9a2f80..a02d9eb 100644
+--- a/README.md
++++ b/README.md
+@@ -139,6 +139,8 @@ The default remains `HARNESS_PLANNER=manual`.
+ 6. Click **Copiar prompt**, then paste the prompt into ChatGPT.
+ 7. When ChatGPT returns the plan JSON, copy it.
+ 8. Click **Colar resposta JSON**, review it, then **Validar plano**.
++
++Manual import is transport-resilient: Wharness accepts fenced JSON and can repair the narrow case where a unified-diff `patch` contains unescaped source-code quotes (for example CSS `content: "";`). The repaired plan is still subjected to the same strict protocol/path/policy validation before execution.
+ 9. Execute in the sandbox; apply to the host only after verification.
+ 
+ The file clipboard behavior uses the OS native copied-file representation. Acceptance of pasted file attachments remains a capability of the destination web application; if a particular ChatGPT UI version does not accept file paste, the ZIP remains available in the OS clipboard/temp path for normal attachment selection.
+diff --git a/VALIDATION.md b/VALIDATION.md
+index c0c9de9..d72fcc8 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -50,3 +50,15 @@ Validated after adding per-workspace multi-chat and ChatGPT conversation affinit
+ - Standalone persistence smoke — PASS: two Harness chats retain separate session metadata, transcripts, and ChatGPT URLs; ChatGPT URL canonicalization strips query/fragment data and rejects untrusted origins.
+ 
+ A full `npm ci`/Vitest/Vite run could not be completed in this environment because the package registry dependency cache was incomplete and the network install did not complete. The patch introduces no new npm dependency.
++
++## v1.2.7 manual JSON transport validation
++
++- `go test ./...` — PASS.
++- `go test -race ./...` — PASS.
++- `go vet ./...` — PASS.
++- Backend build — PASS.
++- Regression: invalid JSON caused by CSS `content: "";` inside a unified-diff patch is repaired without changing the patch content, then passes strict v1 validation — PASS.
++- Regression: fenced `json` manual output is accepted — PASS.
++- Regression: malformed JSON outside a recognized patch string is not repaired and returns an actionable syntax error — PASS.
++- No policy, path, command, or protocol validation is bypassed by the repair step.
++
+diff --git a/services/backend/internal/planner/prompt.go b/services/backend/internal/planner/prompt.go
+index 3e5ebd4..2179d9f 100644
+--- a/services/backend/internal/planner/prompt.go
++++ b/services/backend/internal/planner/prompt.go
+@@ -31,6 +31,7 @@ WIRE CONTRACT — MANDATORY:
+ - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
+ - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
+ - Return raw JSON only. Do not use Markdown fences or explanatory prose.
++- The response MUST be syntactically valid JSON. Because patch is a JSON string, EVERY double quote that belongs to source code inside patch MUST be JSON-escaped as \". Example CSS inside patch: content: \"\";. Never emit raw source-code quotes inside the patch JSON string.
+ 
+ Exact shape:
+ {
+diff --git a/services/backend/internal/protocol/manual.go b/services/backend/internal/protocol/manual.go
+index d2e5adf..dea45e8 100644
+--- a/services/backend/internal/protocol/manual.go
++++ b/services/backend/internal/protocol/manual.go
+@@ -1,9 +1,11 @@
+ package protocol
+ 
+ import (
++	"bytes"
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"regexp"
+ 	"strconv"
+ 	"strings"
+ 
+@@ -42,10 +44,14 @@ type manualCommand struct {
+ // small set of common ChatGPT mistakes. Normalization never relaxes policy:
+ // the returned plan is still passed through Validate and the policy engine.
+ func NormalizeManualPlan(raw []byte, activeRequestID string) (domain.ExecutionPlan, error) {
+-	var input manualPlanEnvelope
+-	if err := json.Unmarshal(raw, &input); err != nil {
++	prepared, err := prepareManualJSON(raw)
++	if err != nil {
+ 		return domain.ExecutionPlan{}, err
+ 	}
++	var input manualPlanEnvelope
++	if err := json.Unmarshal(prepared, &input); err != nil {
++		return domain.ExecutionPlan{}, fmt.Errorf("invalid JSON execution plan: %w", err)
++	}
+ 	protocol := strings.TrimSpace(input.Protocol)
+ 	if protocol == "" && strings.TrimSpace(input.Schema) == domain.ProtocolV1 {
+ 		protocol = domain.ProtocolV1
+@@ -106,6 +112,130 @@ func NormalizeManualPlan(raw []byte, activeRequestID string) (domain.ExecutionPl
+ 	return plan, nil
+ }
+ 
++var patchCommandBoundary = regexp.MustCompile(`"\s*,\s*"command"\s*:`)
++
++// prepareManualJSON keeps the strict execution-plan validator authoritative, but
++// repairs one narrow transport failure commonly produced by chat UIs: an
++// otherwise valid JSON plan whose patch string contains unescaped double quotes
++// from source code (for example CSS: content: "";). Only the patch value is
++// repaired, only when it clearly starts with a supported patch dialect, and only
++// when the following field is the operation command object.
++func prepareManualJSON(raw []byte) ([]byte, error) {
++	candidate := stripMarkdownFence(bytes.TrimSpace(raw))
++	if json.Valid(candidate) {
++		return candidate, nil
++	}
++	repaired, changed, err := repairMalformedPatchStrings(candidate)
++	if err != nil {
++		return nil, err
++	}
++	if changed && json.Valid(repaired) {
++		return repaired, nil
++	}
++	var syntaxErr *json.SyntaxError
++	if err := json.Unmarshal(candidate, &map[string]any{}); err != nil {
++		if errors.As(err, &syntaxErr) {
++			return nil, fmt.Errorf("invalid JSON execution plan near byte %d; ensure double quotes inside patch are escaped as \\\"", syntaxErr.Offset)
++		}
++		return nil, fmt.Errorf("invalid JSON execution plan: %w", err)
++	}
++	return candidate, nil
++}
++
++func stripMarkdownFence(raw []byte) []byte {
++	trimmed := bytes.TrimSpace(raw)
++	if !bytes.HasPrefix(trimmed, []byte("```")) {
++		return trimmed
++	}
++	firstNewline := bytes.IndexByte(trimmed, '\n')
++	if firstNewline < 0 {
++		return trimmed
++	}
++	body := bytes.TrimSpace(trimmed[firstNewline+1:])
++	if bytes.HasSuffix(body, []byte("```")) {
++		body = bytes.TrimSpace(body[:len(body)-3])
++	}
++	return body
++}
++
++func repairMalformedPatchStrings(raw []byte) ([]byte, bool, error) {
++	const key = `"patch"`
++	out := append([]byte(nil), raw...)
++	changed := false
++	searchFrom := 0
++	for {
++		relKey := bytes.Index(out[searchFrom:], []byte(key))
++		if relKey < 0 {
++			break
++		}
++		keyPos := searchFrom + relKey
++		colon := bytes.IndexByte(out[keyPos+len(key):], ':')
++		if colon < 0 {
++			break
++		}
++		colon += keyPos + len(key)
++		valueStart := colon + 1
++		for valueStart < len(out) && (out[valueStart] == ' ' || out[valueStart] == '\t' || out[valueStart] == '\r' || out[valueStart] == '\n') {
++			valueStart++
++		}
++		if valueStart >= len(out) || out[valueStart] != '"' {
++			searchFrom = valueStart
++			continue
++		}
++		contentStart := valueStart + 1
++		if contentStart >= len(out) || !(bytes.HasPrefix(out[contentStart:], []byte("diff --git ")) || bytes.HasPrefix(out[contentStart:], []byte("*** Begin Patch"))) {
++			searchFrom = contentStart
++			continue
++		}
++		boundary := patchCommandBoundary.FindIndex(out[contentStart:])
++		if boundary == nil {
++			return nil, false, errors.New("invalid JSON patch string: could not locate the following command field")
++		}
++		closingQuote := contentStart + boundary[0]
++		fragment := out[contentStart:closingQuote]
++		decoded, err := decodeLooseJSONStringFragment(fragment)
++		if err != nil {
++			return nil, false, fmt.Errorf("invalid JSON patch string: %w", err)
++		}
++		encoded, _ := json.Marshal(decoded)
++		replacement := make([]byte, 0, len(out)-len(fragment)+len(encoded))
++		replacement = append(replacement, out[:valueStart]...)
++		replacement = append(replacement, encoded...)
++		replacement = append(replacement, out[closingQuote+1:]...)
++		out = replacement
++		changed = true
++		searchFrom = valueStart + len(encoded)
++	}
++	return out, changed, nil
++}
++
++func decodeLooseJSONStringFragment(fragment []byte) (string, error) {
++	// Preserve valid JSON escapes already produced by the model, while escaping
++	// only raw quotes that source code introduced inside the patch string.
++	escaped := make([]byte, 0, len(fragment)+16)
++	for i, b := range fragment {
++		if b == '"' && !isEscapedAt(fragment, i) {
++			escaped = append(escaped, '\\')
++		}
++		escaped = append(escaped, b)
++	}
++	wrapped := append([]byte{'"'}, escaped...)
++	wrapped = append(wrapped, '"')
++	var decoded string
++	if err := json.Unmarshal(wrapped, &decoded); err != nil {
++		return "", err
++	}
++	return decoded, nil
++}
++
++func isEscapedAt(data []byte, index int) bool {
++	backslashes := 0
++	for i := index - 1; i >= 0 && data[i] == '\\'; i-- {
++		backslashes++
++	}
++	return backslashes%2 == 1
++}
++
+ func normalizeVerification(raw json.RawMessage) (domain.CommandSpec, error) {
+ 	var direct manualCommand
+ 	if err := json.Unmarshal(raw, &direct); err != nil {
+diff --git a/services/backend/internal/protocol/manual_test.go b/services/backend/internal/protocol/manual_test.go
+index 35995fe..b2571ac 100644
+--- a/services/backend/internal/protocol/manual_test.go
++++ b/services/backend/internal/protocol/manual_test.go
+@@ -80,3 +80,50 @@ func TestNormalizeManualPlanRejectsUnsafeBeginPatchDirective(t *testing.T) {
+ 		t.Fatalf("expected unsupported directive error, got %v", err)
+ 	}
+ }
++
++func TestNormalizeManualPlanRepairsUnescapedQuotesInsideUnifiedPatch(t *testing.T) {
++	raw := []byte(`{
++      "protocol":"harness.execution/v1",
++      "plan_id":"plan_1",
++      "request_id":"req_1",
++      "status":"ready",
++      "summary":"remove decoration",
++      "risk":"low",
++      "requires_approval":false,
++      "operations":[{
++        "type":"apply_patch",
++        "patch":"diff --git a/style.css b/style.css\nnew file mode 100644\n--- /dev/null\n+++ b/style.css\n@@ -0,0 +1 @@\n+.x { content: ""; }\n",
++        "command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}
++      }],
++      "verification":[{"argv":["git","diff","--check"],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}]
++    }`)
++	plan, err := NormalizeManualPlan(raw, "req_1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(plan.Operations[0].Patch, `content: "";`) {
++		t.Fatalf("source quotes were not preserved: %q", plan.Operations[0].Patch)
++	}
++	if err := Validate(plan); err != nil {
++		t.Fatalf("repaired plan should validate: %v", err)
++	}
++}
++
++func TestNormalizeManualPlanStripsMarkdownJSONFence(t *testing.T) {
++	raw := []byte("```json\n{\"protocol\":\"harness.execution/v1\",\"plan_id\":\"p\",\"request_id\":\"req_1\",\"status\":\"ready\",\"summary\":\"x\",\"risk\":\"low\",\"requires_approval\":false,\"operations\":[],\"verification\":[]}\n```")
++	plan, err := NormalizeManualPlan(raw, "req_1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if plan.Protocol != domain.ProtocolV1 {
++		t.Fatalf("protocol = %q", plan.Protocol)
++	}
++}
++
++func TestNormalizeManualPlanDoesNotRepairMalformedNonPatchJSON(t *testing.T) {
++	raw := []byte(`{"protocol":"harness.execution/v1","summary":"bad " quote"}`)
++	_, err := NormalizeManualPlan(raw, "req_1")
++	if err == nil || !strings.Contains(err.Error(), "invalid JSON execution plan") {
++		t.Fatalf("expected actionable JSON error, got %v", err)
++	}
++}
+diff --git a/services/desktop/package.json b/services/desktop/package.json
+index d5541b2..e4094e6 100644
+--- a/services/desktop/package.json
++++ b/services/desktop/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "wharness-desktop",
+   "private": true,
+-  "version": "1.2.6",
++  "version": "1.2.7",
+   "type": "module",
+   "main": "main.mjs",
+   "scripts": {

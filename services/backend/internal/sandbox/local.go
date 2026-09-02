@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,13 +28,7 @@ func (r *LocalRunner) ApplyPatch(ctx context.Context, workspace Workspace, patch
 		return domain.CommandResult{}, err
 	}
 	defer os.Remove(path)
-	check := domain.CommandSpec{Argv: []string{"git", "apply", "--check", path}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}
-	res, err := r.Run(ctx, workspace, check)
-	if err != nil || !res.Success {
-		return res, errors.New("git apply --check failed")
-	}
-	check.Argv = []string{"git", "apply", path}
-	return r.Run(ctx, workspace, check)
+	return applyPatchWithStrategies(ctx, workspace, patch, path, 30, r.Run)
 }
 
 func (r *LocalRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     show: (bounds) => invoke('wharness:chatgpt:show', bounds),
     hide: () => invoke('wharness:chatgpt:hide'),
     setBounds: (bounds) => invoke('wharness:chatgpt:set-bounds', bounds),
+    navigate: (url) => invoke('wharness:chatgpt:navigate', String(url)),
     reload: () => invoke('wharness:chatgpt:reload'),
     focus: () => invoke('wharness:chatgpt:focus'),
     back: () => invoke('wharness:chatgpt:back'),

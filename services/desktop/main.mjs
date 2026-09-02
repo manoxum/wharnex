@@ -2,7 +2,7 @@ import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, ipcMain,
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
+import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -149,6 +149,14 @@ function registerIPC() {
   ipcMain.handle('wharness:chatgpt:set-bounds', (event, bounds) => {
     trustedSender(event)
     return { ok: chatgptVisible ? setChatGPTBounds(bounds) : false }
+  })
+  ipcMain.handle('wharness:chatgpt:navigate', async (event, value) => {
+    trustedSender(event)
+    const target = requireTrustedChatGPTURL(value || CHATGPT_URL)
+    const wc = chatgptView?.webContents
+    if (!wc) throw new Error('ChatGPT view is unavailable')
+    if (wc.getURL() !== target) await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
+    return currentChatGPTState()
   })
   ipcMain.handle('wharness:chatgpt:reload', (event) => { trustedSender(event); chatgptView?.webContents.reload(); return { ok: true } })
   ipcMain.handle('wharness:chatgpt:focus', (event) => { trustedSender(event); chatgptView?.webContents.focus(); return { ok: true } })

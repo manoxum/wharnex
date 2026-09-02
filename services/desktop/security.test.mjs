@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, resolveLinuxOzonePlatform, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
+import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
 
 test('session ids are strictly allowlisted', () => {
   assert.equal(sanitizeSessionId('ses_20260902_abc-123'), 'ses_20260902_abc-123')
@@ -59,4 +59,12 @@ test('clipboard permission origin is restricted to ChatGPT HTTPS', () => {
   assert.equal(isTrustedChatGPTOrigin('https://chatgpt.com.evil.example/'), false)
   assert.equal(isTrustedChatGPTOrigin('https://openai.com/'), false)
   assert.equal(isTrustedChatGPTOrigin('javascript:alert(1)'), false)
+})
+
+
+test('ChatGPT navigation URLs are restricted to the trusted remote surface', () => {
+  assert.equal(requireTrustedChatGPTURL('https://chatgpt.com/c/abc'), 'https://chatgpt.com/c/abc')
+  assert.throws(() => requireTrustedChatGPTURL('https://chatgpt.com.evil.example/c/abc'))
+  assert.throws(() => requireTrustedChatGPTURL('http://chatgpt.com/c/abc'))
+  assert.throws(() => requireTrustedChatGPTURL('https://user:secret@chatgpt.com/c/abc'))
 })

@@ -21,3 +21,12 @@ export function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
+
+export function chatgptConversationURL(value: string) {
+  try {
+    const url = new URL(value)
+    const trusted = url.protocol === 'https:' && (url.hostname === 'chatgpt.com' || url.hostname.endsWith('.chatgpt.com'))
+    if (!trusted || !/\/c\/[^/]+/.test(url.pathname)) return ''
+    return `${url.origin}${url.pathname}`
+  } catch { return '' }
+}

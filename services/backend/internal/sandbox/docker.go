@@ -33,14 +33,7 @@ func (r *DockerRunner) ApplyPatch(ctx context.Context, workspace Workspace, patc
 		return domain.CommandResult{}, err
 	}
 	defer os.Remove(path)
-	check := domain.CommandSpec{Argv: []string{"git", "apply", "--check", "/workspace/.kernl/" + filepath.Base(path)}, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}}
-	result, err := r.Run(ctx, workspace, check)
-	if err != nil || !result.Success {
-		return result, firstErr(err, errors.New("git apply --check failed"))
-	}
-	apply := check
-	apply.Argv = []string{"git", "apply", "/workspace/.kernl/" + filepath.Base(path)}
-	return r.Run(ctx, workspace, apply)
+	return applyPatchWithStrategies(ctx, workspace, patch, "/workspace/.kernl/"+filepath.Base(path), 60, r.Run)
 }
 
 func (r *DockerRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {

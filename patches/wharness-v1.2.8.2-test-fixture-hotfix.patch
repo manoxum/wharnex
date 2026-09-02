@@ -1,0 +1,12 @@
+diff --git a/services/frontend/src/components/ChatPanel.test.tsx b/services/frontend/src/components/ChatPanel.test.tsx
+index 1c5b8c9..5a01c40 100644
+--- a/services/frontend/src/components/ChatPanel.test.tsx
++++ b/services/frontend/src/components/ChatPanel.test.tsx
+@@ -6,7 +6,6 @@ import type { Session } from '../types'
+ const session = {
+   id: 'ses-test',
+   project_path: '/tmp/demo',
+-  execution_mode: 'protected',
+   state: 'ready',
+   execution_mode: 'protected',
+   created_at: new Date().toISOString(),

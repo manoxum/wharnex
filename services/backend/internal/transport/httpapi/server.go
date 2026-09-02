@@ -31,6 +31,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/config", a.config)
 	mux.HandleFunc("POST /api/sessions", a.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", a.getSession)
+	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
 	mux.HandleFunc("POST /api/sessions/{id}/manual-plan", a.manualPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
@@ -56,7 +57,8 @@ func (a *API) config(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ProjectPath string `json:"project_path"`
+		ProjectPath   string               `json:"project_path"`
+		ExecutionMode domain.ExecutionMode `json:"execution_mode"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -65,7 +67,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_project_path", "project_path is required")
 		return
 	}
-	item, err := a.service.StartSession(r.Context(), body.ProjectPath)
+	item, err := a.service.StartSession(r.Context(), body.ProjectPath, body.ExecutionMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "session_create_failed", err.Error())
 		return
@@ -77,6 +79,21 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 	item, err := a.store.Get(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session_not_found", "session not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) executionMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ExecutionMode domain.ExecutionMode `json:"execution_mode"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetExecutionMode(r.PathValue("id"), body.ExecutionMode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "execution_mode_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

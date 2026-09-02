@@ -3,6 +3,7 @@ NPM_CACHE ?= $(HOME)/.cache/wharness-npm
 RUNNER_IMAGE ?= kernl-runner:local
 DIST_DIR ?= $(ROOT_DIR)/dist
 BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
+BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 
 .PHONY: help deps build build-backend build-frontend build-desktop build-runner \
 	backend-check frontend-check desktop-check check test start stop restart status logs \
@@ -27,6 +28,7 @@ deps:
 	@command -v node >/dev/null || { echo 'node is required' >&2; exit 1; }
 	@command -v npm >/dev/null || { echo 'npm is required' >&2; exit 1; }
 	@command -v docker >/dev/null || { echo 'docker is required' >&2; exit 1; }
+	@command -v git >/dev/null || { echo 'git is required' >&2; exit 1; }
 	@command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
 	cd "$(ROOT_DIR)/services/backend" && go mod download
 	cd "$(ROOT_DIR)/services/frontend" && npm install --cache "$(NPM_CACHE)"
@@ -46,11 +48,14 @@ build-runner:
 	docker build -t "$(RUNNER_IMAGE)" -f "$(ROOT_DIR)/docker/runner/Dockerfile" "$(ROOT_DIR)"
 
 build:
+	@rm -f "$(BUILD_STAMP)"
 	@$(MAKE) --no-print-directory deps
 	@$(MAKE) --no-print-directory build-backend
 	@$(MAKE) --no-print-directory build-frontend
 	@$(MAKE) --no-print-directory build-desktop
 	@$(MAKE) --no-print-directory build-runner
+	@mkdir -p "$(dir $(BUILD_STAMP))"
+	@touch "$(BUILD_STAMP)"
 	@printf '\nWharness build complete. Start with: make start\n'
 
 backend-check:
@@ -94,7 +99,7 @@ run-desktop:
 
 clean:
 	@$(MAKE) --no-print-directory stop || true
-	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs"
+	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" "$(BUILD_STAMP)"
 
 EXPORT_ARCHIVE ?= $(DIST_DIR)/wharness.zip
 export:

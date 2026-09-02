@@ -2,11 +2,9 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +16,7 @@ import (
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/projectgit"
 	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
 	"kernl.local/harness/backend/internal/session"
@@ -30,31 +29,65 @@ var (
 )
 
 type Service struct {
-	store     *session.Store
-	bus       *audit.Bus
-	context   *contextbundle.Builder
-	planner   planner.Planner
-	policy    *policy.Engine
-	runner    sandbox.Runner
-	devMu     sync.Mutex
-	devspaces map[string]sandbox.Workspace
+	store      *session.Store
+	bus        *audit.Bus
+	context    *contextbundle.Builder
+	planner    planner.Planner
+	policy     *policy.Engine
+	runner     sandbox.Runner
+	hostRunner sandbox.Runner
+	devMu      sync.Mutex
+	devspaces  map[string]sandbox.Workspace
 }
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
-	return &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, devspaces: make(map[string]sandbox.Workspace)}
+	return &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), devspaces: make(map[string]sandbox.Workspace)}
 }
 
-func (s *Service) StartSession(ctx context.Context, projectPath string) (domain.Session, error) {
+func (s *Service) StartSession(ctx context.Context, projectPath string, requestedMode ...domain.ExecutionMode) (domain.Session, error) {
 	id := ids.New("ses")
+	mode := domain.ExecutionModeProtected
+	if len(requestedMode) > 0 && requestedMode[0] != "" {
+		mode = requestedMode[0]
+	}
+	if !domain.ValidExecutionMode(mode) {
+		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
+	}
+	initialized, err := projectgit.Ensure(ctx, projectPath)
+	if err != nil {
+		s.bus.Publish(id, "project.git_failed", map[string]any{"project_path": projectPath, "error": err.Error()})
+		return domain.Session{}, fmt.Errorf("prepare project git repository: %w", err)
+	}
+	if initialized {
+		s.bus.Publish(id, "project.git_initialized", map[string]any{"project_path": projectPath})
+	} else {
+		s.bus.Publish(id, "project.git_ready", map[string]any{"project_path": projectPath})
+	}
 	s.bus.Publish(id, "context.scanning", map[string]any{"project_path": projectPath})
 	bundle, err := s.context.Build(projectPath)
 	if err != nil {
 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
 		return domain.Session{}, err
 	}
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: mode, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	s.store.Put(item)
-	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated})
+	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": mode})
+	return item, nil
+}
+
+func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) (domain.Session, error) {
+	if !domain.ValidExecutionMode(mode) {
+		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
+	}
+	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.ExecutionMode = mode
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.resetDevspace(sessionID)
+	s.bus.Publish(sessionID, "execution.mode_changed", map[string]any{"execution_mode": mode})
 	return item, nil
 }
 
@@ -73,6 +106,9 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastManualPrompt = result.ManualPrompt
 		current.LastRequestID = requestID
+		if result.Plan == nil && result.ManualPrompt != "" {
+			current.PendingManualRequestIDs = appendPendingManualRequest(current.PendingManualRequestIDs, requestID)
+		}
 		if result.ProviderResponseID != "" {
 			current.LastProviderResponseID = result.ProviderResponseID
 		}
@@ -108,15 +144,15 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 	if err != nil {
 		return domain.Session{}, err
 	}
-	var plan domain.ExecutionPlan
-	if err := json.Unmarshal(raw, &plan); err != nil {
+	plan, err := protocol.NormalizeManualPlan(raw, current.LastRequestID)
+	if err != nil {
 		return domain.Session{}, fmt.Errorf("decode manual plan: %w", err)
 	}
 	if err := protocol.Validate(plan); err != nil {
 		return domain.Session{}, err
 	}
-	if current.LastRequestID == "" || plan.RequestID != current.LastRequestID {
-		return domain.Session{}, fmt.Errorf("manual plan request_id does not match the active request")
+	if !containsString(current.PendingManualRequestIDs, plan.RequestID) {
+		return domain.Session{}, fmt.Errorf("manual plan request_id %q is not pending for this chat/session", plan.RequestID)
 	}
 	decision := s.policy.Evaluate(plan)
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -124,6 +160,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 		current.Policy = &decision
 		current.State = "planned"
 		current.LastExecution = nil
+		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, plan.RequestID)
 		return nil
 	})
 	if err == nil {
@@ -143,32 +180,47 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	if !item.Policy.Allowed {
 		return domain.ExecutionResult{}, item, errors.New("policy denied plan")
 	}
-	if item.Policy.RequiresApproval && !approved {
+	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
+	if (item.Policy.RequiresApproval || unprotected) && !approved {
 		return domain.ExecutionResult{}, item, ErrApprovalRequired
 	}
+
+	runner := s.runner
+	executionTarget := "sandbox"
+	if unprotected {
+		runner = s.hostRunner
+		executionTarget = "host"
+		if _, err := projectgit.Ensure(ctx, item.ProjectPath); err != nil {
+			return domain.ExecutionResult{}, item, fmt.Errorf("prepare host git repository: %w", err)
+		}
+	}
+
 	result := domain.ExecutionResult{PlanID: item.Plan.PlanID, StartedAt: time.Now().UTC()}
-	s.bus.Publish(sessionID, "execution.started", map[string]any{"plan_id": item.Plan.PlanID})
-	workspace, err := s.runner.Prepare(ctx, item.ProjectPath)
+	s.bus.Publish(sessionID, "execution.started", map[string]any{"plan_id": item.Plan.PlanID, "execution_mode": item.ExecutionMode, "target": executionTarget})
+	workspace, err := runner.Prepare(ctx, item.ProjectPath)
 	if err != nil {
 		return s.failExecution(sessionID, result, err)
 	}
-	defer s.runner.Cleanup(workspace)
+	defer runner.Cleanup(workspace)
 
 	for _, op := range item.Plan.Operations {
 		if op.Type == "apply_patch" {
-			s.bus.Publish(sessionID, "patch.started", map[string]any{})
-			commandResult, runErr := s.runner.ApplyPatch(ctx, workspace, op.Patch)
+			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
+				return s.failExecution(sessionID, result, err)
+			}
+			s.bus.Publish(sessionID, "patch.started", map[string]any{"target": executionTarget})
+			commandResult, runErr := runner.ApplyPatch(ctx, workspace, op.Patch)
 			result.Commands = append(result.Commands, commandResult)
 			if runErr != nil || !commandResult.Success {
 				if runErr == nil {
-					runErr = errors.New("patch failed")
+					runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
 				}
 				return s.failExecution(sessionID, result, runErr)
 			}
-			s.bus.Publish(sessionID, "patch.applied", map[string]any{})
+			s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": executionTarget})
 			continue
 		}
-		commandResult, runErr := s.runCommand(ctx, sessionID, workspace, op.Command)
+		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, op.Command, executionTarget)
 		result.Commands = append(result.Commands, commandResult)
 		if runErr != nil || !commandResult.Success {
 			if runErr == nil {
@@ -178,35 +230,88 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		}
 	}
 	for _, command := range item.Plan.Verification {
-		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv})
-		commandResult, runErr := s.runCommand(ctx, sessionID, workspace, command)
+		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv, "target": executionTarget})
+		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
 		result.Commands = append(result.Commands, commandResult)
 		if runErr != nil || !commandResult.Success {
 			if runErr == nil {
-				runErr = fmt.Errorf("verification exited with %d", commandResult.ExitCode)
+				runErr = fmt.Errorf("verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), commandResult.ExitCode, commandResultDiagnostic(commandResult))
 			}
 			return s.failExecution(sessionID, result, runErr)
 		}
-		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode})
+		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode, "target": executionTarget})
 	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastExecution = &result
-		current.State = "verified"
+		if unprotected {
+			current.State = "applied"
+		} else {
+			current.State = "verified"
+		}
 		return nil
 	})
 	if err != nil {
 		return result, item, err
 	}
-	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true})
+	if unprotected {
+		s.resetDevspace(sessionID)
+		if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
+			updated = refreshed
+		}
+	}
+	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	return result, updated, nil
 }
 
 func (s *Service) runCommand(ctx context.Context, sessionID string, workspace sandbox.Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
-	s.bus.Publish(sessionID, "command.started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network})
-	result, err := s.runner.Run(ctx, workspace, command)
-	s.bus.Publish(sessionID, "command.completed", map[string]any{"argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr})
+	return s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "sandbox")
+}
+
+func appendPendingManualRequest(values []string, requestID string) []string {
+	const maxPending = 32
+	values = removeString(values, requestID)
+	values = append(values, requestID)
+	if len(values) > maxPending {
+		values = append([]string(nil), values[len(values)-maxPending:]...)
+	}
+	return values
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(values []string, target string) []string {
+	out := values[:0]
+	for _, value := range values {
+		if value != target {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func commandResultDiagnostic(result domain.CommandResult) string {
+	if text := strings.TrimSpace(result.Stderr); text != "" {
+		return text
+	}
+	if text := strings.TrimSpace(result.Stdout); text != "" {
+		return text
+	}
+	return "no stdout/stderr"
+}
+
+func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
+	s.bus.Publish(sessionID, "command.started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
+	result, err := runner.Run(ctx, workspace, command)
+	s.bus.Publish(sessionID, "command.completed", map[string]any{"argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "target": target})
 	return result, err
 }
 
@@ -219,7 +324,13 @@ func (s *Service) failExecution(sessionID string, result domain.ExecutionResult,
 		current.State = "failed"
 		return nil
 	})
-	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error()})
+	if updated.ExecutionMode == domain.ExecutionModeUnprotected {
+		s.resetDevspace(sessionID)
+		if refreshed, err := s.refreshContext(sessionID); err == nil {
+			updated = refreshed
+		}
+	}
+	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode})
 	return result, updated, cause
 }
 
@@ -228,9 +339,24 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if err != nil {
 		return item, err
 	}
+	if item.ExecutionMode == domain.ExecutionModeUnprotected {
+		return item, errors.New("apply is unavailable in unprotected mode because execution already targets the host")
+	}
+	initialized, err := projectgit.Ensure(ctx, item.ProjectPath)
+	if err != nil {
+		return item, fmt.Errorf("prepare project git repository before host apply: %w", err)
+	}
+	if initialized {
+		s.bus.Publish(sessionID, "project.git_initialized", map[string]any{"project_path": item.ProjectPath, "reason": "host_apply"})
+	}
 	if item.Plan == nil || item.LastExecution == nil || !item.LastExecution.Success || item.LastExecution.PlanID != item.Plan.PlanID {
 		return item, ErrExecutionRequired
 	}
+	workspace, err := s.hostRunner.Prepare(ctx, item.ProjectPath)
+	if err != nil {
+		return item, err
+	}
+	defer s.hostRunner.Cleanup(workspace)
 	for _, op := range item.Plan.Operations {
 		if op.Type != "apply_patch" {
 			continue
@@ -238,15 +364,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
 			return item, err
 		}
-		check := exec.CommandContext(ctx, "git", "-C", item.ProjectPath, "apply", "--check", "-")
-		check.Stdin = strings.NewReader(op.Patch)
-		if output, err := check.CombinedOutput(); err != nil {
-			return item, fmt.Errorf("host git apply --check: %s", strings.TrimSpace(string(output)))
-		}
-		apply := exec.CommandContext(ctx, "git", "-C", item.ProjectPath, "apply", "-")
-		apply.Stdin = strings.NewReader(op.Patch)
-		if output, err := apply.CombinedOutput(); err != nil {
-			return item, fmt.Errorf("host git apply: %s", strings.TrimSpace(string(output)))
+		if result, err := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch); err != nil || !result.Success {
+			if err != nil {
+				return item, fmt.Errorf("host apply failed: %w", err)
+			}
+			return item, fmt.Errorf("host apply failed: %s", strings.TrimSpace(result.Stderr))
 		}
 	}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "applied"; return nil })

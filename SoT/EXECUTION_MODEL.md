@@ -1,5 +1,9 @@
 # Execution Model SoT
 
+Wharness supports a per-project execution mode selected in the workspace UI.
+
+## Protected (default)
+
 1. Plans are validated structurally.
 2. Policy evaluates each operation.
 3. Denied plans never execute.
@@ -7,10 +11,35 @@
 5. Patches are applied in the sandbox first.
 6. Commands/verification run with declared cwd, timeout, network policy, and expected exit codes.
 7. Host application is a separate endpoint/action and is allowed only after successful sandbox verification.
-8. The host apply step re-runs `git apply --check` before mutation.
+8. Host application re-validates patch paths and re-checks patch applicability before mutation.
+
+## Unprotected (explicit per project)
+
+1. The project must be switched to `Unprotected` from the workspace UI.
+2. The choice is persisted per project and restored when the workspace is reopened.
+3. Plans still require structural validation and Policy Engine approval.
+4. Every execution requires an explicit user confirmation even when the plan would not otherwise require approval.
+5. Patches, commands, and verification execute directly in the real `project_path`; no copied sandbox is created for the Agent plan.
+6. Successful execution moves directly to `applied`; there is no separate Apply step.
+7. A failed multi-operation plan can leave partial host changes. Wharness MUST state this risk and MUST NOT attempt an automatic destructive rollback over pre-existing user changes.
+8. `ApplyToHost` is unavailable for Unprotected sessions because the plan has already targeted the host.
+
+The interactive Editor terminal remains sandboxed in both modes. The Protected/Unprotected switch governs Agent plan execution, not arbitrary human terminal commands.
+
+## Patch applicability
+
+Patch execution first uses `git apply --check`. If a generated unified diff has inconsistent hunk line counts, Wharness may retry with `git apply --recount`. If the patch contains Git blob `index` metadata, a conservative `git apply --3way --check` attempt may also be used. A fallback is applied only after its check succeeds. Failed checks surface Git stderr instead of a generic `git apply --check failed` message.
 
 ## Interactive IDE terminal
 
 The Editor terminal is a human-initiated execution surface. It does not execute through a shell string: the frontend parses input into argv and the backend executes argv directly in a persistent isolated project copy. The same executable policy can deny dangerous host-control commands. Network is disabled by default and is an explicit per-command user choice.
 
-Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible. The agent path remains sandbox-first and requires explicit Apply for host mutation.
+Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible.
+
+## Git bootstrap
+
+- Opening a project MUST ensure the project root owns a `.git` repository; when absent, Wharness initializes it with `git init` before context capture.
+- Wharness MUST NOT create an automatic host commit during bootstrap.
+- Protected host apply and Unprotected direct execution MUST re-check Git readiness before patching.
+- Every isolated sandbox copy MUST initialize its own Git repository and baseline commit after filtering excluded/secrets. Host `.git` metadata is never copied into the sandbox.
+- Read-only verification such as `git diff --check` therefore runs against the sandbox baseline in Protected mode and against the project's own repository in Unprotected mode.

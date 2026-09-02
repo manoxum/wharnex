@@ -20,3 +20,7 @@ npm run dev
 - The ChatGPT session uses the persistent partition `persist:wharness-chatgpt`.
 - No ChatGPT DOM, cookies, prompts, or responses are read by Wharness.
 - Clipboard file creation happens in the Electron main process through an allowlisted IPC command.
+
+## Harness chat affinity
+
+Wharness reuses one remote `WebContentsView`, but each Harness chat stores its own stable ChatGPT conversation URL. Switching chats navigates the remote surface to that URL. Renderer-requested navigation is restricted to trusted HTTPS `chatgpt.com` origins.

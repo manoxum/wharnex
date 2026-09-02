@@ -1,4 +1,4 @@
-import type { AppConfig, CommandResult, CommandSpec, FileEntry, Session, WorkspaceFile } from '../types'
+import type { AppConfig, CommandResult, CommandSpec, ExecutionMode, FileEntry, Session, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -24,9 +24,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   url: API_URL,
   config: () => request<AppConfig>('/api/config'),
-  createSession: (projectPath: string) =>
-    request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath }) }),
+  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected') =>
+    request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode }) }),
   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
+  setExecutionMode: (id: string, executionMode: ExecutionMode) =>
+    request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
   message: (id: string, message: string) =>
     request<{ session: Session; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
       method: 'POST', body: JSON.stringify({ message }),

@@ -59,9 +59,12 @@ export type ContextManifest = {
   text_truncated: boolean
 }
 
+export type ExecutionMode = 'protected' | 'unprotected'
+
 export type Session = {
   id: string
   project_path: string
+  execution_mode: ExecutionMode
   state: string
   created_at: string
   context: { id: string; manifest: ContextManifest }

@@ -1,10 +1,12 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -55,7 +57,30 @@ func copyProject(source string) (Workspace, error) {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("copy project: %w", err)
 	}
+	if err := initializeWorkspaceGit(tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
+	}
 	return Workspace{Path: tmp}, nil
+}
+
+func initializeWorkspaceGit(root string) error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return errors.New("git executable not found")
+	}
+	commands := [][]string{
+		{"git", "-C", root, "init", "-q"},
+		{"git", "-C", root, "add", "-A"},
+		{"git", "-C", root, "-c", "user.name=Wharness", "-c", "user.email=wharness@localhost", "-c", "commit.gpgSign=false", "commit", "-q", "--allow-empty", "-m", "Wharness sandbox baseline"},
+	}
+	for _, argv := range commands {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%s: %s", strings.Join(argv, " "), strings.TrimSpace(string(output)))
+		}
+	}
+	return nil
 }
 
 func copyFile(source, dest string, mode os.FileMode) error {

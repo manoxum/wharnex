@@ -1,0 +1,10 @@
+--- a/services/frontend/src/components/ChatPanel.test.tsx	2026-09-02 21:08:18.329764151 +0000
++++ b/services/frontend/src/components/ChatPanel.test.tsx	2026-09-02 21:50:52.243760707 +0000
+@@ -6,6 +6,7 @@
+ const session = {
+   id: 'ses-test',
+   project_path: '/tmp/demo',
++  execution_mode: 'protected',
+   state: 'ready',
+   created_at: new Date().toISOString(),
+   context: {

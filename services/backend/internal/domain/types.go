@@ -4,6 +4,17 @@ import "time"
 
 const ProtocolV1 = "harness.execution/v1"
 
+type ExecutionMode string
+
+const (
+	ExecutionModeProtected   ExecutionMode = "protected"
+	ExecutionModeUnprotected ExecutionMode = "unprotected"
+)
+
+func ValidExecutionMode(mode ExecutionMode) bool {
+	return mode == ExecutionModeProtected || mode == ExecutionModeUnprotected
+}
+
 type CommandSpec struct {
 	Argv              []string `json:"argv"`
 	Cwd               string   `json:"cwd"`
@@ -79,17 +90,19 @@ type ContextBundle struct {
 }
 
 type Session struct {
-	ID                     string           `json:"id"`
-	ProjectPath            string           `json:"project_path"`
-	State                  string           `json:"state"`
-	CreatedAt              time.Time        `json:"created_at"`
-	Context                ContextBundle    `json:"context"`
-	Plan                   *ExecutionPlan   `json:"plan,omitempty"`
-	Policy                 *PolicyDecision  `json:"policy,omitempty"`
-	LastExecution          *ExecutionResult `json:"last_execution,omitempty"`
-	LastProviderResponseID string           `json:"-"`
-	LastRequestID          string           `json:"last_request_id,omitempty"`
-	LastManualPrompt       string           `json:"last_manual_prompt,omitempty"`
+	ID                      string           `json:"id"`
+	ProjectPath             string           `json:"project_path"`
+	ExecutionMode           ExecutionMode    `json:"execution_mode"`
+	State                   string           `json:"state"`
+	CreatedAt               time.Time        `json:"created_at"`
+	Context                 ContextBundle    `json:"context"`
+	Plan                    *ExecutionPlan   `json:"plan,omitempty"`
+	Policy                  *PolicyDecision  `json:"policy,omitempty"`
+	LastExecution           *ExecutionResult `json:"last_execution,omitempty"`
+	LastProviderResponseID  string           `json:"-"`
+	LastRequestID           string           `json:"last_request_id,omitempty"`
+	PendingManualRequestIDs []string         `json:"pending_manual_request_ids,omitempty"`
+	LastManualPrompt        string           `json:"last_manual_prompt,omitempty"`
 }
 
 type Event struct {

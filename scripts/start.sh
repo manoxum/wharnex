@@ -6,6 +6,7 @@ RUN_DIR="$ROOT/.harness/run"
 LOG_DIR="$ROOT/.harness/logs"
 PID_FILE="$RUN_DIR/coordinator.pid"
 LOG_FILE="$LOG_DIR/desktop.log"
+BUILD_STAMP="$ROOT/.harness/build-success"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -21,6 +22,36 @@ if [ -f "$PID_FILE" ]; then
     exit 0
   fi
   rm -f "$PID_FILE"
+fi
+
+if [ ! -f "$BUILD_STAMP" ]; then
+  echo 'No successful Wharness build is recorded. Run: make build' >&2
+  exit 1
+fi
+
+# Refuse to launch stale compiled artifacts after source/configuration changes.
+if find \
+  "$ROOT/Makefile" \
+  "$ROOT/scripts" \
+  "$ROOT/docker" \
+  "$ROOT/services/backend" \
+  "$ROOT/services/frontend/src" \
+  "$ROOT/services/frontend/index.html" \
+  "$ROOT/services/frontend/package.json" \
+  "$ROOT/services/frontend/package-lock.json" \
+  "$ROOT/services/frontend/vite.config.ts" \
+  "$ROOT/services/frontend/tsconfig.json" \
+  "$ROOT/services/frontend/tsconfig.app.json" \
+  "$ROOT/services/frontend/tsconfig.node.json" \
+  "$ROOT/services/desktop" \
+  -type f -newer "$BUILD_STAMP" \
+  ! -path '*/node_modules/*' \
+  ! -path '*/dist/*' \
+  ! -name '*.log' \
+  ! -name '*.tsbuildinfo' \
+  -print -quit 2>/dev/null | grep -q .; then
+  echo 'Wharness build is stale because source/configuration files changed. Run: make build' >&2
+  exit 1
 fi
 
 if [ ! -x "$ROOT/services/desktop/node_modules/.bin/electron" ]; then

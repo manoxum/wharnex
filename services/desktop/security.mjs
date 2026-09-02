@@ -51,6 +51,15 @@ export function isTrustedChatGPTOrigin(value) {
   }
 }
 
+
+export function requireTrustedChatGPTURL(value) {
+  let url
+  try { url = new URL(String(value)) } catch { throw new Error('Invalid ChatGPT URL') }
+  if (!isTrustedChatGPTOrigin(url.href)) throw new Error('ChatGPT URL must use a trusted chatgpt.com HTTPS origin')
+  if (url.username || url.password) throw new Error('ChatGPT URL credentials are not allowed')
+  return url.href
+}
+
 export function externalAuthProvider(value) {
   let host
   try { host = new URL(String(value)).hostname.toLowerCase() } catch { return '' }

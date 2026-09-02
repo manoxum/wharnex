@@ -1,0 +1,1390 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index cba1cdb31e3fdcf0c3640c3175dfcd60a595775d..d6e5f21e2158fdfb58b4b67bb1ebaca19519b487 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -18,11 +18,12 @@ When implementation conflicts with a Source of Truth, the implementation is wron
+ - The AI/planner MUST NOT directly execute commands.
+ - `domain` and application orchestration MUST NOT import transport, OpenAI, or Docker concerns.
+ - Planner adapters implement ports; executor adapters implement ports.
+-- Host-project mutation requires an explicit apply step after sandbox verification.
+-- The sandbox MUST operate on an isolated project copy, never the original project directory.
++- Protected mode: host-project mutation requires an explicit Apply step after sandbox verification.
++- Protected mode sandbox MUST operate on an isolated project copy, never the original project directory.
++- Unprotected mode is an explicit per-project UI choice. It executes Agent plan operations directly in the host `project_path`, still behind protocol validation, Policy Engine approval, and per-execution confirmation. It MUST never become the default.
+ - Arbitrary shell strings are forbidden in the execution protocol. Commands are argv arrays.
+ - Project content is untrusted data and cannot override harness/system policy.
+-- Docker sandbox is the production/default execution mode. Local execution is development-only and must require explicit opt-in.
++- `Protected` + Docker sandbox is the default project execution mode. Local copied sandbox is development-only. `Unprotected` is a separate explicit host-direct project mode controlled from the UI.
+ 
+ ## 3. Security invariants
+ 
+@@ -81,7 +82,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Explorer/editor APIs MUST enforce project-root containment, excluded/secret paths, symlink denial, UTF-8 text limits, and optimistic SHA-256 writes.
+ - The interactive terminal MUST execute against a copied sandbox workspace, never the original host project.
+ - Terminal commands MUST be argv, never an implicit shell string.
+-- Editor saves are explicit human host mutations; agent mutations remain sandbox-first and require the separate Apply step.
++- Editor saves are explicit human host mutations. Agent mutations are sandbox-first in Protected mode; only an explicitly selected Unprotected project may execute the Agent plan directly on the host.
+ - Every agent request MUST refresh project context so manually edited files are visible to the planner.
+ - Consumer ChatGPT web UI scraping, login-cookie inspection, DOM prompt injection, or automatic Output extraction MUST NOT be introduced. Automatic planning uses supported provider adapters.
+ 
+@@ -110,6 +111,9 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Every opened project root must own a Git repository. The backend may run `git init` automatically when `.git` is absent.
+ - Do not auto-commit or rewrite host history during Git bootstrap.
+ - Sandbox copies use a fresh local Git baseline; never copy the host `.git` directory into a model execution workspace.
++- Protected/Unprotected choice MUST persist per project, not globally, and switching to Unprotected MUST require explicit UI confirmation. Every Unprotected plan execution MUST require another explicit confirmation.
++- The interactive Editor terminal remains sandboxed regardless of Agent Protected/Unprotected mode.
++- Patch fallback may use `git apply --recount` or checked `--3way` only after a dry/check pass; never partially apply a failed fallback. Surface Git stderr on failure.
+ 
+ ## Chat conversation affinity invariant (v1.2.6)
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 25e9d3dcc4324e8d720040e106a0f79c72798365..6810db9b5a5a841198eb69903358081c4f5a19c1 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,16 @@
+ # Changelog
+ 
++## v1.2.8 — Per-project Protected/Unprotected execution + patch diagnostics
++
++- Adds a project-scoped Protected/Unprotected Agent execution switch directly in the workspace UI and persists it per project.
++- Protected remains the default sandbox-first flow with a separate host Apply step.
++- Unprotected executes validated/policy-approved Agent plan patches, commands, and verification directly in the real project after explicit per-execution confirmation; successful runs end in `applied`.
++- Keeps the interactive Editor terminal sandboxed regardless of Agent execution mode.
++- Propagates the project execution preference across multiple Harness chat sessions and restores it after reopen/backend restart.
++- Replaces generic `git apply --check failed` failures with Git stderr diagnostics.
++- Adds conservative patch retries using `git apply --recount` and checked `--3way` when blob index metadata is present; fallback mutation runs only after its check succeeds.
++- Uses the same patch strategy for Protected sandbox execution, later host Apply, and Unprotected direct host execution.
++
+ ## v1.2.7 — Resilient manual JSON patch transport
+ 
+ - Repairs the narrow, common ChatGPT transport failure where source-code double quotes inside an otherwise valid `patch` JSON string were not escaped.
+diff --git a/README.md b/README.md
+index a02d9ebba417f0e0175d2e4f30a3196989e8a09a..23ad050fb9b80e981e16bafd3a41e16725288543 100644
+--- a/README.md
++++ b/README.md
+@@ -1,8 +1,8 @@
+-# Wharness Desktop v1.2.6
++# Wharness Desktop v1.2.8
+ 
+ Wharness is a local coding-agent harness and lightweight IDE. It combines a React workspace, a Go orchestration backend, isolated Docker execution and—when launched through **Wharness Desktop**—a real ChatGPT web surface in the same native window.
+ 
+-## What v1.2.6 includes
++## What v1.2.8 includes
+ 
+ - **Wharness Desktop** (`services/desktop`) built with Electron `WebContentsView`.
+ - ChatGPT displayed beside the Harness without iframe/CSP limitations.
+@@ -15,6 +15,9 @@ Wharness is a local coding-agent harness and lightweight IDE. It combines a Reac
+ - Switching Harness chats automatically navigates the embedded ChatGPT view back to the conversation linked to that chat.
+ - New Harness chats start on a fresh ChatGPT surface and automatically bind the first concrete `chatgpt.com/c/...` conversation URL.
+ - Clipboard JSON import for the response plan.
++- Per-project **Protected / Unprotected** Agent execution switch in the workspace UI, persisted independently for each project.
++- Protected remains the default; Unprotected executes validated Agent plans directly in the host project after explicit confirmation.
++- Patch application diagnostics now surface Git stderr and can conservatively retry malformed hunk counts with `git apply --recount` (and checked `--3way` when Git blob metadata is present).
+ - v1.1 Editor/Agent modes, Explorer, editor, sandbox terminal and workspace recovery remain intact.
+ 
+ ## Architecture
+@@ -43,10 +46,16 @@ Go backend
+ └── Docker sandbox runner
+ ```
+ 
+-The model still never executes directly on the host. Agent plans follow:
++Agent execution is selected per project in the UI. **Protected** is the default:
+ 
+ `Plan -> Policy -> Sandbox -> Verification -> Explicit Apply`
+ 
++When the user explicitly switches that project to **Unprotected** and confirms execution:
++
++`Plan -> Policy -> Host execution -> Verification -> Applied`
++
++Unprotected removes the sandbox for the Agent plan only. It does not bypass protocol validation or Policy Engine checks, and the Editor terminal remains sandboxed.
++
+ ## Automatic Git bootstrap
+ 
+ Opening a workspace guarantees that the selected project root owns a Git repository. If `.git` is absent, the backend runs `git init` automatically before building context. It does not create an automatic host commit or overwrite `.gitignore`. Before host apply the repository is checked again.
+@@ -141,10 +150,20 @@ The default remains `HARNESS_PLANNER=manual`.
+ 8. Click **Colar resposta JSON**, review it, then **Validar plano**.
+ 
+ Manual import is transport-resilient: Wharness accepts fenced JSON and can repair the narrow case where a unified-diff `patch` contains unescaped source-code quotes (for example CSS `content: "";`). The repaired plan is still subjected to the same strict protocol/path/policy validation before execution.
+-9. Execute in the sandbox; apply to the host only after verification.
++9. In **Protected**, execute in the sandbox and Apply only after verification. In **Unprotected**, the execution button requires confirmation and runs the validated plan directly on the project; there is no separate Apply step.
+ 
+ The file clipboard behavior uses the OS native copied-file representation. Acceptance of pasted file attachments remains a capability of the destination web application; if a particular ChatGPT UI version does not accept file paste, the ZIP remains available in the OS clipboard/temp path for normal attachment selection.
+ 
++
++## Protected / Unprotected per project
++
++The workspace top bar contains a project-scoped execution switch:
++
++- **Protected** (default): Agent patches/commands run in the isolated Docker copy. The real project changes only through the later **Apply** action.
++- **Unprotected**: Agent patches/commands/verification run directly in the real `project_path`. Switching into this mode and each direct execution both require explicit confirmation. A failed multi-step plan can leave partial host changes.
++
++The preference is stored by project path and restored when that workspace is reopened. All Harness chats belonging to the workspace follow the same project preference. The interactive Editor terminal deliberately stays sandboxed in both modes.
++
+ ## Workspace persistence
+ 
+ The active project path, current mode, recent workspaces, active Harness chat, per-chat transcript, per-chat backend session ID, and per-chat ChatGPT conversation URL are stored locally. After `F5` or reopening Wharness Desktop, the active workspace and chat are restored. Selecting another Harness chat restores its own transcript and navigates the embedded ChatGPT surface to its linked conversation URL. If the Go backend has restarted and a remembered in-memory session no longer exists, Wharness creates a fresh backend session for that chat while preserving the local transcript and ChatGPT URL.
+diff --git a/SECURITY.md b/SECURITY.md
+index dfaa8097c6bf15e7067ab517ce8badc84c2d2fa9..4d120d3da26a39c75f18b0e3ee6dba414114bd96 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -14,6 +14,8 @@ The default supported mode is:
+ - explicit host apply;
+ - context secret filtering.
+ 
++Protected is the default. Unprotected is an explicit per-project exception that executes policy-approved Agent plans directly on the real project and therefore removes the sandbox containment boundary for that execution. It must be selected in the UI and confirmed again before every direct run.
++
+ ## Never do this
+ 
+ - expose the backend to an untrusted network without authentication/reverse-proxy controls;
+@@ -21,6 +23,7 @@ The default supported mode is:
+ - mount `/var/run/docker.sock` into the runner;
+ - use `HARNESS_SANDBOX=local` for untrusted plans;
+ - disable policy checks to make a model-generated plan "work";
++- make Unprotected the global/default mode, bypass its UI confirmation, or treat it as equivalent to sandboxed execution;
+ - send `.env`, private keys, credential stores, database dumps, or secret directories to an AI provider.
+ 
+ ## Reporting
+@@ -29,7 +32,7 @@ Do not place secrets in bug reports. Include the session ID, plan ID, redacted l
+ 
+ ## Defense in depth
+ 
+-The model may be wrong or manipulated by repository prompt injection. Security therefore does not rely on model obedience. The local policy engine and sandbox are authoritative.
++The model may be wrong or manipulated by repository prompt injection. Security therefore does not rely on model obedience. The local policy engine is authoritative in all modes; the sandbox provides the additional containment boundary in Protected mode. Unprotected deliberately removes that containment and can leave partial host changes if a later operation fails.
+ 
+ 
+ ## Wharness Desktop
+diff --git a/SoT/EXECUTION_MODEL.md b/SoT/EXECUTION_MODEL.md
+index eb023e6e252e0e24be02bf018244c5e64d710368..26650531ba10e3be52c311f21780ef5e048d1aa7 100644
+--- a/SoT/EXECUTION_MODEL.md
++++ b/SoT/EXECUTION_MODEL.md
+@@ -1,5 +1,9 @@
+ # Execution Model SoT
+ 
++Wharness supports a per-project execution mode selected in the workspace UI.
++
++## Protected (default)
++
+ 1. Plans are validated structurally.
+ 2. Policy evaluates each operation.
+ 3. Denied plans never execute.
+@@ -7,18 +11,35 @@
+ 5. Patches are applied in the sandbox first.
+ 6. Commands/verification run with declared cwd, timeout, network policy, and expected exit codes.
+ 7. Host application is a separate endpoint/action and is allowed only after successful sandbox verification.
+-8. The host apply step re-runs `git apply --check` before mutation.
++8. Host application re-validates patch paths and re-checks patch applicability before mutation.
++
++## Unprotected (explicit per project)
++
++1. The project must be switched to `Unprotected` from the workspace UI.
++2. The choice is persisted per project and restored when the workspace is reopened.
++3. Plans still require structural validation and Policy Engine approval.
++4. Every execution requires an explicit user confirmation even when the plan would not otherwise require approval.
++5. Patches, commands, and verification execute directly in the real `project_path`; no copied sandbox is created for the Agent plan.
++6. Successful execution moves directly to `applied`; there is no separate Apply step.
++7. A failed multi-operation plan can leave partial host changes. Wharness MUST state this risk and MUST NOT attempt an automatic destructive rollback over pre-existing user changes.
++8. `ApplyToHost` is unavailable for Unprotected sessions because the plan has already targeted the host.
++
++The interactive Editor terminal remains sandboxed in both modes. The Protected/Unprotected switch governs Agent plan execution, not arbitrary human terminal commands.
++
++## Patch applicability
++
++Patch execution first uses `git apply --check`. If a generated unified diff has inconsistent hunk line counts, Wharness may retry with `git apply --recount`. If the patch contains Git blob `index` metadata, a conservative `git apply --3way --check` attempt may also be used. A fallback is applied only after its check succeeds. Failed checks surface Git stderr instead of a generic `git apply --check failed` message.
+ 
+ ## Interactive IDE terminal
+ 
+ The Editor terminal is a human-initiated execution surface. It does not execute through a shell string: the frontend parses input into argv and the backend executes argv directly in a persistent isolated project copy. The same executable policy can deny dangerous host-control commands. Network is disabled by default and is an explicit per-command user choice.
+ 
+-Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible. The agent path remains sandbox-first and requires explicit Apply for host mutation.
++Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible.
++
+ ## Git bootstrap
+ 
+ - Opening a project MUST ensure the project root owns a `.git` repository; when absent, Wharness initializes it with `git init` before context capture.
+ - Wharness MUST NOT create an automatic host commit during bootstrap.
+-- Host apply MUST re-check Git readiness before applying patches.
++- Protected host apply and Unprotected direct execution MUST re-check Git readiness before patching.
+ - Every isolated sandbox copy MUST initialize its own Git repository and baseline commit after filtering excluded/secrets. Host `.git` metadata is never copied into the sandbox.
+-- Read-only verification such as `git diff --check` therefore runs against the sandbox baseline and remains subject to the command policy.
+-
++- Read-only verification such as `git diff --check` therefore runs against the sandbox baseline in Protected mode and against the project's own repository in Unprotected mode.
+diff --git a/SoT/SANDBOX_MODEL.md b/SoT/SANDBOX_MODEL.md
+index a0029fc68354eba5d9c85754035c89a3b1ba7350..e6d0f8e47536247e4cc82a61b3b497eb7403146b 100644
+--- a/SoT/SANDBOX_MODEL.md
++++ b/SoT/SANDBOX_MODEL.md
+@@ -1,6 +1,6 @@
+ # Sandbox Model SoT
+ 
+-Production/default execution uses Docker.
++`Protected` is the default per-project Agent execution mode and uses Docker.
+ 
+ Required controls:
+ 
+@@ -17,5 +17,10 @@ Required controls:
+ 
+ Local sandbox exists only for tests/development and must require explicit opt-in.
+ 
+-
+ Sandbox project copies initialize a fresh temporary Git repository and baseline commit. The host `.git` directory is excluded from the copy; this baseline exists only to support deterministic patching and read-only Git verification inside the isolated workspace.
++
++## Unprotected exception
++
++A workspace may be explicitly switched to `Unprotected` in the UI. This is not a sandbox variant: Agent plan operations execute directly in the real project directory. The Policy Engine remains mandatory and each direct execution requires user confirmation. The UI must display a persistent host-direct warning while the mode is active. This choice is stored per project and must never become the global/default mode.
++
++The Editor interactive terminal remains sandboxed even when Agent execution is Unprotected.
+diff --git a/VALIDATION.md b/VALIDATION.md
+index d72fcc82e1c45d5044a706afc19adf948cb650d4..8d0b2875d3bef1b7eb47fafb7ea9dda55b4b7547 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -62,3 +62,18 @@ A full `npm ci`/Vitest/Vite run could not be completed in this environment becau
+ - Regression: malformed JSON outside a recognized patch string is not repaired and returns an actionable syntax error — PASS.
+ - No policy, path, command, or protocol validation is bypassed by the repair step.
+ 
++
++## v1.2.8 — Per-project execution modes + resilient patch apply
++
++Validated for this update:
++
++- `go test ./...` — PASS
++- `go test -race ./...` — PASS
++- `go vet ./...` — PASS
++- `go build ./cmd/harness` — PASS
++- new backend tests verify default Protected mode, per-session mode switching, mandatory confirmation for Unprotected execution, direct host mutation, and absence of a second Apply step;
++- new sandbox tests verify `git apply --recount` fallback for malformed hunk counts and useful Git stderr diagnostics when a patch genuinely does not match;
++- `npm run typecheck` in `services/frontend` — PASS;
++- `npm run check` in `services/desktop` — PASS (10/10 security/runtime tests).
++
++The frontend Vitest/Vite build suite was not re-run in this container because a fresh `npm install` did not complete within the available registry/network window; no new frontend dependency was added. TypeScript compilation succeeded against the available toolchain.
+diff --git a/services/backend/internal/app/service.go b/services/backend/internal/app/service.go
+index 6516e78f58e9e42ab1feb6d0f76b9e8e88ca13cc..5cfc2255ac8acdfd4302509c24c49a173a6d3f4c 100644
+--- a/services/backend/internal/app/service.go
++++ b/services/backend/internal/app/service.go
+@@ -5,7 +5,6 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"os"
+-	"os/exec"
+ 	"path/filepath"
+ 	"strings"
+ 	"sync"
+@@ -30,22 +29,30 @@ var (
+ )
+ 
+ type Service struct {
+-	store     *session.Store
+-	bus       *audit.Bus
+-	context   *contextbundle.Builder
+-	planner   planner.Planner
+-	policy    *policy.Engine
+-	runner    sandbox.Runner
+-	devMu     sync.Mutex
+-	devspaces map[string]sandbox.Workspace
++	store      *session.Store
++	bus        *audit.Bus
++	context    *contextbundle.Builder
++	planner    planner.Planner
++	policy     *policy.Engine
++	runner     sandbox.Runner
++	hostRunner sandbox.Runner
++	devMu      sync.Mutex
++	devspaces  map[string]sandbox.Workspace
+ }
+ 
+ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
+-	return &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, devspaces: make(map[string]sandbox.Workspace)}
++	return &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), devspaces: make(map[string]sandbox.Workspace)}
+ }
+ 
+-func (s *Service) StartSession(ctx context.Context, projectPath string) (domain.Session, error) {
++func (s *Service) StartSession(ctx context.Context, projectPath string, requestedMode ...domain.ExecutionMode) (domain.Session, error) {
+ 	id := ids.New("ses")
++	mode := domain.ExecutionModeProtected
++	if len(requestedMode) > 0 && requestedMode[0] != "" {
++		mode = requestedMode[0]
++	}
++	if !domain.ValidExecutionMode(mode) {
++		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
++	}
+ 	initialized, err := projectgit.Ensure(ctx, projectPath)
+ 	if err != nil {
+ 		s.bus.Publish(id, "project.git_failed", map[string]any{"project_path": projectPath, "error": err.Error()})
+@@ -62,9 +69,25 @@ func (s *Service) StartSession(ctx context.Context, projectPath string) (domain.
+ 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
+ 		return domain.Session{}, err
+ 	}
+-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
++	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: mode, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+ 	s.store.Put(item)
+-	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated})
++	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": mode})
++	return item, nil
++}
++
++func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) (domain.Session, error) {
++	if !domain.ValidExecutionMode(mode) {
++		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
++	}
++	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
++		current.ExecutionMode = mode
++		return nil
++	})
++	if err != nil {
++		return domain.Session{}, err
++	}
++	s.resetDevspace(sessionID)
++	s.bus.Publish(sessionID, "execution.mode_changed", map[string]any{"execution_mode": mode})
+ 	return item, nil
+ }
+ 
+@@ -153,32 +176,47 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 	if !item.Policy.Allowed {
+ 		return domain.ExecutionResult{}, item, errors.New("policy denied plan")
+ 	}
+-	if item.Policy.RequiresApproval && !approved {
++	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
++	if (item.Policy.RequiresApproval || unprotected) && !approved {
+ 		return domain.ExecutionResult{}, item, ErrApprovalRequired
+ 	}
++
++	runner := s.runner
++	executionTarget := "sandbox"
++	if unprotected {
++		runner = s.hostRunner
++		executionTarget = "host"
++		if _, err := projectgit.Ensure(ctx, item.ProjectPath); err != nil {
++			return domain.ExecutionResult{}, item, fmt.Errorf("prepare host git repository: %w", err)
++		}
++	}
++
+ 	result := domain.ExecutionResult{PlanID: item.Plan.PlanID, StartedAt: time.Now().UTC()}
+-	s.bus.Publish(sessionID, "execution.started", map[string]any{"plan_id": item.Plan.PlanID})
+-	workspace, err := s.runner.Prepare(ctx, item.ProjectPath)
++	s.bus.Publish(sessionID, "execution.started", map[string]any{"plan_id": item.Plan.PlanID, "execution_mode": item.ExecutionMode, "target": executionTarget})
++	workspace, err := runner.Prepare(ctx, item.ProjectPath)
+ 	if err != nil {
+ 		return s.failExecution(sessionID, result, err)
+ 	}
+-	defer s.runner.Cleanup(workspace)
++	defer runner.Cleanup(workspace)
+ 
+ 	for _, op := range item.Plan.Operations {
+ 		if op.Type == "apply_patch" {
+-			s.bus.Publish(sessionID, "patch.started", map[string]any{})
+-			commandResult, runErr := s.runner.ApplyPatch(ctx, workspace, op.Patch)
++			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
++				return s.failExecution(sessionID, result, err)
++			}
++			s.bus.Publish(sessionID, "patch.started", map[string]any{"target": executionTarget})
++			commandResult, runErr := runner.ApplyPatch(ctx, workspace, op.Patch)
+ 			result.Commands = append(result.Commands, commandResult)
+ 			if runErr != nil || !commandResult.Success {
+ 				if runErr == nil {
+-					runErr = errors.New("patch failed")
++					runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
+ 				}
+ 				return s.failExecution(sessionID, result, runErr)
+ 			}
+-			s.bus.Publish(sessionID, "patch.applied", map[string]any{})
++			s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": executionTarget})
+ 			continue
+ 		}
+-		commandResult, runErr := s.runCommand(ctx, sessionID, workspace, op.Command)
++		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, op.Command, executionTarget)
+ 		result.Commands = append(result.Commands, commandResult)
+ 		if runErr != nil || !commandResult.Success {
+ 			if runErr == nil {
+@@ -188,8 +226,8 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 		}
+ 	}
+ 	for _, command := range item.Plan.Verification {
+-		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv})
+-		commandResult, runErr := s.runCommand(ctx, sessionID, workspace, command)
++		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv, "target": executionTarget})
++		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
+ 		result.Commands = append(result.Commands, commandResult)
+ 		if runErr != nil || !commandResult.Success {
+ 			if runErr == nil {
+@@ -197,26 +235,40 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 			}
+ 			return s.failExecution(sessionID, result, runErr)
+ 		}
+-		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode})
++		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode, "target": executionTarget})
+ 	}
+ 	result.Success = true
+ 	result.CompletedAt = time.Now().UTC()
+ 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+ 		current.LastExecution = &result
+-		current.State = "verified"
++		if unprotected {
++			current.State = "applied"
++		} else {
++			current.State = "verified"
++		}
+ 		return nil
+ 	})
+ 	if err != nil {
+ 		return result, item, err
+ 	}
+-	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true})
++	if unprotected {
++		s.resetDevspace(sessionID)
++		if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
++			updated = refreshed
++		}
++	}
++	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
+ 	return result, updated, nil
+ }
+ 
+ func (s *Service) runCommand(ctx context.Context, sessionID string, workspace sandbox.Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+-	s.bus.Publish(sessionID, "command.started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network})
+-	result, err := s.runner.Run(ctx, workspace, command)
+-	s.bus.Publish(sessionID, "command.completed", map[string]any{"argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr})
++	return s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "sandbox")
++}
++
++func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
++	s.bus.Publish(sessionID, "command.started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
++	result, err := runner.Run(ctx, workspace, command)
++	s.bus.Publish(sessionID, "command.completed", map[string]any{"argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "target": target})
+ 	return result, err
+ }
+ 
+@@ -229,7 +281,13 @@ func (s *Service) failExecution(sessionID string, result domain.ExecutionResult,
+ 		current.State = "failed"
+ 		return nil
+ 	})
+-	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error()})
++	if updated.ExecutionMode == domain.ExecutionModeUnprotected {
++		s.resetDevspace(sessionID)
++		if refreshed, err := s.refreshContext(sessionID); err == nil {
++			updated = refreshed
++		}
++	}
++	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode})
+ 	return result, updated, cause
+ }
+ 
+@@ -238,6 +296,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
+ 	if err != nil {
+ 		return item, err
+ 	}
++	if item.ExecutionMode == domain.ExecutionModeUnprotected {
++		return item, errors.New("apply is unavailable in unprotected mode because execution already targets the host")
++	}
+ 	initialized, err := projectgit.Ensure(ctx, item.ProjectPath)
+ 	if err != nil {
+ 		return item, fmt.Errorf("prepare project git repository before host apply: %w", err)
+@@ -248,6 +309,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
+ 	if item.Plan == nil || item.LastExecution == nil || !item.LastExecution.Success || item.LastExecution.PlanID != item.Plan.PlanID {
+ 		return item, ErrExecutionRequired
+ 	}
++	workspace, err := s.hostRunner.Prepare(ctx, item.ProjectPath)
++	if err != nil {
++		return item, err
++	}
++	defer s.hostRunner.Cleanup(workspace)
+ 	for _, op := range item.Plan.Operations {
+ 		if op.Type != "apply_patch" {
+ 			continue
+@@ -255,15 +321,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
+ 		if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
+ 			return item, err
+ 		}
+-		check := exec.CommandContext(ctx, "git", "-C", item.ProjectPath, "apply", "--check", "-")
+-		check.Stdin = strings.NewReader(op.Patch)
+-		if output, err := check.CombinedOutput(); err != nil {
+-			return item, fmt.Errorf("host git apply --check: %s", strings.TrimSpace(string(output)))
+-		}
+-		apply := exec.CommandContext(ctx, "git", "-C", item.ProjectPath, "apply", "-")
+-		apply.Stdin = strings.NewReader(op.Patch)
+-		if output, err := apply.CombinedOutput(); err != nil {
+-			return item, fmt.Errorf("host git apply: %s", strings.TrimSpace(string(output)))
++		if result, err := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch); err != nil || !result.Success {
++			if err != nil {
++				return item, fmt.Errorf("host apply failed: %w", err)
++			}
++			return item, fmt.Errorf("host apply failed: %s", strings.TrimSpace(result.Stderr))
+ 		}
+ 	}
+ 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "applied"; return nil })
+diff --git a/services/backend/internal/app/service_test.go b/services/backend/internal/app/service_test.go
+index 7efac99f185c43f176dac6b2ed1464fdd1cb6f16..b69ecad762f40bcce3b82b350fb5d1ab47035274 100644
+--- a/services/backend/internal/app/service_test.go
++++ b/services/backend/internal/app/service_test.go
+@@ -2,6 +2,7 @@ package app
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+@@ -233,3 +234,69 @@ func TestManualChatGPTPlanNormalizationExecutesAndApplies(t *testing.T) {
+ 		t.Fatalf("unexpected host content: %q", data)
+ 	}
+ }
++
++func TestUnprotectedExecutionTouchesHostImmediately(t *testing.T) {
++	if _, err := exec.LookPath("git"); err != nil {
++		t.Skip("git is not installed")
++	}
++	root := t.TempDir()
++	path := filepath.Join(root, "hello.txt")
++	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	plan := domain.ExecutionPlan{
++		Protocol: domain.ProtocolV1, PlanID: "host-plan", RequestID: "placeholder", Status: "ready", Summary: "change host", Risk: "low",
++		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
++	}
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
++	s, err := service.StartSession(context.Background(), root, domain.ExecutionModeUnprotected)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, s, err = service.SubmitMessage(context.Background(), s.ID, "change")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, _, err := service.Execute(context.Background(), s.ID, false); !errors.Is(err, ErrApprovalRequired) {
++		t.Fatalf("unprotected execution must require confirmation, got %v", err)
++	}
++	result, s, err := service.Execute(context.Background(), s.ID, true)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !result.Success || s.State != "applied" {
++		t.Fatalf("expected direct applied state, result=%#v session=%#v", result, s)
++	}
++	data, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(data) != "new\n" {
++		t.Fatalf("host was not changed directly: %q", data)
++	}
++	if _, err := service.ApplyToHost(context.Background(), s.ID); err == nil || !strings.Contains(err.Error(), "unprotected") {
++		t.Fatalf("apply must be unavailable after direct execution, got %v", err)
++	}
++}
++
++func TestExecutionModeCanChangePerSession(t *testing.T) {
++	root := t.TempDir()
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
++	s, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if s.ExecutionMode != domain.ExecutionModeProtected {
++		t.Fatalf("default mode = %q", s.ExecutionMode)
++	}
++	s, err = service.SetExecutionMode(s.ID, domain.ExecutionModeUnprotected)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if s.ExecutionMode != domain.ExecutionModeUnprotected {
++		t.Fatalf("updated mode = %q", s.ExecutionMode)
++	}
++	if _, err := service.SetExecutionMode(s.ID, domain.ExecutionMode("invalid")); err == nil {
++		t.Fatal("invalid execution mode should be rejected")
++	}
++}
+diff --git a/services/backend/internal/domain/types.go b/services/backend/internal/domain/types.go
+index b1b484c136a2658fb31b567664aa0bd89fa7287a..87a60f75fdfe8e9f7f11e74eed7d971d0a6360e4 100644
+--- a/services/backend/internal/domain/types.go
++++ b/services/backend/internal/domain/types.go
+@@ -4,6 +4,17 @@ import "time"
+ 
+ const ProtocolV1 = "harness.execution/v1"
+ 
++type ExecutionMode string
++
++const (
++	ExecutionModeProtected   ExecutionMode = "protected"
++	ExecutionModeUnprotected ExecutionMode = "unprotected"
++)
++
++func ValidExecutionMode(mode ExecutionMode) bool {
++	return mode == ExecutionModeProtected || mode == ExecutionModeUnprotected
++}
++
+ type CommandSpec struct {
+ 	Argv              []string `json:"argv"`
+ 	Cwd               string   `json:"cwd"`
+@@ -81,6 +92,7 @@ type ContextBundle struct {
+ type Session struct {
+ 	ID                     string           `json:"id"`
+ 	ProjectPath            string           `json:"project_path"`
++	ExecutionMode          ExecutionMode    `json:"execution_mode"`
+ 	State                  string           `json:"state"`
+ 	CreatedAt              time.Time        `json:"created_at"`
+ 	Context                ContextBundle    `json:"context"`
+diff --git a/services/backend/internal/sandbox/copy_test.go b/services/backend/internal/sandbox/copy_test.go
+index 9ddf19ac0ae7825718da9223369d26960eccaebf..623dff778bdeb50a861426edeb1365ae40f9f75f 100644
+--- a/services/backend/internal/sandbox/copy_test.go
++++ b/services/backend/internal/sandbox/copy_test.go
+@@ -1,6 +1,7 @@
+ package sandbox
+ 
+ import (
++	"context"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+@@ -57,3 +58,52 @@ func TestCopyProjectCreatesTrackedGitBaseline(t *testing.T) {
+ 		t.Fatalf("sandbox baseline did not track copied files: %s", output)
+ 	}
+ }
++
++func TestLocalRunnerApplyPatchFallsBackToRecount(t *testing.T) {
++	if _, err := exec.LookPath("git"); err != nil {
++		t.Skip("git is not installed")
++	}
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("a\nb\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	runner := NewLocalRunner()
++	workspace, err := runner.Prepare(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer runner.Cleanup(workspace)
++	patch := "diff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1,99 +1,99 @@\n-a\n+A\n b\n"
++	result, err := runner.ApplyPatch(context.Background(), workspace, patch)
++	if err != nil {
++		t.Fatalf("recount fallback failed: %v; stderr=%s", err, result.Stderr)
++	}
++	data, err := os.ReadFile(filepath.Join(workspace.Path, "hello.txt"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(data) != "A\nb\n" {
++		t.Fatalf("unexpected patched content: %q", data)
++	}
++}
++
++func TestLocalRunnerApplyPatchReportsGitDiagnostic(t *testing.T) {
++	if _, err := exec.LookPath("git"); err != nil {
++		t.Skip("git is not installed")
++	}
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("actual\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	runner := NewLocalRunner()
++	workspace, err := runner.Prepare(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer runner.Cleanup(workspace)
++	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-missing\n+new\n"
++	_, err = runner.ApplyPatch(context.Background(), workspace, patch)
++	if err == nil || !strings.Contains(err.Error(), "patch does not apply cleanly") || !strings.Contains(err.Error(), "hello.txt") {
++		t.Fatalf("expected useful git diagnostic, got %v", err)
++	}
++}
+diff --git a/services/backend/internal/sandbox/docker.go b/services/backend/internal/sandbox/docker.go
+index 64202309ec6ad9ec05dc4ca76ae1992614aeb4e7..7e62cf81c82b9f9e8a3b7a9349714b8e5858df89 100644
+--- a/services/backend/internal/sandbox/docker.go
++++ b/services/backend/internal/sandbox/docker.go
+@@ -33,14 +33,7 @@ func (r *DockerRunner) ApplyPatch(ctx context.Context, workspace Workspace, patc
+ 		return domain.CommandResult{}, err
+ 	}
+ 	defer os.Remove(path)
+-	check := domain.CommandSpec{Argv: []string{"git", "apply", "--check", "/workspace/.kernl/" + filepath.Base(path)}, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}}
+-	result, err := r.Run(ctx, workspace, check)
+-	if err != nil || !result.Success {
+-		return result, firstErr(err, errors.New("git apply --check failed"))
+-	}
+-	apply := check
+-	apply.Argv = []string{"git", "apply", "/workspace/.kernl/" + filepath.Base(path)}
+-	return r.Run(ctx, workspace, apply)
++	return applyPatchWithStrategies(ctx, workspace, patch, "/workspace/.kernl/"+filepath.Base(path), 60, r.Run)
+ }
+ 
+ func (r *DockerRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+diff --git a/services/backend/internal/sandbox/host.go b/services/backend/internal/sandbox/host.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..53a5e0435d1922d8be7a67ad1d28d7c59bb0609a
+--- /dev/null
++++ b/services/backend/internal/sandbox/host.go
+@@ -0,0 +1,90 @@
++package sandbox
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strings"
++	"time"
++
++	"kernl.local/harness/backend/internal/domain"
++)
++
++// HostRunner executes directly in the real project tree. It deliberately
++// provides no isolation boundary and must only be selected by an explicit
++// per-project Unprotected choice in the UI.
++type HostRunner struct{}
++
++func NewHostRunner() *HostRunner { return &HostRunner{} }
++
++func (r *HostRunner) Prepare(_ context.Context, projectRoot string) (Workspace, error) {
++	root, err := filepath.Abs(projectRoot)
++	if err != nil {
++		return Workspace{}, err
++	}
++	info, err := os.Stat(root)
++	if err != nil || !info.IsDir() {
++		return Workspace{}, errors.New("host project path must be an existing directory")
++	}
++	return Workspace{Path: root}, nil
++}
++
++func (r *HostRunner) Cleanup(Workspace) error { return nil }
++
++func (r *HostRunner) ApplyPatch(ctx context.Context, workspace Workspace, patch string) (domain.CommandResult, error) {
++	if _, err := exec.LookPath("git"); err != nil {
++		return domain.CommandResult{}, errors.New("git executable not found")
++	}
++	file, err := os.CreateTemp("", "wharness-host-patch-*.diff")
++	if err != nil {
++		return domain.CommandResult{}, err
++	}
++	path := file.Name()
++	if _, err := file.WriteString(patch); err != nil {
++		_ = file.Close()
++		_ = os.Remove(path)
++		return domain.CommandResult{}, err
++	}
++	if err := file.Close(); err != nil {
++		_ = os.Remove(path)
++		return domain.CommandResult{}, err
++	}
++	defer os.Remove(path)
++	return applyPatchWithStrategies(ctx, workspace, patch, path, 60, r.Run)
++}
++
++func (r *HostRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
++	cwd, err := safeWorkspaceCwd(workspace.Path, command.Cwd)
++	if err != nil {
++		return domain.CommandResult{}, err
++	}
++	if len(command.Argv) == 0 {
++		return domain.CommandResult{}, errors.New("empty argv")
++	}
++	timeout := time.Duration(command.TimeoutSeconds) * time.Second
++	if timeout <= 0 {
++		timeout = 60 * time.Second
++	}
++	runCtx, cancel := context.WithTimeout(ctx, timeout)
++	defer cancel()
++	started := time.Now()
++	cmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
++	cmd.Dir = cwd
++	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
++	var stdout, stderr strings.Builder
++	cmd.Stdout = &stdout
++	cmd.Stderr = &stderr
++	err = cmd.Run()
++	code := exitCode(err)
++	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: code, Stdout: limit(stdout.String()), Stderr: limit(stderr.String()), DurationMS: time.Since(started).Milliseconds()}
++	result.Success = containsInt(command.ExpectedExitCodes, code) && runCtx.Err() == nil
++	if runCtx.Err() == context.DeadlineExceeded {
++		return result, fmt.Errorf("host command timeout after %s", timeout)
++	}
++	return result, nil
++}
++
++var _ Runner = (*HostRunner)(nil)
+diff --git a/services/backend/internal/sandbox/local.go b/services/backend/internal/sandbox/local.go
+index f460ed31519ad56b70d7be65ea37eeaa4c174050..f1056629f0e232d40d385c77f68c6903d4983ced 100644
+--- a/services/backend/internal/sandbox/local.go
++++ b/services/backend/internal/sandbox/local.go
+@@ -2,7 +2,6 @@ package sandbox
+ 
+ import (
+ 	"context"
+-	"errors"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+@@ -29,13 +28,7 @@ func (r *LocalRunner) ApplyPatch(ctx context.Context, workspace Workspace, patch
+ 		return domain.CommandResult{}, err
+ 	}
+ 	defer os.Remove(path)
+-	check := domain.CommandSpec{Argv: []string{"git", "apply", "--check", path}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}
+-	res, err := r.Run(ctx, workspace, check)
+-	if err != nil || !res.Success {
+-		return res, errors.New("git apply --check failed")
+-	}
+-	check.Argv = []string{"git", "apply", path}
+-	return r.Run(ctx, workspace, check)
++	return applyPatchWithStrategies(ctx, workspace, patch, path, 30, r.Run)
+ }
+ 
+ func (r *LocalRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+diff --git a/services/backend/internal/sandbox/patch_strategy.go b/services/backend/internal/sandbox/patch_strategy.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..22ca44e2f87d3f3084ad824590c13c7e5a8ea93d
+--- /dev/null
++++ b/services/backend/internal/sandbox/patch_strategy.go
+@@ -0,0 +1,73 @@
++package sandbox
++
++import (
++	"context"
++	"fmt"
++	"strings"
++
++	"kernl.local/harness/backend/internal/domain"
++)
++
++type patchRunFunc func(context.Context, Workspace, domain.CommandSpec) (domain.CommandResult, error)
++
++type patchAttempt struct {
++	name  string
++	check []string
++	apply []string
++}
++
++func applyPatchWithStrategies(ctx context.Context, workspace Workspace, patch, patchArg string, timeoutSeconds int, run patchRunFunc) (domain.CommandResult, error) {
++	attempts := []patchAttempt{
++		{name: "git apply", check: []string{"git", "apply", "--check", patchArg}, apply: []string{"git", "apply", patchArg}},
++		{name: "git apply --recount", check: []string{"git", "apply", "--recount", "--check", patchArg}, apply: []string{"git", "apply", "--recount", patchArg}},
++	}
++	if strings.Contains(patch, "\nindex ") || strings.HasPrefix(patch, "index ") {
++		attempts = append(attempts, patchAttempt{name: "git apply --3way", check: []string{"git", "apply", "--3way", "--check", patchArg}, apply: []string{"git", "apply", "--3way", patchArg}})
++	}
++
++	var diagnostics []string
++	var last domain.CommandResult
++	for _, attempt := range attempts {
++		check := domain.CommandSpec{Argv: attempt.check, Cwd: ".", TimeoutSeconds: timeoutSeconds, ExpectedExitCodes: []int{0}}
++		result, err := run(ctx, workspace, check)
++		last = result
++		if err != nil {
++			diagnostics = append(diagnostics, fmt.Sprintf("%s check error: %v", attempt.name, err))
++			continue
++		}
++		if !result.Success {
++			diagnostics = append(diagnostics, patchFailureDetail(attempt.name+" --check", result))
++			continue
++		}
++		apply := check
++		apply.Argv = attempt.apply
++		result, err = run(ctx, workspace, apply)
++		if err != nil {
++			return result, fmt.Errorf("%s failed: %w", attempt.name, err)
++		}
++		if !result.Success {
++			return result, fmt.Errorf("%s failed: %s", attempt.name, commandDiagnostic(result))
++		}
++		return result, nil
++	}
++	if len(diagnostics) == 0 {
++		diagnostics = append(diagnostics, "git apply rejected the patch")
++	}
++	return last, fmt.Errorf("patch does not apply cleanly:\n%s", strings.Join(diagnostics, "\n"))
++}
++
++func patchFailureDetail(label string, result domain.CommandResult) string {
++	return fmt.Sprintf("%s: %s", label, commandDiagnostic(result))
++}
++
++func commandDiagnostic(result domain.CommandResult) string {
++	stderr := strings.TrimSpace(result.Stderr)
++	stdout := strings.TrimSpace(result.Stdout)
++	if stderr != "" {
++		return stderr
++	}
++	if stdout != "" {
++		return stdout
++	}
++	return fmt.Sprintf("exit code %d", result.ExitCode)
++}
+diff --git a/services/backend/internal/transport/httpapi/server.go b/services/backend/internal/transport/httpapi/server.go
+index 19dd83ff6f40250f96b1a6b8573aa3c80b306df4..e6e8d685ee2e6ca0d208b6c540511e7835a1e75a 100644
+--- a/services/backend/internal/transport/httpapi/server.go
++++ b/services/backend/internal/transport/httpapi/server.go
+@@ -31,6 +31,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
+ 	mux.HandleFunc("GET /api/config", a.config)
+ 	mux.HandleFunc("POST /api/sessions", a.createSession)
+ 	mux.HandleFunc("GET /api/sessions/{id}", a.getSession)
++	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
+ 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
+ 	mux.HandleFunc("POST /api/sessions/{id}/manual-plan", a.manualPlan)
+ 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
+@@ -56,7 +57,8 @@ func (a *API) config(w http.ResponseWriter, _ *http.Request) {
+ 
+ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
+ 	var body struct {
+-		ProjectPath string `json:"project_path"`
++		ProjectPath   string               `json:"project_path"`
++		ExecutionMode domain.ExecutionMode `json:"execution_mode"`
+ 	}
+ 	if !decodeJSON(w, r, &body) {
+ 		return
+@@ -65,7 +67,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
+ 		writeError(w, http.StatusBadRequest, "invalid_project_path", "project_path is required")
+ 		return
+ 	}
+-	item, err := a.service.StartSession(r.Context(), body.ProjectPath)
++	item, err := a.service.StartSession(r.Context(), body.ProjectPath, body.ExecutionMode)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "session_create_failed", err.Error())
+ 		return
+@@ -82,6 +84,21 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
+ 	writeJSON(w, http.StatusOK, item)
+ }
+ 
++func (a *API) executionMode(w http.ResponseWriter, r *http.Request) {
++	var body struct {
++		ExecutionMode domain.ExecutionMode `json:"execution_mode"`
++	}
++	if !decodeJSON(w, r, &body) {
++		return
++	}
++	item, err := a.service.SetExecutionMode(r.PathValue("id"), body.ExecutionMode)
++	if err != nil {
++		writeError(w, http.StatusBadRequest, "execution_mode_failed", err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, item)
++}
++
+ func (a *API) message(w http.ResponseWriter, r *http.Request) {
+ 	var body struct {
+ 		Message string `json:"message"`
+diff --git a/services/desktop/package.json b/services/desktop/package.json
+index e4094e6f97fa89aac7a5d96499d04fec366076b6..1194dfebb7bc642a20783f014d6377c4ad3cabc7 100644
+--- a/services/desktop/package.json
++++ b/services/desktop/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "wharness-desktop",
+   "private": true,
+-  "version": "1.2.7",
++  "version": "1.2.8",
+   "type": "module",
+   "main": "main.mjs",
+   "scripts": {
+diff --git a/services/frontend/src/App.tsx b/services/frontend/src/App.tsx
+index 4156c3d3e1c0f1836fa0ad09d8b3f29fe917461e..89560ca49156a3f0409d0c11e1c5406ae8f61f37 100644
+--- a/services/frontend/src/App.tsx
++++ b/services/frontend/src/App.tsx
+@@ -1,15 +1,15 @@
+ import { useCallback, useEffect, useRef, useState } from 'react'
+ import { api, APIError } from './lib/api'
+-import type { AppConfig, ChatItem, HarnessEvent, Session, WorkspaceMode } from './types'
++import type { AppConfig, ChatItem, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
+ import { Bootstrap } from './components/Bootstrap'
+ import { ChatPanel } from './components/ChatPanel'
+ import { Inspector } from './components/Inspector'
+ import { EditorWorkspace } from './components/EditorWorkspace'
+ import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+ import {
+-  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadLegacyChat,
++  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadExecutionMode, loadLegacyChat,
+   loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
+-  saveChat, saveWorkspaceChats, type WorkspaceChat,
++  saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
+ } from './lib/workspaceMemory'
+ 
+ export default function App() {
+@@ -22,6 +22,7 @@ export default function App() {
+   const [events, setEvents] = useState<HarnessEvent[]>([])
+   const [manualPrompt, setManualPrompt] = useState('')
+   const [mode, setMode] = useState<WorkspaceMode>(activeAtLoad?.mode || 'editor')
++  const [executionMode, setExecutionMode] = useState<ExecutionMode>(activeAtLoad?.executionMode || (activeAtLoad ? loadExecutionMode(activeAtLoad.projectPath) : 'protected'))
+   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
+   const [restoring, setRestoring] = useState(Boolean(activeAtLoad))
+   const [busy, setBusy] = useState(false)
+@@ -59,11 +60,14 @@ export default function App() {
+       try {
+         const known = loadWorkspaceChats(active.projectPath)
+         const selected = known.find((chat) => chat.id === active.chatId) || known[0]
++        const projectExecutionMode = active.executionMode || loadExecutionMode(active.projectPath)
+         let restored: Session
+-        try { restored = await api.getSession(selected?.sessionId || active.sessionId) }
+-        catch (error) {
++        try {
++          restored = await api.getSession(selected?.sessionId || active.sessionId)
++          if (restored.execution_mode !== projectExecutionMode) restored = await api.setExecutionMode(restored.id, projectExecutionMode)
++        } catch (error) {
+           if (!(error instanceof APIError) || error.status !== 404) throw error
+-          restored = await api.createSession(active.projectPath)
++          restored = await api.createSession(active.projectPath, projectExecutionMode)
+         }
+         if (!alive) return
+ 
+@@ -81,11 +85,11 @@ export default function App() {
+         }
+         saveWorkspaceChats(restored.project_path, nextChats)
+         setChats(nextChats); setActiveChatId(nextChat.id); setSession(restored)
+-        setMode(active.mode || 'editor'); setManualPrompt(restored.last_manual_prompt || '')
++        setMode(active.mode || 'editor'); setExecutionMode(projectExecutionMode); setManualPrompt(restored.last_manual_prompt || '')
+         const chatItems = loadChat(restored.project_path, nextChat.id)
+         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
+         connectEvents(restored.id)
+-        saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: active.mode || 'editor', chatId: nextChat.id })
++        saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: active.mode || 'editor', chatId: nextChat.id, executionMode: projectExecutionMode })
+       } catch (e) {
+         if (alive) { clearActiveWorkspace(); setError(`Não foi possível reabrir o workspace: ${messageOf(e)}`) }
+       } finally { if (alive) setRestoring(false) }
+@@ -98,9 +102,9 @@ export default function App() {
+ 
+   useEffect(() => {
+     if (!session) return
+-    saveActiveWorkspace({ sessionId: session.id, projectPath: session.project_path, mode, chatId: activeChatId || undefined })
++    saveActiveWorkspace({ sessionId: session.id, projectPath: session.project_path, mode, chatId: activeChatId || undefined, executionMode })
+     setRecent(loadRecentWorkspaces())
+-  }, [session, mode, activeChatId])
++  }, [session, mode, activeChatId, executionMode])
+ 
+   useEffect(() => {
+     if (session && activeChatId && items.length) saveChat(session.project_path, activeChatId, items)
+@@ -109,13 +113,17 @@ export default function App() {
+   async function start(projectPath: string) {
+     setBusy(true); setError(undefined)
+     try {
+-      const created = await api.createSession(projectPath)
++      const projectExecutionMode = loadExecutionMode(projectPath)
++      const created = await api.createSession(projectPath, projectExecutionMode)
+       rememberRecent(created.project_path); setRecent(loadRecentWorkspaces())
+       let nextChats = loadWorkspaceChats(created.project_path)
+       let selected = nextChats[0]
+       let selectedSession = created
+       if (selected) {
+-        try { selectedSession = await api.getSession(selected.sessionId) }
++        try {
++          selectedSession = await api.getSession(selected.sessionId)
++          if (selectedSession.execution_mode !== projectExecutionMode) selectedSession = await api.setExecutionMode(selectedSession.id, projectExecutionMode)
++        }
+         catch (error) {
+           if (!(error instanceof APIError) || error.status !== 404) throw error
+           selected = { ...selected, sessionId: created.id }
+@@ -131,7 +139,7 @@ export default function App() {
+       setSession(selectedSession); setActiveChatId(selected.id)
+       const chatItems = loadChat(created.project_path, selected.id)
+       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
+-      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('editor')
++      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('editor'); setExecutionMode(projectExecutionMode)
+       connectEvents(selectedSession.id)
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
+   }
+@@ -146,7 +154,7 @@ export default function App() {
+     if (!session || busy) return
+     setBusy(true); setError(undefined)
+     try {
+-      const created = await api.createSession(session.project_path)
++      const created = await api.createSession(session.project_path, executionMode)
+       const chat = newWorkspaceChat(created.id)
+       const next = [chat, ...chats]
+       persistChats(created.project_path, next)
+@@ -162,10 +170,12 @@ export default function App() {
+     setBusy(true); setError(undefined)
+     try {
+       let restored: Session
+-      try { restored = await api.getSession(selected.sessionId) }
+-      catch (error) {
++      try {
++        restored = await api.getSession(selected.sessionId)
++        if (restored.execution_mode !== executionMode) restored = await api.setExecutionMode(restored.id, executionMode)
++      } catch (error) {
+         if (!(error instanceof APIError) || error.status !== 404) throw error
+-        restored = await api.createSession(session.project_path)
++        restored = await api.createSession(session.project_path, executionMode)
+         const next = chats.map((chat) => chat.id === chatId ? { ...chat, sessionId: restored.id } : chat)
+         persistChats(restored.project_path, next)
+       }
+@@ -218,10 +228,18 @@ export default function App() {
+ 
+   async function execute(approved: boolean) {
+     if (!session) return
++    const direct = executionMode === 'unprotected'
++    if (direct && !window.confirm('Modo UNPROTECTED: executar este plano diretamente no projeto real? As alterações e comandos não passarão pela sandbox.')) return
+     setBusy(true); setError(undefined)
+     try {
+-      const response = await api.execute(session.id, approved)
+-      setSession(response.session); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: response.session.last_execution?.success ? 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.' : 'A execução terminou com falha.' }])
++      const response = await api.execute(session.id, approved || direct)
++      setSession(response.session)
++      const ok = response.session.last_execution?.success
++      setItems((current) => [...current, {
++        id: crypto.randomUUID(), role: 'harness',
++        text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.') : 'A execução terminou com falha.',
++        meta: direct && ok ? 'Host alterado diretamente' : undefined,
++      }])
+     } catch (e) { setError(messageOf(e)); void refreshSession() } finally { setBusy(false) }
+   }
+ 
+@@ -234,6 +252,23 @@ export default function App() {
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
++  async function changeExecutionMode(next: ExecutionMode) {
++    if (!session || next === executionMode || busy) return
++    if (next === 'unprotected' && !window.confirm('Ativar UNPROTECTED para este projeto? Os planos do Agent poderão alterar ficheiros e executar comandos diretamente no host, sem sandbox e sem etapa Apply.')) return
++    setBusy(true); setError(undefined)
++    try {
++      const updated = await api.setExecutionMode(session.id, next)
++      setSession(updated); setExecutionMode(next); saveExecutionMode(updated.project_path, next)
++      const otherSessions = chats.filter((chat) => chat.sessionId !== updated.id).map((chat) => api.setExecutionMode(chat.sessionId, next))
++      void Promise.allSettled(otherSessions)
++      setItems((current) => [...current, {
++        id: crypto.randomUUID(), role: 'harness',
++        text: next === 'unprotected' ? 'Modo Unprotected ativado para este projeto. Os próximos planos serão executados diretamente no host após confirmação.' : 'Modo Protected ativado. Os próximos planos voltarão a executar primeiro na sandbox.',
++        meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa',
++      }])
++    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
++  }
++
+   async function refreshSession() {
+     if (!session) return
+     try { setSession(await api.getSession(session.id)) } catch { /* retain last known state */ }
+@@ -242,7 +277,7 @@ export default function App() {
+   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} />
+   const activeChat = chats.find((chat) => chat.id === activeChatId)
+   return <main className="workspace-root">
+-    <WorkspaceTopbar config={config} session={session} mode={mode} onMode={setMode} onClose={closeWorkspace} />
++    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onClose={closeWorkspace} />
+     {error && <div className="toast-error" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
+     {mode === 'editor'
+       ? <EditorWorkspace session={session} onError={setError} />
+diff --git a/services/frontend/src/components/Inspector.tsx b/services/frontend/src/components/Inspector.tsx
+index ebfa5144b90fe6105931ca104b93dc651a772d1a..75267a97e9e190b4724d16c2ed23054ff06c3886 100644
+--- a/services/frontend/src/components/Inspector.tsx
++++ b/services/frontend/src/components/Inspector.tsx
+@@ -29,7 +29,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, o
+   const terminalEvents = useMemo(() => events.filter((e) => e.type === 'command.completed' || e.type === 'execution.failed'), [events])
+   const canExecute = Boolean(session.plan && session.policy?.allowed)
+   const needsApproval = Boolean(session.policy?.requires_approval)
+-  const canApply = Boolean(session.last_execution?.success && session.state === 'verified')
++  const direct = session.execution_mode === 'unprotected'
++  const canApply = Boolean(!direct && session.last_execution?.success && session.state === 'verified')
+   const desktop = isDesktop()
+ 
+   async function copy(text: string) { await navigator.clipboard.writeText(text) }
+@@ -39,7 +40,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, o
+         <div className="brand-lockup small"><div className="brand-mark">K</div><div><strong>Agent Inspector</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}{desktop ? ' · desktop' : ''}</span></div></div>
+         <div className="header-actions">
+           {session.policy && <StatusPill tone={session.policy.allowed ? (session.policy.risk === 'high' ? 'warning' : 'accent') : 'danger'}>{riskLabel(session.policy.risk)}</StatusPill>}
+-          {canExecute && <button className="secondary-button" disabled={busy} onClick={() => onExecute(needsApproval)}><Icon name="play" size={15}/> {needsApproval ? 'Aprovar e executar' : 'Executar'}</button>}
++          {direct && <StatusPill tone="warning">Unprotected</StatusPill>}
++          {canExecute && <button className={direct ? 'danger-button' : 'secondary-button'} disabled={busy} onClick={() => onExecute(needsApproval || direct)}><Icon name="play" size={15}/> {direct ? 'Executar no host' : (needsApproval ? 'Aprovar e executar' : 'Executar')}</button>}
+           {canApply && <button className="apply-button" disabled={busy} onClick={onApply}><Icon name="apply" size={16}/> Aplicar no host</button>}
+         </div>
+       </header>
+diff --git a/services/frontend/src/components/WorkspaceTopbar.tsx b/services/frontend/src/components/WorkspaceTopbar.tsx
+index 3dbb9989430733dece399e70c473d0c7e3fc6d04..b3cc4ec65da50620c86778e3167ff4762f9cf9c8 100644
+--- a/services/frontend/src/components/WorkspaceTopbar.tsx
++++ b/services/frontend/src/components/WorkspaceTopbar.tsx
+@@ -1,12 +1,15 @@
+-import type { AppConfig, Session, WorkspaceMode } from '../types'
++import type { AppConfig, ExecutionMode, Session, WorkspaceMode } from '../types'
+ import { Icon } from './Icon'
+ import { StatusPill } from './StatusPill'
+ 
+-export function WorkspaceTopbar({ config, session, mode, onMode, onClose }: {
++export function WorkspaceTopbar({ config, session, mode, executionMode, busy, onMode, onExecutionMode, onClose }: {
+   config?: AppConfig
+   session: Session
+   mode: WorkspaceMode
++  executionMode: ExecutionMode
++  busy: boolean
+   onMode: (mode: WorkspaceMode) => void
++  onExecutionMode: (mode: ExecutionMode) => void
+   onClose: () => void
+ }) {
+   const projectName = session.project_path.split('/').filter(Boolean).at(-1) || session.project_path
+@@ -15,11 +18,18 @@ export function WorkspaceTopbar({ config, session, mode, onMode, onClose }: {
+       <div className="brand-mark">K</div>
+       <div><strong>{projectName}</strong><span title={session.project_path}>{session.project_path}</span></div>
+     </div>
+-    <div className="mode-switch" role="group" aria-label="Modo do workspace">
+-      <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
+-      <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>
++    <div className="workspace-switches">
++      <div className="mode-switch" role="group" aria-label="Modo do workspace">
++        <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
++        <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>
++      </div>
++      <div className={`protection-switch ${executionMode}`} role="group" aria-label="Proteção de execução do projeto">
++        <button disabled={busy} className={executionMode === 'protected' ? 'active' : ''} onClick={() => void onExecutionMode('protected')} title="Executa o plano primeiro na sandbox Docker"><Icon name="shield" size={13}/> Protected</button>
++        <button disabled={busy} className={executionMode === 'unprotected' ? 'active' : ''} onClick={() => void onExecutionMode('unprotected')} title="Executa o plano diretamente no projeto real">Unprotected</button>
++      </div>
+     </div>
+     <div className="workspace-status">
++      {executionMode === 'unprotected' && <StatusPill tone="warning">HOST DIRETO</StatusPill>}
+       <StatusPill tone={config?.planner === 'openai' && config.api_configured ? 'success' : 'neutral'}>{config?.planner === 'openai' ? 'AI automático' : 'AI manual'}</StatusPill>
+       <button className="icon-button" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
+     </div>
+diff --git a/services/frontend/src/lib/api.ts b/services/frontend/src/lib/api.ts
+index 7ade0d5670c919231ed61ad2379a2225cea8834e..4df6137f53f4f8941ea974d9d415995454ebf939 100644
+--- a/services/frontend/src/lib/api.ts
++++ b/services/frontend/src/lib/api.ts
+@@ -1,4 +1,4 @@
+-import type { AppConfig, CommandResult, CommandSpec, FileEntry, Session, WorkspaceFile } from '../types'
++import type { AppConfig, CommandResult, CommandSpec, ExecutionMode, FileEntry, Session, WorkspaceFile } from '../types'
+ 
+ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+ 
+@@ -24,9 +24,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
+ export const api = {
+   url: API_URL,
+   config: () => request<AppConfig>('/api/config'),
+-  createSession: (projectPath: string) =>
+-    request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath }) }),
++  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected') =>
++    request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode }) }),
+   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
++  setExecutionMode: (id: string, executionMode: ExecutionMode) =>
++    request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
+   message: (id: string, message: string) =>
+     request<{ session: Session; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
+       method: 'POST', body: JSON.stringify({ message }),
+diff --git a/services/frontend/src/lib/workspaceMemory.test.ts b/services/frontend/src/lib/workspaceMemory.test.ts
+index a694ed9056e61ff778422d12f8a6ff80243e3b6b..0cb159f14bcbdbfe6ae9ee84a2620cac5184fd2e 100644
+--- a/services/frontend/src/lib/workspaceMemory.test.ts
++++ b/services/frontend/src/lib/workspaceMemory.test.ts
+@@ -1,7 +1,7 @@
+ import { beforeEach, describe, expect, it } from 'vitest'
+ import {
+-  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadRecentWorkspaces,
+-  loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace, saveChat, saveWorkspaceChats,
++  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadExecutionMode, loadRecentWorkspaces,
++  loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace, saveChat, saveExecutionMode, saveWorkspaceChats,
+ } from './workspaceMemory'
+ 
+ beforeEach(() => localStorage.clear())
+@@ -16,6 +16,15 @@ describe('workspace memory', () => {
+     expect(loadRecentWorkspaces()).toEqual(['/tmp/project'])
+   })
+ 
++
++  it('persists protected/unprotected mode per project', () => {
++    expect(loadExecutionMode('/tmp/project')).toBe('protected')
++    saveExecutionMode('/tmp/project', 'unprotected')
++    saveExecutionMode('/tmp/other', 'protected')
++    expect(loadExecutionMode('/tmp/project')).toBe('unprotected')
++    expect(loadExecutionMode('/tmp/other')).toBe('protected')
++  })
++
+   it('deduplicates recent workspaces', () => {
+     rememberRecent('/tmp/a'); rememberRecent('/tmp/b'); rememberRecent('/tmp/a')
+     expect(loadRecentWorkspaces()).toEqual(['/tmp/a', '/tmp/b'])
+diff --git a/services/frontend/src/lib/workspaceMemory.ts b/services/frontend/src/lib/workspaceMemory.ts
+index 85c8cc6e3e71b917ef47e86dafcbfcd22423666f..81704fef451ed2d1dbccaaa729270d9ac2b830d6 100644
+--- a/services/frontend/src/lib/workspaceMemory.ts
++++ b/services/frontend/src/lib/workspaceMemory.ts
+@@ -1,16 +1,18 @@
+-import type { ChatItem, WorkspaceMode } from '../types'
++import type { ChatItem, ExecutionMode, WorkspaceMode } from '../types'
+ 
+ const ACTIVE_KEY = 'kernl.workspace.active.v1'
+ const RECENT_KEY = 'kernl.workspace.recent.v1'
+ const LEGACY_CHAT_PREFIX = 'kernl.workspace.chat.v1:'
+ const CHAT_INDEX_PREFIX = 'kernl.workspace.chats.v2:'
+ const CHAT_ITEMS_PREFIX = 'kernl.workspace.chat.v2:'
++const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
+ 
+ export type ActiveWorkspace = {
+   sessionId: string
+   projectPath: string
+   mode: WorkspaceMode
+   chatId?: string
++  executionMode?: ExecutionMode
+ }
+ 
+ export type WorkspaceChat = {
+@@ -51,6 +53,18 @@ export function rememberRecent(projectPath: string) {
+   try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch { /* storage unavailable/full */ }
+ }
+ 
++
++export function loadExecutionMode(projectPath: string): ExecutionMode {
++  try {
++    const value = localStorage.getItem(EXECUTION_MODE_PREFIX + projectPath)
++    return value === 'unprotected' ? 'unprotected' : 'protected'
++  } catch { return 'protected' }
++}
++
++export function saveExecutionMode(projectPath: string, mode: ExecutionMode) {
++  try { localStorage.setItem(EXECUTION_MODE_PREFIX + projectPath, mode) } catch { /* storage unavailable/full */ }
++}
++
+ export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {
+   try {
+     const raw = localStorage.getItem(CHAT_INDEX_PREFIX + projectPath)
+diff --git a/services/frontend/src/styles.css b/services/frontend/src/styles.css
+index ee0de66f08a1758b3f6c06492e622ee88f4859dc..c3ef67f026fca6102cf5cc8a8f4797fc029df299 100644
+--- a/services/frontend/src/styles.css
++++ b/services/frontend/src/styles.css
+@@ -42,7 +42,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
+ .input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+ input, textarea { border: 1px solid #cfd2c7; background: #fff; color: var(--ink); border-radius: 10px; }
+ input { height: 48px; padding: 0 15px; font: 13px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+-.primary-button, .secondary-button, .apply-button, .text-button, .send-button { border: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; text-decoration: none; }
++.primary-button, .secondary-button, .apply-button, .danger-button, .text-button, .send-button { border: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; text-decoration: none; }
+ .primary-button { min-height: 44px; padding: 0 18px; border-radius: 9px; background: var(--dark); color: #fff; font-size: 12px; font-weight: 600; }
+ .primary-button:hover { background: #2b2e28; }
+ .primary-button.full { width: 100%; margin-top: 10px; }
+@@ -63,9 +63,11 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .status-warning { color: #80500f; border-color: #ddc28c; background: #f5eddc; }
+ .status-danger { color: #8c332c; border-color: #e1b5b0; background: #f7e7e5; }
+ .status-accent { color: #405e18; border-color: #bfdc91; background: #ecf7dd; }
+-.secondary-button, .apply-button { min-height: 32px; padding: 0 11px; border-radius: 8px; font-size: 11px; font-weight: 600; }
++.secondary-button, .apply-button, .danger-button { min-height: 32px; padding: 0 11px; border-radius: 8px; font-size: 11px; font-weight: 600; }
+ .secondary-button { background: #f5f6f1; border: 1px solid #cfd2c8; color: #3f433b; }
+ .apply-button { background: var(--dark); color: var(--acid); }
++.danger-button { background: #5a211c; color: #ffe9e4; border: 1px solid #7b322b; }
++.danger-button:hover { background: #692720; }
+ 
+ .chat-stream { flex: 1; min-height: 0; overflow: auto; padding: 22px 20px 32px; scrollbar-width: thin; }
+ .system-note { display: flex; gap: 10px; align-items: center; color: #4d5149; border-bottom: 1px solid #dfe1d8; padding: 0 2px 18px; margin-bottom: 28px; }
+@@ -140,6 +142,13 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .mode-switch { display: inline-flex; padding: 3px; background: #23261f; border: 1px solid #373b33; border-radius: 9px; }
+ .mode-switch button { height: 30px; min-width: 88px; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 7px; background: transparent; color: #949b8d; font-size: 10px; cursor: pointer; }
+ .mode-switch button.active { background: #f0f2eb; color: #1e211c; box-shadow: 0 1px 5px rgba(0,0,0,.2); font-weight: 600; }
++.workspace-switches { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
++.protection-switch { display: inline-flex; padding: 3px; border: 1px solid #373b33; border-radius: 9px; background: #1c1f1a; }
++.protection-switch button { height: 30px; border: 0; border-radius: 6px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; background: transparent; color: #8f9689; font-size: 9px; cursor: pointer; }
++.protection-switch button:disabled { opacity: .55; cursor: default; }
++.protection-switch.protected button.active { background: #dfe9d1; color: #31431f; font-weight: 700; }
++.protection-switch.unprotected { border-color: #704038; background: #261816; }
++.protection-switch.unprotected button.active { background: #6a2d26; color: #ffe5df; font-weight: 700; }
+ .workspace-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+ .icon-button { width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; }
+ .icon-button:hover { background: rgba(128,132,122,.14); }
+@@ -221,7 +230,7 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ 
+ @media (max-width: 900px) {
+   .workspace-topbar { grid-template-columns: 1fr auto; height: auto; min-height: 58px; padding-block: 7px; }
+-  .mode-switch { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
++  .workspace-switches { grid-column: 1 / -1; grid-row: 2; justify-self: center; flex-wrap: wrap; }
+   .workspace-status { grid-column: 2; grid-row: 1; }
+   .agent-workspace { grid-template-columns: 1fr; overflow: auto; }
+   .editor-workspace { grid-template-columns: 190px minmax(0, 1fr); }
+diff --git a/services/frontend/src/types.ts b/services/frontend/src/types.ts
+index 5cd7d37a92400ea0b148fa3065d34d2ce723b5d0..ca710599e9e3803ad83bcc06f06166fbec7e730c 100644
+--- a/services/frontend/src/types.ts
++++ b/services/frontend/src/types.ts
+@@ -59,9 +59,12 @@ export type ContextManifest = {
+   text_truncated: boolean
+ }
+ 
++export type ExecutionMode = 'protected' | 'unprotected'
++
+ export type Session = {
+   id: string
+   project_path: string
++  execution_mode: ExecutionMode
+   state: string
+   created_at: string
+   context: { id: string; manifest: ContextManifest }
