@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { contextBundleURL, externalAuthProvider, normalizeBounds, requireLocalHTTPURL, resolveLinuxOzonePlatform, sanitizeSessionId } from './security.mjs'
+import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, resolveLinuxOzonePlatform, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
 
 test('session ids are strictly allowlisted', () => {
   assert.equal(sanitizeSessionId('ses_20260902_abc-123'), 'ses_20260902_abc-123')
@@ -35,4 +35,28 @@ test('external OAuth providers are identified for system-browser routing', () =>
   assert.equal(externalAuthProvider('https://appleid.apple.com/auth/authorize'), 'Apple')
   assert.equal(externalAuthProvider('https://chatgpt.com/'), '')
   assert.equal(externalAuthProvider('javascript:alert(1)'), '')
+})
+
+
+test('ChatGPT compatibility user agent exposes Chrome without Electron token', () => {
+  const ua = chromeCompatibleUserAgent('linux', '152.0.7977.65')
+  assert.match(ua, /Chrome\/152\.0\.7977\.65/)
+  assert.doesNotMatch(ua, /Electron/i)
+})
+
+test('diagnostic URLs omit query strings and fragments', () => {
+  assert.equal(
+    sanitizeDiagnosticURL('https://chatgpt.com/backend-api/conversation?token=secret#frag'),
+    'https://chatgpt.com/backend-api/conversation',
+  )
+})
+
+
+test('clipboard permission origin is restricted to ChatGPT HTTPS', () => {
+  assert.equal(isTrustedChatGPTOrigin('https://chatgpt.com/c/abc'), true)
+  assert.equal(isTrustedChatGPTOrigin('https://foo.chatgpt.com/path'), true)
+  assert.equal(isTrustedChatGPTOrigin('http://chatgpt.com/'), false)
+  assert.equal(isTrustedChatGPTOrigin('https://chatgpt.com.evil.example/'), false)
+  assert.equal(isTrustedChatGPTOrigin('https://openai.com/'), false)
+  assert.equal(isTrustedChatGPTOrigin('javascript:alert(1)'), false)
 })

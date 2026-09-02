@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.2.4 — ChatGPT clipboard permission
+
+- Allow `clipboard-sanitized-write` only for the embedded `https://chatgpt.com` origin so ChatGPT's Copy button works in Electron.
+- Keep `clipboard-read` denied to remote content; response import remains an explicit trusted Wharness action.
+- Add allowlist regression coverage for clipboard permission origins.
+
+## v1.2.3 — ChatGPT stream compatibility
+
+- Presents the isolated ChatGPT session with a Chrome-compatible UA matching Electron 44 Chromium 152.
+- Clears HTTP cache at Desktop startup without removing cookies/login state.
+- Adds sanitized ChatGPT load/network/HTTP diagnostics to lifecycle logs.
+- Keeps the remote surface sandboxed and does not read ChatGPT DOM or response content.
+
+
 ## 1.2.1 — Unified build/start/stop lifecycle (2026-09-02)
 
 ### Added

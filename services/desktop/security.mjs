@@ -40,6 +40,17 @@ export function resolveLinuxOzonePlatform(env = {}) {
   return 'wayland'
 }
 
+
+export function isTrustedChatGPTOrigin(value) {
+  try {
+    const url = new URL(String(value))
+    const host = url.hostname.toLowerCase()
+    return url.protocol === 'https:' && (host === 'chatgpt.com' || host.endsWith('.chatgpt.com'))
+  } catch {
+    return false
+  }
+}
+
 export function externalAuthProvider(value) {
   let host
   try { host = new URL(String(value)).hostname.toLowerCase() } catch { return '' }
@@ -47,4 +58,23 @@ export function externalAuthProvider(value) {
   if (host === 'login.microsoftonline.com' || host.endsWith('.login.microsoftonline.com') || host === 'login.live.com') return 'Microsoft'
   if (host === 'appleid.apple.com') return 'Apple'
   return ''
+}
+
+export function chromeCompatibleUserAgent(platform = process.platform, chromiumVersion = '152.0.7977.65') {
+  const version = String(chromiumVersion || '152.0.7977.65').replace(/[^0-9.]/g, '') || '152.0.7977.65'
+  const os = platform === 'win32'
+    ? 'Windows NT 10.0; Win64; x64'
+    : platform === 'darwin'
+      ? 'Macintosh; Intel Mac OS X 10_15_7'
+      : 'X11; Linux x86_64'
+  return `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`
+}
+
+export function sanitizeDiagnosticURL(value) {
+  try {
+    const url = new URL(String(value))
+    return `${url.protocol}//${url.host}${url.pathname}`
+  } catch {
+    return '<invalid-url>'
+  }
 }

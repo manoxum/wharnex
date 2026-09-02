@@ -2,7 +2,7 @@ import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, ipcMain,
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { contextBundleURL, externalAuthProvider, isHTTPS, normalizeBounds, requireLocalHTTPURL, sanitizeSessionId } from './security.mjs'
+import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -11,6 +11,9 @@ const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
 const CHATGPT_URL = 'https://chatgpt.com/'
 const CHATGPT_PARTITION = 'persist:wharness-chatgpt'
 const MAX_CONTEXT_BYTES = 256 * 1024 * 1024
+const CHATGPT_CHROMIUM_VERSION = '152.0.7977.65'
+const CHATGPT_USER_AGENT = chromeCompatibleUserAgent(process.platform, CHATGPT_CHROMIUM_VERSION)
+const CHATGPT_ACCEPT_LANGUAGES = 'pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7'
 
 let mainWindow
 let chatgptView
@@ -62,6 +65,7 @@ function createChatGPTView() {
   chatgptView.setBackgroundColor('#ffffff')
 
   const wc = chatgptView.webContents
+  wc.setUserAgent(CHATGPT_USER_AGENT)
   wc.setWindowOpenHandler(({ url }) => {
     if (!isHTTPS(url)) return { action: 'deny' }
     const provider = externalAuthProvider(url)
@@ -81,7 +85,14 @@ function createChatGPTView() {
   wc.on('did-navigate', publishChatGPTState)
   wc.on('did-navigate-in-page', publishChatGPTState)
   wc.on('page-title-updated', publishChatGPTState)
-  void wc.loadURL(CHATGPT_URL)
+  wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    console.error(`[chatgpt-load] code=${code} main=${Boolean(isMainFrame)} url=${sanitizeDiagnosticURL(url)} error=${description}`)
+  })
+  wc.on('render-process-gone', (_event, details) => {
+    console.error(`[chatgpt-renderer] gone reason=${details.reason} exitCode=${details.exitCode}`)
+  })
+  wc.on('unresponsive', () => console.error('[chatgpt-renderer] unresponsive'))
+  void wc.loadURL(CHATGPT_URL, { userAgent: CHATGPT_USER_AGENT })
 }
 
 function createWindow() {
@@ -186,10 +197,50 @@ function registerIPC() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const chatSession = session.fromPartition(CHATGPT_PARTITION)
-  chatSession.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission === 'notifications'))
-  chatSession.setPermissionCheckHandler((_webContents, permission) => permission === 'notifications')
+  chatSession.setUserAgent(CHATGPT_USER_AGENT, CHATGPT_ACCEPT_LANGUAGES)
+
+  const remoteFilter = {
+    urls: [
+      'https://chatgpt.com/*',
+      'https://*.chatgpt.com/*',
+      'https://*.openai.com/*',
+    ],
+  }
+  chatSession.webRequest.onErrorOccurred(remoteFilter, (details) => {
+    console.error(`[chatgpt-net] ${details.method} ${sanitizeDiagnosticURL(details.url)} error=${details.error}`)
+  })
+  chatSession.webRequest.onCompleted(remoteFilter, (details) => {
+    if (details.statusCode >= 400) {
+      console.error(`[chatgpt-http] ${details.method} ${sanitizeDiagnosticURL(details.url)} status=${details.statusCode}`)
+    }
+  })
+
+  // Remote ChatGPT gets the minimum browser permissions it needs. In particular,
+  // navigator.clipboard.writeText() maps to clipboard-sanitized-write in Electron.
+  // We deliberately do NOT grant clipboard-read: importing a response remains an
+  // explicit Wharness action owned by the trusted local renderer/main process.
+  chatSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingURL = details?.requestingUrl || webContents?.getURL() || ''
+    const trusted = isTrustedChatGPTOrigin(requestingURL)
+    const allowed = trusted && (permission === 'notifications' || permission === 'clipboard-sanitized-write')
+    if (permission.startsWith('clipboard')) {
+      console.log(`[chatgpt-permission] ${permission} origin=${sanitizeDiagnosticURL(requestingURL)} allowed=${allowed}`)
+    }
+    callback(allowed)
+  })
+  chatSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
+    const requestingURL = details?.requestingUrl || requestingOrigin || details?.embeddingOrigin || ''
+    const trusted = isTrustedChatGPTOrigin(requestingURL)
+    return trusted && (permission === 'notifications' || permission === 'clipboard-sanitized-write')
+  })
+
+  // Cache only: preserve cookies/login while forcing current ChatGPT assets to reload
+  // under the Chrome-compatible UA. Failures here must not prevent startup.
+  try { await chatSession.clearCache() } catch (error) { console.error('[chatgpt-cache] clear failed', error) }
+
+  console.log(`ChatGPT compatibility UA: Chrome/${CHATGPT_CHROMIUM_VERSION}`)
   registerIPC()
   createWindow()
 })
