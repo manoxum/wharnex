@@ -199,6 +199,9 @@ export type ChatAttachmentInfo = {
   previewKind?: 'thumbnail' | 'icon' | 'none'
 }
 
-export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[] }
+export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[] }
 
-export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult }
+export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean }
+
+export type ProjectStorageUsage = { project_path: string; session_count: number; context_bytes: number; sandbox_bytes: number; total_bytes: number }
+export type BackendStorageUsage = { total_bytes: number; state_bytes: number; context_bytes: number; sandbox_bytes: number; orphan_bytes: number; projects: ProjectStorageUsage[] }

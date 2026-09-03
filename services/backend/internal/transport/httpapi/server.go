@@ -31,6 +31,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
+	mux.HandleFunc("GET /api/storage", a.storage)
+	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
 	mux.HandleFunc("POST /api/projects/create", a.createProject)
 	mux.HandleFunc("POST /api/projects/clone", a.cloneProject)
 	mux.HandleFunc("POST /api/sessions", a.createSession)
@@ -66,6 +68,28 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false})
+}
+
+func (a *API) storage(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, a.service.StorageUsage())
+}
+
+func (a *API) clearStorage(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Confirm string `json:"confirm"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := app.ValidateStorageClearConfirmation(body.Confirm); err != nil {
+		writeError(w, http.StatusBadRequest, "storage_clear_confirmation_required", "type APAGAR WHARNESS to confirm complete Wharness data removal")
+		return
+	}
+	if err := a.service.ClearAllData(); err != nil {
+		writeError(w, http.StatusInternalServerError, "storage_clear_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "cleared"})
 }
 
 func (a *API) createProject(w http.ResponseWriter, r *http.Request) {

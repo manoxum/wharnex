@@ -24,7 +24,7 @@ const session = {
 } satisfies Session
 
 describe('ChatPanel', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => { vi.restoreAllMocks(); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
   it('does not return scrollIntoView result as an effect cleanup', () => {
     const scrollIntoView = vi.fn(() => Promise.resolve())
@@ -39,6 +39,19 @@ describe('ChatPanel', () => {
 
     expect(scrollIntoView).toHaveBeenCalled()
     expect(() => view.unmount()).not.toThrow()
+  })
+
+
+  it('shows message date/time and copies any previous message', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const createdAt = '2026-09-03T15:36:00.000Z'
+    render(
+      <ChatPanel session={session} items={[{ id: 'm1', role: 'user', text: 'mensagem anterior', createdAt }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onNewChat={async () => undefined} onSelectChat={async () => undefined} />,
+    )
+    expect(document.querySelector('time')?.getAttribute('datetime')).toBe(createdAt)
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar mensagem' }))
+    expect(writeText).toHaveBeenCalledWith('mensagem anterior')
   })
 
   it('selects files and submits them with the message', async () => {

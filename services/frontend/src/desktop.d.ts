@@ -9,6 +9,8 @@ type DesktopBundleDownloadError = { filename?: string; message: string }
 type DesktopUserAttachment = { name: string; mime?: string; contentBase64: string }
 type DesktopStoredAttachment = { name: string; size: number; mime: string; storageRef: string; previewKind: 'thumbnail' | 'icon' | 'none' }
 type DesktopAttachmentPreview = { available: boolean; dataUrl: string; previewKind: 'thumbnail' | 'icon' | 'none' }
+type DesktopStorageUsage = { total_bytes: number; user_data_bytes: number; browser_bytes: number; attachment_bytes: number; temp_bytes: number; other_user_data_bytes: number }
+type DesktopBrowserSessionResult = { cancelled: boolean; filename?: string; bytes?: number; files?: number; restarting?: boolean }
 
 interface WharnessDesktopBridge {
   platform: string
@@ -26,7 +28,9 @@ interface WharnessDesktopBridge {
     forward(): Promise<{ ok: boolean }>
     paste(): Promise<{ ok: boolean }>
     submitPrompt(request: { cacheKey: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
-    preparePrompt(request: { cacheKey: string; text: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; autoSubmit?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string }>
+    preparePrompt(request: { cacheKey: string; text: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; autoSubmit?: boolean; contextSha256?: string; lastContextSha256?: string; lastContextChatgptUrl?: string; includeContext?: boolean; preferCurrentConversation?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string }>
+    attachContext(request: { cacheKey: string; sessionId: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
+    attachPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
     submitPrepared(request: { cacheKey: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
     state(): Promise<DesktopChatGPTState>
     openExternal(url?: string): Promise<{ ok: boolean }>
@@ -38,6 +42,13 @@ interface WharnessDesktopBridge {
     onPlanDownloadError(callback: (error: DesktopPlanDownloadError) => void): () => void
     onBundleDownloaded(callback: (bundle: DesktopBundleDownload) => void): () => void
     onBundleDownloadError(callback: (error: DesktopBundleDownloadError) => void): () => void
+  }
+  data: {
+    storage(): Promise<DesktopStorageUsage>
+    exportBrowserSession(): Promise<DesktopBrowserSessionResult>
+    importBrowserSession(): Promise<DesktopBrowserSessionResult>
+    clearBrowserSession(): Promise<{ ok: boolean }>
+    clearAll(confirm: string): Promise<{ ok: boolean }>
   }
   attachments: {
     persist(request: { cacheKey: string; messageId: string; attachments: DesktopUserAttachment[] }): Promise<{ ok: boolean; attachments: DesktopStoredAttachment[] }>

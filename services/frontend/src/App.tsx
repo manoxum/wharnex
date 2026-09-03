@@ -8,7 +8,7 @@ import { EditorWorkspace } from './components/EditorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
 import { ProjectSettings } from './components/ProjectSettings'
 import {
-  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadAutomationMode, loadChat, loadExecutionMode, loadLegacyChat,
+  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadLegacyChat,
   loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
   removeChat as removeStoredChat, saveAutomationMode, saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
 } from './lib/workspaceMemory'
@@ -24,9 +24,9 @@ export default function App() {
   const [items, setItems] = useState<ChatItem[]>([])
   const [events, setEvents] = useState<HarnessEvent[]>([])
   const [manualPrompt, setManualPrompt] = useState('')
-  const [mode, setMode] = useState<WorkspaceMode>(activeAtLoad?.mode || 'editor')
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>(activeAtLoad?.executionMode || (activeAtLoad ? loadExecutionMode(activeAtLoad.projectPath) : 'protected'))
-  const [automationMode, setAutomationMode] = useState<AutomationMode>(activeAtLoad?.automationMode || (activeAtLoad ? loadAutomationMode(activeAtLoad.projectPath) : 'manual'))
+  const [mode, setMode] = useState<WorkspaceMode>('agent')
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('protected')
+  const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [restoring, setRestoring] = useState(Boolean(activeAtLoad))
   const [busy, setBusy] = useState(false)
@@ -66,9 +66,8 @@ export default function App() {
       try {
         const known = loadWorkspaceChats(active.projectPath)
         const selected = known.find((chat) => chat.id === active.chatId) || known[0]
-        let projectExecutionMode = active.executionMode || loadExecutionMode(active.projectPath)
-        const projectAutomationMode = active.automationMode || loadAutomationMode(active.projectPath)
-        if (projectAutomationMode === 'auto') projectExecutionMode = 'protected'
+        const projectExecutionMode: ExecutionMode = 'protected'
+        const projectAutomationMode: AutomationMode = 'auto'
         let restored: Session
         try {
           restored = await api.getSession(selected?.sessionId || active.sessionId)
@@ -93,11 +92,11 @@ export default function App() {
         }
         saveWorkspaceChats(restored.project_path, nextChats)
         setChats(nextChats); setActiveChatId(nextChat.id); setSession(restored)
-        setMode(active.mode || 'editor'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setManualPrompt(restored.last_manual_prompt || '')
+        setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setManualPrompt(restored.last_manual_prompt || '')
         const chatItems = loadChat(restored.project_path, nextChat.id)
         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
         connectEvents(restored.id)
-        saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: active.mode || 'editor', chatId: nextChat.id, executionMode: projectExecutionMode, automationMode: projectAutomationMode })
+        saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: 'agent', chatId: nextChat.id, executionMode: projectExecutionMode, automationMode: projectAutomationMode })
       } catch (e) {
         if (alive) { clearActiveWorkspace(); setError(`Não foi possível reabrir o workspace: ${messageOf(e)}`) }
       } finally { if (alive) setRestoring(false) }
@@ -130,9 +129,8 @@ export default function App() {
   async function start(projectPath: string) {
     setBusy(true); setError(undefined)
     try {
-      let projectExecutionMode = loadExecutionMode(projectPath)
-      const projectAutomationMode = loadAutomationMode(projectPath)
-      if (projectAutomationMode === 'auto') projectExecutionMode = 'protected'
+      const projectExecutionMode: ExecutionMode = 'protected'
+      const projectAutomationMode: AutomationMode = 'auto'
       const created = await api.createSession(projectPath, projectExecutionMode, projectAutomationMode)
       rememberRecent(created.project_path); setRecent(loadRecentWorkspaces())
       let nextChats = loadWorkspaceChats(created.project_path)
@@ -158,7 +156,7 @@ export default function App() {
       setSession(selectedSession); setActiveChatId(selected.id)
       const chatItems = loadChat(created.project_path, selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
-      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('editor'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode)
+      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode)
       connectEvents(selectedSession.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
   }
@@ -282,6 +280,37 @@ export default function App() {
     })
   }
 
+  function appendChatItem(targetChat: WorkspaceChat, projectPath: string, item: ChatItem) {
+    if (targetChat.id === activeChatId) {
+      setItems((current) => [...current, item])
+      return
+    }
+    const prior = loadChat(projectPath, targetChat.id)
+    saveChat(projectPath, targetChat.id, [...prior, item])
+    setChats((current) => {
+      const next = current.map((chat) => chat.id === targetChat.id ? { ...chat, updatedAt: new Date().toISOString() } : chat)
+      saveWorkspaceChats(projectPath, next)
+      return next
+    })
+  }
+
+  function bindChatGPTURL(url: string) {
+    if (!session || !activeChatId) return
+    setChats((current) => {
+      const next = current.map((chat) => chat.id === activeChatId ? {
+        ...chat, chatgptUrl: url,
+        lastContextChatgptUrl: chat.lastContextSha256 && !chat.lastContextChatgptUrl ? url : chat.lastContextChatgptUrl,
+        updatedAt: new Date().toISOString(),
+      } : chat)
+      saveWorkspaceChats(session.project_path, next)
+      return next
+    })
+  }
+
+  function markContextSent(sha256: string, conversationUrl?: string) {
+    updateChat({ lastContextSha256: sha256, lastContextChatgptUrl: conversationUrl || chats.find((chat) => chat.id === activeChatId)?.chatgptUrl })
+  }
+
   async function send(message: string, attachments: File[]) {
     if (!session) return
     if (attachments.length && (!isDesktop() || config?.planner !== 'manual')) {
@@ -312,7 +341,7 @@ export default function App() {
       }
     }
 
-    const userItem: ChatItem = { id: messageId, role: 'user', text: message, attachments: persistedAttachments }
+    const userItem: ChatItem = { id: messageId, role: 'user', text: message, createdAt: new Date().toISOString(), attachments: persistedAttachments }
     setItems((current) => [...current, userItem])
     if (activeChat.title === 'Novo chat' || activeChat.title === 'Chat principal') updateChat({ title: deriveChatTitle(message) })
     try {
@@ -329,16 +358,28 @@ export default function App() {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 240))
           const bridge = desktopBridge()
           if (!bridge) throw new Error('Desktop bridge indisponível')
-          const prepared = await bridge.chatgpt.preparePrompt({ cacheKey: activeChat.id, text: prompt, url: activeChat.chatgptUrl, sessionId: response.session.id, requestId: response.session.last_request_id || '', attachments: encoded, autoSubmit: automationMode === 'auto' })
+          const prepared = await bridge.chatgpt.preparePrompt({
+            cacheKey: activeChat.id, text: prompt, url: activeChat.chatgptUrl, sessionId: response.session.id,
+            requestId: response.session.last_request_id || '', attachments: encoded, autoSubmit: automationMode === 'auto',
+            contextSha256: response.session.context.manifest.sha256, lastContextSha256: activeChat.lastContextSha256,
+            lastContextChatgptUrl: activeChat.lastContextChatgptUrl, preferCurrentConversation: true,
+          })
           draftCount = prepared.attachmentCount
           autoSubmitted = prepared.submitted
+          const chatPatch: Partial<WorkspaceChat> = {}
+          if (prepared.conversationUrl) chatPatch.chatgptUrl = prepared.conversationUrl
+          if (prepared.includedContext) {
+            chatPatch.lastContextSha256 = response.session.context.manifest.sha256
+            chatPatch.lastContextChatgptUrl = prepared.conversationUrl || activeChat.chatgptUrl
+          }
+          if (Object.keys(chatPatch).length) updateChat(chatPatch)
           if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [activeChat.id]: prepared.attachmentCount }))
         } catch (prepareError) {
           transportFailure = messageOf(prepareError)
         }
       }
       setItems((current) => [...current, {
-        id: crypto.randomUUID(), role: 'harness',
+        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
         text: turn && turn.kind !== 'change'
           ? turn.message
           : response.session.plan
@@ -355,7 +396,7 @@ export default function App() {
       }])
     } catch (e) {
       const msg = messageOf(e); setError(msg)
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: `Falha no planeamento: ${msg}` }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `Falha no planeamento: ${msg}` }])
     } finally { setBusy(false) }
   }
 
@@ -367,7 +408,7 @@ export default function App() {
       if (!bridge) throw new Error('Desktop bridge indisponível')
       await bridge.chatgpt.submitPrepared({ cacheKey: activeChatId })
       setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -380,7 +421,7 @@ export default function App() {
     setBusy(true); setError(undefined)
     try {
       const updated = await api.manualPlan(session.id, raw)
-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' }])
+      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -411,7 +452,7 @@ export default function App() {
 
       const updated = await api.manualPlan(targetSession.id, raw)
       const planItem: ChatItem = {
-        id: crypto.randomUUID(), role: 'harness',
+        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
         text: updated.plan?.summary || 'Plano importado do ficheiro JSON.',
         meta: updated.policy?.allowed ? 'Ficheiro importado · Policy validada' : 'Ficheiro importado · Policy bloqueou o plano',
       }
@@ -459,23 +500,26 @@ export default function App() {
 
       const submission = await api.executionBundle(targetSession.id, filename, contentBase64)
       const updated = submission.session
-      const autoText = submission.auto_applied
-        ? 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.'
-        : submission.auto_executed
-          ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
-          : 'Bundle ZIP importado e plano validado.'
+      const policyReason = (submission.policy_reasons || updated.policy?.reasons || []).join('; ')
+      const autoText = submission.policy_blocked
+        ? `Bundle bloqueado pela Policy antes da execução: ${policyReason || 'plano não permitido'}.${submission.repair_prepared ? ' O Wharness preparou automaticamente um novo pedido de correção.' : ''}`
+        : submission.auto_applied
+          ? 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.'
+          : submission.auto_executed
+            ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
+            : 'Bundle ZIP importado e plano validado.'
       const conversational = updated.last_turn && updated.last_turn.kind !== 'change'
       const bundleItem: ChatItem = {
-        id: crypto.randomUUID(), role: 'harness', text: conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText),
-        meta: conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? 'AUTO · Host aplicado' : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
+        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: submission.policy_blocked ? autoText : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText)),
+        meta: submission.policy_blocked
+          ? `Policy bloqueada${submission.repair_prepared ? ' · reparação automática preparada' : ''}`
+          : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? 'AUTO · Host aplicado' : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
         turnKind: updated.last_turn?.kind,
       }
       if (targetChat.id === activeChatId) {
-        setSession(updated); setManualPrompt(updated.last_manual_prompt || ''); setItems((current) => [...current, bundleItem])
-      } else {
-        const prior = loadChat(updated.project_path, targetChat.id)
-        saveChat(updated.project_path, targetChat.id, [...prior, bundleItem])
+        setSession(updated); setManualPrompt(updated.last_manual_prompt || '')
       }
+      appendChatItem(targetChat, updated.project_path, bundleItem)
       if (submission.auto_error) setError(submission.auto_error)
       if (updated.state === 'repair_pending' && updated.last_manual_prompt) await submitRepairPrompt(updated, targetChat)
       return submission.auto_applied
@@ -497,7 +541,7 @@ export default function App() {
       const ok = response.session.last_execution?.success
       const warnings = response.session.last_execution?.warnings || []
       setItems((current) => [...current, {
-        id: crypto.randomUUID(), role: 'harness',
+        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
         text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
         meta: direct && ok ? 'Host alterado diretamente' : (warnings.length ? `${warnings.length} dívida(s) pré-existente(s)` : undefined),
       }])
@@ -526,20 +570,20 @@ export default function App() {
     const repairPrompt = failedSession.last_manual_prompt || ''
     if (!repairPrompt) return
     const attempt = failedSession.repair_attempt || 1
-    setItems((current) => [...current, {
-      id: crypto.randomUUID(), role: 'harness',
-      text: `Falha capturada. O Wharness criou automaticamente a requisição de reparação ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
+    appendChatItem(targetChat, failedSession.project_path, {
+      id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+      text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
-    }])
+    })
     if (!isDesktop()) return
     try {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
       await bridge.chatgpt.submitPrompt({ cacheKey: targetChat.id, text: repairPrompt, url: targetChat.chatgptUrl, requestId: failedSession.last_request_id || '' })
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: 'Requisição de reparação enviada automaticamente ao ChatGPT. Aguardando o novo bundle ZIP.', meta: 'ChatGPT acionado automaticamente' }])
+      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.', meta: 'ChatGPT acionado automaticamente' })
     } catch (sendError) {
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: `A requisição de reparação foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT e envie o prompt preparado' }])
+      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT e envie o prompt preparado' })
     }
   }
 
@@ -548,7 +592,7 @@ export default function App() {
     setBusy(true); setError(undefined)
     try {
       const updated = await api.apply(session.id)
-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: 'Host alterado' }])
+      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: 'Host alterado' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -570,7 +614,7 @@ export default function App() {
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, next, nextAutomation) } catch { /* stale chat is repaired on selection */ }
       }))
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -586,7 +630,7 @@ export default function App() {
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, nextExecution, next) } catch { /* stale chat is repaired on selection */ }
       }))
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -605,7 +649,7 @@ export default function App() {
       ? <EditorWorkspace session={session} onError={setError} />
       : <div className="agent-workspace">
           <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} onSend={send} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
-          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
+          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={bindChatGPTURL} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
         </div>}
   </main>
 }
@@ -625,7 +669,7 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
 }
 
 function welcomeItem(session: Session): ChatItem {
-  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', createdAt: new Date().toISOString(), meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
 }
 
 function messageOf(error: unknown) {

@@ -7,7 +7,7 @@ import { StatusPill } from './StatusPill'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 
-export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onSession, onManualPlan, onPlanFile, onBundleFile }: {
+export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onContextSent, onSession, onManualPlan, onPlanFile, onBundleFile }: {
   suspended?: boolean
   session: Session
   manualPrompt: string
@@ -16,6 +16,7 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
   chatTitle: string
   chatgptUrl?: string
   onChatGPTURL: (url: string) => void
+  onContextSent?: (sha256: string, conversationUrl?: string) => void
   onSession: (session: Session) => void
   onManualPlan: (json: string) => Promise<void>
   onPlanFile: (json: string, requestId: string) => Promise<string>
@@ -147,6 +148,29 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     if (!externalAuth) await bridge?.chatgpt.focus()
   }
 
+  async function sendContext() {
+    if (!bridge || externalAuth) return
+    setNotice('A atualizar e enviar o contexto para o chat aberto…')
+    try {
+      const refreshed = await api.refreshContext(session.id)
+      onSession(refreshed)
+      const result = await bridge.chatgpt.attachContext({ cacheKey: chatId, sessionId: refreshed.id, url: chatgptUrl })
+      if (result.conversationUrl && result.conversationUrl !== chatgptUrl) onChatGPTURL(result.conversationUrl)
+      onContextSent?.(refreshed.context.manifest.sha256, result.conversationUrl || chatgptUrl)
+      setNotice(`Contexto ZIP enviado diretamente ao ChatGPT (${formatBytes(result.bytes)}).`)
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Falha ao enviar o contexto ZIP.') }
+  }
+
+  async function sendPrompt() {
+    if (!bridge || !manualPrompt || externalAuth) return
+    setNotice('A enviar o prompt para o chat aberto…')
+    try {
+      const result = await bridge.chatgpt.attachPrompt({ cacheKey: chatId, text: manualPrompt, url: chatgptUrl })
+      if (result.conversationUrl && result.conversationUrl !== chatgptUrl) onChatGPTURL(result.conversationUrl)
+      setNotice(`Prompt enviado diretamente ao ChatGPT (${formatBytes(result.bytes)}).`)
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Falha ao enviar o prompt.') }
+  }
+
   async function pastePlanFromClipboard() {
     try {
       const text = bridge ? await bridge.clipboard.readText() : await navigator.clipboard.readText()
@@ -217,9 +241,19 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     </div>}
 
     <div className="desktop-chatgpt-actions">
-      <div className="desktop-step"><span>1</span><button className="secondary-button" disabled={busy} onClick={() => void copyContext()}><Icon name="copy" size={15}/> Copiar contexto ZIP</button><small>Clique no composer e use Ctrl+V ou o botão Colar.</small></div>
-      <div className="desktop-step"><span>2</span><button className="secondary-button" disabled={!manualPrompt} onClick={() => void copyPrompt()}><Icon name="copy" size={15}/> Copiar prompt</button><small>Depois do ZIP, cole o prompt no composer.</small></div>
-      <div className="desktop-step"><span>3</span><strong className="desktop-step-title"><Icon name="download" size={15}/> Baixar resultado ZIP</strong><small>Nome esperado: <code>{expectedBundleFilename}</code>. {externalAuth ? 'Descarregue no navegador do sistema e importe o ZIP abaixo.' : session.automation_mode === 'auto' ? 'O download continua a ser iniciado pelo ChatGPT; nomes ZIP genéricos são normalizados apenas para o request pendente e o conteúdo continua sob validação estrita.' : 'Clique no anexo ZIP; o Desktop importa e valida automaticamente.'}</small>{externalAuth && <button className="text-button external-bundle-import" type="button" disabled={!session.last_request_id || busy} onClick={() => void importExternalBundle()}><Icon name="download" size={14}/> Importar bundle ZIP</button>}</div>
+      <article className="desktop-action-card">
+        <div className="desktop-action-head"><span className="desktop-action-icon"><Icon name="workspace" size={15}/></span><div><strong>Contexto do projeto</strong><small>ZIP atualizado quando a conversa ou o snapshot muda.</small></div></div>
+        <div className="desktop-action-buttons"><button className="desktop-action-button" disabled={busy} onClick={() => void copyContext()}><Icon name="copy" size={13}/> Copiar ZIP</button><button className="desktop-action-button primary" disabled={busy || Boolean(externalAuth)} onClick={() => void sendContext()}><Icon name="send" size={13}/> Enviar ZIP</button></div>
+      </article>
+      <article className="desktop-action-card">
+        <div className="desktop-action-head"><span className="desktop-action-icon"><Icon name="plan" size={15}/></span><div><strong>Prompt atual</strong><small>Copie ou envie diretamente para o chat aberto.</small></div></div>
+        <div className="desktop-action-buttons"><button className="desktop-action-button" disabled={!manualPrompt} onClick={() => void copyPrompt()}><Icon name="copy" size={13}/> Copiar prompt</button><button className="desktop-action-button primary" disabled={!manualPrompt || busy || Boolean(externalAuth)} onClick={() => void sendPrompt()}><Icon name="send" size={13}/> Enviar prompt</button></div>
+      </article>
+      <article className="desktop-action-card result">
+        <div className="desktop-action-head"><span className="desktop-action-icon"><Icon name="download" size={15}/></span><div><strong>Resultado</strong><small>Bundle esperado para o pedido ativo.</small></div></div>
+        <code className="desktop-bundle-name">{expectedBundleFilename}</code>
+        {externalAuth && <button className="desktop-action-button" type="button" disabled={!session.last_request_id || busy} onClick={() => void importExternalBundle()}><Icon name="download" size={13}/> Importar bundle ZIP</button>}
+      </article>
     </div>
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
 

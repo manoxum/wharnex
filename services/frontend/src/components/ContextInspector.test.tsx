@@ -26,4 +26,13 @@ describe('ContextInspector', () => {
     expect(screen.getByText('Pastas protegidas')).toBeTruthy()
     expect(screen.getByText('node_modules/')).toBeTruthy()
   })
+
+  it('tolerates legacy null arrays from older context inspection payloads', () => {
+    const legacy = { ...inspection, roots: null, entries: null, rules: [{ ...inspection.rules[0], patterns: null }] } as unknown as Parameters<typeof ContextInspector>[0]['inspection']
+    render(<ContextInspector inspection={legacy} refreshing={false} onRefresh={() => undefined} />)
+    expect(screen.getByText('No ZIP final')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Regras$/i }))
+    expect(screen.getByText('sem padrões configurados')).toBeTruthy()
+  })
+
 })

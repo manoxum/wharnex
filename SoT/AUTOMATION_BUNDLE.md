@@ -4,12 +4,12 @@
 
 Wharness has a per-project automation mode independent from the Agent UI mode:
 
-- `manual` (default): importing a plan/bundle only validates it. The user explicitly runs Protected/Unprotected execution and Protected Apply.
-- `auto`: valid allowed execution bundles are executed immediately in **Protected** sandbox. Only a successful verified execution may be applied automatically to the host.
+- `manual`: importing a plan/bundle only validates it. The user explicitly runs Protected/Unprotected execution and Protected Apply.
+- `auto` (default when a project is opened/restored): valid allowed execution bundles are executed immediately in **Protected** sandbox. Only a successful verified execution may be applied automatically to the host.
 
 Auto applies only to `change` turns. Answers, clarifications, investigations, and blocked outcomes are imported into the Harness transcript and never enter execution, even when Auto is active. Supported provider adapters return turn results directly and therefore require no browser download; valid provider `change` plans follow the same Policy -> Protected sandbox -> verification -> host-apply pipeline.
 
-`auto` MUST NOT coexist with `Unprotected`. Enabling Auto forces/needs Protected; switching to Unprotected disables/requires disabling Auto. Policy validation is never bypassed. Auto is an explicit persistent project preference and counts as approval to execute/apply a policy-allowed bundle, but denied plans never run.
+`auto` MUST NOT coexist with `Unprotected`. Enabling Auto forces/needs Protected; switching to Unprotected disables/requires disabling Auto. Policy validation is never bypassed. Auto is a persistent project state and counts as approval to execute/apply a policy-allowed bundle. Project open/restore initializes that state to Auto only together with Protected execution; denied plans never run.
 
 If automatic execution fails, the bounded repair loop may prepare and submit a repair request to the same linked ChatGPT conversation. A repaired bundle downloaded while Auto is still enabled repeats the sandbox -> verify -> host-apply cycle. The repair attempt cap remains authoritative.
 

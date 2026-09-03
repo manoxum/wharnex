@@ -1,0 +1,1266 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index f0cb8f6..85e91bd 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -128,7 +128,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Each Harness chat MAY bind to exactly one stable ChatGPT conversation URL. The binding is local metadata and MUST survive frontend/Desktop restart.
+ - Switching Harness chats MUST navigate the remote ChatGPT surface to the URL linked to the selected chat when one exists.
+ - An unbound Harness chat MUST begin from the ChatGPT new-chat/home surface and MAY auto-bind only after a concrete trusted `chatgpt.com/.../c/...` URL exists.
+-- Once a chat already has a ChatGPT URL, navigation to a different conversation MUST NOT silently replace that binding; rebinding requires explicit user intent.
++- Once a chat already has a ChatGPT URL, navigation alone MUST NOT silently replace that binding. An explicit rebind action or an explicit Harness Send while a different concrete ChatGPT conversation is open counts as user intent; the latter MUST refresh the project context for the newly targeted conversation.
+ - Desktop navigation IPC MUST accept only trusted HTTPS `chatgpt.com` origins. Never expose arbitrary renderer-controlled navigation.
+ ## Manual plan transport normalization
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 527476c..dd1eca7 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## v1.2.18 — Chat UX, smart project context and safe defaults
++
++- Add copy controls and visible date/time metadata to every Harness transcript message, with safe migration for legacy stored items.
++- Start opened/restored projects in Agent + Protected + Auto, while preserving the invariant that Unprotected cannot coexist with Auto.
++- Replace the ChatGPT helper strip with compact action cards for project context, current prompt and expected result; context/prompt can be copied or explicitly sent to the currently open ChatGPT conversation.
++- Track the last project-context SHA and ChatGPT conversation URL per Harness chat: attach a fresh context ZIP on the first turn, on a new concrete conversation URL, or after the project snapshot changes; omit duplicate ZIPs on unchanged sequential turns.
++- Treat an explicit Harness send while another concrete ChatGPT conversation is visibly open as an intentional rebind and refresh context without reading the remote DOM.
++- Prevent the project Rules inspector from crashing on legacy/null collection payloads and make backend context inspection serialize empty roots, entries and rule patterns as arrays.
++
+ ## v1.2.17.5.3 — ChatGPT composer reference hotfix
+ 
+ - Confirm `preparePromptForChatGPT` uses the background `targetChatGPTComposer` helper after the transport refactor removed `focusChatGPTComposer`.
+diff --git a/SoT/AUTOMATION_BUNDLE.md b/SoT/AUTOMATION_BUNDLE.md
+index cba2d49..e73aa88 100644
+--- a/SoT/AUTOMATION_BUNDLE.md
++++ b/SoT/AUTOMATION_BUNDLE.md
+@@ -4,12 +4,12 @@
+ 
+ Wharness has a per-project automation mode independent from the Agent UI mode:
+ 
+-- `manual` (default): importing a plan/bundle only validates it. The user explicitly runs Protected/Unprotected execution and Protected Apply.
+-- `auto`: valid allowed execution bundles are executed immediately in **Protected** sandbox. Only a successful verified execution may be applied automatically to the host.
++- `manual`: importing a plan/bundle only validates it. The user explicitly runs Protected/Unprotected execution and Protected Apply.
++- `auto` (default when a project is opened/restored): valid allowed execution bundles are executed immediately in **Protected** sandbox. Only a successful verified execution may be applied automatically to the host.
+ 
+ Auto applies only to `change` turns. Answers, clarifications, investigations, and blocked outcomes are imported into the Harness transcript and never enter execution, even when Auto is active. Supported provider adapters return turn results directly and therefore require no browser download; valid provider `change` plans follow the same Policy -> Protected sandbox -> verification -> host-apply pipeline.
+ 
+-`auto` MUST NOT coexist with `Unprotected`. Enabling Auto forces/needs Protected; switching to Unprotected disables/requires disabling Auto. Policy validation is never bypassed. Auto is an explicit persistent project preference and counts as approval to execute/apply a policy-allowed bundle, but denied plans never run.
++`auto` MUST NOT coexist with `Unprotected`. Enabling Auto forces/needs Protected; switching to Unprotected disables/requires disabling Auto. Policy validation is never bypassed. Auto is a persistent project state and counts as approval to execute/apply a policy-allowed bundle. Project open/restore initializes that state to Auto only together with Protected execution; denied plans never run.
+ 
+ If automatic execution fails, the bounded repair loop may prepare and submit a repair request to the same linked ChatGPT conversation. A repaired bundle downloaded while Auto is still enabled repeats the sandbox -> verify -> host-apply cycle. The repair attempt cap remains authoritative.
+ 
+diff --git a/SoT/SECURITY_MODEL.md b/SoT/SECURITY_MODEL.md
+index 9530d04..6a8abd6 100644
+--- a/SoT/SECURITY_MODEL.md
++++ b/SoT/SECURITY_MODEL.md
+@@ -30,7 +30,7 @@ When such external authentication is entered, the affected ChatGPT view is hidde
+ 
+ Context ZIP copying is privileged main-process work. The renderer passes only a validated Wharness session identifier; the main process derives the exact local backend endpoint, limits bundle size, verifies ZIP signature, writes a private temporary file, and places that file reference on the native OS clipboard.
+ 
+-User-selected chat attachments cross a narrow trusted-renderer IPC seam as bounded base64 payloads. The main process MUST validate count, decoded size, filename, and MIME metadata. For ChatGPT transport it materializes temporary private copies below the Wharness temporary directory and exposes them only as native clipboard file references. The generated planner prompt MUST likewise be materialized as a private temporary Markdown file and exposed only as a native clipboard file reference. For Harness transcript durability it MAY additionally persist private copies below Electron `userData`, keyed only by validated local chat/message identifiers; the renderer receives opaque storage references rather than arbitrary filesystem paths. Thumbnail/icon reads and open actions MUST resolve only those references. Input-only automation may focus the remote view and paste those references. Before pasting it MUST await bounded page-load and network-stability gates. It may track request identifiers, WebContents ownership, status codes, and network errors only for the exact trusted ChatGPT upload endpoint so that each file can be retried and confirmed. It may also observe only the start of a POST to the exact trusted ChatGPT conversation endpoint to confirm that a native submit command was accepted. It MUST NOT inspect request/response bodies, headers, cookies, or remote content. Submission may occur after either a separate trusted-renderer confirmation or a backend-verified explicit project Auto preference, but never after an unconfirmed/exhausted upload. It MUST NOT execute JavaScript in, query, or infer upload/model-completion state from the ChatGPT DOM.
++User-selected chat attachments cross a narrow trusted-renderer IPC seam as bounded base64 payloads. The main process MUST validate count, decoded size, filename, and MIME metadata. For ChatGPT transport it materializes temporary private copies below the Wharness temporary directory and exposes them only as native clipboard file references. The generated planner prompt MUST likewise be materialized as a private temporary Markdown file and exposed only as a native clipboard file reference. For Harness transcript durability it MAY additionally persist private copies below Electron `userData`, keyed only by validated local chat/message identifiers; the renderer receives opaque storage references rather than arbitrary filesystem paths. Thumbnail/icon reads and open actions MUST resolve only those references. Input-only automation may focus the remote view and paste those references. Before pasting it MUST await bounded page-load and network-stability gates. It may track request identifiers, WebContents ownership, status codes, and network errors only for the exact trusted ChatGPT upload endpoint so that each file can be retried and confirmed. It may also observe only the start of a POST to the exact trusted ChatGPT conversation endpoint to confirm that a native submit command was accepted. It MUST NOT inspect request/response bodies, headers, cookies, or remote content. Submission may occur after either a separate trusted-renderer confirmation or a backend-verified project Auto state; project open/restore may initialize Auto only together with Protected execution. Submission never occurs after an unconfirmed/exhausted upload. It MUST NOT execute JavaScript in, query, or infer upload/model-completion state from the ChatGPT DOM.
+ 
+ ## Project bootstrap boundary (v1.2.17)
+ 
+diff --git a/SoT/UI_UX.md b/SoT/UI_UX.md
+index 81bd888..1746b42 100644
+--- a/SoT/UI_UX.md
++++ b/SoT/UI_UX.md
+@@ -17,18 +17,18 @@ The workspace has two first-class modes:
+ - **Editor**: dark IDE-style project Explorer, IDE-grade code editor, and an interactive terminal whose default target is the persistent Docker sandbox. The Explorer provides create file/folder, rename, delete confirmation, path filtering/search, refresh, collapse, context actions and reveal-current-file. A distinct Host terminal target is available only through an explicit warning/confirmation and remains visually marked while active.
+ - **Agent**: harness chat, plan/policy inspector, execution logs, and ChatGPT/OpenAI provider panel.
+ 
+-The active workspace, project path, mode, recent workspaces, and local chat transcript are remembered in browser local storage. On reload the frontend first resumes the live session; if the backend was restarted and the in-memory session disappeared, it reopens the remembered project and creates a fresh session automatically.
++The active workspace, project path, recent workspaces, per-project choices, and local chat transcript are remembered in browser local storage. Opening or restoring a project deliberately starts on **Agent + Protected + Auto** as the operational default; the user may change execution/automation mode after the workspace is open. If the backend was restarted and the in-memory session disappeared, the frontend reopens the remembered project and creates a fresh session automatically with that safe startup profile.
+ 
+ 
+ ## Desktop ChatGPT composition (v1.2)
+ 
+-Wharness Desktop composes the real ChatGPT web surface inside the Agent inspector using a native Electron `WebContentsView`. The ChatGPT tab must preserve the same engineering-workspace identity as the rest of Wharness and provide compact browser controls plus a three-step manual handoff: copy context ZIP, copy prompt, import response JSON.
++Wharness Desktop composes the real ChatGPT web surface inside the Agent inspector using a native Electron `WebContentsView`. The ChatGPT tab must preserve the same engineering-workspace identity as the rest of Wharness and provide compact browser controls plus a compact action toolbar for context ZIP, prepared prompt, and result bundle. Context and prompt each expose copy and explicit direct-send actions; those user-invoked actions upload the selected artefact, submit it only after transport confirmation, and do not read the remote DOM.
+ 
+ The native ChatGPT view occupies only the explicitly reserved viewport. It must be hidden when the tab is not active and suspended whenever a Wharness modal/overlay (including Project Context settings) is open over that area, so remote content never paints above or intercepts interaction with trusted controls.
+ 
+ Authentication providers that reject embedded browsers use a first-class **system-browser bridge** state. When ChatGPT leaves its trusted surface for OpenAI auth, Google, Microsoft or Apple, Wharness cancels that embedded navigation, opens the URL in the operating-system browser, hides the native ChatGPT view, and shows an explanatory banner instead of the provider error page. The bridge keeps the manual workflow usable with **Copiar contexto ZIP**, **Copiar prompt**, and a ZIP-only **Importar bundle ZIP** action bound to the current request. The UI must state that the system-browser session is separate and is not copied into Electron. A user may explicitly return to the embedded browser, but Wharness must not suggest that external OAuth cookies will transfer automatically.
+ 
+-The Harness composer accepts a bounded set of user-selected files in Desktop manual-planner mode, whether selected through the file picker or pasted from the native clipboard. The ChatGPT surface MUST reach a loaded, network-stable state before attachment preparation, independently of whether the user has already supplied a prompt. Sending a message prepares one ChatGPT draft containing the refreshed project context ZIP, those files, and the complete generated planner prompt as `wharness-planner-prompt.md`; the prompt MUST NOT be pasted as ordinary text. Every file is transported and upload-confirmed individually; transient start, network, or HTTP failures retry with bounded backoff, and retry exhaustion leaves the request unsubmitted with an actionable error. In Manual automation mode preparation MUST stop before submission; the UI exposes an explicit **Confirm and send** action so the user can visually verify ChatGPT's attachment chips. In explicit project Auto mode, Wharness MUST refocus the composer and emit a layout-independent native `Enter` only after all observed uploads are confirmed plus a conservative bounded settle delay. It MUST retry focus-and-submit until the ChatGPT conversation POST is observed or the bounded attempt cap is exhausted, and the UI MUST NOT claim automatic submission before that transport confirmation. Automatic continuation begins only when the validated bundle download event is received.
++The Harness composer accepts a bounded set of user-selected files in Desktop manual-planner mode, whether selected through the file picker or pasted from the native clipboard. The ChatGPT surface MUST reach a loaded, network-stable state before attachment preparation, independently of whether the user has already supplied a prompt. The complete generated planner prompt is transported as `wharness-planner-prompt.md`; the prompt MUST NOT be pasted as ordinary text. The refreshed project context ZIP is attached on the first prompt for a ChatGPT conversation, whenever the concrete ChatGPT conversation URL changes, or whenever the current project snapshot hash differs from the hash last attached to that conversation. Sequential prompts to the same conversation with an unchanged snapshot MUST omit the duplicate context ZIP. This hash rule also refreshes a chat after another Harness chat or an external edit changes project content. Every transported file is upload-confirmed individually; transient start, network, or HTTP failures retry with bounded backoff, and retry exhaustion leaves the request unsubmitted with an actionable error. In Manual automation mode preparation MUST stop before submission; the UI exposes an explicit **Confirm and send** action so the user can visually verify ChatGPT's attachment chips. In project Auto mode, Wharness MUST refocus the composer and emit a layout-independent native `Enter` only after all observed uploads are confirmed plus a conservative bounded settle delay. It MUST retry focus-and-submit until the ChatGPT conversation POST is observed or the bounded attempt cap is exhausted, and the UI MUST NOT claim automatic submission before that transport confirmation. Automatic continuation begins only when the validated bundle download event is received.
+ 
+ User-selected Harness chat attachments are durable conversation artifacts. Before a message is sent, Desktop MUST persist a private local copy outside the target project, and the transcript stores only bounded metadata plus an opaque storage reference. Reloading or switching Harness chats MUST restore the attachment cards together with their messages. When possible, image attachments display a persisted visual thumbnail; other file types use a native file icon fallback. Opening an attachment is an explicit user action. Deleting a Harness chat SHOULD remove its durable attachment directory. Legacy transcript entries that predate durable storage may remain metadata-only and MUST NOT fabricate recoverable content.
+ 
+@@ -36,7 +36,7 @@ User-selected Harness chat attachments are durable conversation artifacts. Befor
+ 
+ The Agent surface supports multiple Harness chats within the same workspace. A compact chat switcher must expose the active chat, create a new chat, and indicate whether each Harness chat already has a linked ChatGPT conversation. Each chat keeps its own Harness transcript and orchestration session.
+ 
+-The ChatGPT panel has one-to-one conversation affinity with the active Harness chat. Selecting a linked Harness chat automatically restores its `chatgpt.com/c/...` conversation. An unlinked chat opens the ChatGPT new-chat surface and binds the first concrete conversation URL created for it. Existing bindings are not silently replaced when the user browses another ChatGPT conversation; the UI exposes an explicit rebind action.
++The ChatGPT panel has one-to-one conversation affinity with the active Harness chat. Selecting a linked Harness chat automatically restores its `chatgpt.com/c/...` conversation. An unlinked chat opens the ChatGPT new-chat surface and binds the first concrete conversation URL created for it. Existing bindings are not silently replaced merely because the user browses another ChatGPT conversation; the UI exposes an explicit rebind action. Pressing **Send** in the Harness while a different concrete ChatGPT conversation is currently open is itself explicit user intent: that send may target/rebind to the visible conversation and MUST attach fresh project context before the prompt.
+ 
+ ## Project bootstrap and settings (v1.2.17)
+ 
+@@ -51,3 +51,7 @@ An opened workspace exposes project settings from the top bar. The settings surf
+ The final-context list defaults to included files because that is the payload the planner receives. Included, excluded and all-item filters remain available, with bounded incremental rendering for large repositories. Security rules are visually distinguished from optional project/heuristic rules.
+ 
+ The Editor Host terminal MUST expose an explicit submit affordance in addition to Enter. After Host confirmation, ordinary argv commands such as `ls`, `pwd`, `cat`, `git`, `go`, `npm` and `make` must visibly submit and return stdout/stderr. The UI must preserve the argv-only security boundary and surface policy/runtime errors in the terminal history rather than silently ignoring input.
++
++## Harness message affordances (v1.2.18)
++
++Every sent or received Harness transcript message displays a local date/time and exposes a compact copy action without changing message content. Legacy messages without a stored timestamp may be migrated to a bounded local fallback timestamp when loaded.
+diff --git a/adr/ADR-0006-chat-conversation-affinity.md b/adr/ADR-0006-chat-conversation-affinity.md
+index 7fc455c..9e7c87d 100644
+--- a/adr/ADR-0006-chat-conversation-affinity.md
++++ b/adr/ADR-0006-chat-conversation-affinity.md
+@@ -1,7 +1,7 @@
+ # ADR-0006 — Harness chat / ChatGPT conversation affinity
+ 
+ ## Status
+-Accepted for v1.2.6.
++Accepted for v1.2.6; amended for v1.2.18.
+ 
+ ## Context
+ A workspace may contain several independent coding threads. Reusing one Harness transcript and one arbitrary ChatGPT page causes context collisions and makes reopening work unreliable.
+@@ -13,7 +13,9 @@ The Electron shell still owns only one isolated ChatGPT `WebContentsView`. Switc
+ 
+ A new Harness chat navigates to `https://chatgpt.com/`. After ChatGPT creates a concrete conversation URL containing `/c/`, Wharness stores the origin + pathname as the binding. Query strings and fragments are not persisted.
+ 
+-If an existing linked chat is manually navigated to another ChatGPT conversation, Wharness does not silently overwrite the binding. Rebinding requires explicit user action.
++If an existing linked chat is manually navigated to another ChatGPT conversation, navigation alone does not overwrite the binding. Rebinding requires explicit user action. An explicit Harness Send while that different concrete conversation is open is considered such an action: transport stays on the visible conversation, updates the local binding, and sends a fresh context ZIP before the new prompt.
++
++Each chat persists the context snapshot hash and ChatGPT conversation URL for which project context was last transported. A later prompt omits the ZIP only when both the snapshot hash and concrete conversation are unchanged. This avoids duplicate context on sequential turns while still refreshing a stale chat after parallel project mutations.
+ 
+ Desktop renderer-controlled navigation is allowlisted to trusted HTTPS `chatgpt.com` origins. No DOM, cookies, response content, or authentication state are read.
+ 
+diff --git a/services/backend/internal/app/service.go b/services/backend/internal/app/service.go
+index 3f60a60..0abf1ea 100644
+--- a/services/backend/internal/app/service.go
++++ b/services/backend/internal/app/service.go
+@@ -62,7 +62,11 @@ func (s *Service) StartSession(ctx context.Context, projectPath string, requeste
+ 	if len(requestedMode) > 0 && requestedMode[0] != "" {
+ 		mode = requestedMode[0]
+ 	}
+-	return s.StartSessionWithModes(ctx, projectPath, mode, domain.AutomationModeManual)
++	automationMode := domain.AutomationModeAuto
++	if mode == domain.ExecutionModeUnprotected {
++		automationMode = domain.AutomationModeManual
++	}
++	return s.StartSessionWithModes(ctx, projectPath, mode, automationMode)
+ }
+ 
+ func (s *Service) CreateProject(ctx context.Context, parentPath, name string) (string, error) {
+@@ -132,7 +136,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
+ 		executionMode = domain.ExecutionModeProtected
+ 	}
+ 	if automationMode == "" {
+-		automationMode = domain.AutomationModeManual
++		automationMode = domain.AutomationModeAuto
+ 	}
+ 	if !domain.ValidExecutionMode(executionMode) {
+ 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", executionMode)
+diff --git a/services/backend/internal/app/service_test.go b/services/backend/internal/app/service_test.go
+index cbd7558..c00475c 100644
+--- a/services/backend/internal/app/service_test.go
++++ b/services/backend/internal/app/service_test.go
+@@ -156,7 +156,7 @@ func TestVerifiedPatchDoesNotTouchHostUntilApply(t *testing.T) {
+ 		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
+ 	}
+ 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+-	s, err := service.StartSession(context.Background(), root)
++	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -401,6 +401,9 @@ func TestUnprotectedExecutionTouchesHostImmediately(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
++	if s.AutomationMode != domain.AutomationModeManual {
++		t.Fatalf("unprotected session automation mode = %q", s.AutomationMode)
++	}
+ 	_, s, err = service.SubmitMessage(context.Background(), s.ID, "change")
+ 	if err != nil {
+ 		t.Fatal(err)
+@@ -437,6 +440,13 @@ func TestExecutionModeCanChangePerSession(t *testing.T) {
+ 	if s.ExecutionMode != domain.ExecutionModeProtected {
+ 		t.Fatalf("default mode = %q", s.ExecutionMode)
+ 	}
++	if s.AutomationMode != domain.AutomationModeAuto {
++		t.Fatalf("default automation mode = %q", s.AutomationMode)
++	}
++	s, err = service.SetAutomationMode(s.ID, domain.AutomationModeManual)
++	if err != nil {
++		t.Fatal(err)
++	}
+ 	s, err = service.SetExecutionMode(s.ID, domain.ExecutionModeUnprotected)
+ 	if err != nil {
+ 		t.Fatal(err)
+@@ -548,7 +558,7 @@ func TestProtectedExecutionRejectsChangedVerificationFailure(t *testing.T) {
+ 	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "new-regression", Status: "ready", Summary: "test", Risk: "low", Verification: []domain.CommandSpec{{Argv: []string{"npm", "run", "build"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}}
+ 	runner := &verificationDebtRunner{baselineSame: false}
+ 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), runner)
+-	s, err := service.StartSession(context.Background(), root)
++	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+diff --git a/services/backend/internal/contextbundle/builder_test.go b/services/backend/internal/contextbundle/builder_test.go
+index 944c2d3..78ecc34 100644
+--- a/services/backend/internal/contextbundle/builder_test.go
++++ b/services/backend/internal/contextbundle/builder_test.go
+@@ -2,8 +2,10 @@ package contextbundle
+ 
+ import (
+ 	"archive/zip"
++	"encoding/json"
+ 	"os"
+ 	"path/filepath"
++	"strings"
+ 	"testing"
+ )
+ 
+@@ -151,4 +153,11 @@ func TestContextInspectionShowsRootsRulesAndFinalInventory(t *testing.T) {
+ 	if !seenIncluded || !seenExcludedRoot {
+ 		t.Fatalf("inspection does not explain final context: %#v", inspection)
+ 	}
++	payload, err := json.Marshal(inspection)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if strings.Contains(string(payload), `"patterns":null`) || strings.Contains(string(payload), `"entries":null`) || strings.Contains(string(payload), `"roots":null`) {
++		t.Fatalf("inspection must serialize empty collections as arrays: %s", payload)
++	}
+ }
+diff --git a/services/backend/internal/contextbundle/inspection.go b/services/backend/internal/contextbundle/inspection.go
+index eab7d1d..192422a 100644
+--- a/services/backend/internal/contextbundle/inspection.go
++++ b/services/backend/internal/contextbundle/inspection.go
+@@ -61,7 +61,7 @@ func (b *Builder) Inspect(projectRoot string, manifest domain.ContextManifest) (
+ 	if err != nil {
+ 		return ContextInspection{}, err
+ 	}
+-	inspection := ContextInspection{SnapshotID: manifest.ID, SHA256: manifest.SHA256, ProjectRoot: root}
++	inspection := ContextInspection{SnapshotID: manifest.ID, SHA256: manifest.SHA256, ProjectRoot: root, Roots: []ContextRootEntry{}, Entries: []ContextInventoryEntry{}, Rules: []ContextRule{}}
+ 	for _, file := range manifest.Files {
+ 		inspection.Entries = append(inspection.Entries, ContextInventoryEntry{Path: file.Path, Kind: "file", Status: "included", Size: file.Size})
+ 		inspection.IncludedFiles++
+@@ -93,9 +93,9 @@ func (b *Builder) rules(root string, cfg projectconfig.Config) []ContextRule {
+ 	return []ContextRule{
+ 		{ID: "mandatory-directories", Source: "Wharness", Label: "Pastas protegidas", Enabled: true, Patterns: slashSuffix(mandatoryBlockedDirs), Description: "Nunca entram no contexto e não podem ser reativadas pelo projeto."},
+ 		{ID: "mandatory-files", Source: "Wharness", Label: "Ficheiros/segredos protegidos", Enabled: true, Patterns: append(append([]string{}, mandatoryBlockedNames...), prefixStar(mandatoryBlockedExtensions)...), Description: "Credenciais, bases locais e material secreto são sempre bloqueados."},
+-		{ID: "harnessignore", Source: ".harnessignore", Label: "Regras .harnessignore", Enabled: len(LoadIgnorePatterns(root)) > 0, Patterns: LoadIgnorePatterns(root), Description: "Padrões adicionais definidos pelo próprio projeto."},
+-		{ID: "config-include", Source: projectconfig.FileName, Label: "Incluir apenas", Enabled: len(cfg.Context.Include) > 0, Patterns: cfg.Context.Include, Description: "Quando definido, ficheiros que não casam com estes padrões ficam fora do snapshot."},
+-		{ID: "config-exclude", Source: projectconfig.FileName, Label: "Excluir do contexto", Enabled: len(cfg.Context.Exclude) > 0, Patterns: cfg.Context.Exclude, Description: "Exclusões explícitas configuradas no projeto."},
++		{ID: "harnessignore", Source: ".harnessignore", Label: "Regras .harnessignore", Enabled: len(LoadIgnorePatterns(root)) > 0, Patterns: nonNilPatterns(LoadIgnorePatterns(root)), Description: "Padrões adicionais definidos pelo próprio projeto."},
++		{ID: "config-include", Source: projectconfig.FileName, Label: "Incluir apenas", Enabled: len(cfg.Context.Include) > 0, Patterns: nonNilPatterns(cfg.Context.Include), Description: "Quando definido, ficheiros que não casam com estes padrões ficam fora do snapshot."},
++		{ID: "config-exclude", Source: projectconfig.FileName, Label: "Excluir do contexto", Enabled: len(cfg.Context.Exclude) > 0, Patterns: nonNilPatterns(cfg.Context.Exclude), Description: "Exclusões explícitas configuradas no projeto."},
+ 		{ID: "auto-directories", Source: "Reconhecimento automático", Label: "Pastas sem valor para IA", Enabled: cfg.Context.AutoExclude, Patterns: autoDirs, Description: "Caches, metadados de IDE/VCS secundário, builds, ambientes e resultados de teste."},
+ 		{ID: "auto-generated-files", Source: "Reconhecimento automático", Label: "Artefactos gerados", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticGeneratedSuffixes), Description: "Logs, temporários, bytecode e binários gerados."},
+ 		{ID: "auto-assets", Source: "Reconhecimento automático", Label: "Assets não-fonte", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticAssetSuffixes), Description: "Arquivos, media e fontes que normalmente só aumentam o contexto."},
+@@ -162,6 +162,13 @@ func legacyExclusionDetails(values []string) []domain.ContextExclusion {
+ 	return out
+ }
+ 
++func nonNilPatterns(values []string) []string {
++	if values == nil {
++		return []string{}
++	}
++	return values
++}
++
+ func slashSuffix(values []string) []string {
+ 	out := make([]string, len(values))
+ 	for i, value := range values {
+diff --git a/services/desktop/README.md b/services/desktop/README.md
+index cdeb699..7719ac9 100644
+--- a/services/desktop/README.md
++++ b/services/desktop/README.md
+@@ -22,7 +22,7 @@ npm run dev
+ 
+ ## Composer attachments
+ 
+-In manual-planner Desktop mode, the Harness composer accepts up to 10 user-selected files (25 MiB each, 100 MiB total), whether selected with **Anexar** or pasted from the native clipboard with `Ctrl+V`. Sending prepares the remote ChatGPT composer with a refreshed project context ZIP, the selected files, and the agent-turn prompt through native clipboard/input events. In Manual mode, Wharness stops before submission: visually verify ChatGPT's attachment chips, then use **Confirmar e enviar**. In explicit project Auto mode, it submits after a bounded settle delay and waits for the matching validated result-bundle download. ChatGPT web still requires the download to be initiated on its surface because Wharness never inspects or clicks remote output. A supported provider adapter returns the turn directly and is the fully unattended path.
++In manual-planner Desktop mode, the Harness composer accepts up to 10 user-selected files (25 MiB each, 100 MiB total), whether selected with **Anexar** or pasted from the native clipboard with `Ctrl+V`. Sending prepares the remote ChatGPT composer with the agent-turn prompt and selected files through native clipboard/input events. The refreshed project context ZIP is included on the first turn of a conversation, after a conversation URL change, or when the project snapshot hash changed; unchanged sequential turns reuse the context already attached. In Manual mode, Wharness stops before submission: visually verify ChatGPT's attachment chips, then use **Confirmar e enviar**. In project Auto mode, it submits after a bounded settle delay and waits for the matching validated result-bundle download. ChatGPT web still requires the download to be initiated on its surface because Wharness never inspects or clicks remote output. A supported provider adapter returns the turn directly and is the fully unattended path.
+ 
+ Result bundles contain `turn.json`. Answers, clarifications, investigations, and blocked results are displayed in chat and never execute. Only `change` bundles contain `plan.json` and may continue through automatic sandbox verification and host Apply.
+ - Clipboard file creation happens in the Electron main process through an allowlisted IPC command.
+diff --git a/services/desktop/chatgpt-context.mjs b/services/desktop/chatgpt-context.mjs
+new file mode 100644
+index 0000000..7746f20
+--- /dev/null
++++ b/services/desktop/chatgpt-context.mjs
+@@ -0,0 +1,6 @@
++export function shouldAttachProjectContext({ currentSha, previousSha, currentConversationId, previousConversationId, force = false }) {
++  if (force) return true
++  if (!previousSha) return true
++  if (currentSha !== previousSha) return true
++  return Boolean(currentConversationId && currentConversationId !== previousConversationId)
++}
+diff --git a/services/desktop/chatgpt-context.test.mjs b/services/desktop/chatgpt-context.test.mjs
+new file mode 100644
+index 0000000..a16a1ab
+--- /dev/null
++++ b/services/desktop/chatgpt-context.test.mjs
+@@ -0,0 +1,16 @@
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import { shouldAttachProjectContext } from './chatgpt-context.mjs'
++
++test('first prompt and changed project snapshot attach context', () => {
++  assert.equal(shouldAttachProjectContext({ currentSha: 'a', previousSha: '', currentConversationId: 'c1', previousConversationId: '' }), true)
++  assert.equal(shouldAttachProjectContext({ currentSha: 'b', previousSha: 'a', currentConversationId: 'c1', previousConversationId: 'c1' }), true)
++})
++
++test('same conversation and unchanged snapshot omit duplicate context', () => {
++  assert.equal(shouldAttachProjectContext({ currentSha: 'a', previousSha: 'a', currentConversationId: 'c1', previousConversationId: 'c1' }), false)
++})
++
++test('new concrete ChatGPT URL forces a fresh project context', () => {
++  assert.equal(shouldAttachProjectContext({ currentSha: 'a', previousSha: 'a', currentConversationId: 'c2', previousConversationId: 'c1' }), true)
++})
+diff --git a/services/desktop/main-regression.test.mjs b/services/desktop/main-regression.test.mjs
+index de37133..adf63f3 100644
+--- a/services/desktop/main-regression.test.mjs
++++ b/services/desktop/main-regression.test.mjs
+@@ -11,6 +11,29 @@ test('prepare-prompt uses the background composer targeting helper', async () =>
+   assert.notEqual(end, -1)
+ 
+   const preparePrompt = source.slice(start, end)
+-  assert.match(preparePrompt, /await targetChatGPTComposer\(key, request\?\.url \|\| ''\)/)
++  assert.match(preparePrompt, /await targetChatGPTComposer\(key, request\?\.url \|\| '', request\?\.preferCurrentConversation === true\)/)
+   assert.doesNotMatch(preparePrompt, /focusChatGPTComposer/)
+ })
++
++
++test('manual toolbar send actions submit only after their upload is confirmed', async () => {
++  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
++  const contextStart = source.indexOf('async function attachContextToChatGPT(request)')
++  const promptStart = source.indexOf('async function attachPromptToChatGPT(request)')
++  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft', promptStart)
++
++  assert.notEqual(contextStart, -1)
++  assert.notEqual(promptStart, -1)
++  assert.notEqual(preparedStart, -1)
++
++  const contextSend = source.slice(contextStart, promptStart)
++  const promptSend = source.slice(promptStart, preparedStart)
++  for (const action of [contextSend, promptSend]) {
++    const upload = action.indexOf('await pasteChatGPTFile')
++    const submit = action.indexOf('await submitChatGPTDraft(key)')
++    assert.notEqual(upload, -1)
++    assert.notEqual(submit, -1)
++    assert.ok(upload < submit)
++    assert.match(action, /if \(!submission\.accepted\) throw new Error/)
++  }
++})
+diff --git a/services/desktop/main.mjs b/services/desktop/main.mjs
+index 770fdc5..92b3a9a 100644
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -7,6 +7,7 @@ import { ChatGPTSubmitCoordinator, dispatchChatGPTComposerClick, dispatchChatGPT
+ import { ChatGPTUploadCoordinator, chatGPTComposerPoint, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
+ import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
+ import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
++import { shouldAttachProjectContext } from './chatgpt-context.mjs'
+ 
+ const here = path.dirname(fileURLToPath(import.meta.url))
+ const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
+@@ -419,15 +420,20 @@ function chatAttachmentRoot() {
+   return path.join(app.getPath('userData'), 'chat-attachments-v1')
+ }
+ 
+-async function materializeChatInput(cacheKey, sessionId, values, promptText) {
++async function materializeChatInput(cacheKey, sessionId, values, promptText, includeContext) {
+   const { decoded, total } = decodeChatAttachmentSet(values)
+-  const context = await fetchContextZip(sessionId)
+   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', cacheKey)
+   await rm(dir, { recursive: true, force: true })
+   await mkdir(dir, { recursive: true, mode: 0o700 })
+-  const contextPath = path.join(dir, `wharness-context-${context.id}.zip`)
+-  await writeFile(contextPath, context.bytes, { mode: 0o600 })
+-  const paths = [contextPath]
++  const paths = []
++  let contextBytes = 0
++  if (includeContext) {
++    const context = await fetchContextZip(sessionId)
++    const contextPath = path.join(dir, `wharness-context-${context.id}.zip`)
++    await writeFile(contextPath, context.bytes, { mode: 0o600 })
++    paths.push(contextPath)
++    contextBytes = context.bytes.byteLength
++  }
+   for (const attachment of decoded) {
+     const target = path.join(dir, attachment.name)
+     await writeFile(target, attachment.bytes, { mode: 0o600, flag: 'wx' })
+@@ -438,22 +444,18 @@ async function materializeChatInput(cacheKey, sessionId, values, promptText) {
+   await mkdir(promptDir, { recursive: true, mode: 0o700 })
+   const promptPath = path.join(promptDir, prompt.name)
+   await writeFile(promptPath, prompt.bytes, { mode: 0o600, flag: 'wx' })
+-  return {
+-    paths,
+-    promptPath,
+-    userAttachmentCount: decoded.length,
+-    bytes: context.bytes.byteLength + total + prompt.bytes.byteLength,
+-  }
++  return { paths, promptPath, userAttachmentCount: decoded.length, bytes: contextBytes + total + prompt.bytes.byteLength }
+ }
+ 
+-async function targetChatGPTComposer(cacheKey, expectedURL = '') {
++async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentConversation = false) {
+   const key = sanitizeChatCacheKey(cacheKey)
+   const entry = activateChatGPTView(key)
+   const wc = entry.view.webContents
+   if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharness.`)
+   if (expectedURL) {
+     const target = requireTrustedChatGPTURL(expectedURL)
+-    if (!sameConversationURL(wc.getURL(), target)) await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
++    const keepCurrent = preferCurrentConversation && Boolean(chatGPTConversationID(wc.getURL()))
++    if (!sameConversationURL(wc.getURL(), target) && !keepCurrent) await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
+   }
+   await waitForChatGPTSurfaceReady(entry)
+   if (!isTrustedChatGPTOrigin(wc.getURL())) throw new Error('Active cached view is not a trusted ChatGPT page')
+@@ -466,7 +468,7 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '') {
+   const point = chatGPTComposerPoint(bounds, wc.getURL())
+   dispatchChatGPTComposerClick(wc, point)
+   await wait(100)
+-  return { key, entry, wc }
++  return { key, entry, wc, conversationUrl: canonicalChatGPTConversationURL(wc.getURL()) }
+ }
+ 
+ async function waitForChatGPTSurfaceReady(entry) {
+@@ -522,8 +524,12 @@ async function preparePromptForChatGPT(request) {
+   const expectedFilename = canonicalBundleFilename(requestId)
+   const autoSubmit = request?.autoSubmit === true
+   if (autoSubmit) await requireAutoSession(request?.sessionId)
+-  const input = await materializeChatInput(key, request?.sessionId, request?.attachments || [], text)
+-  const target = await targetChatGPTComposer(key, request?.url || '')
++  const target = await targetChatGPTComposer(key, request?.url || '', request?.preferCurrentConversation === true)
++  const currentSha = String(request?.contextSha256 || '').trim()
++  const previousSha = String(request?.lastContextSha256 || '').trim()
++  const previousURL = String(request?.lastContextChatgptUrl || '').trim()
++  const includeContext = shouldAttachProjectContext({ currentSha, previousSha, currentConversationId: chatGPTConversationID(target.conversationUrl), previousConversationId: chatGPTConversationID(previousURL), force: request?.includeContext === true })
++  const input = await materializeChatInput(key, request?.sessionId, request?.attachments || [], text, includeContext)
+   const transportPaths = [...input.paths, input.promptPath]
+   for (let index = 0; index < transportPaths.length; index += 1) {
+     await pasteChatGPTFile(target.entry, transportPaths[index], index + 1, transportPaths.length)
+@@ -537,8 +543,45 @@ async function preparePromptForChatGPT(request) {
+     preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: transportPaths.length, requestId })
+   }
+   touchChatGPTEntry(target.entry)
+-  console.log(`[chatgpt-draft] prepared key=${key} attachments=${transportPaths.length} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
+-  return { ok: true, cacheKey: key, attachmentCount: transportPaths.length, submitted: autoSubmit, expectedFilename }
++  console.log(`[chatgpt-draft] prepared key=${key} attachments=${transportPaths.length} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
++  return { ok: true, cacheKey: key, attachmentCount: transportPaths.length, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl: target.conversationUrl }
++}
++
++async function attachContextToChatGPT(request) {
++  const key = sanitizeChatCacheKey(request?.cacheKey)
++  const target = await targetChatGPTComposer(key, request?.url || '', true)
++  const context = await fetchContextZip(request?.sessionId)
++  const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', key, 'manual-context')
++  await rm(dir, { recursive: true, force: true })
++  await mkdir(dir, { recursive: true, mode: 0o700 })
++  const filePath = path.join(dir, `wharness-context-${context.id}.zip`)
++  await writeFile(filePath, context.bytes, { mode: 0o600 })
++  await pasteChatGPTFile(target.entry, filePath, 1, 1)
++  await wait(chatInputSettleDelay(context.bytes.byteLength, 1))
++  const submission = await submitChatGPTDraft(key)
++  if (!submission.accepted) throw new Error('ChatGPT context submission was dispatched but could not be confirmed')
++  touchChatGPTEntry(target.entry)
++  return { ok: true, cacheKey: key, bytes: context.bytes.byteLength, submitted: true, conversationUrl: canonicalChatGPTConversationURL(target.wc.getURL()) || target.conversationUrl }
++}
++
++async function attachPromptToChatGPT(request) {
++  const text = String(request?.text || '').trim()
++  if (!text) throw new Error('Prepared prompt is empty')
++  if (text.length > 1024 * 1024) throw new Error('Prepared prompt exceeds 1 MiB limit')
++  const key = sanitizeChatCacheKey(request?.cacheKey)
++  const target = await targetChatGPTComposer(key, request?.url || '', true)
++  const prompt = plannerPromptMarkdown(text)
++  const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', key, 'manual-prompt')
++  await rm(dir, { recursive: true, force: true })
++  await mkdir(dir, { recursive: true, mode: 0o700 })
++  const filePath = path.join(dir, prompt.name)
++  await writeFile(filePath, prompt.bytes, { mode: 0o600 })
++  await pasteChatGPTFile(target.entry, filePath, 1, 1)
++  await wait(chatInputSettleDelay(prompt.bytes.byteLength, 1))
++  const submission = await submitChatGPTDraft(key)
++  if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
++  touchChatGPTEntry(target.entry)
++  return { ok: true, cacheKey: key, bytes: prompt.bytes.byteLength, submitted: true, conversationUrl: canonicalChatGPTConversationURL(target.wc.getURL()) || target.conversationUrl }
+ }
+ 
+ async function submitPreparedChatGPTDraft(cacheKey) {
+@@ -598,6 +641,11 @@ function chatGPTConversationID(value) {
+   } catch { return '' }
+ }
+ 
++function canonicalChatGPTConversationURL(value) {
++  const id = chatGPTConversationID(value)
++  return id ? `https://chatgpt.com/c/${id}` : ''
++}
++
+ function sameConversationURL(left, right) {
+   const a = chatGPTConversationID(left)
+   const b = chatGPTConversationID(right)
+@@ -751,6 +799,14 @@ function registerIPC() {
+     trustedSender(event)
+     return preparePromptForChatGPT(request)
+   })
++  ipcMain.handle('wharness:chatgpt:attach-context', async (event, request) => {
++    trustedSender(event)
++    return attachContextToChatGPT(request)
++  })
++  ipcMain.handle('wharness:chatgpt:attach-prompt', async (event, request) => {
++    trustedSender(event)
++    return attachPromptToChatGPT(request)
++  })
+   ipcMain.handle('wharness:chatgpt:submit-prepared', async (event, request) => {
+     trustedSender(event)
+     return submitPreparedChatGPTDraft(request?.cacheKey)
+diff --git a/services/desktop/preload.cjs b/services/desktop/preload.cjs
+index 70606e2..b193c38 100644
+--- a/services/desktop/preload.cjs
++++ b/services/desktop/preload.cjs
+@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
+     paste: () => invoke('wharness:chatgpt:paste'),
+     submitPrompt: (request) => invoke('wharness:chatgpt:submit-prompt', request),
+     preparePrompt: (request) => invoke('wharness:chatgpt:prepare-prompt', request),
++    attachContext: (request) => invoke('wharness:chatgpt:attach-context', request),
++    attachPrompt: (request) => invoke('wharness:chatgpt:attach-prompt', request),
+     submitPrepared: (request) => invoke('wharness:chatgpt:submit-prepared', request),
+     state: () => invoke('wharness:chatgpt:state'),
+     openExternal: (url = '') => invoke('wharness:chatgpt:open-external', { url: String(url || '') }),
+diff --git a/services/frontend/src/App.tsx b/services/frontend/src/App.tsx
+index d74b7cf..f314ce7 100644
+--- a/services/frontend/src/App.tsx
++++ b/services/frontend/src/App.tsx
+@@ -8,7 +8,7 @@ import { EditorWorkspace } from './components/EditorWorkspace'
+ import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+ import { ProjectSettings } from './components/ProjectSettings'
+ import {
+-  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadAutomationMode, loadChat, loadExecutionMode, loadLegacyChat,
++  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadLegacyChat,
+   loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
+   removeChat as removeStoredChat, saveAutomationMode, saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
+ } from './lib/workspaceMemory'
+@@ -24,9 +24,9 @@ export default function App() {
+   const [items, setItems] = useState<ChatItem[]>([])
+   const [events, setEvents] = useState<HarnessEvent[]>([])
+   const [manualPrompt, setManualPrompt] = useState('')
+-  const [mode, setMode] = useState<WorkspaceMode>(activeAtLoad?.mode || 'editor')
+-  const [executionMode, setExecutionMode] = useState<ExecutionMode>(activeAtLoad?.executionMode || (activeAtLoad ? loadExecutionMode(activeAtLoad.projectPath) : 'protected'))
+-  const [automationMode, setAutomationMode] = useState<AutomationMode>(activeAtLoad?.automationMode || (activeAtLoad ? loadAutomationMode(activeAtLoad.projectPath) : 'manual'))
++  const [mode, setMode] = useState<WorkspaceMode>('agent')
++  const [executionMode, setExecutionMode] = useState<ExecutionMode>('protected')
++  const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
+   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
+   const [restoring, setRestoring] = useState(Boolean(activeAtLoad))
+   const [busy, setBusy] = useState(false)
+@@ -66,9 +66,8 @@ export default function App() {
+       try {
+         const known = loadWorkspaceChats(active.projectPath)
+         const selected = known.find((chat) => chat.id === active.chatId) || known[0]
+-        let projectExecutionMode = active.executionMode || loadExecutionMode(active.projectPath)
+-        const projectAutomationMode = active.automationMode || loadAutomationMode(active.projectPath)
+-        if (projectAutomationMode === 'auto') projectExecutionMode = 'protected'
++        const projectExecutionMode: ExecutionMode = 'protected'
++        const projectAutomationMode: AutomationMode = 'auto'
+         let restored: Session
+         try {
+           restored = await api.getSession(selected?.sessionId || active.sessionId)
+@@ -93,11 +92,11 @@ export default function App() {
+         }
+         saveWorkspaceChats(restored.project_path, nextChats)
+         setChats(nextChats); setActiveChatId(nextChat.id); setSession(restored)
+-        setMode(active.mode || 'editor'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setManualPrompt(restored.last_manual_prompt || '')
++        setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setManualPrompt(restored.last_manual_prompt || '')
+         const chatItems = loadChat(restored.project_path, nextChat.id)
+         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
+         connectEvents(restored.id)
+-        saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: active.mode || 'editor', chatId: nextChat.id, executionMode: projectExecutionMode, automationMode: projectAutomationMode })
++        saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: 'agent', chatId: nextChat.id, executionMode: projectExecutionMode, automationMode: projectAutomationMode })
+       } catch (e) {
+         if (alive) { clearActiveWorkspace(); setError(`Não foi possível reabrir o workspace: ${messageOf(e)}`) }
+       } finally { if (alive) setRestoring(false) }
+@@ -130,9 +129,8 @@ export default function App() {
+   async function start(projectPath: string) {
+     setBusy(true); setError(undefined)
+     try {
+-      let projectExecutionMode = loadExecutionMode(projectPath)
+-      const projectAutomationMode = loadAutomationMode(projectPath)
+-      if (projectAutomationMode === 'auto') projectExecutionMode = 'protected'
++      const projectExecutionMode: ExecutionMode = 'protected'
++      const projectAutomationMode: AutomationMode = 'auto'
+       const created = await api.createSession(projectPath, projectExecutionMode, projectAutomationMode)
+       rememberRecent(created.project_path); setRecent(loadRecentWorkspaces())
+       let nextChats = loadWorkspaceChats(created.project_path)
+@@ -158,7 +156,7 @@ export default function App() {
+       setSession(selectedSession); setActiveChatId(selected.id)
+       const chatItems = loadChat(created.project_path, selected.id)
+       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
+-      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('editor'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode)
++      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode)
+       connectEvents(selectedSession.id)
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
+   }
+@@ -282,6 +280,23 @@ export default function App() {
+     })
+   }
+ 
++  function bindChatGPTURL(url: string) {
++    if (!session || !activeChatId) return
++    setChats((current) => {
++      const next = current.map((chat) => chat.id === activeChatId ? {
++        ...chat, chatgptUrl: url,
++        lastContextChatgptUrl: chat.lastContextSha256 && !chat.lastContextChatgptUrl ? url : chat.lastContextChatgptUrl,
++        updatedAt: new Date().toISOString(),
++      } : chat)
++      saveWorkspaceChats(session.project_path, next)
++      return next
++    })
++  }
++
++  function markContextSent(sha256: string, conversationUrl?: string) {
++    updateChat({ lastContextSha256: sha256, lastContextChatgptUrl: conversationUrl || chats.find((chat) => chat.id === activeChatId)?.chatgptUrl })
++  }
++
+   async function send(message: string, attachments: File[]) {
+     if (!session) return
+     if (attachments.length && (!isDesktop() || config?.planner !== 'manual')) {
+@@ -312,7 +327,7 @@ export default function App() {
+       }
+     }
+ 
+-    const userItem: ChatItem = { id: messageId, role: 'user', text: message, attachments: persistedAttachments }
++    const userItem: ChatItem = { id: messageId, role: 'user', text: message, createdAt: new Date().toISOString(), attachments: persistedAttachments }
+     setItems((current) => [...current, userItem])
+     if (activeChat.title === 'Novo chat' || activeChat.title === 'Chat principal') updateChat({ title: deriveChatTitle(message) })
+     try {
+@@ -329,16 +344,28 @@ export default function App() {
+           await new Promise<void>((resolve) => window.setTimeout(resolve, 240))
+           const bridge = desktopBridge()
+           if (!bridge) throw new Error('Desktop bridge indisponível')
+-          const prepared = await bridge.chatgpt.preparePrompt({ cacheKey: activeChat.id, text: prompt, url: activeChat.chatgptUrl, sessionId: response.session.id, requestId: response.session.last_request_id || '', attachments: encoded, autoSubmit: automationMode === 'auto' })
++          const prepared = await bridge.chatgpt.preparePrompt({
++            cacheKey: activeChat.id, text: prompt, url: activeChat.chatgptUrl, sessionId: response.session.id,
++            requestId: response.session.last_request_id || '', attachments: encoded, autoSubmit: automationMode === 'auto',
++            contextSha256: response.session.context.manifest.sha256, lastContextSha256: activeChat.lastContextSha256,
++            lastContextChatgptUrl: activeChat.lastContextChatgptUrl, preferCurrentConversation: true,
++          })
+           draftCount = prepared.attachmentCount
+           autoSubmitted = prepared.submitted
++          const chatPatch: Partial<WorkspaceChat> = {}
++          if (prepared.conversationUrl) chatPatch.chatgptUrl = prepared.conversationUrl
++          if (prepared.includedContext) {
++            chatPatch.lastContextSha256 = response.session.context.manifest.sha256
++            chatPatch.lastContextChatgptUrl = prepared.conversationUrl || activeChat.chatgptUrl
++          }
++          if (Object.keys(chatPatch).length) updateChat(chatPatch)
+           if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [activeChat.id]: prepared.attachmentCount }))
+         } catch (prepareError) {
+           transportFailure = messageOf(prepareError)
+         }
+       }
+       setItems((current) => [...current, {
+-        id: crypto.randomUUID(), role: 'harness',
++        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+         text: turn && turn.kind !== 'change'
+           ? turn.message
+           : response.session.plan
+@@ -355,7 +382,7 @@ export default function App() {
+       }])
+     } catch (e) {
+       const msg = messageOf(e); setError(msg)
+-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: `Falha no planeamento: ${msg}` }])
++      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `Falha no planeamento: ${msg}` }])
+     } finally { setBusy(false) }
+   }
+ 
+@@ -367,7 +394,7 @@ export default function App() {
+       if (!bridge) throw new Error('Desktop bridge indisponível')
+       await bridge.chatgpt.submitPrepared({ cacheKey: activeChatId })
+       setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
+-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
++      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
+@@ -380,7 +407,7 @@ export default function App() {
+     setBusy(true); setError(undefined)
+     try {
+       const updated = await api.manualPlan(session.id, raw)
+-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' }])
++      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' }])
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
+@@ -411,7 +438,7 @@ export default function App() {
+ 
+       const updated = await api.manualPlan(targetSession.id, raw)
+       const planItem: ChatItem = {
+-        id: crypto.randomUUID(), role: 'harness',
++        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+         text: updated.plan?.summary || 'Plano importado do ficheiro JSON.',
+         meta: updated.policy?.allowed ? 'Ficheiro importado · Policy validada' : 'Ficheiro importado · Policy bloqueou o plano',
+       }
+@@ -466,7 +493,7 @@ export default function App() {
+           : 'Bundle ZIP importado e plano validado.'
+       const conversational = updated.last_turn && updated.last_turn.kind !== 'change'
+       const bundleItem: ChatItem = {
+-        id: crypto.randomUUID(), role: 'harness', text: conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText),
++        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText),
+         meta: conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? 'AUTO · Host aplicado' : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
+         turnKind: updated.last_turn?.kind,
+       }
+@@ -497,7 +524,7 @@ export default function App() {
+       const ok = response.session.last_execution?.success
+       const warnings = response.session.last_execution?.warnings || []
+       setItems((current) => [...current, {
+-        id: crypto.randomUUID(), role: 'harness',
++        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+         text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
+         meta: direct && ok ? 'Host alterado diretamente' : (warnings.length ? `${warnings.length} dívida(s) pré-existente(s)` : undefined),
+       }])
+@@ -527,7 +554,7 @@ export default function App() {
+     if (!repairPrompt) return
+     const attempt = failedSession.repair_attempt || 1
+     setItems((current) => [...current, {
+-      id: crypto.randomUUID(), role: 'harness',
++      id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+       text: `Falha capturada. O Wharness criou automaticamente a requisição de reparação ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
+       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
+     }])
+@@ -537,9 +564,9 @@ export default function App() {
+       const bridge = desktopBridge()
+       if (!bridge) throw new Error('Desktop bridge indisponível')
+       await bridge.chatgpt.submitPrompt({ cacheKey: targetChat.id, text: repairPrompt, url: targetChat.chatgptUrl, requestId: failedSession.last_request_id || '' })
+-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: 'Requisição de reparação enviada automaticamente ao ChatGPT. Aguardando o novo bundle ZIP.', meta: 'ChatGPT acionado automaticamente' }])
++      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Requisição de reparação enviada automaticamente ao ChatGPT. Aguardando o novo bundle ZIP.', meta: 'ChatGPT acionado automaticamente' }])
+     } catch (sendError) {
+-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: `A requisição de reparação foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT e envie o prompt preparado' }])
++      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `A requisição de reparação foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT e envie o prompt preparado' }])
+     }
+   }
+ 
+@@ -548,7 +575,7 @@ export default function App() {
+     setBusy(true); setError(undefined)
+     try {
+       const updated = await api.apply(session.id)
+-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: 'Host alterado' }])
++      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: 'Host alterado' }])
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
+@@ -570,7 +597,7 @@ export default function App() {
+       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
+         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, next, nextAutomation) } catch { /* stale chat is repaired on selection */ }
+       }))
+-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' }])
++      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' }])
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
+@@ -586,7 +613,7 @@ export default function App() {
+       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
+         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, nextExecution, next) } catch { /* stale chat is repaired on selection */ }
+       }))
+-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' }])
++      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' }])
+     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+   }
+ 
+@@ -605,7 +632,7 @@ export default function App() {
+       ? <EditorWorkspace session={session} onError={setError} />
+       : <div className="agent-workspace">
+           <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} onSend={send} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
+-          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
++          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={bindChatGPTURL} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
+         </div>}
+   </main>
+ }
+@@ -625,7 +652,7 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
+ }
+ 
+ function welcomeItem(session: Session): ChatItem {
+-  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
++  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', createdAt: new Date().toISOString(), meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+ }
+ 
+ function messageOf(error: unknown) {
+diff --git a/services/frontend/src/components/ChatGPTDesktopPane.test.tsx b/services/frontend/src/components/ChatGPTDesktopPane.test.tsx
+index 04d29d5..fca619a 100644
+--- a/services/frontend/src/components/ChatGPTDesktopPane.test.tsx
++++ b/services/frontend/src/components/ChatGPTDesktopPane.test.tsx
+@@ -35,7 +35,7 @@ function bridge() {
+       setBounds: vi.fn().mockResolvedValue({ ok: true }),
+       navigate: vi.fn().mockResolvedValue(state),
+       reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(),
+-      submitPrompt: vi.fn(), preparePrompt: vi.fn(), submitPrepared: vi.fn(),
++      submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(),
+       state: vi.fn().mockResolvedValue(state),
+       openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
+       onState: vi.fn(noopSubscription),
+@@ -83,7 +83,7 @@ describe('ChatGPTDesktopPane overlay suspension', () => {
+       onChatGPTURL={() => undefined} onSession={() => undefined} onManualPlan={async () => undefined}
+       onPlanFile={async () => ''} onBundleFile={async () => ''}
+     />)
+-    const downloadStep = screen.getByText('Baixar resultado ZIP').closest('.desktop-step')
++    const downloadStep = screen.getByText('Resultado').closest('.desktop-action-card')
+     expect(downloadStep).not.toBeNull()
+     expect(within(downloadStep as HTMLElement).getByText('wharness-bundle-req_20260903T112307_7f79e5fe040d3e2d.zip')).toBeTruthy()
+   })
+@@ -104,4 +104,18 @@ describe('ChatGPTDesktopPane overlay suspension', () => {
+     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+   })
+ 
++
++  it('can send the prepared prompt directly to the currently open ChatGPT composer', async () => {
++    const desktop = bridge()
++    desktop.chatgpt.attachPrompt = vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', bytes: 128, conversationUrl: 'https://chatgpt.com/c/current' })
++    window.wharnessDesktop = desktop
++    render(<ChatGPTDesktopPane
++      session={session()} manualPrompt="prompt atual" busy={false} chatId="chat-1" chatTitle="Chat 1"
++      onChatGPTURL={() => undefined} onSession={() => undefined} onManualPlan={async () => undefined}
++      onPlanFile={async () => ''} onBundleFile={async () => ''}
++    />)
++    screen.getByRole('button', { name: /Enviar prompt/i }).click()
++    await waitFor(() => expect(desktop.chatgpt.attachPrompt).toHaveBeenCalledWith({ cacheKey: 'chat-1', text: 'prompt atual', url: undefined }))
++  })
++
+ })
+diff --git a/services/frontend/src/components/ChatGPTDesktopPane.tsx b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+index f873cb3..b012962 100644
+--- a/services/frontend/src/components/ChatGPTDesktopPane.tsx
++++ b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+@@ -7,7 +7,7 @@ import { StatusPill } from './StatusPill'
+ 
+ const CHATGPT_HOME = 'https://chatgpt.com/'
+ 
+-export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onSession, onManualPlan, onPlanFile, onBundleFile }: {
++export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onContextSent, onSession, onManualPlan, onPlanFile, onBundleFile }: {
+   suspended?: boolean
+   session: Session
+   manualPrompt: string
+@@ -16,6 +16,7 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
+   chatTitle: string
+   chatgptUrl?: string
+   onChatGPTURL: (url: string) => void
++  onContextSent?: (sha256: string, conversationUrl?: string) => void
+   onSession: (session: Session) => void
+   onManualPlan: (json: string) => Promise<void>
+   onPlanFile: (json: string, requestId: string) => Promise<string>
+@@ -147,6 +148,29 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
+     if (!externalAuth) await bridge?.chatgpt.focus()
+   }
+ 
++  async function sendContext() {
++    if (!bridge || externalAuth) return
++    setNotice('A atualizar e enviar o contexto para o chat aberto…')
++    try {
++      const refreshed = await api.refreshContext(session.id)
++      onSession(refreshed)
++      const result = await bridge.chatgpt.attachContext({ cacheKey: chatId, sessionId: refreshed.id, url: chatgptUrl })
++      if (result.conversationUrl && result.conversationUrl !== chatgptUrl) onChatGPTURL(result.conversationUrl)
++      onContextSent?.(refreshed.context.manifest.sha256, result.conversationUrl || chatgptUrl)
++      setNotice(`Contexto ZIP enviado diretamente ao ChatGPT (${formatBytes(result.bytes)}).`)
++    } catch (error) { setNotice(error instanceof Error ? error.message : 'Falha ao enviar o contexto ZIP.') }
++  }
++
++  async function sendPrompt() {
++    if (!bridge || !manualPrompt || externalAuth) return
++    setNotice('A enviar o prompt para o chat aberto…')
++    try {
++      const result = await bridge.chatgpt.attachPrompt({ cacheKey: chatId, text: manualPrompt, url: chatgptUrl })
++      if (result.conversationUrl && result.conversationUrl !== chatgptUrl) onChatGPTURL(result.conversationUrl)
++      setNotice(`Prompt enviado diretamente ao ChatGPT (${formatBytes(result.bytes)}).`)
++    } catch (error) { setNotice(error instanceof Error ? error.message : 'Falha ao enviar o prompt.') }
++  }
++
+   async function pastePlanFromClipboard() {
+     try {
+       const text = bridge ? await bridge.clipboard.readText() : await navigator.clipboard.readText()
+@@ -217,9 +241,19 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
+     </div>}
+ 
+     <div className="desktop-chatgpt-actions">
+-      <div className="desktop-step"><span>1</span><button className="secondary-button" disabled={busy} onClick={() => void copyContext()}><Icon name="copy" size={15}/> Copiar contexto ZIP</button><small>Clique no composer e use Ctrl+V ou o botão Colar.</small></div>
+-      <div className="desktop-step"><span>2</span><button className="secondary-button" disabled={!manualPrompt} onClick={() => void copyPrompt()}><Icon name="copy" size={15}/> Copiar prompt</button><small>Depois do ZIP, cole o prompt no composer.</small></div>
+-      <div className="desktop-step"><span>3</span><strong className="desktop-step-title"><Icon name="download" size={15}/> Baixar resultado ZIP</strong><small>Nome esperado: <code>{expectedBundleFilename}</code>. {externalAuth ? 'Descarregue no navegador do sistema e importe o ZIP abaixo.' : session.automation_mode === 'auto' ? 'O download continua a ser iniciado pelo ChatGPT; nomes ZIP genéricos são normalizados apenas para o request pendente e o conteúdo continua sob validação estrita.' : 'Clique no anexo ZIP; o Desktop importa e valida automaticamente.'}</small>{externalAuth && <button className="text-button external-bundle-import" type="button" disabled={!session.last_request_id || busy} onClick={() => void importExternalBundle()}><Icon name="download" size={14}/> Importar bundle ZIP</button>}</div>
++      <article className="desktop-action-card">
++        <div className="desktop-action-head"><span className="desktop-action-icon"><Icon name="workspace" size={15}/></span><div><strong>Contexto do projeto</strong><small>ZIP atualizado quando a conversa ou o snapshot muda.</small></div></div>
++        <div className="desktop-action-buttons"><button className="desktop-action-button" disabled={busy} onClick={() => void copyContext()}><Icon name="copy" size={13}/> Copiar ZIP</button><button className="desktop-action-button primary" disabled={busy || Boolean(externalAuth)} onClick={() => void sendContext()}><Icon name="send" size={13}/> Enviar ZIP</button></div>
++      </article>
++      <article className="desktop-action-card">
++        <div className="desktop-action-head"><span className="desktop-action-icon"><Icon name="plan" size={15}/></span><div><strong>Prompt atual</strong><small>Copie ou envie diretamente para o chat aberto.</small></div></div>
++        <div className="desktop-action-buttons"><button className="desktop-action-button" disabled={!manualPrompt} onClick={() => void copyPrompt()}><Icon name="copy" size={13}/> Copiar prompt</button><button className="desktop-action-button primary" disabled={!manualPrompt || busy || Boolean(externalAuth)} onClick={() => void sendPrompt()}><Icon name="send" size={13}/> Enviar prompt</button></div>
++      </article>
++      <article className="desktop-action-card result">
++        <div className="desktop-action-head"><span className="desktop-action-icon"><Icon name="download" size={15}/></span><div><strong>Resultado</strong><small>Bundle esperado para o pedido ativo.</small></div></div>
++        <code className="desktop-bundle-name">{expectedBundleFilename}</code>
++        {externalAuth && <button className="desktop-action-button" type="button" disabled={!session.last_request_id || busy} onClick={() => void importExternalBundle()}><Icon name="download" size={13}/> Importar bundle ZIP</button>}
++      </article>
+     </div>
+     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
+ 
+diff --git a/services/frontend/src/components/ChatPanel.test.tsx b/services/frontend/src/components/ChatPanel.test.tsx
+index 65fbd3e..eb880f8 100644
+--- a/services/frontend/src/components/ChatPanel.test.tsx
++++ b/services/frontend/src/components/ChatPanel.test.tsx
+@@ -24,7 +24,7 @@ const session = {
+ } satisfies Session
+ 
+ describe('ChatPanel', () => {
+-  afterEach(() => vi.restoreAllMocks())
++  afterEach(() => { vi.restoreAllMocks(); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
+ 
+   it('does not return scrollIntoView result as an effect cleanup', () => {
+     const scrollIntoView = vi.fn(() => Promise.resolve())
+@@ -41,6 +41,19 @@ describe('ChatPanel', () => {
+     expect(() => view.unmount()).not.toThrow()
+   })
+ 
++
++  it('shows message date/time and copies any previous message', async () => {
++    const writeText = vi.fn().mockResolvedValue(undefined)
++    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
++    const createdAt = '2026-09-03T15:36:00.000Z'
++    render(
++      <ChatPanel session={session} items={[{ id: 'm1', role: 'user', text: 'mensagem anterior', createdAt }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onNewChat={async () => undefined} onSelectChat={async () => undefined} />,
++    )
++    expect(document.querySelector('time')?.getAttribute('datetime')).toBe(createdAt)
++    fireEvent.click(screen.getByRole('button', { name: 'Copiar mensagem' }))
++    expect(writeText).toHaveBeenCalledWith('mensagem anterior')
++  })
++
+   it('selects files and submits them with the message', async () => {
+     const onSend = vi.fn(async () => undefined)
+     const view = render(
+diff --git a/services/frontend/src/components/ChatPanel.tsx b/services/frontend/src/components/ChatPanel.tsx
+index 0748349..c5d2885 100644
+--- a/services/frontend/src/components/ChatPanel.tsx
++++ b/services/frontend/src/components/ChatPanel.tsx
+@@ -25,6 +25,7 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, attachmen
+   const [message, setMessage] = useState('')
+   const [attachments, setAttachments] = useState<File[]>([])
+   const [attachmentError, setAttachmentError] = useState('')
++  const [copiedMessageId, setCopiedMessageId] = useState('')
+   const endRef = useRef<HTMLDivElement>(null)
+   const fileInputRef = useRef<HTMLInputElement>(null)
+   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [items, busy])
+@@ -62,6 +63,18 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, attachmen
+     addFiles(files)
+   }
+ 
++  async function copyMessage(item: ChatItem) {
++    try {
++      await navigator.clipboard.writeText(item.text)
++    } catch {
++      const textarea = document.createElement('textarea')
++      textarea.value = item.text; textarea.style.position = 'fixed'; textarea.style.opacity = '0'
++      document.body.appendChild(textarea); textarea.select(); document.execCommand('copy'); textarea.remove()
++    }
++    setCopiedMessageId(item.id)
++    window.setTimeout(() => setCopiedMessageId((current) => current === item.id ? '' : current), 1400)
++  }
++
+   return <section className="chat-panel">
+     <header className="panel-header chat-header">
+       <div><span className="panel-kicker">Harness chat</span><h2>{session.context.manifest.project_root.split('/').pop() || 'Projeto'}</h2></div>
+@@ -72,42 +85,39 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, attachmen
+       <button className="chat-new-button" disabled={busy} onClick={() => void onNewChat()} title="Novo chat"><Icon name="plus" size={14}/> Novo</button>
+       <div className="chat-tabs">
+         {chats.map((chat) => <div key={chat.id} className={chat.id === activeChatId ? 'chat-tab-group active' : 'chat-tab-group'}>
+-          <button
+-            className={chat.id === activeChatId ? 'chat-tab active' : 'chat-tab'}
+-            disabled={busy}
+-            onClick={() => void onSelectChat(chat.id)}
+-            title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}
+-          >
+-            <span>{chat.title}</span>
+-            <i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" />
++          <button className={chat.id === activeChatId ? 'chat-tab active' : 'chat-tab'} disabled={busy} onClick={() => void onSelectChat(chat.id)} title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}>
++            <span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" />
+           </button>
+-          {onDeleteChat && <button
+-            className="chat-tab-remove"
+-            disabled={busy}
+-            onClick={() => void onDeleteChat(chat.id)}
+-            title={`Remover ${chat.title}`}
+-            aria-label={`Remover chat ${chat.title}`}
+-          ><Icon name="close" size={11}/></button>}
++          {onDeleteChat && <button className="chat-tab-remove" disabled={busy} onClick={() => void onDeleteChat(chat.id)} title={`Remover ${chat.title}`} aria-label={`Remover chat ${chat.title}`}><Icon name="close" size={11}/></button>}
+         </div>)}
+       </div>
+     </div>
+ 
+     <div className="chat-stream">
+       <div className="system-note"><Icon name="shield" size={17}/><div><strong>Contexto isolado</strong><span>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</span></div></div>
+-      {items.map((item) => <article key={item.id} className={`message message-${item.role}`}><div className="message-label">{item.role === 'user' ? 'Você' : 'Wharness'}</div><div className="message-body">{item.text}</div>{item.attachments?.length ? <div className="message-attachments">{item.attachments.map((file, index) => <MessageAttachmentCard key={file.storageRef || `${file.name}-${file.size}-${index}`} attachment={file}/>)}</div> : null}{item.meta && <div className="message-meta">{item.meta}</div>}</article>)}
+-      {busy && <article className="message message-harness"><div className="message-label">Wharness</div><div className="thinking"><span/><span/><span/> A processar o pedido</div></article>}
++      {items.map((item) => <article key={item.id} className={`message message-${item.role}`}>
++        <div className="message-heading"><div className="message-label">{item.role === 'user' ? 'Você' : 'Wharness'}</div><div className="message-tools"><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><button type="button" onClick={() => void copyMessage(item)} title="Copiar mensagem" aria-label="Copiar mensagem"><Icon name={copiedMessageId === item.id ? 'check' : 'copy'} size={12}/></button></div></div>
++        <div className="message-body">{item.text}</div>
++        {item.attachments?.length ? <div className="message-attachments">{item.attachments.map((file, index) => <MessageAttachmentCard key={file.storageRef || `${file.name}-${file.size}-${index}`} attachment={file}/>)}</div> : null}
++        {item.meta && <div className="message-meta">{item.meta}</div>}
++      </article>)}
++      {busy && <article className="message message-harness"><div className="message-heading"><div className="message-label">Wharness</div><div className="message-tools"><time>{formatMessageTime(new Date().toISOString())}</time></div></div><div className="thinking"><span/><span/><span/> A processar o pedido</div></article>}
+       <div ref={endRef}/>
+     </div>
+ 
+-    {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>Confirme visualmente que aparecem {preparedAttachmentCount} anexo(s), incluindo o contexto ZIP.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}
++    {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>{preparedAttachmentCount} anexo(s) preparados. O contexto ZIP é incluído automaticamente apenas quando necessário.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}
+ 
+     <form className="composer" onSubmit={submit}>
+       {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => setAttachments((current) => current.filter((item) => item !== file))}/>)}</div> : null}
+       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
+-      <textarea disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => setMessage(event.target.value)} onPaste={pasteFiles} onKeyDown={(event) => {
+-        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() }
+-      }} placeholder="Pergunte, analise, diagnostique ou descreva uma alteração…" rows={3}/>
++      <textarea disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => setMessage(event.target.value)} onPaste={pasteFiles} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder="Pergunte, analise, diagnostique ou descreva uma alteração…" rows={3}/>
+       <div className="composer-footer"><div className="composer-tools"><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(Array.from(event.target.files || []))}/><button type="button" className="attach-button" disabled={!attachmentsEnabled || busy || Boolean(preparedAttachmentCount)} onClick={() => fileInputRef.current?.click()} title={attachmentsEnabled ? 'Anexar ficheiros ao ChatGPT' : 'Anexos diretos requerem o Desktop com planner manual'}><Icon name="plus" size={13}/> Anexar</button><span>Ctrl+V cola ficheiros · Enter envia</span></div><button className="send-button" disabled={busy || (!message.trim() && !attachments.length) || Boolean(preparedAttachmentCount)} aria-label="Enviar ao agente"><Icon name="send" /></button></div>
+     </form>
+   </section>
+ }
++
++function formatMessageTime(value?: string) {
++  const date = value ? new Date(value) : new Date()
++  if (Number.isNaN(date.getTime())) return '—'
++  return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
++}
+diff --git a/services/frontend/src/components/ContextInspector.test.tsx b/services/frontend/src/components/ContextInspector.test.tsx
+index d11189f..0603c3d 100644
+--- a/services/frontend/src/components/ContextInspector.test.tsx
++++ b/services/frontend/src/components/ContextInspector.test.tsx
+@@ -26,4 +26,13 @@ describe('ContextInspector', () => {
+     expect(screen.getByText('Pastas protegidas')).toBeTruthy()
+     expect(screen.getByText('node_modules/')).toBeTruthy()
+   })
++
++  it('tolerates legacy null arrays from older context inspection payloads', () => {
++    const legacy = { ...inspection, roots: null, entries: null, rules: [{ ...inspection.rules[0], patterns: null }] } as unknown as Parameters<typeof ContextInspector>[0]['inspection']
++    render(<ContextInspector inspection={legacy} refreshing={false} onRefresh={() => undefined} />)
++    expect(screen.getByText('No ZIP final')).toBeTruthy()
++    fireEvent.click(screen.getByRole('button', { name: /^Regras$/i }))
++    expect(screen.getByText('sem padrões configurados')).toBeTruthy()
++  })
++
+ })
+diff --git a/services/frontend/src/components/ContextInspector.tsx b/services/frontend/src/components/ContextInspector.tsx
+index 55f167b..d82cf0c 100644
+--- a/services/frontend/src/components/ContextInspector.tsx
++++ b/services/frontend/src/components/ContextInspector.tsx
+@@ -14,14 +14,17 @@ export function ContextInspector({ inspection, refreshing, onRefresh }: {
+   const [filter, setFilter] = useState<Filter>('included')
+   const [query, setQuery] = useState('')
+   const [limit, setLimit] = useState(300)
++  const entries = inspection.entries || []
++  const roots = inspection.roots || []
++  const rules = inspection.rules || []
+   const filtered = useMemo(() => {
+     const needle = query.trim().toLowerCase()
+-    return inspection.entries.filter((entry) => {
++    return entries.filter((entry) => {
+       if (filter !== 'all' && entry.status !== filter) return false
+       if (!needle) return true
+       return entry.path.toLowerCase().includes(needle) || (entry.reason || '').toLowerCase().includes(needle) || (entry.rule || '').toLowerCase().includes(needle)
+     })
+-  }, [filter, inspection.entries, query])
++  }, [entries, filter, query])
+   const shown = filtered.slice(0, limit)
+ 
+   function changeFilter(next: Filter) { setFilter(next); setLimit(300) }
+@@ -31,7 +34,7 @@ export function ContextInspector({ inspection, refreshing, onRefresh }: {
+     <div className="context-summary-grid">
+       <Summary label="No ZIP final" value={String(inspection.included_files)} detail={formatBytes(inspection.included_bytes)} tone="ok" />
+       <Summary label="Excluídos" value={String(inspection.excluded_items)} detail="itens/subárvores" tone="muted" />
+-      <Summary label="Raiz" value={String(inspection.roots.length)} detail="pastas + ficheiros" tone="muted" />
++      <Summary label="Raiz" value={String(roots.length)} detail="pastas + ficheiros" tone="muted" />
+       <Summary label="Snapshot" value={inspection.sha256.slice(0, 10)} detail={inspection.snapshot_id} tone="mono" />
+     </div>
+     <div className="context-inspector-bar">
+@@ -62,10 +65,10 @@ export function ContextInspector({ inspection, refreshing, onRefresh }: {
+       </div>
+       <div className="context-list-footer"><span>A mostrar {shown.length} de {filtered.length} itens</span>{shown.length < filtered.length && <button onClick={() => setLimit((value) => value + 300)}>Mostrar mais 300</button>}</div>
+     </div>}
+-    {view === 'roots' && <div className="context-roots"><div className="context-section-intro"><strong>Pastas base e ficheiros específicos</strong><span>Estado calculado contra o snapshot final, não apenas contra a configuração.</span></div>{inspection.roots.map((root) => <div className={`context-root-row ${root.status}`} key={root.path}>
++    {view === 'roots' && <div className="context-roots"><div className="context-section-intro"><strong>Pastas base e ficheiros específicos</strong><span>Estado calculado contra o snapshot final, não apenas contra a configuração.</span></div>{roots.map((root) => <div className={`context-root-row ${root.status}`} key={root.path}>
+       <Icon name={root.kind === 'directory' ? 'folder' : 'file'} size={15}/><div><code>{root.name}</code><small>{root.included_files} incluídos · {root.excluded_items} excluídos{root.reason ? ` · ${root.reason}` : ''}</small></div><span className={`context-status ${root.status}`}>{rootLabel(root.status)}</span><span className="context-size">{root.included_bytes ? formatBytes(root.included_bytes) : '—'}</span>
+     </div>)}</div>}
+-    {view === 'rules' && <div className="context-rules"><div className="context-section-intro"><strong>Todas as regras de exclusão/inclusão aplicadas</strong><span>As regras obrigatórias do Wharness têm precedência sobre <code>whaness.yml</code>.</span></div>{inspection.rules.map((rule) => <article className={`context-rule-card ${rule.enabled ? '' : 'disabled'}`} key={rule.id}><header><div><strong>{rule.label}</strong><span>{rule.source}</span></div><span className={`context-rule-state ${rule.enabled ? 'enabled' : ''}`}>{rule.enabled ? 'ATIVA' : 'INATIVA'}</span></header><p>{rule.description}</p><div className="context-patterns">{rule.patterns.length ? rule.patterns.map((pattern) => <code key={pattern}>{pattern}</code>) : <span>sem padrões configurados</span>}</div></article>)}</div>}
++    {view === 'rules' && <div className="context-rules"><div className="context-section-intro"><strong>Todas as regras de exclusão/inclusão aplicadas</strong><span>As regras obrigatórias do Wharness têm precedência sobre <code>whaness.yml</code>.</span></div>{rules.map((rule) => <article className={`context-rule-card ${rule.enabled ? '' : 'disabled'}`} key={rule.id}><header><div><strong>{rule.label}</strong><span>{rule.source}</span></div><span className={`context-rule-state ${rule.enabled ? 'enabled' : ''}`}>{rule.enabled ? 'ATIVA' : 'INATIVA'}</span></header><p>{rule.description}</p><div className="context-patterns">{(rule.patterns || []).length ? (rule.patterns || []).map((pattern) => <code key={pattern}>{pattern}</code>) : <span>sem padrões configurados</span>}</div></article>)}</div>}
+   </section>
+ }
+ 
+diff --git a/services/frontend/src/components/Inspector.tsx b/services/frontend/src/components/Inspector.tsx
+index a254f89..dccd08e 100644
+--- a/services/frontend/src/components/Inspector.tsx
++++ b/services/frontend/src/components/Inspector.tsx
+@@ -11,7 +11,7 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
+ 
+ type Tab = 'plan' | 'terminal' | 'chatgpt'
+ 
+-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile, onSession }: {
++export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onContextSent, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile, onSession }: {
+   config?: AppConfig
+   session: Session
+   events: HarnessEvent[]
+@@ -20,6 +20,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
+   chat?: WorkspaceChat
+   chatgptSuspended?: boolean
+   onChatGPTURL: (url: string) => void
++  onContextSent?: (sha256: string, conversationUrl?: string) => void
+   onExecute: (approved: boolean) => Promise<void>
+   onApply: () => Promise<void>
+   onManualPlan: (json: string) => Promise<void>
+@@ -66,7 +67,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
+         {tab === 'plan' && <PlanView session={session} />}
+         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
+         {tab === 'chatgpt' && (desktop
+-          ? <ChatGPTDesktopPane suspended={chatgptSuspended} session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
++          ? <ChatGPTDesktopPane suspended={chatgptSuspended} session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onContextSent={onContextSent} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
+           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
+       </div>
+     </section>
+diff --git a/services/frontend/src/desktop.d.ts b/services/frontend/src/desktop.d.ts
+index 08508d0..6ac0567 100644
+--- a/services/frontend/src/desktop.d.ts
++++ b/services/frontend/src/desktop.d.ts
+@@ -26,7 +26,9 @@ interface WharnessDesktopBridge {
+     forward(): Promise<{ ok: boolean }>
+     paste(): Promise<{ ok: boolean }>
+     submitPrompt(request: { cacheKey: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
+-    preparePrompt(request: { cacheKey: string; text: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; autoSubmit?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string }>
++    preparePrompt(request: { cacheKey: string; text: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; autoSubmit?: boolean; contextSha256?: string; lastContextSha256?: string; lastContextChatgptUrl?: string; includeContext?: boolean; preferCurrentConversation?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string }>
++    attachContext(request: { cacheKey: string; sessionId: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
++    attachPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
+     submitPrepared(request: { cacheKey: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
+     state(): Promise<DesktopChatGPTState>
+     openExternal(url?: string): Promise<{ ok: boolean }>
+diff --git a/services/frontend/src/lib/api.ts b/services/frontend/src/lib/api.ts
+index 30f1075..cbfb5b2 100644
+--- a/services/frontend/src/lib/api.ts
++++ b/services/frontend/src/lib/api.ts
+@@ -26,7 +26,7 @@ export const api = {
+   config: () => request<AppConfig>('/api/config'),
+   createProject: (parentPath: string, name: string) => request<ProjectProvision>('/api/projects/create', { method: 'POST', body: JSON.stringify({ parent_path: parentPath, name }) }),
+   cloneProject: (repositoryURL: string, parentPath: string, directory = '') => request<ProjectProvision>('/api/projects/clone', { method: 'POST', body: JSON.stringify({ repository_url: repositoryURL, parent_path: parentPath, directory }) }),
+-  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'manual') =>
++  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'auto') =>
+     request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode, automation_mode: automationMode }) }),
+   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
+   deleteSession: (id: string) => request<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
+diff --git a/services/frontend/src/lib/workspaceMemory.test.ts b/services/frontend/src/lib/workspaceMemory.test.ts
+index 99567b9..cf2a1f1 100644
+--- a/services/frontend/src/lib/workspaceMemory.test.ts
++++ b/services/frontend/src/lib/workspaceMemory.test.ts
+@@ -26,6 +26,8 @@ describe('workspace memory', () => {
+   })
+ 
+   it('persists manual/auto automation mode per project', () => {
++    expect(loadAutomationMode('/tmp/project')).toBe('auto')
++    saveAutomationMode('/tmp/project', 'manual')
+     expect(loadAutomationMode('/tmp/project')).toBe('manual')
+     saveAutomationMode('/tmp/project', 'auto')
+     expect(loadAutomationMode('/tmp/project')).toBe('auto')
+diff --git a/services/frontend/src/lib/workspaceMemory.ts b/services/frontend/src/lib/workspaceMemory.ts
+index fc6cc59..cf8bad8 100644
+--- a/services/frontend/src/lib/workspaceMemory.ts
++++ b/services/frontend/src/lib/workspaceMemory.ts
+@@ -22,6 +22,8 @@ export type WorkspaceChat = {
+   title: string
+   sessionId: string
+   chatgptUrl?: string
++  lastContextSha256?: string
++  lastContextChatgptUrl?: string
+   createdAt: string
+   updatedAt: string
+ }
+@@ -68,7 +70,7 @@ export function saveExecutionMode(projectPath: string, mode: ExecutionMode) {
+ }
+ 
+ export function loadAutomationMode(projectPath: string): AutomationMode {
+-  try { return localStorage.getItem(AUTOMATION_MODE_PREFIX + projectPath) === 'auto' ? 'auto' : 'manual' } catch { return 'manual' }
++  try { return localStorage.getItem(AUTOMATION_MODE_PREFIX + projectPath) === 'manual' ? 'manual' : 'auto' } catch { return 'auto' }
+ }
+ 
+ export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
+@@ -100,7 +102,10 @@ export function newWorkspaceChat(sessionId: string, title = 'Novo chat'): Worksp
+ export function loadChat(projectPath: string, chatId: string): ChatItem[] {
+   try {
+     const value = localStorage.getItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`)
+-    return value ? JSON.parse(value) as ChatItem[] : []
++    const parsed = value ? JSON.parse(value) as ChatItem[] : []
++    if (!Array.isArray(parsed)) return []
++    const migratedAt = new Date().toISOString()
++    return parsed.map((item) => ({ ...item, createdAt: item.createdAt || migratedAt }))
+   } catch { return [] }
+ }
+ 
+diff --git a/services/frontend/src/styles.css b/services/frontend/src/styles.css
+index b0cef9e..07a02f1 100644
+--- a/services/frontend/src/styles.css
++++ b/services/frontend/src/styles.css
+@@ -76,8 +76,16 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .system-note span { font: 10px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; color: #83877e; }
+ .message { margin: 0 0 26px; max-width: 90%; }
+ .message-user { margin-left: auto; }
+-.message-label { margin-bottom: 7px; color: #777b72; font: 500 9px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; text-transform: uppercase; letter-spacing: .11em; }
++.message-heading { min-height: 22px; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
++.message-label { color: #777b72; font: 500 9px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; text-transform: uppercase; letter-spacing: .11em; }
++.message-user .message-heading { flex-direction: row-reverse; }
+ .message-user .message-label { text-align: right; }
++.message-tools { display: flex; align-items: center; gap: 5px; color: #969a91; }
++.message-tools time { font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; white-space: nowrap; }
++.message-tools button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #92978d; cursor: pointer; opacity: .62; }
++.message:hover .message-tools button, .message-tools button:focus-visible { opacity: 1; }
++.message-tools button:hover { background: #e7e9e2; color: #41463d; }
++.message-user .message-tools button:hover { background: #dfe2d9; }
+ .message-body { padding: 13px 15px; border: 1px solid #d7dad0; background: #fff; border-radius: 4px 13px 13px 13px; line-height: 1.55; font-size: 13px; white-space: pre-wrap; }
+ .message-user .message-body { background: var(--dark); border-color: var(--dark); color: #f2f4ed; border-radius: 13px 4px 13px 13px; }
+ .message-meta { margin-top: 6px; color: #888c82; font: 9px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+@@ -282,11 +290,21 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .desktop-browser-address > span:last-child { margin-left: auto; color: #969b91; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
+ .browser-lamp { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #77a83a; }
+ .browser-lamp.loading { background: #c69748; animation: pulse 1.2s infinite; }
+-.desktop-chatgpt-actions { flex: 0 0 auto; padding: 9px 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; border-bottom: 1px solid #d2d5cc; background: #eceee7; }
+-.desktop-step { min-width: 0; display: grid; grid-template-columns: 19px 1fr; align-items: center; gap: 5px 7px; }
+-.desktop-step > span { grid-row: 1 / 3; width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; background: #242721; color: #c7ff76; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
+-.desktop-step .secondary-button { min-width: 0; width: fit-content; max-width: 100%; }
+-.desktop-step small { color: #858a80; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.desktop-chatgpt-actions { flex: 0 0 auto; padding: 8px 9px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; border-bottom: 1px solid #d2d5cc; background: #e8ebe3; }
++.desktop-action-card { min-width: 0; min-height: 82px; padding: 9px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; border: 1px solid #cfd4c8; border-radius: 10px; background: #f7f8f4; box-shadow: 0 2px 8px rgba(38,43,34,.04); }
++.desktop-action-head { min-width: 0; display: flex; align-items: center; gap: 8px; }
++.desktop-action-head > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
++.desktop-action-head strong { color: #343a31; font-size: 9px; }
++.desktop-action-head small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #858c80; font-size: 7.5px; }
++.desktop-action-icon { width: 27px; height: 27px; flex: 0 0 27px; display: grid; place-items: center; border: 1px solid #d6dbcf; border-radius: 8px; background: #edf1e8; color: #668b39; }
++.desktop-action-buttons { display: flex; align-items: center; gap: 5px; }
++.desktop-action-button { min-height: 27px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid #d0d5c9; border-radius: 7px; background: #fff; color: #555c51; font-size: 8px; font-weight: 650; cursor: pointer; }
++.desktop-action-button:hover:not(:disabled) { background: #eef2e9; border-color: #bbc6b2; color: #353b31; }
++.desktop-action-button.primary { border-color: #bdd39d; background: #e8f3da; color: #486b22; }
++.desktop-action-button.primary:hover:not(:disabled) { background: #dcefc6; border-color: #a8c77b; }
++.desktop-action-button:disabled { opacity: .45; cursor: default; }
++.desktop-action-card.result { gap: 6px; }
++.desktop-bundle-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 7px; border: 1px solid #d9ddd3; border-radius: 6px; background: #fff; color: #6a7166; font-size: 7px; }
+ .desktop-chatgpt-notice { flex: 0 0 auto; padding: 6px 11px; background: #e5edd9; color: #536b33; border-bottom: 1px solid #cbd7ba; font-size: 9px; line-height: 1.45; }
+ .desktop-chatgpt-host { flex: 1; min-height: 230px; position: relative; background: #fff; overflow: hidden; }
+ .desktop-chatgpt-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #969b91; font-size: 10px; }
+@@ -298,7 +316,7 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ 
+ @media (max-width: 1180px) {
+   .desktop-chatgpt-actions { grid-template-columns: 1fr; }
+-  .desktop-step small { display: none; }
++  .desktop-action-head small { display: none; }
+   .desktop-chatgpt-host { min-height: 180px; }
+ }
+ 
+diff --git a/services/frontend/src/types.ts b/services/frontend/src/types.ts
+index 2fe1f96..2f68c94 100644
+--- a/services/frontend/src/types.ts
++++ b/services/frontend/src/types.ts
+@@ -199,6 +199,6 @@ export type ChatAttachmentInfo = {
+   previewKind?: 'thumbnail' | 'icon' | 'none'
+ }
+ 
+-export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[] }
++export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[] }
+ 
+ export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult }

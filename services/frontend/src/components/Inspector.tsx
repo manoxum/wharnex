@@ -11,7 +11,7 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
 
 type Tab = 'plan' | 'terminal' | 'chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile, onSession }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onContextSent, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile, onSession }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -20,6 +20,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   chat?: WorkspaceChat
   chatgptSuspended?: boolean
   onChatGPTURL: (url: string) => void
+  onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean) => Promise<void>
   onApply: () => Promise<void>
   onManualPlan: (json: string) => Promise<void>
@@ -30,7 +31,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => e.type === 'command.completed' || e.type === 'execution.failed' || e.type === 'verification.baseline_unchanged'), [events])
+  const terminalEvents = useMemo(() => events.filter((e) => ['command.completed', 'execution.failed', 'verification.baseline_unchanged', 'automation.policy_blocked', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed'].includes(e.type)), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed)
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
@@ -66,7 +67,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         {tab === 'plan' && <PlanView session={session} />}
         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
         {tab === 'chatgpt' && (desktop
-          ? <ChatGPTDesktopPane suspended={chatgptSuspended} session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
+          ? <ChatGPTDesktopPane suspended={chatgptSuspended} session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onContextSent={onContextSent} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
       </div>
     </section>
@@ -118,10 +119,19 @@ function PlanView({ session }: { session: Session }) {
 }
 
 function TerminalView({ events }: { events: HarnessEvent[] }) {
-  if (!events.length) return <Empty title="Execução limpa" text="Os comandos, stdout, stderr e falhas executados pelo agente aparecerão aqui. O terminal interativo está no modo Editor." />
+  if (!events.length) return <Empty title="Execução limpa" text="Os comandos, stdout, stderr, bloqueios de Policy e reparações automáticas aparecerão aqui. O terminal interativo está no modo Editor." />
   return <div className="terminal-view">{events.map((event) => {
     const baseline = event.type === 'verification.baseline_unchanged'
-    return <div className="terminal-event" key={event.id}><div className="terminal-line"><span className={event.type === 'execution.failed' ? 'lamp fail' : (baseline ? 'lamp warning' : 'lamp')} /> <code>{Array.isArray(event.data.argv) ? (event.data.argv as string[]).join(' ') : event.type}</code><span className="exit-code">{baseline ? 'baseline unchanged' : (event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : '')}</span></div>{event.data.stdout ? <pre>{String(event.data.stdout)}</pre> : null}{event.data.stderr ? <pre className="stderr">{String(event.data.stderr)}</pre> : null}{event.data.diagnostic ? <pre className="warning-output">{String(event.data.diagnostic)}</pre> : null}{event.data.error ? <pre className="stderr">{String(event.data.error)}</pre> : null}</div>
+    const policyBlocked = event.type === 'automation.policy_blocked'
+    const repair = event.type.startsWith('repair.')
+    const title = Array.isArray(event.data.argv)
+      ? (event.data.argv as string[]).join(' ')
+      : policyBlocked ? 'Policy bloqueou o plano antes da execução'
+        : event.type === 'repair.started' ? 'Preparando correção automática'
+          : event.type === 'repair.prompt_ready' ? 'Prompt de correção pronto'
+            : event.type
+    const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String) : []
+    return <div className="terminal-event" key={event.id}><div className="terminal-line"><span className={event.type === 'execution.failed' || policyBlocked || event.type === 'repair.prepare_failed' ? 'lamp fail' : (baseline || repair ? 'lamp warning' : 'lamp')} /> <code>{title}</code><span className="exit-code">{policyBlocked ? 'não executado' : baseline ? 'baseline unchanged' : repair ? `attempt ${String(event.data.attempt || '')}` : (event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : '')}</span></div>{reasons.map((reason) => <pre className="stderr" key={reason}>{reason}</pre>)}{event.data.stdout ? <pre>{String(event.data.stdout)}</pre> : null}{event.data.stderr ? <pre className="stderr">{String(event.data.stderr)}</pre> : null}{event.data.diagnostic ? <pre className="warning-output">{String(event.data.diagnostic)}</pre> : null}{event.data.error ? <pre className="stderr">{String(event.data.error)}</pre> : null}</div>
   })}</div>
 }
 

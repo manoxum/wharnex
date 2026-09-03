@@ -22,6 +22,8 @@ export type WorkspaceChat = {
   title: string
   sessionId: string
   chatgptUrl?: string
+  lastContextSha256?: string
+  lastContextChatgptUrl?: string
   createdAt: string
   updatedAt: string
 }
@@ -68,7 +70,7 @@ export function saveExecutionMode(projectPath: string, mode: ExecutionMode) {
 }
 
 export function loadAutomationMode(projectPath: string): AutomationMode {
-  try { return localStorage.getItem(AUTOMATION_MODE_PREFIX + projectPath) === 'auto' ? 'auto' : 'manual' } catch { return 'manual' }
+  try { return localStorage.getItem(AUTOMATION_MODE_PREFIX + projectPath) === 'manual' ? 'manual' : 'auto' } catch { return 'auto' }
 }
 
 export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
@@ -100,7 +102,10 @@ export function newWorkspaceChat(sessionId: string, title = 'Novo chat'): Worksp
 export function loadChat(projectPath: string, chatId: string): ChatItem[] {
   try {
     const value = localStorage.getItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`)
-    return value ? JSON.parse(value) as ChatItem[] : []
+    const parsed = value ? JSON.parse(value) as ChatItem[] : []
+    if (!Array.isArray(parsed)) return []
+    const migratedAt = new Date().toISOString()
+    return parsed.map((item) => ({ ...item, createdAt: item.createdAt || migratedAt }))
   } catch { return [] }
 }
 

@@ -44,6 +44,12 @@ func (b *Bus) History(sessionID string) []domain.Event {
 	return out
 }
 
+func (b *Bus) ClearAll() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.history = make(map[string][]domain.Event)
+}
+
 func (b *Bus) Subscribe(sessionID string) (<-chan domain.Event, func()) {
 	ch := make(chan domain.Event, 64)
 	b.mu.Lock()

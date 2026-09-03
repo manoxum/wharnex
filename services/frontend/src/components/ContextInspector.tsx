@@ -14,14 +14,17 @@ export function ContextInspector({ inspection, refreshing, onRefresh }: {
   const [filter, setFilter] = useState<Filter>('included')
   const [query, setQuery] = useState('')
   const [limit, setLimit] = useState(300)
+  const entries = inspection.entries || []
+  const roots = inspection.roots || []
+  const rules = inspection.rules || []
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return inspection.entries.filter((entry) => {
+    return entries.filter((entry) => {
       if (filter !== 'all' && entry.status !== filter) return false
       if (!needle) return true
       return entry.path.toLowerCase().includes(needle) || (entry.reason || '').toLowerCase().includes(needle) || (entry.rule || '').toLowerCase().includes(needle)
     })
-  }, [filter, inspection.entries, query])
+  }, [entries, filter, query])
   const shown = filtered.slice(0, limit)
 
   function changeFilter(next: Filter) { setFilter(next); setLimit(300) }
@@ -31,7 +34,7 @@ export function ContextInspector({ inspection, refreshing, onRefresh }: {
     <div className="context-summary-grid">
       <Summary label="No ZIP final" value={String(inspection.included_files)} detail={formatBytes(inspection.included_bytes)} tone="ok" />
       <Summary label="Excluídos" value={String(inspection.excluded_items)} detail="itens/subárvores" tone="muted" />
-      <Summary label="Raiz" value={String(inspection.roots.length)} detail="pastas + ficheiros" tone="muted" />
+      <Summary label="Raiz" value={String(roots.length)} detail="pastas + ficheiros" tone="muted" />
       <Summary label="Snapshot" value={inspection.sha256.slice(0, 10)} detail={inspection.snapshot_id} tone="mono" />
     </div>
     <div className="context-inspector-bar">
@@ -62,10 +65,10 @@ export function ContextInspector({ inspection, refreshing, onRefresh }: {
       </div>
       <div className="context-list-footer"><span>A mostrar {shown.length} de {filtered.length} itens</span>{shown.length < filtered.length && <button onClick={() => setLimit((value) => value + 300)}>Mostrar mais 300</button>}</div>
     </div>}
-    {view === 'roots' && <div className="context-roots"><div className="context-section-intro"><strong>Pastas base e ficheiros específicos</strong><span>Estado calculado contra o snapshot final, não apenas contra a configuração.</span></div>{inspection.roots.map((root) => <div className={`context-root-row ${root.status}`} key={root.path}>
+    {view === 'roots' && <div className="context-roots"><div className="context-section-intro"><strong>Pastas base e ficheiros específicos</strong><span>Estado calculado contra o snapshot final, não apenas contra a configuração.</span></div>{roots.map((root) => <div className={`context-root-row ${root.status}`} key={root.path}>
       <Icon name={root.kind === 'directory' ? 'folder' : 'file'} size={15}/><div><code>{root.name}</code><small>{root.included_files} incluídos · {root.excluded_items} excluídos{root.reason ? ` · ${root.reason}` : ''}</small></div><span className={`context-status ${root.status}`}>{rootLabel(root.status)}</span><span className="context-size">{root.included_bytes ? formatBytes(root.included_bytes) : '—'}</span>
     </div>)}</div>}
-    {view === 'rules' && <div className="context-rules"><div className="context-section-intro"><strong>Todas as regras de exclusão/inclusão aplicadas</strong><span>As regras obrigatórias do Wharness têm precedência sobre <code>whaness.yml</code>.</span></div>{inspection.rules.map((rule) => <article className={`context-rule-card ${rule.enabled ? '' : 'disabled'}`} key={rule.id}><header><div><strong>{rule.label}</strong><span>{rule.source}</span></div><span className={`context-rule-state ${rule.enabled ? 'enabled' : ''}`}>{rule.enabled ? 'ATIVA' : 'INATIVA'}</span></header><p>{rule.description}</p><div className="context-patterns">{rule.patterns.length ? rule.patterns.map((pattern) => <code key={pattern}>{pattern}</code>) : <span>sem padrões configurados</span>}</div></article>)}</div>}
+    {view === 'rules' && <div className="context-rules"><div className="context-section-intro"><strong>Todas as regras de exclusão/inclusão aplicadas</strong><span>As regras obrigatórias do Wharness têm precedência sobre <code>whaness.yml</code>.</span></div>{rules.map((rule) => <article className={`context-rule-card ${rule.enabled ? '' : 'disabled'}`} key={rule.id}><header><div><strong>{rule.label}</strong><span>{rule.source}</span></div><span className={`context-rule-state ${rule.enabled ? 'enabled' : ''}`}>{rule.enabled ? 'ATIVA' : 'INATIVA'}</span></header><p>{rule.description}</p><div className="context-patterns">{(rule.patterns || []).length ? (rule.patterns || []).map((pattern) => <code key={pattern}>{pattern}</code>) : <span>sem padrões configurados</span>}</div></article>)}</div>}
   </section>
 }
 

@@ -156,7 +156,7 @@ func TestVerifiedPatchDoesNotTouchHostUntilApply(t *testing.T) {
 		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
 	}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
-	s, err := service.StartSession(context.Background(), root)
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,6 +401,9 @@ func TestUnprotectedExecutionTouchesHostImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if s.AutomationMode != domain.AutomationModeManual {
+		t.Fatalf("unprotected session automation mode = %q", s.AutomationMode)
+	}
 	_, s, err = service.SubmitMessage(context.Background(), s.ID, "change")
 	if err != nil {
 		t.Fatal(err)
@@ -436,6 +439,13 @@ func TestExecutionModeCanChangePerSession(t *testing.T) {
 	}
 	if s.ExecutionMode != domain.ExecutionModeProtected {
 		t.Fatalf("default mode = %q", s.ExecutionMode)
+	}
+	if s.AutomationMode != domain.AutomationModeAuto {
+		t.Fatalf("default automation mode = %q", s.AutomationMode)
+	}
+	s, err = service.SetAutomationMode(s.ID, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
 	}
 	s, err = service.SetExecutionMode(s.ID, domain.ExecutionModeUnprotected)
 	if err != nil {
@@ -548,7 +558,7 @@ func TestProtectedExecutionRejectsChangedVerificationFailure(t *testing.T) {
 	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "new-regression", Status: "ready", Summary: "test", Risk: "low", Verification: []domain.CommandSpec{{Argv: []string{"npm", "run", "build"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}}
 	runner := &verificationDebtRunner{baselineSame: false}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), runner)
-	s, err := service.StartSession(context.Background(), root)
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -838,5 +848,98 @@ func TestUpdateProjectConfigRebuildsContext(t *testing.T) {
 		if file.Path == "docs/notes.md" {
 			t.Fatal("excluded docs file remained in rebuilt context")
 		}
+	}
+}
+
+func makePolicyBlockedBundle(t *testing.T, requestID string) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := zip.NewWriter(&out)
+	entries := map[string]string{
+		"README.md": "# Docker attempt\nThis intentionally exercises Policy repair.\n",
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"blocked-docker","request_id":"` + requestID + `","status":"ready","summary":"run docker compose","risk":"high","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["docker","compose","config","--quiet"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+	}
+	for name, value := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+func TestAutoPolicyBlockedBundleExplainsAndPreparesRepair(t *testing.T) {
+	root := t.TempDir()
+	bus := audit.NewBus()
+	service := NewService(session.NewStore(), bus, contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "crie uma stack docker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makePolicyBlockedBundle(t, prompted.LastRequestID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.PolicyBlocked || result.AutoExecuted || result.AutoApplied {
+		t.Fatalf("blocked policy must not execute: %#v", result)
+	}
+	if len(result.PolicyReasons) == 0 || !strings.Contains(strings.Join(result.PolicyReasons, " "), `executable "docker" is denied`) {
+		t.Fatalf("policy reason was not surfaced: %#v", result.PolicyReasons)
+	}
+	if !result.RepairPrepared || result.Session.State != "repair_pending" || result.Session.LastManualPrompt == "" {
+		t.Fatalf("policy block did not prepare repair: %#v", result.Session)
+	}
+	if !strings.Contains(result.Session.LastManualPrompt, "AUTOMATIC POLICY REPAIR REQUEST") || !strings.Contains(result.Session.LastManualPrompt, "docker") {
+		t.Fatalf("repair prompt lost policy evidence: %q", result.Session.LastManualPrompt)
+	}
+	seen := false
+	for _, event := range bus.History(started.ID) {
+		if event.Type == "automation.policy_blocked" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatal("expected automation.policy_blocked audit event")
+	}
+}
+
+func TestStorageUsageAndClearAllDataDoNotDeleteProject(t *testing.T) {
+	project := t.TempDir()
+	marker := filepath.Join(project, "keep.txt")
+	if err := os.WriteFile(marker, []byte("host project\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateFile := filepath.Join(t.TempDir(), "sessions.json")
+	store, err := session.NewPersistentStore(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := service.StorageUsage()
+	if usage.TotalBytes <= 0 || usage.ContextBytes <= 0 || len(usage.Projects) != 1 || usage.Projects[0].ProjectPath != started.ProjectPath {
+		t.Fatalf("unexpected storage usage: %#v", usage)
+	}
+	if err := service.ClearAllData(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("host project must survive Wharness reset: %v", err)
+	}
+	if _, err := store.Get(started.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("session state was not cleared: %v", err)
 	}
 }

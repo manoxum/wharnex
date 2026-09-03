@@ -32,11 +32,14 @@ var (
 )
 
 type BundleSubmission struct {
-	Session      domain.Session          `json:"session"`
-	AutoExecuted bool                    `json:"auto_executed"`
-	AutoApplied  bool                    `json:"auto_applied"`
-	AutoError    string                  `json:"auto_error,omitempty"`
-	Execution    *domain.ExecutionResult `json:"execution,omitempty"`
+	Session        domain.Session          `json:"session"`
+	AutoExecuted   bool                    `json:"auto_executed"`
+	AutoApplied    bool                    `json:"auto_applied"`
+	AutoError      string                  `json:"auto_error,omitempty"`
+	Execution      *domain.ExecutionResult `json:"execution,omitempty"`
+	PolicyBlocked  bool                    `json:"policy_blocked,omitempty"`
+	PolicyReasons  []string                `json:"policy_reasons,omitempty"`
+	RepairPrepared bool                    `json:"repair_prepared,omitempty"`
 }
 
 const maxAutoRepairAttempts = 3
@@ -62,7 +65,11 @@ func (s *Service) StartSession(ctx context.Context, projectPath string, requeste
 	if len(requestedMode) > 0 && requestedMode[0] != "" {
 		mode = requestedMode[0]
 	}
-	return s.StartSessionWithModes(ctx, projectPath, mode, domain.AutomationModeManual)
+	automationMode := domain.AutomationModeAuto
+	if mode == domain.ExecutionModeUnprotected {
+		automationMode = domain.AutomationModeManual
+	}
+	return s.StartSessionWithModes(ctx, projectPath, mode, automationMode)
 }
 
 func (s *Service) CreateProject(ctx context.Context, parentPath, name string) (string, error) {
@@ -132,7 +139,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		executionMode = domain.ExecutionModeProtected
 	}
 	if automationMode == "" {
-		automationMode = domain.AutomationModeManual
+		automationMode = domain.AutomationModeAuto
 	}
 	if !domain.ValidExecutionMode(executionMode) {
 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", executionMode)
@@ -306,9 +313,18 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 	} else if result.Turn != nil {
 		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": requestID, "kind": result.Turn.Kind, "transport": "provider"})
 	}
-	if result.Plan != nil && updated.AutomationMode == domain.AutomationModeAuto && updated.Policy != nil && updated.Policy.Allowed && result.Plan.Status == "ready" {
-		automated := s.runAutomaticPlan(ctx, sessionID, "provider")
-		updated = automated.Session
+	if result.Plan != nil && updated.AutomationMode == domain.AutomationModeAuto && updated.Policy != nil && result.Plan.Status == "ready" {
+		if updated.Policy.Allowed {
+			automated := s.runAutomaticPlan(ctx, sessionID, "provider")
+			updated = automated.Session
+		} else {
+			repaired, repairErr := s.preparePolicyRepairRequest(ctx, sessionID, result.Plan.PlanID, updated.Policy.Reasons, "provider")
+			if repairErr != nil {
+				s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error(), "reason": "policy_blocked"})
+			} else {
+				updated = repaired
+			}
+		}
 	}
 	return result, updated, nil
 }
@@ -402,6 +418,19 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": parsed.Plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk, "transport": "zip_bundle"})
 
 	submission := BundleSubmission{Session: updated}
+	if updated.AutomationMode == domain.AutomationModeAuto && !decision.Allowed && parsed.Plan.Status == "ready" {
+		submission.PolicyBlocked = true
+		submission.PolicyReasons = append([]string(nil), decision.Reasons...)
+		repaired, repairErr := s.preparePolicyRepairRequest(ctx, sessionID, parsed.Plan.PlanID, decision.Reasons, "zip_bundle")
+		if repairErr != nil {
+			submission.AutoError = repairErr.Error()
+			s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error(), "reason": "policy_blocked"})
+			return submission, nil
+		}
+		submission.Session = repaired
+		submission.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
+		return submission, nil
+	}
 	if updated.AutomationMode != domain.AutomationModeAuto || !decision.Allowed || parsed.Plan.Status != "ready" {
 		return submission, nil
 	}
@@ -411,6 +440,18 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 
 	return s.runAutomaticPlan(ctx, sessionID, "zip_bundle"), nil
+}
+
+func (s *Service) preparePolicyRepairRequest(ctx context.Context, sessionID, planID string, reasons []string, transport string) (domain.Session, error) {
+	detail := strings.Join(reasons, "; ")
+	if strings.TrimSpace(detail) == "" {
+		detail = "policy denied the execution plan"
+	}
+	s.bus.Publish(sessionID, "automation.policy_blocked", map[string]any{
+		"plan_id": planID, "transport": transport, "reasons": append([]string(nil), reasons...), "error": detail,
+	})
+	result := domain.ExecutionResult{PlanID: planID, Success: false, Error: "policy denied plan: " + detail, StartedAt: time.Now().UTC(), CompletedAt: time.Now().UTC()}
+	return s.prepareRepairRequest(ctx, sessionID, result, errors.New(result.Error))
 }
 
 func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport string) BundleSubmission {
@@ -843,6 +884,18 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 }
 
 func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt int) string {
+	if strings.HasPrefix(cause.Error(), "policy denied plan:") {
+		return fmt.Sprintf(`AUTOMATIC POLICY REPAIR REQUEST — attempt %d of %d
+
+The previous execution bundle was rejected by the Wharness Policy Engine BEFORE any operation was executed.
+Do not ask to relax, bypass, disable, or work around the Policy Engine. Produce a replacement plan for the SAME user intent using only operations and verification commands that are permitted by Wharness policy.
+
+BLOCKED PLAN ID: %s
+POLICY REASONS:
+%s
+
+Use the current Wharness project context as authoritative. Replace denied commands with safe project-local alternatives where possible. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, result.PlanID, truncateRepairText(strings.TrimPrefix(cause.Error(), "policy denied plan:"), 12000))
+	}
 	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharness context."
 	if item.ExecutionMode == domain.ExecutionModeUnprotected {
 		modeNote = "The failed Unprotected execution may have partially changed the host. Wharness refreshed the project context before creating this repair request; use that current context as authoritative."

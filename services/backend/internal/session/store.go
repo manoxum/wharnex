@@ -96,6 +96,35 @@ func (s *Store) Update(id string, fn func(*domain.Session) error) (domain.Sessio
 	return item, nil
 }
 
+func (s *Store) List() []domain.Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]domain.Session, 0, len(s.items))
+	for _, item := range s.items {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
+	return items
+}
+
+func (s *Store) Path() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.path
+}
+
+func (s *Store) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	original := s.items
+	s.items = make(map[string]domain.Session)
+	if err := s.persistLocked(); err != nil {
+		s.items = original
+		return err
+	}
+	return nil
+}
+
 func (s *Store) load() error {
 	if s.path == "" {
 		return nil

@@ -61,7 +61,7 @@ func (b *Builder) Inspect(projectRoot string, manifest domain.ContextManifest) (
 	if err != nil {
 		return ContextInspection{}, err
 	}
-	inspection := ContextInspection{SnapshotID: manifest.ID, SHA256: manifest.SHA256, ProjectRoot: root}
+	inspection := ContextInspection{SnapshotID: manifest.ID, SHA256: manifest.SHA256, ProjectRoot: root, Roots: []ContextRootEntry{}, Entries: []ContextInventoryEntry{}, Rules: []ContextRule{}}
 	for _, file := range manifest.Files {
 		inspection.Entries = append(inspection.Entries, ContextInventoryEntry{Path: file.Path, Kind: "file", Status: "included", Size: file.Size})
 		inspection.IncludedFiles++
@@ -93,9 +93,9 @@ func (b *Builder) rules(root string, cfg projectconfig.Config) []ContextRule {
 	return []ContextRule{
 		{ID: "mandatory-directories", Source: "Wharness", Label: "Pastas protegidas", Enabled: true, Patterns: slashSuffix(mandatoryBlockedDirs), Description: "Nunca entram no contexto e não podem ser reativadas pelo projeto."},
 		{ID: "mandatory-files", Source: "Wharness", Label: "Ficheiros/segredos protegidos", Enabled: true, Patterns: append(append([]string{}, mandatoryBlockedNames...), prefixStar(mandatoryBlockedExtensions)...), Description: "Credenciais, bases locais e material secreto são sempre bloqueados."},
-		{ID: "harnessignore", Source: ".harnessignore", Label: "Regras .harnessignore", Enabled: len(LoadIgnorePatterns(root)) > 0, Patterns: LoadIgnorePatterns(root), Description: "Padrões adicionais definidos pelo próprio projeto."},
-		{ID: "config-include", Source: projectconfig.FileName, Label: "Incluir apenas", Enabled: len(cfg.Context.Include) > 0, Patterns: cfg.Context.Include, Description: "Quando definido, ficheiros que não casam com estes padrões ficam fora do snapshot."},
-		{ID: "config-exclude", Source: projectconfig.FileName, Label: "Excluir do contexto", Enabled: len(cfg.Context.Exclude) > 0, Patterns: cfg.Context.Exclude, Description: "Exclusões explícitas configuradas no projeto."},
+		{ID: "harnessignore", Source: ".harnessignore", Label: "Regras .harnessignore", Enabled: len(LoadIgnorePatterns(root)) > 0, Patterns: nonNilPatterns(LoadIgnorePatterns(root)), Description: "Padrões adicionais definidos pelo próprio projeto."},
+		{ID: "config-include", Source: projectconfig.FileName, Label: "Incluir apenas", Enabled: len(cfg.Context.Include) > 0, Patterns: nonNilPatterns(cfg.Context.Include), Description: "Quando definido, ficheiros que não casam com estes padrões ficam fora do snapshot."},
+		{ID: "config-exclude", Source: projectconfig.FileName, Label: "Excluir do contexto", Enabled: len(cfg.Context.Exclude) > 0, Patterns: nonNilPatterns(cfg.Context.Exclude), Description: "Exclusões explícitas configuradas no projeto."},
 		{ID: "auto-directories", Source: "Reconhecimento automático", Label: "Pastas sem valor para IA", Enabled: cfg.Context.AutoExclude, Patterns: autoDirs, Description: "Caches, metadados de IDE/VCS secundário, builds, ambientes e resultados de teste."},
 		{ID: "auto-generated-files", Source: "Reconhecimento automático", Label: "Artefactos gerados", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticGeneratedSuffixes), Description: "Logs, temporários, bytecode e binários gerados."},
 		{ID: "auto-assets", Source: "Reconhecimento automático", Label: "Assets não-fonte", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticAssetSuffixes), Description: "Arquivos, media e fontes que normalmente só aumentam o contexto."},
@@ -160,6 +160,13 @@ func legacyExclusionDetails(values []string) []domain.ContextExclusion {
 		out = append(out, domain.ContextExclusion{Path: path, Kind: "unknown", Reason: reason, Rule: "legacy"})
 	}
 	return out
+}
+
+func nonNilPatterns(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func slashSuffix(values []string) []string {

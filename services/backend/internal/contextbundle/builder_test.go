@@ -2,8 +2,10 @@ package contextbundle
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -150,5 +152,12 @@ func TestContextInspectionShowsRootsRulesAndFinalInventory(t *testing.T) {
 	}
 	if !seenIncluded || !seenExcludedRoot {
 		t.Fatalf("inspection does not explain final context: %#v", inspection)
+	}
+	payload, err := json.Marshal(inspection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), `"patterns":null`) || strings.Contains(string(payload), `"entries":null`) || strings.Contains(string(payload), `"roots":null`) {
+		t.Fatalf("inspection must serialize empty collections as arrays: %s", payload)
 	}
 }

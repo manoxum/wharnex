@@ -26,6 +26,8 @@ describe('workspace memory', () => {
   })
 
   it('persists manual/auto automation mode per project', () => {
+    expect(loadAutomationMode('/tmp/project')).toBe('auto')
+    saveAutomationMode('/tmp/project', 'manual')
     expect(loadAutomationMode('/tmp/project')).toBe('manual')
     saveAutomationMode('/tmp/project', 'auto')
     expect(loadAutomationMode('/tmp/project')).toBe('auto')

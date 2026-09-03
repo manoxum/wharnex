@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.2.18.3 — Frontend test isolation hotfix
+
+- Register one explicit Vitest setup file that cleans React Testing Library renders after every frontend test.
+- Prevent DOM from prior test cases leaking into later `screen.*` queries and producing false duplicate-element failures in `ChatPanel` and `ContextInspector`.
+- Keep production behaviour unchanged; this patch only hardens the frontend quality gate.
+
+## v1.2.18.2 — Chat UX, smart project context and safe defaults
+
+- Add copy controls and visible date/time metadata to every Harness transcript message, with safe migration for legacy stored items.
+- Start every opened/restored project in Agent + Protected + Auto, while preserving the invariant that Unprotected cannot coexist with Auto.
+- Replace the ChatGPT helper strip with compact action cards for project context, current prompt and expected result; context/prompt can be copied or explicitly sent to the currently open ChatGPT conversation.
+- Track the last project-context SHA and ChatGPT conversation URL per Harness chat: attach a fresh context ZIP on the first turn, on a newly opened ChatGPT conversation, or after the project snapshot changes; omit duplicate ZIPs on unchanged sequential turns.
+- Treat an explicit Harness send while another ChatGPT conversation is visibly open as an intentional rebind and refresh context without weakening the existing allowlisted DOM transport.
+- Prevent the project Rules inspector from crashing on legacy/null collection payloads and make backend context inspection serialize empty roots, entries and rule patterns as arrays.
+
+## v1.2.18.1 — Project settings storage test hotfix
+
+- Align the `ProjectSettings` unit-test API mock with the v1.2.18 storage metrics calls so the frontend quality gate no longer fails with `api.storage is not a function`.
+- Keep the fix test-only; production storage behaviour introduced by v1.2.18 is unchanged.
+
+## v1.2.18 — Auto repair, background ChatGPT transport and local-data controls
+
+- Surface Policy denial reasons as non-executed events and automatically enter the bounded Auto repair loop without weakening Policy.
+- Add a narrow allowlisted ChatGPT DOM bridge for background composer fill/submit and exact expected bundle-download activation; canonical download and bundle validation remain authoritative.
+- Add opaque export/import and explicit clearing of the embedded ChatGPT browser session.
+- Add complete Wharness data reset with `APAGAR WHARNESS` confirmation while preserving real project directories and files.
+- Add disk-consumption metrics for Wharness-owned browser data, attachments, contexts/sandboxes, temporary data and per-project state.
+- Route repair/status transcript messages back to the originating Harness chat even when that chat is in the background.
+
 ## v1.2.17.5.3 — ChatGPT composer reference hotfix
 
 - Confirm `preparePromptForChatGPT` uses the background `targetChatGPTComposer` helper after the transport refactor removed `focusChatGPTComposer`.

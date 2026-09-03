@@ -35,7 +35,7 @@ function bridge() {
       setBounds: vi.fn().mockResolvedValue({ ok: true }),
       navigate: vi.fn().mockResolvedValue(state),
       reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(),
-      submitPrompt: vi.fn(), preparePrompt: vi.fn(), submitPrepared: vi.fn(),
+      submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(),
       state: vi.fn().mockResolvedValue(state),
       openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
       onState: vi.fn(noopSubscription),
@@ -83,7 +83,7 @@ describe('ChatGPTDesktopPane overlay suspension', () => {
       onChatGPTURL={() => undefined} onSession={() => undefined} onManualPlan={async () => undefined}
       onPlanFile={async () => ''} onBundleFile={async () => ''}
     />)
-    const downloadStep = screen.getByText('Baixar resultado ZIP').closest('.desktop-step')
+    const downloadStep = screen.getByText('Resultado').closest('.desktop-action-card')
     expect(downloadStep).not.toBeNull()
     expect(within(downloadStep as HTMLElement).getByText('wharness-bundle-req_20260903T112307_7f79e5fe040d3e2d.zip')).toBeTruthy()
   })
@@ -102,6 +102,20 @@ describe('ChatGPTDesktopPane overlay suspension', () => {
     expect(await screen.findByText('Autenticação externa — Google')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Importar bundle ZIP/i })).toBeTruthy()
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+  })
+
+
+  it('can send the prepared prompt directly to the currently open ChatGPT composer', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.attachPrompt = vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', bytes: 128, conversationUrl: 'https://chatgpt.com/c/current' })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane
+      session={session()} manualPrompt="prompt atual" busy={false} chatId="chat-1" chatTitle="Chat 1"
+      onChatGPTURL={() => undefined} onSession={() => undefined} onManualPlan={async () => undefined}
+      onPlanFile={async () => ''} onBundleFile={async () => ''}
+    />)
+    screen.getByRole('button', { name: /Enviar prompt/i }).click()
+    await waitFor(() => expect(desktop.chatgpt.attachPrompt).toHaveBeenCalledWith({ cacheKey: 'chat-1', text: 'prompt atual', url: undefined }))
   })
 
 })

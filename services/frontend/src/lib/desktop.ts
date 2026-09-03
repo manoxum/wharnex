@@ -17,9 +17,15 @@ export function elementBounds(element: HTMLElement) {
 }
 
 export function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  const value = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+  if (value < 1024) return `${Math.round(value)} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let scaled = value / 1024
+  for (const unit of units) {
+    if (scaled < 1024 || unit === units[units.length - 1]) return `${scaled.toFixed(1)} ${unit}`
+    scaled /= 1024
+  }
+  return `${value} B`
 }
 
 export function chatgptConversationURL(value: string) {

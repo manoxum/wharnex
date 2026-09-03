@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
-import type { ContextInspection, ProjectConfig, Session } from '../types'
+import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session } from '../types'
 import { ContextInspector } from './ContextInspector'
 import { Icon } from './Icon'
+import { desktopBridge, formatBytes } from '../lib/desktop'
 
 export function ProjectSettings({ session, onClose, onSession, onError }: {
   session: Session
@@ -21,6 +22,10 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
   const [loadingError, setLoadingError] = useState('')
   const [inspectionError, setInspectionError] = useState('')
   const [reloadNonce, setReloadNonce] = useState(0)
+  const [backendStorage, setBackendStorage] = useState<BackendStorageUsage>()
+  const [desktopStorage, setDesktopStorage] = useState<DesktopStorageUsage>()
+  const [storageBusy, setStorageBusy] = useState(false)
+  const [resetConfirm, setResetConfirm] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -40,6 +45,9 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
       if (!alive) return
       setInspectionError(messageOf(error, 'Não foi possível inspecionar o contexto'))
     })
+    api.storage().then((value) => { if (alive) setBackendStorage(value) }).catch(() => {})
+    const bridge = desktopBridge()
+    if (bridge) bridge.data.storage().then((value) => { if (alive) setDesktopStorage(value) }).catch(() => {})
     return () => { alive = false }
   }, [session.id, onError, reloadNonce])
 
@@ -69,6 +77,60 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
     } finally { setRefreshing(false) }
   }
 
+  async function refreshStorage() {
+    setStorageBusy(true)
+    try {
+      setBackendStorage(await api.storage())
+      const bridge = desktopBridge()
+      if (bridge) setDesktopStorage(await bridge.data.storage())
+    } catch (error) { onError(messageOf(error, 'Não foi possível atualizar as métricas de armazenamento')) }
+    finally { setStorageBusy(false) }
+  }
+
+  async function exportBrowserSession() {
+    const bridge = desktopBridge()
+    if (!bridge) return onError('Exportação da sessão do navegador requer Wharness Desktop.')
+    setStorageBusy(true)
+    try {
+      const result = await bridge.data.exportBrowserSession()
+      if (!result.cancelled) window.alert(`Sessão exportada: ${result.filename || 'ficheiro .whbs'} (${formatBytes(result.bytes || 0)}). Guarde este ficheiro como um segredo.`)
+      await refreshStorage()
+    } catch (error) { onError(messageOf(error, 'Falha ao exportar a sessão do navegador')) }
+    finally { setStorageBusy(false) }
+  }
+
+  async function importBrowserSession() {
+    const bridge = desktopBridge()
+    if (!bridge) return onError('Importação da sessão do navegador requer Wharness Desktop.')
+    if (!window.confirm('Importar uma sessão substitui a sessão atual do navegador interno e reinicia o Wharness. Continuar?')) return
+    setStorageBusy(true)
+    try { await bridge.data.importBrowserSession() }
+    catch (error) { setStorageBusy(false); onError(messageOf(error, 'Falha ao importar a sessão do navegador')) }
+  }
+
+  async function clearBrowserSession() {
+    const bridge = desktopBridge()
+    if (!bridge) return onError('Limpeza da sessão do navegador requer Wharness Desktop.')
+    if (!window.confirm('Limpar cookies, cache e armazenamento da sessão do navegador interno? Será necessário autenticar novamente no ChatGPT.')) return
+    setStorageBusy(true)
+    try { await bridge.data.clearBrowserSession(); await refreshStorage(); window.alert('Sessão do navegador interno limpa.') }
+    catch (error) { onError(messageOf(error, 'Falha ao limpar a sessão do navegador')) }
+    finally { setStorageBusy(false) }
+  }
+
+  async function clearAllWharnessData() {
+    if (resetConfirm.trim() !== 'APAGAR WHARNESS') return
+    const bridge = desktopBridge()
+    if (!bridge) return onError('Limpeza completa requer Wharness Desktop.')
+    setStorageBusy(true)
+    try {
+      await api.clearStorage(resetConfirm.trim())
+      await bridge.data.clearAll(resetConfirm.trim())
+      localStorage.clear()
+      window.location.reload()
+    } catch (error) { onError(messageOf(error, 'Falha ao limpar todos os dados do Wharness')); setStorageBusy(false) }
+  }
+
   return <div className="project-settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
     <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
       <header>
@@ -92,10 +154,35 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
         <section className="context-explorer-section">
           {inspection ? <ContextInspector inspection={inspection} refreshing={refreshing} onRefresh={() => void refresh()} /> : inspectionError ? <div className="context-inspection-error"><Icon name="shield" size={16}/><span>{inspectionError}</span><button onClick={() => setReloadNonce((value) => value + 1)}>Tentar novamente</button></div> : <div className="settings-loading compact"><span className="settings-spinner"/>A inspecionar o snapshot final…</div>}
         </section>
+        <section className="wharness-data-section">
+          <div className="context-section-title"><div><strong>Dados e armazenamento</strong><span>Sessão do navegador, métricas de disco e operações de limpeza do Wharness.</span></div><button className="icon-button" disabled={storageBusy} onClick={() => void refreshStorage()} title="Atualizar métricas"><Icon name="refresh" size={15}/></button></div>
+          <div className="storage-metrics">
+            <StorageMetric label="Wharness total" bytes={(backendStorage?.total_bytes || 0) + (desktopStorage?.total_bytes || 0)} />
+            <StorageMetric label="Navegador interno" bytes={desktopStorage?.browser_bytes || 0} />
+            <StorageMetric label="Anexos de chats" bytes={desktopStorage?.attachment_bytes || 0} />
+            <StorageMetric label="Contextos/sandboxes" bytes={(backendStorage?.context_bytes || 0) + (backendStorage?.sandbox_bytes || 0)} />
+            <StorageMetric label="Temporários/órfãos" bytes={(backendStorage?.orphan_bytes || 0) + (desktopStorage?.temp_bytes || 0)} />
+          </div>
+          <div className="project-storage-list">
+            {(backendStorage?.projects || []).map((project) => <div key={project.project_path} className={project.project_path === session.project_path ? 'project-storage-row active' : 'project-storage-row'}><div><strong>{project.project_path === session.project_path ? 'Projeto atual' : project.project_path.split('/').filter(Boolean).pop()}</strong><span title={project.project_path}>{project.project_path}</span></div><code>{formatBytes(project.total_bytes)}</code></div>)}
+            {!backendStorage?.projects?.length && <span className="muted-copy">Sem métricas de projeto disponíveis.</span>}
+          </div>
+          <div className="browser-session-actions">
+            <div><strong>Sessão do navegador interno</strong><span>O ficheiro exportado pode conter uma sessão autenticada. Trate-o como segredo.</span></div>
+            <div><button className="secondary-button" disabled={storageBusy || !desktopBridge()} onClick={() => void exportBrowserSession()}><Icon name="download" size={14}/> Exportar</button><button className="secondary-button" disabled={storageBusy || !desktopBridge()} onClick={() => void importBrowserSession()}><Icon name="apply" size={14}/> Importar</button><button className="secondary-button" disabled={storageBusy || !desktopBridge()} onClick={() => void clearBrowserSession()}><Icon name="close" size={14}/> Limpar sessão</button></div>
+          </div>
+          <div className="danger-zone">
+            <div><strong>Limpar todos os dados do Wharness</strong><span>Remove sessões, histórico local, contextos, sandboxes, anexos, temporários e sessão do navegador. Os ficheiros dos projetos reais não são apagados.</span></div>
+            <label><span>Digite <code>APAGAR WHARNESS</code></span><input value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} placeholder="APAGAR WHARNESS" /></label>
+            <button className="danger-button" disabled={storageBusy || resetConfirm.trim() !== 'APAGAR WHARNESS'} onClick={() => void clearAllWharnessData()}>Limpar tudo</button>
+          </div>
+        </section>
       </div>}
       <footer><span>Snapshot final = lista exata enviada ao ChatGPT/Planner.</span><button className="secondary-button" onClick={onClose}>Fechar</button></footer>
     </section>
   </div>
 }
+
+function StorageMetric({ label, bytes }: { label: string; bytes: number }) { return <div className="storage-metric"><span>{label}</span><strong>{formatBytes(bytes)}</strong></div> }
 
 function messageOf(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback }

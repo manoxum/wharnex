@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     paste: () => invoke('wharness:chatgpt:paste'),
     submitPrompt: (request) => invoke('wharness:chatgpt:submit-prompt', request),
     preparePrompt: (request) => invoke('wharness:chatgpt:prepare-prompt', request),
+    attachContext: (request) => invoke('wharness:chatgpt:attach-context', request),
+    attachPrompt: (request) => invoke('wharness:chatgpt:attach-prompt', request),
     submitPrepared: (request) => invoke('wharness:chatgpt:submit-prepared', request),
     state: () => invoke('wharness:chatgpt:state'),
     openExternal: (url = '') => invoke('wharness:chatgpt:open-external', { url: String(url || '') }),
@@ -60,6 +62,13 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       ipcRenderer.on('wharness:chatgpt:bundle-download-error', handler)
       return () => ipcRenderer.removeListener('wharness:chatgpt:bundle-download-error', handler)
     },
+  }),
+  data: Object.freeze({
+    storage: () => invoke('wharness:data:storage'),
+    exportBrowserSession: () => invoke('wharness:data:export-browser-session'),
+    importBrowserSession: () => invoke('wharness:data:import-browser-session'),
+    clearBrowserSession: () => invoke('wharness:data:clear-browser-session'),
+    clearAll: (confirm) => invoke('wharness:data:clear-all', { confirm: String(confirm || '') }),
   }),
   attachments: Object.freeze({
     persist: (request) => invoke('wharness:attachments:persist', request),

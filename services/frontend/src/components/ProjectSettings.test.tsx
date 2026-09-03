@@ -10,6 +10,8 @@ vi.mock('../lib/api', () => ({
     contextInspection: vi.fn(),
     refreshContext: vi.fn(),
     updateProjectConfig: vi.fn(),
+    storage: vi.fn(),
+    clearStorage: vi.fn(),
   },
 }))
 
@@ -28,6 +30,9 @@ describe('ProjectSettings loading', () => {
     vi.clearAllMocks()
     vi.mocked(api.contextInspection).mockResolvedValue({
       snapshot_id: 'ctx', sha256: 'abc', project_root: '/tmp/demo', included_files: 0, excluded_items: 0, included_bytes: 0, roots: [], entries: [], rules: [],
+    })
+    vi.mocked(api.storage).mockResolvedValue({
+      total_bytes: 0, state_bytes: 0, context_bytes: 0, sandbox_bytes: 0, orphan_bytes: 0, projects: [],
     })
   })
 
