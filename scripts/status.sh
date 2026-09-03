@@ -35,3 +35,14 @@ if curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
 else
   echo '  frontend HTTP unavailable'
 fi
+
+STATUS_FILE="$ROOT/.harness/self-evolution/status"
+if [ -f "$STATUS_FILE" ]; then
+  phase=$(sed -n 's/^phase=//p' "$STATUS_FILE" | head -n 1)
+  plan=$(sed -n 's/^plan_id=//p' "$STATUS_FILE" | head -n 1)
+  updated=$(sed -n 's/^updated_at=//p' "$STATUS_FILE" | head -n 1)
+  printf '  %-12s %s' 'self-evolve' "${phase:-unknown}"
+  [ -z "$plan" ] || printf ' (plan %s)' "$plan"
+  [ -z "$updated" ] || printf ' @ %s' "$updated"
+  printf '\n'
+fi

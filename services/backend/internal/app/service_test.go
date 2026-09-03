@@ -1043,3 +1043,64 @@ func TestWorkflowRoundLimitKeepsTerminalRequestPending(t *testing.T) {
 		t.Fatalf("terminal request should remain pending after rejecting an extra workflow round: %#v", current.PendingManualRequestIDs)
 	}
 }
+
+func TestSelfEvolutionRootIsForcedToProtectedMode(t *testing.T) {
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"Makefile":                      "all:\n\t@true\n",
+		"scripts/start.sh":              "#!/usr/bin/env sh\nexit 0\n",
+		"services/backend/go.mod":       "module example.invalid/self\n",
+		"services/desktop/package.json": "{}\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("WHARNESS_ROOT", root)
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	forced, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeUnprotected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forced.ExecutionMode != domain.ExecutionModeProtected || !forced.SelfEvolution {
+		t.Fatalf("self-evolution should transparently force a restored Unprotected preference back to Protected: %#v", forced)
+	}
+	created, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created.SelfEvolution {
+		t.Fatal("expected session to be marked as self-evolution")
+	}
+	if _, err := service.SetExecutionMode(created.ID, domain.ExecutionModeUnprotected); err == nil || !strings.Contains(err.Error(), "locked to Protected") {
+		t.Fatalf("self-evolution should reject later Unprotected switch, got %v", err)
+	}
+	if _, err := store.Update(created.ID, func(item *domain.Session) error {
+		item.Plan = &domain.ExecutionPlan{PlanID: "plan-runtime-rollback"}
+		item.State = "applied"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	statusDir := filepath.Join(root, ".harness", "self-evolution")
+	if err := os.MkdirAll(statusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	status := "phase=rollback_restored\nsession_id=" + created.ID + "\nplan_id=plan-runtime-rollback\ndetail=previous runtime restored\n"
+	if err := os.WriteFile(filepath.Join(statusDir, "status"), []byte(status), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	reconciled, err := restarted.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconciled.State != "verified" || reconciled.LastRepairError != "previous runtime restored" {
+		t.Fatalf("runtime rollback should reconcile session to retryable verified state: %#v", reconciled)
+	}
+}

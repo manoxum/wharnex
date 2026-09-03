@@ -22,6 +22,7 @@ import (
 	"kernl.local/harness/backend/internal/projectgit"
 	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
+	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
@@ -43,24 +44,30 @@ type BundleSubmission struct {
 	WorkflowExecuted bool                    `json:"workflow_executed,omitempty"`
 	WorkflowPrepared bool                    `json:"workflow_prepared,omitempty"`
 	WorkflowRound    int                     `json:"workflow_round,omitempty"`
+	RestartScheduled bool                    `json:"restart_scheduled,omitempty"`
 }
 
 const maxAutoRepairAttempts = 3
 
 type Service struct {
-	store      *session.Store
-	bus        *audit.Bus
-	context    *contextbundle.Builder
-	planner    planner.Planner
-	policy     *policy.Engine
-	runner     sandbox.Runner
-	hostRunner sandbox.Runner
-	devMu      sync.Mutex
-	devspaces  map[string]sandbox.Workspace
+	store         *session.Store
+	bus           *audit.Bus
+	context       *contextbundle.Builder
+	planner       planner.Planner
+	policy        *policy.Engine
+	runner        sandbox.Runner
+	hostRunner    sandbox.Runner
+	selfEvolution *selfevolution.Manager
+	devMu         sync.Mutex
+	devspaces     map[string]sandbox.Workspace
 }
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
-	return &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), devspaces: make(map[string]sandbox.Workspace)}
+	manager := selfevolution.New(selfevolution.DiscoverRoot())
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace)}
+	service.normalizeSelfEvolutionSessions()
+	service.reconcileSelfEvolutionStatus()
+	return service
 }
 
 func (s *Service) StartSession(ctx context.Context, projectPath string, requestedMode ...domain.ExecutionMode) (domain.Session, error) {
@@ -144,6 +151,10 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	if automationMode == "" {
 		automationMode = domain.AutomationModeAuto
 	}
+	selfEvolution := s.selfEvolution.IsProject(projectPath)
+	if selfEvolution && executionMode == domain.ExecutionModeUnprotected {
+		executionMode = domain.ExecutionModeProtected
+	}
 	if !domain.ValidExecutionMode(executionMode) {
 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", executionMode)
 	}
@@ -174,11 +185,11 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
 		return domain.Session{}, err
 	}
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, SelfEvolution: selfEvolution, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if err := s.store.Put(item); err != nil {
 		return domain.Session{}, fmt.Errorf("persist session: %w", err)
 	}
-	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode})
+	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode, "self_evolution": selfEvolution})
 	return item, nil
 }
 
@@ -203,6 +214,9 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
 	}
 	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		if mode == domain.ExecutionModeUnprotected && s.isSelfEvolution(*current) {
+			return errors.New("Wharness self-evolution is locked to Protected execution mode")
+		}
 		if mode == domain.ExecutionModeUnprotected && current.AutomationMode == domain.AutomationModeAuto {
 			return errors.New("disable auto mode before switching to unprotected")
 		}
@@ -242,7 +256,7 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 	}
 	requestID := ids.New("req")
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID})
-	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode})
+	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item)})
 	if err != nil {
 		s.bus.Publish(sessionID, "planner.failed", map[string]any{"error": err.Error()})
 		return planner.Result{}, item, err
@@ -514,11 +528,18 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			result.AutoError = applyErr.Error()
 			result.Session = executed
 			s.bus.Publish(sessionID, "automation.apply_failed", map[string]any{"error": applyErr.Error()})
+			if executed.SelfEvolution {
+				if repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, execution, applyErr); repairErr == nil {
+					result.Session = repaired
+					result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
+				}
+			}
 			return result
 		}
 		result.AutoApplied = true
+		result.RestartScheduled = applied.SelfEvolution && planHasPatch(current.Plan)
 		result.Session = applied
-		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport})
+		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport, "restart_scheduled": result.RestartScheduled})
 		return result
 	}
 	return result
@@ -574,6 +595,9 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		return domain.ExecutionResult{}, item, errors.New("policy denied plan")
 	}
 	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
+	if unprotected && s.isSelfEvolution(item) {
+		return domain.ExecutionResult{}, item, errors.New("Wharness self-evolution cannot execute in Unprotected mode")
+	}
 	if (item.Policy.RequiresApproval || unprotected) && !approved {
 		return domain.ExecutionResult{}, item, ErrApprovalRequired
 	}
@@ -845,6 +869,7 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 		ContextManifest:    refreshed.Context.Manifest,
 		PreviousResponseID: refreshed.LastProviderResponseID,
 		AutomationMode:     refreshed.AutomationMode,
+		SelfEvolution:      s.isSelfEvolution(refreshed),
 	})
 	if err != nil {
 		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
@@ -967,8 +992,43 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if item.Plan == nil || item.LastExecution == nil || !item.LastExecution.Success || item.LastExecution.PlanID != item.Plan.PlanID {
 		return item, ErrExecutionRequired
 	}
+
+	patches := planPatches(item.Plan)
+	for _, patch := range patches {
+		if err := protocol.ValidatePatchPaths(patch); err != nil {
+			return item, err
+		}
+	}
+	selfEvolution := s.isSelfEvolution(item) && len(patches) > 0
+	var transaction selfevolution.Transaction
+	if selfEvolution {
+		transaction, err = s.selfEvolution.Prepare(item.Plan.PlanID, patches)
+		if err != nil {
+			return item, fmt.Errorf("prepare Wharness self-evolution transaction: %w", err)
+		}
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "prepared", "rollback snapshot captured; host apply pending")
+		s.bus.Publish(sessionID, "self_evolution.transaction_started", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+	}
+	rollback := func(cause error) error {
+		if !selfEvolution {
+			return cause
+		}
+		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+			_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rollback_failed", rollbackErr.Error())
+			transaction.Release()
+			return fmt.Errorf("%w; automatic self-evolution rollback also failed: %v", cause, rollbackErr)
+		}
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rolled_back", cause.Error())
+		transaction.Release()
+		s.bus.Publish(sessionID, "self_evolution.rolled_back", map[string]any{"plan_id": item.Plan.PlanID, "error": cause.Error()})
+		return cause
+	}
+
 	workspace, err := s.hostRunner.Prepare(ctx, item.ProjectPath)
 	if err != nil {
+		if selfEvolution {
+			transaction.Release()
+		}
 		return item, err
 	}
 	defer s.hostRunner.Cleanup(workspace)
@@ -977,27 +1037,123 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			continue
 		}
 		if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
-			return item, err
+			return item, rollback(err)
 		}
-		if result, err := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch); err != nil || !result.Success {
-			if err != nil {
-				return item, fmt.Errorf("host apply failed: %w", err)
+		if result, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch); applyErr != nil || !result.Success {
+			if applyErr != nil {
+				return item, rollback(fmt.Errorf("host apply failed: %w", applyErr))
 			}
-			return item, fmt.Errorf("host apply failed: %s", strings.TrimSpace(result.Stderr))
+			return item, rollback(fmt.Errorf("host apply failed: %s", strings.TrimSpace(result.Stderr)))
 		}
 	}
-	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "applied"; return nil })
-	if err == nil {
+
+	if selfEvolution {
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "building", "verified patch applied; building real Wharness host runtime")
+		s.bus.Publish(sessionID, "self_evolution.host_build_started", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+		output, buildErr := s.selfEvolution.BuildHost(ctx, transaction)
+		if buildErr != nil {
+			detail := truncateRepairText(output, 12000)
+			if detail != "" {
+				buildErr = fmt.Errorf("%w\n%s", buildErr, detail)
+			}
+			s.bus.Publish(sessionID, "self_evolution.host_build_failed", map[string]any{"plan_id": item.Plan.PlanID, "error": buildErr.Error()})
+			return item, rollback(buildErr)
+		}
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "restart_pending", "host build passed; detached restart handoff pending")
+		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+	}
+
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.State = "applied"
+		current.SelfEvolution = current.SelfEvolution || selfEvolution
+		return nil
+	})
+	if err != nil {
+		return item, rollback(err)
+	}
+
+	if selfEvolution {
+		if scheduleErr := s.selfEvolution.ScheduleRestart(transaction, sessionID, item.Plan.PlanID); scheduleErr != nil {
+			rolledBackErr := rollback(fmt.Errorf("schedule Wharness restart: %w", scheduleErr))
+			if reverted, updateErr := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "verified"; return nil }); updateErr == nil {
+				updated = reverted
+			}
+			return updated, rolledBackErr
+		}
 		s.resetDevspace(sessionID)
-		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID})
-		if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
-			updated = refreshed
-		} else {
-			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
+		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID, "self_evolution": true})
+		s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+		return updated, nil
+	}
+
+	s.resetDevspace(sessionID)
+	s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID})
+	if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
+		updated = refreshed
+	} else {
+		s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
+	}
+	return updated, nil
+}
+
+func (s *Service) isSelfEvolution(item domain.Session) bool {
+	return item.SelfEvolution || (s.selfEvolution != nil && s.selfEvolution.IsProject(item.ProjectPath))
+}
+
+func (s *Service) normalizeSelfEvolutionSessions() {
+	if s.selfEvolution == nil || !s.selfEvolution.Enabled() {
+		return
+	}
+	for _, item := range s.store.List() {
+		if !s.selfEvolution.IsProject(item.ProjectPath) {
+			continue
+		}
+		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
+			current.SelfEvolution = true
+			if current.ExecutionMode == domain.ExecutionModeUnprotected {
+				current.ExecutionMode = domain.ExecutionModeProtected
+			}
+			return nil
+		})
+	}
+}
+
+func (s *Service) reconcileSelfEvolutionStatus() {
+	if s.selfEvolution == nil || !s.selfEvolution.Enabled() {
+		return
+	}
+	status, err := s.selfEvolution.LastStatus()
+	if err != nil || (status.Phase != "rollback_restored" && status.Phase != "rolled_back_runtime") || status.SessionID == "" {
+		return
+	}
+	updated, err := s.store.Update(status.SessionID, func(current *domain.Session) error {
+		if !s.isSelfEvolution(*current) || current.Plan == nil || current.Plan.PlanID != status.PlanID {
+			return nil
+		}
+		current.SelfEvolution = true
+		current.State = "verified"
+		current.LastRepairError = status.Detail
+		return nil
+	})
+	if err == nil && updated.ID != "" {
+		s.bus.Publish(status.SessionID, "self_evolution.runtime_rollback_reconciled", map[string]any{"plan_id": status.PlanID, "phase": status.Phase, "detail": status.Detail})
+	}
+}
+
+func planPatches(plan *domain.ExecutionPlan) []string {
+	if plan == nil {
+		return nil
+	}
+	patches := make([]string, 0)
+	for _, op := range plan.Operations {
+		if op.Type == "apply_patch" && strings.TrimSpace(op.Patch) != "" {
+			patches = append(patches, op.Patch)
 		}
 	}
-	return updated, err
+	return patches
 }
+
+func planHasPatch(plan *domain.ExecutionPlan) bool { return len(planPatches(plan)) > 0 }
 
 func (s *Service) ListFiles(sessionID string) ([]workspacefs.Entry, error) {
 	item, err := s.store.Get(sessionID)

@@ -77,3 +77,24 @@ func TestBuildManualPromptMakesAskDistinctFromChange(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManualPromptDeclaresSelfEvolutionModeAndLifecycleOwnership(t *testing.T) {
+	prompt := BuildManualPrompt(Request{
+		RequestID:      "req-self-evolution",
+		Message:        "melhorar o próprio Wharness",
+		AutomationMode: domain.AutomationModeAuto,
+		SelfEvolution:  true,
+	})
+	for _, want := range []string{
+		"SELF-EVOLUTION MODE: true",
+		"linked project is exactly the root of the currently running Wharness instance",
+		"Never request Unprotected execution",
+		"do NOT put Wharness lifecycle commands",
+		"detached transactional supervisor",
+		"do not mutate .harness runtime/state/log/self-evolution files",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("self-evolution prompt missing %q", want)
+		}
+	}
+}

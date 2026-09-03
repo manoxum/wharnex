@@ -56,3 +56,20 @@ Opening, creating, and cloning a project occurs before Agent execution and is dr
 ## Interactive Host terminal submit semantics (v1.2.17.4)
 
 The human Host terminal remains a direct argv executor rooted at the real project. Submission is available through both Enter/form submit and an explicit run button. This UI affordance does not introduce a shell: tokenization remains client-side argv parsing, backend interactive policy validation remains mandatory, and the Host runner executes the selected executable directly with the project-relative cwd.
+
+## Transactional self-evolution (v1.2.23)
+
+A session is `self_evolution=true` only when its canonical project root is exactly the canonical root of the currently running Wharness instance. A child directory, another checkout, or another worktree is not self-evolution unless it resolves to that exact runtime root.
+
+Self-evolution is locked to `Protected`; switching that session to `Unprotected` MUST be rejected. Normal sandbox execution and verification happen first. A successful Protected execution that contains patches then uses a self-evolution host transaction instead of the generic Apply path:
+
+1. acquire the exclusive `.harness/self-evolution/active.lock`;
+2. snapshot patch-touched source files, root/frontend compiled artifacts, build stamp and known-good lifecycle scripts;
+3. apply validated patches to the real root;
+4. run `make build` on the real root while the old Wharness is still healthy;
+5. rollback immediately on host Apply/build failure;
+6. on success, detach the pre-captured restart supervisor and return control to the caller;
+7. supervisor stops the current runtime and starts the newly built runtime using normal health checks;
+8. if new-runtime startup fails, restore the captured source/artifacts and restart the previous known-good runtime.
+
+Model plans MUST NOT own start/stop/restart of Wharness in self-evolution mode. They verify source changes in the Protected sandbox; Wharness owns host build, lifecycle handoff and recovery. Runtime recovery files under `.harness` are not project-mutation targets.

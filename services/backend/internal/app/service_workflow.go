@@ -186,6 +186,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 		ContextManifest:    refreshed.Context.Manifest,
 		PreviousResponseID: refreshed.LastProviderResponseID,
 		AutomationMode:     refreshed.AutomationMode,
+		SelfEvolution:      s.isSelfEvolution(refreshed),
 	})
 	if err != nil {
 		return fmt.Errorf("prepare workflow continuation: %w", err)

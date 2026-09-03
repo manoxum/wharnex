@@ -14,6 +14,7 @@ type Request struct {
 	ContextManifest    domain.ContextManifest
 	PreviousResponseID string
 	AutomationMode     domain.AutomationMode
+	SelfEvolution      bool
 }
 
 type Result struct {

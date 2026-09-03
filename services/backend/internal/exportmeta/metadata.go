@@ -38,9 +38,10 @@ type GitMetadata struct {
 }
 
 type RuntimeMetadata struct {
-	Status string
-	Logs   string
-	Error  string
+	Status            string
+	Logs              string
+	SelfEvolutionLogs string
+	Error             string
 }
 
 func Capture(root, kind string, generatedAt time.Time) Metadata {
@@ -106,6 +107,13 @@ func (m Metadata) Markdown() []byte {
 		fmt.Fprintln(&out)
 		fmt.Fprintf(&out, "Last up to %d lines / %d KiB from `.harness/logs/desktop.log`; secret-like values are redacted.\n\n", maxRuntimeLogLines, maxRuntimeOutputBytes/1024)
 		writeFence(&out, m.Runtime.Logs, "No Wharness desktop log available.")
+		if m.Runtime.SelfEvolutionLogs != "" {
+			fmt.Fprintln(&out)
+			fmt.Fprintln(&out, "## Wharness self-evolution logs")
+			fmt.Fprintln(&out)
+			fmt.Fprintf(&out, "Last up to %d lines / %d KiB from `.harness/logs/self-evolution.log`; secret-like values are redacted.\n\n", maxRuntimeLogLines, maxRuntimeOutputBytes/1024)
+			writeFence(&out, m.Runtime.SelfEvolutionLogs, "No Wharness self-evolution log available.")
+		}
 		if m.Runtime.Error != "" {
 			fmt.Fprintln(&out)
 			fmt.Fprintf(&out, "- Runtime metadata warning: `%s`\n", markdownCode(m.Runtime.Error))

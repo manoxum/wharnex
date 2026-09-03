@@ -80,12 +80,15 @@ func TestCaptureWharnessRuntimeIncludesStatusAndBoundedRedactedLogs(t *testing.T
 	if err := os.WriteFile(filepath.Join(logDir, "desktop.log"), []byte(log.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(logDir, "self-evolution.log"), []byte("self-evolution restarted plan=plan-test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	runtime := CaptureWharnessRuntime(root)
 	meta := Capture(root, "make-export", time.Date(2026, 9, 3, 17, 30, 0, 0, time.UTC))
 	meta.Runtime = &runtime
 	text := string(meta.Markdown())
-	for _, want := range []string{"## Wharness status", "backend running", "## Wharness recent logs", "line-204", "[REDACTED]"} {
+	for _, want := range []string{"## Wharness status", "backend running", "## Wharness recent logs", "line-204", "[REDACTED]", "## Wharness self-evolution logs", "self-evolution restarted"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("runtime metadata missing %q:\n%s", want, text)
 		}

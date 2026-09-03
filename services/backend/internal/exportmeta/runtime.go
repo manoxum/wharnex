@@ -28,6 +28,15 @@ func CaptureWharnessRuntime(root string) RuntimeMetadata {
 	)
 	runtime.Logs = sanitizeDiagnostics(logs)
 
+	selfLogs, selfLogsErr := tailTextFile(
+		filepath.Join(root, ".harness", "logs", "self-evolution.log"),
+		maxRuntimeLogLines,
+		maxRuntimeOutputBytes,
+	)
+	if selfLogsErr == nil {
+		runtime.SelfEvolutionLogs = sanitizeDiagnostics(selfLogs)
+	}
+
 	var warnings []string
 	if statusErr != nil {
 		warnings = append(warnings, "wharness status: "+statusErr.Error())

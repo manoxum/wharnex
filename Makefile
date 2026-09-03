@@ -31,8 +31,16 @@ deps:
 	@command -v git >/dev/null || { echo 'git is required' >&2; exit 1; }
 	@command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
 	cd "$(ROOT_DIR)/services/backend" && go mod download
-	cd "$(ROOT_DIR)/services/frontend" && npm install --cache "$(NPM_CACHE)"
-	cd "$(ROOT_DIR)/services/desktop" && npm install --cache "$(NPM_CACHE)"
+	@if [ "$${WHARNESS_SELF_EVOLUTION:-0}" = "1" ]; then \
+		cd "$(ROOT_DIR)/services/frontend" && npm ci --cache "$(NPM_CACHE)"; \
+	else \
+		cd "$(ROOT_DIR)/services/frontend" && npm install --cache "$(NPM_CACHE)"; \
+	fi
+	@if [ "$${WHARNESS_SELF_EVOLUTION:-0}" = "1" ]; then \
+		cd "$(ROOT_DIR)/services/desktop" && npm ci --cache "$(NPM_CACHE)"; \
+	else \
+		cd "$(ROOT_DIR)/services/desktop" && npm install --cache "$(NPM_CACHE)"; \
+	fi
 
 build-backend:
 	@mkdir -p "$(dir $(BACKEND_BIN))"

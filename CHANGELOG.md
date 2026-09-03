@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.23 — Transactional self-evolution
+
+- Detect when a managed project resolves to the exact root of the currently running Wharness instance and mark the session as self-evolution.
+- Force self-evolution sessions to Protected execution and prevent later Unprotected switching.
+- After sandbox verification, snapshot patch-touched source files and known-good runtime artifacts before applying the patch to the live Wharness root.
+- Rebuild the real host with deterministic npm installs, reject unexpected dependency-metadata mutation, and rollback immediately if host Apply/build fails.
+- Hand restart to a detached supervisor so the process being upgraded does not own its own termination/recovery path; health-check the new runtime and automatically restore/restart the previous version on failure.
+- Reserve `.harness/**` as runtime-owned recovery state, persist self-evolution lifecycle status/logs, surface the mode in the workspace UI, and teach the planner not to emit Wharness lifecycle commands.
+
 ## v1.2.21.1 — Bundle download fallback + rendered Harness Markdown
 
 - Harden automatic ChatGPT result capture when generated files are rendered without their canonical filename: exact filename metadata remains preferred, with a fail-closed fallback to exactly one visible file/download affordance in the newest assistant turn.

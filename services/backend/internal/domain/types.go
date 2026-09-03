@@ -164,6 +164,7 @@ type Session struct {
 	ProjectPath             string               `json:"project_path"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
+	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
 	State                   string               `json:"state"`
 	CreatedAt               time.Time            `json:"created_at"`
 	Context                 ContextBundle        `json:"context"`

@@ -513,7 +513,7 @@ export default function App() {
           : submission.workflow_executed
             ? `Passo local ${workflowRound}/6 executado na sandbox Protected. Nenhuma alteração deste passo foi aplicada ao host.`
             : submission.auto_applied
-              ? 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.'
+              ? (submission.restart_scheduled ? 'Bundle validado. O plano foi verificado na sandbox, aplicado no próprio Wharness, reconstruído no host e o reinício automático foi agendado.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
               : submission.auto_executed
                 ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
                 : 'Bundle ZIP importado e plano validado.'
@@ -524,7 +524,7 @@ export default function App() {
           ? `Policy bloqueada${submission.repair_prepared ? ' · reparação automática preparada' : ''}`
           : submission.workflow_prepared || submission.workflow_executed
             ? `Workflow ${workflowRound}/6 · sandbox Protected`
-            : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? 'AUTO · Host aplicado' : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
+            : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? (submission.restart_scheduled ? 'AUTO-EVOLUÇÃO · reinício agendado' : 'AUTO · Host aplicado') : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
         turnKind: updated.last_turn?.kind,
       }
       if (targetChat.id === activeChatId) {
@@ -539,7 +539,7 @@ export default function App() {
         await submitRepairPrompt(updated, targetChat)
       }
       return submission.auto_applied
-        ? `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`
+        ? (submission.restart_scheduled ? `Bundle ${filename} aplicado ao próprio Wharness; build do host concluído e reinício automático agendado.` : `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`)
         : submission.workflow_prepared
           ? workflowSubmitted
             ? `Passo ${workflowRound}/6 executado e continuação submetida no Harness Chat “${targetChat.title}”.`
@@ -662,12 +662,13 @@ export default function App() {
     setBusy(true); setError(undefined)
     try {
       const updated = await api.apply(session.id)
-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: 'Host alterado' }])
+      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou, o host foi reconstruído com sucesso e um supervisor externo assumiu o reinício do Wharness.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício agendado' : 'Host alterado' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
   async function changeExecutionMode(next: ExecutionMode) {
     if (!session || next === executionMode || busy) return
+    if (session.self_evolution && next === 'unprotected') { setError('A auto-evolução do próprio Wharness é bloqueada em Unprotected. Use Protected para manter sandbox, build transacional e rollback.'); return }
     let nextAutomation = automationMode
     if (next === 'unprotected') {
       const warning = automationMode === 'auto'
@@ -740,7 +741,7 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
 }
 
 function welcomeItem(session: Session): ChatItem {
-  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+  return { id: 'welcome', role: 'harness', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharness. Mudanças permanecem Protected e, após Apply + build do host, o Wharness reinicia-se automaticamente com rollback se o novo runtime falhar.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
 }
 
 function messageOf(error: unknown) {

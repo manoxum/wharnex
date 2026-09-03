@@ -125,6 +125,7 @@ export type Session = {
   project_path: string
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
+  self_evolution?: boolean
   state: string
   created_at: string
   context: { id: string; manifest: ContextManifest }
@@ -202,7 +203,7 @@ export type ChatAttachmentInfo = {
 
 export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[] }
 
-export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number }
+export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number; restart_scheduled?: boolean }
 
 export type ProjectStorageUsage = { project_path: string; session_count: number; context_bytes: number; sandbox_bytes: number; total_bytes: number }
 export type BackendStorageUsage = { total_bytes: number; state_bytes: number; context_bytes: number; sandbox_bytes: number; orphan_bytes: number; projects: ProjectStorageUsage[] }
