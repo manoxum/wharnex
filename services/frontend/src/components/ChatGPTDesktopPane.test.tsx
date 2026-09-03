@@ -42,6 +42,7 @@ function bridge() {
       onState: vi.fn(noopSubscription),
       onExternalAuth: vi.fn(noopSubscription),
       onAuthComplete: vi.fn(noopSubscription),
+      onAuthError: vi.fn(noopSubscription),
       onPlanDownloaded: vi.fn(noopSubscription),
       onPlanDownloadError: vi.fn(noopSubscription),
       onBundleDownloaded: vi.fn(noopSubscription),
@@ -104,7 +105,7 @@ describe('ChatGPTDesktopPane overlay suspension', () => {
       onChatGPTURL={() => undefined} onSession={() => undefined} onManualPlan={async () => undefined}
       onPlanFile={async () => ''} onBundleFile={async () => 'bundle importado'}
     />)
-    act(() => authHandler?.({ cacheKey: 'chat-1', provider: 'Google', url: 'https://accounts.google.com/o/oauth2/v2/auth', authMode: 'external', managedWindow: true }))
+    act(() => authHandler?.({ cacheKey: 'chat-1', provider: 'Google', url: 'https://accounts.google.com/o/oauth2/v2/auth', authMode: 'external', managedWindow: false, managedBrowser: true }))
     expect(await screen.findByText('Autenticação externa — Google')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Importar bundle ZIP/i })).toBeTruthy()
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())

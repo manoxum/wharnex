@@ -3,7 +3,9 @@ package contextbundle
 import (
 	"archive/zip"
 	"encoding/json"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,7 +30,7 @@ func TestBuildExcludesSecrets(t *testing.T) {
 	for _, file := range zr.File {
 		names[file.Name] = true
 	}
-	if !names["main.go"] || !names["whaness.yml"] || names[".env"] || names["nested/key.txt"] {
+	if !names["EXPORTS.md"] || !names["main.go"] || !names["whaness.yml"] || names[".env"] || names["nested/key.txt"] {
 		t.Fatalf("unexpected zip files: %#v", names)
 	}
 }
@@ -86,8 +88,12 @@ context:
 		t.Fatal(err)
 	}
 	defer zr.Close()
-	if len(zr.File) != 1 || zr.File[0].Name != "src/main.go" {
-		t.Fatalf("unexpected configured context files: %#v", zr.File)
+	names := make(map[string]bool, len(zr.File))
+	for _, file := range zr.File {
+		names[file.Name] = true
+	}
+	if len(zr.File) != 2 || !names["EXPORTS.md"] || !names["src/main.go"] {
+		t.Fatalf("unexpected configured context files: %#v", names)
 	}
 }
 
@@ -159,5 +165,103 @@ func TestContextInspectionShowsRootsRulesAndFinalInventory(t *testing.T) {
 	}
 	if strings.Contains(string(payload), `"patterns":null`) || strings.Contains(string(payload), `"entries":null`) || strings.Contains(string(payload), `"roots":null`) {
 		t.Fatalf("inspection must serialize empty collections as arrays: %s", payload)
+	}
+}
+
+func TestBuildExportsGitStatusAndWorktreeMetadata(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	mustWrite(t, filepath.Join(root, "tracked.txt"), "one\n")
+	cmd = exec.Command("git", "add", "tracked.txt")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	mustWrite(t, filepath.Join(root, "untracked.txt"), "two\n")
+
+	bundle, err := NewBuilder(1024*1024, 1024*1024).Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(bundle.ZipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	var exports string
+	for _, file := range zr.File {
+		if file.Name != "EXPORTS.md" {
+			continue
+		}
+		r, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(r)
+		_ = r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		exports = string(data)
+	}
+	if !strings.Contains(exports, "## Git status") || !strings.Contains(exports, "untracked.txt") || !strings.Contains(exports, "## Git worktrees") {
+		t.Fatalf("unexpected EXPORTS.md:\n%s", exports)
+	}
+}
+
+func TestContextFingerprintChangesWhenGitWorktreeTopologyChanges(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	cmds := [][]string{
+		{"git", "init", "-q"},
+		{"git", "config", "user.email", "test@example.invalid"},
+		{"git", "config", "user.name", "Wharness Test"},
+	}
+	for _, argv := range cmds {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v: %s", argv, err, out)
+		}
+	}
+	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
+	for _, args := range [][]string{{"add", "main.go"}, {"commit", "-qm", "initial"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	builder := NewBuilder(1024*1024, 1024*1024)
+	before, err := builder.Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree := filepath.Join(t.TempDir(), "analysis-worktree")
+	cmd := exec.Command("git", "worktree", "add", "-q", "-b", "analysis-worktree", worktree)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, out)
+	}
+	defer func() {
+		cleanup := exec.Command("git", "worktree", "remove", "--force", worktree)
+		cleanup.Dir = root
+		_ = cleanup.Run()
+	}()
+	after, err := builder.Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Manifest.SHA256 == after.Manifest.SHA256 {
+		t.Fatal("context fingerprint must change when git worktree topology changes")
 	}
 }

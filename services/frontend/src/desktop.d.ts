@@ -2,8 +2,9 @@ type DesktopBounds = { x: number; y: number; width: number; height: number }
 type DesktopChatGPTAuthMode = 'embedded' | 'external'
 type DesktopChatGPTState = { cacheKey?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string; authMode?: DesktopChatGPTAuthMode; authWindowOpen?: boolean }
 type ContextClipboardResult = { ok: boolean; filePath: string; bytes: number }
-type DesktopExternalAuthState = { cacheKey?: string; provider: string; url: string; authMode?: DesktopChatGPTAuthMode; managedWindow?: boolean }
+type DesktopExternalAuthState = { cacheKey?: string; provider: string; url: string; authMode?: DesktopChatGPTAuthMode; managedWindow?: boolean; managedBrowser?: boolean }
 type DesktopAuthCompleteState = { cacheKey?: string; authMode: DesktopChatGPTAuthMode; url: string }
+type DesktopAuthErrorState = { cacheKey?: string; provider: string; message: string }
 type DesktopPlanDownload = { filename: string; requestId: string; text: string; bytes: number }
 type DesktopPlanDownloadError = { filename?: string; message: string }
 type DesktopBundleDownload = { filename: string; requestId: string; contentBase64: string; bytes: number; sourceFilename?: string; normalizedFilename?: boolean }
@@ -43,6 +44,7 @@ interface WharnessDesktopBridge {
     onState(callback: (state: DesktopChatGPTState) => void): () => void
     onExternalAuth(callback: (state: DesktopExternalAuthState) => void): () => void
     onAuthComplete(callback: (state: DesktopAuthCompleteState) => void): () => void
+    onAuthError(callback: (state: DesktopAuthErrorState) => void): () => void
     onPlanDownloaded(callback: (plan: DesktopPlanDownload) => void): () => void
     onPlanDownloadError(callback: (error: DesktopPlanDownloadError) => void): () => void
     onBundleDownloaded(callback: (bundle: DesktopBundleDownload) => void): () => void

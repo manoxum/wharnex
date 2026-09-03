@@ -46,6 +46,12 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       ipcRenderer.on('wharness:chatgpt:auth-complete', handler)
       return () => ipcRenderer.removeListener('wharness:chatgpt:auth-complete', handler)
     },
+    onAuthError: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('wharness:chatgpt:auth-error', handler)
+      return () => ipcRenderer.removeListener('wharness:chatgpt:auth-error', handler)
+    },
     onPlanDownloaded: (callback) => {
       if (typeof callback !== 'function') return () => {}
       const handler = (_event, payload) => callback(payload)

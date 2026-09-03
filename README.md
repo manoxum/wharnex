@@ -14,7 +14,7 @@ No Desktop, cada Harness Chat pode manter um `WebContentsView` próprio em memó
 - **Wharness Desktop** (`services/desktop`) built with Electron `WebContentsView`.
 - ChatGPT displayed beside the Harness without iframe/CSP limitations.
 - Persistent ChatGPT browser session under `persist:wharness-chatgpt`; if the account is logged out, ChatGPT itself presents its login flow in the embedded surface.
-- No ChatGPT DOM inspection, cookie reading, prompt injection, or response scraping.
+- No arbitrary ChatGPT DOM inspection, prompt injection, response scraping, or normal-operation cookie inspection. External OAuth has one narrow main-process exception: a Wharness-launched temporary Chrome/Chromium/Brave profile relays only `chatgpt.com` cookies after an authenticated callback; values never reach renderer IPC or logs.
 - **Copy context ZIP** writes the current context bundle to the OS clipboard as a native copied file.
 - Context is refreshed immediately before the ZIP is copied.
 - Browser-like ChatGPT controls: back, forward, reload and focus.
@@ -118,6 +118,15 @@ make stop
 make restart
 ```
 
+### Export project context
+
+```bash
+make export
+make export-check
+```
+
+`make export` writes the project archive to `../project-context/wharness/wharness.zip` by default. The archive includes a generated root `EXPORTS.md` with export provenance, the current Git branch/HEAD, concise status (including untracked files), `git worktree list --porcelain`, the current Wharness service/HTTP status, and a bounded recent tail of the Wharness desktop log. Runtime log values that look like credentials are redacted. `.git`, raw `.harness` runtime data and Git remote URLs remain excluded. The same synthetic metadata file is also added to context ZIPs generated for projects managed by Wharness, but those managed-project contexts contain project/Git provenance only and do not inherit Wharness host logs/status.
+
 ### Linux / Wayland
 
 Wharness automatically prefers X11/XWayland when `$DISPLAY` is available. This avoids the Electron/Chromium Vulkan incompatibility observed with `--ozone-platform=wayland`. On a Wayland-only machine, Wharness selects Wayland and disables Vulkan.
@@ -179,7 +188,7 @@ The preference is stored by project path and restored when that workspace is reo
 
 The active project path, current mode, recent workspaces, active Harness chat, per-chat transcript, per-chat backend session ID, and per-chat ChatGPT conversation URL are stored locally. After `F5` or reopening Wharness Desktop, the active workspace and chat are restored. Selecting another Harness chat restores its own transcript and navigates the embedded ChatGPT surface to its linked conversation URL. If the Go backend has restarted and a remembered in-memory session no longer exists, Wharness creates a fresh backend session for that chat while preserving the local transcript and ChatGPT URL.
 
-The ChatGPT login/session is separate and is persisted by Electron's dedicated browser partition.
+The ChatGPT login/session is persisted by Electron's dedicated browser partition. **Login incorporado** keeps compatible authentication in that view. **Login externo** launches a real Chrome/Chromium/Brave with a temporary Wharness profile, detects the authenticated ChatGPT callback over loopback DevTools, relays only ChatGPT cookies into the dedicated Electron partition, and deletes the temporary profile. Google OAuth selected from Embedded mode is promoted automatically because Google disallows embedded OAuth user-agents. Set `WHARNESS_BROWSER_EXECUTABLE` when Chrome/Chromium/Brave is installed outside the normal platform paths.
 
 Harness chat attachments are also durable in Desktop mode. Wharness stores private copies under Electron application data rather than inside the target project; the transcript keeps opaque references plus filename/size/MIME metadata. Reopening a chat restores its attachment cards, including image thumbnails when available and native file icons as fallback. Clicking a persisted attachment opens the stored local copy. Attachments from older transcripts created before this storage model remain metadata-only because their original bytes cannot be reconstructed.
 

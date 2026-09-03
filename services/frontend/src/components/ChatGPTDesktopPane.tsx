@@ -54,11 +54,10 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     void bridge.chatgpt.state().then((next) => {
       setState(next)
       if (next.externalAuthProvider) setExternalAuth({ provider: next.externalAuthProvider, url: '' })
-      else if (!next.authWindowOpen) setExternalAuth(null)
     })
     const unsubscribe = bridge.chatgpt.onState((next) => {
       setState(next)
-      if (!next.externalAuthProvider && !next.authWindowOpen) setExternalAuth(null)
+      if (next.externalAuthProvider) setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
       const decision = chatgptAutoBindingDecision(linkedURLRef.current, next.url, next.loading, newChatSurfaceSeenRef.current)
       newChatSurfaceSeenRef.current = decision.newChatSurfaceSeen
       if (decision.bindURL) {
@@ -71,12 +70,18 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     const unsubscribeAuth = bridge.chatgpt.onExternalAuth(({ cacheKey, provider, url }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth({ provider, url })
-      setNotice(`${provider}: autenticação aberta numa janela externa do Wharness. O OAuth começa e termina nessa mesma sessão; ao receber o callback, o navegador incorporado será retomado automaticamente.`)
+      setNotice(`${provider}: autenticação aberta num Chrome/Chromium/Brave real gerido temporariamente pelo Wharness. Após o callback, apenas os cookies ChatGPT necessários são transferidos para a partition incorporada e o navegador externo é fechado.`)
     })
     const unsubscribeAuthComplete = bridge.chatgpt.onAuthComplete(({ cacheKey, authMode }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth(null)
       setNotice(authMode === 'external' ? 'Autenticação externa concluída. Callback recebido e sessão incorporada retomada.' : 'Autenticação incorporada concluída.')
+      void bridge.chatgpt.state().then(setState)
+    })
+    const unsubscribeAuthError = bridge.chatgpt.onAuthError(({ cacheKey, provider, message }) => {
+      if (cacheKey && cacheKey !== chatIdRef.current) return
+      setExternalAuth(null)
+      setNotice(`${provider}: ${message}`)
       void bridge.chatgpt.state().then(setState)
     })
     const unsubscribePlan = bridge.chatgpt.onPlanDownloaded(({ filename, requestId, text, bytes }) => {
@@ -97,7 +102,7 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     const unsubscribeBundleError = bridge.chatgpt.onBundleDownloadError(({ message }) => setNotice(message))
     return () => {
       cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync)
-      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); void bridge.chatgpt.hide()
+      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); void bridge.chatgpt.hide()
     }
   }, [bridge])
 
@@ -209,8 +214,8 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
   async function startAuthentication(mode: DesktopChatGPTAuthMode) {
     if (!bridge) return
     setNotice(mode === 'embedded'
-      ? 'A iniciar login incorporado. Todo o fluxo OAuth permanecerá dentro da sessão do Wharness.'
-      : 'A abrir a janela externa de autenticação. O callback regressará automaticamente à sessão do Wharness.')
+      ? 'A iniciar login incorporado. E-mail/senha e provedores compatíveis permanecem no Wharness; se o Google bloquear o WebView, o fluxo muda automaticamente para navegador seguro.'
+      : 'A abrir um Chrome/Chromium/Brave real com perfil temporário. O callback será detetado e a sessão ChatGPT regressará automaticamente ao Wharness.')
     try {
       const next = await bridge.chatgpt.startAuth(chatId, mode)
       setState(next)
@@ -242,11 +247,11 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
         <button className="icon-button light" title="Colar clipboard no campo focado do ChatGPT" onClick={() => void bridge?.chatgpt.paste()}><Icon name="clipboard" size={15}/></button>
       </div>
       <div className="desktop-browser-address" title={state.url}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(state.url)}</span></div>
-      <StatusPill tone={!externalAuth && linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{externalAuth ? 'Navegador externo' : linkedConversation ? (mismatch ? 'Outra conversa' : 'Chat vinculado') : 'A vincular'}</StatusPill>
+      <StatusPill tone={!externalAuth && linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{externalAuth ? 'Login seguro externo' : linkedConversation ? (mismatch ? 'Outra conversa' : 'Chat vinculado') : 'A vincular'}</StatusPill>
     </div>
 
     <div className="chatgpt-auth-mode-bar">
-      <div className="chatgpt-auth-mode-copy"><strong>Autenticação</strong><span>Escolha onde o fluxo de login deve ocorrer. Externo abre uma janela separada do Wharness, mas mantém a mesma partition para permitir callback sem copiar cookies.</span></div>
+      <div className="chatgpt-auth-mode-copy"><strong>Autenticação</strong><span>Escolha o modo de login. Incorporado usa o Chromium do Wharness; Google pode recusá-lo por política e será encaminhado automaticamente. Externo usa Chrome/Chromium/Brave real e devolve a sessão ao Wharness após o callback.</span></div>
       <div className="chatgpt-auth-mode-actions" role="group" aria-label="Modo de autenticação ChatGPT">
         <button className={state.authMode === 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('embedded')}>Login incorporado</button>
         <button className={state.authMode !== 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('external')}><Icon name="external" size={13}/> Login externo</button>
@@ -256,7 +261,7 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa do ChatGPT.</span><button className="text-button" onClick={bindCurrentConversation}>Vincular esta conversa</button></div>}
 
     {externalAuth && <div className="chatgpt-external-auth-banner">
-      <div><strong>Autenticação externa — {externalAuth.provider}</strong><span>Conclua o login na janela separada do Wharness. O fluxo começou do zero nessa janela e usa a mesma partition do ChatGPT incorporado; ao regressar a chatgpt.com, o callback é detetado e esta vista é retomada automaticamente.</span></div>
+      <div><strong>Autenticação externa — {externalAuth.provider}</strong><span>Conclua o login no navegador Chrome/Chromium/Brave aberto pelo Wharness. O fluxo começa do zero num perfil temporário; ao regressar autenticado a chatgpt.com, o Wharness deteta o callback, transfere somente cookies ChatGPT para a partition incorporada e fecha o navegador temporário.</span></div>
       <div className="chatgpt-external-auth-actions">
         <button className="secondary-button" type="button" onClick={() => void startAuthentication('external')}><Icon name="external" size={14}/> Reabrir login</button>
         <button className="text-button" type="button" onClick={() => void startAuthentication('embedded')}>Usar incorporado</button>
@@ -280,7 +285,7 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     </div>
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
 
-    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação em janela externa</strong><span>Conclua o login na janela aberta pelo Wharness. Assim que o callback regressar ao ChatGPT, esta vista será reativada com a mesma sessão.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
+    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação em navegador seguro</strong><span>Conclua o login no Chrome/Chromium/Brave aberto pelo Wharness. Após o callback, esta vista será reativada já autenticada.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
 
     <details className="desktop-plan-import desktop-plan-fallback">
       <summary>Fallback manual</summary>

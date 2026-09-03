@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.2.21 — Export provenance + Git/runtime diagnostics
+
+- Add a generated root `EXPORTS.md` to `make export` archives with export provenance, project metadata, current Git branch/HEAD, `git status --short --branch --untracked-files=all`, and `git worktree list --porcelain`.
+- Capture Wharness runtime diagnostics in `make export`: current `scripts/status.sh` output plus a bounded tail of `.harness/logs/desktop.log`, with secret-like values redacted and collection failures represented as warnings instead of aborting the export.
+- Keep `.git` internals and Git remote URLs out of exports while preserving enough repository state for offline analysis.
+- Add the same synthetic `EXPORTS.md` to every Wharness-managed context ZIP/text export without writing it into the managed project.
+- Include deterministic Git/export metadata in the context fingerprint so branch/index/worktree changes invalidate smart-context affinity when analytically relevant.
+- Harden `make export-check` and backend tests to verify metadata presence and Git-state capture.
+
+## v1.2.21 — Real-browser OAuth callback relay
+
+- Replace the v1.2.20 detached Electron auth `BrowserWindow` with a real installed Chrome/Chromium/Brave process using a unique temporary Wharness profile.
+- Bind Chrome DevTools only to loopback, always restart auth from `https://chatgpt.com/auth/login`, and never forward an in-flight OAuth provider URL between browser contexts.
+- Detect an authenticated ChatGPT callback in the managed browser, relay only non-Cloudflare `chatgpt.com` cookies directly in the main process to `persist:wharness-chatgpt`, then close/delete the temporary browser profile and reload the embedded ChatGPT view.
+- Automatically promote Google OAuth out of Embedded mode because Google rejects embedded user-agents instead of attempting unsafe browser spoofing.
+- Add auth-error IPC/UX and fix the frontend race that cleared the external-auth banner before its controls rendered.
+- Add managed-browser/cookie-relay regression tests.
+
 ## v1.2.20 — Dual ChatGPT authentication + same-session callback
 
 - Add explicit **Login incorporado** and **Login externo** modes to the ChatGPT panel.

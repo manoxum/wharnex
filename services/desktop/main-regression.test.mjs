@@ -39,7 +39,7 @@ test('manual toolbar send actions submit only after their upload is confirmed', 
 })
 
 
-test('dual ChatGPT auth never forwards an in-flight OAuth provider URL to the system browser', async () => {
+test('dual ChatGPT auth uses a real managed browser and never forwards an in-flight provider URL', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const routeStart = source.indexOf('function routeChatGPTNavigation(entry, event, url)')
   const routeEnd = source.indexOf('\nfunction observeEmbeddedAuthURL', routeStart)
@@ -47,11 +47,13 @@ test('dual ChatGPT auth never forwards an in-flight OAuth provider URL to the sy
   assert.notEqual(routeEnd, -1)
   const route = source.slice(routeStart, routeEnd)
   assert.match(route, /startExternalAuthentication\(entry, disposition\.provider \|\| 'OpenAI'\)/)
+  assert.match(route, /disposition\.provider === 'Google'/)
   assert.doesNotMatch(route, /shell\.openExternal\(url\).*external-auth/s)
 
   const externalStart = source.indexOf('function startExternalAuthentication(entry, provider')
   const externalEnd = source.indexOf('\nfunction routeChatGPTNavigation', externalStart)
   const externalAuth = source.slice(externalStart, externalEnd)
-  assert.match(externalAuth, /partition: CHATGPT_PARTITION/)
-  assert.match(externalAuth, /loadURL\(CHATGPT_LOGIN_URL/)
+  assert.match(externalAuth, /launchManagedBrowserAuth/)
+  assert.match(externalAuth, /loginURL: CHATGPT_LOGIN_URL/)
+  assert.doesNotMatch(externalAuth, /new BrowserWindow/)
 })

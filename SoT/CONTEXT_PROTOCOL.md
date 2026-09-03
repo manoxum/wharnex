@@ -6,7 +6,8 @@ For every session Wharness creates:
 
 1. a ZIP snapshot of eligible project files for local audit/reproducibility;
 2. a manifest with paths, sizes, hashes, exclusions, and truncation metadata;
-3. a safe textual context export used by the V1 planner adapter.
+3. a safe textual context export used by the V1 planner adapter;
+4. a synthetic root `EXPORTS.md` containing export provenance plus safe Git status/worktree metadata for analysis.
 
 ## Why the AI adapter uses a text export
 
@@ -37,3 +38,14 @@ The backend exposes a read-only context inspection derived from the current mani
 The final-context explorer MUST treat `manifest.files` as the authoritative included-file list. It may search/filter/paginate that list for usability, but MUST NOT infer that a file is included merely because a parent directory is eligible. Excluded directories may represent an entire skipped subtree and therefore do not require enumerating every child that was never walked.
 
 Structured exclusion details are local audit/UI metadata and MUST be omitted from the planner prompt payload when the legacy compact exclusion summary already communicates the same decision, avoiding duplicate context cost.
+
+## Export provenance and Git state (v1.2.21)
+
+Every repository export produced by `make export` and every Wharness-managed context bundle MUST contain a generated root `EXPORTS.md`. The file is synthetic: context capture MUST NOT write or overwrite `EXPORTS.md` inside the managed project. If a project already owns that pathname, the generated export metadata is authoritative inside the archive.
+
+`EXPORTS.md` records the export schema/kind, project identity/root and safe local Git state required for offline reasoning: Git availability/repository detection, repository root, branch or detached state, HEAD, `git status --short --branch --untracked-files=all`, and `git worktree list --porcelain`. Git remote URLs, credentials and `.git` internals MUST NOT be exported. Git collection is local-only, bounded by timeout and best-effort: unavailable Git metadata must be represented as metadata/warnings rather than making ordinary context capture fail.
+
+For the Wharness repository itself, `make export` MUST additionally capture the current output of `scripts/status.sh` plus a bounded recent tail of `.harness/logs/desktop.log` inside `EXPORTS.md`. Raw `.harness` state/log directories remain excluded. Runtime collection is best-effort and secret-like values MUST be redacted before inclusion. Missing logs, unavailable services, or status-collection failures MUST be represented as diagnostics/warnings rather than failing the export. Host runtime diagnostics are specific to `make export` and MUST NOT be injected into context bundles for unrelated managed projects.
+
+Managed-context metadata is deterministic and participates in the context fingerprint. A branch/index/status/worktree change therefore invalidates context affinity even if eligible project file bytes alone would otherwise hash identically. Volatile wall-clock generation time and Wharness host-runtime diagnostics MUST NOT affect managed-context fingerprinting. `make export` MAY include its UTC generation timestamp because it is an archival artifact rather than a planner cache key.
+

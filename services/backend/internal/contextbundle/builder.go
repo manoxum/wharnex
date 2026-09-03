@@ -15,9 +15,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/exportmeta"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/projectconfig"
 )
@@ -82,6 +84,14 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 	patterns := LoadIgnorePatterns(root)
 	var bundleBytes, contextBytes int64
 	projectHash := sha256.New()
+	exportMetadata := exportmeta.Capture(root, "managed-context", time.Time{})
+	exportsData := exportMetadata.Markdown()
+	if int64(len(exportsData)) > b.maxBundleBytes {
+		return domain.ContextManifest{}, errors.New("EXPORTS.md exceeds context bundle limit")
+	}
+	if err := addContextFile(zw, textWriter, &manifest, projectHash, "EXPORTS.md", exportsData, 0o600, b.maxContextBytes, &bundleBytes, &contextBytes); err != nil {
+		return domain.ContextManifest{}, err
+	}
 
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -92,6 +102,9 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		if rel == "EXPORTS.md" && !entry.IsDir() {
+			return nil
+		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			addExcluded(&manifest, rel, "symlink", "symlink", "symlink")
 			return nil
@@ -134,40 +147,7 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 			addExcluded(&manifest, rel, "file", "binary content", "binary-content")
 			return nil
 		}
-		h := sha256.Sum256(data)
-		sha := hex.EncodeToString(h[:])
-		manifest.Files = append(manifest.Files, domain.ContextFile{Path: rel, Size: int64(len(data)), SHA256: sha})
-		_, _ = io.WriteString(projectHash, rel+":"+sha+"\n")
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-		header.Name = rel
-		header.Method = zip.Deflate
-		writer, err := zw.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-		if _, err := writer.Write(data); err != nil {
-			return err
-		}
-		bundleBytes += int64(len(data))
-
-		if looksText(data) && contextBytes < b.maxContextBytes {
-			prefix := []byte("\n===== FILE: " + rel + " =====\n")
-			remaining := b.maxContextBytes - contextBytes
-			chunk := append(prefix, data...)
-			if int64(len(chunk)) > remaining {
-				chunk = chunk[:remaining]
-				manifest.TextTruncated = true
-			}
-			if _, err := textWriter.Write(chunk); err != nil {
-				return err
-			}
-			contextBytes += int64(len(chunk))
-		}
-		return nil
+		return addContextFile(zw, textWriter, &manifest, projectHash, rel, data, info.Mode().Perm(), b.maxContextBytes, &bundleBytes, &contextBytes)
 	})
 	if err != nil {
 		return domain.ContextManifest{}, err
@@ -180,6 +160,39 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 	_, _ = textWriter.WriteString("\n\n===== KERNL CONTEXT MANIFEST =====\n")
 	_, _ = textWriter.Write(manifestJSON)
 	return manifest, nil
+}
+
+func addContextFile(zw *zip.Writer, textWriter *bufio.Writer, manifest *domain.ContextManifest, projectHash io.Writer, rel string, data []byte, mode fs.FileMode, maxContextBytes int64, bundleBytes, contextBytes *int64) error {
+	h := sha256.Sum256(data)
+	sha := hex.EncodeToString(h[:])
+	manifest.Files = append(manifest.Files, domain.ContextFile{Path: rel, Size: int64(len(data)), SHA256: sha})
+	_, _ = io.WriteString(projectHash, rel+":"+sha+"\n")
+
+	header := &zip.FileHeader{Name: rel, Method: zip.Deflate}
+	header.SetMode(mode)
+	writer, err := zw.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	*bundleBytes += int64(len(data))
+
+	if looksText(data) && *contextBytes < maxContextBytes {
+		prefix := []byte("\n===== FILE: " + rel + " =====\n")
+		remaining := maxContextBytes - *contextBytes
+		chunk := append(prefix, data...)
+		if int64(len(chunk)) > remaining {
+			chunk = chunk[:remaining]
+			manifest.TextTruncated = true
+		}
+		if _, err := textWriter.Write(chunk); err != nil {
+			return err
+		}
+		*contextBytes += int64(len(chunk))
+	}
+	return nil
 }
 
 func addExcluded(manifest *domain.ContextManifest, rel, kind, reason, rule string) {

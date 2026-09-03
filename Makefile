@@ -108,9 +108,11 @@ export:
 	@set -eu; \
 		tmp_dir=$$(mktemp -d); \
 		trap 'rm -rf "$$tmp_dir"' EXIT; \
+		cd "$(ROOT_DIR)/services/backend"; \
+		go run ./cmd/exportmeta -root "$(ROOT_DIR)" -kind make-export -output "$$tmp_dir/EXPORTS.md"; \
 		cd "$(ROOT_DIR)"; \
 		zip -q -y -r "$$tmp_dir/wharness.zip" . \
-			-x '.git/*' '.env' '.harness/*' \
+			-x '.git/*' '.env' '.harness/*' 'EXPORTS.md' \
 			'node_modules/*' '*/node_modules/*' 'dist/*' '*/dist/*' \
 			'build/*' '*/build/*' 'coverage/*' '*/coverage/*' \
 			'.next/*' '*/.next/*' '.vite/*' '*/.vite/*' \
@@ -120,10 +122,15 @@ export:
 			'*.pem' '*.key' '*.p12' '*.pfx' 'id_rsa' '*/id_rsa' 'id_ed25519' '*/id_ed25519' \
 			'credentials.json' '*/credentials.json' 'secrets/*' '*/secrets/*' \
 			'*.db' '*.sqlite' '*.sqlite3' '*.dump' '*.sql.gz'; \
+		(cd "$$tmp_dir" && zip -q "wharness.zip" EXPORTS.md); \
 		mv -f "$$tmp_dir/wharness.zip" "$(EXPORT_ARCHIVE)"; \
 		test -f "$(EXPORT_ARCHIVE)"; \
 		test -s "$(EXPORT_ARCHIVE)"; \
 		unzip -tqq "$(EXPORT_ARCHIVE)"; \
+		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Git status'; \
+		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Git worktrees'; \
+		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Wharness status'; \
+		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Wharness recent logs'; \
 		printf 'Project exported to %s\n' "$(EXPORT_ARCHIVE)"
 
 export-check:
@@ -133,6 +140,11 @@ export-check:
 		$(MAKE) --no-print-directory export EXPORT_ARCHIVE="$$tmp_dir/wharness.zip"; \
 		test -s "$$tmp_dir/wharness.zip"; \
 		unzip -tqq "$$tmp_dir/wharness.zip"; \
+		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq 'Schema: `wharness.exports/v1`'; \
+		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Git status'; \
+		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Git worktrees'; \
+		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Wharness status'; \
+		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Wharness recent logs'; \
 		mkdir "$$tmp_dir/not-an-archive"; \
 		if $(MAKE) --no-print-directory export EXPORT_ARCHIVE="$$tmp_dir/not-an-archive" >/dev/null 2>&1; then \
 			echo 'export unexpectedly accepted a directory as its archive path' >&2; \
