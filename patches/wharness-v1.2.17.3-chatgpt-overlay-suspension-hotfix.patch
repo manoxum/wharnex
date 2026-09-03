@@ -1,0 +1,26 @@
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,10 @@
+ # Changelog
+ 
++## Unreleased — v1.2.17.3 ChatGPT overlay suspension hotfix
++
++- Removes the unconditional native ChatGPT `show()` performed during pane bootstrap. Visibility is now controlled only by the dedicated `suspended`/chat effect, so a trusted Wharness modal cannot race with an initial WebContentsView show.
++- Restores the overlay regression test expectation: mounting `ChatGPTDesktopPane` already suspended must call `hide()` without any preceding `show()`, then show exactly when suspension is lifted.
++
+ ## Unreleased — v1.2.17.2 project recovery + IDE Explorer + terminal policy
+ 
+ - Restored sessions self-heal a missing `whaness.yml` through the same validated default creation path used by newly opened projects; the settings dialog now exposes a retryable error state instead of remaining forever on “A carregar configuração…”.
+--- a/services/frontend/src/components/ChatGPTDesktopPane.tsx
++++ b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+@@ -45,7 +45,9 @@
+     const observer = new ResizeObserver(sync)
+     observer.observe(hostRef.current)
+     window.addEventListener('resize', sync)
+-    void bridge.chatgpt.show(elementBounds(hostRef.current), chatId)
++    // Visibility is owned exclusively by the suspended/chatId effect below.
++    // Showing here races a trusted overlay on mount (show -> hide) and can
++    // paint the native WebContentsView above the Wharness modal.
+     void bridge.chatgpt.state().then(setState)
+     const unsubscribe = bridge.chatgpt.onState((next) => {
+       setState(next)

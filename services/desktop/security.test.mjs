@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeAttachmentFilename, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeAttachmentFilename, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 
 test('session ids are strictly allowlisted', () => {
   assert.equal(sanitizeSessionId('ses_20260902_abc-123'), 'ses_20260902_abc-123')
@@ -30,6 +30,7 @@ test('Linux ozone selection prefers X11 when XWayland is available', () => {
 
 
 test('external OAuth providers are identified for system-browser routing', () => {
+  assert.equal(externalAuthProvider('https://auth.openai.com/log-in'), 'OpenAI')
   assert.equal(externalAuthProvider('https://accounts.google.com/o/oauth2/v2/auth'), 'Google')
   assert.equal(externalAuthProvider('https://login.microsoftonline.com/common/oauth2/v2.0/authorize'), 'Microsoft')
   assert.equal(externalAuthProvider('https://appleid.apple.com/auth/authorize'), 'Apple')
@@ -37,6 +38,16 @@ test('external OAuth providers are identified for system-browser routing', () =>
   assert.equal(externalAuthProvider('javascript:alert(1)'), '')
 })
 
+
+
+
+test('ChatGPT navigation routes auth and external HTTPS away from the embedded view', () => {
+  assert.deepEqual(chatGPTNavigationDisposition('https://chatgpt.com/auth/login'), { kind: 'trusted', provider: '' })
+  assert.deepEqual(chatGPTNavigationDisposition('https://auth.openai.com/log-in'), { kind: 'external-auth', provider: 'OpenAI' })
+  assert.deepEqual(chatGPTNavigationDisposition('https://accounts.google.com/o/oauth2/v2/auth'), { kind: 'external-auth', provider: 'Google' })
+  assert.deepEqual(chatGPTNavigationDisposition('https://example.com/docs'), { kind: 'external', provider: '' })
+  assert.deepEqual(chatGPTNavigationDisposition('javascript:alert(1)'), { kind: 'deny', provider: '' })
+})
 
 test('ChatGPT compatibility user agent exposes Chrome without Electron token', () => {
   const ua = chromeCompatibleUserAgent('linux', '152.0.7977.65')
@@ -121,4 +132,18 @@ test('Wharness execution bundle filenames are strict and ZIP bytes are checked',
   assert.equal(validateWharnessBundleDownload(name, Uint8Array.from([0x50, 0x4b, 0x03, 0x04])).requestId, 'req_20260903T005500_abcdef1234567890')
   assert.throws(() => validateWharnessBundleDownload(name, Uint8Array.from([1, 2, 3, 4])))
   assert.equal(wharnessBundleRequestIdFromFilename('bundle.zip'), '')
+})
+
+
+test('generic ChatGPT ZIP names normalize only against the active expected request', () => {
+  const requestId = 'req_20260903T112307_7f79e5fe040d3e2d'
+  assert.deepEqual(canonicalWharnessBundleDownload('Baixar o bundle Wharness.zip', requestId, 'application/zip'), {
+    requestId,
+    filename: `wharness-bundle-${requestId}.zip`,
+    normalized: true,
+    sourceFilename: 'Baixar o bundle Wharness.zip',
+  })
+  assert.equal(canonicalWharnessBundleDownload('notes.pdf', requestId, 'application/pdf'), undefined)
+  assert.throws(() => canonicalWharnessBundleDownload('wharness-bundle-req_20260903T112307_otherrequest.zip', requestId, 'application/zip'), /pedido ativo/)
+  assert.throws(() => canonicalWharnessBundleDownload('wharness-bundle-wrong.zip', requestId, 'application/zip'), /não pode ser normalizado/)
 })

@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.2.17.5.3 — ChatGPT composer reference hotfix
+
+- Confirm `preparePromptForChatGPT` uses the background `targetChatGPTComposer` helper after the transport refactor removed `focusChatGPTComposer`.
+- Add a Desktop regression test that prevents the stale helper reference from returning in the prepare-prompt path.
+- No production source rewrite is required in snapshots where the helper call is already corrected; rebuild/restart is sufficient to load the fixed Desktop process.
+
+## v1.2.17.5.2 — Background repair transport build hotfix
+
+- Remove the stale `setChatgptFocusNonce` call from automatic repair submission after the focus-nonce state was intentionally removed by v1.2.17.5.
+- Keep repair prompt delivery on the background ChatGPT bridge without switching the visible Inspector tab or requesting remote WebContents focus.
+- Restore the frontend TypeScript/Vite build after the background-transport refactor.
+- Make `npm run typecheck` use TypeScript project-reference build mode so it checks `tsconfig.app.json`/`src` instead of succeeding against the empty root `tsconfig.json`.
+
+## v1.2.17.5.1 — Frontend test isolation hotfix
+
+- Explicitly clean up `ChatGPTDesktopPane` test renders between Vitest cases so prior DOM/native-view effects cannot leak into the next assertion.
+- Scope the canonical bundle filename assertion to the download step instead of querying the whole document, where the same filename is intentionally repeated in fallback guidance.
+- Prevent the failed assertion path from leaving React work scheduled past jsdom teardown and emitting a misleading `window is not defined` unhandled error.
+
+## v1.2.17.5 — Bundle contract hardening and background ChatGPT transport
+
+- Harden manual planner output to one exact `wharness-bundle-<request_id>.zip` attachment with root-layout/self-check rules and no visible prose.
+- Bind Desktop downloads to the pending request so generic ChatGPT ZIP names are safely normalized to the canonical filename while mismatched Wharness request ids remain rejected.
+- Add narrow non-executable bundle compatibility normalization for one wrapper folder, missing README documentation, and root-level referenced patch files.
+- Stop automatic prompt/upload/submit transport from switching the Inspector to ChatGPT or explicitly focusing the remote WebContents.
+
+## Unreleased — v1.2.17.3 ChatGPT overlay suspension hotfix
+
+- Removes the unconditional native ChatGPT `show()` performed during pane bootstrap. Visibility is now controlled only by the dedicated `suspended`/chat effect, so a trusted Wharness modal cannot race with an initial WebContentsView show.
+- Restores the overlay regression test expectation: mounting `ChatGPTDesktopPane` already suspended must call `hide()` without any preceding `show()`, then show exactly when suspension is lifted.
+
+## Unreleased — v1.2.17.2 project recovery + IDE Explorer + terminal policy
+
+- Restored sessions self-heal a missing `whaness.yml` through the same validated default creation path used by newly opened projects; the settings dialog now exposes a retryable error state instead of remaining forever on “A carregar configuração…”.
+- Project settings temporarily suspend the native ChatGPT `WebContentsView`, preventing remote content from painting above the Wharness modal.
+- The Editor Explorer is now dark and IDE-oriented, with create file/folder, rename, recursive delete confirmation, path search/filter, refresh, collapse-all, copy path, context menu, F2/Delete shortcuts, active-file reveal, and file/folder counts.
+- Explorer create/rename/delete operations are backend-enforced host mutations with project-root containment, excluded/secret path denial, symlink denial, and corresponding sandbox-copy mirroring when a devspace exists.
+- The human interactive terminal now uses a dedicated Policy Engine profile instead of model-plan policy, allowing normal project-development argv commands while continuing to block shells, privilege escalation, container/host administration and inline-code evaluator flags. The UI adds command history (Up/Down) and Ctrl+L clear.
+- CORS now advertises PATCH so Explorer rename works from the Vite renderer to the local backend.
+- DOMPurify is pinned/overridden to 3.4.14 to remove the direct dependency audit finding exposed by 3.4.8; Monaco remains 0.56.0 until upstream publishes a newer stable release.
+
 ## Unreleased — Monaco 0.56 Vite worker export-map hotfix
 
 - Uses Monaco 0.56 public package-export worker specifiers (`monaco-editor/editor/...` and `monaco-editor/language/...`) instead of legacy `monaco-editor/esm/vs/...` deep imports.
@@ -227,3 +268,18 @@
 - O aviso “Está a visualizar outra conversa” só aparece depois da navegação estabilizar e apenas quando os IDs de conversa realmente diferem.
 - Reforça o planner manual para criar um ficheiro real `wharness-plan-<request_id>.json` com a ferramenta de geração de ficheiros/Python e proíbe fallback inline.
 - O importador manual passa a reparar também patches unified diff que começam diretamente em `--- a/...`, além de `diff --git`.
+
+## v1.2.17 — Project Explorer bootstrap + smart context (2026-09-03)
+
+### Added
+- Native Desktop folder explorer for opening projects and selecting create/clone destinations.
+- New-project creation with automatic Git initialization.
+- Git clone bootstrap using `--recurse-submodules`, including nested submodules.
+- Per-project `whaness.yml`, created automatically whenever missing.
+- Workspace project-settings dialog for context auto-pruning, include/exclude patterns, and per-file size limits.
+- Context recognition for IDE metadata, dependency caches, generated build/test output, temp files, binary/archive/media assets, and generated Wharness context snapshots.
+
+### Security
+- Folder selection is a sender-checked trusted-renderer IPC unavailable to remote ChatGPT content.
+- Project context settings can narrow context but cannot override mandatory secret, symlink, VCS, or protected-path exclusions.
+- Clone rejects option-like/unsafe destinations, never overwrites an existing directory, suppresses interactive credential prompts, and redacts the supplied repository string from Git errors.

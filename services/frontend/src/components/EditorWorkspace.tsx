@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from '../lib/api'
 import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
@@ -6,6 +6,7 @@ import type { FileEntry, Session, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
 import { InteractiveTerminal } from './InteractiveTerminal'
+import { WorkspaceExplorer } from './WorkspaceExplorer'
 
 type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
@@ -19,6 +20,7 @@ export function EditorWorkspace({ session, onError }: { session: Session; onErro
   const [savingPath, setSavingPath] = useState<string>()
   const [terminalHeight, setTerminalHeight] = useState(245)
   const [cursor, setCursor] = useState<Cursor>({ line: 1, column: 1 })
+  const [revealNonce, setRevealNonce] = useState(0)
   const selected = documents.find((item) => item.path === activePath)
   const dirtyCount = documents.filter((item) => item.draft !== item.content).length
 
@@ -74,6 +76,41 @@ export function EditorWorkspace({ session, onError }: { session: Session; onErro
     setDocuments((items) => items.map((item) => item.path === activePath ? { ...item, draft: value } : item))
   }
 
+
+  async function createWorkspacePath(path: string, kind: 'file' | 'directory') {
+    try {
+      await api.createWorkspacePath(session.id, path, kind)
+      await refreshFiles()
+    } catch (error) { onError(messageOf(error)); throw error }
+  }
+
+  async function renameWorkspacePath(from: string, to: string) {
+    const dirtyAffected = documents.filter((item) => (item.path === from || item.path.startsWith(`${from}/`)) && item.draft !== item.content)
+    if (dirtyAffected.length && !window.confirm(`Renomear “${from}” com ${dirtyAffected.length} ficheiro(s) aberto(s) com alterações não guardadas?\n\nOs rascunhos serão preservados nas tabs com o novo caminho.`)) throw new Error('rename cancelled')
+    try {
+      await api.renameWorkspacePath(session.id, from, to)
+      const affected = documents.filter((item) => item.path === from || item.path.startsWith(`${from}/`))
+      for (const document of affected) disposeEditorModel(document.path)
+      const rename = (path: string) => path === from ? to : path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : path
+      setDocuments((items) => items.map((item) => ({ ...item, path: rename(item.path) })))
+      setActivePath((current) => current ? rename(current) : current)
+      await refreshFiles()
+    } catch (error) { onError(messageOf(error)); throw error }
+  }
+
+  async function deleteWorkspacePath(path: string) {
+    const dirtyAffected = documents.filter((item) => (item.path === path || item.path.startsWith(`${path}/`)) && item.draft !== item.content)
+    if (dirtyAffected.length && !window.confirm(`Existem ${dirtyAffected.length} ficheiro(s) com alterações não guardadas dentro de “${path}”.\n\nEliminar mesmo assim e descartar esses rascunhos?`)) throw new Error('delete cancelled')
+    try {
+      await api.deleteWorkspacePath(session.id, path)
+      const removed = documents.filter((item) => item.path === path || item.path.startsWith(`${path}/`))
+      for (const document of removed) disposeEditorModel(document.path)
+      setDocuments((items) => items.filter((item) => item.path !== path && !item.path.startsWith(`${path}/`)))
+      setActivePath((current) => current && (current === path || current.startsWith(`${path}/`)) ? undefined : current)
+      await refreshFiles()
+    } catch (error) { onError(messageOf(error)); throw error }
+  }
+
   function closeDocument(path: string) {
     const document = documents.find((item) => item.path === path)
     if (!document) return
@@ -86,14 +123,14 @@ export function EditorWorkspace({ session, onError }: { session: Session; onErro
   }
 
   return <section className="editor-workspace">
-    <FileExplorer entries={files} selected={selected?.path} loading={loadingFiles} onOpen={openFile} onRefresh={refreshFiles} />
+    <WorkspaceExplorer entries={files} activePath={selected?.path} loading={loadingFiles} revealNonce={revealNonce} onOpen={openFile} onRefresh={refreshFiles} onCreate={createWorkspacePath} onRename={renameWorkspacePath} onDelete={deleteWorkspacePath} />
     <div className="editor-main">
       <div className="editor-area">
         {documents.length > 0 && <EditorTabs documents={documents} activePath={activePath} savingPath={savingPath} onSelect={setActivePath} onClose={closeDocument} onSave={save} />}
         {selected ? <>
           <div className="editor-contextbar">
             <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
-            <div className="editor-shortcuts"><span>Ctrl+F localizar</span><span>Ctrl+G linha</span><span>F1 comandos</span><span>Alt+Z wrap</span></div>
+            <div className="editor-shortcuts"><button title="Localizar este ficheiro no Explorer" onClick={() => setRevealNonce((value) => value + 1)}><Icon name="locate" size={12}/> Explorer</button><span>Ctrl+F localizar</span><span>Ctrl+G linha</span><span>F1 comandos</span><span>Alt+Z wrap</span></div>
           </div>
           <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} />
           <div className="editor-statusbar">
@@ -125,59 +162,5 @@ function EditorTabs({ documents, activePath, savingPath, onSelect, onClose, onSa
   </div>
 }
 
-type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
-
-function FileExplorer({ entries, selected, loading, onOpen, onRefresh }: { entries: FileEntry[]; selected?: string; loading: boolean; onOpen: (path: string) => void; onRefresh: () => Promise<void> }) {
-  const [query, setQuery] = useState('')
-  const tree = useMemo(() => buildTree(query.trim() ? entries.filter((item) => item.kind === 'directory' || item.path.toLowerCase().includes(query.trim().toLowerCase())) : entries), [entries, query])
-  return <aside className="file-explorer">
-    <header><div><span className="panel-kicker">Workspace</span><strong>Explorer</strong></div><button className="icon-button" title="Atualizar ficheiros" onClick={() => void onRefresh()} disabled={loading}><Icon name="refresh" size={15}/></button></header>
-    <div className="explorer-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar ficheiros…" aria-label="Filtrar ficheiros" /></div>
-    <div className="file-tree">{tree.map((node) => <TreeItem key={node.path} node={node} selected={selected} onOpen={onOpen} depth={0}/>)}</div>
-  </aside>
-}
-
-function TreeItem({ node, selected, onOpen, depth }: { node: TreeNode; selected?: string; onOpen: (path: string) => void; depth: number }) {
-  const [open, setOpen] = useState(depth < 1)
-  if (node.kind === 'directory') return <div className="tree-group">
-    <button className="tree-row folder-row" style={{ paddingLeft: 10 + depth * 14 }} onClick={() => setOpen((value) => !value)}><span className={`tree-chevron ${open ? 'open' : ''}`}><Icon name="chevron" size={12}/></span><Icon name="folder" size={14}/><span>{node.name}</span></button>
-    {open && node.children.map((child) => <TreeItem key={child.path} node={child} selected={selected} onOpen={onOpen} depth={depth + 1}/>) }
-  </div>
-  return <button className={`tree-row file-row ${selected === node.path ? 'active' : ''}`} style={{ paddingLeft: 25 + depth * 14 }} onClick={() => onOpen(node.path)}><Icon name="file" size={13}/><span>{node.name}</span></button>
-}
-
-function buildTree(entries: FileEntry[]): TreeNode[] {
-  const root: TreeNode = { name: '', path: '', kind: 'directory', children: [] }
-  const directories = new Map<string, TreeNode>([['', root]])
-  for (const entry of entries.filter((item) => item.kind === 'directory').sort((a, b) => a.path.localeCompare(b.path))) ensureDir(root, directories, entry.path)
-  for (const entry of entries.filter((item) => item.kind === 'file').sort((a, b) => a.path.localeCompare(b.path))) {
-    const parts = entry.path.split('/'); const name = parts.pop() || entry.name; const parentPath = parts.join('/')
-    ensureDir(root, directories, parentPath).children.push({ name, path: entry.path, kind: 'file', children: [] })
-  }
-  pruneEmptyDirectories(root)
-  sortTree(root)
-  return root.children
-}
-
-function ensureDir(root: TreeNode, map: Map<string, TreeNode>, path: string) {
-  if (map.has(path)) return map.get(path)!
-  let current = root; let built = ''
-  for (const part of path.split('/').filter(Boolean)) {
-    built = built ? `${built}/${part}` : part
-    let child = map.get(built)
-    if (!child) { child = { name: part, path: built, kind: 'directory', children: [] }; current.children.push(child); map.set(built, child) }
-    current = child
-  }
-  return current
-}
-
-function pruneEmptyDirectories(node: TreeNode) {
-  node.children = node.children.filter((child) => child.kind === 'file' || (pruneEmptyDirectories(child), child.children.length > 0))
-}
-
-function sortTree(node: TreeNode) {
-  node.children.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1)
-  node.children.forEach(sortTree)
-}
 
 function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }

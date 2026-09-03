@@ -1,10 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTComposerClick, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
 
 const conversationURL = 'https://chatgpt.com/backend-api/f/conversation/prepare'
 
-test('ChatGPT submit uses a layout-independent native Enter key', () => {
+test('ChatGPT submit uses a layout-independent native Enter key without stealing WebContents focus', () => {
   const events = []
   let focused = 0
   const webContents = {
@@ -14,7 +14,7 @@ test('ChatGPT submit uses a layout-independent native Enter key', () => {
 
   const result = dispatchChatGPTSubmit(webContents)
 
-  assert.equal(focused, 1)
+  assert.equal(focused, 0)
   assert.deepEqual(result, { method: 'native-enter' })
   assert.deepEqual(events, [
     { type: 'keyDown', keyCode: 'Enter' },
@@ -90,4 +90,21 @@ test('automatic submit still reports a confirmed observed request when available
 
   assert.equal(submitCount, 1)
   assert.deepEqual(result, { accepted: true, requestId: '123' })
+})
+
+
+test('ChatGPT composer targeting does not call WebContents focus or move the OS pointer', () => {
+  const events = []
+  let focused = 0
+  const webContents = {
+    focus() { focused += 1 },
+    sendInputEvent(event) { events.push(event) },
+  }
+  const point = dispatchChatGPTComposerClick(webContents, { x: 320.9, y: 640.2 })
+  assert.equal(focused, 0)
+  assert.deepEqual(point, { x: 320, y: 640 })
+  assert.deepEqual(events, [
+    { type: 'mouseDown', x: 320, y: 640, button: 'left', clickCount: 1 },
+    { type: 'mouseUp', x: 320, y: 640, button: 'left', clickCount: 1 },
+  ])
 })

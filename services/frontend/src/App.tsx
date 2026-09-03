@@ -6,6 +6,7 @@ import { ChatPanel } from './components/ChatPanel'
 import { Inspector } from './components/Inspector'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+import { ProjectSettings } from './components/ProjectSettings'
 import {
   clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadAutomationMode, loadChat, loadExecutionMode, loadLegacyChat,
   loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
@@ -30,8 +31,8 @@ export default function App() {
   const [restoring, setRestoring] = useState(Boolean(activeAtLoad))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  const [chatgptFocusNonce, setChatgptFocusNonce] = useState(0)
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const sourceRef = useRef<EventSource | null>(null)
 
   const connectEvents = useCallback((id: string) => {
@@ -162,9 +163,25 @@ export default function App() {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
   }
 
+  async function createProject(parentPath: string, name: string) {
+    setBusy(true); setError(undefined)
+    try {
+      const created = await api.createProject(parentPath, name)
+      await start(created.project_path)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function cloneProject(repositoryURL: string, parentPath: string, directory: string) {
+    setBusy(true); setError(undefined)
+    try {
+      const cloned = await api.cloneProject(repositoryURL, parentPath, directory)
+      await start(cloned.project_path)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
   function closeWorkspace() {
     sourceRef.current?.close(); sourceRef.current = null
-    clearActiveWorkspace(); setSession(undefined); setChats([]); setActiveChatId('')
+    clearActiveWorkspace(); setSession(undefined); setChats([]); setActiveChatId(''); setProjectSettingsOpen(false)
     setEvents([]); setManualPrompt(''); setItems([]); setPreparedDrafts({}); setError(undefined); setRecent(loadRecentWorkspaces())
   }
 
@@ -308,12 +325,11 @@ export default function App() {
       let autoSubmitted = false
       let transportFailure = ''
       if (prompt && activeChat && isDesktop()) {
-        setChatgptFocusNonce((value) => value + 1)
         try {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 240))
           const bridge = desktopBridge()
           if (!bridge) throw new Error('Desktop bridge indisponível')
-          const prepared = await bridge.chatgpt.preparePrompt({ cacheKey: activeChat.id, text: prompt, url: activeChat.chatgptUrl, sessionId: response.session.id, attachments: encoded, autoSubmit: automationMode === 'auto' })
+          const prepared = await bridge.chatgpt.preparePrompt({ cacheKey: activeChat.id, text: prompt, url: activeChat.chatgptUrl, sessionId: response.session.id, requestId: response.session.last_request_id || '', attachments: encoded, autoSubmit: automationMode === 'auto' })
           draftCount = prepared.attachmentCount
           autoSubmitted = prepared.submitted
           if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [activeChat.id]: prepared.attachmentCount }))
@@ -516,12 +532,11 @@ export default function App() {
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
     }])
     if (!isDesktop()) return
-    setChatgptFocusNonce((value) => value + 1)
     try {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
-      await bridge.chatgpt.submitPrompt({ cacheKey: targetChat.id, text: repairPrompt, url: targetChat.chatgptUrl })
+      await bridge.chatgpt.submitPrompt({ cacheKey: targetChat.id, text: repairPrompt, url: targetChat.chatgptUrl, requestId: failedSession.last_request_id || '' })
       setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: 'Requisição de reparação enviada automaticamente ao ChatGPT. Aguardando o novo bundle ZIP.', meta: 'ChatGPT acionado automaticamente' }])
     } catch (sendError) {
       setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', text: `A requisição de reparação foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT e envie o prompt preparado' }])
@@ -580,16 +595,17 @@ export default function App() {
     try { setSession(await api.getSession(session.id)) } catch { /* retain last known state */ }
   }
 
-  if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} />
+  if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const activeChat = chats.find((chat) => chat.id === activeChatId)
   return <main className="workspace-root">
-    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onClose={closeWorkspace} />
+    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
+    {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
     {error && <div className="toast-error" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
     {mode === 'editor'
       ? <EditorWorkspace session={session} onError={setError} />
       : <div className="agent-workspace">
           <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} onSend={send} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
-          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptFocusNonce={chatgptFocusNonce} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
+          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
         </div>}
   </main>
 }

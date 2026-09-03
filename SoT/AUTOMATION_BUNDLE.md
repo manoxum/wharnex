@@ -23,6 +23,8 @@ Primary manual Desktop delivery is:
 
 `wharness-bundle-<request_id>.zip`
 
+The planner prompt MUST state the exact canonical filename, require a file-only visible response, prohibit localized/generic/UUID bundle names, require the ZIP root layout, and require the model to self-check the archive before attaching it. The Desktop records the expected request id when a draft is submitted. If ChatGPT nevertheless downloads a generic ZIP name while exactly that request is pending in the active chat, the Desktop MAY rename the transport file to the canonical filename before backend submission. A different valid Wharness request id is never rewritten.
+
 Every new bundle contains `turn.json` using `harness.turn/v1` plus a non-empty `README.md`. Non-change turns omit `plan.json` and patches. A `change` turn additionally contains the execution files below. Legacy bundles without `turn.json` remain compatible and are interpreted as `change`.
 
 Required entries for `change`:
@@ -42,9 +44,13 @@ Before plan validation/policy:
 - normalized directory entries such as `patches/` are allowed but ignored as content;
 - symlinks are forbidden;
 - compressed/download and expanded-size limits apply;
-- `README.md` must be present and non-empty;
+- `README.md` should be present and non-empty. For consumer-web compatibility only, if it is missing/blank but a valid structured `turn.json` or legacy `plan.json` contains user-facing text, Wharness MAY synthesize documentation from that already-validated text; this never invents executable semantics;
 - every `patch_file` must resolve to an existing `patches/*.patch` entry;
 - a patch operation cannot specify both non-empty inline `patch` and `patch_file`;
 - the resolved execution plan still passes the normal protocol validator and Policy Engine.
 
 Clipboard/raw JSON remains a legacy fallback only.
+
+### Narrow consumer-web bundle normalization
+
+Before executable validation, the parser MAY normalize only transport/layout mistakes that do not invent execution semantics: remove one common top-level wrapper directory, synthesize missing README documentation from an already valid structured turn/plan message, and canonicalize a root-level `.patch` referenced by an otherwise safe patch basename to `patches/<name>.patch`. Missing `plan.json`, missing executable patches, request-id mismatches, unsafe paths, malformed JSON, or policy violations remain hard failures.

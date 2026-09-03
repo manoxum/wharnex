@@ -54,13 +54,57 @@ export type ExecutionResult = {
   warnings?: string[]
 }
 
+export type ContextExclusion = { path: string; kind: string; reason: string; rule: string }
+
 export type ContextManifest = {
   id: string
   project_root: string
   sha256: string
   files: Array<{ path: string; size: number; sha256: string }>
   excluded: string[]
+  excluded_details?: ContextExclusion[]
   text_truncated: boolean
+}
+
+export type ContextRule = {
+  id: string
+  source: string
+  label: string
+  enabled: boolean
+  patterns: string[]
+  description: string
+}
+
+export type ContextInventoryEntry = {
+  path: string
+  kind: string
+  status: 'included' | 'excluded' | string
+  size?: number
+  reason?: string
+  rule?: string
+}
+
+export type ContextRootEntry = {
+  path: string
+  name: string
+  kind: 'file' | 'directory' | string
+  status: 'included' | 'excluded' | 'partial' | 'not-in-snapshot' | string
+  included_files: number
+  excluded_items: number
+  included_bytes: number
+  reason?: string
+}
+
+export type ContextInspection = {
+  snapshot_id: string
+  sha256: string
+  project_root: string
+  included_files: number
+  excluded_items: number
+  included_bytes: number
+  roots: ContextRootEntry[]
+  entries: ContextInventoryEntry[]
+  rules: ContextRule[]
 }
 
 export type ExecutionMode = 'protected' | 'unprotected'
@@ -125,6 +169,24 @@ export type WorkspaceFile = {
   content: string
   sha256: string
   size: number
+}
+
+
+export type ProjectConfig = {
+  version: number
+  project: { name: string }
+  context: {
+    auto_exclude: boolean
+    max_file_bytes: number
+    include: string[]
+    exclude: string[]
+  }
+}
+
+export type ProjectProvision = {
+  project_path: string
+  config_file: string
+  submodules?: string
 }
 
 export type WorkspaceMode = 'editor' | 'agent'

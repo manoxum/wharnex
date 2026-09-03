@@ -98,10 +98,21 @@ export function requireTrustedChatGPTURL(value) {
 export function externalAuthProvider(value) {
   let host
   try { host = new URL(String(value)).hostname.toLowerCase() } catch { return '' }
+  if (host === 'auth.openai.com' || host.endsWith('.auth.openai.com')) return 'OpenAI'
   if (host === 'accounts.google.com' || host.endsWith('.accounts.google.com')) return 'Google'
   if (host === 'login.microsoftonline.com' || host.endsWith('.login.microsoftonline.com') || host === 'login.live.com') return 'Microsoft'
   if (host === 'appleid.apple.com') return 'Apple'
   return ''
+}
+
+export function chatGPTNavigationDisposition(value) {
+  let url
+  try { url = new URL(String(value)) } catch { return { kind: 'deny', provider: '' } }
+  if (url.protocol !== 'https:') return { kind: 'deny', provider: '' }
+  const provider = externalAuthProvider(url.href)
+  if (provider) return { kind: 'external-auth', provider }
+  if (isTrustedChatGPTOrigin(url.href)) return { kind: 'trusted', provider: '' }
+  return { kind: 'external', provider: '' }
 }
 
 
@@ -109,6 +120,28 @@ export function wharnessBundleRequestIdFromFilename(value) {
   const name = String(value || '')
   const match = /^wharness-bundle-(req_[A-Za-z0-9_-]{8,180})\.zip$/.exec(name)
   return match ? match[1] : ''
+}
+
+
+export function canonicalWharnessBundleDownload(value, expectedRequestId = '', mimeType = '') {
+  const filename = String(value || '').trim()
+  const strictRequestId = wharnessBundleRequestIdFromFilename(filename)
+  if (strictRequestId) {
+    if (expectedRequestId && strictRequestId !== expectedRequestId) {
+      throw new Error(`Bundle pertence ao pedido ${strictRequestId}, mas o pedido ativo é ${expectedRequestId}.`)
+    }
+    return { requestId: strictRequestId, filename, normalized: false }
+  }
+
+  const expected = String(expectedRequestId || '').trim()
+  if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(expected)) return undefined
+  if (/^wharness-bundle-/i.test(filename)) {
+    throw new Error('Nome do bundle Wharness contém um request_id inválido e não pode ser normalizado.')
+  }
+  const mime = String(mimeType || '').toLowerCase()
+  const zipLike = /\.zip$/i.test(filename) || mime === 'application/zip' || mime === 'application/x-zip-compressed'
+  if (!zipLike) return undefined
+  return { requestId: expected, filename: `wharness-bundle-${expected}.zip`, normalized: true, sourceFilename: filename }
 }
 
 export function validateWharnessBundleDownload(filename, bytes) {

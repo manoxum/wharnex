@@ -15,6 +15,7 @@ import (
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/config"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
 )
 
@@ -30,6 +31,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
+	mux.HandleFunc("POST /api/projects/create", a.createProject)
+	mux.HandleFunc("POST /api/projects/clone", a.cloneProject)
 	mux.HandleFunc("POST /api/sessions", a.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", a.getSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
@@ -43,8 +46,14 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
+	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
+	mux.HandleFunc("GET /api/sessions/{id}/project-config", a.projectConfig)
+	mux.HandleFunc("PUT /api/sessions/{id}/project-config", a.updateProjectConfig)
 	mux.HandleFunc("GET /api/sessions/{id}/files", a.files)
+	mux.HandleFunc("POST /api/sessions/{id}/files", a.createWorkspacePath)
+	mux.HandleFunc("PATCH /api/sessions/{id}/files", a.renameWorkspacePath)
+	mux.HandleFunc("DELETE /api/sessions/{id}/files", a.deleteWorkspacePath)
 	mux.HandleFunc("GET /api/sessions/{id}/file", a.readFile)
 	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", a.terminal)
@@ -57,6 +66,39 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false})
+}
+
+func (a *API) createProject(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ParentPath string `json:"parent_path"`
+		Name       string `json:"name"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	root, err := a.service.CreateProject(r.Context(), body.ParentPath, body.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "project_create_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"project_path": root, "config_file": projectconfig.FileName})
+}
+
+func (a *API) cloneProject(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RepositoryURL string `json:"repository_url"`
+		ParentPath    string `json:"parent_path"`
+		Directory     string `json:"directory"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	root, err := a.service.CloneProject(r.Context(), body.RepositoryURL, body.ParentPath, body.Directory)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "project_clone_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"project_path": root, "config_file": projectconfig.FileName, "submodules": "recursive"})
 }
 
 func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +302,28 @@ func (a *API) refreshContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) projectConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := a.service.ProjectConfig(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "project_config_read_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (a *API) updateProjectConfig(w http.ResponseWriter, r *http.Request) {
+	var cfg projectconfig.Config
+	if !decodeJSON(w, r, &cfg) {
+		return
+	}
+	stored, item, err := a.service.UpdateProjectConfig(r.PathValue("id"), cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "project_config_write_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"config": stored, "session": item})
+}
+
 func (a *API) files(w http.ResponseWriter, r *http.Request) {
 	entries, err := a.service.ListFiles(r.PathValue("id"))
 	if err != nil {
@@ -267,6 +331,46 @@ func (a *API) files(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"files": entries})
+}
+
+func (a *API) createWorkspacePath(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+		Kind string `json:"kind"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	file, err := a.service.CreateWorkspacePath(r.PathValue("id"), body.Path, body.Kind)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "workspace_create_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"status": "created", "file": file})
+}
+
+func (a *API) renameWorkspacePath(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := a.service.RenameWorkspacePath(r.PathValue("id"), body.From, body.To); err != nil {
+		writeError(w, http.StatusBadRequest, "workspace_rename_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "renamed", "path": body.To})
+}
+
+func (a *API) deleteWorkspacePath(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if err := a.service.DeleteWorkspacePath(r.PathValue("id"), path); err != nil {
+		writeError(w, http.StatusBadRequest, "workspace_delete_failed", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) readFile(w http.ResponseWriter, r *http.Request) {
@@ -337,6 +441,15 @@ func (a *API) bundle(w http.ResponseWriter, r *http.Request) {
 	}
 	serveDownload(w, r, item.Context.ZipPath, "wharness-context-"+item.ID+".zip", "application/zip")
 }
+func (a *API) contextInspection(w http.ResponseWriter, r *http.Request) {
+	inspection, err := a.service.ContextInspection(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "context_inspection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
+}
+
 func (a *API) contextFile(w http.ResponseWriter, r *http.Request) {
 	item, err := a.store.Get(r.PathValue("id"))
 	if err != nil {
@@ -385,7 +498,7 @@ func cors(next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

@@ -18,6 +18,7 @@ import (
 	"kernl.local/harness/backend/internal/planner"
 	manualplanner "kernl.local/harness/backend/internal/planner/manual"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/sandbox"
 	"kernl.local/harness/backend/internal/session"
 )
@@ -269,6 +270,45 @@ func TestRunTerminalDeniesShell(t *testing.T) {
 	_, err = service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetSandbox, domain.CommandSpec{Argv: []string{"bash", "-c", "echo unsafe"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
 	if err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("expected policy denial, got %v", err)
+	}
+}
+
+func TestProjectConfigRepairsMissingFileForRestoredSession(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
+	s, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, projectconfig.FileName)
+	if err := os.Remove(configPath); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := service.ProjectConfig(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Version != projectconfig.CurrentVersion {
+		t.Fatalf("unexpected repaired config version: %d", cfg.Version)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("missing config was not recreated: %v", err)
+	}
+}
+
+func TestRunTerminalAllowsHumanDevelopmentMutation(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
+	s, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetSandbox, domain.CommandSpec{Argv: []string{"git", "add", "README.md"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("interactive terminal command should be accepted: %#v", result)
 	}
 }
 
@@ -750,5 +790,53 @@ func TestAutoModeRequiresProtected(t *testing.T) {
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
 	if _, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeUnprotected, domain.AutomationModeAuto); err == nil {
 		t.Fatal("expected auto/unprotected rejection")
+	}
+}
+
+func TestStartSessionCreatesWhanessProjectConfig(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "whaness.yml")); err != nil {
+		t.Fatalf("whaness.yml was not created: %v", err)
+	}
+	cfg, err := service.ProjectConfig(started.ID)
+	if err != nil || !cfg.Context.AutoExclude {
+		t.Fatalf("unexpected project config: cfg=%+v err=%v", cfg, err)
+	}
+}
+
+func TestUpdateProjectConfigRebuildsContext(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "notes.md"), []byte("notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := service.ProjectConfig(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Context.Exclude = []string{"docs/**"}
+	_, updated, err := service.UpdateProjectConfig(started.ID, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range updated.Context.Manifest.Files {
+		if file.Path == "docs/notes.md" {
+			t.Fatal("excluded docs file remained in rebuilt context")
+		}
 	}
 }

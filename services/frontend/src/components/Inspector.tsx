@@ -11,14 +11,14 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
 
 type Tab = 'plan' | 'terminal' | 'chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptFocusNonce, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile, onSession }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile, onSession }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
   manualPrompt: string
   busy: boolean
   chat?: WorkspaceChat
-  chatgptFocusNonce?: number
+  chatgptSuspended?: boolean
   onChatGPTURL: (url: string) => void
   onExecute: (approved: boolean) => Promise<void>
   onApply: () => Promise<void>
@@ -30,7 +30,6 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  useEffect(() => { if (chatgptFocusNonce) setTab('chatgpt') }, [chatgptFocusNonce])
   const terminalEvents = useMemo(() => events.filter((e) => e.type === 'command.completed' || e.type === 'execution.failed' || e.type === 'verification.baseline_unchanged'), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed)
   const needsApproval = Boolean(session.policy?.requires_approval)
@@ -67,7 +66,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         {tab === 'plan' && <PlanView session={session} />}
         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
         {tab === 'chatgpt' && (desktop
-          ? <ChatGPTDesktopPane session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
+          ? <ChatGPTDesktopPane suspended={chatgptSuspended} session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
       </div>
     </section>

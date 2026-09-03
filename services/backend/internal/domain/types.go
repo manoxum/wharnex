@@ -134,13 +134,21 @@ type ContextFile struct {
 	SHA256 string `json:"sha256"`
 }
 
+type ContextExclusion struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Reason string `json:"reason"`
+	Rule   string `json:"rule"`
+}
+
 type ContextManifest struct {
-	ID            string        `json:"id"`
-	ProjectRoot   string        `json:"project_root"`
-	SHA256        string        `json:"sha256"`
-	Files         []ContextFile `json:"files"`
-	Excluded      []string      `json:"excluded"`
-	TextTruncated bool          `json:"text_truncated"`
+	ID              string             `json:"id"`
+	ProjectRoot     string             `json:"project_root"`
+	SHA256          string             `json:"sha256"`
+	Files           []ContextFile      `json:"files"`
+	Excluded        []string           `json:"excluded"`
+	ExcludedDetails []ContextExclusion `json:"excluded_details,omitempty"`
+	TextTruncated   bool               `json:"text_truncated"`
 }
 
 type ContextBundle struct {

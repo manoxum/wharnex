@@ -1,12 +1,12 @@
-import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, ipcMain, nativeImage, session, shell } from 'electron'
+import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, dialog, ipcMain, nativeImage, session, shell } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithoutReplay } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTComposerClick, dispatchChatGPTSubmit, submitWithoutReplay } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, chatGPTComposerPoint, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -33,6 +33,8 @@ let activeChatGPTKey = ''
 let chatgptVisible = false
 let chatgptBounds
 const preparedChatGPTDrafts = new Map()
+const expectedChatGPTBundles = new Map()
+const EXPECTED_BUNDLE_TTL_MS = 60 * 60 * 1000
 const chatGPTUploads = new ChatGPTUploadCoordinator()
 const chatGPTSubmissions = new ChatGPTSubmitCoordinator()
 
@@ -54,6 +56,32 @@ function trustedSender(event) {
 
 function activeChatGPTEntry() {
   return activeChatGPTKey ? chatgptViews.get(activeChatGPTKey) : undefined
+}
+
+function canonicalBundleFilename(requestId) {
+  const id = String(requestId || '').trim()
+  const filename = `wharness-bundle-${id}.zip`
+  if (wharnessBundleRequestIdFromFilename(filename) !== id) throw new Error('Invalid Wharness request id for bundle transport')
+  return filename
+}
+
+function armExpectedChatGPTBundle(cacheKey, requestId) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const filename = canonicalBundleFilename(requestId)
+  expectedChatGPTBundles.set(key, { requestId: String(requestId), filename, armedAt: Date.now() })
+  return filename
+}
+
+function activeExpectedChatGPTBundle() {
+  const key = activeChatGPTKey
+  if (!key) return undefined
+  const expected = expectedChatGPTBundles.get(key)
+  if (!expected) return undefined
+  if (Date.now() - expected.armedAt > EXPECTED_BUNDLE_TTL_MS) {
+    expectedChatGPTBundles.delete(key)
+    return undefined
+  }
+  return { key, ...expected }
 }
 
 function touchChatGPTEntry(entry) {
@@ -97,6 +125,7 @@ function currentChatGPTState() {
     loading: entry?.loading ?? true,
     canGoBack: Boolean(wc?.navigationHistory.canGoBack()),
     canGoForward: Boolean(wc?.navigationHistory.canGoForward()),
+    externalAuthProvider: entry?.externalAuthProvider || '',
   }
 }
 
@@ -130,10 +159,23 @@ function registerChatGPTPlanDownloads(chatSession) {
     // download WebContents rather than the visible ChatGPT WebContentsView, so
     // do not require object identity here. The strict filename + JSON protocol
     // + request_id checks below remain the authority for plan interception.
-    const filename = item.getFilename()
-    const bundleRequestId = wharnessBundleRequestIdFromFilename(filename)
-    if (bundleRequestId) {
+    const sourceFilename = item.getFilename()
+    const expectedBundle = activeExpectedChatGPTBundle()
+    let bundleCandidate
+    try {
+      bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '')
+    } catch (error) {
+      item.cancel()
+      publishBundleDownloadError(error instanceof Error ? error.message : String(error), sourceFilename)
+      return
+    }
+    if (bundleCandidate) {
+      const filename = bundleCandidate.filename
+      const bundleRequestId = bundleCandidate.requestId
       const sourceURL = sourceWebContents?.getURL?.() || ''
+      if (bundleCandidate.normalized) {
+        console.warn(`[chatgpt-bundle-download] normalized sourceFile=${sourceFilename} canonicalFile=${filename} request=${bundleRequestId}`)
+      }
       console.log(`[chatgpt-bundle-download] started file=${filename} source=${sanitizeDiagnosticURL(sourceURL)}`)
       const total = item.getTotalBytes()
       if (total > MAX_EXECUTION_BUNDLE_BYTES) {
@@ -166,7 +208,8 @@ function registerChatGPTPlanDownloads(chatSession) {
           const bytes = await readFile(savePath)
           if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharness excede o limite de 16 MiB.')
           const validated = validateWharnessBundleDownload(filename, bytes)
-          publishBundleDownload({ filename, requestId: validated.requestId, contentBase64: bytes.toString('base64'), bytes: bytes.byteLength })
+          publishBundleDownload({ filename, requestId: validated.requestId, contentBase64: bytes.toString('base64'), bytes: bytes.byteLength, sourceFilename, normalizedFilename: bundleCandidate.normalized })
+          if (expectedBundle?.key && expectedBundle.requestId === validated.requestId) expectedChatGPTBundles.delete(expectedBundle.key)
           console.log(`[chatgpt-bundle-download] imported file=${filename} bytes=${bytes.byteLength}`)
         } catch (error) {
           publishBundleDownloadError(error instanceof Error ? error.message : String(error), filename)
@@ -176,12 +219,13 @@ function registerChatGPTPlanDownloads(chatSession) {
       })
       return
     }
-    if (filename.startsWith('wharness-bundle-')) {
+    if (sourceFilename.startsWith('wharness-bundle-')) {
       item.cancel()
-      publishBundleDownloadError('Nome do bundle inválido; esperado wharness-bundle-<request_id>.zip.', filename)
+      publishBundleDownloadError('Nome do bundle inválido; esperado wharness-bundle-<request_id>.zip.', sourceFilename)
       return
     }
 
+    const filename = sourceFilename
     const requestId = wharnessPlanRequestIdFromFilename(filename)
     if (!requestId) {
       if (filename.startsWith('wharness-plan-')) {
@@ -239,28 +283,44 @@ function registerChatGPTPlanDownloads(chatSession) {
   })
 }
 
+function publishExternalAuth(entry, provider, url) {
+  entry.externalAuthProvider = provider
+  entry.view.setVisible(false)
+  if (!mainWindow?.isDestroyed()) {
+    mainWindow.webContents.send('wharness:chatgpt:external-auth', { provider, url: sanitizeDiagnosticURL(url), systemBrowserMode: true })
+  }
+  publishChatGPTState(activeChatGPTKey)
+}
+
+function routeChatGPTNavigation(entry, event, url) {
+  const disposition = chatGPTNavigationDisposition(url)
+  if (disposition.kind === 'trusted') return false
+  event?.preventDefault?.()
+  if (disposition.kind === 'external-auth') {
+    publishExternalAuth(entry, disposition.provider, url)
+    void shell.openExternal(url)
+    return true
+  }
+  if (disposition.kind === 'external') void shell.openExternal(url)
+  return true
+}
+
 function createChatGPTView(cacheKey) {
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION }) })
   view.setBackgroundColor('#ffffff')
   view.setVisible(false)
-  const entry = { view, loading: true, lastUsed: Date.now(), lastNetworkActivity: Date.now() }
+  const entry = { view, loading: true, lastUsed: Date.now(), lastNetworkActivity: Date.now(), externalAuthProvider: '' }
   chatgptViews.set(cacheKey, entry)
   mainWindow.contentView.addChildView(view)
 
   const wc = view.webContents
   wc.setUserAgent(CHATGPT_USER_AGENT)
   wc.setWindowOpenHandler(({ url }) => {
-    if (!isHTTPS(url)) return { action: 'deny' }
-    const provider = externalAuthProvider(url)
-    if (provider) {
-      void shell.openExternal(url)
-      if (!mainWindow?.isDestroyed()) mainWindow.webContents.send('wharness:chatgpt:external-auth', { provider, url })
-      return { action: 'deny' }
-    }
-    void shell.openExternal(url)
+    routeChatGPTNavigation(entry, undefined, url)
     return { action: 'deny' }
   })
-  wc.on('will-navigate', (event, url) => { if (!isHTTPS(url)) event.preventDefault() })
+  wc.on('will-navigate', (event, url) => { routeChatGPTNavigation(entry, event, url) })
+  wc.on('will-redirect', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('did-start-loading', () => { entry.loading = true; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
   wc.on('did-stop-loading', () => { entry.loading = false; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
   wc.on('did-navigate', () => { touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
@@ -292,7 +352,7 @@ function activateChatGPTView(cacheKey, bounds) {
   activeChatGPTKey = key
   if (bounds) setChatGPTBounds(bounds)
   else if (chatgptBounds) entry.view.setBounds(chatgptBounds)
-  entry.view.setVisible(chatgptVisible)
+  entry.view.setVisible(chatgptVisible && !entry.externalAuthProvider)
   touchChatGPTEntry(entry)
   evictChatGPTViews()
   publishChatGPTState(key)
@@ -386,10 +446,11 @@ async function materializeChatInput(cacheKey, sessionId, values, promptText) {
   }
 }
 
-async function focusChatGPTComposer(cacheKey, expectedURL = '') {
+async function targetChatGPTComposer(cacheKey, expectedURL = '') {
   const key = sanitizeChatCacheKey(cacheKey)
   const entry = activateChatGPTView(key)
   const wc = entry.view.webContents
+  if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharness.`)
   if (expectedURL) {
     const target = requireTrustedChatGPTURL(expectedURL)
     if (!sameConversationURL(wc.getURL(), target)) await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
@@ -397,15 +458,13 @@ async function focusChatGPTComposer(cacheKey, expectedURL = '') {
   await waitForChatGPTSurfaceReady(entry)
   if (!isTrustedChatGPTOrigin(wc.getURL())) throw new Error('Active cached view is not a trusted ChatGPT page')
   let bounds = entry.view.getBounds()
-  for (let attempt = 0; attempt < 30 && (bounds.width < 200 || bounds.height < 120 || !chatgptVisible); attempt += 1) {
+  for (let attempt = 0; attempt < 30 && (bounds.width < 200 || bounds.height < 120); attempt += 1) {
     await wait(100)
     bounds = entry.view.getBounds()
   }
-  if (bounds.width < 200 || bounds.height < 120 || !chatgptVisible) throw new Error('ChatGPT pane is not visible or ready for input')
+  if (bounds.width < 200 || bounds.height < 120) throw new Error('ChatGPT transport surface has no usable bounds')
   const point = chatGPTComposerPoint(bounds, wc.getURL())
-  wc.focus()
-  wc.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 })
-  wc.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 })
+  dispatchChatGPTComposerClick(wc, point)
   await wait(100)
   return { key, entry, wc }
 }
@@ -427,7 +486,6 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
     beginUpload: () => chatGPTUploads.expect(wc.id),
     paste: async () => {
       await clipboard.write([new ClipboardItem({ 'text/uri-list': `${pathToFileURL(filePath).href}\r\n` })])
-      wc.focus()
       wc.paste()
     },
     onRetry: ({ attempt, error }) => {
@@ -441,7 +499,7 @@ async function submitChatGPTDraft(key) {
   let wc
   const result = await submitWithoutReplay({
     beforeSubmit: async () => {
-      const target = await focusChatGPTComposer(key)
+      const target = await targetChatGPTComposer(key)
       wc = target.wc
     },
     beginObservation: () => chatGPTSubmissions.expect(wc.id),
@@ -460,10 +518,12 @@ async function preparePromptForChatGPT(request) {
   if (!text) throw new Error('Prepared prompt is empty')
   if (text.length > 1024 * 1024) throw new Error('Prepared prompt exceeds 1 MiB limit')
   const key = sanitizeChatCacheKey(request?.cacheKey)
+  const requestId = String(request?.requestId || '').trim()
+  const expectedFilename = canonicalBundleFilename(requestId)
   const autoSubmit = request?.autoSubmit === true
   if (autoSubmit) await requireAutoSession(request?.sessionId)
   const input = await materializeChatInput(key, request?.sessionId, request?.attachments || [], text)
-  const target = await focusChatGPTComposer(key, request?.url || '')
+  const target = await targetChatGPTComposer(key, request?.url || '')
   const transportPaths = [...input.paths, input.promptPath]
   for (let index = 0; index < transportPaths.length; index += 1) {
     await pasteChatGPTFile(target.entry, transportPaths[index], index + 1, transportPaths.length)
@@ -471,13 +531,14 @@ async function preparePromptForChatGPT(request) {
   if (autoSubmit) {
     await wait(chatInputSettleDelay(input.bytes, transportPaths.length))
     await submitChatGPTDraft(key)
+    armExpectedChatGPTBundle(key, requestId)
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: transportPaths.length })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: transportPaths.length, requestId })
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=${transportPaths.length} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
-  return { ok: true, cacheKey: key, attachmentCount: transportPaths.length, submitted: autoSubmit }
+  return { ok: true, cacheKey: key, attachmentCount: transportPaths.length, submitted: autoSubmit, expectedFilename }
 }
 
 async function submitPreparedChatGPTDraft(cacheKey) {
@@ -486,19 +547,22 @@ async function submitPreparedChatGPTDraft(cacheKey) {
   if (!prepared || Date.now() - prepared.preparedAt > 10 * 60 * 1000) throw new Error('No recent prepared ChatGPT draft exists for this chat')
   const entry = activateChatGPTView(key)
   await submitChatGPTDraft(key)
+  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId)
   preparedChatGPTDrafts.delete(key)
   touchChatGPTEntry(entry)
-  return { ok: true, cacheKey: key }
+  return { ok: true, cacheKey: key, expectedFilename }
 }
 
-async function submitPromptToChatGPT(cacheKey, value, expectedURL = '') {
+async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestId = '') {
   const text = String(value || '').trim()
   if (!text) throw new Error('Repair prompt is empty')
   if (text.length > 1024 * 1024) throw new Error('Repair prompt exceeds 1 MiB limit')
 
   const key = sanitizeChatCacheKey(cacheKey)
+  const expectedFilename = canonicalBundleFilename(requestId)
   const entry = activateChatGPTView(key)
   const wc = entry.view.webContents
+  if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharness.`)
   if (expectedURL) {
     const target = requireTrustedChatGPTURL(expectedURL)
     const current = wc.getURL()
@@ -509,23 +573,22 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '') {
   for (let attempt = 0; attempt < 50 && entry.loading; attempt += 1) await wait(100)
   if (!isTrustedChatGPTOrigin(wc.getURL())) throw new Error('Active cached view is not a trusted ChatGPT page')
 
-  // Input-only automation: focus the fixed ChatGPT composer area, paste the
+  // Input-only automation: target the fixed ChatGPT composer area, paste the
   // prepared repair request and click Submit. Wharness never reads or scrapes
   // the remote DOM; the response still returns through the file-first download
   // contract.
   const bounds = entry.view.getBounds()
   const { x, y } = chatGPTComposerPoint(bounds, wc.getURL())
-  wc.focus()
-  wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
-  wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+  dispatchChatGPTComposerClick(wc, { x, y })
   await wait(80)
   clipboard.writeText(text)
   wc.paste()
   await wait(120)
   await submitChatGPTDraft(key)
+  armExpectedChatGPTBundle(key, requestId)
   touchChatGPTEntry(entry)
   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=native-enter`)
-  return { ok: true, cacheKey: key }
+  return { ok: true, cacheKey: key, expectedFilename }
 }
 
 function chatGPTConversationID(value) {
@@ -570,6 +633,7 @@ function createWindow() {
       if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
     }
     chatgptViews = new Map()
+    expectedChatGPTBundles.clear()
     activeChatGPTKey = ''
     mainWindow = undefined
   })
@@ -578,6 +642,15 @@ function createWindow() {
 }
 
 function registerIPC() {
+  ipcMain.handle('wharness:projects:pick-directory', async (event, request) => {
+    trustedSender(event)
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: typeof request?.title === 'string' ? request.title.slice(0, 120) : 'Selecionar pasta',
+      defaultPath: typeof request?.defaultPath === 'string' && path.isAbsolute(request.defaultPath) ? request.defaultPath : undefined,
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    return { cancelled: result.canceled || result.filePaths.length === 0, path: result.filePaths[0] || '' }
+  })
   ipcMain.handle('wharness:chatgpt:show', async (event, request) => {
     trustedSender(event)
     chatgptVisible = true
@@ -624,15 +697,55 @@ function registerIPC() {
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:state', (event) => { trustedSender(event); return currentChatGPTState() })
-  ipcMain.handle('wharness:chatgpt:open-external', async (event) => {
+  ipcMain.handle('wharness:chatgpt:open-external', async (event, request) => {
     trustedSender(event)
-    await shell.openExternal(CHATGPT_URL)
+    const target = requireTrustedChatGPTURL(request?.url || CHATGPT_URL)
+    await shell.openExternal(target)
     return { ok: true }
+  })
+  ipcMain.handle('wharness:chatgpt:resume-embedded', async (event, request) => {
+    trustedSender(event)
+    const entry = activateChatGPTView(request?.cacheKey)
+    entry.externalAuthProvider = ''
+    const wc = entry.view.webContents
+    if (!isTrustedChatGPTOrigin(wc.getURL())) await wc.loadURL(CHATGPT_URL, { userAgent: CHATGPT_USER_AGENT })
+    entry.view.setVisible(chatgptVisible)
+    publishChatGPTState(activeChatGPTKey)
+    return currentChatGPTState()
+  })
+  ipcMain.handle('wharness:chatgpt:pick-bundle', async (event, request) => {
+    trustedSender(event)
+    const requestId = String(request?.requestId || '').trim()
+    const expectedFilename = canonicalBundleFilename(requestId)
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: `Selecionar ${expectedFilename}`,
+      defaultPath: app.getPath('downloads'),
+      properties: ['openFile'],
+      filters: [{ name: 'Wharness bundle ZIP', extensions: ['zip'] }],
+    })
+    if (result.canceled || result.filePaths.length === 0) return { cancelled: true }
+    const filePath = result.filePaths[0]
+    const sourceFilename = path.basename(filePath)
+    const bytes = await readFile(filePath)
+    if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharness excede o limite de 16 MiB.')
+    const candidate = canonicalWharnessBundleDownload(sourceFilename, requestId, 'application/zip')
+    if (!candidate) throw new Error('O ficheiro selecionado não é um bundle ZIP Wharness reconhecível.')
+    const validated = validateWharnessBundleDownload(candidate.filename, bytes)
+    if (validated.requestId !== requestId) throw new Error('O bundle selecionado não pertence ao pedido ativo.')
+    return {
+      cancelled: false,
+      filename: candidate.filename,
+      requestId: validated.requestId,
+      sourceFilename,
+      normalizedFilename: candidate.normalized,
+      bytes: bytes.byteLength,
+      contentBase64: bytes.toString('base64'),
+    }
   })
   ipcMain.handle('wharness:chatgpt:paste', (event) => { trustedSender(event); activeChatGPTEntry()?.view.webContents.paste(); return { ok: true } })
   ipcMain.handle('wharness:chatgpt:submit-prompt', async (event, request) => {
     trustedSender(event)
-    return submitPromptToChatGPT(request?.cacheKey, request?.text, request?.url)
+    return submitPromptToChatGPT(request?.cacheKey, request?.text, request?.url, request?.requestId)
   })
   ipcMain.handle('wharness:chatgpt:prepare-prompt', async (event, request) => {
     trustedSender(event)

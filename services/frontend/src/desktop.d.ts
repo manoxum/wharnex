@@ -1,10 +1,10 @@
 type DesktopBounds = { x: number; y: number; width: number; height: number }
-type DesktopChatGPTState = { cacheKey?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+type DesktopChatGPTState = { cacheKey?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string }
 type ContextClipboardResult = { ok: boolean; filePath: string; bytes: number }
-type DesktopExternalAuthState = { provider: string; url: string }
+type DesktopExternalAuthState = { provider: string; url: string; systemBrowserMode?: boolean }
 type DesktopPlanDownload = { filename: string; requestId: string; text: string; bytes: number }
 type DesktopPlanDownloadError = { filename?: string; message: string }
-type DesktopBundleDownload = { filename: string; requestId: string; contentBase64: string; bytes: number }
+type DesktopBundleDownload = { filename: string; requestId: string; contentBase64: string; bytes: number; sourceFilename?: string; normalizedFilename?: boolean }
 type DesktopBundleDownloadError = { filename?: string; message: string }
 type DesktopUserAttachment = { name: string; mime?: string; contentBase64: string }
 type DesktopStoredAttachment = { name: string; size: number; mime: string; storageRef: string; previewKind: 'thumbnail' | 'icon' | 'none' }
@@ -12,6 +12,9 @@ type DesktopAttachmentPreview = { available: boolean; dataUrl: string; previewKi
 
 interface WharnessDesktopBridge {
   platform: string
+  projects: {
+    pickDirectory(request?: { title?: string; defaultPath?: string }): Promise<{ cancelled: boolean; path: string }>
+  }
   chatgpt: {
     show(bounds: DesktopBounds, cacheKey: string): Promise<{ ok: boolean }>
     hide(): Promise<{ ok: boolean }>
@@ -22,11 +25,13 @@ interface WharnessDesktopBridge {
     back(): Promise<{ ok: boolean }>
     forward(): Promise<{ ok: boolean }>
     paste(): Promise<{ ok: boolean }>
-    submitPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string }>
-    preparePrompt(request: { cacheKey: string; text: string; url?: string; sessionId: string; attachments: DesktopUserAttachment[]; autoSubmit?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean }>
-    submitPrepared(request: { cacheKey: string }): Promise<{ ok: boolean; cacheKey: string }>
+    submitPrompt(request: { cacheKey: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
+    preparePrompt(request: { cacheKey: string; text: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; autoSubmit?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string }>
+    submitPrepared(request: { cacheKey: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
     state(): Promise<DesktopChatGPTState>
-    openExternal(): Promise<{ ok: boolean }>
+    openExternal(url?: string): Promise<{ ok: boolean }>
+    resumeEmbedded(cacheKey: string): Promise<DesktopChatGPTState>
+    pickBundle(request: { requestId: string }): Promise<{ cancelled: boolean; filename?: string; requestId?: string; contentBase64?: string; bytes?: number; sourceFilename?: string; normalizedFilename?: boolean }>
     onState(callback: (state: DesktopChatGPTState) => void): () => void
     onExternalAuth(callback: (state: DesktopExternalAuthState) => void): () => void
     onPlanDownloaded(callback: (plan: DesktopPlanDownload) => void): () => void

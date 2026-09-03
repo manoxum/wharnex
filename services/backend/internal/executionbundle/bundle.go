@@ -104,10 +104,11 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		files[name] = data
 	}
 
-	readmeBytes, ok := files["README.md"]
-	if !ok || len(bytes.TrimSpace(readmeBytes)) == 0 {
-		return Parsed{}, errors.New("execution bundle requires non-empty README.md")
+	files, _, err = normalizeBundleRoot(files)
+	if err != nil {
+		return Parsed{}, err
 	}
+	readmeBytes := files["README.md"]
 	if len(readmeBytes) > 1<<20 {
 		return Parsed{}, errors.New("README.md exceeds 1 MiB limit")
 	}
@@ -151,11 +152,19 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 				if strings.TrimSpace(op.Patch) != "" {
 					return Parsed{}, fmt.Errorf("operation %d cannot contain both patch and patch_file", index)
 				}
-				patchName, patchErr := safePatchName(op.PatchFile)
+				patchName, patchErr := normalizedPatchName(op.PatchFile)
 				if patchErr != nil {
 					return Parsed{}, fmt.Errorf("operation %d: %w", index, patchErr)
 				}
 				patchBytes, exists := files[patchName]
+				if !exists {
+					legacyName := path.Base(patchName)
+					patchBytes, exists = files[legacyName]
+					if exists {
+						files[patchName] = patchBytes
+						delete(files, legacyName)
+					}
+				}
 				if !exists {
 					return Parsed{}, fmt.Errorf("operation %d references missing %s", index, patchName)
 				}
@@ -173,6 +182,14 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		}
 	}
 
+	if len(bytes.TrimSpace(readmeBytes)) == 0 {
+		readmeBytes = synthesizeREADME(turn, plan)
+		if len(bytes.TrimSpace(readmeBytes)) == 0 {
+			return Parsed{}, errors.New("execution bundle requires non-empty README.md or structured turn/plan text")
+		}
+		files["README.md"] = readmeBytes
+	}
+
 	listed := make([]string, 0, len(files))
 	for name := range files {
 		listed = append(listed, name)
@@ -184,6 +201,58 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		Filename: path.Base(filename), README: string(readmeBytes), Files: listed,
 		Patches: patches, SHA256: hex.EncodeToString(digest[:]),
 	}, Turn: turn}, nil
+}
+
+func normalizeBundleRoot(files map[string][]byte) (map[string][]byte, string, error) {
+	if len(files) == 0 || files["README.md"] != nil || files["turn.json"] != nil || files["plan.json"] != nil {
+		return files, "", nil
+	}
+	prefix := ""
+	for name := range files {
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return files, "", nil
+		}
+		if prefix == "" {
+			prefix = parts[0]
+		} else if parts[0] != prefix {
+			return files, "", nil
+		}
+	}
+	if files[prefix+"/turn.json"] == nil && files[prefix+"/plan.json"] == nil {
+		return files, "", nil
+	}
+	normalized := make(map[string][]byte, len(files))
+	for name, data := range files {
+		name = strings.TrimPrefix(name, prefix+"/")
+		if _, duplicate := normalized[name]; duplicate {
+			return nil, "", fmt.Errorf("duplicate bundle entry after removing wrapper %q: %s", prefix, name)
+		}
+		normalized[name] = data
+	}
+	return normalized, prefix, nil
+}
+
+func synthesizeREADME(turn domain.AgentTurn, plan *domain.ExecutionPlan) []byte {
+	message := strings.TrimSpace(turn.Message)
+	if message == "" && plan != nil {
+		message = strings.TrimSpace(plan.Summary)
+	}
+	if message == "" {
+		return nil
+	}
+	return []byte("# Wharness result\n\n> README.md synthesized by Wharness from structured bundle metadata because the transport omitted the documentation file. No executable semantics were inferred.\n\n" + message + "\n")
+}
+
+func normalizedPatchName(value string) (string, error) {
+	name, err := safeName(value)
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(name, "/") && strings.HasSuffix(strings.ToLower(name), ".patch") {
+		name = "patches/" + name
+	}
+	return safePatchName(name)
 }
 
 func parseTurn(raw []byte) (domain.AgentTurn, bool, error) {

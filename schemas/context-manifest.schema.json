@@ -6,8 +6,34 @@
     "id": {"type": "string"},
     "project_root": {"type": "string"},
     "sha256": {"type": "string"},
-    "files": {"type": "array"},
-    "excluded": {"type": "array"},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "size", "sha256"],
+        "properties": {
+          "path": {"type": "string"},
+          "size": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "excluded": {"type": "array", "items": {"type": "string"}},
+    "excluded_details": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind", "reason", "rule"],
+        "properties": {
+          "path": {"type": "string"},
+          "kind": {"type": "string"},
+          "reason": {"type": "string"},
+          "rule": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
     "text_truncated": {"type": "boolean"}
   }
 }

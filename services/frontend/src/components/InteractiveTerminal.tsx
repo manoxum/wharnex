@@ -14,6 +14,8 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
   const [network, setNetwork] = useState(false)
   const [running, setRunning] = useState(false)
   const [entries, setEntries] = useState<TerminalEntry[]>([])
+  const [history, setHistory] = useState<string[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
   const cwd = cwdByTarget[target]
 
   useEffect(() => {
@@ -24,6 +26,8 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
     setNetwork(false)
     setRunning(false)
     setEntries([])
+    setHistory([])
+    setHistoryIndex(-1)
   }, [session.id])
 
   function selectTarget(next: TerminalTarget) {
@@ -41,6 +45,8 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
   async function execute() {
     const raw = input.trim(); if (!raw || running) return
     setInput('')
+    setHistory((items) => [...items.filter((item) => item !== raw), raw].slice(-100))
+    setHistoryIndex(-1)
     if (raw === 'clear') { setEntries([]); return }
     let argv: string[]
     try { argv = parseArgv(raw) } catch (error) { onError(messageOf(error)); return }
@@ -77,9 +83,17 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
     {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Comandos executam no projeto real. Sem sandbox e sem rollback automático.</span></div>}
     <div className="terminal-scroll">
       {entries.map((entry) => <div className={`ide-terminal-entry target-${entry.target}`} key={entry.id}><div className="terminal-prompt"><span>wharness:{entry.target}:{entry.cwd}$</span> {entry.command}</div>{entry.result?.stdout && <pre>{entry.result.stdout}</pre>}{entry.result?.stderr && <pre className="stderr">{entry.result.stderr}</pre>}{entry.result && entry.result.exit_code !== 0 && <span className="terminal-exit">exit {entry.result.exit_code}</span>}{entry.error && <pre className="stderr">{entry.error}</pre>}</div>)}
-      {!entries.length && <div className="terminal-hint">{target === 'sandbox' ? 'Sandbox persistente e isolada. Sem shell implícito; comandos são argv. `cd` e `clear` são tratados pelo editor.' : 'Host explícito: executa argv diretamente no projeto real. O Policy Engine continua a negar shell arbitrário, Docker, sudo e outros comandos proibidos.'}</div>}
+      {!entries.length && <div className="terminal-hint">{target === 'sandbox' ? 'Sandbox persistente e isolada. Comandos de desenvolvimento (git, go, npm, python por ficheiro, make…) são aceites como argv. `cd`, `clear`, ↑/↓ histórico e Ctrl+L são tratados pelo editor.' : 'Host explícito: escreva um comando argv e use Enter ou ▶. Comandos comuns como ls, pwd, cat, git, go, npm e make executam diretamente no projeto real. Shells, sudo, Docker e gestão crítica do host continuam bloqueados.'}</div>}
     </div>
-    <div className="terminal-input-row"><span>wharness:{target}:{cwd}$</span><input value={input} disabled={running} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void execute() }} spellCheck={false} autoComplete="off" placeholder={running ? 'a executar…' : target === 'host' ? 'git status --short' : 'go test ./...'} /></div>
+    <form className="terminal-input-row" onSubmit={(event) => { event.preventDefault(); void execute() }}>
+      <span>wharness:{target}:{cwd}$</span>
+      <input aria-label={`Comando ${target}`} value={input} disabled={running} onChange={(e) => { setInput(e.target.value); setHistoryIndex(-1) }} onKeyDown={(e) => {
+        if (e.key === 'ArrowUp' && history.length) { e.preventDefault(); const next = Math.min(historyIndex + 1, history.length - 1); setHistoryIndex(next); setInput(history[history.length - 1 - next] || '') }
+        if (e.key === 'ArrowDown' && historyIndex >= 0) { e.preventDefault(); const next = historyIndex - 1; setHistoryIndex(next); setInput(next < 0 ? '' : history[history.length - 1 - next] || '') }
+        if (e.key.toLowerCase() === 'l' && e.ctrlKey) { e.preventDefault(); setEntries([]) }
+      }} spellCheck={false} autoComplete="off" placeholder={running ? 'a executar…' : target === 'host' ? 'ls' : 'go test ./...'} />
+      <button className="terminal-run-button" type="submit" disabled={running || !input.trim()} title={target === 'host' ? 'Executar argv no projeto real (Enter)' : 'Executar na sandbox (Enter)'} aria-label="Executar comando"><Icon name="play" size={13}/></button>
+    </form>
   </section>
 }
 

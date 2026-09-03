@@ -3,6 +3,8 @@ package executionbundle
 import (
 	"archive/zip"
 	"bytes"
+	"slices"
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -43,14 +45,14 @@ func TestParseResolvesPatchFile(t *testing.T) {
 	}
 }
 
-func TestParseRejectsTraversalAndMissingReadme(t *testing.T) {
+func TestParseRejectsTraversalAndMissingStructuredContent(t *testing.T) {
 	traversal := zipBytes(t, map[string]string{"../evil": "x", "plan.json": "{}", "README.md": "x"})
 	if _, err := Parse("x.zip", traversal); err == nil {
 		t.Fatal("expected traversal rejection")
 	}
-	missing := zipBytes(t, map[string]string{"plan.json": "{}"})
+	missing := zipBytes(t, map[string]string{"README.md": "only docs"})
 	if _, err := Parse("x.zip", missing); err == nil {
-		t.Fatal("expected README rejection")
+		t.Fatal("expected structured turn/plan rejection")
 	}
 }
 
@@ -87,5 +89,40 @@ func TestParseChangeTurnRequiresMatchingPlan(t *testing.T) {
 	}
 	if parsed.Plan == nil || parsed.Turn.Kind != domain.TurnKindChange {
 		t.Fatalf("unexpected change turn: %#v", parsed)
+	}
+}
+
+func TestParseSynthesizesMissingReadmeFromStructuredTurn(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Resposta útil."}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parsed.Info.README, "synthesized by Wharness") || !strings.Contains(parsed.Info.README, "Resposta útil") {
+		t.Fatalf("unexpected synthesized README: %q", parsed.Info.README)
+	}
+	if !slices.Contains(parsed.Info.Files, "README.md") {
+		t.Fatalf("normalized file list must expose README.md: %#v", parsed.Info.Files)
+	}
+}
+
+func TestParseNormalizesSingleWrapperDirectoryAndRootPatch(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"result/turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Aplicar alteração."}`,
+		"result/plan.json": `{"protocol":"harness.execution/v1","plan_id":"p1","request_id":"req_12345678","status":"ready","summary":"fix","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch_file":"001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"result/README.md": "# Fix\n",
+		"result/001.patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n",
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Plan == nil || parsed.Plan.Operations[0].Patch == "" {
+		t.Fatalf("wrapper/root patch normalization failed: %#v", parsed)
+	}
+	if !slices.Contains(parsed.Info.Patches, "patches/001.patch") {
+		t.Fatalf("expected canonical patch path: %#v", parsed.Info.Patches)
 	}
 }

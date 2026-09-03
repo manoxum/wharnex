@@ -106,3 +106,61 @@ func maxRisk(a, b string) string {
 	}
 	return a
 }
+
+// EvaluateInteractiveCommand applies the human-terminal policy profile. Unlike
+// model plans, an explicitly typed IDE terminal command may mutate the project
+// (for example git add/commit, npm install, rm or language runtimes). The
+// terminal remains argv-only and blocks shells, privilege escalation and
+// host-management primitives that can escape the project boundary.
+func (e *Engine) EvaluateInteractiveCommand(command domain.CommandSpec) domain.PolicyDecision {
+	if err := protocol.ValidateCommand(command); err != nil {
+		return domain.PolicyDecision{Allowed: false, Risk: "high", Reasons: []string{err.Error()}}
+	}
+	decision := domain.PolicyDecision{Allowed: true, Risk: "low"}
+	if command.Network {
+		decision.RequiresApproval = true
+		decision.Risk = "high"
+		decision.Reasons = append(decision.Reasons, "terminal command requests network access")
+	}
+	name := strings.ToLower(filepath.Base(command.Argv[0]))
+	if interactiveDenied[name] {
+		decision.Allowed = false
+		decision.Risk = "high"
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("executable %q is denied in the interactive terminal", name))
+		return decision
+	}
+	if inlineCodeFlag(name, command.Argv[1:]) {
+		decision.Allowed = false
+		decision.Risk = "high"
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("inline code execution through %q is denied; execute a project script/file instead", name))
+	}
+	return decision
+}
+
+func inlineCodeFlag(name string, args []string) bool {
+	flags := map[string]map[string]bool{
+		"python":  {"-c": true},
+		"python3": {"-c": true},
+		"node":    {"-e": true, "--eval": true, "-p": true, "--print": true},
+		"perl":    {"-e": true},
+		"ruby":    {"-e": true},
+		"php":     {"-r": true},
+	}
+	for _, arg := range args {
+		if flags[name][strings.ToLower(arg)] {
+			return true
+		}
+	}
+	return false
+}
+
+var interactiveDenied = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true,
+	"sudo": true, "su": true, "doas": true,
+	"docker": true, "podman": true,
+	"systemctl": true, "service": true, "shutdown": true, "reboot": true, "poweroff": true,
+	"mount": true, "umount": true, "iptables": true, "nft": true,
+	"mkfs": true, "fdisk": true, "parted": true, "dd": true,
+	"kill": true, "pkill": true, "killall": true,
+	"ssh": true, "scp": true, "sftp": true, "socat": true, "nc": true, "netcat": true,
+}

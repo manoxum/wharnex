@@ -1,11 +1,19 @@
+export function dispatchChatGPTComposerClick(webContents, point) {
+  if (!webContents || typeof webContents.sendInputEvent !== 'function') throw new Error('ChatGPT web contents are unavailable')
+  const x = Math.max(0, Math.floor(Number(point?.x) || 0))
+  const y = Math.max(0, Math.floor(Number(point?.y) || 0))
+  webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+  webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+  return { x, y }
+}
+
 export function dispatchChatGPTSubmit(webContents) {
-  if (!webContents || typeof webContents.focus !== 'function' || typeof webContents.sendInputEvent !== 'function') {
+  if (!webContents || typeof webContents.sendInputEvent !== 'function') {
     throw new Error('ChatGPT web contents are unavailable')
   }
 
   // Electron accepts Accelerator key names, which are case-sensitive. Using
   // Enter avoids coupling submission to ChatGPT's responsive button position.
-  webContents.focus()
   webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
   webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
   return { method: 'native-enter' }

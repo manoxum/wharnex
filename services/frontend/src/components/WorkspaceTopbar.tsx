@@ -2,7 +2,7 @@ import type { AppConfig, AutomationMode, ExecutionMode, Session, WorkspaceMode }
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 
-export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, busy, onMode, onExecutionMode, onAutomationMode, onClose }: {
+export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, busy, onMode, onExecutionMode, onAutomationMode, onSettings, onClose }: {
   config?: AppConfig
   session: Session
   mode: WorkspaceMode
@@ -12,6 +12,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
   onMode: (mode: WorkspaceMode) => void
   onExecutionMode: (mode: ExecutionMode) => void
   onAutomationMode: (mode: AutomationMode) => void
+  onSettings: () => void
   onClose: () => void
 }) {
   const projectName = session.project_path.split('/').filter(Boolean).at(-1) || session.project_path
@@ -38,6 +39,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       {executionMode === 'unprotected' && <StatusPill tone="warning">HOST DIRETO</StatusPill>}
       {automationMode === 'auto' && <StatusPill tone="success">AUTO</StatusPill>}
       <StatusPill tone={config?.planner === 'openai' && config.api_configured ? 'success' : 'neutral'}>{config?.planner === 'openai' ? 'AI automático' : 'AI manual'}</StatusPill>
+      <button className="icon-button" title="Configuração do projeto" onClick={onSettings}><Icon name="settings" size={16}/></button>
       <button className="icon-button" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
     </div>
   </header>

@@ -37,9 +37,9 @@ The Editor terminal is a human-initiated execution surface with two explicit tar
 - `Sandbox` (default): argv executes in the persistent isolated project copy. Network is disabled by default and is an explicit per-command user choice. Reset recreates the copied workspace from the host.
 - `Host`: argv executes directly in the real project root. Entering this target requires an explicit warning/confirmation and the UI keeps a persistent host-direct warning visible. Host networking is inherited from the machine, so the sandbox network toggle is unavailable.
 
-Both targets remain shell-string-free and pass through the same executable Policy Engine; denied shell interpreters, privilege escalation, Docker control, destructive host-management tools, and other forbidden executables stay denied. Terminal Host is a human-only exception and MUST NOT be selected or driven by Agent execution mode, a model plan, or automation.
+Both targets remain shell-string-free and pass through the Policy Engine, but human terminal commands use a dedicated interactive profile rather than the stricter model-plan profile. That profile may allow normal development mutations such as Git staging/commits, package-manager operations, language runtimes executing project files, and file removal. Shell interpreters, privilege escalation, container/host administration, destructive storage/process management, and inline-code evaluator flags remain denied. Terminal Host is a human-only exception and MUST NOT be selected or driven by Agent execution mode, a model plan, or automation.
 
-Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible.
+Editor file saves and Explorer create/rename/delete actions are explicit human mutations to the host project. File saves use optimistic SHA-256 concurrency checks; all Editor/Explorer filesystem operations retain root containment, secret/excluded-path denial and symlink-escape denial. A live sandbox copy is mirrored best-effort after Explorer mutations so the next interactive sandbox command sees the same tree.
 
 ## Git bootstrap
 
@@ -48,3 +48,11 @@ Editor file saves are explicit human mutations to the host project and use optim
 - Protected host apply and Unprotected direct execution MUST re-check Git readiness before patching.
 - Every isolated sandbox copy MUST initialize its own Git repository and baseline commit after filtering excluded/secrets. Host `.git` metadata is never copied into the sandbox.
 - Read-only verification such as `git diff --check` therefore runs against the sandbox baseline in Protected mode and against the project's own repository in Unprotected mode.
+
+## Human project provisioning (v1.2.17)
+
+Opening, creating, and cloning a project occurs before Agent execution and is driven only by explicit local UI actions. Creating a project makes a new directory and initializes its Git boundary. Cloning uses `git clone --recurse-submodules` into a destination that did not previously exist. These bootstrap actions do not change Protected/Unprotected mode and are never emitted or triggered by a model execution plan.
+
+## Interactive Host terminal submit semantics (v1.2.17.4)
+
+The human Host terminal remains a direct argv executor rooted at the real project. Submission is available through both Enter/form submit and an explicit run button. This UI affordance does not introduce a shell: tokenization remains client-side argv parsing, backend interactive policy validation remains mandatory, and the Host runner executes the selected executable directly with the project-relative cwd.

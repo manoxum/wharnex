@@ -19,6 +19,7 @@ import (
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
+	"kernl.local/harness/backend/internal/projectconfig"
 )
 
 type Builder struct {
@@ -47,7 +48,12 @@ func (b *Builder) Build(projectRoot string) (domain.ContextBundle, error) {
 	}
 	zipPath := filepath.Join(tmpDir, id+".zip")
 	textPath := filepath.Join(tmpDir, id+".txt")
-	manifest, err := b.writeArtifacts(root, id, zipPath, textPath)
+	cfg, _, err := projectconfig.Ensure(root)
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return domain.ContextBundle{}, fmt.Errorf("prepare %s: %w", projectconfig.FileName, err)
+	}
+	manifest, err := b.writeArtifacts(root, id, zipPath, textPath, cfg)
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return domain.ContextBundle{}, err
@@ -55,7 +61,7 @@ func (b *Builder) Build(projectRoot string) (domain.ContextBundle, error) {
 	return domain.ContextBundle{ID: id, ZipPath: zipPath, TextPath: textPath, Manifest: manifest}, nil
 }
 
-func (b *Builder) writeArtifacts(root, id, zipPath, textPath string) (domain.ContextManifest, error) {
+func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg projectconfig.Config) (domain.ContextManifest, error) {
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return domain.ContextManifest{}, err
@@ -86,25 +92,34 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string) (domain.Con
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if ShouldIgnoreWithPatterns(rel, entry.IsDir(), patterns) {
-			manifest.Excluded = append(manifest.Excluded, rel)
+		if entry.Type()&os.ModeSymlink != 0 {
+			addExcluded(&manifest, rel, "symlink", "symlink", "symlink")
+			return nil
+		}
+		if reason, rule, ignored := contextExclusion(rel, entry.IsDir(), patterns, cfg.Context); ignored {
+			kind := "file"
+			if entry.IsDir() {
+				kind = "directory"
+			}
+			addExcluded(&manifest, rel, kind, reason, rule)
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			if entry.Type()&os.ModeSymlink != 0 {
-				manifest.Excluded = append(manifest.Excluded, rel+" (symlink)")
-			}
+		if entry.IsDir() {
 			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
+		if info.Size() > cfg.Context.MaxFileBytes {
+			addExcluded(&manifest, rel, "file", "file size limit", "file-size")
+			return nil
+		}
 		if bundleBytes+info.Size() > b.maxBundleBytes {
-			manifest.Excluded = append(manifest.Excluded, rel+" (bundle limit)")
+			addExcluded(&manifest, rel, "file", "bundle limit", "bundle-limit")
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -112,7 +127,11 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string) (domain.Con
 			return err
 		}
 		if containsSecret(data) {
-			manifest.Excluded = append(manifest.Excluded, rel+" (secret-like content)")
+			addExcluded(&manifest, rel, "file", "secret-like content", "secret-content")
+			return nil
+		}
+		if cfg.Context.AutoExclude && !matchAny(rel, cfg.Context.Include) && !looksText(data) {
+			addExcluded(&manifest, rel, "file", "binary content", "binary-content")
 			return nil
 		}
 		h := sha256.Sum256(data)
@@ -155,11 +174,17 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string) (domain.Con
 	}
 	sort.Slice(manifest.Files, func(i, j int) bool { return manifest.Files[i].Path < manifest.Files[j].Path })
 	sort.Strings(manifest.Excluded)
+	sort.Slice(manifest.ExcludedDetails, func(i, j int) bool { return manifest.ExcludedDetails[i].Path < manifest.ExcludedDetails[j].Path })
 	manifest.SHA256 = hex.EncodeToString(projectHash.Sum(nil))
 	manifestJSON, _ := json.MarshalIndent(manifest, "", "  ")
 	_, _ = textWriter.WriteString("\n\n===== KERNL CONTEXT MANIFEST =====\n")
 	_, _ = textWriter.Write(manifestJSON)
 	return manifest, nil
+}
+
+func addExcluded(manifest *domain.ContextManifest, rel, kind, reason, rule string) {
+	manifest.Excluded = append(manifest.Excluded, rel+" ("+reason+")")
+	manifest.ExcludedDetails = append(manifest.ExcludedDetails, domain.ContextExclusion{Path: rel, Kind: kind, Reason: reason, Rule: rule})
 }
 
 func LoadIgnorePatterns(root string) []string {
@@ -207,23 +232,35 @@ func ShouldIgnore(rel string, isDir bool) bool {
 	rel = strings.TrimPrefix(filepath.ToSlash(rel), "./")
 	parts := strings.Split(strings.ToLower(rel), "/")
 	base := parts[len(parts)-1]
-	blockedDirs := map[string]bool{
-		".git": true, "node_modules": true, "dist": true, "build": true,
-		"coverage": true, ".next": true, ".vite": true, ".harness": true,
-		"vendor": true, "secrets": true, ".ssh": true, ".aws": true, ".gnupg": true,
-	}
-	if isDir && blockedDirs[base] {
+	if isDir && stringIn(base, mandatoryBlockedDirs) {
 		return true
-	}
-	blockedNames := map[string]bool{
-		".env": true, "credentials.json": true, "id_rsa": true, "id_ed25519": true, ".npmrc": true, ".netrc": true, ".pypirc": true, ".git-credentials": true, "auth.json": true,
 	}
 	safeEnvTemplate := base == ".env.example" || base == ".env.sample" || base == ".env.template"
-	if blockedNames[base] || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) {
+	if stringIn(base, mandatoryBlockedNames) || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) {
 		return true
 	}
-	for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".dump"} {
+	for _, ext := range mandatoryBlockedExtensions {
 		if strings.HasSuffix(base, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+var mandatoryBlockedDirs = []string{
+	".git", "node_modules", "dist", "build", "coverage", ".next", ".vite", ".harness",
+	"vendor", "secrets", ".ssh", ".aws", ".gnupg",
+}
+
+var mandatoryBlockedNames = []string{
+	".env", "credentials.json", "id_rsa", "id_ed25519", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "auth.json",
+}
+
+var mandatoryBlockedExtensions = []string{".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".dump"}
+
+func stringIn(value string, values []string) bool {
+	for _, candidate := range values {
+		if value == candidate {
 			return true
 		}
 	}

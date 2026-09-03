@@ -4,6 +4,9 @@ const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload)
 
 contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   platform: process.platform,
+  projects: Object.freeze({
+    pickDirectory: (request = {}) => invoke('wharness:projects:pick-directory', request),
+  }),
   chatgpt: Object.freeze({
     show: (bounds, cacheKey) => invoke('wharness:chatgpt:show', { bounds, cacheKey }),
     hide: () => invoke('wharness:chatgpt:hide'),
@@ -18,7 +21,9 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     preparePrompt: (request) => invoke('wharness:chatgpt:prepare-prompt', request),
     submitPrepared: (request) => invoke('wharness:chatgpt:submit-prepared', request),
     state: () => invoke('wharness:chatgpt:state'),
-    openExternal: () => invoke('wharness:chatgpt:open-external'),
+    openExternal: (url = '') => invoke('wharness:chatgpt:open-external', { url: String(url || '') }),
+    resumeEmbedded: (cacheKey) => invoke('wharness:chatgpt:resume-embedded', { cacheKey }),
+    pickBundle: (request) => invoke('wharness:chatgpt:pick-bundle', request),
     onState: (callback) => {
       if (typeof callback !== 'function') return () => {}
       const handler = (_event, state) => callback(state)

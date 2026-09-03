@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'network' | 'workspace' | 'plus' | 'search'
+type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate'
 
 export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
   const paths: Record<Name, ReactNode> = {
@@ -32,6 +32,14 @@ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
     workspace: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M8 9h13"/></>,
     plus: <path d="M12 5v14M5 12h14" />,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4.2-4.2"/></>,
+    git: <><circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 6v12M8 6c5 0 4 2 8 2"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9A1.7 1.7 0 0 0 21 10h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
+    'new-file': <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M12 11v7M8.5 14.5h7"/></>,
+    'new-folder': <><path d="M3 6h7l2 2h9v11H3z"/><path d="M12 11v6M9 14h6"/></>,
+    rename: <><path d="m4 17-.8 3.8L7 20l10.7-10.7-3-3L4 17Z"/><path d="m13.9 7.1 3 3M4 22h16"/></>,
+    trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></>,
+    collapse: <><path d="m8 9 4-4 4 4M8 15l4 4 4-4"/><path d="M5 12h14"/></>,
+    locate: <><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></>,
   }
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }

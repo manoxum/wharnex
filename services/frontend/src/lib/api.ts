@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, Session, TerminalTarget, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ContextInspection, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, Session, TerminalTarget, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -24,6 +24,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   url: API_URL,
   config: () => request<AppConfig>('/api/config'),
+  createProject: (parentPath: string, name: string) => request<ProjectProvision>('/api/projects/create', { method: 'POST', body: JSON.stringify({ parent_path: parentPath, name }) }),
+  cloneProject: (repositoryURL: string, parentPath: string, directory = '') => request<ProjectProvision>('/api/projects/clone', { method: 'POST', body: JSON.stringify({ repository_url: repositoryURL, parent_path: parentPath, directory }) }),
   createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'manual') =>
     request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode, automation_mode: automationMode }) }),
   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
@@ -46,6 +48,9 @@ export const api = {
     }),
   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
   listFiles: (id: string) => request<{ files: FileEntry[] }>(`/api/sessions/${id}/files`),
+  createWorkspacePath: (id: string, path: string, kind: 'file' | 'directory') => request<{ status: string; file?: WorkspaceFile }>(`/api/sessions/${id}/files`, { method: 'POST', body: JSON.stringify({ path, kind }) }),
+  renameWorkspacePath: (id: string, from: string, to: string) => request<{ status: string; path: string }>(`/api/sessions/${id}/files`, { method: 'PATCH', body: JSON.stringify({ from, to }) }),
+  deleteWorkspacePath: (id: string, path: string) => request<void>(`/api/sessions/${id}/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   readFile: (id: string, path: string) => request<WorkspaceFile>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
   writeFile: (id: string, file: Pick<WorkspaceFile, 'path' | 'content' | 'sha256'>) =>
     request<WorkspaceFile>(`/api/sessions/${id}/file`, {
@@ -54,7 +59,10 @@ export const api = {
     }),
   terminal: (id: string, command: CommandSpec, target: TerminalTarget = 'sandbox', confirmHost = false) => request<CommandResult>(`/api/sessions/${id}/terminal?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(command) }),
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
+  contextInspection: (id: string) => request<ContextInspection>(`/api/sessions/${id}/context/inspection`),
   refreshContext: (id: string) => request<Session>(`/api/sessions/${id}/context/refresh`, { method: 'POST', body: '{}' }),
+  projectConfig: (id: string) => request<ProjectConfig>(`/api/sessions/${id}/project-config`),
+  updateProjectConfig: (id: string, config: ProjectConfig) => request<{ config: ProjectConfig; session: Session }>(`/api/sessions/${id}/project-config`, { method: 'PUT', body: JSON.stringify(config) }),
   bundleURL: (id: string) => `${API_URL}/api/sessions/${id}/bundle`,
   contextURL: (id: string) => `${API_URL}/api/sessions/${id}/context`,
   eventsURL: (id: string) => `${API_URL}/api/sessions/${id}/events`,

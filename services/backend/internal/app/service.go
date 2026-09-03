@@ -18,6 +18,7 @@ import (
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/projectgit"
 	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
@@ -64,6 +65,67 @@ func (s *Service) StartSession(ctx context.Context, projectPath string, requeste
 	return s.StartSessionWithModes(ctx, projectPath, mode, domain.AutomationModeManual)
 }
 
+func (s *Service) CreateProject(ctx context.Context, parentPath, name string) (string, error) {
+	root, err := projectgit.Create(ctx, parentPath, name)
+	if err != nil {
+		return "", err
+	}
+	if _, _, err := projectconfig.Ensure(root); err != nil {
+		_ = os.RemoveAll(root)
+		return "", fmt.Errorf("create %s: %w", projectconfig.FileName, err)
+	}
+	return root, nil
+}
+
+func (s *Service) CloneProject(ctx context.Context, repository, parentPath, directory string) (string, error) {
+	root, err := projectgit.Clone(ctx, repository, parentPath, directory)
+	if err != nil {
+		return "", err
+	}
+	if _, _, err := projectconfig.Ensure(root); err != nil {
+		return "", fmt.Errorf("create %s after clone: %w", projectconfig.FileName, err)
+	}
+	return root, nil
+}
+
+func (s *Service) ProjectConfig(sessionID string) (projectconfig.Config, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return projectconfig.Config{}, err
+	}
+	cfg, created, err := projectconfig.Ensure(item.ProjectPath)
+	if err != nil {
+		return projectconfig.Config{}, err
+	}
+	if created {
+		s.bus.Publish(sessionID, "project.config_repaired", map[string]any{"config_file": projectconfig.FileName})
+		if _, refreshErr := s.refreshContext(sessionID); refreshErr != nil {
+			s.bus.Publish(sessionID, "context.refresh_failed", map[string]any{"error": refreshErr.Error(), "reason": "project_config_repair"})
+		}
+	}
+	return cfg, nil
+}
+
+func (s *Service) UpdateProjectConfig(sessionID string, cfg projectconfig.Config) (projectconfig.Config, domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return projectconfig.Config{}, domain.Session{}, err
+	}
+	if err := projectconfig.Save(item.ProjectPath, cfg); err != nil {
+		return projectconfig.Config{}, item, err
+	}
+	stored, err := projectconfig.Load(item.ProjectPath)
+	if err != nil {
+		return projectconfig.Config{}, item, err
+	}
+	updated, err := s.refreshContext(sessionID)
+	if err != nil {
+		return stored, item, fmt.Errorf("%s saved but context rebuild failed: %w", projectconfig.FileName, err)
+	}
+	s.bus.Publish(sessionID, "project.config_updated", map[string]any{"config_file": projectconfig.FileName, "include": len(stored.Context.Include), "exclude": len(stored.Context.Exclude), "auto_exclude": stored.Context.AutoExclude})
+	return stored, updated, nil
+}
+
 func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string, executionMode domain.ExecutionMode, automationMode domain.AutomationMode) (domain.Session, error) {
 	id := ids.New("ses")
 	if executionMode == "" {
@@ -91,6 +153,11 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	} else {
 		s.bus.Publish(id, "project.git_ready", map[string]any{"project_path": projectPath})
 	}
+	_, configCreated, err := projectconfig.Ensure(projectPath)
+	if err != nil {
+		return domain.Session{}, fmt.Errorf("prepare project configuration: %w", err)
+	}
+	s.bus.Publish(id, "project.config_ready", map[string]any{"config_file": projectconfig.FileName, "created": configCreated})
 	s.bus.Publish(id, "context.scanning", map[string]any{"project_path": projectPath})
 	bundle, err := s.context.Build(projectPath)
 	if err != nil {
@@ -890,6 +957,66 @@ func (s *Service) WriteFile(sessionID, path, content, expectedSHA string) (works
 	return file, nil
 }
 
+func (s *Service) CreateWorkspacePath(sessionID, path, kind string) (*workspacefs.File, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	switch kind {
+	case "file":
+		file, err := workspacefs.CreateFile(item.ProjectPath, path)
+		if err != nil {
+			return nil, err
+		}
+		if workspace, ok := s.devspace(sessionID); ok {
+			_, _ = workspacefs.CreateFile(workspace.Path, path)
+		}
+		s.bus.Publish(sessionID, "editor.file_created", map[string]any{"path": path})
+		return &file, nil
+	case "directory":
+		if err := workspacefs.CreateDirectory(item.ProjectPath, path); err != nil {
+			return nil, err
+		}
+		if workspace, ok := s.devspace(sessionID); ok {
+			_ = workspacefs.CreateDirectory(workspace.Path, path)
+		}
+		s.bus.Publish(sessionID, "editor.directory_created", map[string]any{"path": path})
+		return nil, nil
+	default:
+		return nil, errors.New("workspace path kind must be file or directory")
+	}
+}
+
+func (s *Service) RenameWorkspacePath(sessionID, from, to string) error {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := workspacefs.Rename(item.ProjectPath, from, to); err != nil {
+		return err
+	}
+	if workspace, ok := s.devspace(sessionID); ok {
+		_ = workspacefs.Rename(workspace.Path, from, to)
+	}
+	s.bus.Publish(sessionID, "editor.path_renamed", map[string]any{"from": from, "to": to})
+	return nil
+}
+
+func (s *Service) DeleteWorkspacePath(sessionID, path string) error {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := workspacefs.Delete(item.ProjectPath, path); err != nil {
+		return err
+	}
+	if workspace, ok := s.devspace(sessionID); ok {
+		_ = workspacefs.Delete(workspace.Path, path)
+	}
+	s.bus.Publish(sessionID, "editor.path_deleted", map[string]any{"path": path})
+	return nil
+}
+
 func (s *Service) RunTerminal(ctx context.Context, sessionID string, target domain.TerminalTarget, command domain.CommandSpec) (domain.CommandResult, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -913,12 +1040,7 @@ func (s *Service) RunTerminal(ctx context.Context, sessionID string, target doma
 	if len(command.ExpectedExitCodes) == 0 {
 		command.ExpectedExitCodes = []int{0}
 	}
-	risk := "low"
-	if target == domain.TerminalTargetHost {
-		risk = "high"
-	}
-	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: ids.New("terminal"), RequestID: ids.New("terminal_req"), Status: "ready", Summary: "interactive terminal command", Risk: risk, Operations: []domain.Operation{{Type: "command", Command: command}}}
-	decision := s.policy.Evaluate(plan)
+	decision := s.policy.EvaluateInteractiveCommand(command)
 	if !decision.Allowed {
 		return domain.CommandResult{}, fmt.Errorf("terminal policy denied command: %s", strings.Join(decision.Reasons, "; "))
 	}
@@ -950,6 +1072,14 @@ func (s *Service) ResetTerminal(ctx context.Context, sessionID string) error {
 		s.bus.Publish(sessionID, "terminal.reset", map[string]any{})
 	}
 	return err
+}
+
+func (s *Service) ContextInspection(sessionID string) (contextbundle.ContextInspection, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return contextbundle.ContextInspection{}, err
+	}
+	return s.context.Inspect(item.ProjectPath, item.Context.Manifest)
 }
 
 func (s *Service) RefreshContext(sessionID string) (domain.Session, error) {

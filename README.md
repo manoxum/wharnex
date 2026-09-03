@@ -229,3 +229,7 @@ make stop
 ```
 
 Focused gates remain available as `make backend-check`, `make frontend-check`, and `make desktop-check`. All normative rules are rooted in `AGENTS.md` and `SoT/`.
+
+### Project bootstrap and `whaness.yml`
+
+Wharness Desktop can open a project with the native folder explorer, create a Git-initialized project below a selected directory, or clone a repository with all submodules recursively. Every project receives `whaness.yml` when missing. Use the project-settings button in the workspace top bar to tune automatic context pruning, include/exclude patterns, and the maximum per-file context size. See `docs/project-config.md`.

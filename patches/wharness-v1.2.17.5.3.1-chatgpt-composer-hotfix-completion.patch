@@ -1,0 +1,36 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,11 @@
+ # Changelog
+ 
++## v1.2.17.5.3 — ChatGPT composer reference hotfix
++
++- Confirm `preparePromptForChatGPT` uses the background `targetChatGPTComposer` helper after the transport refactor removed `focusChatGPTComposer`.
++- Add a Desktop regression test that prevents the stale helper reference from returning in the prepare-prompt path.
++- No production source rewrite is required in snapshots where the helper call is already corrected; rebuild/restart is sufficient to load the fixed Desktop process.
++
+ ## v1.2.17.5.2 — Background repair transport build hotfix
+ 
+ - Remove the stale `setChatgptFocusNonce` call from automatic repair submission after the focus-nonce state was intentionally removed by v1.2.17.5.
+diff --git a/services/desktop/main-regression.test.mjs b/services/desktop/main-regression.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/services/desktop/main-regression.test.mjs
+@@ -0,0 +1,16 @@
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import { readFile } from 'node:fs/promises'
++
++test('prepare-prompt uses the background composer targeting helper', async () => {
++  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
++  const start = source.indexOf('async function preparePromptForChatGPT(request)')
++  const end = source.indexOf('\nasync function submitPreparedChatGPTDraft', start)
++
++  assert.notEqual(start, -1)
++  assert.notEqual(end, -1)
++
++  const preparePrompt = source.slice(start, end)
++  assert.match(preparePrompt, /await targetChatGPTComposer\(key, request\?\.url \|\| ''\)/)
++  assert.doesNotMatch(preparePrompt, /focusChatGPTComposer/)
++})

@@ -40,3 +40,29 @@ func basePlan() domain.ExecutionPlan {
 func cmd(argv ...string) domain.CommandSpec {
 	return domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}
 }
+
+func TestInteractiveTerminalAllowsDeveloperMutationsWithoutModelPlanRestrictions(t *testing.T) {
+	command := cmd("git", "add", "README.md")
+	decision := NewEngine().EvaluateInteractiveCommand(command)
+	if !decision.Allowed {
+		t.Fatalf("interactive git mutation should be allowed: %#v", decision)
+	}
+}
+
+func TestInteractiveTerminalAllowsLanguageRuntimeScript(t *testing.T) {
+	command := cmd("python3", "scripts/check.py")
+	decision := NewEngine().EvaluateInteractiveCommand(command)
+	if !decision.Allowed {
+		t.Fatalf("interactive project runtime should be allowed: %#v", decision)
+	}
+}
+
+func TestInteractiveTerminalStillDeniesShellAndHostManagement(t *testing.T) {
+	for _, argv := range [][]string{{"bash", "-c", "echo hi"}, {"sudo", "true"}, {"docker", "ps"}, {"python3", "-c", "print(1)"}} {
+		command := cmd(argv...)
+		decision := NewEngine().EvaluateInteractiveCommand(command)
+		if decision.Allowed {
+			t.Fatalf("expected interactive command denied: %#v", argv)
+		}
+	}
+}

@@ -7,7 +7,8 @@ import { StatusPill } from './StatusPill'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 
-export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onSession, onManualPlan, onPlanFile, onBundleFile }: {
+export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onSession, onManualPlan, onPlanFile, onBundleFile }: {
+  suspended?: boolean
   session: Session
   manualPrompt: string
   busy: boolean
@@ -30,6 +31,7 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
   const [notice, setNotice] = useState('')
   const [linkReady, setLinkReady] = useState(false)
   const [manualJSON, setManualJSON] = useState('')
+  const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
   const bridge = desktopBridge()
 
   useEffect(() => { linkedURLRef.current = chatgptUrl; onURLRef.current = onChatGPTURL; onPlanFileRef.current = onPlanFile; onBundleFileRef.current = onBundleFile }, [chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile])
@@ -44,8 +46,10 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
     const observer = new ResizeObserver(sync)
     observer.observe(hostRef.current)
     window.addEventListener('resize', sync)
-    void bridge.chatgpt.show(elementBounds(hostRef.current), chatId)
-    void bridge.chatgpt.state().then(setState)
+    // Visibility is owned exclusively by the suspended/chatId effect below.
+    // Showing here races a trusted overlay on mount (show -> hide) and can
+    // paint the native WebContentsView above the Wharness modal.
+    void bridge.chatgpt.state().then((next) => { setState(next); if (next.externalAuthProvider) setExternalAuth({ provider: next.externalAuthProvider, url: '' }) })
     const unsubscribe = bridge.chatgpt.onState((next) => {
       setState(next)
       const decision = chatgptAutoBindingDecision(linkedURLRef.current, next.url, next.loading, newChatSurfaceSeenRef.current)
@@ -57,8 +61,9 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
         setNotice('Conversa ChatGPT definitiva vinculada automaticamente a este chat do Harness.')
       }
     })
-    const unsubscribeAuth = bridge.chatgpt.onExternalAuth(({ provider }) => {
-      setNotice(`${provider} foi aberto no navegador do sistema. A sessão remota do ChatGPT continua isolada no Wharness Desktop.`)
+    const unsubscribeAuth = bridge.chatgpt.onExternalAuth(({ provider, url }) => {
+      setExternalAuth({ provider, url })
+      setNotice(`${provider} exige autenticação no navegador do sistema. O Wharness mudou este chat para o modo de navegador externo sem copiar cookies ou credenciais.`)
     })
     const unsubscribePlan = bridge.chatgpt.onPlanDownloaded(({ filename, requestId, text, bytes }) => {
       setManualJSON(text)
@@ -68,8 +73,9 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
         .catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o ficheiro de plano.'))
     })
     const unsubscribePlanError = bridge.chatgpt.onPlanDownloadError(({ message }) => setNotice(message))
-    const unsubscribeBundle = bridge.chatgpt.onBundleDownloaded(({ filename, requestId, contentBase64, bytes }) => {
-      setNotice(`Bundle ${filename} descarregado (${formatBytes(bytes)}). A importar automaticamente…`)
+    const unsubscribeBundle = bridge.chatgpt.onBundleDownloaded(({ filename, requestId, contentBase64, bytes, sourceFilename, normalizedFilename }) => {
+      const normalized = normalizedFilename && sourceFilename && sourceFilename !== filename ? ` Nome recebido: ${sourceFilename}; normalizado para ${filename}.` : ''
+      setNotice(`Bundle ${filename} descarregado (${formatBytes(bytes)}).${normalized} A importar automaticamente…`)
       void onBundleFileRef.current(contentBase64, requestId, filename)
         .then((message) => setNotice(message))
         .catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o bundle de execução.'))
@@ -80,6 +86,15 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
       unsubscribe(); unsubscribeAuth(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); void bridge.chatgpt.hide()
     }
   }, [bridge])
+
+  useEffect(() => {
+    if (!bridge || !hostRef.current) return
+    if (suspended || externalAuth) {
+      void bridge.chatgpt.hide()
+      return
+    }
+    void bridge.chatgpt.show(elementBounds(hostRef.current), chatId)
+  }, [bridge, chatId, suspended, externalAuth])
 
   useEffect(() => {
     if (!bridge || !chatId) return
@@ -119,8 +134,8 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
       const refreshed = await api.refreshContext(session.id)
       onSession(refreshed)
       const result = await bridge.clipboard.copyContextZip({ sessionId: refreshed.id })
-      setNotice(`Contexto ZIP copiado como ficheiro (${formatBytes(result.bytes)}). Clique no campo do ChatGPT e prima Ctrl+V.`)
-      await bridge.chatgpt.focus()
+      setNotice(`Contexto ZIP copiado como ficheiro (${formatBytes(result.bytes)}). ${externalAuth ? 'Cole-o no ChatGPT aberto no navegador do sistema.' : 'Clique no campo do ChatGPT e prima Ctrl+V.'}`)
+      if (!externalAuth) await bridge.chatgpt.focus()
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Falha ao copiar o contexto ZIP.') }
   }
 
@@ -128,8 +143,8 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
     if (!manualPrompt) return
     if (bridge) await bridge.clipboard.writeText(manualPrompt)
     else await navigator.clipboard.writeText(manualPrompt)
-    setNotice('Prompt copiado. Clique no campo do ChatGPT e prima Ctrl+V.')
-    await bridge?.chatgpt.focus()
+    setNotice(externalAuth ? 'Prompt copiado. Cole-o no ChatGPT aberto no navegador do sistema.' : 'Prompt copiado. Clique no campo do ChatGPT e prima Ctrl+V.')
+    if (!externalAuth) await bridge?.chatgpt.focus()
   }
 
   async function pastePlanFromClipboard() {
@@ -137,6 +152,31 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
       const text = bridge ? await bridge.clipboard.readText() : await navigator.clipboard.readText()
       setManualJSON(text); setNotice('Resposta do clipboard colocada no campo JSON. Confirme e valide o plano.')
     } catch { setNotice('Não foi possível ler texto do clipboard. Cole o JSON manualmente.') }
+  }
+
+  async function importExternalBundle() {
+    if (!bridge || !session.last_request_id) { setNotice('Ainda não existe um request_id ativo para validar o bundle.'); return }
+    try {
+      const result = await bridge.chatgpt.pickBundle({ requestId: session.last_request_id })
+      if (result.cancelled) { setNotice('Importação do bundle cancelada.'); return }
+      if (!result.filename || !result.requestId || !result.contentBase64) throw new Error('O Desktop não devolveu um bundle válido.')
+      const normalized = result.normalizedFilename && result.sourceFilename && result.sourceFilename !== result.filename
+        ? ` Nome recebido: ${result.sourceFilename}; normalizado para ${result.filename}.`
+        : ''
+      setNotice(`Bundle ${result.filename} selecionado (${formatBytes(result.bytes || 0)}).${normalized} A importar…`)
+      const message = await onBundleFileRef.current(result.contentBase64, result.requestId, result.filename)
+      setNotice(message)
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Falha ao importar o bundle externo.') }
+  }
+
+  async function resumeEmbeddedBrowser() {
+    if (!bridge) return
+    try {
+      const next = await bridge.chatgpt.resumeEmbedded(chatId)
+      setExternalAuth(null)
+      setState(next)
+      setNotice('Navegador incorporado reativado. Use apenas um método de autenticação que o provedor aceite neste ambiente.')
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Não foi possível reativar o navegador incorporado.') }
   }
 
   function bindCurrentConversation() {
@@ -151,6 +191,7 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
   const linkedConversation = chatgptConversationURL(chatgptUrl || '')
   const sameConversation = sameChatGPTConversation(currentConversation, linkedConversation)
   const mismatch = Boolean(linkReady && !state.loading && linkedConversation && currentConversation && !sameConversation)
+  const expectedBundleFilename = session.last_request_id ? `wharness-bundle-${session.last_request_id}.zip` : 'wharness-bundle-<request_id>.zip'
 
   return <div className="desktop-chatgpt-shell">
     <div className="desktop-chatgpt-toolbar">
@@ -158,23 +199,31 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
         <button className="icon-button light" disabled={!state.canGoBack} title="Voltar" onClick={() => void bridge?.chatgpt.back()}><Icon name="arrow-left" size={15}/></button>
         <button className="icon-button light" disabled={!state.canGoForward} title="Avançar" onClick={() => void bridge?.chatgpt.forward()}><Icon name="arrow-right" size={15}/></button>
         <button className="icon-button light" title="Recarregar ChatGPT" onClick={() => void bridge?.chatgpt.reload()}><Icon name="refresh" size={15}/></button>
-        <button className="icon-button light" title="Abrir ChatGPT no navegador do sistema" onClick={() => void bridge?.chatgpt.openExternal()}><Icon name="external" size={15}/></button>
+        <button className="icon-button light" title="Abrir ChatGPT no navegador do sistema" onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={15}/></button>
         <button className="icon-button light" title="Colar clipboard no campo focado do ChatGPT" onClick={() => void bridge?.chatgpt.paste()}><Icon name="clipboard" size={15}/></button>
       </div>
       <div className="desktop-browser-address" title={state.url}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(state.url)}</span></div>
-      <StatusPill tone={linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{linkedConversation ? (mismatch ? 'Outra conversa' : 'Chat vinculado') : 'A vincular'}</StatusPill>
+      <StatusPill tone={!externalAuth && linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{externalAuth ? 'Navegador externo' : linkedConversation ? (mismatch ? 'Outra conversa' : 'Chat vinculado') : 'A vincular'}</StatusPill>
     </div>
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa do ChatGPT.</span><button className="text-button" onClick={bindCurrentConversation}>Vincular esta conversa</button></div>}
 
+    {externalAuth && <div className="chatgpt-external-auth-banner">
+      <div><strong>Autenticação externa — {externalAuth.provider}</strong><span>O provedor bloqueia OAuth em navegadores incorporados. Termine o login no navegador do sistema; a sessão externa não é copiada para o Electron.</span></div>
+      <div className="chatgpt-external-auth-actions">
+        <button className="secondary-button" type="button" onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={14}/> Abrir ChatGPT</button>
+        <button className="text-button" type="button" onClick={() => void resumeEmbeddedBrowser()}>Voltar ao incorporado</button>
+      </div>
+    </div>}
+
     <div className="desktop-chatgpt-actions">
       <div className="desktop-step"><span>1</span><button className="secondary-button" disabled={busy} onClick={() => void copyContext()}><Icon name="copy" size={15}/> Copiar contexto ZIP</button><small>Clique no composer e use Ctrl+V ou o botão Colar.</small></div>
       <div className="desktop-step"><span>2</span><button className="secondary-button" disabled={!manualPrompt} onClick={() => void copyPrompt()}><Icon name="copy" size={15}/> Copiar prompt</button><small>Depois do ZIP, cole o prompt no composer.</small></div>
-      <div className="desktop-step"><span>3</span><strong className="desktop-step-title"><Icon name="download" size={15}/> Baixar resultado ZIP</strong><small>{session.automation_mode === 'auto' ? 'ChatGPT web requer que o download seja iniciado aqui. Depois disso, respostas são importadas; somente mudanças válidas seguem automaticamente para sandbox e host.' : 'Clique em Download no wharness-bundle-<request_id>.zip. Respostas ou planos serão importados automaticamente.'}</small></div>
+      <div className="desktop-step"><span>3</span><strong className="desktop-step-title"><Icon name="download" size={15}/> Baixar resultado ZIP</strong><small>Nome esperado: <code>{expectedBundleFilename}</code>. {externalAuth ? 'Descarregue no navegador do sistema e importe o ZIP abaixo.' : session.automation_mode === 'auto' ? 'O download continua a ser iniciado pelo ChatGPT; nomes ZIP genéricos são normalizados apenas para o request pendente e o conteúdo continua sob validação estrita.' : 'Clique no anexo ZIP; o Desktop importa e valida automaticamente.'}</small>{externalAuth && <button className="text-button external-bundle-import" type="button" disabled={!session.last_request_id || busy} onClick={() => void importExternalBundle()}><Icon name="download" size={14}/> Importar bundle ZIP</button>}</div>
     </div>
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
 
-    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado"><div className="desktop-chatgpt-loading">A carregar ChatGPT…</div></div>
+    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>ChatGPT está no navegador do sistema</strong><span>Use Copiar contexto ZIP, Copiar prompt e Importar bundle ZIP para continuar o fluxo sem partilhar cookies ou credenciais com o Wharness.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
 
     <details className="desktop-plan-import desktop-plan-fallback">
       <summary>Fallback manual</summary>

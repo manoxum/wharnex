@@ -90,8 +90,18 @@ Return one harness.turn/v1 JSON object with exactly: protocol, request_id, kind,
 - plan is null for every non-change kind. For change it is the complete harness.execution/v1 object.`
 
 func BuildManualPrompt(req Request) string {
-	manifest, _ := json.MarshalIndent(req.ContextManifest, "", "  ")
-	return fmt.Sprintf(`%s
+	header := fmt.Sprintf(`WHARNESS OUTPUT MODE: FILE_ONLY
+EXPECTED_FILE: wharness-bundle-%s.zip
+Do not answer this request with normal chat prose. Build the required ZIP, self-check it, attach exactly that file, and finish.
+
+`, req.RequestID)
+	manifestForPlanner := req.ContextManifest
+	// Structured exclusion details exist for local audit/UI inspection. The
+	// legacy exclusion summary is sufficient for the model and avoids sending
+	// the same exclusion inventory twice.
+	manifestForPlanner.ExcludedDetails = nil
+	manifest, _ := json.MarshalIndent(manifestForPlanner, "", "  ")
+	return header + fmt.Sprintf(`%s
 
 REQUEST ID: %s
 USER REQUEST:
@@ -103,42 +113,51 @@ PROJECT MANIFEST:
 Attach the Wharness context ZIP to this chat if it is not already attached for this project conversation.
 For an AUTOMATIC REPAIR REQUEST sent by Wharness into the same linked ChatGPT conversation, reuse the project context already attached earlier and do not wait for a duplicate ZIP.
 
-MANUAL DESKTOP DELIVERY — EXECUTION BUNDLE ZIP — MANDATORY:
-- This task is NOT complete until your response contains one REAL DOWNLOADABLE ZIP ATTACHMENT.
-- Create the file named EXACTLY: wharness-bundle-%s.zip
-- FINAL RESPONSE RULE: return ONLY the generated downloadable ZIP attachment. Write no acknowledgement, progress report, summary, explanation, Markdown, code fence, inline JSON, inline patch, or descriptive text before or after the attachment.
-- Do NOT paste or preview turn JSON, plan JSON, messages, or patches inline in the visible conversation. The downloadable ZIP attachment is the entire final response.
-- You MAY use ChatGPT Python/file-generation only to serialize/package the already-designed plan. Do not execute project commands or mutate the user's project.
-- The ZIP MUST always contain:
-  1. turn.json — UTF-8 harness.turn/v1 with exactly protocol, request_id, kind, and message.
-  2. README.md — human documentation of the response or proposed work.
-- turn.json kind MUST be answer, clarification, investigation, change, or blocked. Its message MUST contain the complete useful user-facing response, not merely a summary.
-- Only change turns may contain plan.json, patches/, commands, or verification. A change turn MUST contain plan.json. Every other turn MUST omit plan.json and patches/ entirely.
-- For a change turn, plan.json is the normal harness.execution/v1 metadata and patches/ contains standard unified diff files for apply_patch operations.
-- Optional useful supporting files MAY be placed under docs/, artifacts/ or metadata/. They are documentation/support only and MUST NOT be executable by Wharness.
-- plan.json uses the normal harness.execution/v1 top-level fields, but an apply_patch operation SHOULD use "patch_file":"patches/NNN-description.patch" instead of embedding the diff in the JSON string. For that operation omit patch or set it to an empty string.
-- command operations continue to use the normal command object and MUST NOT reference patch_file.
-- Every patch_file must be a relative path under patches/ ending in .patch. Never use absolute paths or .. segments.
-- The request_id inside plan.json MUST be exactly %q and the ZIP filename request id must match it.
-- Generate plan.json with a real JSON encoder (json.dump/JSON.stringify), generate patch files as raw UTF-8 unified diffs, write README.md, then create the ZIP.
-- Do not include secrets, .env files, credentials, node_modules, .git, binaries, or unrelated project content in the execution bundle.
-- If bundle generation is genuinely unavailable, reply with exactly BUNDLE_GENERATION_UNAVAILABLE and nothing else. Do NOT fall back to inline JSON.
+MANUAL DESKTOP DELIVERY — FILE-FIRST CONTRACT — ABSOLUTE:
+EXPECTED OUTPUT FILE: wharness-bundle-%s.zip
 
-Required bundle example:
-wharness-bundle-%s.zip
-├── turn.json
-├── README.md
-└── (no plan for answer, clarification, investigation, or blocked)
+You MUST use ChatGPT's file-generation capability to create exactly that ZIP file. The user must receive the file itself, not a prose substitute.
 
-Change bundle example:
+VISIBLE RESPONSE CONTRACT:
+- The final visible answer contains the downloadable ZIP attachment only.
+- Do NOT write “Pronto”, “preparei”, summaries, bullet lists, explanations, filenames, JSON, patches, or any other prose in the chat.
+- Do NOT call the attachment “Wharness.zip”, “bundle.zip”, “Baixar o bundle Wharness.zip”, a UUID/hash, a translated label, or any other name.
+- The downloadable filename MUST be exactly: wharness-bundle-%s.zip
+- If file generation is unavailable, output exactly BUNDLE_GENERATION_UNAVAILABLE and nothing else.
+
+ZIP ROOT CONTRACT:
+- Do NOT wrap the required files inside another top-level directory.
+- README.md MUST exist at ZIP root and MUST contain non-whitespace UTF-8 Markdown.
+- turn.json MUST exist at ZIP root and MUST be UTF-8 harness.turn/v1 with exactly protocol, request_id, kind, message.
+- For kind=change, plan.json MUST exist at ZIP root and patches referenced by patch_file MUST exist under patches/*.patch.
+- For non-change kinds, plan.json and patches/ MUST NOT exist.
+- Do NOT package modified project source files directly as the execution result. Project mutation is represented only by plan.json + referenced raw unified-diff patches.
+- Optional non-executable support material may exist only under docs/, metadata/, or artifacts/.
+
+CHANGE PLAN CONTRACT:
+- request_id in turn.json and plan.json MUST be exactly %q.
+- plan.json uses harness.execution/v1. apply_patch operations SHOULD use patch_file=patches/NNN-description.patch and an empty patch string.
+- patch files are raw UTF-8 standard unified diffs accepted by git apply; never use proprietary *** Begin Patch syntax.
+- command operations remain argv arrays and never use shell strings.
+
+MANDATORY SELF-CHECK BEFORE ATTACHING:
+1. Build the ZIP programmatically, not by returning separate files.
+2. Re-open the generated ZIP.
+3. Verify its basename equals wharness-bundle-%s.zip.
+4. Verify README.md exists and strip(README.md) is non-empty.
+5. Verify turn.json exists and request_id is %q.
+6. If kind=change, verify plan.json exists, its request_id is %q, and every patch_file referenced by plan.json exists inside the ZIP.
+7. Verify required files are at ZIP root rather than under a wrapper folder.
+8. Only after every check passes, attach that exact ZIP as the final answer.
+
+Canonical change bundle:
 wharness-bundle-%s.zip
 ├── turn.json
 ├── plan.json
 ├── README.md
-├── patches/
-│   ├── 001-main-change.patch
-│   └── 002-follow-up.patch
-└── docs/                 # optional
+└── patches/
+    ├── 001-main-change.patch
+    └── ...
 
-Wharness validates the ZIP structure and turn. Only for kind=change does it resolve patch_file references, validate the execution protocol/request_id/policy, and import the plan. In project Auto mode, only a valid allowed change bundle is executed in Protected sandbox and applied after successful verification.`, SystemProtocol, req.RequestID, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
+Wharness validates and policy-checks executable content after download. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and executable bundle structure remain authoritative. Do not rely on that compatibility path; generate the canonical file correctly.`, SystemProtocol, req.RequestID, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
 }

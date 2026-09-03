@@ -108,3 +108,53 @@ func TestWritePreservesExecutableMode(t *testing.T) {
 		t.Fatalf("mode changed to %o", info.Mode().Perm())
 	}
 }
+
+func TestWorkspaceMutations(t *testing.T) {
+	root := t.TempDir()
+	if err := CreateDirectory(root, "src"); err != nil {
+		t.Fatal(err)
+	}
+	created, err := CreateFile(root, "src/new.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Path != "src/new.txt" {
+		t.Fatalf("created path=%q", created.Path)
+	}
+	if err := Rename(root, "src/new.txt", "src/renamed.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "src", "renamed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(root, "src"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "src")); !os.IsNotExist(err) {
+		t.Fatalf("expected directory to be removed, err=%v", err)
+	}
+}
+
+func TestWorkspaceMutationsRejectExcludedAndTraversal(t *testing.T) {
+	root := t.TempDir()
+	if _, err := CreateFile(root, "../escape.txt"); err == nil {
+		t.Fatal("expected traversal rejection")
+	}
+	if err := CreateDirectory(root, ".git"); err == nil {
+		t.Fatal("expected protected directory rejection")
+	}
+	if _, err := CreateFile(root, ".env"); err == nil {
+		t.Fatal("expected protected file rejection")
+	}
+}
+
+func TestWorkspaceRenameRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Rename(root, "link", "renamed"); err == nil {
+		t.Fatal("expected symlink rename rejection")
+	}
+}

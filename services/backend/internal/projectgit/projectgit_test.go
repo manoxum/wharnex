@@ -87,3 +87,77 @@ func stringTrimSpace(value string) string {
 	}
 	return value
 }
+
+func TestCloneRecursivelyInitializesSubmodules(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	main := filepath.Join(root, "main")
+	for _, repo := range []string{sub, main} {
+		if err := os.Mkdir(repo, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Ensure(context.Background(), repo); err != nil {
+			t.Fatal(err)
+		}
+		runGit(t, repo, "config", "user.email", "test@example.invalid")
+		runGit(t, repo, "config", "user.name", "Wharness Test")
+	}
+	if err := os.WriteFile(filepath.Join(sub, "sub.txt"), []byte("submodule\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, sub, "add", "sub.txt")
+	runGit(t, sub, "commit", "-qm", "sub")
+	if err := os.WriteFile(filepath.Join(main, "main.txt"), []byte("main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, main, "add", "main.txt")
+	runGit(t, main, "commit", "-qm", "main")
+	cmd := exec.Command("git", "-c", "protocol.file.allow=always", "-C", main, "submodule", "add", sub, "modules/sub")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("add submodule: %s", output)
+	}
+	runGit(t, main, "commit", "-qam", "submodule")
+
+	parent := filepath.Join(root, "clones")
+	if err := os.Mkdir(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	t.Setenv("GIT_ALLOW_PROTOCOL", "file")
+	cloned, err := Clone(ctx, main, parent, "checkout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cloned, "modules", "sub", "sub.txt")); err != nil {
+		t.Fatalf("recursive submodule content missing: %v", err)
+	}
+}
+
+func TestCloneRejectsUnsafeDirectoryName(t *testing.T) {
+	_, err := Clone(context.Background(), "https://example.invalid/repo.git", t.TempDir(), "../escape")
+	if err == nil {
+		t.Fatal("expected unsafe directory rejection")
+	}
+}
+
+func runGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	full := append([]string{"-C", root}, args...)
+	cmd := exec.Command("git", full...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %s", args, output)
+	}
+}
+
+func TestCreateInitializesNewProject(t *testing.T) {
+	requireGit(t)
+	parent := t.TempDir()
+	root, err := Create(context.Background(), parent, "fresh-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		t.Fatalf("new project git boundary missing: %v", err)
+	}
+}

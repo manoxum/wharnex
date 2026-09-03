@@ -1,0 +1,1330 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index a844b0d..67e8468 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -83,6 +83,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - The interactive Editor terminal MUST default to a copied sandbox workspace. A human MAY explicitly switch that terminal to `Host` only after a dedicated confirmation; Host terminal commands execute directly in the project root, remain argv-only, remain subject to Policy Engine denial, and MUST display a persistent host-direct warning. The terminal target is independent from Agent Protected/Unprotected mode.
+ - Human terminal commands MUST be evaluated by a dedicated interactive policy profile rather than by the model-plan policy. Normal project-development argv mutations MAY be allowed, but shell interpreters, privilege escalation, container/host administration and inline-code evaluator flags remain denied.
+ - Terminal commands MUST be argv, never an implicit shell string.
++- Interactive terminal submission MUST provide a visible explicit run affordance in addition to Enter; Host submission still passes through the dedicated interactive policy and direct argv runner.
+ - Editor saves are explicit human host mutations. Agent mutations are sandbox-first in Protected mode; only an explicitly selected Unprotected project may execute the Agent plan directly on the host.
+ - Every agent request MUST refresh project context so manually edited files are visible to the planner.
+ - Consumer ChatGPT web UI scraping, login-cookie inspection, DOM prompt injection, or automatic Output extraction MUST NOT be introduced. Automatic planning uses supported provider adapters.
+@@ -140,3 +141,4 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Every opened/created/cloned project MUST contain `whaness.yml`. When absent, Wharness creates a safe default before context capture.
+ - `whaness.yml` context include/exclude settings affect AI context assembly only. They MUST NOT weaken secret/path/symlink protections or silently expand Agent/terminal privileges.
+ - Automatic context pruning SHOULD remove dependencies, VCS/IDE metadata, caches, generated build/test output, temporary files, archives, binary/media assets, and generated Wharness context snapshots while retaining source/configuration files by default.
++- Context inspection MUST derive final inclusion from the current manifest/ZIP snapshot, expose structured exclusion reasons and effective rules, and never claim a file is included merely because its parent directory is eligible.
+diff --git a/SoT/CONTEXT_PROTOCOL.md b/SoT/CONTEXT_PROTOCOL.md
+index dee121c..d19da72 100644
+--- a/SoT/CONTEXT_PROTOCOL.md
++++ b/SoT/CONTEXT_PROTOCOL.md
+@@ -27,3 +27,13 @@ Every project owns `whaness.yml`. Wharness creates it before the first context c
+ Context selection order is conservative: mandatory secret/path exclusions and legacy `.harnessignore` remain authoritative; project excludes are then applied; a non-empty include list narrows the eligible files and may explicitly retain a path that would otherwise be removed only by heuristic auto-pruning; automatic pruning removes common dependency/cache/build/test/IDE/temporary/binary/archive/media artifacts from the remaining candidates; size and bundle limits are enforced last. Include patterns never override mandatory secret, VCS, symlink, dependency-root, or protected-path exclusions.
+ 
+ Automatic pruning is context-only. It does not delete project files and does not grant the editor, terminal, planner, or executor additional filesystem access. The manifest records excluded paths together with the reason so the user can tune `whaness.yml` without guessing.
++
++## Context inspection and transparency (v1.2.17.4)
++
++The context settings surface MUST be able to explain the final ZIP, not only the requested configuration. Every rebuilt manifest records structured exclusion details (`path`, `kind`, `reason`, `rule`) alongside the legacy human-readable exclusion strings for compatibility.
++
++The backend exposes a read-only context inspection derived from the current manifest plus the effective project rules. It reports every top-level project directory/file, exact final included files, excluded paths/subtrees, byte/count summaries, and the complete active rule catalogue: mandatory Wharness exclusions, `.harnessignore`, `whaness.yml` include/exclude, automatic pruning, per-file size, bundle cap, content-secret/binary checks and symlink denial.
++
++The final-context explorer MUST treat `manifest.files` as the authoritative included-file list. It may search/filter/paginate that list for usability, but MUST NOT infer that a file is included merely because a parent directory is eligible. Excluded directories may represent an entire skipped subtree and therefore do not require enumerating every child that was never walked.
++
++Structured exclusion details are local audit/UI metadata and MUST be omitted from the planner prompt payload when the legacy compact exclusion summary already communicates the same decision, avoiding duplicate context cost.
+diff --git a/SoT/EXECUTION_MODEL.md b/SoT/EXECUTION_MODEL.md
+index a0fabdf..9f6c59c 100644
+--- a/SoT/EXECUTION_MODEL.md
++++ b/SoT/EXECUTION_MODEL.md
+@@ -52,3 +52,7 @@ Editor file saves and Explorer create/rename/delete actions are explicit human m
+ ## Human project provisioning (v1.2.17)
+ 
+ Opening, creating, and cloning a project occurs before Agent execution and is driven only by explicit local UI actions. Creating a project makes a new directory and initializes its Git boundary. Cloning uses `git clone --recurse-submodules` into a destination that did not previously exist. These bootstrap actions do not change Protected/Unprotected mode and are never emitted or triggered by a model execution plan.
++
++## Interactive Host terminal submit semantics (v1.2.17.4)
++
++The human Host terminal remains a direct argv executor rooted at the real project. Submission is available through both Enter/form submit and an explicit run button. This UI affordance does not introduce a shell: tokenization remains client-side argv parsing, backend interactive policy validation remains mandatory, and the Host runner executes the selected executable directly with the project-relative cwd.
+diff --git a/SoT/UI_UX.md b/SoT/UI_UX.md
+index 2f6d1fc..2cb2b3c 100644
+--- a/SoT/UI_UX.md
++++ b/SoT/UI_UX.md
+@@ -41,3 +41,11 @@ The ChatGPT panel has one-to-one conversation affinity with the active Harness c
+ The initial workspace surface offers three first-class project entry paths: open an existing folder through the operating-system directory explorer, create a new project below a selected parent folder, or clone a Git repository. Git clone states that recursive submodules are included. Manual project-path typing is a browser fallback, not the primary Desktop workflow.
+ 
+ An opened workspace exposes project settings from the top bar. The settings surface edits the context portion of `whaness.yml`: automatic pruning, include patterns, exclude patterns, and maximum per-file size. Saving reconstructs the session context immediately and keeps mandatory security exclusions visibly non-overridable. Restored sessions whose config file was removed must recreate the validated default before presenting settings; load failures show an actionable retry state rather than an indefinite loading message.
++
++## Context transparency explorer (v1.2.17.4)
++
++`Contexto do Wharness` is an inspection surface as well as a configuration dialog. It presents summary counts/bytes, every top-level project folder and root file with its final status, an exact searchable/filterable list of files included in the current ZIP, excluded paths with rule/reason, and the complete effective exclusion/inclusion rule catalogue. The user can rebuild the context from this surface and immediately inspect the new snapshot.
++
++The final-context list defaults to included files because that is the payload the planner receives. Included, excluded and all-item filters remain available, with bounded incremental rendering for large repositories. Security rules are visually distinguished from optional project/heuristic rules.
++
++The Editor Host terminal MUST expose an explicit submit affordance in addition to Enter. After Host confirmation, ordinary argv commands such as `ls`, `pwd`, `cat`, `git`, `go`, `npm` and `make` must visibly submit and return stdout/stderr. The UI must preserve the argv-only security boundary and surface policy/runtime errors in the terminal history rather than silently ignoring input.
+diff --git a/adr/ADR-0011-context-transparency-terminal-submit.md b/adr/ADR-0011-context-transparency-terminal-submit.md
+new file mode 100644
+index 0000000..c19c5dc
+--- /dev/null
++++ b/adr/ADR-0011-context-transparency-terminal-submit.md
+@@ -0,0 +1,17 @@
++# ADR-0011 — Context transparency and dependable Host-terminal submit
++
++## Status
++Accepted
++
++## Context
++Per-project context pruning made snapshots smaller, but users could not easily verify which root areas, exact files and exclusion rules produced the final ZIP. The Host terminal also relied on an input key handler with no explicit run affordance, making successful submission and failure states unclear.
++
++## Decision
++1. Extend the context manifest with structured exclusion details while retaining legacy exclusion strings.
++2. Add a read-only context-inspection API generated from the authoritative current manifest and effective project rules.
++3. Present three inspection views in `Contexto do Wharness`: final inventory, root structure and effective rules. The final inventory uses `manifest.files` as the exact inclusion source.
++4. Keep large inventories searchable/filterable and render them incrementally.
++5. Make terminal input a semantic form and add an explicit run button. Host execution remains argv-only and continues through the interactive Policy Engine and `HostRunner`.
++
++## Consequences
++Context decisions become auditable without opening the ZIP manually. The additional manifest field is backward-compatible because old sessions may omit it and inspection can fall back to legacy exclusion strings. Host-terminal UX becomes deterministic without weakening its security model.
+diff --git a/schemas/context-manifest.schema.json b/schemas/context-manifest.schema.json
+index 131d3c1..76ab7f4 100644
+--- a/schemas/context-manifest.schema.json
++++ b/schemas/context-manifest.schema.json
+@@ -6,8 +6,34 @@
+     "id": {"type": "string"},
+     "project_root": {"type": "string"},
+     "sha256": {"type": "string"},
+-    "files": {"type": "array"},
+-    "excluded": {"type": "array"},
++    "files": {
++      "type": "array",
++      "items": {
++        "type": "object",
++        "required": ["path", "size", "sha256"],
++        "properties": {
++          "path": {"type": "string"},
++          "size": {"type": "integer", "minimum": 0},
++          "sha256": {"type": "string"}
++        },
++        "additionalProperties": false
++      }
++    },
++    "excluded": {"type": "array", "items": {"type": "string"}},
++    "excluded_details": {
++      "type": "array",
++      "items": {
++        "type": "object",
++        "required": ["path", "kind", "reason", "rule"],
++        "properties": {
++          "path": {"type": "string"},
++          "kind": {"type": "string"},
++          "reason": {"type": "string"},
++          "rule": {"type": "string"}
++        },
++        "additionalProperties": false
++      }
++    },
+     "text_truncated": {"type": "boolean"}
+   }
+ }
+diff --git a/services/backend/internal/app/service.go b/services/backend/internal/app/service.go
+index ced51bb..3f60a60 100644
+--- a/services/backend/internal/app/service.go
++++ b/services/backend/internal/app/service.go
+@@ -1074,6 +1074,14 @@ func (s *Service) ResetTerminal(ctx context.Context, sessionID string) error {
+ 	return err
+ }
+ 
++func (s *Service) ContextInspection(sessionID string) (contextbundle.ContextInspection, error) {
++	item, err := s.store.Get(sessionID)
++	if err != nil {
++		return contextbundle.ContextInspection{}, err
++	}
++	return s.context.Inspect(item.ProjectPath, item.Context.Manifest)
++}
++
+ func (s *Service) RefreshContext(sessionID string) (domain.Session, error) {
+ 	return s.refreshContext(sessionID)
+ }
+diff --git a/services/backend/internal/contextbundle/builder.go b/services/backend/internal/contextbundle/builder.go
+index a0cadba..6acc78d 100644
+--- a/services/backend/internal/contextbundle/builder.go
++++ b/services/backend/internal/contextbundle/builder.go
+@@ -93,11 +93,15 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
+ 		}
+ 		rel = filepath.ToSlash(rel)
+ 		if entry.Type()&os.ModeSymlink != 0 {
+-			manifest.Excluded = append(manifest.Excluded, rel+" (symlink)")
++			addExcluded(&manifest, rel, "symlink", "symlink", "symlink")
+ 			return nil
+ 		}
+-		if reason, ignored := contextExclusion(rel, entry.IsDir(), patterns, cfg.Context); ignored {
+-			manifest.Excluded = append(manifest.Excluded, rel+" ("+reason+")")
++		if reason, rule, ignored := contextExclusion(rel, entry.IsDir(), patterns, cfg.Context); ignored {
++			kind := "file"
++			if entry.IsDir() {
++				kind = "directory"
++			}
++			addExcluded(&manifest, rel, kind, reason, rule)
+ 			if entry.IsDir() {
+ 				return filepath.SkipDir
+ 			}
+@@ -111,11 +115,11 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
+ 			return err
+ 		}
+ 		if info.Size() > cfg.Context.MaxFileBytes {
+-			manifest.Excluded = append(manifest.Excluded, rel+" (file size limit)")
++			addExcluded(&manifest, rel, "file", "file size limit", "file-size")
+ 			return nil
+ 		}
+ 		if bundleBytes+info.Size() > b.maxBundleBytes {
+-			manifest.Excluded = append(manifest.Excluded, rel+" (bundle limit)")
++			addExcluded(&manifest, rel, "file", "bundle limit", "bundle-limit")
+ 			return nil
+ 		}
+ 		data, err := os.ReadFile(path)
+@@ -123,11 +127,11 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
+ 			return err
+ 		}
+ 		if containsSecret(data) {
+-			manifest.Excluded = append(manifest.Excluded, rel+" (secret-like content)")
++			addExcluded(&manifest, rel, "file", "secret-like content", "secret-content")
+ 			return nil
+ 		}
+ 		if cfg.Context.AutoExclude && !matchAny(rel, cfg.Context.Include) && !looksText(data) {
+-			manifest.Excluded = append(manifest.Excluded, rel+" (binary content)")
++			addExcluded(&manifest, rel, "file", "binary content", "binary-content")
+ 			return nil
+ 		}
+ 		h := sha256.Sum256(data)
+@@ -170,6 +174,7 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
+ 	}
+ 	sort.Slice(manifest.Files, func(i, j int) bool { return manifest.Files[i].Path < manifest.Files[j].Path })
+ 	sort.Strings(manifest.Excluded)
++	sort.Slice(manifest.ExcludedDetails, func(i, j int) bool { return manifest.ExcludedDetails[i].Path < manifest.ExcludedDetails[j].Path })
+ 	manifest.SHA256 = hex.EncodeToString(projectHash.Sum(nil))
+ 	manifestJSON, _ := json.MarshalIndent(manifest, "", "  ")
+ 	_, _ = textWriter.WriteString("\n\n===== KERNL CONTEXT MANIFEST =====\n")
+@@ -177,6 +182,11 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
+ 	return manifest, nil
+ }
+ 
++func addExcluded(manifest *domain.ContextManifest, rel, kind, reason, rule string) {
++	manifest.Excluded = append(manifest.Excluded, rel+" ("+reason+")")
++	manifest.ExcludedDetails = append(manifest.ExcludedDetails, domain.ContextExclusion{Path: rel, Kind: kind, Reason: reason, Rule: rule})
++}
++
+ func LoadIgnorePatterns(root string) []string {
+ 	data, err := os.ReadFile(filepath.Join(root, ".harnessignore"))
+ 	if err != nil {
+@@ -222,22 +232,14 @@ func ShouldIgnore(rel string, isDir bool) bool {
+ 	rel = strings.TrimPrefix(filepath.ToSlash(rel), "./")
+ 	parts := strings.Split(strings.ToLower(rel), "/")
+ 	base := parts[len(parts)-1]
+-	blockedDirs := map[string]bool{
+-		".git": true, "node_modules": true, "dist": true, "build": true,
+-		"coverage": true, ".next": true, ".vite": true, ".harness": true,
+-		"vendor": true, "secrets": true, ".ssh": true, ".aws": true, ".gnupg": true,
+-	}
+-	if isDir && blockedDirs[base] {
++	if isDir && stringIn(base, mandatoryBlockedDirs) {
+ 		return true
+ 	}
+-	blockedNames := map[string]bool{
+-		".env": true, "credentials.json": true, "id_rsa": true, "id_ed25519": true, ".npmrc": true, ".netrc": true, ".pypirc": true, ".git-credentials": true, "auth.json": true,
+-	}
+ 	safeEnvTemplate := base == ".env.example" || base == ".env.sample" || base == ".env.template"
+-	if blockedNames[base] || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) {
++	if stringIn(base, mandatoryBlockedNames) || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) {
+ 		return true
+ 	}
+-	for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".dump"} {
++	for _, ext := range mandatoryBlockedExtensions {
+ 		if strings.HasSuffix(base, ext) {
+ 			return true
+ 		}
+@@ -245,6 +247,26 @@ func ShouldIgnore(rel string, isDir bool) bool {
+ 	return false
+ }
+ 
++var mandatoryBlockedDirs = []string{
++	".git", "node_modules", "dist", "build", "coverage", ".next", ".vite", ".harness",
++	"vendor", "secrets", ".ssh", ".aws", ".gnupg",
++}
++
++var mandatoryBlockedNames = []string{
++	".env", "credentials.json", "id_rsa", "id_ed25519", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "auth.json",
++}
++
++var mandatoryBlockedExtensions = []string{".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".dump"}
++
++func stringIn(value string, values []string) bool {
++	for _, candidate := range values {
++		if value == candidate {
++			return true
++		}
++	}
++	return false
++}
++
+ func containsSecret(data []byte) bool {
+ 	if len(data) == 0 || !looksText(data) {
+ 		return false
+diff --git a/services/backend/internal/contextbundle/builder_test.go b/services/backend/internal/contextbundle/builder_test.go
+index 8f71f87..944c2d3 100644
+--- a/services/backend/internal/contextbundle/builder_test.go
++++ b/services/backend/internal/contextbundle/builder_test.go
+@@ -100,3 +100,55 @@ func TestAutoExcludeRemovesCommonGeneratedArtifacts(t *testing.T) {
+ 		t.Fatal("globstar include should match descendants")
+ 	}
+ }
++
++func TestBuildRecordsStructuredExclusionDetails(t *testing.T) {
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
++	mustWrite(t, filepath.Join(root, ".env"), "TOKEN=secret\n")
++	bundle, err := NewBuilder(1024*1024, 1024*1024).Build(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	found := false
++	for _, item := range bundle.Manifest.ExcludedDetails {
++		if item.Path == ".env" && item.Rule == "mandatory" {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatalf("expected structured .env exclusion, got %#v", bundle.Manifest.ExcludedDetails)
++	}
++}
++
++func TestContextInspectionShowsRootsRulesAndFinalInventory(t *testing.T) {
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "src", "main.go"), "package main\n")
++	mustWrite(t, filepath.Join(root, "node_modules", "pkg", "index.js"), "module.exports = {}\n")
++	mustWrite(t, filepath.Join(root, "README.md"), "# demo\n")
++	builder := NewBuilder(1024*1024, 1024*1024)
++	bundle, err := builder.Build(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	inspection, err := builder.Inspect(root, bundle.Manifest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if inspection.IncludedFiles < 2 || len(inspection.Rules) == 0 || len(inspection.Roots) < 3 {
++		t.Fatalf("unexpected inspection: %#v", inspection)
++	}
++	seenIncluded, seenExcludedRoot := false, false
++	for _, item := range inspection.Entries {
++		if item.Path == "src/main.go" && item.Status == "included" {
++			seenIncluded = true
++		}
++	}
++	for _, item := range inspection.Roots {
++		if item.Path == "node_modules" && item.Status == "excluded" {
++			seenExcludedRoot = true
++		}
++	}
++	if !seenIncluded || !seenExcludedRoot {
++		t.Fatalf("inspection does not explain final context: %#v", inspection)
++	}
++}
+diff --git a/services/backend/internal/contextbundle/filtering.go b/services/backend/internal/contextbundle/filtering.go
+index 103505b..da24824 100644
+--- a/services/backend/internal/contextbundle/filtering.go
++++ b/services/backend/internal/contextbundle/filtering.go
+@@ -7,22 +7,49 @@ import (
+ 	"kernl.local/harness/backend/internal/projectconfig"
+ )
+ 
+-func contextExclusion(rel string, isDir bool, legacyPatterns []string, cfg projectconfig.ContextConfig) (string, bool) {
+-	if ShouldIgnoreWithPatterns(rel, isDir, legacyPatterns) {
+-		return "harness ignore", true
++func contextExclusion(rel string, isDir bool, legacyPatterns []string, cfg projectconfig.ContextConfig) (reason, rule string, ignored bool) {
++	if ShouldIgnore(rel, isDir) {
++		return "mandatory security/context exclusion", "mandatory", true
++	}
++	if matchesIgnorePatterns(rel, legacyPatterns) {
++		return "matched .harnessignore", "harnessignore", true
+ 	}
+ 	if matchAny(rel, cfg.Exclude) {
+-		return "project config exclude", true
++		return "project config exclude", "config-exclude", true
+ 	}
+ 	if !isDir && len(cfg.Include) > 0 && !matchAny(rel, cfg.Include) {
+-		return "not selected by project config include", true
++		return "not selected by project config include", "config-include", true
+ 	}
+ 	if cfg.AutoExclude && !explicitIncludeKeeps(rel, isDir, cfg.Include) {
+ 		if reason, ignored := autoExclude(rel, isDir); ignored {
+-			return reason, true
++			return reason, "auto-exclude", true
+ 		}
+ 	}
+-	return "", false
++	return "", "", false
++}
++
++func matchesIgnorePatterns(rel string, patterns []string) bool {
++	if len(patterns) == 0 {
++		return false
++	}
++	rel = strings.TrimPrefix(filepathSlash(rel), "./")
++	base := path.Base(rel)
++	for _, pattern := range patterns {
++		pattern = strings.TrimSuffix(strings.TrimPrefix(filepathSlash(strings.TrimSpace(pattern)), "./"), "/")
++		if pattern == "" {
++			continue
++		}
++		if matched, _ := path.Match(pattern, rel); matched {
++			return true
++		}
++		if matched, _ := path.Match(pattern, base); matched {
++			return true
++		}
++		if rel == pattern || strings.HasPrefix(rel, pattern+"/") {
++			return true
++		}
++	}
++	return false
+ }
+ 
+ func explicitIncludeKeeps(rel string, isDir bool, patterns []string) bool {
+@@ -53,30 +80,20 @@ func autoExclude(rel string, isDir bool) (string, bool) {
+ 		if strings.HasPrefix(base, "kernl-context-") || strings.HasPrefix(base, "wharness-context-") {
+ 			return "generated context snapshot", true
+ 		}
+-		dirs := map[string]string{
+-			".svn": "vcs metadata", ".hg": "vcs metadata",
+-			".idea": "ide metadata", ".vscode": "ide metadata",
+-			"__pycache__": "language cache", ".pytest_cache": "test cache", ".mypy_cache": "language cache", ".ruff_cache": "language cache",
+-			".venv": "dependency environment", "venv": "dependency environment",
+-			"target": "generated build output", "out": "generated build output", ".gradle": "build cache",
+-			".dart_tool": "dependency cache", ".terraform": "dependency cache", ".serverless": "generated deployment output", "pods": "dependency cache",
+-			"playwright-report": "test output", "test-results": "test output", ".cache": "tool cache", ".parcel-cache": "tool cache",
+-			"tmp": "temporary output", "temp": "temporary output",
+-		}
+-		if reason := dirs[base]; reason != "" {
++		if reason := automaticDirectoryReasons[base]; reason != "" {
+ 			return reason, true
+ 		}
+ 		return "", false
+ 	}
+-	if base == ".ds_store" || base == "thumbs.db" || base == "desktop.ini" {
++	if stringIn(base, automaticMetadataNames) {
+ 		return "os metadata", true
+ 	}
+-	for _, suffix := range []string{".log", ".tmp", ".temp", ".swp", ".swo", ".orig", ".rej", "~", ".pyc", ".pyo", ".class", ".o", ".obj", ".a", ".so", ".dylib", ".dll", ".exe", ".bin", ".tsbuildinfo"} {
++	for _, suffix := range automaticGeneratedSuffixes {
+ 		if strings.HasSuffix(base, suffix) {
+ 			return "generated or binary artifact", true
+ 		}
+ 	}
+-	for _, suffix := range []string{".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".mp3", ".mp4", ".mov", ".avi", ".woff", ".woff2", ".ttf", ".otf"} {
++	for _, suffix := range automaticAssetSuffixes {
+ 		if strings.HasSuffix(base, suffix) {
+ 			return "non-source asset", true
+ 		}
+@@ -84,6 +101,19 @@ func autoExclude(rel string, isDir bool) (string, bool) {
+ 	return "", false
+ }
+ 
++var automaticDirectoryReasons = map[string]string{
++	".svn": "vcs metadata", ".hg": "vcs metadata", ".idea": "ide metadata", ".vscode": "ide metadata",
++	"__pycache__": "language cache", ".pytest_cache": "test cache", ".mypy_cache": "language cache", ".ruff_cache": "language cache",
++	".venv": "dependency environment", "venv": "dependency environment", "target": "generated build output", "out": "generated build output",
++	".gradle": "build cache", ".dart_tool": "dependency cache", ".terraform": "dependency cache", ".serverless": "generated deployment output",
++	"pods": "dependency cache", "playwright-report": "test output", "test-results": "test output", ".cache": "tool cache",
++	".parcel-cache": "tool cache", "tmp": "temporary output", "temp": "temporary output",
++}
++
++var automaticMetadataNames = []string{".ds_store", "thumbs.db", "desktop.ini"}
++var automaticGeneratedSuffixes = []string{".log", ".tmp", ".temp", ".swp", ".swo", ".orig", ".rej", "~", ".pyc", ".pyo", ".class", ".o", ".obj", ".a", ".so", ".dylib", ".dll", ".exe", ".bin", ".tsbuildinfo"}
++var automaticAssetSuffixes = []string{".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".mp3", ".mp4", ".mov", ".avi", ".woff", ".woff2", ".ttf", ".otf"}
++
+ func matchAny(rel string, patterns []string) bool {
+ 	rel = strings.TrimPrefix(filepathSlash(rel), "./")
+ 	for _, pattern := range patterns {
+diff --git a/services/backend/internal/contextbundle/inspection.go b/services/backend/internal/contextbundle/inspection.go
+new file mode 100644
+index 0000000..eab7d1d
+--- /dev/null
++++ b/services/backend/internal/contextbundle/inspection.go
+@@ -0,0 +1,183 @@
++package contextbundle
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++
++	"kernl.local/harness/backend/internal/domain"
++	"kernl.local/harness/backend/internal/projectconfig"
++)
++
++type ContextRule struct {
++	ID          string   `json:"id"`
++	Source      string   `json:"source"`
++	Label       string   `json:"label"`
++	Enabled     bool     `json:"enabled"`
++	Patterns    []string `json:"patterns"`
++	Description string   `json:"description"`
++}
++
++type ContextInventoryEntry struct {
++	Path   string `json:"path"`
++	Kind   string `json:"kind"`
++	Status string `json:"status"`
++	Size   int64  `json:"size,omitempty"`
++	Reason string `json:"reason,omitempty"`
++	Rule   string `json:"rule,omitempty"`
++}
++
++type ContextRootEntry struct {
++	Path          string `json:"path"`
++	Name          string `json:"name"`
++	Kind          string `json:"kind"`
++	Status        string `json:"status"`
++	IncludedFiles int    `json:"included_files"`
++	ExcludedItems int    `json:"excluded_items"`
++	IncludedBytes int64  `json:"included_bytes"`
++	Reason        string `json:"reason,omitempty"`
++}
++
++type ContextInspection struct {
++	SnapshotID    string                  `json:"snapshot_id"`
++	SHA256        string                  `json:"sha256"`
++	ProjectRoot   string                  `json:"project_root"`
++	IncludedFiles int                     `json:"included_files"`
++	ExcludedItems int                     `json:"excluded_items"`
++	IncludedBytes int64                   `json:"included_bytes"`
++	Roots         []ContextRootEntry      `json:"roots"`
++	Entries       []ContextInventoryEntry `json:"entries"`
++	Rules         []ContextRule           `json:"rules"`
++}
++
++func (b *Builder) Inspect(projectRoot string, manifest domain.ContextManifest) (ContextInspection, error) {
++	root, err := filepath.Abs(projectRoot)
++	if err != nil {
++		return ContextInspection{}, err
++	}
++	cfg, _, err := projectconfig.Ensure(root)
++	if err != nil {
++		return ContextInspection{}, err
++	}
++	inspection := ContextInspection{SnapshotID: manifest.ID, SHA256: manifest.SHA256, ProjectRoot: root}
++	for _, file := range manifest.Files {
++		inspection.Entries = append(inspection.Entries, ContextInventoryEntry{Path: file.Path, Kind: "file", Status: "included", Size: file.Size})
++		inspection.IncludedFiles++
++		inspection.IncludedBytes += file.Size
++	}
++	details := manifest.ExcludedDetails
++	if len(details) == 0 {
++		details = legacyExclusionDetails(manifest.Excluded)
++	}
++	for _, item := range details {
++		inspection.Entries = append(inspection.Entries, ContextInventoryEntry{Path: item.Path, Kind: item.Kind, Status: "excluded", Reason: item.Reason, Rule: item.Rule})
++		inspection.ExcludedItems++
++	}
++	sort.Slice(inspection.Entries, func(i, j int) bool { return inspection.Entries[i].Path < inspection.Entries[j].Path })
++	inspection.Rules = b.rules(root, cfg)
++	inspection.Roots, err = rootEntries(root, inspection.Entries)
++	if err != nil {
++		return ContextInspection{}, err
++	}
++	return inspection, nil
++}
++
++func (b *Builder) rules(root string, cfg projectconfig.Config) []ContextRule {
++	autoDirs := make([]string, 0, len(automaticDirectoryReasons))
++	for name := range automaticDirectoryReasons {
++		autoDirs = append(autoDirs, name+"/")
++	}
++	sort.Strings(autoDirs)
++	return []ContextRule{
++		{ID: "mandatory-directories", Source: "Wharness", Label: "Pastas protegidas", Enabled: true, Patterns: slashSuffix(mandatoryBlockedDirs), Description: "Nunca entram no contexto e não podem ser reativadas pelo projeto."},
++		{ID: "mandatory-files", Source: "Wharness", Label: "Ficheiros/segredos protegidos", Enabled: true, Patterns: append(append([]string{}, mandatoryBlockedNames...), prefixStar(mandatoryBlockedExtensions)...), Description: "Credenciais, bases locais e material secreto são sempre bloqueados."},
++		{ID: "harnessignore", Source: ".harnessignore", Label: "Regras .harnessignore", Enabled: len(LoadIgnorePatterns(root)) > 0, Patterns: LoadIgnorePatterns(root), Description: "Padrões adicionais definidos pelo próprio projeto."},
++		{ID: "config-include", Source: projectconfig.FileName, Label: "Incluir apenas", Enabled: len(cfg.Context.Include) > 0, Patterns: cfg.Context.Include, Description: "Quando definido, ficheiros que não casam com estes padrões ficam fora do snapshot."},
++		{ID: "config-exclude", Source: projectconfig.FileName, Label: "Excluir do contexto", Enabled: len(cfg.Context.Exclude) > 0, Patterns: cfg.Context.Exclude, Description: "Exclusões explícitas configuradas no projeto."},
++		{ID: "auto-directories", Source: "Reconhecimento automático", Label: "Pastas sem valor para IA", Enabled: cfg.Context.AutoExclude, Patterns: autoDirs, Description: "Caches, metadados de IDE/VCS secundário, builds, ambientes e resultados de teste."},
++		{ID: "auto-generated-files", Source: "Reconhecimento automático", Label: "Artefactos gerados", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticGeneratedSuffixes), Description: "Logs, temporários, bytecode e binários gerados."},
++		{ID: "auto-assets", Source: "Reconhecimento automático", Label: "Assets não-fonte", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticAssetSuffixes), Description: "Arquivos, media e fontes que normalmente só aumentam o contexto."},
++		{ID: "file-size", Source: projectconfig.FileName, Label: "Limite por ficheiro", Enabled: true, Patterns: []string{fmt.Sprintf("ficheiro > %d bytes", cfg.Context.MaxFileBytes)}, Description: "Ficheiros individuais acima do limite configurado são excluídos."},
++		{ID: "bundle-limit", Source: "Wharness", Label: "Limite total do bundle", Enabled: true, Patterns: []string{fmt.Sprintf("bundle > %d bytes", b.maxBundleBytes)}, Description: "Impede um ZIP de contexto excessivamente grande."},
++		{ID: "content-safety", Source: "Wharness", Label: "Inspeção de segurança de conteúdo", Enabled: true, Patterns: []string{"secret-like content", "symlink"}, Description: "Marcadores de segredo e symlinks são removidos antes do ZIP."},
++		{ID: "binary-content", Source: "Reconhecimento automático", Label: "Conteúdo binário", Enabled: cfg.Context.AutoExclude, Patterns: []string{"non-text/binary content not explicitly included"}, Description: "Quando o reconhecimento automático está ativo, conteúdo binário sem inclusão explícita fica fora do contexto."},
++	}
++}
++
++func rootEntries(root string, inventory []ContextInventoryEntry) ([]ContextRootEntry, error) {
++	items, err := os.ReadDir(root)
++	if err != nil {
++		return nil, err
++	}
++	roots := make([]ContextRootEntry, 0, len(items))
++	for _, item := range items {
++		entry := ContextRootEntry{Path: item.Name(), Name: item.Name(), Kind: "file", Status: "not-in-snapshot"}
++		if item.IsDir() {
++			entry.Kind = "directory"
++		}
++		for _, inv := range inventory {
++			if inv.Path != item.Name() && !strings.HasPrefix(inv.Path, item.Name()+"/") {
++				continue
++			}
++			if inv.Status == "included" {
++				entry.IncludedFiles++
++				entry.IncludedBytes += inv.Size
++			} else {
++				entry.ExcludedItems++
++				if inv.Path == item.Name() && entry.Reason == "" {
++					entry.Reason = inv.Reason
++				}
++			}
++		}
++		switch {
++		case entry.IncludedFiles > 0 && entry.ExcludedItems > 0:
++			entry.Status = "partial"
++		case entry.IncludedFiles > 0:
++			entry.Status = "included"
++		case entry.ExcludedItems > 0:
++			entry.Status = "excluded"
++		}
++		roots = append(roots, entry)
++	}
++	sort.Slice(roots, func(i, j int) bool {
++		if roots[i].Kind != roots[j].Kind {
++			return roots[i].Kind == "directory"
++		}
++		return roots[i].Name < roots[j].Name
++	})
++	return roots, nil
++}
++
++func legacyExclusionDetails(values []string) []domain.ContextExclusion {
++	out := make([]domain.ContextExclusion, 0, len(values))
++	for _, value := range values {
++		path, reason := value, "excluded"
++		if idx := strings.LastIndex(value, " ("); idx > 0 && strings.HasSuffix(value, ")") {
++			path, reason = value[:idx], strings.TrimSuffix(value[idx+2:], ")")
++		}
++		out = append(out, domain.ContextExclusion{Path: path, Kind: "unknown", Reason: reason, Rule: "legacy"})
++	}
++	return out
++}
++
++func slashSuffix(values []string) []string {
++	out := make([]string, len(values))
++	for i, value := range values {
++		out[i] = value + "/"
++	}
++	return out
++}
++
++func prefixStar(values []string) []string {
++	out := make([]string, len(values))
++	for i, value := range values {
++		if strings.HasPrefix(value, "*") {
++			out[i] = value
++		} else {
++			out[i] = "*" + value
++		}
++	}
++	return out
++}
+diff --git a/services/backend/internal/domain/types.go b/services/backend/internal/domain/types.go
+index 302b466..6b854bf 100644
+--- a/services/backend/internal/domain/types.go
++++ b/services/backend/internal/domain/types.go
+@@ -134,13 +134,21 @@ type ContextFile struct {
+ 	SHA256 string `json:"sha256"`
+ }
+ 
++type ContextExclusion struct {
++	Path   string `json:"path"`
++	Kind   string `json:"kind"`
++	Reason string `json:"reason"`
++	Rule   string `json:"rule"`
++}
++
+ type ContextManifest struct {
+-	ID            string        `json:"id"`
+-	ProjectRoot   string        `json:"project_root"`
+-	SHA256        string        `json:"sha256"`
+-	Files         []ContextFile `json:"files"`
+-	Excluded      []string      `json:"excluded"`
+-	TextTruncated bool          `json:"text_truncated"`
++	ID              string             `json:"id"`
++	ProjectRoot     string             `json:"project_root"`
++	SHA256          string             `json:"sha256"`
++	Files           []ContextFile      `json:"files"`
++	Excluded        []string           `json:"excluded"`
++	ExcludedDetails []ContextExclusion `json:"excluded_details,omitempty"`
++	TextTruncated   bool               `json:"text_truncated"`
+ }
+ 
+ type ContextBundle struct {
+diff --git a/services/backend/internal/planner/prompt.go b/services/backend/internal/planner/prompt.go
+index a8bdfac..9c0abc5 100644
+--- a/services/backend/internal/planner/prompt.go
++++ b/services/backend/internal/planner/prompt.go
+@@ -90,7 +90,12 @@ Return one harness.turn/v1 JSON object with exactly: protocol, request_id, kind,
+ - plan is null for every non-change kind. For change it is the complete harness.execution/v1 object.`
+ 
+ func BuildManualPrompt(req Request) string {
+-	manifest, _ := json.MarshalIndent(req.ContextManifest, "", "  ")
++	manifestForPlanner := req.ContextManifest
++	// Structured exclusion details exist for local audit/UI inspection. The
++	// legacy exclusion summary is sufficient for the model and avoids sending
++	// the same exclusion inventory twice.
++	manifestForPlanner.ExcludedDetails = nil
++	manifest, _ := json.MarshalIndent(manifestForPlanner, "", "  ")
+ 	return fmt.Sprintf(`%s
+ 
+ REQUEST ID: %s
+diff --git a/services/backend/internal/planner/prompt_test.go b/services/backend/internal/planner/prompt_test.go
+index a901610..adda1a5 100644
+--- a/services/backend/internal/planner/prompt_test.go
++++ b/services/backend/internal/planner/prompt_test.go
+@@ -3,6 +3,8 @@ package planner
+ import (
+ 	"strings"
+ 	"testing"
++
++	"kernl.local/harness/backend/internal/domain"
+ )
+ 
+ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
+@@ -32,3 +34,20 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestBuildManualPromptDoesNotDuplicateStructuredExclusionInventory(t *testing.T) {
++	prompt := BuildManualPrompt(Request{
++		RequestID: "req-context",
++		Message:   "inspect",
++		ContextManifest: domain.ContextManifest{
++			Excluded:        []string{"node_modules (mandatory security/context exclusion)"},
++			ExcludedDetails: []domain.ContextExclusion{{Path: "node_modules", Kind: "directory", Reason: "mandatory security/context exclusion", Rule: "mandatory"}},
++		},
++	})
++	if strings.Contains(prompt, "excluded_details") {
++		t.Fatal("structured local inspection details must not bloat planner prompt")
++	}
++	if !strings.Contains(prompt, "node_modules (mandatory security/context exclusion)") {
++		t.Fatal("compact legacy exclusion summary should remain visible to planner")
++	}
++}
+diff --git a/services/backend/internal/sandbox/host_test.go b/services/backend/internal/sandbox/host_test.go
+new file mode 100644
+index 0000000..3cc8132
+--- /dev/null
++++ b/services/backend/internal/sandbox/host_test.go
+@@ -0,0 +1,30 @@
++package sandbox
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"kernl.local/harness/backend/internal/domain"
++)
++
++func TestHostRunnerExecutesArgvInsideRealProject(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "visible.txt"), []byte("ok\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	runner := NewHostRunner()
++	workspace, err := runner.Prepare(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	result, err := runner.Run(context.Background(), workspace, domain.CommandSpec{Argv: []string{"ls"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !result.Success || !strings.Contains(result.Stdout, "visible.txt") {
++		t.Fatalf("host argv did not execute in project root: %#v", result)
++	}
++}
+diff --git a/services/backend/internal/transport/httpapi/server.go b/services/backend/internal/transport/httpapi/server.go
+index 283c135..5af0bb4 100644
+--- a/services/backend/internal/transport/httpapi/server.go
++++ b/services/backend/internal/transport/httpapi/server.go
+@@ -46,6 +46,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
+ 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
+ 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
+ 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
++	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
+ 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
+ 	mux.HandleFunc("GET /api/sessions/{id}/project-config", a.projectConfig)
+ 	mux.HandleFunc("PUT /api/sessions/{id}/project-config", a.updateProjectConfig)
+@@ -440,6 +441,15 @@ func (a *API) bundle(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 	serveDownload(w, r, item.Context.ZipPath, "wharness-context-"+item.ID+".zip", "application/zip")
+ }
++func (a *API) contextInspection(w http.ResponseWriter, r *http.Request) {
++	inspection, err := a.service.ContextInspection(r.PathValue("id"))
++	if err != nil {
++		writeError(w, http.StatusBadRequest, "context_inspection_failed", err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, inspection)
++}
++
+ func (a *API) contextFile(w http.ResponseWriter, r *http.Request) {
+ 	item, err := a.store.Get(r.PathValue("id"))
+ 	if err != nil {
+diff --git a/services/frontend/src/components/ContextInspector.test.tsx b/services/frontend/src/components/ContextInspector.test.tsx
+new file mode 100644
+index 0000000..d11189f
+--- /dev/null
++++ b/services/frontend/src/components/ContextInspector.test.tsx
+@@ -0,0 +1,29 @@
++import { fireEvent, render, screen } from '@testing-library/react'
++import { describe, expect, it } from 'vitest'
++import { ContextInspector } from './ContextInspector'
++
++const inspection = {
++  snapshot_id: 'ctx-1', sha256: 'abcdef123456', project_root: '/tmp/demo', included_files: 2, excluded_items: 1, included_bytes: 1200,
++  roots: [
++    { path: 'src', name: 'src', kind: 'directory', status: 'included', included_files: 2, excluded_items: 0, included_bytes: 1200 },
++    { path: 'node_modules', name: 'node_modules', kind: 'directory', status: 'excluded', included_files: 0, excluded_items: 1, included_bytes: 0, reason: 'mandatory security/context exclusion' },
++  ],
++  entries: [
++    { path: 'src/main.ts', kind: 'file', status: 'included', size: 1000 },
++    { path: 'src/util.ts', kind: 'file', status: 'included', size: 200 },
++    { path: 'node_modules', kind: 'directory', status: 'excluded', reason: 'mandatory security/context exclusion', rule: 'mandatory' },
++  ],
++  rules: [{ id: 'mandatory-directories', source: 'Wharness', label: 'Pastas protegidas', enabled: true, patterns: ['node_modules/'], description: 'Nunca entram.' }],
++}
++
++describe('ContextInspector', () => {
++  it('explores exact final files, root entries and applied rules', () => {
++    render(<ContextInspector inspection={inspection} refreshing={false} onRefresh={() => undefined} />)
++    expect(screen.getByText('src/main.ts')).toBeTruthy()
++    fireEvent.click(screen.getByRole('button', { name: /Estrutura base/i }))
++    expect(screen.getByText('node_modules')).toBeTruthy()
++    fireEvent.click(screen.getByRole('button', { name: /^Regras$/i }))
++    expect(screen.getByText('Pastas protegidas')).toBeTruthy()
++    expect(screen.getByText('node_modules/')).toBeTruthy()
++  })
++})
+diff --git a/services/frontend/src/components/ContextInspector.tsx b/services/frontend/src/components/ContextInspector.tsx
+new file mode 100644
+index 0000000..55f167b
+--- /dev/null
++++ b/services/frontend/src/components/ContextInspector.tsx
+@@ -0,0 +1,74 @@
++import { useMemo, useState } from 'react'
++import type { ContextInspection } from '../types'
++import { Icon } from './Icon'
++
++type View = 'roots' | 'final' | 'rules'
++type Filter = 'all' | 'included' | 'excluded'
++
++export function ContextInspector({ inspection, refreshing, onRefresh }: {
++  inspection: ContextInspection
++  refreshing: boolean
++  onRefresh: () => void
++}) {
++  const [view, setView] = useState<View>('final')
++  const [filter, setFilter] = useState<Filter>('included')
++  const [query, setQuery] = useState('')
++  const [limit, setLimit] = useState(300)
++  const filtered = useMemo(() => {
++    const needle = query.trim().toLowerCase()
++    return inspection.entries.filter((entry) => {
++      if (filter !== 'all' && entry.status !== filter) return false
++      if (!needle) return true
++      return entry.path.toLowerCase().includes(needle) || (entry.reason || '').toLowerCase().includes(needle) || (entry.rule || '').toLowerCase().includes(needle)
++    })
++  }, [filter, inspection.entries, query])
++  const shown = filtered.slice(0, limit)
++
++  function changeFilter(next: Filter) { setFilter(next); setLimit(300) }
++  function changeQuery(next: string) { setQuery(next); setLimit(300) }
++
++  return <section className="context-inspector">
++    <div className="context-summary-grid">
++      <Summary label="No ZIP final" value={String(inspection.included_files)} detail={formatBytes(inspection.included_bytes)} tone="ok" />
++      <Summary label="Excluídos" value={String(inspection.excluded_items)} detail="itens/subárvores" tone="muted" />
++      <Summary label="Raiz" value={String(inspection.roots.length)} detail="pastas + ficheiros" tone="muted" />
++      <Summary label="Snapshot" value={inspection.sha256.slice(0, 10)} detail={inspection.snapshot_id} tone="mono" />
++    </div>
++    <div className="context-inspector-bar">
++      <div className="context-view-switch" role="tablist" aria-label="Explorador do contexto">
++        <button className={view === 'final' ? 'active' : ''} onClick={() => setView('final')}>Conteúdo final</button>
++        <button className={view === 'roots' ? 'active' : ''} onClick={() => setView('roots')}>Estrutura base</button>
++        <button className={view === 'rules' ? 'active' : ''} onClick={() => setView('rules')}>Regras</button>
++      </div>
++      <button className="secondary-button compact" disabled={refreshing} onClick={onRefresh} title="Reconstruir o ZIP e atualizar esta inspeção"><Icon name="refresh" size={13}/>{refreshing ? 'A reconstruir…' : 'Reconstruir contexto'}</button>
++    </div>
++    {view === 'final' && <div className="context-final-view">
++      <div className="context-final-toolbar">
++        <div className="context-filter-switch">
++          <button className={filter === 'included' ? 'active included' : ''} onClick={() => changeFilter('included')}>Incluídos {inspection.included_files}</button>
++          <button className={filter === 'excluded' ? 'active excluded' : ''} onClick={() => changeFilter('excluded')}>Excluídos {inspection.excluded_items}</button>
++          <button className={filter === 'all' ? 'active' : ''} onClick={() => changeFilter('all')}>Todos</button>
++        </div>
++        <label className="context-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => changeQuery(event.target.value)} placeholder="Pesquisar caminho, regra ou motivo…" />{query && <button onClick={() => changeQuery('')} title="Limpar"><Icon name="close" size={12}/></button>}</label>
++      </div>
++      <div className="context-inventory" role="list">
++        {shown.map((entry) => <div className={`context-inventory-row ${entry.status}`} role="listitem" key={`${entry.status}:${entry.path}`}>
++          <Icon name={entry.kind === 'directory' ? 'folder' : 'file'} size={14}/>
++          <div className="context-inventory-main"><code>{entry.path}</code>{entry.status === 'excluded' && <small>{entry.reason || 'excluído'}{entry.rule ? ` · ${entry.rule}` : ''}</small>}</div>
++          {entry.status === 'included' ? <span className="context-status included">IN ZIP</span> : <span className="context-status excluded">FORA</span>}
++          {entry.size ? <span className="context-size">{formatBytes(entry.size)}</span> : null}
++        </div>)}
++        {!shown.length && <div className="context-empty">Nenhum item corresponde ao filtro.</div>}
++      </div>
++      <div className="context-list-footer"><span>A mostrar {shown.length} de {filtered.length} itens</span>{shown.length < filtered.length && <button onClick={() => setLimit((value) => value + 300)}>Mostrar mais 300</button>}</div>
++    </div>}
++    {view === 'roots' && <div className="context-roots"><div className="context-section-intro"><strong>Pastas base e ficheiros específicos</strong><span>Estado calculado contra o snapshot final, não apenas contra a configuração.</span></div>{inspection.roots.map((root) => <div className={`context-root-row ${root.status}`} key={root.path}>
++      <Icon name={root.kind === 'directory' ? 'folder' : 'file'} size={15}/><div><code>{root.name}</code><small>{root.included_files} incluídos · {root.excluded_items} excluídos{root.reason ? ` · ${root.reason}` : ''}</small></div><span className={`context-status ${root.status}`}>{rootLabel(root.status)}</span><span className="context-size">{root.included_bytes ? formatBytes(root.included_bytes) : '—'}</span>
++    </div>)}</div>}
++    {view === 'rules' && <div className="context-rules"><div className="context-section-intro"><strong>Todas as regras de exclusão/inclusão aplicadas</strong><span>As regras obrigatórias do Wharness têm precedência sobre <code>whaness.yml</code>.</span></div>{inspection.rules.map((rule) => <article className={`context-rule-card ${rule.enabled ? '' : 'disabled'}`} key={rule.id}><header><div><strong>{rule.label}</strong><span>{rule.source}</span></div><span className={`context-rule-state ${rule.enabled ? 'enabled' : ''}`}>{rule.enabled ? 'ATIVA' : 'INATIVA'}</span></header><p>{rule.description}</p><div className="context-patterns">{rule.patterns.length ? rule.patterns.map((pattern) => <code key={pattern}>{pattern}</code>) : <span>sem padrões configurados</span>}</div></article>)}</div>}
++  </section>
++}
++
++function Summary({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <div className={`context-summary ${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div> }
++function formatBytes(value: number) { if (value < 1024) return `${value} B`; if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`; return `${(value / 1024 / 1024).toFixed(1)} MiB` }
++function rootLabel(status: string) { if (status === 'included') return 'INCLUÍDO'; if (status === 'partial') return 'PARCIAL'; if (status === 'excluded') return 'EXCLUÍDO'; return 'SEM CONTEÚDO' }
+diff --git a/services/frontend/src/components/InteractiveTerminal.test.tsx b/services/frontend/src/components/InteractiveTerminal.test.tsx
+new file mode 100644
+index 0000000..a5f5b1a
+--- /dev/null
++++ b/services/frontend/src/components/InteractiveTerminal.test.tsx
+@@ -0,0 +1,32 @@
++import { fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++import type { Session } from '../types'
++import { api } from '../lib/api'
++import { InteractiveTerminal } from './InteractiveTerminal'
++
++vi.mock('../lib/api', () => ({
++  APIError: class APIError extends Error {},
++  api: { terminal: vi.fn(), resetTerminal: vi.fn() },
++}))
++
++const session: Session = {
++  id: 'ses-terminal', project_path: '/tmp/demo', state: 'ready', execution_mode: 'protected', automation_mode: 'manual', created_at: new Date().toISOString(),
++  context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/tmp/demo', sha256: 'abc', files: [], excluded: [], text_truncated: false } },
++}
++
++describe('InteractiveTerminal host execution', () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    vi.spyOn(window, 'confirm').mockReturnValue(true)
++    vi.mocked(api.terminal).mockResolvedValue({ argv: ['ls'], cwd: '.', exit_code: 0, stdout: 'README.md\n', stderr: '', duration_ms: 1, success: true })
++  })
++
++  it('submits an explicitly confirmed host command with Enter/form semantics', async () => {
++    render(<InteractiveTerminal session={session} height={245} onHeight={() => undefined} onError={() => undefined} />)
++    fireEvent.click(screen.getByRole('button', { name: 'Host' }))
++    fireEvent.change(screen.getByLabelText('Comando host'), { target: { value: 'ls' } })
++    fireEvent.click(screen.getByRole('button', { name: 'Executar comando' }))
++    await waitFor(() => expect(api.terminal).toHaveBeenCalledWith('ses-terminal', expect.objectContaining({ argv: ['ls'], cwd: '.' }), 'host', true))
++    expect(await screen.findByText('README.md')).toBeTruthy()
++  })
++})
+diff --git a/services/frontend/src/components/InteractiveTerminal.tsx b/services/frontend/src/components/InteractiveTerminal.tsx
+index 80f16f2..4967fa3 100644
+--- a/services/frontend/src/components/InteractiveTerminal.tsx
++++ b/services/frontend/src/components/InteractiveTerminal.tsx
+@@ -83,14 +83,17 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
+     {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Comandos executam no projeto real. Sem sandbox e sem rollback automático.</span></div>}
+     <div className="terminal-scroll">
+       {entries.map((entry) => <div className={`ide-terminal-entry target-${entry.target}`} key={entry.id}><div className="terminal-prompt"><span>wharness:{entry.target}:{entry.cwd}$</span> {entry.command}</div>{entry.result?.stdout && <pre>{entry.result.stdout}</pre>}{entry.result?.stderr && <pre className="stderr">{entry.result.stderr}</pre>}{entry.result && entry.result.exit_code !== 0 && <span className="terminal-exit">exit {entry.result.exit_code}</span>}{entry.error && <pre className="stderr">{entry.error}</pre>}</div>)}
+-      {!entries.length && <div className="terminal-hint">{target === 'sandbox' ? 'Sandbox persistente e isolada. Comandos de desenvolvimento (git, go, npm, python por ficheiro, make…) são aceites como argv. `cd`, `clear`, ↑/↓ histórico e Ctrl+L são tratados pelo editor.' : 'Host explícito: executa comandos de desenvolvimento em argv diretamente no projeto real. Shells, sudo, Docker e gestão crítica do host continuam bloqueados. ↑/↓ navega no histórico.'}</div>}
++      {!entries.length && <div className="terminal-hint">{target === 'sandbox' ? 'Sandbox persistente e isolada. Comandos de desenvolvimento (git, go, npm, python por ficheiro, make…) são aceites como argv. `cd`, `clear`, ↑/↓ histórico e Ctrl+L são tratados pelo editor.' : 'Host explícito: escreva um comando argv e use Enter ou ▶. Comandos comuns como ls, pwd, cat, git, go, npm e make executam diretamente no projeto real. Shells, sudo, Docker e gestão crítica do host continuam bloqueados.'}</div>}
+     </div>
+-    <div className="terminal-input-row"><span>wharness:{target}:{cwd}$</span><input value={input} disabled={running} onChange={(e) => { setInput(e.target.value); setHistoryIndex(-1) }} onKeyDown={(e) => {
+-      if (e.key === 'Enter') { e.preventDefault(); void execute(); return }
+-      if (e.key === 'ArrowUp' && history.length) { e.preventDefault(); const next = Math.min(historyIndex + 1, history.length - 1); setHistoryIndex(next); setInput(history[history.length - 1 - next] || '') }
+-      if (e.key === 'ArrowDown' && historyIndex >= 0) { e.preventDefault(); const next = historyIndex - 1; setHistoryIndex(next); setInput(next < 0 ? '' : history[history.length - 1 - next] || '') }
+-      if (e.key.toLowerCase() === 'l' && e.ctrlKey) { e.preventDefault(); setEntries([]) }
+-    }} spellCheck={false} autoComplete="off" placeholder={running ? 'a executar…' : target === 'host' ? 'git status --short' : 'go test ./...'} /></div>
++    <form className="terminal-input-row" onSubmit={(event) => { event.preventDefault(); void execute() }}>
++      <span>wharness:{target}:{cwd}$</span>
++      <input aria-label={`Comando ${target}`} value={input} disabled={running} onChange={(e) => { setInput(e.target.value); setHistoryIndex(-1) }} onKeyDown={(e) => {
++        if (e.key === 'ArrowUp' && history.length) { e.preventDefault(); const next = Math.min(historyIndex + 1, history.length - 1); setHistoryIndex(next); setInput(history[history.length - 1 - next] || '') }
++        if (e.key === 'ArrowDown' && historyIndex >= 0) { e.preventDefault(); const next = historyIndex - 1; setHistoryIndex(next); setInput(next < 0 ? '' : history[history.length - 1 - next] || '') }
++        if (e.key.toLowerCase() === 'l' && e.ctrlKey) { e.preventDefault(); setEntries([]) }
++      }} spellCheck={false} autoComplete="off" placeholder={running ? 'a executar…' : target === 'host' ? 'ls' : 'go test ./...'} />
++      <button className="terminal-run-button" type="submit" disabled={running || !input.trim()} title={target === 'host' ? 'Executar argv no projeto real (Enter)' : 'Executar na sandbox (Enter)'} aria-label="Executar comando"><Icon name="play" size={13}/></button>
++    </form>
+   </section>
+ }
+ 
+diff --git a/services/frontend/src/components/ProjectSettings.test.tsx b/services/frontend/src/components/ProjectSettings.test.tsx
+index 6ff4eb3..a63c164 100644
+--- a/services/frontend/src/components/ProjectSettings.test.tsx
++++ b/services/frontend/src/components/ProjectSettings.test.tsx
+@@ -7,6 +7,8 @@ import { ProjectSettings } from './ProjectSettings'
+ vi.mock('../lib/api', () => ({
+   api: {
+     projectConfig: vi.fn(),
++    contextInspection: vi.fn(),
++    refreshContext: vi.fn(),
+     updateProjectConfig: vi.fn(),
+   },
+ }))
+@@ -22,7 +24,12 @@ const session: Session = {
+ }
+ 
+ describe('ProjectSettings loading', () => {
+-  beforeEach(() => vi.clearAllMocks())
++  beforeEach(() => {
++    vi.clearAllMocks()
++    vi.mocked(api.contextInspection).mockResolvedValue({
++      snapshot_id: 'ctx', sha256: 'abc', project_root: '/tmp/demo', included_files: 0, excluded_items: 0, included_bytes: 0, roots: [], entries: [], rules: [],
++    })
++  })
+ 
+   it('shows an actionable retry state instead of remaining stuck on loading', async () => {
+     vi.mocked(api.projectConfig).mockRejectedValueOnce(new Error('open whaness.yml: no such file or directory')).mockResolvedValueOnce({
+diff --git a/services/frontend/src/components/ProjectSettings.tsx b/services/frontend/src/components/ProjectSettings.tsx
+index 85de5cc..8a8ed82 100644
+--- a/services/frontend/src/components/ProjectSettings.tsx
++++ b/services/frontend/src/components/ProjectSettings.tsx
+@@ -1,7 +1,8 @@
+ import { useEffect, useState } from 'react'
+ import { api } from '../lib/api'
+ import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
+-import type { ProjectConfig, Session } from '../types'
++import type { ContextInspection, ProjectConfig, Session } from '../types'
++import { ContextInspector } from './ContextInspector'
+ import { Icon } from './Icon'
+ 
+ export function ProjectSettings({ session, onClose, onSession, onError }: {
+@@ -11,17 +12,19 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
+   onError: (message: string) => void
+ }) {
+   const [config, setConfig] = useState<ProjectConfig>()
++  const [inspection, setInspection] = useState<ContextInspection>()
+   const [include, setInclude] = useState('')
+   const [exclude, setExclude] = useState('')
+   const [maxMiB, setMaxMiB] = useState(2)
+   const [saving, setSaving] = useState(false)
++  const [refreshing, setRefreshing] = useState(false)
+   const [loadingError, setLoadingError] = useState('')
++  const [inspectionError, setInspectionError] = useState('')
+   const [reloadNonce, setReloadNonce] = useState(0)
+ 
+   useEffect(() => {
+     let alive = true
+-    setConfig(undefined)
+-    setLoadingError('')
++    setConfig(undefined); setInspection(undefined); setLoadingError(''); setInspectionError('')
+     api.projectConfig(session.id).then((value) => {
+       if (!alive) return
+       setConfig(value)
+@@ -30,9 +33,12 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
+       setMaxMiB(bytesToMiB(value.context.max_file_bytes))
+     }).catch((error) => {
+       if (!alive) return
+-      const message = error instanceof Error ? error.message : 'Não foi possível carregar whaness.yml'
+-      setLoadingError(message)
+-      onError(message)
++      const message = messageOf(error, 'Não foi possível carregar whaness.yml')
++      setLoadingError(message); onError(message)
++    })
++    api.contextInspection(session.id).then((value) => { if (alive) setInspection(value) }).catch((error) => {
++      if (!alive) return
++      setInspectionError(messageOf(error, 'Não foi possível inspecionar o contexto'))
+     })
+     return () => { alive = false }
+   }, [session.id, onError, reloadNonce])
+@@ -41,45 +47,55 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
+     if (!config || saving) return
+     setSaving(true)
+     try {
+-      const next: ProjectConfig = {
+-        ...config,
+-        context: {
+-          ...config.context,
+-          max_file_bytes: miBToBytes(maxMiB),
+-          include: parsePatternLines(include),
+-          exclude: parsePatternLines(exclude),
+-        },
+-      }
++      const next: ProjectConfig = { ...config, context: { ...config.context, max_file_bytes: miBToBytes(maxMiB), include: parsePatternLines(include), exclude: parsePatternLines(exclude) } }
+       const result = await api.updateProjectConfig(session.id, next)
+-      setConfig(result.config)
+-      onSession(result.session)
+-      onClose()
++      setConfig(result.config); onSession(result.session)
++      const nextInspection = await api.contextInspection(session.id)
++      setInspection(nextInspection)
++    } catch (error) { onError(messageOf(error, 'Não foi possível guardar a configuração do projeto')) }
++    finally { setSaving(false) }
++  }
++
++  async function refresh() {
++    if (refreshing) return
++    setRefreshing(true); setInspectionError('')
++    try {
++      const nextSession = await api.refreshContext(session.id)
++      onSession(nextSession)
++      setInspection(await api.contextInspection(session.id))
+     } catch (error) {
+-      onError(error instanceof Error ? error.message : 'Não foi possível guardar a configuração do projeto')
+-    } finally { setSaving(false) }
++      const message = messageOf(error, 'Não foi possível reconstruir o contexto')
++      setInspectionError(message); onError(message)
++    } finally { setRefreshing(false) }
+   }
+ 
+   return <div className="project-settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
+-    <section className="project-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
++    <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
+       <header>
+-        <div><span className="eyebrow">Projeto</span><h2 id="project-settings-title">Contexto do Wharness</h2><p><code>whaness.yml</code> é a configuração persistente deste projeto.</p></div>
++        <div><span className="eyebrow">Projeto</span><h2 id="project-settings-title">Contexto do Wharness</h2><p><code>whaness.yml</code> controla o recorte; o explorador abaixo mostra o que realmente entrou no ZIP.</p></div>
+         <button className="icon-button" onClick={onClose} title="Fechar"><Icon name="close" size={16}/></button>
+       </header>
+       {!config ? (loadingError
+         ? <div className="settings-load-error"><Icon name="shield" size={22}/><div><strong>Não foi possível carregar a configuração</strong><p>{loadingError}</p><span>O backend tenta recriar automaticamente <code>whaness.yml</code> quando ele não existe. Pode tentar novamente sem fechar o projeto.</span><button className="secondary-button" onClick={() => setReloadNonce((value) => value + 1)}><Icon name="refresh" size={14}/> Tentar novamente</button></div></div>
+         : <div className="settings-loading"><span className="settings-spinner"/>A carregar configuração…</div>) : <div className="project-settings-body">
+-        <label className="settings-toggle">
+-          <input type="checkbox" checked={config.context.auto_exclude} onChange={(event) => setConfig({ ...config, context: { ...config.context, auto_exclude: event.target.checked } })}/>
+-          <span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários, logs, IDE metadata e outros artefactos sem valor para a IA.</small></span>
+-        </label>
+-        <div className="settings-grid">
+-          <label><span>Incluir apenas <small>opcional</small></span><textarea value={include} onChange={(event) => setInclude(event.target.value)} placeholder={'src/**\ndocs/**\ngo.mod'}/><small>Se vazio, todos os ficheiros elegíveis são considerados.</small></label>
+-          <label><span>Excluir do contexto</span><textarea value={exclude} onChange={(event) => setExclude(event.target.value)} placeholder={'fixtures/**\n*.generated.ts\nlegacy/**'}/><small>Um padrão por linha. Suporta <code>*</code>, <code>?</code> e <code>**</code>.</small></label>
+-        </div>
+-        <label className="settings-size"><span>Tamanho máximo por ficheiro</span><div><input type="number" min={1} max={64} value={maxMiB} onChange={(event) => setMaxMiB(Number(event.target.value) || 1)}/><span>MiB</span></div><small>Ficheiros maiores são registados como excluídos no manifesto.</small></label>
+-        <div className="settings-security-note"><Icon name="shield" size={16}/><span>Segredos, chaves privadas, VCS interno, symlinks e outros caminhos protegidos continuam bloqueados mesmo com configuração permissiva.</span></div>
++        <section className="context-config-section">
++          <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><code>{session.context.manifest.sha256.slice(0, 12)}</code></div>
++          <label className="settings-toggle"><input type="checkbox" checked={config.context.auto_exclude} onChange={(event) => setConfig({ ...config, context: { ...config.context, auto_exclude: event.target.checked } })}/><span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários, logs, IDE metadata e outros artefactos sem valor para a IA.</small></span></label>
++          <div className="settings-grid">
++            <label><span>Incluir apenas <small>opcional</small></span><textarea value={include} onChange={(event) => setInclude(event.target.value)} placeholder={'src/**\ndocs/**\ngo.mod'}/><small>Se vazio, todos os ficheiros elegíveis são considerados.</small></label>
++            <label><span>Excluir do contexto</span><textarea value={exclude} onChange={(event) => setExclude(event.target.value)} placeholder={'fixtures/**\n*.generated.ts\nlegacy/**'}/><small>Um padrão por linha. Suporta <code>*</code>, <code>?</code> e <code>**</code>.</small></label>
++          </div>
++          <label className="settings-size"><span>Tamanho máximo por ficheiro</span><div><input type="number" min={1} max={64} value={maxMiB} onChange={(event) => setMaxMiB(Number(event.target.value) || 1)}/><span>MiB</span></div><small>Ficheiros maiores são registados como excluídos no manifesto.</small></label>
++          <div className="settings-security-note"><Icon name="shield" size={16}/><span>Segredos, chaves privadas, VCS interno, symlinks e outros caminhos protegidos continuam bloqueados mesmo com configuração permissiva.</span></div>
++          <div className="context-config-actions"><button className="primary-button" disabled={saving} onClick={() => void save()}><Icon name="save" size={15}/>{saving ? 'A guardar…' : 'Guardar e reconstruir contexto'}</button></div>
++        </section>
++        <section className="context-explorer-section">
++          {inspection ? <ContextInspector inspection={inspection} refreshing={refreshing} onRefresh={() => void refresh()} /> : inspectionError ? <div className="context-inspection-error"><Icon name="shield" size={16}/><span>{inspectionError}</span><button onClick={() => setReloadNonce((value) => value + 1)}>Tentar novamente</button></div> : <div className="settings-loading compact"><span className="settings-spinner"/>A inspecionar o snapshot final…</div>}
++        </section>
+       </div>}
+-      <footer><button className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={!config || saving} onClick={() => void save()}><Icon name="save" size={15}/>{saving ? 'A guardar…' : 'Guardar e reconstruir contexto'}</button></footer>
++      <footer><span>Snapshot final = lista exata enviada ao ChatGPT/Planner.</span><button className="secondary-button" onClick={onClose}>Fechar</button></footer>
+     </section>
+   </div>
+ }
++
++function messageOf(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback }
+diff --git a/services/frontend/src/lib/api.ts b/services/frontend/src/lib/api.ts
+index 10cd2b7..30f1075 100644
+--- a/services/frontend/src/lib/api.ts
++++ b/services/frontend/src/lib/api.ts
+@@ -1,4 +1,4 @@
+-import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, Session, TerminalTarget, WorkspaceFile } from '../types'
++import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ContextInspection, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, Session, TerminalTarget, WorkspaceFile } from '../types'
+ 
+ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+ 
+@@ -59,6 +59,7 @@ export const api = {
+     }),
+   terminal: (id: string, command: CommandSpec, target: TerminalTarget = 'sandbox', confirmHost = false) => request<CommandResult>(`/api/sessions/${id}/terminal?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(command) }),
+   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
++  contextInspection: (id: string) => request<ContextInspection>(`/api/sessions/${id}/context/inspection`),
+   refreshContext: (id: string) => request<Session>(`/api/sessions/${id}/context/refresh`, { method: 'POST', body: '{}' }),
+   projectConfig: (id: string) => request<ProjectConfig>(`/api/sessions/${id}/project-config`),
+   updateProjectConfig: (id: string, config: ProjectConfig) => request<{ config: ProjectConfig; session: Session }>(`/api/sessions/${id}/project-config`, { method: 'PUT', body: JSON.stringify(config) }),
+diff --git a/services/frontend/src/styles.css b/services/frontend/src/styles.css
+index a778ad6..c9c0509 100644
+--- a/services/frontend/src/styles.css
++++ b/services/frontend/src/styles.css
+@@ -511,3 +511,116 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .settings-load-error span { color: #747970; font-size: 9px; line-height: 1.5; }
+ .settings-load-error button { margin-top: 5px; }
+ @keyframes settings-spin { to { transform: rotate(360deg); } }
++
++/* v1.2.17.4 context transparency + dependable host terminal submit */
++.terminal-input-row { padding-right: 7px; }
++.terminal-run-button { width: 27px; height: 27px; flex: 0 0 27px; display: grid; place-items: center; border: 1px solid #384032; border-radius: 5px; background: #23291f; color: #9bc764; cursor: pointer; }
++.terminal-run-button:hover:not(:disabled) { background: #30382a; color: #c8ef98; }
++.terminal-target-host .terminal-run-button { border-color: #5a332d; background: #36211d; color: #ef9a87; }
++.terminal-target-host .terminal-run-button:hover:not(:disabled) { background: #482923; color: #ffc0b2; }
++.terminal-run-button:disabled { opacity: .35; cursor: default; }
++
++.context-settings-dialog { width: min(1180px, calc(100vw - 48px)); max-height: min(900px, calc(100vh - 36px)); border-color: #343a31; border-radius: 12px; background: #151713; color: #cbd2c4; box-shadow: 0 32px 110px rgba(0,0,0,.58); }
++.context-settings-dialog > header { border-bottom-color: #2e332c; background: #1b1e19; }
++.context-settings-dialog h2 { color: #e2e7dc; }
++.context-settings-dialog header p { color: #747d70; }
++.context-settings-dialog .eyebrow { color: #76856b; }
++.context-settings-dialog .icon-button { color: #778171; }
++.context-settings-dialog .icon-button:hover { background: #2b3028; color: #d5dccf; }
++.context-settings-dialog .project-settings-body { padding: 0; background: #151713; }
++.context-settings-dialog > footer { min-height: 48px; padding: 9px 16px; align-items: center; justify-content: space-between; border-top-color: #2e332c; background: #191c18; }
++.context-settings-dialog > footer > span { color: #626b5f; font-size: 9px; }
++.context-settings-dialog .secondary-button { border-color: #3a4037; background: #232720; color: #aab3a4; }
++.context-settings-dialog .secondary-button:hover:not(:disabled) { background: #2c3229; color: #e0e6d9; }
++.context-settings-dialog .primary-button { background: #6f9e34; color: #11150d; }
++.context-settings-dialog .primary-button:hover:not(:disabled) { background: #81b540; }
++.context-settings-dialog .settings-loading { color: #7b8576; }
++.context-settings-dialog .settings-spinner { border-color: #3b4137; border-top-color: #90bb55; }
++.context-settings-dialog .settings-load-error { color: #d09588; }
++.context-settings-dialog .settings-load-error strong { color: #efb1a4; }
++.context-settings-dialog .settings-load-error p { color: #d88c7d; }
++.context-settings-dialog .settings-load-error span { color: #7d8678; }
++
++.context-config-section { padding: 18px 20px 16px; border-bottom: 1px solid #2d322b; background: #181b17; }
++.context-section-title { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
++.context-section-title > div { display: flex; flex-direction: column; gap: 2px; }
++.context-section-title strong { color: #d6ddd0; font-size: 11px; }
++.context-section-title span { color: #697267; font-size: 9px; }
++.context-section-title > code { color: #788570; font-size: 8px; }
++.context-settings-dialog .settings-toggle { border-color: #343a31; background: #11130f; }
++.context-settings-dialog .settings-toggle strong { color: #c8d0c2; }
++.context-settings-dialog .settings-toggle small,
++.context-settings-dialog .settings-grid label > small,
++.context-settings-dialog .settings-size > small { color: #697267; }
++.context-settings-dialog .settings-grid label,
++.context-settings-dialog .settings-size { color: #aeb7a9; }
++.context-settings-dialog .settings-grid textarea,
++.context-settings-dialog .settings-size input { border-color: #343a31; background: #10120f; color: #cbd3c5; }
++.context-settings-dialog .settings-grid textarea:focus,
++.context-settings-dialog .settings-size input:focus { border-color: #668e37; box-shadow: 0 0 0 1px rgba(124,169,70,.14); }
++.context-settings-dialog .settings-security-note { border-left-color: #6f963c; background: #20281b; color: #899b78; }
++.context-config-actions { margin-top: 13px; display: flex; justify-content: flex-end; }
++
++.context-explorer-section { min-height: 420px; background: #11130f; }
++.context-inspector { display: flex; flex-direction: column; min-height: 420px; }
++.context-summary-grid { padding: 12px 14px; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; border-bottom: 1px solid #292e27; background: #151813; }
++.context-summary { min-width: 0; padding: 9px 10px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; border: 1px solid #30352d; border-radius: 7px; background: #1c201a; }
++.context-summary > span { color: #687164; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
++.context-summary > strong { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; color: #d1d8cc; font: 600 15px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.context-summary > small { grid-column: 1 / -1; color: #5e675a; font-size: 8px; }
++.context-summary.ok strong { color: #a9d477; }
++.context-summary.mono strong { font-size: 11px; }
++.context-inspector-bar { min-height: 44px; padding: 7px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #292e27; background: #181b17; }
++.context-view-switch, .context-filter-switch { display: inline-flex; align-items: center; padding: 2px; border: 1px solid #333930; border-radius: 6px; background: #10120f; }
++.context-view-switch button, .context-filter-switch button { height: 24px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; color: #687165; font-size: 8px; font-weight: 600; cursor: pointer; }
++.context-view-switch button.active, .context-filter-switch button.active { background: #2a3027; color: #c9d3c1; }
++.context-filter-switch button.active.included { color: #b8df8a; }
++.context-filter-switch button.active.excluded { color: #e1a095; }
++.secondary-button.compact { height: 28px; padding: 0 8px; font-size: 8px; }
++.context-final-view { min-height: 0; display: flex; flex-direction: column; }
++.context-final-toolbar { padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 9px; border-bottom: 1px solid #252a23; }
++.context-search { width: min(420px, 48%); height: 30px; padding: 0 7px; display: flex; align-items: center; gap: 6px; border: 1px solid #333930; border-radius: 5px; background: #0f110e; color: #606a5d; }
++.context-search:focus-within { border-color: #668d39; }
++.context-search input { min-width: 0; flex: 1; height: 26px; padding: 0; border: 0; outline: 0; background: transparent; color: #c5cdc0; font-size: 9px; }
++.context-search button { width: 20px; height: 20px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #697366; cursor: pointer; }
++.context-inventory { max-height: 430px; overflow: auto; scrollbar-width: thin; }
++.context-inventory-row, .context-root-row { min-height: 31px; padding: 5px 10px; display: grid; grid-template-columns: 18px minmax(0,1fr) auto 72px; align-items: center; gap: 7px; border-bottom: 1px solid #20241e; color: #7a8475; }
++.context-inventory-row:hover, .context-root-row:hover { background: #191d17; }
++.context-inventory-row > svg, .context-root-row > svg { color: #6e7b64; }
++.context-inventory-row.excluded > svg, .context-root-row.excluded > svg { color: #8b6159; }
++.context-inventory-main, .context-root-row > div { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
++.context-inventory-main code, .context-root-row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #abb5a5; font-size: 9px; }
++.context-inventory-main small, .context-root-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #596357; font-size: 8px; }
++.context-status { min-width: 55px; padding: 2px 5px; border-radius: 4px; background: #272b25; color: #788172; text-align: center; font: 700 7px ui-monospace, 'SFMono-Regular', Consolas, monospace; letter-spacing: .05em; }
++.context-status.included { background: #233019; color: #a7d275; }
++.context-status.excluded { background: #35201c; color: #dc9487; }
++.context-status.partial { background: #342d1d; color: #d6b46f; }
++.context-size { color: #596257; text-align: right; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.context-empty { padding: 34px 16px; color: #596257; text-align: center; font-size: 9px; }
++.context-list-footer { min-height: 31px; padding: 5px 10px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #292e27; color: #596257; font-size: 8px; }
++.context-list-footer button { border: 0; background: transparent; color: #8caf60; font-size: 8px; cursor: pointer; }
++.context-roots, .context-rules { max-height: 505px; overflow: auto; scrollbar-width: thin; }
++.context-section-intro { padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid #252a23; background: #151813; }
++.context-section-intro strong { color: #c9d1c4; font-size: 10px; }
++.context-section-intro span { color: #657064; font-size: 8px; }
++.context-rule-card { margin: 8px 10px; padding: 10px; border: 1px solid #30362d; border-radius: 7px; background: #181c17; }
++.context-rule-card.disabled { opacity: .52; }
++.context-rule-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
++.context-rule-card > header > div { display: flex; flex-direction: column; gap: 1px; }
++.context-rule-card strong { color: #cbd4c5; font-size: 9px; }
++.context-rule-card header span { color: #667062; font-size: 8px; }
++.context-rule-state { padding: 2px 5px; border-radius: 4px; background: #292d27; color: #6d7669 !important; font: 700 7px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.context-rule-state.enabled { background: #233019; color: #a7d275 !important; }
++.context-rule-card p { margin: 7px 0; color: #747e70; font-size: 8px; line-height: 1.45; }
++.context-patterns { display: flex; flex-wrap: wrap; gap: 4px; }
++.context-patterns code { padding: 2px 5px; border: 1px solid #30362d; border-radius: 4px; background: #10120f; color: #8d9a84; font-size: 7px; }
++.context-patterns > span { color: #596257; font-size: 8px; }
++.context-inspection-error { margin: 22px; padding: 12px; display: flex; align-items: center; gap: 8px; border: 1px solid #543129; border-radius: 7px; background: #2a1916; color: #d69487; font-size: 9px; }
++.context-inspection-error button { margin-left: auto; border: 0; background: transparent; color: #e9ad9f; cursor: pointer; }
++.settings-loading.compact { min-height: 180px; padding: 20px; }
++
++@media (max-width: 900px) {
++  .context-summary-grid { grid-template-columns: 1fr 1fr; }
++  .context-final-toolbar { align-items: stretch; flex-direction: column; }
++  .context-search { width: 100%; }
++}
+diff --git a/services/frontend/src/types.ts b/services/frontend/src/types.ts
+index d622b20..2fe1f96 100644
+--- a/services/frontend/src/types.ts
++++ b/services/frontend/src/types.ts
+@@ -54,15 +54,59 @@ export type ExecutionResult = {
+   warnings?: string[]
+ }
+ 
++export type ContextExclusion = { path: string; kind: string; reason: string; rule: string }
++
+ export type ContextManifest = {
+   id: string
+   project_root: string
+   sha256: string
+   files: Array<{ path: string; size: number; sha256: string }>
+   excluded: string[]
++  excluded_details?: ContextExclusion[]
+   text_truncated: boolean
+ }
+ 
++export type ContextRule = {
++  id: string
++  source: string
++  label: string
++  enabled: boolean
++  patterns: string[]
++  description: string
++}
++
++export type ContextInventoryEntry = {
++  path: string
++  kind: string
++  status: 'included' | 'excluded' | string
++  size?: number
++  reason?: string
++  rule?: string
++}
++
++export type ContextRootEntry = {
++  path: string
++  name: string
++  kind: 'file' | 'directory' | string
++  status: 'included' | 'excluded' | 'partial' | 'not-in-snapshot' | string
++  included_files: number
++  excluded_items: number
++  included_bytes: number
++  reason?: string
++}
++
++export type ContextInspection = {
++  snapshot_id: string
++  sha256: string
++  project_root: string
++  included_files: number
++  excluded_items: number
++  included_bytes: number
++  roots: ContextRootEntry[]
++  entries: ContextInventoryEntry[]
++  rules: ContextRule[]
++}
++
+ export type ExecutionMode = 'protected' | 'unprotected'
+ export type AutomationMode = 'manual' | 'auto'
+ export type TerminalTarget = 'sandbox' | 'host'
