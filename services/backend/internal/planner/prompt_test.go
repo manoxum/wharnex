@@ -28,7 +28,10 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
 		"answer",
 		"clarification",
 		"investigation",
-		"For kind=change, plan.json MUST exist",
+		"For kind=change OR kind=workflow, plan.json MUST exist",
+		"ASK FIRST, CODE ONLY WHEN ASKED",
+		"kind=workflow",
+		"Workflow commands run only in a disposable Protected sandbox",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("manual prompt missing %q", want)
@@ -50,5 +53,25 @@ func TestBuildManualPromptDoesNotDuplicateStructuredExclusionInventory(t *testin
 	}
 	if !strings.Contains(prompt, "node_modules (mandatory security/context exclusion)") {
 		t.Fatal("compact legacy exclusion summary should remain visible to planner")
+	}
+}
+
+func TestBuildManualPromptMakesAskDistinctFromChange(t *testing.T) {
+	prompt := BuildManualPrompt(Request{
+		RequestID:      "req-ask",
+		Message:        "Que funcionalidade achas que devemos incorporar?",
+		AutomationMode: domain.AutomationModeAuto,
+	})
+	for _, want := range []string{
+		"You are NOT primarily a coding agent",
+		"questions, explanations, architecture discussion, comparisons, recommendations",
+		"do not invent a coding task",
+		"Only explicit mutation intent may end in kind=change",
+		"turn.message is the actual response the user will read inside Wharness",
+		"provide the recommendation, analysis, or diagnosis itself",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("ask-oriented prompt missing %q", want)
+		}
 	}
 }

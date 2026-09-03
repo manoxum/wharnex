@@ -173,3 +173,42 @@ func validatePatchPath(value string) error {
 	}
 	return nil
 }
+
+// ValidateWorkflowPlan constrains an iterative investigation step to the
+// Protected sandbox. Workflow steps may run project-local commands to gather
+// evidence, but they never patch the project, request network access, or
+// become host-apply candidates.
+func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
+	if err := Validate(plan); err != nil {
+		return err
+	}
+	if plan.Status != "ready" {
+		return errors.New("workflow plan must be ready")
+	}
+	if plan.Risk == "high" {
+		return errors.New("workflow plan risk must be low or medium")
+	}
+	if plan.RequiresApproval {
+		return errors.New("workflow plan cannot require host approval")
+	}
+	if len(plan.Operations) == 0 {
+		return errors.New("workflow plan requires at least one command operation")
+	}
+	if len(plan.Operations) > 16 {
+		return errors.New("workflow plan exceeds 16 command operations")
+	}
+	for i, op := range plan.Operations {
+		if op.Type != "command" {
+			return fmt.Errorf("workflow operation %d must be command", i)
+		}
+		if op.Command.Network {
+			return fmt.Errorf("workflow operation %d cannot request network access", i)
+		}
+	}
+	for i, command := range plan.Verification {
+		if command.Network {
+			return fmt.Errorf("workflow verification %d cannot request network access", i)
+		}
+	}
+	return nil
+}

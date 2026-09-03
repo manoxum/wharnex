@@ -8,7 +8,7 @@ import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, 
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
-import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -16,6 +16,7 @@ const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'h
 const BACKEND_URL = requireLocalHTTPURL(process.env.WHARNESS_API_URL || 'http://127.0.0.1:8080', 'Backend URL').href
 const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
 const CHATGPT_URL = 'https://chatgpt.com/'
+const CHATGPT_LOGIN_URL = 'https://chatgpt.com/auth/login'
 const CHATGPT_PARTITION = 'persist:wharness-chatgpt'
 const MAX_CONTEXT_BYTES = 256 * 1024 * 1024
 const MAX_PLAN_BYTES = 2 * 1024 * 1024
@@ -32,6 +33,7 @@ const MAX_ATTACHMENT_THUMBNAIL_SOURCE_BYTES = 8 * 1024 * 1024
 
 let mainWindow
 let chatgptViews = new Map()
+const chatGPTAuthWindows = new Map()
 let activeChatGPTKey = ''
 let chatgptVisible = false
 let chatgptBounds
@@ -107,6 +109,10 @@ function pendingBrowserImportPath() {
 }
 
 function closeAllChatGPTViews() {
+  for (const record of chatGPTAuthWindows.values()) {
+    if (!record.window.isDestroyed()) record.window.close()
+  }
+  chatGPTAuthWindows.clear()
   for (const entry of chatgptViews.values()) {
     if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
   }
@@ -156,6 +162,8 @@ function currentChatGPTState() {
     canGoBack: Boolean(wc?.navigationHistory.canGoBack()),
     canGoForward: Boolean(wc?.navigationHistory.canGoForward()),
     externalAuthProvider: entry?.externalAuthProvider || '',
+    authMode: entry?.authMode || 'external',
+    authWindowOpen: Boolean(activeChatGPTKey && chatGPTAuthWindows.has(activeChatGPTKey)),
   }
 }
 
@@ -313,39 +321,191 @@ function registerChatGPTPlanDownloads(chatSession) {
   })
 }
 
+function chatGPTKeyForEntry(entry) {
+  return [...chatgptViews.entries()].find(([, candidate]) => candidate === entry)?.[0] || ''
+}
+
 function publishExternalAuth(entry, provider, url) {
-  entry.externalAuthProvider = provider
+  entry.externalAuthProvider = provider || 'OpenAI'
   entry.view.setVisible(false)
   if (!mainWindow?.isDestroyed()) {
-    mainWindow.webContents.send('wharness:chatgpt:external-auth', { provider, url: sanitizeDiagnosticURL(url), systemBrowserMode: true })
+    mainWindow.webContents.send('wharness:chatgpt:external-auth', {
+      cacheKey: chatGPTKeyForEntry(entry),
+      provider: entry.externalAuthProvider,
+      url: sanitizeDiagnosticURL(url || CHATGPT_LOGIN_URL),
+      authMode: 'external',
+      managedWindow: true,
+    })
   }
   publishChatGPTState(activeChatGPTKey)
+}
+
+function publishAuthComplete(cacheKey, mode, url) {
+  if (!mainWindow?.isDestroyed()) {
+    mainWindow.webContents.send('wharness:chatgpt:auth-complete', {
+      cacheKey,
+      authMode: mode,
+      url: sanitizeDiagnosticURL(url || CHATGPT_URL),
+    })
+  }
+}
+
+function authWindowAllows(url) {
+  const disposition = chatGPTNavigationDisposition(url)
+  return disposition.kind === 'trusted' || disposition.kind === 'chatgpt-auth' || disposition.kind === 'external-auth'
+}
+
+async function completeExternalAuthentication(cacheKey, entry, record, callbackURL) {
+  if (record.completed) return
+  record.completed = true
+  entry.externalAuthProvider = ''
+  try { await session.fromPartition(CHATGPT_PARTITION).flushStorageData() } catch { /* best effort */ }
+  const embedded = entry.view.webContents
+  if (!embedded.isDestroyed()) {
+    const current = embedded.getURL()
+    const target = isTrustedChatGPTOrigin(current) && !isChatGPTAuthURL(current) ? current : CHATGPT_URL
+    try { await embedded.loadURL(target, { userAgent: CHATGPT_USER_AGENT }) } catch (error) {
+      console.error(`[chatgpt-auth] embedded reload failed key=${cacheKey} error=${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  if (chatGPTAuthWindows.get(cacheKey) === record) chatGPTAuthWindows.delete(cacheKey)
+  if (!record.window.isDestroyed()) record.window.close()
+  if (activeChatGPTKey === cacheKey) entry.view.setVisible(chatgptVisible)
+  publishChatGPTState(cacheKey)
+  publishAuthComplete(cacheKey, 'external', callbackURL)
+  console.log(`[chatgpt-auth] external callback completed key=${cacheKey} url=${sanitizeDiagnosticURL(callbackURL)}`)
+}
+
+function observeExternalAuthURL(cacheKey, entry, record, url) {
+  const disposition = chatGPTNavigationDisposition(url)
+  if (disposition.kind === 'external-auth') {
+    record.crossedAuthBoundary = true
+    if (entry.externalAuthProvider !== disposition.provider) publishExternalAuth(entry, disposition.provider, url)
+    return
+  }
+  if (disposition.kind === 'trusted' && !isChatGPTAuthURL(url)) {
+    let pathname = ''
+    try { pathname = new URL(url).pathname } catch { return }
+    if (record.crossedAuthBoundary || pathname === '/') {
+      void completeExternalAuthentication(cacheKey, entry, record, url)
+    }
+  }
+}
+
+function startExternalAuthentication(entry, provider = 'OpenAI') {
+  const cacheKey = chatGPTKeyForEntry(entry)
+  if (!cacheKey) throw new Error('ChatGPT view is not registered')
+  entry.authMode = 'external'
+  const existing = chatGPTAuthWindows.get(cacheKey)
+  if (existing && !existing.window.isDestroyed()) {
+    publishExternalAuth(entry, provider, CHATGPT_LOGIN_URL)
+    existing.window.show()
+    existing.window.focus()
+    return { ok: true, cacheKey, reused: true }
+  }
+
+  const authWindow = new BrowserWindow({
+    width: 1120,
+    height: 820,
+    minWidth: 760,
+    minHeight: 620,
+    title: 'Wharness — autenticação ChatGPT',
+    parent: mainWindow,
+    modal: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#111411',
+    webPreferences: securePreferences({ partition: CHATGPT_PARTITION }),
+  })
+  const record = { window: authWindow, completed: false, crossedAuthBoundary: false }
+  chatGPTAuthWindows.set(cacheKey, record)
+  publishExternalAuth(entry, provider, CHATGPT_LOGIN_URL)
+  const wc = authWindow.webContents
+  wc.setUserAgent(CHATGPT_USER_AGENT)
+  wc.setWindowOpenHandler(({ url }) => {
+    if (authWindowAllows(url)) {
+      void wc.loadURL(url, { userAgent: CHATGPT_USER_AGENT })
+    } else if (isHTTPS(url)) {
+      void shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+  const guardNavigation = (event, url) => {
+    if (authWindowAllows(url)) return
+    event?.preventDefault?.()
+    if (isHTTPS(url)) void shell.openExternal(url)
+  }
+  wc.on('will-navigate', guardNavigation)
+  wc.on('will-redirect', guardNavigation)
+  wc.on('did-navigate', (_event, url) => observeExternalAuthURL(cacheKey, entry, record, url))
+  wc.on('did-navigate-in-page', (_event, url) => observeExternalAuthURL(cacheKey, entry, record, url))
+  wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    console.error(`[chatgpt-auth] load failed key=${cacheKey} code=${code} main=${Boolean(isMainFrame)} url=${sanitizeDiagnosticURL(url)} error=${description}`)
+  })
+  authWindow.on('closed', () => {
+    if (chatGPTAuthWindows.get(cacheKey) === record) chatGPTAuthWindows.delete(cacheKey)
+    if (!record.completed) {
+      publishChatGPTState(cacheKey)
+      console.log(`[chatgpt-auth] external window closed before callback key=${cacheKey}`)
+    }
+  })
+  void wc.loadURL(CHATGPT_LOGIN_URL, { userAgent: CHATGPT_USER_AGENT })
+  return { ok: true, cacheKey, reused: false }
 }
 
 function routeChatGPTNavigation(entry, event, url) {
   const disposition = chatGPTNavigationDisposition(url)
   if (disposition.kind === 'trusted') return false
-  event?.preventDefault?.()
-  if (disposition.kind === 'external-auth') {
-    publishExternalAuth(entry, disposition.provider, url)
-    void shell.openExternal(url)
+  if (disposition.kind === 'chatgpt-auth' || disposition.kind === 'external-auth') {
+    if (entry.authMode === 'embedded') {
+      entry.externalAuthProvider = ''
+      entry.embeddedAuthActive = true
+      if (disposition.kind === 'external-auth') entry.embeddedAuthCrossedBoundary = true
+      return false
+    }
+    event?.preventDefault?.()
+    startExternalAuthentication(entry, disposition.provider || 'OpenAI')
     return true
   }
+  event?.preventDefault?.()
   if (disposition.kind === 'external') void shell.openExternal(url)
   return true
+}
+
+function observeEmbeddedAuthURL(cacheKey, entry, url) {
+  if (!entry.embeddedAuthActive) return
+  const disposition = chatGPTNavigationDisposition(url)
+  if (disposition.kind === 'external-auth') {
+    entry.embeddedAuthCrossedBoundary = true
+    return
+  }
+  if (disposition.kind === 'chatgpt-auth') return
+  if (disposition.kind === 'trusted') {
+    let pathname = ''
+    try { pathname = new URL(url).pathname } catch { return }
+    if (!entry.embeddedAuthCrossedBoundary && pathname !== '/') return
+    entry.embeddedAuthActive = false
+    entry.embeddedAuthCrossedBoundary = false
+    publishAuthComplete(cacheKey, 'embedded', url)
+    console.log(`[chatgpt-auth] embedded callback completed key=${cacheKey} url=${sanitizeDiagnosticURL(url)}`)
+  }
 }
 
 function createChatGPTView(cacheKey) {
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION }) })
   view.setBackgroundColor('#ffffff')
   view.setVisible(false)
-  const entry = { view, loading: true, lastUsed: Date.now(), lastNetworkActivity: Date.now(), externalAuthProvider: '' }
+  const entry = { view, loading: true, lastUsed: Date.now(), lastNetworkActivity: Date.now(), externalAuthProvider: '', authMode: 'external', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false }
   chatgptViews.set(cacheKey, entry)
   mainWindow.contentView.addChildView(view)
 
   const wc = view.webContents
   wc.setUserAgent(CHATGPT_USER_AGENT)
   wc.setWindowOpenHandler(({ url }) => {
+    const disposition = chatGPTNavigationDisposition(url)
+    if (entry.authMode === 'embedded' && (disposition.kind === 'chatgpt-auth' || disposition.kind === 'external-auth')) {
+      void wc.loadURL(url, { userAgent: CHATGPT_USER_AGENT })
+      return { action: 'deny' }
+    }
     routeChatGPTNavigation(entry, undefined, url)
     return { action: 'deny' }
   })
@@ -353,8 +513,8 @@ function createChatGPTView(cacheKey) {
   wc.on('will-redirect', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('did-start-loading', () => { entry.loading = true; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
   wc.on('did-stop-loading', () => { entry.loading = false; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
-  wc.on('did-navigate', () => { touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
-  wc.on('did-navigate-in-page', () => { touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
+  wc.on('did-navigate', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
+  wc.on('did-navigate-in-page', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
   wc.on('page-title-updated', () => publishChatGPTState(cacheKey))
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     console.error(`[chatgpt-load] key=${cacheKey} code=${code} main=${Boolean(isMainFrame)} url=${sanitizeDiagnosticURL(url)} error=${description}`)
@@ -853,6 +1013,39 @@ function registerIPC() {
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:state', (event) => { trustedSender(event); return currentChatGPTState() })
+  ipcMain.handle('wharness:chatgpt:set-auth-mode', async (event, request) => {
+    trustedSender(event)
+    const mode = sanitizeChatGPTAuthMode(request?.mode)
+    const entry = activateChatGPTView(request?.cacheKey)
+    entry.authMode = mode
+    if (mode === 'embedded') {
+      const record = chatGPTAuthWindows.get(activeChatGPTKey)
+      if (record && !record.window.isDestroyed()) record.window.close()
+      entry.externalAuthProvider = ''
+      entry.view.setVisible(chatgptVisible)
+    }
+    publishChatGPTState(activeChatGPTKey)
+    return currentChatGPTState()
+  })
+  ipcMain.handle('wharness:chatgpt:start-auth', async (event, request) => {
+    trustedSender(event)
+    const mode = sanitizeChatGPTAuthMode(request?.mode)
+    const entry = activateChatGPTView(request?.cacheKey)
+    entry.authMode = mode
+    entry.externalAuthProvider = ''
+    entry.embeddedAuthActive = mode === 'embedded'
+    entry.embeddedAuthCrossedBoundary = false
+    if (mode === 'external') {
+      startExternalAuthentication(entry, 'OpenAI')
+      return currentChatGPTState()
+    }
+    const record = chatGPTAuthWindows.get(activeChatGPTKey)
+    if (record && !record.window.isDestroyed()) record.window.close()
+    await entry.view.webContents.loadURL(CHATGPT_LOGIN_URL, { userAgent: CHATGPT_USER_AGENT })
+    entry.view.setVisible(chatgptVisible)
+    publishChatGPTState(activeChatGPTKey)
+    return currentChatGPTState()
+  })
   ipcMain.handle('wharness:chatgpt:open-external', async (event, request) => {
     trustedSender(event)
     const target = requireTrustedChatGPTURL(request?.url || CHATGPT_URL)
@@ -863,6 +1056,9 @@ function registerIPC() {
     trustedSender(event)
     const entry = activateChatGPTView(request?.cacheKey)
     entry.externalAuthProvider = ''
+    entry.authMode = 'embedded'
+    const record = chatGPTAuthWindows.get(activeChatGPTKey)
+    if (record && !record.window.isDestroyed()) record.window.close()
     const wc = entry.view.webContents
     if (!isTrustedChatGPTOrigin(wc.getURL())) await wc.loadURL(CHATGPT_URL, { userAgent: CHATGPT_USER_AGENT })
     entry.view.setVisible(chatgptVisible)

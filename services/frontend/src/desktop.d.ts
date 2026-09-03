@@ -1,7 +1,9 @@
 type DesktopBounds = { x: number; y: number; width: number; height: number }
-type DesktopChatGPTState = { cacheKey?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string }
+type DesktopChatGPTAuthMode = 'embedded' | 'external'
+type DesktopChatGPTState = { cacheKey?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string; authMode?: DesktopChatGPTAuthMode; authWindowOpen?: boolean }
 type ContextClipboardResult = { ok: boolean; filePath: string; bytes: number }
-type DesktopExternalAuthState = { provider: string; url: string; systemBrowserMode?: boolean }
+type DesktopExternalAuthState = { cacheKey?: string; provider: string; url: string; authMode?: DesktopChatGPTAuthMode; managedWindow?: boolean }
+type DesktopAuthCompleteState = { cacheKey?: string; authMode: DesktopChatGPTAuthMode; url: string }
 type DesktopPlanDownload = { filename: string; requestId: string; text: string; bytes: number }
 type DesktopPlanDownloadError = { filename?: string; message: string }
 type DesktopBundleDownload = { filename: string; requestId: string; contentBase64: string; bytes: number; sourceFilename?: string; normalizedFilename?: boolean }
@@ -33,11 +35,14 @@ interface WharnessDesktopBridge {
     attachPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
     submitPrepared(request: { cacheKey: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
     state(): Promise<DesktopChatGPTState>
+    setAuthMode(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
+    startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     openExternal(url?: string): Promise<{ ok: boolean }>
     resumeEmbedded(cacheKey: string): Promise<DesktopChatGPTState>
     pickBundle(request: { requestId: string }): Promise<{ cancelled: boolean; filename?: string; requestId?: string; contentBase64?: string; bytes?: number; sourceFilename?: string; normalizedFilename?: boolean }>
     onState(callback: (state: DesktopChatGPTState) => void): () => void
     onExternalAuth(callback: (state: DesktopExternalAuthState) => void): () => void
+    onAuthComplete(callback: (state: DesktopAuthCompleteState) => void): () => void
     onPlanDownloaded(callback: (plan: DesktopPlanDownload) => void): () => void
     onPlanDownloadError(callback: (error: DesktopPlanDownloadError) => void): () => void
     onBundleDownloaded(callback: (bundle: DesktopBundleDownload) => void): () => void

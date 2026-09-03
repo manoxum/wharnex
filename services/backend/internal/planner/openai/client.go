@@ -54,7 +54,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 			"role": "user",
 			"content": []any{
 				map[string]any{"type": "input_file", "file_id": fileID},
-				map[string]any{"type": "input_text", "text": "REQUEST ID: " + request.RequestID + "\nUSER REQUEST:\n" + request.Message},
+				map[string]any{"type": "input_text", "text": "REQUEST ID: " + request.RequestID + "\nAUTOMATION MODE: " + string(request.AutomationMode) + "\nUSER REQUEST OR WHARNESS CONTINUATION:\n" + request.Message},
 			},
 		}},
 	}
@@ -200,7 +200,7 @@ func executionFormat(requestID string) map[string]any {
 		"properties": map[string]any{
 			"protocol":   map[string]any{"type": "string", "const": domain.TurnProtocolV1},
 			"request_id": map[string]any{"type": "string", "const": requestID},
-			"kind":       map[string]any{"type": "string", "enum": []string{"answer", "clarification", "investigation", "change", "blocked"}},
+			"kind":       map[string]any{"type": "string", "enum": []string{"answer", "clarification", "investigation", "workflow", "change", "blocked"}},
 			"message":    map[string]any{"type": "string"},
 			"plan":       map[string]any{"anyOf": []any{plan, map[string]any{"type": "null"}}},
 		},

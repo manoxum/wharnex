@@ -120,11 +120,11 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 	if !hasTurn && !hasPlan {
 		return Parsed{}, errors.New("execution bundle requires turn.json or plan.json")
 	}
-	if hasTurn && turn.Kind == domain.TurnKindChange && !hasPlan {
-		return Parsed{}, errors.New("change turn requires plan.json")
+	if hasTurn && turnCarriesPlan(turn.Kind) && !hasPlan {
+		return Parsed{}, fmt.Errorf("%s turn requires plan.json", turn.Kind)
 	}
-	if hasTurn && turn.Kind != domain.TurnKindChange && hasPlan {
-		return Parsed{}, errors.New("only change turns may contain plan.json")
+	if hasTurn && !turnCarriesPlan(turn.Kind) && hasPlan {
+		return Parsed{}, errors.New("only change or workflow turns may contain plan.json")
 	}
 	var plan *domain.ExecutionPlan
 	patches := make([]string, 0)
@@ -201,6 +201,10 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		Filename: path.Base(filename), README: string(readmeBytes), Files: listed,
 		Patches: patches, SHA256: hex.EncodeToString(digest[:]),
 	}, Turn: turn}, nil
+}
+
+func turnCarriesPlan(kind domain.TurnKind) bool {
+	return kind == domain.TurnKindChange || kind == domain.TurnKindWorkflow
 }
 
 func normalizeBundleRoot(files map[string][]byte) (map[string][]byte, string, error) {

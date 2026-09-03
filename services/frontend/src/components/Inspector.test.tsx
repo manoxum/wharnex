@@ -51,3 +51,37 @@ describe('Inspector plan compatibility', () => {
     expect(screen.getByText('Verificações').parentElement?.textContent).toContain('0')
   })
 })
+
+it('shows workflow as a local probe without exposing change execution controls', () => {
+  const session = legacySession()
+  session.automation_mode = 'auto'
+  session.workflow_round = 2
+  session.last_turn = { protocol: 'harness.turn/v1', request_id: 'req-legacy', kind: 'workflow', message: 'Confirmar capacidade local.' }
+  session.plan = {
+    ...session.plan!,
+    summary: 'Inspecionar capacidades existentes',
+    operations: [{
+      type: 'command', patch: '',
+      command: { argv: ['git', 'status', '--short'], cwd: '.', timeout_seconds: 30, network: false, expected_exit_codes: [0] },
+    }],
+    verification: [],
+  }
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[{ id: 'evt-wf', session_id: session.id, type: 'workflow.started', timestamp: new Date().toISOString(), data: { round: 2 } }]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => undefined}
+    onExecute={async () => undefined}
+    onApply={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  expect(screen.getByText(/Workflow local 2\/6/i)).toBeTruthy()
+  expect(screen.getByText('Probe autorizada')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+})

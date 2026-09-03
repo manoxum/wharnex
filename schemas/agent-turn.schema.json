@@ -4,11 +4,34 @@
   "title": "Wharness Agent Turn v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "request_id", "kind", "message"],
+  "required": [
+    "protocol",
+    "request_id",
+    "kind",
+    "message"
+  ],
   "properties": {
-    "protocol": {"const": "harness.turn/v1"},
-    "request_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["answer", "clarification", "investigation", "change", "blocked"]},
-    "message": {"type": "string", "minLength": 1, "maxLength": 262144}
+    "protocol": {
+      "const": "harness.turn/v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "answer",
+        "clarification",
+        "investigation",
+        "workflow",
+        "change",
+        "blocked"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 262144
+    }
   }
 }

@@ -271,13 +271,17 @@ export default function App() {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
-  function updateChat(patch: Partial<WorkspaceChat>) {
-    if (!session || !activeChatId) return
+  function updateWorkspaceChat(chatId: string, projectPath: string, patch: Partial<WorkspaceChat>) {
     setChats((current) => {
-      const next = current.map((chat) => chat.id === activeChatId ? { ...chat, ...patch, updatedAt: new Date().toISOString() } : chat)
-      saveWorkspaceChats(session.project_path, next)
+      const next = current.map((chat) => chat.id === chatId ? { ...chat, ...patch, updatedAt: new Date().toISOString() } : chat)
+      saveWorkspaceChats(projectPath, next)
       return next
     })
+  }
+
+  function updateChat(patch: Partial<WorkspaceChat>) {
+    if (!session || !activeChatId) return
+    updateWorkspaceChat(activeChatId, session.project_path, patch)
   }
 
   function appendChatItem(targetChat: WorkspaceChat, projectPath: string, item: ChatItem) {
@@ -501,19 +505,26 @@ export default function App() {
       const submission = await api.executionBundle(targetSession.id, filename, contentBase64)
       const updated = submission.session
       const policyReason = (submission.policy_reasons || updated.policy?.reasons || []).join('; ')
+      const workflowRound = submission.workflow_round || updated.workflow_round || 0
       const autoText = submission.policy_blocked
         ? `Bundle bloqueado pela Policy antes da execução: ${policyReason || 'plano não permitido'}.${submission.repair_prepared ? ' O Wharness preparou automaticamente um novo pedido de correção.' : ''}`
-        : submission.auto_applied
-          ? 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.'
-          : submission.auto_executed
-            ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
-            : 'Bundle ZIP importado e plano validado.'
-      const conversational = updated.last_turn && updated.last_turn.kind !== 'change'
+        : submission.workflow_prepared
+          ? `Passo local ${workflowRound}/6 concluído na sandbox Protected. Os resultados foram incorporados numa continuação para o mesmo ChatGPT; o Wharness vai submetê-la automaticamente.`
+          : submission.workflow_executed
+            ? `Passo local ${workflowRound}/6 executado na sandbox Protected. Nenhuma alteração deste passo foi aplicada ao host.`
+            : submission.auto_applied
+              ? 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.'
+              : submission.auto_executed
+                ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
+                : 'Bundle ZIP importado e plano validado.'
+      const conversational = updated.last_turn && updated.last_turn.kind !== 'change' && updated.last_turn.kind !== 'workflow'
       const bundleItem: ChatItem = {
-        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: submission.policy_blocked ? autoText : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText)),
+        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: submission.policy_blocked ? autoText : (submission.workflow_executed ? autoText : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText))),
         meta: submission.policy_blocked
           ? `Policy bloqueada${submission.repair_prepared ? ' · reparação automática preparada' : ''}`
-          : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? 'AUTO · Host aplicado' : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
+          : submission.workflow_prepared || submission.workflow_executed
+            ? `Workflow ${workflowRound}/6 · sandbox Protected`
+            : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? 'AUTO · Host aplicado' : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
         turnKind: updated.last_turn?.kind,
       }
       if (targetChat.id === activeChatId) {
@@ -521,10 +532,19 @@ export default function App() {
       }
       appendChatItem(targetChat, updated.project_path, bundleItem)
       if (submission.auto_error) setError(submission.auto_error)
-      if (updated.state === 'repair_pending' && updated.last_manual_prompt) await submitRepairPrompt(updated, targetChat)
+      let workflowSubmitted = false
+      if (submission.workflow_prepared && updated.state === 'workflow_pending' && updated.last_manual_prompt) {
+        workflowSubmitted = await submitWorkflowPrompt(updated, targetChat)
+      } else if (updated.state === 'repair_pending' && updated.last_manual_prompt) {
+        await submitRepairPrompt(updated, targetChat)
+      }
       return submission.auto_applied
         ? `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`
-        : `Bundle ${filename} importado no Harness Chat “${targetChat.title}”.`
+        : submission.workflow_prepared
+          ? workflowSubmitted
+            ? `Passo ${workflowRound}/6 executado e continuação submetida no Harness Chat “${targetChat.title}”.`
+            : `Passo ${workflowRound}/6 executado; a continuação ficou pendente no Harness Chat “${targetChat.title}”.`
+          : `Bundle ${filename} importado no Harness Chat “${targetChat.title}”.`
     } catch (e) {
       const message = messageOf(e); setError(message); throw new Error(message)
     } finally { setBusy(false) }
@@ -566,6 +586,60 @@ export default function App() {
   }
 
 
+  async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat) {
+    const text = promptSession.last_manual_prompt || ''
+    if (!text) throw new Error('Continuação do planner vazia.')
+    if (!isDesktop()) throw new Error('O loop automático com ChatGPT requer Wharness Desktop.')
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
+    const bridge = desktopBridge()
+    if (!bridge) throw new Error('Desktop bridge indisponível')
+    const prepared = await bridge.chatgpt.preparePrompt({
+      cacheKey: targetChat.id, text, url: targetChat.chatgptUrl, sessionId: promptSession.id,
+      requestId: promptSession.last_request_id || '', attachments: [], autoSubmit: true,
+      contextSha256: promptSession.context.manifest.sha256, lastContextSha256: targetChat.lastContextSha256,
+      lastContextChatgptUrl: targetChat.lastContextChatgptUrl, preferCurrentConversation: false,
+    })
+    const patch: Partial<WorkspaceChat> = {}
+    if (prepared.conversationUrl) patch.chatgptUrl = prepared.conversationUrl
+    if (prepared.includedContext) {
+      patch.lastContextSha256 = promptSession.context.manifest.sha256
+      patch.lastContextChatgptUrl = prepared.conversationUrl || targetChat.chatgptUrl
+    }
+    if (Object.keys(patch).length) updateWorkspaceChat(targetChat.id, promptSession.project_path, patch)
+    return prepared
+  }
+
+  async function submitWorkflowPrompt(workflowSession: Session, targetChat: WorkspaceChat): Promise<boolean> {
+    const round = workflowSession.workflow_round || 1
+    appendChatItem(targetChat, workflowSession.project_path, {
+      id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+      text: `O Wharness terminou o passo local ${round}/6 e vai devolver stdout, stderr e códigos de saída ao mesmo ChatGPT para decidir o próximo passo.`,
+      meta: workflowSession.last_request_id ? `Workflow ${round}/6 · ${workflowSession.last_request_id}` : `Workflow ${round}/6`,
+      turnKind: 'workflow',
+    })
+    try {
+      const prepared = await transportPlannerContinuation(workflowSession, targetChat)
+      appendChatItem(targetChat, workflowSession.project_path, {
+        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+        text: prepared.submitted
+          ? 'Resultados locais submetidos automaticamente ao ChatGPT. O Wharness aguarda a próxima decisão ou o encerramento do fluxo.'
+          : 'A continuação foi preparada no ChatGPT, mas ainda precisa de confirmação manual.',
+        meta: prepared.submitted ? `Workflow ${round}/6 · ChatGPT acionado` : `Workflow ${round}/6 · confirmação pendente`,
+        turnKind: 'workflow',
+      })
+      return prepared.submitted
+    } catch (sendError) {
+      appendChatItem(targetChat, workflowSession.project_path, {
+        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+        text: `O passo local terminou, mas não foi possível devolver os resultados automaticamente ao ChatGPT: ${messageOf(sendError)}`,
+        meta: `Workflow ${round}/6 · abra a aba ChatGPT`,
+        turnKind: 'workflow',
+      })
+      setError(messageOf(sendError))
+      return false
+    }
+  }
+
   async function submitRepairPrompt(failedSession: Session, targetChat: WorkspaceChat) {
     const repairPrompt = failedSession.last_manual_prompt || ''
     if (!repairPrompt) return
@@ -575,13 +649,9 @@ export default function App() {
       text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
     })
-    if (!isDesktop()) return
     try {
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
-      const bridge = desktopBridge()
-      if (!bridge) throw new Error('Desktop bridge indisponível')
-      await bridge.chatgpt.submitPrompt({ cacheKey: targetChat.id, text: repairPrompt, url: targetChat.chatgptUrl, requestId: failedSession.last_request_id || '' })
-      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.', meta: 'ChatGPT acionado automaticamente' })
+      const prepared = await transportPlannerContinuation(failedSession, targetChat)
+      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.', meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente' })
     } catch (sendError) {
       appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT e envie o prompt preparado' })
     }
@@ -663,13 +733,14 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
     case 'answer': return 'Resposta · sem alterações'
     case 'clarification': return 'Aguardando esclarecimento'
     case 'investigation': return 'Análise · sem alterações'
+    case 'workflow': return 'Workflow local · sandbox Protected'
     case 'blocked': return 'Pedido bloqueado'
     default: return 'Plano de mudança'
   }
 }
 
 function welcomeItem(session: Session): ChatItem {
-  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Diga o que precisa alterar, investigar ou validar.', createdAt: new Date().toISOString(), meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+  return { id: 'welcome', role: 'harness', text: 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
 }
 
 function messageOf(error: unknown) {

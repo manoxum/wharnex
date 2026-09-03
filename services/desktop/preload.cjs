@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     attachPrompt: (request) => invoke('wharness:chatgpt:attach-prompt', request),
     submitPrepared: (request) => invoke('wharness:chatgpt:submit-prepared', request),
     state: () => invoke('wharness:chatgpt:state'),
+    setAuthMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-auth-mode', { cacheKey, mode }),
+    startAuth: (cacheKey, mode) => invoke('wharness:chatgpt:start-auth', { cacheKey, mode }),
     openExternal: (url = '') => invoke('wharness:chatgpt:open-external', { url: String(url || '') }),
     resumeEmbedded: (cacheKey) => invoke('wharness:chatgpt:resume-embedded', { cacheKey }),
     pickBundle: (request) => invoke('wharness:chatgpt:pick-bundle', request),
@@ -37,6 +39,12 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       const handler = (_event, state) => callback(state)
       ipcRenderer.on('wharness:chatgpt:external-auth', handler)
       return () => ipcRenderer.removeListener('wharness:chatgpt:external-auth', handler)
+    },
+    onAuthComplete: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('wharness:chatgpt:auth-complete', handler)
+      return () => ipcRenderer.removeListener('wharness:chatgpt:auth-complete', handler)
     },
     onPlanDownloaded: (callback) => {
       if (typeof callback !== 'function') return () => {}

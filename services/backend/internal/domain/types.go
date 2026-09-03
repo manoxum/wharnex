@@ -11,13 +11,14 @@ const (
 	TurnKindAnswer        TurnKind = "answer"
 	TurnKindClarification TurnKind = "clarification"
 	TurnKindInvestigation TurnKind = "investigation"
+	TurnKindWorkflow      TurnKind = "workflow"
 	TurnKindChange        TurnKind = "change"
 	TurnKindBlocked       TurnKind = "blocked"
 )
 
 func ValidTurnKind(kind TurnKind) bool {
 	switch kind {
-	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindChange, TurnKindBlocked:
+	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindWorkflow, TurnKindChange, TurnKindBlocked:
 		return true
 	default:
 		return false
@@ -178,6 +179,7 @@ type Session struct {
 	RepairAttempt           int                  `json:"repair_attempt,omitempty"`
 	RepairParentPlanID      string               `json:"repair_parent_plan_id,omitempty"`
 	LastRepairError         string               `json:"last_repair_error,omitempty"`
+	WorkflowRound           int                  `json:"workflow_round,omitempty"`
 }
 
 type Event struct {

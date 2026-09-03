@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.2.20 — Dual ChatGPT authentication + same-session callback
+
+- Add explicit **Login incorporado** and **Login externo** modes to the ChatGPT panel.
+- Keep embedded OAuth entirely inside the sandboxed ChatGPT `WebContentsView` when the user selects it.
+- Replace the broken system-browser handoff of in-flight OAuth URLs with a fresh `chatgpt.com/auth/login` flow in a separate Wharness-owned sandboxed auth window sharing the same persistent ChatGPT partition.
+- Detect the external-window callback only from top-level return to non-auth `chatgpt.com`, then close the auth window and reload the embedded view without reading or copying cookies/tokens.
+- Keep the operating-system browser button as a clearly isolated manual fallback with no callback claim.
+- Add security/regression tests for auth URL classification, strict auth modes, shared-partition external login, and prevention of provider-URL forwarding.
+
+## v1.2.19 — Intent-first ASK and bounded iterative workflows
+
+- Reframe the planner as a project copilot instead of a coding-first agent: ASK/advice/recommendation requests now explicitly prefer direct `answer` outcomes, while only explicit mutation intent becomes `change`.
+- Add `workflow` to `harness.turn/v1` for non-terminal local evidence gathering without converting diagnostics into code changes.
+- Execute workflow plans only as command-only, network-disabled probes in disposable Protected sandboxes; patches, host Apply and host-approval semantics are forbidden.
+- Feed structured stdout/stderr/exit observations back into a fresh request in the same planner/ChatGPT conversation and repeat for at most six rounds before requiring a terminal result.
+- Automatically submit workflow continuations through the existing file-first, upload-confirmed ChatGPT transport and preserve smart context affinity by conversation URL + project SHA.
+- Keep workflow failures as reasoning evidence rather than entering the automatic change-repair loop; a terminal provider change still follows the normal Policy -> sandbox -> verify -> Apply path.
+- Make Agent Inspector distinguish local workflow probes from change plans and prevent workflow plans from exposing manual Execute/Apply controls.
+- Define an MCP-ready adapter boundary without adding an unnecessary runtime dependency: future MCP capabilities must remain behind Wharness Policy, containment and sandbox ports.
+
 ## v1.2.18.3 — Frontend test isolation hotfix
 
 - Register one explicit Vitest setup file that cleans React Testing Library renders after every frontend test.

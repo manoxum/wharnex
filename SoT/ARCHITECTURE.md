@@ -10,13 +10,17 @@ Planner adapters and sandbox adapters are replaceable. AI providers cannot depen
 
 ## Core workflow
 
-`Session -> Context -> Agent Turn -> [Answer | Clarification | Investigation | Change Plan]`
+`Session -> Context -> Agent Turn -> [Answer | Clarification | Investigation | Workflow Step | Change Plan]`
 
-Only the change branch continues through:
+The change branch continues through:
 
-`Plan -> Policy -> Sandbox Execute -> Verify -> Explicit or Auto-approved Host Apply`
+`Change Plan -> Policy -> Sandbox Execute -> Verify -> Explicit or Auto-approved Host Apply`
 
-There is no direct `AI -> shell` path.
+The iterative evidence branch is bounded and non-mutating on the host:
+
+`Workflow Plan -> Policy -> Disposable Protected Sandbox -> Structured Observations -> Refreshed Context -> Same Planner Conversation -> next Agent Turn`
+
+There is no direct `AI -> shell` path. MCP, when introduced, is an adapter behind application ports rather than a route around Policy/sandbox boundaries.
 
 ## Services
 

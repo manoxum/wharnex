@@ -45,3 +45,34 @@ func TestValidateRejectsSymlinkPatch(t *testing.T) {
 		t.Fatal("expected symlink patch rejection")
 	}
 }
+
+func TestValidateWorkflowPlanRejectsPatchesAndNetwork(t *testing.T) {
+	base := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "wf", RequestID: "req_12345678", Status: "ready", Summary: "inspect", Risk: "low",
+		Operations:   []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"git", "status", "--short"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}},
+		Verification: []domain.CommandSpec{},
+	}
+	if err := ValidateWorkflowPlan(base); err != nil {
+		t.Fatal(err)
+	}
+	withPatch := base
+	withPatch.Operations = []domain.Operation{{Type: "apply_patch", Patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n"}}
+	if err := ValidateWorkflowPlan(withPatch); err == nil {
+		t.Fatal("workflow patch must be rejected")
+	}
+	withNetwork := base
+	withNetwork.Operations = []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"git", "status"}, Cwd: ".", TimeoutSeconds: 30, Network: true, ExpectedExitCodes: []int{0}}}}
+	if err := ValidateWorkflowPlan(withNetwork); err == nil {
+		t.Fatal("workflow network must be rejected")
+	}
+}
+
+func TestValidateWorkflowPlanRejectsHostApproval(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "wf-approval", RequestID: "req_12345678", Status: "ready", Summary: "inspect", Risk: "low", RequiresApproval: true,
+		Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"git", "status", "--short"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err == nil {
+		t.Fatal("workflow requiring host approval must be rejected")
+	}
+}

@@ -13,6 +13,7 @@ type Request struct {
 	ContextTextPath    string
 	ContextManifest    domain.ContextManifest
 	PreviousResponseID string
+	AutomationMode     domain.AutomationMode
 }
 
 type Result struct {

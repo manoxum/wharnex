@@ -7,11 +7,18 @@ Wharness has a per-project automation mode independent from the Agent UI mode:
 - `manual`: importing a plan/bundle only validates it. The user explicitly runs Protected/Unprotected execution and Protected Apply.
 - `auto` (default when a project is opened/restored): valid allowed execution bundles are executed immediately in **Protected** sandbox. Only a successful verified execution may be applied automatically to the host.
 
-Auto applies only to `change` turns. Answers, clarifications, investigations, and blocked outcomes are imported into the Harness transcript and never enter execution, even when Auto is active. Supported provider adapters return turn results directly and therefore require no browser download; valid provider `change` plans follow the same Policy -> Protected sandbox -> verification -> host-apply pipeline.
+Auto may automate two distinct branches:
+
+- `change`: Policy -> Protected sandbox -> verification -> host Apply.
+- `workflow`: Policy -> disposable Protected sandbox command probe -> capture observations -> fresh planner continuation. Workflow steps never Apply to host.
+
+Answers, clarifications, investigations, and blocked outcomes are imported into the Harness transcript and never enter execution, even when Auto is active. Supported provider adapters return turn results directly and can advance the same bounded workflow loop without browser downloads.
 
 `auto` MUST NOT coexist with `Unprotected`. Enabling Auto forces/needs Protected; switching to Unprotected disables/requires disabling Auto. Policy validation is never bypassed. Auto is a persistent project state and counts as approval to execute/apply a policy-allowed bundle. Project open/restore initializes that state to Auto only together with Protected execution; denied plans never run.
 
-If automatic execution fails, the bounded repair loop may prepare and submit a repair request to the same linked ChatGPT conversation. A repaired bundle downloaded while Auto is still enabled repeats the sandbox -> verify -> host-apply cycle. The repair attempt cap remains authoritative.
+If automatic change execution fails, the bounded repair loop may prepare and submit a repair request to the same linked ChatGPT conversation. A repaired bundle downloaded while Auto is still enabled repeats the sandbox -> verify -> host-apply cycle. The repair attempt cap remains authoritative.
+
+For iterative investigation, a valid `workflow` bundle is executed only in a disposable Protected sandbox. Its argv/cwd/exit/stdout/stderr results are converted to `LOCAL WORKFLOW OBSERVATIONS`, the current project context is refreshed, and a fresh planner request is submitted to the same linked ChatGPT conversation. The loop accepts at most six workflow rounds for one original user request. Command failures are observations and do not enter the change-repair loop. The sixth continuation MUST terminate as answer, investigation, clarification, change, or blocked.
 
 For the embedded consumer ChatGPT transport, the remote view MUST finish loading and remain network-stable for a bounded interval before Wharness pastes any attachment, whether or not a user prompt already exists. The complete prepared planner prompt MUST be materialized as a private temporary `wharness-planner-prompt.md` file; it is never pasted as ordinary composer text and ChatGPT does not choose its transport representation. Context, user files, and the Markdown prompt are pasted one at a time. Wharness may observe only narrowly scoped request metadata for ChatGPT's `process_upload_stream` endpoint (request identity, owning WebContents, completion status, and network error), never headers or bodies. Every input requires an observed successful upload. A failed or non-started upload is retried with bounded exponential backoff; exhausting the retry cap aborts preparation and MUST NOT submit.
 
@@ -25,7 +32,13 @@ Primary manual Desktop delivery is:
 
 The planner prompt MUST state the exact canonical filename, require a file-only visible response, prohibit localized/generic/UUID bundle names, require the ZIP root layout, and require the model to self-check the archive before attaching it. The Desktop records the expected request id when a draft is submitted. If ChatGPT nevertheless downloads a generic ZIP name while exactly that request is pending in the active chat, the Desktop MAY rename the transport file to the canonical filename before backend submission. A different valid Wharness request id is never rewritten.
 
-Every new bundle contains `turn.json` using `harness.turn/v1` plus a non-empty `README.md`. Non-change turns omit `plan.json` and patches. A `change` turn additionally contains the execution files below. Legacy bundles without `turn.json` remain compatible and are interpreted as `change`.
+Every new bundle contains `turn.json` using `harness.turn/v1` plus a non-empty `README.md`. `answer`, `clarification`, `investigation`, and `blocked` omit `plan.json` and patches. `workflow` and `change` contain `plan.json`; only `change` may contain patches. Legacy bundles without `turn.json` remain compatible and are interpreted as `change`.
+
+Required entries for `workflow`:
+
+- `plan.json`: `harness.execution/v1` with `status=ready`, `risk=low|medium`, `requires_approval=false`, 1..16 command-only operations, and `network=false` for every operation/verification command.
+- `README.md`: human explanation of the evidence requested.
+- `patches/` MUST NOT exist.
 
 Required entries for `change`:
 

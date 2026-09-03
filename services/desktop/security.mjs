@@ -98,11 +98,25 @@ export function requireTrustedChatGPTURL(value) {
 export function externalAuthProvider(value) {
   let host
   try { host = new URL(String(value)).hostname.toLowerCase() } catch { return '' }
-  if (host === 'auth.openai.com' || host.endsWith('.auth.openai.com')) return 'OpenAI'
+  if (host === 'auth.openai.com' || host.endsWith('.auth.openai.com') || host === 'auth0.openai.com') return 'OpenAI'
   if (host === 'accounts.google.com' || host.endsWith('.accounts.google.com')) return 'Google'
   if (host === 'login.microsoftonline.com' || host.endsWith('.login.microsoftonline.com') || host === 'login.live.com') return 'Microsoft'
   if (host === 'appleid.apple.com') return 'Apple'
   return ''
+}
+
+export function isChatGPTAuthURL(value) {
+  try {
+    const url = new URL(String(value))
+    if (!isTrustedChatGPTOrigin(url.href)) return false
+    return url.pathname === '/auth' || url.pathname.startsWith('/auth/')
+  } catch { return false }
+}
+
+export function sanitizeChatGPTAuthMode(value) {
+  const mode = String(value || '').trim().toLowerCase()
+  if (mode === 'embedded' || mode === 'external') return mode
+  throw new Error('Invalid ChatGPT authentication mode')
 }
 
 export function chatGPTNavigationDisposition(value) {
@@ -111,6 +125,7 @@ export function chatGPTNavigationDisposition(value) {
   if (url.protocol !== 'https:') return { kind: 'deny', provider: '' }
   const provider = externalAuthProvider(url.href)
   if (provider) return { kind: 'external-auth', provider }
+  if (isChatGPTAuthURL(url.href)) return { kind: 'chatgpt-auth', provider: 'OpenAI' }
   if (isTrustedChatGPTOrigin(url.href)) return { kind: 'trusted', provider: '' }
   return { kind: 'external', provider: '' }
 }

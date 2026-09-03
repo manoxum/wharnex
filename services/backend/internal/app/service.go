@@ -32,14 +32,17 @@ var (
 )
 
 type BundleSubmission struct {
-	Session        domain.Session          `json:"session"`
-	AutoExecuted   bool                    `json:"auto_executed"`
-	AutoApplied    bool                    `json:"auto_applied"`
-	AutoError      string                  `json:"auto_error,omitempty"`
-	Execution      *domain.ExecutionResult `json:"execution,omitempty"`
-	PolicyBlocked  bool                    `json:"policy_blocked,omitempty"`
-	PolicyReasons  []string                `json:"policy_reasons,omitempty"`
-	RepairPrepared bool                    `json:"repair_prepared,omitempty"`
+	Session          domain.Session          `json:"session"`
+	AutoExecuted     bool                    `json:"auto_executed"`
+	AutoApplied      bool                    `json:"auto_applied"`
+	AutoError        string                  `json:"auto_error,omitempty"`
+	Execution        *domain.ExecutionResult `json:"execution,omitempty"`
+	PolicyBlocked    bool                    `json:"policy_blocked,omitempty"`
+	PolicyReasons    []string                `json:"policy_reasons,omitempty"`
+	RepairPrepared   bool                    `json:"repair_prepared,omitempty"`
+	WorkflowExecuted bool                    `json:"workflow_executed,omitempty"`
+	WorkflowPrepared bool                    `json:"workflow_prepared,omitempty"`
+	WorkflowRound    int                     `json:"workflow_round,omitempty"`
 }
 
 const maxAutoRepairAttempts = 3
@@ -239,28 +242,13 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 	}
 	requestID := ids.New("req")
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID})
-	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID})
+	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode})
 	if err != nil {
 		s.bus.Publish(sessionID, "planner.failed", map[string]any{"error": err.Error()})
 		return planner.Result{}, item, err
 	}
-	normalizePlanCollections(result.Plan)
-	if result.Turn == nil && result.Plan != nil {
-		result.Turn = &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindChange, Message: result.Plan.Summary}
-	}
-	if result.Turn != nil {
-		if result.Turn.RequestID != requestID {
-			return planner.Result{}, item, fmt.Errorf("turn request_id mismatch: expected %s", requestID)
-		}
-		if err := protocol.ValidateTurn(*result.Turn); err != nil {
-			return planner.Result{}, item, err
-		}
-		if result.Turn.Kind == domain.TurnKindChange && result.Plan == nil {
-			return planner.Result{}, item, errors.New("change turn requires an execution plan")
-		}
-		if result.Turn.Kind != domain.TurnKindChange && result.Plan != nil {
-			return planner.Result{}, item, errors.New("non-change turn cannot contain an execution plan")
-		}
+	if err := normalizePlannerResult(requestID, &result); err != nil {
+		return planner.Result{}, item, err
 	}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastManualPrompt = result.ManualPrompt
@@ -268,6 +256,7 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
 		current.LastRepairError = ""
+		current.WorkflowRound = 0
 		current.LastTurn = result.Turn
 		if result.Plan == nil && result.ManualPrompt != "" {
 			current.PendingManualRequestIDs = []string{requestID}
@@ -282,16 +271,14 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 		}
 		if result.Plan != nil {
 			current.LastBundle = nil
-			if result.Plan.RequestID != requestID {
-				return fmt.Errorf("planner request_id mismatch: expected %s", requestID)
-			}
-			if err := protocol.Validate(*result.Plan); err != nil {
-				return err
-			}
 			decision := s.policy.Evaluate(*result.Plan)
 			current.Plan = result.Plan
 			current.Policy = &decision
-			current.State = "planned"
+			if result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
+				current.State = "workflow_planned"
+			} else {
+				current.State = "planned"
+			}
 			current.LastExecution = nil
 		} else if result.Turn != nil {
 			current.Plan = nil
@@ -313,7 +300,16 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 	} else if result.Turn != nil {
 		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": requestID, "kind": result.Turn.Kind, "transport": "provider"})
 	}
-	if result.Plan != nil && updated.AutomationMode == domain.AutomationModeAuto && updated.Policy != nil && result.Plan.Status == "ready" {
+	if result.Plan != nil && result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
+		if updated.AutomationMode != domain.AutomationModeAuto {
+			return planner.Result{}, updated, errors.New("workflow turn requires project Auto mode; return a terminal answer/investigation or enable Auto")
+		}
+		workflow, workflowErr := s.runWorkflowLoop(ctx, sessionID, "provider")
+		if workflowErr != nil {
+			return planner.Result{}, updated, workflowErr
+		}
+		updated = workflow.Session
+	} else if result.Plan != nil && updated.AutomationMode == domain.AutomationModeAuto && updated.Policy != nil && result.Plan.Status == "ready" {
 		if updated.Policy.Allowed {
 			automated := s.runAutomaticPlan(ctx, sessionID, "provider")
 			updated = automated.Session
@@ -377,6 +373,40 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	if !containsString(current.PendingManualRequestIDs, parsed.Turn.RequestID) {
 		return BundleSubmission{}, fmt.Errorf("bundle request_id %q is not pending for this chat/session", parsed.Turn.RequestID)
+	}
+	if parsed.Turn.Kind == domain.TurnKindWorkflow {
+		if current.AutomationMode != domain.AutomationModeAuto {
+			return BundleSubmission{}, errors.New("workflow bundle requires project Auto mode; return a terminal answer/investigation bundle or enable Auto")
+		}
+		if current.ExecutionMode != domain.ExecutionModeProtected {
+			return BundleSubmission{}, errors.New("workflow bundle requires Protected execution mode")
+		}
+		if current.WorkflowRound >= maxWorkflowRounds {
+			return BundleSubmission{}, fmt.Errorf("workflow round limit reached (%d); return a terminal answer, investigation, clarification, change, or blocked bundle for request %s", maxWorkflowRounds, parsed.Turn.RequestID)
+		}
+		if parsed.Plan == nil {
+			return BundleSubmission{}, errors.New("workflow bundle requires plan.json")
+		}
+		if err := protocol.ValidateWorkflowPlan(*parsed.Plan); err != nil {
+			return BundleSubmission{}, err
+		}
+		decision := s.policy.Evaluate(*parsed.Plan)
+		_, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+			turn := parsed.Turn
+			item.LastTurn = &turn
+			item.Plan = parsed.Plan
+			item.Policy = &decision
+			item.LastExecution = nil
+			item.LastBundle = &parsed.Info
+			item.State = "workflow_planned"
+			item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, parsed.Turn.RequestID)
+			return nil
+		})
+		if updateErr != nil {
+			return BundleSubmission{}, updateErr
+		}
+		s.bus.Publish(sessionID, "workflow.received", map[string]any{"plan_id": parsed.Plan.PlanID, "request_id": parsed.Turn.RequestID, "allowed": decision.Allowed, "transport": "zip_bundle"})
+		return s.runWorkflowLoop(ctx, sessionID, "zip_bundle")
 	}
 	if parsed.Plan == nil {
 		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
@@ -502,6 +532,8 @@ func turnState(kind domain.TurnKind) string {
 		return "awaiting_clarification"
 	case domain.TurnKindInvestigation:
 		return "investigated"
+	case domain.TurnKindWorkflow:
+		return "workflow_planned"
 	case domain.TurnKindBlocked:
 		return "blocked"
 	default:
@@ -812,27 +844,16 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 		ContextTextPath:    refreshed.Context.TextPath,
 		ContextManifest:    refreshed.Context.Manifest,
 		PreviousResponseID: refreshed.LastProviderResponseID,
+		AutomationMode:     refreshed.AutomationMode,
 	})
 	if err != nil {
 		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
 	}
-	normalizePlanCollections(planned.Plan)
-	if planned.Turn == nil && planned.Plan != nil {
-		planned.Turn = &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindChange, Message: planned.Plan.Summary}
+	if err := normalizePlannerResult(requestID, &planned); err != nil {
+		return refreshed, err
 	}
-	if planned.Turn != nil {
-		if planned.Turn.RequestID != requestID {
-			return refreshed, fmt.Errorf("repair turn request_id mismatch: expected %s", requestID)
-		}
-		if err := protocol.ValidateTurn(*planned.Turn); err != nil {
-			return refreshed, err
-		}
-		if planned.Turn.Kind == domain.TurnKindChange && planned.Plan == nil {
-			return refreshed, errors.New("repair change turn requires an execution plan")
-		}
-		if planned.Turn.Kind != domain.TurnKindChange && planned.Plan != nil {
-			return refreshed, errors.New("repair non-change turn cannot contain an execution plan")
-		}
+	if planned.Turn != nil && planned.Turn.Kind == domain.TurnKindWorkflow {
+		return refreshed, errors.New("workflow turns are not allowed inside automatic repair; return a corrected change or terminal result")
 	}
 
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {

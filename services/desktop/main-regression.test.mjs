@@ -37,3 +37,21 @@ test('manual toolbar send actions submit only after their upload is confirmed', 
     assert.match(action, /if \(!submission\.accepted\) throw new Error/)
   }
 })
+
+
+test('dual ChatGPT auth never forwards an in-flight OAuth provider URL to the system browser', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const routeStart = source.indexOf('function routeChatGPTNavigation(entry, event, url)')
+  const routeEnd = source.indexOf('\nfunction observeEmbeddedAuthURL', routeStart)
+  assert.notEqual(routeStart, -1)
+  assert.notEqual(routeEnd, -1)
+  const route = source.slice(routeStart, routeEnd)
+  assert.match(route, /startExternalAuthentication\(entry, disposition\.provider \|\| 'OpenAI'\)/)
+  assert.doesNotMatch(route, /shell\.openExternal\(url\).*external-auth/s)
+
+  const externalStart = source.indexOf('function startExternalAuthentication(entry, provider')
+  const externalEnd = source.indexOf('\nfunction routeChatGPTNavigation', externalStart)
+  const externalAuth = source.slice(externalStart, externalEnd)
+  assert.match(externalAuth, /partition: CHATGPT_PARTITION/)
+  assert.match(externalAuth, /loadURL\(CHATGPT_LOGIN_URL/)
+})

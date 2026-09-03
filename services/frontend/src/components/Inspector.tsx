@@ -31,11 +31,11 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => ['command.completed', 'execution.failed', 'verification.baseline_unchanged', 'automation.policy_blocked', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed'].includes(e.type)), [events])
-  const canExecute = Boolean(session.plan && session.policy?.allowed)
+  const terminalEvents = useMemo(() => events.filter((e) => ['command.completed', 'execution.failed', 'verification.baseline_unchanged', 'automation.policy_blocked', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
+  const canExecute = Boolean(session.plan && session.policy?.allowed && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
-  const canApply = Boolean(!direct && session.last_execution?.success && session.state === 'verified')
+  const canApply = Boolean(!direct && session.last_execution?.success && session.state === 'verified' && session.last_turn?.kind !== 'workflow')
   const desktop = isDesktop()
 
   async function copy(text: string) { await navigator.clipboard.writeText(text) }
@@ -102,14 +102,15 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
 }
 
 function PlanView({ session }: { session: Session }) {
-  if (!session.plan) return <Empty title="Nenhum plano ainda" text="Envie uma tarefa no chat. O plano validado aparecerá aqui antes de qualquer execução." />
+  if (!session.plan) return <Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." />
   const plan = session.plan
+  const workflow = session.last_turn?.kind === 'workflow'
   const operations = plan.operations || []
   const verification = plan.verification || []
   return <div className="plan-view">
-    <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={session.policy?.allowed ? 'success' : 'danger'}>{session.policy?.allowed ? 'Policy OK' : 'Bloqueado'}</StatusPill></div>
+    <div className="section-heading plan-heading"><div><span className="panel-kicker">{workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={session.policy?.allowed ? 'success' : 'danger'}>{session.policy?.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado'}</StatusPill></div>
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
-    <div className="metric-row"><Metric label="Operações" value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
+    <div className="metric-row"><Metric label={workflow ? 'Comandos locais' : 'Operações'} value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
     {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><MarkdownContent markdown={session.last_bundle.readme} /></div></details>}
     <div className="operation-list">
       {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <details><summary>Ver diff</summary><pre className="diff-view">{op.patch}</pre></details>}</div></div>)}
@@ -119,19 +120,25 @@ function PlanView({ session }: { session: Session }) {
 }
 
 function TerminalView({ events }: { events: HarnessEvent[] }) {
-  if (!events.length) return <Empty title="Execução limpa" text="Os comandos, stdout, stderr, bloqueios de Policy e reparações automáticas aparecerão aqui. O terminal interativo está no modo Editor." />
+  if (!events.length) return <Empty title="Execução limpa" text="Comandos de mudanças e passos de investigação local, stdout, stderr, bloqueios de Policy e reparações automáticas aparecerão aqui. O terminal interativo está no modo Editor." />
   return <div className="terminal-view">{events.map((event) => {
     const baseline = event.type === 'verification.baseline_unchanged'
-    const policyBlocked = event.type === 'automation.policy_blocked'
+    const policyBlocked = event.type === 'automation.policy_blocked' || event.type === 'workflow.policy_blocked'
     const repair = event.type.startsWith('repair.')
+    const workflow = event.type.startsWith('workflow.')
     const title = Array.isArray(event.data.argv)
       ? (event.data.argv as string[]).join(' ')
-      : policyBlocked ? 'Policy bloqueou o plano antes da execução'
+      : policyBlocked ? (workflow ? 'Policy bloqueou o passo local' : 'Policy bloqueou o plano antes da execução')
         : event.type === 'repair.started' ? 'Preparando correção automática'
           : event.type === 'repair.prompt_ready' ? 'Prompt de correção pronto'
-            : event.type
+            : event.type === 'workflow.started' ? 'Iniciando investigação local'
+              : event.type === 'workflow.completed' ? 'Passo local concluído'
+                : event.type === 'workflow.step_failed' ? 'Passo local produziu falha/diagnóstico'
+                  : event.type === 'workflow.continuation_started' ? 'Preparando continuação com evidências'
+                    : event.type === 'workflow.prompt_ready' ? 'Continuação pronta para o ChatGPT'
+                      : event.type
     const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String) : []
-    return <div className="terminal-event" key={event.id}><div className="terminal-line"><span className={event.type === 'execution.failed' || policyBlocked || event.type === 'repair.prepare_failed' ? 'lamp fail' : (baseline || repair ? 'lamp warning' : 'lamp')} /> <code>{title}</code><span className="exit-code">{policyBlocked ? 'não executado' : baseline ? 'baseline unchanged' : repair ? `attempt ${String(event.data.attempt || '')}` : (event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : '')}</span></div>{reasons.map((reason) => <pre className="stderr" key={reason}>{reason}</pre>)}{event.data.stdout ? <pre>{String(event.data.stdout)}</pre> : null}{event.data.stderr ? <pre className="stderr">{String(event.data.stderr)}</pre> : null}{event.data.diagnostic ? <pre className="warning-output">{String(event.data.diagnostic)}</pre> : null}{event.data.error ? <pre className="stderr">{String(event.data.error)}</pre> : null}</div>
+    return <div className="terminal-event" key={event.id}><div className="terminal-line"><span className={event.type === 'execution.failed' || policyBlocked || event.type === 'repair.prepare_failed' ? 'lamp fail' : (baseline || repair || event.type === 'workflow.step_failed' ? 'lamp warning' : 'lamp')} /> <code>{title}</code><span className="exit-code">{policyBlocked ? 'não executado' : baseline ? 'baseline unchanged' : repair ? `attempt ${String(event.data.attempt || '')}` : workflow ? (event.data.round ? `round ${String(event.data.round)}/6` : 'sandbox') : (event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : '')}</span></div>{reasons.map((reason) => <pre className="stderr" key={reason}>{reason}</pre>)}{event.data.stdout ? <pre>{String(event.data.stdout)}</pre> : null}{event.data.stderr ? <pre className="stderr">{String(event.data.stderr)}</pre> : null}{event.data.diagnostic ? <pre className="warning-output">{String(event.data.diagnostic)}</pre> : null}{event.data.error ? <pre className="stderr">{String(event.data.error)}</pre> : null}</div>
   })}</div>
 }
 

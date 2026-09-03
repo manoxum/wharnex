@@ -5,5 +5,7 @@ describe('labels', () => {
   it('maps risk and state labels', () => {
     expect(riskLabel('high')).toBe('Alto')
     expect(stateLabel('verified')).toBe('Verificado')
+    expect(stateLabel('workflow_pending')).toBe('Aguardando ChatGPT')
+    expect(stateLabel('answered')).toBe('Respondido')
   })
 })

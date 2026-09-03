@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeAttachmentFilename, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isChatGPTAuthURL, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeAttachmentFilename, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 
 test('session ids are strictly allowlisted', () => {
   assert.equal(sanitizeSessionId('ses_20260902_abc-123'), 'ses_20260902_abc-123')
@@ -31,6 +31,7 @@ test('Linux ozone selection prefers X11 when XWayland is available', () => {
 
 test('external OAuth providers are identified for system-browser routing', () => {
   assert.equal(externalAuthProvider('https://auth.openai.com/log-in'), 'OpenAI')
+  assert.equal(externalAuthProvider('https://auth0.openai.com/authorize'), 'OpenAI')
   assert.equal(externalAuthProvider('https://accounts.google.com/o/oauth2/v2/auth'), 'Google')
   assert.equal(externalAuthProvider('https://login.microsoftonline.com/common/oauth2/v2.0/authorize'), 'Microsoft')
   assert.equal(externalAuthProvider('https://appleid.apple.com/auth/authorize'), 'Apple')
@@ -41,12 +42,22 @@ test('external OAuth providers are identified for system-browser routing', () =>
 
 
 
-test('ChatGPT navigation routes auth and external HTTPS away from the embedded view', () => {
-  assert.deepEqual(chatGPTNavigationDisposition('https://chatgpt.com/auth/login'), { kind: 'trusted', provider: '' })
+test('ChatGPT navigation distinguishes ChatGPT auth, provider auth and ordinary links', () => {
+  assert.deepEqual(chatGPTNavigationDisposition('https://chatgpt.com/auth/login'), { kind: 'chatgpt-auth', provider: 'OpenAI' })
   assert.deepEqual(chatGPTNavigationDisposition('https://auth.openai.com/log-in'), { kind: 'external-auth', provider: 'OpenAI' })
   assert.deepEqual(chatGPTNavigationDisposition('https://accounts.google.com/o/oauth2/v2/auth'), { kind: 'external-auth', provider: 'Google' })
   assert.deepEqual(chatGPTNavigationDisposition('https://example.com/docs'), { kind: 'external', provider: '' })
   assert.deepEqual(chatGPTNavigationDisposition('javascript:alert(1)'), { kind: 'deny', provider: '' })
+})
+
+
+test('ChatGPT authentication mode is strict and auth paths are recognized', () => {
+  assert.equal(sanitizeChatGPTAuthMode('embedded'), 'embedded')
+  assert.equal(sanitizeChatGPTAuthMode('external'), 'external')
+  assert.throws(() => sanitizeChatGPTAuthMode('system'))
+  assert.equal(isChatGPTAuthURL('https://chatgpt.com/auth/login'), true)
+  assert.equal(isChatGPTAuthURL('https://chatgpt.com/auth/callback/openai'), true)
+  assert.equal(isChatGPTAuthURL('https://chatgpt.com/c/abc'), false)
 })
 
 test('ChatGPT compatibility user agent exposes Chrome without Electron token', () => {

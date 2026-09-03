@@ -126,3 +126,28 @@ func TestParseNormalizesSingleWrapperDirectoryAndRootPatch(t *testing.T) {
 		t.Fatalf("expected canonical patch path: %#v", parsed.Info.Patches)
 	}
 }
+
+func TestParseWorkflowTurnWithCommandPlan(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Workflow\nInspect local evidence.\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"workflow","message":"Vou confirmar um detalhe local antes de responder."}`,
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"wf1","request_id":"req_12345678","status":"ready","summary":"inspect status","risk":"low","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["git","status","--short"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Plan == nil || parsed.Turn.Kind != domain.TurnKindWorkflow {
+		t.Fatalf("unexpected workflow bundle: %#v", parsed)
+	}
+}
+
+func TestParseWorkflowTurnRequiresPlan(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Workflow\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"workflow","message":"Preciso de evidência local."}`,
+	})
+	if _, err := Parse("wharness-bundle-req_12345678.zip", raw); err == nil {
+		t.Fatal("expected workflow plan requirement")
+	}
+}

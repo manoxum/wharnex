@@ -118,6 +118,19 @@ func (fakeRunner) Run(_ context.Context, _ sandbox.Workspace, c domain.CommandSp
 }
 func (fakeRunner) Cleanup(sandbox.Workspace) error { return nil }
 
+type workflowEvidenceRunner struct{}
+
+func (workflowEvidenceRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
+	return sandbox.Workspace{Path: "/tmp/workflow"}, nil
+}
+func (workflowEvidenceRunner) ApplyPatch(context.Context, sandbox.Workspace, string) (domain.CommandResult, error) {
+	return domain.CommandResult{}, errors.New("workflow must not apply patches")
+}
+func (workflowEvidenceRunner) Run(_ context.Context, _ sandbox.Workspace, c domain.CommandSpec) (domain.CommandResult, error) {
+	return domain.CommandResult{Argv: c.Argv, Cwd: c.Cwd, ExitCode: 0, Stdout: "evidence: formatter supports csv and xlsx\n", Success: true}, nil
+}
+func (workflowEvidenceRunner) Cleanup(sandbox.Workspace) error { return nil }
+
 func TestServicePlansAndExecutes(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n"), 0o600); err != nil {
@@ -738,6 +751,63 @@ func makeAnswerBundle(t *testing.T, requestID string) []byte {
 	return out.Bytes()
 }
 
+func makeWorkflowBundle(t *testing.T, requestID string) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := zip.NewWriter(&out)
+	entries := map[string]string{
+		"README.md": "# Investigation step\nInspect the project before answering.\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"` + requestID + `","kind":"workflow","message":"Vou confirmar as capacidades existentes antes de recomendar a próxima funcionalidade."}`,
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"workflow-1","request_id":"` + requestID + `","status":"ready","summary":"inspect supported formats","risk":"low","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["git","status","--short"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+	}
+	for name, value := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+func TestAutoWorkflowBundleExecutesSandboxAndPreparesSameConversationContinuation(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), workflowEvidenceRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "Que funcionalidade deveríamos adicionar a seguir?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequest := prompted.LastRequestID
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+firstRequest+".zip", makeWorkflowBundle(t, firstRequest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.WorkflowExecuted || !result.WorkflowPrepared || result.WorkflowRound != 1 {
+		t.Fatalf("workflow did not advance automatically: %#v", result)
+	}
+	if result.AutoApplied {
+		t.Fatal("workflow must never apply to the host")
+	}
+	if result.Session.State != "workflow_pending" || result.Session.LastRequestID == firstRequest {
+		t.Fatalf("workflow continuation was not prepared with a fresh request: %#v", result.Session)
+	}
+	if !containsString(result.Session.PendingManualRequestIDs, result.Session.LastRequestID) {
+		t.Fatalf("workflow continuation request is not pending: %#v", result.Session.PendingManualRequestIDs)
+	}
+	if !strings.Contains(result.Session.LastManualPrompt, "LOCAL WORKFLOW OBSERVATIONS") || !strings.Contains(result.Session.LastManualPrompt, "evidence: formatter supports csv and xlsx") {
+		t.Fatalf("workflow evidence was not returned to ChatGPT: %q", result.Session.LastManualPrompt)
+	}
+}
+
 func TestAutoAnswerBundleDoesNotExecuteOrApply(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
@@ -941,5 +1011,35 @@ func TestStorageUsageAndClearAllDataDoNotDeleteProject(t *testing.T) {
 	}
 	if _, err := store.Get(started.ID); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("session state was not cleared: %v", err)
+	}
+}
+
+func TestWorkflowRoundLimitKeepsTerminalRequestPending(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), workflowEvidenceRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "Investigue até ter evidência suficiente.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	if _, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.WorkflowRound = maxWorkflowRounds
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", makeWorkflowBundle(t, requestID)); err == nil || !strings.Contains(err.Error(), "workflow round limit reached") {
+		t.Fatalf("expected workflow round limit rejection, got %v", err)
+	}
+	current, err := service.store.Get(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(current.PendingManualRequestIDs, requestID) {
+		t.Fatalf("terminal request should remain pending after rejecting an extra workflow round: %#v", current.PendingManualRequestIDs)
 	}
 }

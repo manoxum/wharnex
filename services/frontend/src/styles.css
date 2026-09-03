@@ -340,6 +340,14 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .chatgpt-link-warning { flex: 0 0 auto; min-height: 34px; padding: 5px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid #dec9a9; background: #f5efe5; color: #765425; font-size: 9px; }
 .chatgpt-link-warning .text-button { min-height: 24px; padding: 0 7px; border: 1px solid #d6bd94; border-radius: 6px; background: #fffaf1; color: #765425; font-size: 9px; }
 
+.chatgpt-auth-mode-bar { flex: 0 0 auto; min-height: 38px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #343a32; background: #191d18; color: #cbd1c6; }
+.chatgpt-auth-mode-copy { min-width: 0; display: grid; gap: 2px; }
+.chatgpt-auth-mode-copy strong { color: #f0f3ec; font-size: 10px; }
+.chatgpt-auth-mode-copy span { max-width: 760px; color: #8f9888; font-size: 9px; line-height: 1.4; }
+.chatgpt-auth-mode-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.chatgpt-auth-mode-actions button { min-height: 27px; font-size: 9px; }
+.chatgpt-auth-mode-actions .secondary-button.active { border-color: #789c65; background: #293326; color: #dff4d4; }
+
 .chatgpt-external-auth-banner { flex: 0 0 auto; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #5b4731; background: #211c17; color: #e7d7c3; font-size: 9px; }
 .chatgpt-external-auth-banner > div:first-child { display: grid; gap: 2px; min-width: 0; }
 .chatgpt-external-auth-banner strong { color: #ffd08a; font-size: 10px; }

@@ -41,4 +41,6 @@ The embedded ChatGPT renderer is remote and untrusted. Never add a preload to it
 
 The ChatGPT persistent partition contains normal web-session state and may include sensitive authentication cookies managed by Chromium. Wharness code must not enumerate, log, export, inspect, or synchronize those cookies.
 
+Dual-mode ChatGPT authentication must preserve one OAuth transaction inside one Chromium session. Embedded mode stays in the sandboxed `WebContentsView`; external-window mode starts from the ChatGPT login entrypoint in a sandboxed Wharness `BrowserWindow` sharing the dedicated partition. Never forward an intercepted provider authorization URL to the system browser and never copy system-browser credentials back into Wharness.
+
 Desktop clipboard operations are explicit user actions. The context-copy capability accepts only a Wharness session ID; do not extend it into a generic local URL fetch, arbitrary file-copy API, or filesystem bridge.
