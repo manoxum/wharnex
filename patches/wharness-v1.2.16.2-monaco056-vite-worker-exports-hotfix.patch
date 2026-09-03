@@ -1,0 +1,34 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 137be5a..79e9b39 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,10 @@
+ # Changelog
+ 
++## Unreleased — Monaco 0.56 Vite worker export-map hotfix
++
++- Uses Monaco 0.56 public package-export worker specifiers (`monaco-editor/editor/...` and `monaco-editor/language/...`) instead of legacy `monaco-editor/esm/vs/...` deep imports.
++- Restores Vite 7/Rollup worker resolution for the editor, JSON, CSS, HTML and TypeScript workers without externalizing Monaco or weakening the bundle.
++
+ ## Unreleased — React 19 / Monaco build hotfix
+ 
+ - Fixes the Monaco editor ref initialization for React 19 typings by using an explicit nullable ref.
+diff --git a/services/frontend/src/lib/monaco.ts b/services/frontend/src/lib/monaco.ts
+index 5ee36b9..00fb496 100644
+--- a/services/frontend/src/lib/monaco.ts
++++ b/services/frontend/src/lib/monaco.ts
+@@ -1,9 +1,9 @@
+ import * as monaco from 'monaco-editor'
+-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+-import CSSWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+-import HTMLWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+-import JSONWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+-import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
++import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
++import CSSWorker from 'monaco-editor/language/css/css.worker?worker'
++import HTMLWorker from 'monaco-editor/language/html/html.worker?worker'
++import JSONWorker from 'monaco-editor/language/json/json.worker?worker'
++import TypeScriptWorker from 'monaco-editor/language/typescript/ts.worker?worker'
+ 
+ let configured = false
+ 

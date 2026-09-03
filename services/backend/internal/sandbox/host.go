@@ -14,8 +14,8 @@ import (
 )
 
 // HostRunner executes directly in the real project tree. It deliberately
-// provides no isolation boundary and must only be selected by an explicit
-// per-project Unprotected choice in the UI.
+// provides no isolation boundary. It is used by explicit Unprotected execution
+// and by the human-only Editor Host terminal after its dedicated confirmation.
 type HostRunner struct{}
 
 func NewHostRunner() *HostRunner { return &HostRunner{} }

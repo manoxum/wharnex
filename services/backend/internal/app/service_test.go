@@ -86,6 +86,24 @@ func TestAutoProviderChangeExecutesAndAppliesWithoutDownload(t *testing.T) {
 	}
 }
 
+type terminalTargetRunner struct {
+	prepared string
+	ran      bool
+}
+
+func (r *terminalTargetRunner) Prepare(_ context.Context, projectRoot string) (sandbox.Workspace, error) {
+	r.prepared = projectRoot
+	return sandbox.Workspace{Path: projectRoot, SourcePath: projectRoot}, nil
+}
+func (r *terminalTargetRunner) ApplyPatch(context.Context, sandbox.Workspace, string) (domain.CommandResult, error) {
+	return domain.CommandResult{}, errors.New("unexpected patch")
+}
+func (r *terminalTargetRunner) Run(_ context.Context, _ sandbox.Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+	r.ran = true
+	return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: 0, Stdout: "host-target", Success: true}, nil
+}
+func (r *terminalTargetRunner) Cleanup(sandbox.Workspace) error { return nil }
+
 type fakeRunner struct{}
 
 func (fakeRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
@@ -207,6 +225,37 @@ func TestSubmitMessageRefreshesContextAfterEditorSave(t *testing.T) {
 	}
 }
 
+func TestRunTerminalCanTargetHostOnlyThroughHostRunner(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
+	s, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &terminalTargetRunner{}
+	service.hostRunner = host
+	result, err := service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetHost, domain.CommandSpec{Argv: []string{"git", "status", "--short"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !host.ran || host.prepared != s.ProjectPath || result.Stdout != "host-target" {
+		t.Fatalf("host terminal did not use host runner: runner=%#v result=%#v", host, result)
+	}
+}
+
+func TestRunTerminalRejectsSandboxNetworkFlagForHost(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
+	s, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetHost, domain.CommandSpec{Argv: []string{"git", "status"}, Cwd: ".", Network: true, TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
+	if err == nil || !strings.Contains(err.Error(), "inherits host networking") {
+		t.Fatalf("expected host network-toggle rejection, got %v", err)
+	}
+}
+
 func TestRunTerminalDeniesShell(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("ok\n"), 0o600); err != nil {
@@ -217,7 +266,7 @@ func TestRunTerminalDeniesShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.RunTerminal(context.Background(), s.ID, domain.CommandSpec{Argv: []string{"bash", "-c", "echo unsafe"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
+	_, err = service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetSandbox, domain.CommandSpec{Argv: []string{"bash", "-c", "echo unsafe"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
 	if err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("expected policy denial, got %v", err)
 	}

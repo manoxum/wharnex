@@ -24,7 +24,7 @@ Wharness supports a per-project execution mode selected in the workspace UI.
 7. A failed multi-operation plan can leave partial host changes. Wharness MUST state this risk and MUST NOT attempt an automatic destructive rollback over pre-existing user changes.
 8. `ApplyToHost` is unavailable for Unprotected sessions because the plan has already targeted the host.
 
-The interactive Editor terminal remains sandboxed in both modes. The Protected/Unprotected switch governs Agent plan execution, not arbitrary human terminal commands.
+The Protected/Unprotected switch governs Agent plan execution and MUST NOT change the interactive Editor terminal target. The terminal defaults to Sandbox; Host is a separate explicit human-only selection.
 
 ## Patch applicability
 
@@ -32,7 +32,12 @@ Patch execution first uses `git apply --check`. If a generated unified diff has 
 
 ## Interactive IDE terminal
 
-The Editor terminal is a human-initiated execution surface. It does not execute through a shell string: the frontend parses input into argv and the backend executes argv directly in a persistent isolated project copy. The same executable policy can deny dangerous host-control commands. Network is disabled by default and is an explicit per-command user choice.
+The Editor terminal is a human-initiated execution surface with two explicit targets:
+
+- `Sandbox` (default): argv executes in the persistent isolated project copy. Network is disabled by default and is an explicit per-command user choice. Reset recreates the copied workspace from the host.
+- `Host`: argv executes directly in the real project root. Entering this target requires an explicit warning/confirmation and the UI keeps a persistent host-direct warning visible. Host networking is inherited from the machine, so the sandbox network toggle is unavailable.
+
+Both targets remain shell-string-free and pass through the same executable Policy Engine; denied shell interpreters, privilege escalation, Docker control, destructive host-management tools, and other forbidden executables stay denied. Terminal Host is a human-only exception and MUST NOT be selected or driven by Agent execution mode, a model plan, or automation.
 
 Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible.
 

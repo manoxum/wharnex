@@ -6,6 +6,7 @@ import { riskLabel } from '../lib/risk'
 import { api } from '../lib/api'
 import { isDesktop } from '../lib/desktop'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import { MarkdownContent } from './MarkdownContent'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 
 type Tab = 'plan' | 'terminal' | 'chatgpt'
@@ -106,10 +107,10 @@ function PlanView({ session }: { session: Session }) {
   const operations = plan.operations || []
   const verification = plan.verification || []
   return <div className="plan-view">
-    <div className="section-heading"><div><span className="panel-kicker">{plan.protocol}</span><h3>{plan.summary}</h3></div><StatusPill tone={session.policy?.allowed ? 'success' : 'danger'}>{session.policy?.allowed ? 'Policy OK' : 'Bloqueado'}</StatusPill></div>
+    <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={session.policy?.allowed ? 'success' : 'danger'}>{session.policy?.allowed ? 'Policy OK' : 'Bloqueado'}</StatusPill></div>
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
     <div className="metric-row"><Metric label="Operações" value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
-    {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><pre>{session.last_bundle.readme}</pre></details>}
+    {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><MarkdownContent markdown={session.last_bundle.readme} /></div></details>}
     <div className="operation-list">
       {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <details><summary>Ver diff</summary><pre className="diff-view">{op.patch}</pre></details>}</div></div>)}
       {verification.map((command, index) => <div className="operation verification" key={`v-${index}`}><div className="operation-index"><Icon name="check" size={15}/></div><div className="operation-body"><strong>{(command.argv || []).join(' ')}</strong><span>Verification · {command.cwd || '.'}</span></div></div>)}

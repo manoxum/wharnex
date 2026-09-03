@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — Monaco 0.56 Vite worker export-map hotfix
+
+- Uses Monaco 0.56 public package-export worker specifiers (`monaco-editor/editor/...` and `monaco-editor/language/...`) instead of legacy `monaco-editor/esm/vs/...` deep imports.
+- Restores Vite 7/Rollup worker resolution for the editor, JSON, CSS, HTML and TypeScript workers without externalizing Monaco or weakening the bundle.
+
+## Unreleased — React 19 / Monaco build hotfix
+
+- Fixes the Monaco editor ref initialization for React 19 typings by using an explicit nullable ref.
+- Uses Monaco 0.56-compatible hover and lightbulb option values instead of incompatible boolean/string literals.
+- Clears the disposed editor ref back to `null`, matching its React ref contract.
+
+## Unreleased — rendered plans + IDE editor + terminal targets
+
+- Plan summaries and result README content now render sanitized GitHub-flavoured Markdown instead of displaying raw Markdown syntax.
+- The Editor replaces the plain textarea with Monaco, adds multi-file tabs, per-file undo/view state, syntax-aware models, minimap, folding, bracket guides, sticky scroll, search/navigation shortcuts, breadcrumbs, cursor/language/encoding status and explicit save handling.
+- The Editor file tree adds path filtering while preserving the existing backend file-policy boundary.
+- The interactive terminal now defaults to `Sandbox` but allows an explicit human-only `Host` target after a dedicated confirmation; a persistent HOST warning remains visible while selected.
+- Host terminal commands execute argv directly through the host runner and the same executable Policy Engine. Sandbox-only network/reset controls are unavailable in Host mode.
+- Switching project/session always resets the interactive terminal to Sandbox so Host selection never leaks into a different project.
+- Normative execution, sandbox, security and UI documents plus ADR-0008 record the Host-terminal exception and its guardrails.
+
 ## Unreleased — ChatGPT submit acknowledgement hotfix
 
 - Auto mode emits the native Enter submit gesture exactly once after attachments settle; an observation timeout is now diagnostic instead of triggering repeated Enter presses.

@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, Session, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, Session, TerminalTarget, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -52,7 +52,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ path: file.path, content: file.content, expected_sha256: file.sha256 }),
     }),
-  terminal: (id: string, command: CommandSpec) => request<CommandResult>(`/api/sessions/${id}/terminal`, { method: 'POST', body: JSON.stringify(command) }),
+  terminal: (id: string, command: CommandSpec, target: TerminalTarget = 'sandbox', confirmHost = false) => request<CommandResult>(`/api/sessions/${id}/terminal?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(command) }),
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
   refreshContext: (id: string) => request<Session>(`/api/sessions/${id}/context/refresh`, { method: 'POST', body: '{}' }),
   bundleURL: (id: string) => `${API_URL}/api/sessions/${id}/bundle`,

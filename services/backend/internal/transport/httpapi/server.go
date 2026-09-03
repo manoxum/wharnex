@@ -297,11 +297,23 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
+	target := domain.TerminalTarget(strings.TrimSpace(r.URL.Query().Get("target")))
+	if target == "" {
+		target = domain.TerminalTargetSandbox
+	}
+	if !domain.ValidTerminalTarget(target) {
+		writeError(w, http.StatusBadRequest, "invalid_terminal_target", "terminal target must be sandbox or host")
+		return
+	}
+	if target == domain.TerminalTargetHost && r.URL.Query().Get("confirm_host") != "true" {
+		writeError(w, http.StatusConflict, "host_terminal_confirmation_required", "host terminal requires explicit confirmation")
+		return
+	}
 	var command domain.CommandSpec
 	if !decodeJSON(w, r, &command) {
 		return
 	}
-	result, err := a.service.RunTerminal(r.Context(), r.PathValue("id"), command)
+	result, err := a.service.RunTerminal(r.Context(), r.PathValue("id"), target, command)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]string{"code": "terminal_failed", "message": err.Error()}, "result": result})
 		return

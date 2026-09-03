@@ -1,0 +1,1250 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index f96d318..3eb0e9e 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -80,7 +80,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ 
+ - Browser reload MUST restore the active project when possible; a missing backend session MUST fall back to reopening the remembered project path.
+ - Explorer/editor APIs MUST enforce project-root containment, excluded/secret paths, symlink denial, UTF-8 text limits, and optimistic SHA-256 writes.
+-- The interactive terminal MUST execute against a copied sandbox workspace, never the original host project.
++- The interactive Editor terminal MUST default to a copied sandbox workspace. A human MAY explicitly switch that terminal to `Host` only after a dedicated confirmation; Host terminal commands execute directly in the project root, remain argv-only, remain subject to Policy Engine denial, and MUST display a persistent host-direct warning. The terminal target is independent from Agent Protected/Unprotected mode.
+ - Terminal commands MUST be argv, never an implicit shell string.
+ - Editor saves are explicit human host mutations. Agent mutations are sandbox-first in Protected mode; only an explicitly selected Unprotected project may execute the Agent plan directly on the host.
+ - Every agent request MUST refresh project context so manually edited files are visible to the planner.
+@@ -113,7 +113,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Do not auto-commit or rewrite host history during Git bootstrap.
+ - Sandbox copies use a fresh local Git baseline; never copy the host `.git` directory into a model execution workspace.
+ - Protected/Unprotected choice MUST persist per project, not globally, and switching to Unprotected MUST require explicit UI confirmation. Every Unprotected plan execution MUST require another explicit confirmation.
+-- The interactive Editor terminal remains sandboxed regardless of Agent Protected/Unprotected mode.
++- The interactive Editor terminal target is independent of Agent Protected/Unprotected mode: `Sandbox` remains the default; `Host` is a separate explicit human-only target with confirmation and a persistent warning.
+ - Patch fallback may use `git apply --recount` or checked `--3way` only after a dry/check pass; never partially apply a failed fallback. Surface Git stderr on failure.
+ 
+ ## Chat conversation affinity invariant (v1.2.6)
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index fbf8032..45e2f64 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # Changelog
+ 
++## Unreleased — rendered plans + IDE editor + terminal targets
++
++- Plan summaries and result README content now render sanitized GitHub-flavoured Markdown instead of displaying raw Markdown syntax.
++- The Editor replaces the plain textarea with Monaco, adds multi-file tabs, per-file undo/view state, syntax-aware models, minimap, folding, bracket guides, sticky scroll, search/navigation shortcuts, breadcrumbs, cursor/language/encoding status and explicit save handling.
++- The Editor file tree adds path filtering while preserving the existing backend file-policy boundary.
++- The interactive terminal now defaults to `Sandbox` but allows an explicit human-only `Host` target after a dedicated confirmation; a persistent HOST warning remains visible while selected.
++- Host terminal commands execute argv directly through the host runner and the same executable Policy Engine. Sandbox-only network/reset controls are unavailable in Host mode.
++- Switching project/session always resets the interactive terminal to Sandbox so Host selection never leaks into a different project.
++- Normative execution, sandbox, security and UI documents plus ADR-0008 record the Host-terminal exception and its guardrails.
++
+ ## Unreleased — ChatGPT submit acknowledgement hotfix
+ 
+ - Auto mode emits the native Enter submit gesture exactly once after attachments settle; an observation timeout is now diagnostic instead of triggering repeated Enter presses.
+diff --git a/SoT/EXECUTION_MODEL.md b/SoT/EXECUTION_MODEL.md
+index 2665053..6cf878e 100644
+--- a/SoT/EXECUTION_MODEL.md
++++ b/SoT/EXECUTION_MODEL.md
+@@ -24,7 +24,7 @@ Wharness supports a per-project execution mode selected in the workspace UI.
+ 7. A failed multi-operation plan can leave partial host changes. Wharness MUST state this risk and MUST NOT attempt an automatic destructive rollback over pre-existing user changes.
+ 8. `ApplyToHost` is unavailable for Unprotected sessions because the plan has already targeted the host.
+ 
+-The interactive Editor terminal remains sandboxed in both modes. The Protected/Unprotected switch governs Agent plan execution, not arbitrary human terminal commands.
++The Protected/Unprotected switch governs Agent plan execution and MUST NOT change the interactive Editor terminal target. The terminal defaults to Sandbox; Host is a separate explicit human-only selection.
+ 
+ ## Patch applicability
+ 
+@@ -32,7 +32,12 @@ Patch execution first uses `git apply --check`. If a generated unified diff has
+ 
+ ## Interactive IDE terminal
+ 
+-The Editor terminal is a human-initiated execution surface. It does not execute through a shell string: the frontend parses input into argv and the backend executes argv directly in a persistent isolated project copy. The same executable policy can deny dangerous host-control commands. Network is disabled by default and is an explicit per-command user choice.
++The Editor terminal is a human-initiated execution surface with two explicit targets:
++
++- `Sandbox` (default): argv executes in the persistent isolated project copy. Network is disabled by default and is an explicit per-command user choice. Reset recreates the copied workspace from the host.
++- `Host`: argv executes directly in the real project root. Entering this target requires an explicit warning/confirmation and the UI keeps a persistent host-direct warning visible. Host networking is inherited from the machine, so the sandbox network toggle is unavailable.
++
++Both targets remain shell-string-free and pass through the same executable Policy Engine; denied shell interpreters, privilege escalation, Docker control, destructive host-management tools, and other forbidden executables stay denied. Terminal Host is a human-only exception and MUST NOT be selected or driven by Agent execution mode, a model plan, or automation.
+ 
+ Editor file saves are explicit human mutations to the host project and use optimistic SHA-256 concurrency checks. Secret/excluded paths and symlink escapes remain inaccessible.
+ 
+diff --git a/SoT/SANDBOX_MODEL.md b/SoT/SANDBOX_MODEL.md
+index 763188b..067bc97 100644
+--- a/SoT/SANDBOX_MODEL.md
++++ b/SoT/SANDBOX_MODEL.md
+@@ -25,4 +25,4 @@ Node dependency hydration is execution-only. `node_modules` MUST remain excluded
+ 
+ A workspace may be explicitly switched to `Unprotected` in the UI. This is not a sandbox variant: Agent plan operations execute directly in the real project directory. The Policy Engine remains mandatory and each direct execution requires user confirmation. The UI must display a persistent host-direct warning while the mode is active. This choice is stored per project and must never become the global/default mode.
+ 
+-The Editor interactive terminal remains sandboxed even when Agent execution is Unprotected.
++The Editor interactive terminal is independent of Agent execution mode. Its default target is the sandbox. A human may explicitly select `Host`; that target executes argv directly in the real project through the same host runner used for controlled host execution, requires an explicit UI confirmation, remains Policy Engine constrained, and must show a persistent host-direct warning. Selecting Agent Unprotected MUST NOT switch the terminal target automatically.
+diff --git a/SoT/SECURITY_MODEL.md b/SoT/SECURITY_MODEL.md
+index 4d00074..d8984cf 100644
+--- a/SoT/SECURITY_MODEL.md
++++ b/SoT/SECURITY_MODEL.md
+@@ -15,7 +15,7 @@ The security boundary is enforced by:
+ 
+ ## IDE surfaces
+ 
+-The Explorer only exposes files allowed by the context security policy. Text editing rejects traversal, symlink escapes, excluded/secret paths, non-UTF8/binary files, files over the editor limit, and stale writes via expected SHA-256. The interactive terminal runs in the isolated Docker workspace and never receives the original project as its execution workspace.
++The Explorer only exposes files allowed by the context security policy. Text editing rejects traversal, symlink escapes, excluded/secret paths, non-UTF8/binary files, files over the editor limit, and stale writes via expected SHA-256. The interactive terminal defaults to the isolated sandbox workspace. A separate human-only Host target may execute directly in the project root only after explicit confirmation; it remains argv-only, Policy Engine constrained, and visibly marked as host-direct. Host selection is never inherited from Agent mode or automation.
+ 
+ 
+ ## Desktop remote-content boundary (v1.2)
+diff --git a/SoT/UI_UX.md b/SoT/UI_UX.md
+index ef555e0..f2db28e 100644
+--- a/SoT/UI_UX.md
++++ b/SoT/UI_UX.md
+@@ -14,7 +14,7 @@ Wharness is an engineering workspace, not a chatbot skin.
+ 
+ The workspace has two first-class modes:
+ 
+-- **Editor**: safe project Explorer, text editor, and persistent Docker-sandbox terminal.
++- **Editor**: safe project Explorer, IDE-grade code editor, and an interactive terminal whose default target is the persistent Docker sandbox. A distinct Host target is available only through an explicit warning/confirmation and remains visually marked while active.
+ - **Agent**: harness chat, plan/policy inspector, execution logs, and ChatGPT/OpenAI provider panel.
+ 
+ The active workspace, project path, mode, recent workspaces, and local chat transcript are remembered in browser local storage. On reload the frontend first resumes the live session; if the backend was restarted and the in-memory session disappeared, it reopens the remembered project and creates a fresh session automatically.
+diff --git a/adr/ADR-0008-editor-terminal-targets.md b/adr/ADR-0008-editor-terminal-targets.md
+new file mode 100644
+index 0000000..0b7a8f7
+--- /dev/null
++++ b/adr/ADR-0008-editor-terminal-targets.md
+@@ -0,0 +1,24 @@
++# ADR-0008: Explicit Editor terminal targets
++
++**Status:** Accepted
++
++## Context
++
++The original Editor terminal was deliberately sandbox-only. That is the safest default for exploratory commands, but it prevents a developer from using the same IDE surface for deliberate commands that must inspect or affect the real checkout. Reusing Agent `Unprotected` for this purpose would couple two different trust decisions and could silently widen execution scope.
++
++## Decision
++
++The Editor terminal exposes two independent human-selected targets:
++
++- `Sandbox` remains the default and keeps the persistent copied workspace, optional per-command network access, and reset-from-host behavior.
++- `Host` executes argv directly in the real project root through `HostRunner`. Entering Host requires a dedicated warning/confirmation. While active, the terminal displays a persistent host-direct warning and a distinct prompt/visual state.
++
++The backend validates the target and rejects Host requests that do not carry the explicit host-confirmation marker. Both targets continue through protocol-compatible `CommandSpec` validation and the Policy Engine. Shell strings are not introduced. Agent Protected/Unprotected mode never changes the Editor terminal target.
++
++## Consequences
++
++- Developers can choose where an interactive command runs without leaving the Wharness workspace.
++- Sandbox remains the safe default and can still be recreated deterministically.
++- Host commands can mutate the real project and have no automatic rollback; the UI states this before and during use.
++- Host inherits machine networking, so the sandbox network checkbox is intentionally unavailable there.
++- The model and Agent automation receive no new capability to select or use the Host terminal.
+diff --git a/services/backend/internal/app/service.go b/services/backend/internal/app/service.go
+index b7ee68b..7f05788 100644
+--- a/services/backend/internal/app/service.go
++++ b/services/backend/internal/app/service.go
+@@ -890,11 +890,20 @@ func (s *Service) WriteFile(sessionID, path, content, expectedSHA string) (works
+ 	return file, nil
+ }
+ 
+-func (s *Service) RunTerminal(ctx context.Context, sessionID string, command domain.CommandSpec) (domain.CommandResult, error) {
++func (s *Service) RunTerminal(ctx context.Context, sessionID string, target domain.TerminalTarget, command domain.CommandSpec) (domain.CommandResult, error) {
+ 	item, err := s.store.Get(sessionID)
+ 	if err != nil {
+ 		return domain.CommandResult{}, err
+ 	}
++	if target == "" {
++		target = domain.TerminalTargetSandbox
++	}
++	if !domain.ValidTerminalTarget(target) {
++		return domain.CommandResult{}, fmt.Errorf("unsupported terminal target %q", target)
++	}
++	if target == domain.TerminalTargetHost && command.Network {
++		return domain.CommandResult{}, errors.New("host terminal inherits host networking; the sandbox network toggle is unavailable for host commands")
++	}
+ 	if command.Cwd == "" {
+ 		command.Cwd = "."
+ 	}
+@@ -904,18 +913,29 @@ func (s *Service) RunTerminal(ctx context.Context, sessionID string, command dom
+ 	if len(command.ExpectedExitCodes) == 0 {
+ 		command.ExpectedExitCodes = []int{0}
+ 	}
+-	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: ids.New("terminal"), RequestID: ids.New("terminal_req"), Status: "ready", Summary: "interactive terminal command", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: command}}}
++	risk := "low"
++	if target == domain.TerminalTargetHost {
++		risk = "high"
++	}
++	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: ids.New("terminal"), RequestID: ids.New("terminal_req"), Status: "ready", Summary: "interactive terminal command", Risk: risk, Operations: []domain.Operation{{Type: "command", Command: command}}}
+ 	decision := s.policy.Evaluate(plan)
+ 	if !decision.Allowed {
+ 		return domain.CommandResult{}, fmt.Errorf("terminal policy denied command: %s", strings.Join(decision.Reasons, "; "))
+ 	}
+-	workspace, err := s.ensureDevspace(ctx, sessionID, item.ProjectPath)
++	runner := s.runner
++	var workspace sandbox.Workspace
++	if target == domain.TerminalTargetHost {
++		runner = s.hostRunner
++		workspace, err = runner.Prepare(ctx, item.ProjectPath)
++	} else {
++		workspace, err = s.ensureDevspace(ctx, sessionID, item.ProjectPath)
++	}
+ 	if err != nil {
+ 		return domain.CommandResult{}, err
+ 	}
+-	s.bus.Publish(sessionID, "terminal.command_started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network})
+-	result, err := s.runner.Run(ctx, workspace, command)
+-	s.bus.Publish(sessionID, "terminal.command_completed", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr})
++	s.bus.Publish(sessionID, "terminal.command_started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
++	result, err := runner.Run(ctx, workspace, command)
++	s.bus.Publish(sessionID, "terminal.command_completed", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "target": target})
+ 	return result, err
+ }
+ 
+diff --git a/services/backend/internal/app/service_test.go b/services/backend/internal/app/service_test.go
+index 93ff684..56d1af6 100644
+--- a/services/backend/internal/app/service_test.go
++++ b/services/backend/internal/app/service_test.go
+@@ -86,6 +86,24 @@ func TestAutoProviderChangeExecutesAndAppliesWithoutDownload(t *testing.T) {
+ 	}
+ }
+ 
++type terminalTargetRunner struct {
++	prepared string
++	ran      bool
++}
++
++func (r *terminalTargetRunner) Prepare(_ context.Context, projectRoot string) (sandbox.Workspace, error) {
++	r.prepared = projectRoot
++	return sandbox.Workspace{Path: projectRoot, SourcePath: projectRoot}, nil
++}
++func (r *terminalTargetRunner) ApplyPatch(context.Context, sandbox.Workspace, string) (domain.CommandResult, error) {
++	return domain.CommandResult{}, errors.New("unexpected patch")
++}
++func (r *terminalTargetRunner) Run(_ context.Context, _ sandbox.Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
++	r.ran = true
++	return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: 0, Stdout: "host-target", Success: true}, nil
++}
++func (r *terminalTargetRunner) Cleanup(sandbox.Workspace) error { return nil }
++
+ type fakeRunner struct{}
+ 
+ func (fakeRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
+@@ -207,6 +225,37 @@ func TestSubmitMessageRefreshesContextAfterEditorSave(t *testing.T) {
+ 	}
+ }
+ 
++func TestRunTerminalCanTargetHostOnlyThroughHostRunner(t *testing.T) {
++	root := t.TempDir()
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
++	s, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	host := &terminalTargetRunner{}
++	service.hostRunner = host
++	result, err := service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetHost, domain.CommandSpec{Argv: []string{"git", "status", "--short"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !host.ran || host.prepared != s.ProjectPath || result.Stdout != "host-target" {
++		t.Fatalf("host terminal did not use host runner: runner=%#v result=%#v", host, result)
++	}
++}
++
++func TestRunTerminalRejectsSandboxNetworkFlagForHost(t *testing.T) {
++	root := t.TempDir()
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
++	s, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetHost, domain.CommandSpec{Argv: []string{"git", "status"}, Cwd: ".", Network: true, TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
++	if err == nil || !strings.Contains(err.Error(), "inherits host networking") {
++		t.Fatalf("expected host network-toggle rejection, got %v", err)
++	}
++}
++
+ func TestRunTerminalDeniesShell(t *testing.T) {
+ 	root := t.TempDir()
+ 	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("ok\n"), 0o600); err != nil {
+@@ -217,7 +266,7 @@ func TestRunTerminalDeniesShell(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	_, err = service.RunTerminal(context.Background(), s.ID, domain.CommandSpec{Argv: []string{"bash", "-c", "echo unsafe"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
++	_, err = service.RunTerminal(context.Background(), s.ID, domain.TerminalTargetSandbox, domain.CommandSpec{Argv: []string{"bash", "-c", "echo unsafe"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}})
+ 	if err == nil || !strings.Contains(err.Error(), "denied") {
+ 		t.Fatalf("expected policy denial, got %v", err)
+ 	}
+diff --git a/services/backend/internal/domain/types.go b/services/backend/internal/domain/types.go
+index 879081c..302b466 100644
+--- a/services/backend/internal/domain/types.go
++++ b/services/backend/internal/domain/types.go
+@@ -53,6 +53,17 @@ func ValidAutomationMode(mode AutomationMode) bool {
+ 	return mode == AutomationModeManual || mode == AutomationModeAuto
+ }
+ 
++type TerminalTarget string
++
++const (
++	TerminalTargetSandbox TerminalTarget = "sandbox"
++	TerminalTargetHost    TerminalTarget = "host"
++)
++
++func ValidTerminalTarget(target TerminalTarget) bool {
++	return target == TerminalTargetSandbox || target == TerminalTargetHost
++}
++
+ type CommandSpec struct {
+ 	Argv              []string `json:"argv"`
+ 	Cwd               string   `json:"cwd"`
+diff --git a/services/backend/internal/sandbox/host.go b/services/backend/internal/sandbox/host.go
+index b03aa85..accf3cb 100644
+--- a/services/backend/internal/sandbox/host.go
++++ b/services/backend/internal/sandbox/host.go
+@@ -14,8 +14,8 @@ import (
+ )
+ 
+ // HostRunner executes directly in the real project tree. It deliberately
+-// provides no isolation boundary and must only be selected by an explicit
+-// per-project Unprotected choice in the UI.
++// provides no isolation boundary. It is used by explicit Unprotected execution
++// and by the human-only Editor Host terminal after its dedicated confirmation.
+ type HostRunner struct{}
+ 
+ func NewHostRunner() *HostRunner { return &HostRunner{} }
+diff --git a/services/backend/internal/transport/httpapi/server.go b/services/backend/internal/transport/httpapi/server.go
+index 9600445..fdc32d0 100644
+--- a/services/backend/internal/transport/httpapi/server.go
++++ b/services/backend/internal/transport/httpapi/server.go
+@@ -297,11 +297,23 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
+ }
+ 
+ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
++	target := domain.TerminalTarget(strings.TrimSpace(r.URL.Query().Get("target")))
++	if target == "" {
++		target = domain.TerminalTargetSandbox
++	}
++	if !domain.ValidTerminalTarget(target) {
++		writeError(w, http.StatusBadRequest, "invalid_terminal_target", "terminal target must be sandbox or host")
++		return
++	}
++	if target == domain.TerminalTargetHost && r.URL.Query().Get("confirm_host") != "true" {
++		writeError(w, http.StatusConflict, "host_terminal_confirmation_required", "host terminal requires explicit confirmation")
++		return
++	}
+ 	var command domain.CommandSpec
+ 	if !decodeJSON(w, r, &command) {
+ 		return
+ 	}
+-	result, err := a.service.RunTerminal(r.Context(), r.PathValue("id"), command)
++	result, err := a.service.RunTerminal(r.Context(), r.PathValue("id"), target, command)
+ 	if err != nil {
+ 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]string{"code": "terminal_failed", "message": err.Error()}, "result": result})
+ 		return
+diff --git a/services/frontend/package-lock.json b/services/frontend/package-lock.json
+index 3861d10..44335dd 100644
+--- a/services/frontend/package-lock.json
++++ b/services/frontend/package-lock.json
+@@ -8,6 +8,9 @@
+       "name": "kernl-harness-frontend",
+       "version": "0.2.0",
+       "dependencies": {
++        "dompurify": "3.4.8",
++        "marked": "14.0.0",
++        "monaco-editor": "0.56.0",
+         "react": "^19.1.0",
+         "react-dom": "^19.1.0"
+       },
+@@ -1730,6 +1733,13 @@
+         "@types/react": "^19.2.0"
+       }
+     },
++    "node_modules/@types/trusted-types": {
++      "version": "2.0.7",
++      "resolved": "https://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz",
++      "integrity": "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/@typescript-eslint/eslint-plugin": {
+       "version": "8.69.0",
+       "resolved": "https://registry.npmjs.org/@typescript-eslint/eslint-plugin/-/eslint-plugin-8.69.0.tgz",
+@@ -2588,6 +2598,15 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/dompurify": {
++      "version": "3.4.8",
++      "resolved": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.8.tgz",
++      "integrity": "sha512-yb1cEmaOum7wFvOCSQxyfgVlv5D47Rc30iZWoMpbDIWTnJ6grDDQyu2KFJzB2k7u0pMuJcQ1zphH//fFnw2tjQ==",
++      "license": "(MPL-2.0 OR Apache-2.0)",
++      "optionalDependencies": {
++        "@types/trusted-types": "^2.0.7"
++      }
++    },
+     "node_modules/esbuild": {
+       "version": "0.28.2",
+       "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
+@@ -3338,6 +3357,18 @@
+         "@jridgewell/sourcemap-codec": "^1.5.5"
+       }
+     },
++    "node_modules/marked": {
++      "version": "14.0.0",
++      "resolved": "https://registry.npmjs.org/marked/-/marked-14.0.0.tgz",
++      "integrity": "sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ==",
++      "license": "MIT",
++      "bin": {
++        "marked": "bin/marked.js"
++      },
++      "engines": {
++        "node": ">= 18"
++      }
++    },
+     "node_modules/minimatch": {
+       "version": "3.1.5",
+       "resolved": "https://registry.npmjs.org/minimatch/-/minimatch-3.1.5.tgz",
+@@ -3351,6 +3382,16 @@
+         "node": "*"
+       }
+     },
++    "node_modules/monaco-editor": {
++      "version": "0.56.0",
++      "resolved": "https://registry.npmjs.org/monaco-editor/-/monaco-editor-0.56.0.tgz",
++      "integrity": "sha512-sXboRm3BeBeLm938eaiyLMe0OxzfXIlZvbv4ir/jVgQy1zDhWjgmny0WoN45fuDKhCCQsYMbBJrv/A6jd8aCUg==",
++      "license": "MIT",
++      "dependencies": {
++        "dompurify": "3.4.8",
++        "marked": "14.0.0"
++      }
++    },
+     "node_modules/ms": {
+       "version": "2.1.3",
+       "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+diff --git a/services/frontend/package.json b/services/frontend/package.json
+index 434b0f8..b100354 100644
+--- a/services/frontend/package.json
++++ b/services/frontend/package.json
+@@ -14,6 +14,9 @@
+     "e2e": "playwright test"
+   },
+   "dependencies": {
++    "dompurify": "3.4.8",
++    "marked": "14.0.0",
++    "monaco-editor": "0.56.0",
+     "react": "^19.1.0",
+     "react-dom": "^19.1.0"
+   },
+diff --git a/services/frontend/src/components/CodeEditor.tsx b/services/frontend/src/components/CodeEditor.tsx
+new file mode 100644
+index 0000000..2c2bd43
+--- /dev/null
++++ b/services/frontend/src/components/CodeEditor.tsx
+@@ -0,0 +1,128 @@
++import { useEffect, useLayoutEffect, useRef } from 'react'
++import type * as Monaco from 'monaco-editor'
++import { configureMonaco, editorModelURI, monaco } from '../lib/monaco'
++import { editorLanguageForPath } from '../lib/editorLanguage'
++
++type Cursor = { line: number; column: number }
++
++type Props = {
++  path: string
++  value: string
++  onChange: (value: string) => void
++  onSave: () => void
++  onCursorChange: (cursor: Cursor) => void
++}
++
++export function CodeEditor({ path, value, onChange, onSave, onCursorChange }: Props) {
++  const host = useRef<HTMLDivElement>(null)
++  const editor = useRef<Monaco.editor.IStandaloneCodeEditor>()
++  const activePath = useRef(path)
++  const viewStates = useRef(new Map<string, Monaco.editor.ICodeEditorViewState | null>())
++  const onChangeRef = useRef(onChange)
++  const onSaveRef = useRef(onSave)
++  const onCursorRef = useRef(onCursorChange)
++
++  onChangeRef.current = onChange
++  onSaveRef.current = onSave
++  onCursorRef.current = onCursorChange
++
++  useLayoutEffect(() => {
++    if (!host.current) return
++    configureMonaco()
++    const instance = monaco.editor.create(host.current, {
++      theme: 'wharness-ide',
++      automaticLayout: true,
++      fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
++      fontSize: 12.5,
++      lineHeight: 20,
++      lineNumbersMinChars: 4,
++      glyphMargin: true,
++      folding: true,
++      foldingHighlight: true,
++      showFoldingControls: 'mouseover',
++      minimap: { enabled: true, maxColumn: 110, renderCharacters: false, scale: 1 },
++      bracketPairColorization: { enabled: true, independentColorPoolPerBracketType: true },
++      guides: { bracketPairs: true, indentation: true, highlightActiveIndentation: true },
++      stickyScroll: { enabled: true, maxLineCount: 5 },
++      renderWhitespace: 'selection',
++      renderControlCharacters: true,
++      renderLineHighlight: 'all',
++      rulers: [100, 120],
++      scrollBeyondLastLine: false,
++      smoothScrolling: true,
++      cursorSmoothCaretAnimation: 'on',
++      cursorBlinking: 'smooth',
++      mouseWheelZoom: true,
++      multiCursorModifier: 'alt',
++      wordWrap: 'off',
++      formatOnPaste: true,
++      formatOnType: true,
++      tabSize: 2,
++      insertSpaces: true,
++      detectIndentation: true,
++      suggest: { showWords: true },
++      quickSuggestions: { other: true, comments: false, strings: true },
++      parameterHints: { enabled: true },
++      hover: { enabled: true, delay: 250 },
++      links: true,
++      codeLens: true,
++      lightbulb: { enabled: 'on' },
++      padding: { top: 9, bottom: 12 },
++      fixedOverflowWidgets: true,
++    })
++    editor.current = instance
++    const contentSubscription = instance.onDidChangeModelContent(() => {
++      onChangeRef.current(instance.getValue())
++    })
++    const cursorSubscription = instance.onDidChangeCursorPosition(({ position }) => {
++      onCursorRef.current({ line: position.lineNumber, column: position.column })
++    })
++    instance.addAction({
++      id: 'wharness.save',
++      label: 'Wharness: Save file',
++      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
++      run: () => onSaveRef.current(),
++    })
++    instance.addAction({
++      id: 'wharness.toggle-word-wrap',
++      label: 'Wharness: Toggle word wrap',
++      keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
++      run: () => instance.trigger('keyboard', 'editor.action.toggleWordWrap', null),
++    })
++    return () => {
++      contentSubscription.dispose()
++      cursorSubscription.dispose()
++      instance.dispose()
++      editor.current = undefined
++    }
++  }, [])
++
++  useEffect(() => {
++    const instance = editor.current
++    if (!instance) return
++    const previous = activePath.current
++    if (previous) viewStates.current.set(previous, instance.saveViewState())
++    const uri = editorModelURI(path)
++    const language = editorLanguageForPath(path)
++    let model = monaco.editor.getModel(uri)
++    if (!model) model = monaco.editor.createModel(value, language, uri)
++    else {
++      monaco.editor.setModelLanguage(model, language)
++      if (model.getValue() !== value) model.setValue(value)
++    }
++    activePath.current = path
++    instance.setModel(model)
++    const state = viewStates.current.get(path)
++    if (state) instance.restoreViewState(state)
++    instance.focus()
++  }, [path])
++
++  useEffect(() => {
++    const instance = editor.current
++    if (!instance || activePath.current !== path) return
++    const model = instance.getModel()
++    if (model && model.getValue() !== value) model.setValue(value)
++  }, [path, value])
++
++  return <div className="monaco-editor-host" ref={host} aria-label={`Editor de ${path}`} />
++}
+diff --git a/services/frontend/src/components/EditorWorkspace.tsx b/services/frontend/src/components/EditorWorkspace.tsx
+index 3d0bece..61b9a5f 100644
+--- a/services/frontend/src/components/EditorWorkspace.tsx
++++ b/services/frontend/src/components/EditorWorkspace.tsx
+@@ -1,17 +1,28 @@
+-import { useCallback, useEffect, useMemo, useState } from 'react'
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import { api, APIError } from '../lib/api'
+-import { parseArgv } from '../lib/shell'
+-import type { CommandResult, FileEntry, Session, WorkspaceFile } from '../types'
++import { editorDisplayLanguage } from '../lib/editorLanguage'
++import { disposeEditorModel } from '../lib/monaco'
++import type { FileEntry, Session, WorkspaceFile } from '../types'
++import { CodeEditor } from './CodeEditor'
+ import { Icon } from './Icon'
++import { InteractiveTerminal } from './InteractiveTerminal'
++
++type EditorDocument = WorkspaceFile & { draft: string }
++type Cursor = { line: number; column: number }
+ 
+ export function EditorWorkspace({ session, onError }: { session: Session; onError: (message: string) => void }) {
+   const [files, setFiles] = useState<FileEntry[]>([])
+-  const [selected, setSelected] = useState<WorkspaceFile>()
+-  const [draft, setDraft] = useState('')
++  const [documents, setDocuments] = useState<EditorDocument[]>([])
++  const documentsRef = useRef<EditorDocument[]>([])
++  const [activePath, setActivePath] = useState<string>()
+   const [loadingFiles, setLoadingFiles] = useState(false)
+-  const [saving, setSaving] = useState(false)
++  const [savingPath, setSavingPath] = useState<string>()
+   const [terminalHeight, setTerminalHeight] = useState(245)
+-  const dirty = selected ? draft !== selected.content : false
++  const [cursor, setCursor] = useState<Cursor>({ line: 1, column: 1 })
++  const selected = documents.find((item) => item.path === activePath)
++  const dirtyCount = documents.filter((item) => item.draft !== item.content).length
++
++  documentsRef.current = documents
+ 
+   const refreshFiles = useCallback(async () => {
+     setLoadingFiles(true)
+@@ -21,51 +32,107 @@ export function EditorWorkspace({ session, onError }: { session: Session; onErro
+   }, [session.id, onError])
+ 
+   useEffect(() => { void refreshFiles() }, [refreshFiles])
++  useEffect(() => {
++    setDocuments([])
++    setActivePath(undefined)
++    setCursor({ line: 1, column: 1 })
++    return () => {
++      for (const document of documentsRef.current) disposeEditorModel(document.path)
++    }
++  }, [session.id])
++  useEffect(() => {
++    if (!dirtyCount) return
++    const guard = (event: BeforeUnloadEvent) => { event.preventDefault() }
++    window.addEventListener('beforeunload', guard)
++    return () => window.removeEventListener('beforeunload', guard)
++  }, [dirtyCount])
+ 
+   async function openFile(path: string) {
+-    if (dirty && !window.confirm('Existem alterações não guardadas. Abrir outro ficheiro mesmo assim?')) return
++    if (documents.some((item) => item.path === path)) { setActivePath(path); return }
+     try {
+       const file = await api.readFile(session.id, path)
+-      setSelected(file); setDraft(file.content)
++      setDocuments((items) => [...items, { ...file, draft: file.content }])
++      setActivePath(path)
++      setCursor({ line: 1, column: 1 })
+     } catch (error) { onError(messageOf(error)) }
+   }
+ 
+-  async function save() {
+-    if (!selected || !dirty) return
+-    setSaving(true)
++  async function save(path = activePath) {
++    const document = documents.find((item) => item.path === path)
++    if (!document || document.draft === document.content) return
++    setSavingPath(document.path)
+     try {
+-      const saved = await api.writeFile(session.id, { path: selected.path, content: draft, sha256: selected.sha256 })
+-      setSelected(saved); setDraft(saved.content)
++      const saved = await api.writeFile(session.id, { path: document.path, content: document.draft, sha256: document.sha256 })
++      setDocuments((items) => items.map((item) => item.path === document.path ? { ...saved, draft: saved.content } : item))
+       await refreshFiles()
+     } catch (error) { onError(messageOf(error)) }
+-    finally { setSaving(false) }
++    finally { setSavingPath(undefined) }
++  }
++
++  function updateDraft(value: string) {
++    if (!activePath) return
++    setDocuments((items) => items.map((item) => item.path === activePath ? { ...item, draft: value } : item))
++  }
++
++  function closeDocument(path: string) {
++    const document = documents.find((item) => item.path === path)
++    if (!document) return
++    if (document.draft !== document.content && !window.confirm(`Fechar ${path} e descartar alterações não guardadas?`)) return
++    disposeEditorModel(path)
++    const index = documents.findIndex((item) => item.path === path)
++    const remaining = documents.filter((item) => item.path !== path)
++    setDocuments(remaining)
++    if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path)
+   }
+ 
+   return <section className="editor-workspace">
+     <FileExplorer entries={files} selected={selected?.path} loading={loadingFiles} onOpen={openFile} onRefresh={refreshFiles} />
+     <div className="editor-main">
+       <div className="editor-area">
++        {documents.length > 0 && <EditorTabs documents={documents} activePath={activePath} savingPath={savingPath} onSelect={setActivePath} onClose={closeDocument} onSave={save} />}
+         {selected ? <>
+-          <div className="editor-tabbar">
+-            <div className="editor-tab active"><Icon name="file" size={14}/><span>{selected.path}</span>{dirty && <i className="dirty-dot"/>}</div>
+-            <button className="editor-save" disabled={!dirty || saving} onClick={save} title="Guardar (Ctrl+S)"><Icon name="save" size={15}/>{saving ? 'A guardar…' : 'Guardar'}</button>
++          <div className="editor-contextbar">
++            <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
++            <div className="editor-shortcuts"><span>Ctrl+F localizar</span><span>Ctrl+G linha</span><span>F1 comandos</span><span>Alt+Z wrap</span></div>
+           </div>
+-          <textarea className="code-editor" value={draft} spellCheck={false} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); void save() } }} />
+-          <div className="editor-statusbar"><span>{selected.path}</span><span>{selected.size.toLocaleString()} bytes · UTF-8</span></div>
+-        </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Escolha um ficheiro</h3><p>O Explorer mostra apenas ficheiros permitidos pela política de contexto do Harness. Ficheiros sensíveis e symlinks ficam fora do editor.</p></div>}
++          <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} />
++          <div className="editor-statusbar">
++            <span>{selected.path}</span>
++            <div><span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
++          </div>
++        </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Escolha um ficheiro</h3><p>O Explorer mostra apenas ficheiros permitidos pela política do Harness. Abra vários ficheiros em tabs; o editor preserva rascunhos, histórico de undo, pesquisa, folding e navegação por linha.</p></div>}
+       </div>
+       <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(245)} />
+-      <TerminalPanel session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={onError} />
++      <InteractiveTerminal session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={onError} />
+     </div>
+   </section>
+ }
+ 
++function EditorTabs({ documents, activePath, savingPath, onSelect, onClose, onSave }: {
++  documents: EditorDocument[]; activePath?: string; savingPath?: string
++  onSelect: (path: string) => void; onClose: (path: string) => void; onSave: (path: string) => Promise<void>
++}) {
++  return <div className="editor-tabbar">
++    <div className="editor-tabs-scroll">{documents.map((document) => {
++      const dirty = document.draft !== document.content
++      const name = document.path.split('/').pop() || document.path
++      return <button className={`editor-tab ${activePath === document.path ? 'active' : ''}`} key={document.path} onClick={() => onSelect(document.path)} title={document.path}>
++        <Icon name="file" size={13}/><span>{name}</span>{dirty && <i className="dirty-dot"/>}
++        <span className="editor-tab-close" aria-hidden="true" onClick={(event) => { event.stopPropagation(); onClose(document.path) }}>×</span>
++      </button>
++    })}</div>
++    <button className="editor-save" disabled={!activePath || !documents.some((item) => item.path === activePath && item.draft !== item.content) || Boolean(savingPath)} onClick={() => activePath && void onSave(activePath)} title="Guardar (Ctrl+S)"><Icon name="save" size={14}/>{savingPath ? 'A guardar…' : 'Guardar'}</button>
++  </div>
++}
++
+ type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
+ 
+ function FileExplorer({ entries, selected, loading, onOpen, onRefresh }: { entries: FileEntry[]; selected?: string; loading: boolean; onOpen: (path: string) => void; onRefresh: () => Promise<void> }) {
+-  const tree = useMemo(() => buildTree(entries), [entries])
++  const [query, setQuery] = useState('')
++  const tree = useMemo(() => buildTree(query.trim() ? entries.filter((item) => item.kind === 'directory' || item.path.toLowerCase().includes(query.trim().toLowerCase())) : entries), [entries, query])
+   return <aside className="file-explorer">
+     <header><div><span className="panel-kicker">Workspace</span><strong>Explorer</strong></div><button className="icon-button" title="Atualizar ficheiros" onClick={() => void onRefresh()} disabled={loading}><Icon name="refresh" size={15}/></button></header>
++    <div className="explorer-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar ficheiros…" aria-label="Filtrar ficheiros" /></div>
+     <div className="file-tree">{tree.map((node) => <TreeItem key={node.path} node={node} selected={selected} onOpen={onOpen} depth={0}/>)}</div>
+   </aside>
+ }
+@@ -82,14 +149,12 @@ function TreeItem({ node, selected, onOpen, depth }: { node: TreeNode; selected?
+ function buildTree(entries: FileEntry[]): TreeNode[] {
+   const root: TreeNode = { name: '', path: '', kind: 'directory', children: [] }
+   const directories = new Map<string, TreeNode>([['', root]])
+-  for (const entry of entries.filter((item) => item.kind === 'directory').sort((a, b) => a.path.localeCompare(b.path))) {
+-    ensureDir(root, directories, entry.path)
+-  }
++  for (const entry of entries.filter((item) => item.kind === 'directory').sort((a, b) => a.path.localeCompare(b.path))) ensureDir(root, directories, entry.path)
+   for (const entry of entries.filter((item) => item.kind === 'file').sort((a, b) => a.path.localeCompare(b.path))) {
+     const parts = entry.path.split('/'); const name = parts.pop() || entry.name; const parentPath = parts.join('/')
+-    const parent = ensureDir(root, directories, parentPath)
+-    parent.children.push({ name, path: entry.path, kind: 'file', children: [] })
++    ensureDir(root, directories, parentPath).children.push({ name, path: entry.path, kind: 'file', children: [] })
+   }
++  pruneEmptyDirectories(root)
+   sortTree(root)
+   return root.children
+ }
+@@ -106,60 +171,13 @@ function ensureDir(root: TreeNode, map: Map<string, TreeNode>, path: string) {
+   return current
+ }
+ 
++function pruneEmptyDirectories(node: TreeNode) {
++  node.children = node.children.filter((child) => child.kind === 'file' || (pruneEmptyDirectories(child), child.children.length > 0))
++}
++
+ function sortTree(node: TreeNode) {
+   node.children.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1)
+   node.children.forEach(sortTree)
+ }
+ 
+-type TerminalEntry = { id: string; command: string; cwd: string; result?: CommandResult; error?: string }
+-
+-function TerminalPanel({ session, height, onHeight, onError }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void }) {
+-  const [input, setInput] = useState('')
+-  const [cwd, setCwd] = useState('.')
+-  const [network, setNetwork] = useState(false)
+-  const [running, setRunning] = useState(false)
+-  const [entries, setEntries] = useState<TerminalEntry[]>([])
+-
+-  async function execute() {
+-    const raw = input.trim(); if (!raw || running) return
+-    setInput('')
+-    if (raw === 'clear') { setEntries([]); return }
+-    let argv: string[]
+-    try { argv = parseArgv(raw) } catch (error) { onError(messageOf(error)); return }
+-    if (!argv.length) return
+-    if (argv[0] === 'cd') {
+-      const next = normalizeCwd(cwd, argv[1] || '.')
+-      setCwd(next); setEntries((items) => [...items, { id: crypto.randomUUID(), command: raw, cwd, result: { argv, cwd, exit_code: 0, stdout: '', stderr: '', duration_ms: 0, success: true } }]); return
+-    }
+-    const id = crypto.randomUUID(); setEntries((items) => [...items, { id, command: raw, cwd }]); setRunning(true)
+-    try {
+-      const result = await api.terminal(session.id, { argv, cwd, network, timeout_seconds: 300, expected_exit_codes: [0] })
+-      setEntries((items) => items.map((item) => item.id === id ? { ...item, result } : item))
+-    } catch (error) {
+-      const message = messageOf(error); setEntries((items) => items.map((item) => item.id === id ? { ...item, error: message } : item))
+-    } finally { setRunning(false) }
+-  }
+-
+-  async function reset() {
+-    try { await api.resetTerminal(session.id); setEntries([]); setCwd('.') }
+-    catch (error) { onError(messageOf(error)) }
+-  }
+-
+-  return <section className="ide-terminal" style={{ height }}>
+-    <header><div><Icon name="terminal" size={14}/><strong>Terminal sandbox</strong><span>{cwd}</span></div><div className="terminal-controls"><label title="Permitir rede no próximo comando"><input type="checkbox" checked={network} onChange={(e) => setNetwork(e.target.checked)}/><Icon name="network" size={13}/> rede</label><button className="icon-button" title="Recriar sandbox a partir do host" onClick={() => void reset()}><Icon name="reset" size={14}/></button><button className="terminal-size-button" title="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button></div></header>
+-    <div className="terminal-scroll">
+-      {entries.map((entry) => <div className="ide-terminal-entry" key={entry.id}><div className="terminal-prompt"><span>wharness:{entry.cwd}$</span> {entry.command}</div>{entry.result?.stdout && <pre>{entry.result.stdout}</pre>}{entry.result?.stderr && <pre className="stderr">{entry.result.stderr}</pre>}{entry.result && entry.result.exit_code !== 0 && <span className="terminal-exit">exit {entry.result.exit_code}</span>}{entry.error && <pre className="stderr">{entry.error}</pre>}</div>)}
+-      {!entries.length && <div className="terminal-hint">Comandos são executados como argv dentro da sandbox Docker persistente. Sem shell implícito. `cd` e `clear` são tratados pelo editor.</div>}
+-    </div>
+-    <div className="terminal-input-row"><span>wharness:{cwd}$</span><input value={input} disabled={running} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void execute() }} spellCheck={false} autoComplete="off" placeholder={running ? 'a executar…' : 'go test ./...'} /></div>
+-  </section>
+-}
+-
+-function normalizeCwd(current: string, next: string) {
+-  const parts = (next.startsWith('/') ? next.slice(1) : `${current === '.' ? '' : current}/${next}`).split('/')
+-  const stack: string[] = []
+-  for (const part of parts) { if (!part || part === '.') continue; if (part === '..') { stack.pop(); continue } ; stack.push(part) }
+-  return stack.length ? stack.join('/') : '.'
+-}
+-
+ function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
+diff --git a/services/frontend/src/components/Icon.tsx b/services/frontend/src/components/Icon.tsx
+index 0937034..5ba0b2d 100644
+--- a/services/frontend/src/components/Icon.tsx
++++ b/services/frontend/src/components/Icon.tsx
+@@ -1,6 +1,6 @@
+ import type { ReactNode } from 'react'
+ 
+-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'network' | 'workspace' | 'plus'
++type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'network' | 'workspace' | 'plus' | 'search'
+ 
+ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
+   const paths: Record<Name, ReactNode> = {
+@@ -31,6 +31,7 @@ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
+     network: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></>,
+     workspace: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M8 9h13"/></>,
+     plus: <path d="M12 5v14M5 12h14" />,
++    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4.2-4.2"/></>,
+   }
+   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
+ }
+diff --git a/services/frontend/src/components/Inspector.tsx b/services/frontend/src/components/Inspector.tsx
+index 3c1906f..31bce65 100644
+--- a/services/frontend/src/components/Inspector.tsx
++++ b/services/frontend/src/components/Inspector.tsx
+@@ -6,6 +6,7 @@ import { riskLabel } from '../lib/risk'
+ import { api } from '../lib/api'
+ import { isDesktop } from '../lib/desktop'
+ import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
++import { MarkdownContent } from './MarkdownContent'
+ import type { WorkspaceChat } from '../lib/workspaceMemory'
+ 
+ type Tab = 'plan' | 'terminal' | 'chatgpt'
+@@ -106,10 +107,10 @@ function PlanView({ session }: { session: Session }) {
+   const operations = plan.operations || []
+   const verification = plan.verification || []
+   return <div className="plan-view">
+-    <div className="section-heading"><div><span className="panel-kicker">{plan.protocol}</span><h3>{plan.summary}</h3></div><StatusPill tone={session.policy?.allowed ? 'success' : 'danger'}>{session.policy?.allowed ? 'Policy OK' : 'Bloqueado'}</StatusPill></div>
++    <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={session.policy?.allowed ? 'success' : 'danger'}>{session.policy?.allowed ? 'Policy OK' : 'Bloqueado'}</StatusPill></div>
+     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
+     <div className="metric-row"><Metric label="Operações" value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
+-    {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><pre>{session.last_bundle.readme}</pre></details>}
++    {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><MarkdownContent markdown={session.last_bundle.readme} /></div></details>}
+     <div className="operation-list">
+       {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <details><summary>Ver diff</summary><pre className="diff-view">{op.patch}</pre></details>}</div></div>)}
+       {verification.map((command, index) => <div className="operation verification" key={`v-${index}`}><div className="operation-index"><Icon name="check" size={15}/></div><div className="operation-body"><strong>{(command.argv || []).join(' ')}</strong><span>Verification · {command.cwd || '.'}</span></div></div>)}
+diff --git a/services/frontend/src/components/InteractiveTerminal.tsx b/services/frontend/src/components/InteractiveTerminal.tsx
+new file mode 100644
+index 0000000..0ac16dc
+--- /dev/null
++++ b/services/frontend/src/components/InteractiveTerminal.tsx
+@@ -0,0 +1,93 @@
++import { useEffect, useState } from 'react'
++import { api, APIError } from '../lib/api'
++import { parseArgv } from '../lib/shell'
++import type { CommandResult, Session, TerminalTarget } from '../types'
++import { Icon } from './Icon'
++
++type TerminalEntry = { id: string; command: string; cwd: string; target: TerminalTarget; result?: CommandResult; error?: string }
++
++export function InteractiveTerminal({ session, height, onHeight, onError }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void }) {
++  const [input, setInput] = useState('')
++  const [target, setTarget] = useState<TerminalTarget>('sandbox')
++  const [hostConfirmed, setHostConfirmed] = useState(false)
++  const [cwdByTarget, setCwdByTarget] = useState<Record<TerminalTarget, string>>({ sandbox: '.', host: '.' })
++  const [network, setNetwork] = useState(false)
++  const [running, setRunning] = useState(false)
++  const [entries, setEntries] = useState<TerminalEntry[]>([])
++  const cwd = cwdByTarget[target]
++
++  useEffect(() => {
++    setInput('')
++    setTarget('sandbox')
++    setHostConfirmed(false)
++    setCwdByTarget({ sandbox: '.', host: '.' })
++    setNetwork(false)
++    setRunning(false)
++    setEntries([])
++  }, [session.id])
++
++  function selectTarget(next: TerminalTarget) {
++    if (next === target) return
++    if (next === 'host') {
++      const accepted = window.confirm('Ativar Terminal HOST?\n\nOs comandos serão executados diretamente no projeto real, sem sandbox. O Policy Engine continua ativo e comandos perigosos continuam bloqueados. Alterações podem ser imediatas e não têm rollback automático.')
++      if (!accepted) return
++      setHostConfirmed(true)
++      setNetwork(false)
++    }
++    if (next === 'sandbox') setHostConfirmed(false)
++    setTarget(next)
++  }
++
++  async function execute() {
++    const raw = input.trim(); if (!raw || running) return
++    setInput('')
++    if (raw === 'clear') { setEntries([]); return }
++    let argv: string[]
++    try { argv = parseArgv(raw) } catch (error) { onError(messageOf(error)); return }
++    if (!argv.length) return
++    if (argv[0] === 'cd') {
++      const next = normalizeCwd(cwd, argv[1] || '.')
++      setCwdByTarget((value) => ({ ...value, [target]: next }))
++      setEntries((items) => [...items, { id: crypto.randomUUID(), command: raw, cwd, target, result: { argv, cwd, exit_code: 0, stdout: '', stderr: '', duration_ms: 0, success: true } }]); return
++    }
++    const id = crypto.randomUUID(); setEntries((items) => [...items, { id, command: raw, cwd, target }]); setRunning(true)
++    try {
++      const result = await api.terminal(session.id, { argv, cwd, network: target === 'sandbox' ? network : false, timeout_seconds: 300, expected_exit_codes: [0] }, target, target === 'host' && hostConfirmed)
++      setEntries((items) => items.map((item) => item.id === id ? { ...item, result } : item))
++    } catch (error) {
++      const message = messageOf(error); setEntries((items) => items.map((item) => item.id === id ? { ...item, error: message } : item))
++    } finally { setRunning(false) }
++  }
++
++  async function reset() {
++    if (target !== 'sandbox') return
++    try { await api.resetTerminal(session.id); setEntries([]); setCwdByTarget((value) => ({ ...value, sandbox: '.' })) }
++    catch (error) { onError(messageOf(error)) }
++  }
++
++  return <section className={`ide-terminal terminal-target-${target}`} style={{ height }}>
++    <header>
++      <div><Icon name="terminal" size={14}/><strong>Terminal</strong><div className="terminal-target-switch" role="group" aria-label="Destino do terminal"><button className={target === 'sandbox' ? 'active' : ''} onClick={() => selectTarget('sandbox')}>Sandbox</button><button className={target === 'host' ? 'active host' : 'host'} onClick={() => selectTarget('host')}>Host</button></div><span>{cwd}</span></div>
++      <div className="terminal-controls">
++        {target === 'sandbox' ? <label title="Permitir rede no próximo comando"><input type="checkbox" checked={network} onChange={(e) => setNetwork(e.target.checked)}/><Icon name="network" size={13}/> rede</label> : <span className="host-network-label" title="O terminal Host herda a rede do sistema">rede do host</span>}
++        <button className="icon-button" disabled={target !== 'sandbox'} title={target === 'sandbox' ? 'Recriar sandbox a partir do host' : 'Reset só existe para a sandbox'} onClick={() => void reset()}><Icon name="reset" size={14}/></button>
++        <button className="terminal-size-button" title="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button>
++      </div>
++    </header>
++    {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Comandos executam no projeto real. Sem sandbox e sem rollback automático.</span></div>}
++    <div className="terminal-scroll">
++      {entries.map((entry) => <div className={`ide-terminal-entry target-${entry.target}`} key={entry.id}><div className="terminal-prompt"><span>wharness:{entry.target}:{entry.cwd}$</span> {entry.command}</div>{entry.result?.stdout && <pre>{entry.result.stdout}</pre>}{entry.result?.stderr && <pre className="stderr">{entry.result.stderr}</pre>}{entry.result && entry.result.exit_code !== 0 && <span className="terminal-exit">exit {entry.result.exit_code}</span>}{entry.error && <pre className="stderr">{entry.error}</pre>}</div>)}
++      {!entries.length && <div className="terminal-hint">{target === 'sandbox' ? 'Sandbox persistente e isolada. Sem shell implícito; comandos são argv. `cd` e `clear` são tratados pelo editor.' : 'Host explícito: executa argv diretamente no projeto real. O Policy Engine continua a negar shell arbitrário, Docker, sudo e outros comandos proibidos.'}</div>}
++    </div>
++    <div className="terminal-input-row"><span>wharness:{target}:{cwd}$</span><input value={input} disabled={running} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void execute() }} spellCheck={false} autoComplete="off" placeholder={running ? 'a executar…' : target === 'host' ? 'git status --short' : 'go test ./...'} /></div>
++  </section>
++}
++
++function normalizeCwd(current: string, next: string) {
++  const parts = (next.startsWith('/') ? next.slice(1) : `${current === '.' ? '' : current}/${next}`).split('/')
++  const stack: string[] = []
++  for (const part of parts) { if (!part || part === '.') continue; if (part === '..') { stack.pop(); continue } ; stack.push(part) }
++  return stack.length ? stack.join('/') : '.'
++}
++
++function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
+diff --git a/services/frontend/src/components/MarkdownContent.test.tsx b/services/frontend/src/components/MarkdownContent.test.tsx
+new file mode 100644
+index 0000000..98b017b
+--- /dev/null
++++ b/services/frontend/src/components/MarkdownContent.test.tsx
+@@ -0,0 +1,18 @@
++import { render } from '@testing-library/react'
++import { describe, expect, it } from 'vitest'
++import { MarkdownContent } from './MarkdownContent'
++
++describe('MarkdownContent', () => {
++  it('renders headings, lists and fenced code instead of raw markdown text', () => {
++    const { container } = render(<MarkdownContent markdown={'## Resumo\n\n- item\n\n```sh\nmake check\n```'} />)
++    expect(container.querySelector('h2')?.textContent).toBe('Resumo')
++    expect(container.querySelector('li')?.textContent).toBe('item')
++    expect(container.querySelector('pre code')?.textContent).toContain('make check')
++  })
++
++  it('sanitizes embedded HTML before rendering plan content', () => {
++    const { container } = render(<MarkdownContent markdown={'texto <script>window.bad = true</script> **seguro**'} />)
++    expect(container.querySelector('script')).toBeNull()
++    expect(container.querySelector('strong')?.textContent).toBe('seguro')
++  })
++})
+diff --git a/services/frontend/src/components/MarkdownContent.tsx b/services/frontend/src/components/MarkdownContent.tsx
+new file mode 100644
+index 0000000..a01201a
+--- /dev/null
++++ b/services/frontend/src/components/MarkdownContent.tsx
+@@ -0,0 +1,9 @@
++import DOMPurify from 'dompurify'
++import { marked } from 'marked'
++
++export function MarkdownContent({ markdown, compact = false }: { markdown: string; compact?: boolean }) {
++  const html = String(DOMPurify.sanitize(marked.parse(markdown || '', { async: false, gfm: true, breaks: false }) as string, {
++    USE_PROFILES: { html: true },
++  }))
++  return <div className={`markdown-content${compact ? ' compact' : ''}`} dangerouslySetInnerHTML={{ __html: html }} />
++}
+diff --git a/services/frontend/src/lib/api.ts b/services/frontend/src/lib/api.ts
+index 30b24c4..2de9d17 100644
+--- a/services/frontend/src/lib/api.ts
++++ b/services/frontend/src/lib/api.ts
+@@ -1,4 +1,4 @@
+-import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, Session, WorkspaceFile } from '../types'
++import type { AgentTurn, AppConfig, AutomationMode, BundleSubmission, CommandResult, CommandSpec, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, Session, TerminalTarget, WorkspaceFile } from '../types'
+ 
+ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+ 
+@@ -52,7 +52,7 @@ export const api = {
+       method: 'PUT',
+       body: JSON.stringify({ path: file.path, content: file.content, expected_sha256: file.sha256 }),
+     }),
+-  terminal: (id: string, command: CommandSpec) => request<CommandResult>(`/api/sessions/${id}/terminal`, { method: 'POST', body: JSON.stringify(command) }),
++  terminal: (id: string, command: CommandSpec, target: TerminalTarget = 'sandbox', confirmHost = false) => request<CommandResult>(`/api/sessions/${id}/terminal?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(command) }),
+   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
+   refreshContext: (id: string) => request<Session>(`/api/sessions/${id}/context/refresh`, { method: 'POST', body: '{}' }),
+   bundleURL: (id: string) => `${API_URL}/api/sessions/${id}/bundle`,
+diff --git a/services/frontend/src/lib/editorLanguage.test.ts b/services/frontend/src/lib/editorLanguage.test.ts
+new file mode 100644
+index 0000000..812cdcf
+--- /dev/null
++++ b/services/frontend/src/lib/editorLanguage.test.ts
+@@ -0,0 +1,16 @@
++import { describe, expect, it } from 'vitest'
++import { editorDisplayLanguage, editorLanguageForPath } from './editorLanguage'
++
++describe('editor language detection', () => {
++  it('recognizes source files and special build filenames', () => {
++    expect(editorLanguageForPath('src/App.tsx')).toBe('typescript')
++    expect(editorLanguageForPath('services/backend/main.go')).toBe('go')
++    expect(editorLanguageForPath('Dockerfile')).toBe('dockerfile')
++    expect(editorLanguageForPath('Makefile')).toBe('makefile')
++  })
++
++  it('falls back without pretending an unknown file has syntax support', () => {
++    expect(editorLanguageForPath('notes.custom')).toBe('plaintext')
++    expect(editorDisplayLanguage('notes.custom')).toBe('Plain Text')
++  })
++})
+diff --git a/services/frontend/src/lib/editorLanguage.ts b/services/frontend/src/lib/editorLanguage.ts
+new file mode 100644
+index 0000000..ea95933
+--- /dev/null
++++ b/services/frontend/src/lib/editorLanguage.ts
+@@ -0,0 +1,46 @@
++const filenameLanguages: Record<string, string> = {
++  'dockerfile': 'dockerfile',
++  'makefile': 'makefile',
++  'jenkinsfile': 'groovy',
++  '.gitignore': 'plaintext',
++  '.dockerignore': 'plaintext',
++  '.editorconfig': 'ini',
++}
++
++const extensionLanguages: Record<string, string> = {
++  ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
++  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
++  json: 'json', jsonc: 'json',
++  html: 'html', htm: 'html', vue: 'html', svelte: 'html',
++  css: 'css', scss: 'scss', less: 'less',
++  md: 'markdown', mdx: 'markdown',
++  yml: 'yaml', yaml: 'yaml',
++  xml: 'xml', svg: 'xml',
++  go: 'go', py: 'python', rb: 'ruby', php: 'php',
++  java: 'java', kt: 'kotlin', kts: 'kotlin', scala: 'scala',
++  c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', cxx: 'cpp', hpp: 'cpp',
++  cs: 'csharp', rs: 'rust', swift: 'swift', dart: 'dart',
++  sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell',
++  sql: 'sql', graphql: 'graphql', gql: 'graphql',
++  toml: 'ini', ini: 'ini', conf: 'ini', properties: 'ini',
++  env: 'plaintext', txt: 'plaintext', log: 'plaintext',
++}
++
++export function editorLanguageForPath(path: string) {
++  const name = path.split('/').pop()?.toLowerCase() || ''
++  if (filenameLanguages[name]) return filenameLanguages[name]
++  const dot = name.lastIndexOf('.')
++  if (dot < 0) return 'plaintext'
++  return extensionLanguages[name.slice(dot + 1)] || 'plaintext'
++}
++
++export function editorDisplayLanguage(path: string) {
++  const language = editorLanguageForPath(path)
++  const labels: Record<string, string> = {
++    typescript: 'TypeScript', javascript: 'JavaScript', json: 'JSON', html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
++    markdown: 'Markdown', yaml: 'YAML', xml: 'XML', go: 'Go', python: 'Python', ruby: 'Ruby', php: 'PHP', java: 'Java',
++    kotlin: 'Kotlin', scala: 'Scala', c: 'C', cpp: 'C++', csharp: 'C#', rust: 'Rust', swift: 'Swift', dart: 'Dart', shell: 'Shell',
++    sql: 'SQL', graphql: 'GraphQL', ini: 'Config', dockerfile: 'Dockerfile', makefile: 'Makefile', groovy: 'Groovy', plaintext: 'Plain Text',
++  }
++  return labels[language] || language
++}
+diff --git a/services/frontend/src/lib/monaco.ts b/services/frontend/src/lib/monaco.ts
+new file mode 100644
+index 0000000..5ee36b9
+--- /dev/null
++++ b/services/frontend/src/lib/monaco.ts
+@@ -0,0 +1,58 @@
++import * as monaco from 'monaco-editor'
++import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
++import CSSWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
++import HTMLWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
++import JSONWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
++import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
++
++let configured = false
++
++type MonacoScope = typeof globalThis & {
++  MonacoEnvironment?: { getWorker: (_moduleId: string, label: string) => Worker }
++}
++
++export function configureMonaco() {
++  if (configured) return
++  configured = true
++  ;(globalThis as MonacoScope).MonacoEnvironment = {
++    getWorker: (_moduleId, label) => {
++      if (label === 'json') return new JSONWorker()
++      if (label === 'css' || label === 'scss' || label === 'less') return new CSSWorker()
++      if (label === 'html' || label === 'handlebars' || label === 'razor') return new HTMLWorker()
++      if (label === 'typescript' || label === 'javascript') return new TypeScriptWorker()
++      return new EditorWorker()
++    },
++  }
++  monaco.editor.defineTheme('wharness-ide', {
++    base: 'vs-dark',
++    inherit: true,
++    rules: [],
++    colors: {
++      'editor.background': '#151713',
++      'editor.foreground': '#d6dacf',
++      'editorLineNumber.foreground': '#596056',
++      'editorLineNumber.activeForeground': '#b8c4ad',
++      'editorCursor.foreground': '#b9ff56',
++      'editor.selectionBackground': '#344628',
++      'editor.inactiveSelectionBackground': '#293522',
++      'editorIndentGuide.background1': '#2a2e27',
++      'editorIndentGuide.activeBackground1': '#5f6d54',
++      'editorBracketMatch.background': '#35442c',
++      'editorBracketMatch.border': '#769b46',
++      'editorGutter.background': '#151713',
++      'minimap.background': '#121410',
++      'scrollbarSlider.background': '#69706433',
++      'scrollbarSlider.hoverBackground': '#89917f55',
++    },
++  })
++}
++
++export function editorModelURI(path: string) {
++  return monaco.Uri.from({ scheme: 'file', path: `/${path.replace(/^\/+/, '')}` })
++}
++
++export function disposeEditorModel(path: string) {
++  monaco.editor.getModel(editorModelURI(path))?.dispose()
++}
++
++export { monaco }
+diff --git a/services/frontend/src/styles.css b/services/frontend/src/styles.css
+index 6f5f40e..c39fc1b 100644
+--- a/services/frontend/src/styles.css
++++ b/services/frontend/src/styles.css
+@@ -329,3 +329,80 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .bundle-readme { margin: 10px 0 16px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.45); }
+ .bundle-readme summary { padding: 9px 11px; cursor: pointer; font-size: 10px; font-weight: 700; }
+ .bundle-readme pre { margin: 0; padding: 12px; max-height: 280px; overflow: auto; white-space: pre-wrap; font-size: 10px; border-top: 1px solid var(--line); }
++
++/* v1.2.16 — rendered plan Markdown + IDE-grade editor + explicit terminal targets */
++.plan-heading { align-items: flex-start; }
++.plan-heading > div:first-child { min-width: 0; flex: 1; }
++.markdown-content { color: #343830; font-size: 11px; line-height: 1.62; overflow-wrap: anywhere; }
++.markdown-content > :first-child { margin-top: 0; }
++.markdown-content > :last-child { margin-bottom: 0; }
++.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 18px 0 8px; color: #242820; line-height: 1.25; letter-spacing: -.018em; }
++.markdown-content h1 { font-size: 18px; padding-bottom: 7px; border-bottom: 1px solid #d9ddd2; }
++.markdown-content h2 { font-size: 15px; padding-bottom: 5px; border-bottom: 1px solid #e0e3da; }
++.markdown-content h3 { font-size: 13px; }
++.markdown-content h4 { font-size: 11px; }
++.markdown-content p { margin: 7px 0 10px; }
++.markdown-content ul, .markdown-content ol { margin: 7px 0 11px; padding-left: 22px; }
++.markdown-content li + li { margin-top: 4px; }
++.markdown-content blockquote { margin: 10px 0; padding: 8px 11px; border-left: 3px solid #93ad71; background: #eef2e9; color: #596151; }
++.markdown-content code { padding: 1px 4px; border-radius: 4px; background: #e7e9e2; color: #3f4f31; font: 10px/1.45 ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.markdown-content pre { margin: 10px 0; padding: 11px 12px; overflow: auto; border: 1px solid #2d302a; border-radius: 7px; background: #171916; color: #d7dccf; }
++.markdown-content pre code { padding: 0; background: transparent; color: inherit; font-size: 10px; }
++.markdown-content table { width: 100%; margin: 10px 0; border-collapse: collapse; background: rgba(255,255,255,.5); font-size: 10px; }
++.markdown-content th, .markdown-content td { padding: 6px 8px; border: 1px solid #d6dad0; text-align: left; vertical-align: top; }
++.markdown-content th { background: #eceee8; color: #3b4037; font-weight: 700; }
++.markdown-content hr { height: 1px; margin: 15px 0; border: 0; background: #d8dcd1; }
++.markdown-content a { color: #4d741d; text-decoration-thickness: 1px; text-underline-offset: 2px; }
++.markdown-content.compact { margin-top: 4px; font-size: 13px; line-height: 1.35; color: #23271f; }
++.markdown-content.compact h1, .markdown-content.compact h2, .markdown-content.compact h3 { margin: 2px 0 0; padding: 0; border: 0; font-size: 15px; }
++.markdown-content.compact p { margin: 2px 0 0; }
++.bundle-readme-body { max-height: 360px; overflow: auto; padding: 12px 14px 15px; border-top: 1px solid var(--line); background: #f8f9f5; }
++.bundle-readme > pre { display: none; }
++
++/* Project explorer */
++.explorer-search { height: 36px; flex: 0 0 36px; margin: 7px 8px 5px; padding: 0 8px; display: flex; align-items: center; gap: 6px; border: 1px solid #cdd1c6; border-radius: 6px; background: #fbfcf8; color: #858b80; }
++.explorer-search input { width: 100%; height: 28px; min-width: 0; padding: 0; border: 0; border-radius: 0; outline: 0; background: transparent; color: #41463d; font: 10px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++
++/* Monaco-powered editing surface */
++.editor-area { background: #151713; }
++.editor-tabbar { height: 38px; flex: 0 0 38px; gap: 0; overflow: hidden; background: #20231e; border-color: #30342d; }
++.editor-tabs-scroll { min-width: 0; flex: 1; height: 38px; display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
++.editor-tab { flex: 0 0 auto; width: auto; max-width: 230px; height: 38px; padding: 0 8px 0 10px; border: 0; border-right: 1px solid #30342d; border-top: 2px solid transparent; background: #1d201b; color: #8f9789; cursor: pointer; }
++.editor-tab.active { background: #151713; color: #d4dacd; border-top-color: #9acb52; }
++.editor-tab:hover { background: #242821; color: #c4cbbd; }
++.editor-tab > span { min-width: 0; max-width: 150px; }
++.editor-tab-close { width: 18px; height: 18px; margin-left: 2px; display: grid; place-items: center; border-radius: 4px; color: #6f776a; font: 400 14px/1 sans-serif; }
++.editor-tab-close:hover { background: #373c34; color: #d6ddcf; }
++.editor-tab .dirty-dot { margin-left: 2px; }
++.editor-tabbar .editor-save { flex: 0 0 auto; margin: 5px 7px; border-color: #3b4037; background: #292d27; color: #c1c8b9; }
++.editor-tabbar .editor-save:hover:not(:disabled) { background: #343a31; }
++.editor-contextbar { height: 31px; flex: 0 0 31px; min-width: 0; padding: 0 10px 0 13px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid #282c26; background: #181a17; color: #778071; }
++.editor-breadcrumbs { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; font: 9px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.editor-breadcrumbs span { display: inline-flex; align-items: center; gap: 5px; }
++.editor-breadcrumbs i { color: #4f574b; font-style: normal; }
++.editor-shortcuts { flex: 0 0 auto; display: flex; gap: 10px; color: #596157; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
++.monaco-editor-host { flex: 1; min-width: 0; min-height: 0; background: #151713; }
++.editor-statusbar { height: 24px; flex: 0 0 24px; border-color: #30342d; background: #1e211c; color: #70786b; }
++.editor-statusbar > div { display: flex; align-items: center; gap: 12px; }
++.editor-statusbar > div span + span { position: relative; }
++.editor-statusbar > div span + span::before { content: '·'; position: absolute; left: -8px; color: #454b41; }
++.editor-empty { background: #151713; color: #687063; }
++.editor-empty .empty-mark { color: #30352d; }
++.editor-empty h3 { color: #a3ab9c; }
++.editor-empty p { color: #687063; }
++
++/* Explicit terminal target selection */
++.terminal-target-switch { height: 24px; display: inline-flex; align-items: center; padding: 2px; border: 1px solid #343931; border-radius: 6px; background: #11130f; }
++.terminal-target-switch button { height: 18px; padding: 0 7px; border: 0; border-radius: 4px; background: transparent; color: #697166; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; cursor: pointer; }
++.terminal-target-switch button.active { background: #30362c; color: #cfe0bb; }
++.terminal-target-switch button.host.active { background: #5a2a24; color: #ffd8d0; }
++.terminal-target-host { border-top-color: #6a3830; }
++.terminal-target-host > header { background: #201816; border-bottom-color: #4d2d28; }
++.terminal-host-warning { min-height: 30px; flex: 0 0 auto; padding: 5px 12px; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid #503029; background: #2d1c19; color: #d7a59c; font-size: 9px; }
++.terminal-host-warning strong { color: #ffb3a5; font: 700 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; letter-spacing: .08em; }
++.host-network-label { padding: 0 5px; color: #a77d74 !important; font-size: 8px !important; }
++.ide-terminal-entry.target-host .terminal-prompt span, .terminal-target-host .terminal-input-row > span { color: #e79583; }
++
++@media (max-width: 1180px) {
++  .editor-shortcuts span:nth-child(-n+2) { display: none; }
++}
+diff --git a/services/frontend/src/types.ts b/services/frontend/src/types.ts
+index 1d24f0c..2904c8c 100644
+--- a/services/frontend/src/types.ts
++++ b/services/frontend/src/types.ts
+@@ -65,6 +65,7 @@ export type ContextManifest = {
+ 
+ export type ExecutionMode = 'protected' | 'unprotected'
+ export type AutomationMode = 'manual' | 'auto'
++export type TerminalTarget = 'sandbox' | 'host'
+ 
+ export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'change' | 'blocked'
+ 

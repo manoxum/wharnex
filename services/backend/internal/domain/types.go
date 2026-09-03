@@ -53,6 +53,17 @@ func ValidAutomationMode(mode AutomationMode) bool {
 	return mode == AutomationModeManual || mode == AutomationModeAuto
 }
 
+type TerminalTarget string
+
+const (
+	TerminalTargetSandbox TerminalTarget = "sandbox"
+	TerminalTargetHost    TerminalTarget = "host"
+)
+
+func ValidTerminalTarget(target TerminalTarget) bool {
+	return target == TerminalTargetSandbox || target == TerminalTargetHost
+}
+
 type CommandSpec struct {
 	Argv              []string `json:"argv"`
 	Cwd               string   `json:"cwd"`

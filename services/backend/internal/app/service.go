@@ -890,10 +890,19 @@ func (s *Service) WriteFile(sessionID, path, content, expectedSHA string) (works
 	return file, nil
 }
 
-func (s *Service) RunTerminal(ctx context.Context, sessionID string, command domain.CommandSpec) (domain.CommandResult, error) {
+func (s *Service) RunTerminal(ctx context.Context, sessionID string, target domain.TerminalTarget, command domain.CommandSpec) (domain.CommandResult, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.CommandResult{}, err
+	}
+	if target == "" {
+		target = domain.TerminalTargetSandbox
+	}
+	if !domain.ValidTerminalTarget(target) {
+		return domain.CommandResult{}, fmt.Errorf("unsupported terminal target %q", target)
+	}
+	if target == domain.TerminalTargetHost && command.Network {
+		return domain.CommandResult{}, errors.New("host terminal inherits host networking; the sandbox network toggle is unavailable for host commands")
 	}
 	if command.Cwd == "" {
 		command.Cwd = "."
@@ -904,18 +913,29 @@ func (s *Service) RunTerminal(ctx context.Context, sessionID string, command dom
 	if len(command.ExpectedExitCodes) == 0 {
 		command.ExpectedExitCodes = []int{0}
 	}
-	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: ids.New("terminal"), RequestID: ids.New("terminal_req"), Status: "ready", Summary: "interactive terminal command", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: command}}}
+	risk := "low"
+	if target == domain.TerminalTargetHost {
+		risk = "high"
+	}
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: ids.New("terminal"), RequestID: ids.New("terminal_req"), Status: "ready", Summary: "interactive terminal command", Risk: risk, Operations: []domain.Operation{{Type: "command", Command: command}}}
 	decision := s.policy.Evaluate(plan)
 	if !decision.Allowed {
 		return domain.CommandResult{}, fmt.Errorf("terminal policy denied command: %s", strings.Join(decision.Reasons, "; "))
 	}
-	workspace, err := s.ensureDevspace(ctx, sessionID, item.ProjectPath)
+	runner := s.runner
+	var workspace sandbox.Workspace
+	if target == domain.TerminalTargetHost {
+		runner = s.hostRunner
+		workspace, err = runner.Prepare(ctx, item.ProjectPath)
+	} else {
+		workspace, err = s.ensureDevspace(ctx, sessionID, item.ProjectPath)
+	}
 	if err != nil {
 		return domain.CommandResult{}, err
 	}
-	s.bus.Publish(sessionID, "terminal.command_started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network})
-	result, err := s.runner.Run(ctx, workspace, command)
-	s.bus.Publish(sessionID, "terminal.command_completed", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr})
+	s.bus.Publish(sessionID, "terminal.command_started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
+	result, err := runner.Run(ctx, workspace, command)
+	s.bus.Publish(sessionID, "terminal.command_completed", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "target": target})
 	return result, err
 }
 

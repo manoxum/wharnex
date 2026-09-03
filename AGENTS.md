@@ -80,7 +80,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 
 - Browser reload MUST restore the active project when possible; a missing backend session MUST fall back to reopening the remembered project path.
 - Explorer/editor APIs MUST enforce project-root containment, excluded/secret paths, symlink denial, UTF-8 text limits, and optimistic SHA-256 writes.
-- The interactive terminal MUST execute against a copied sandbox workspace, never the original host project.
+- The interactive Editor terminal MUST default to a copied sandbox workspace. A human MAY explicitly switch that terminal to `Host` only after a dedicated confirmation; Host terminal commands execute directly in the project root, remain argv-only, remain subject to Policy Engine denial, and MUST display a persistent host-direct warning. The terminal target is independent from Agent Protected/Unprotected mode.
 - Terminal commands MUST be argv, never an implicit shell string.
 - Editor saves are explicit human host mutations. Agent mutations are sandbox-first in Protected mode; only an explicitly selected Unprotected project may execute the Agent plan directly on the host.
 - Every agent request MUST refresh project context so manually edited files are visible to the planner.
@@ -113,7 +113,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - Do not auto-commit or rewrite host history during Git bootstrap.
 - Sandbox copies use a fresh local Git baseline; never copy the host `.git` directory into a model execution workspace.
 - Protected/Unprotected choice MUST persist per project, not globally, and switching to Unprotected MUST require explicit UI confirmation. Every Unprotected plan execution MUST require another explicit confirmation.
-- The interactive Editor terminal remains sandboxed regardless of Agent Protected/Unprotected mode.
+- The interactive Editor terminal target is independent of Agent Protected/Unprotected mode: `Sandbox` remains the default; `Host` is a separate explicit human-only target with confirmation and a persistent warning.
 - Patch fallback may use `git apply --recount` or checked `--3way` only after a dry/check pass; never partially apply a failed fallback. Surface Git stderr on failure.
 
 ## Chat conversation affinity invariant (v1.2.6)

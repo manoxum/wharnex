@@ -65,6 +65,7 @@ export type ContextManifest = {
 
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
+export type TerminalTarget = 'sandbox' | 'host'
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'change' | 'blocked'
 

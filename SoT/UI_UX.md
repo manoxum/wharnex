@@ -14,7 +14,7 @@ Wharness is an engineering workspace, not a chatbot skin.
 
 The workspace has two first-class modes:
 
-- **Editor**: safe project Explorer, text editor, and persistent Docker-sandbox terminal.
+- **Editor**: safe project Explorer, IDE-grade code editor, and an interactive terminal whose default target is the persistent Docker sandbox. A distinct Host target is available only through an explicit warning/confirmation and remains visually marked while active.
 - **Agent**: harness chat, plan/policy inspector, execution logs, and ChatGPT/OpenAI provider panel.
 
 The active workspace, project path, mode, recent workspaces, and local chat transcript are remembered in browser local storage. On reload the frontend first resumes the live session; if the backend was restarted and the in-memory session disappeared, it reopens the remembered project and creates a fresh session automatically.

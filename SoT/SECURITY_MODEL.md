@@ -15,7 +15,7 @@ The security boundary is enforced by:
 
 ## IDE surfaces
 
-The Explorer only exposes files allowed by the context security policy. Text editing rejects traversal, symlink escapes, excluded/secret paths, non-UTF8/binary files, files over the editor limit, and stale writes via expected SHA-256. The interactive terminal runs in the isolated Docker workspace and never receives the original project as its execution workspace.
+The Explorer only exposes files allowed by the context security policy. Text editing rejects traversal, symlink escapes, excluded/secret paths, non-UTF8/binary files, files over the editor limit, and stale writes via expected SHA-256. The interactive terminal defaults to the isolated sandbox workspace. A separate human-only Host target may execute directly in the project root only after explicit confirmation; it remains argv-only, Policy Engine constrained, and visibly marked as host-direct. Host selection is never inherited from Agent mode or automation.
 
 
 ## Desktop remote-content boundary (v1.2)

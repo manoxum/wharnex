@@ -1,0 +1,47 @@
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,11 @@
+ # Changelog
+ 
++## Unreleased — React 19 / Monaco build hotfix
++
++- Fixes the Monaco editor ref initialization for React 19 typings by using an explicit nullable ref.
++- Uses Monaco 0.56-compatible hover and lightbulb option values instead of incompatible boolean/string literals.
++- Clears the disposed editor ref back to `null`, matching its React ref contract.
++
+ ## Unreleased — rendered plans + IDE editor + terminal targets
+ 
+ - Plan summaries and result README content now render sanitized GitHub-flavoured Markdown instead of displaying raw Markdown syntax.
+--- a/services/frontend/src/components/CodeEditor.tsx
++++ b/services/frontend/src/components/CodeEditor.tsx
+@@ -15,7 +15,7 @@
+ 
+ export function CodeEditor({ path, value, onChange, onSave, onCursorChange }: Props) {
+   const host = useRef<HTMLDivElement>(null)
+-  const editor = useRef<Monaco.editor.IStandaloneCodeEditor>()
++  const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+   const activePath = useRef(path)
+   const viewStates = useRef(new Map<string, Monaco.editor.ICodeEditorViewState | null>())
+   const onChangeRef = useRef(onChange)
+@@ -63,10 +63,10 @@
+       suggest: { showWords: true },
+       quickSuggestions: { other: true, comments: false, strings: true },
+       parameterHints: { enabled: true },
+-      hover: { enabled: true, delay: 250 },
++      hover: { enabled: 'on', delay: 250 },
+       links: true,
+       codeLens: true,
+-      lightbulb: { enabled: 'on' },
++      lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
+       padding: { top: 9, bottom: 12 },
+       fixedOverflowWidgets: true,
+     })
+@@ -93,7 +93,7 @@
+       contentSubscription.dispose()
+       cursorSubscription.dispose()
+       instance.dispose()
+-      editor.current = undefined
++      editor.current = null
+     }
+   }, [])
+ 
