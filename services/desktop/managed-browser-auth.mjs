@@ -33,6 +33,13 @@ export function resolveManagedBrowserExecutable(platform = process.platform, env
   return pathCandidates(platform, env).find((candidate) => candidate && exists(candidate)) || ''
 }
 
+
+export function managedBrowserProfileDirectory(userDataPath) {
+  const root = path.resolve(String(userDataPath || ''))
+  if (!root || root === path.parse(root).root) throw new Error('Diretório userData inválido para o perfil Chrome gerido.')
+  return path.join(root, 'ManagedBrowser', 'AuthProfile')
+}
+
 export function isChatGPTCookie(cookie) {
   const domain = String(cookie?.domain || '').replace(/^\./, '').toLowerCase()
   if (!(domain === CHATGPT_HOST || domain.endsWith(`.${CHATGPT_HOST}`))) return false

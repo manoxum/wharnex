@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.2.21.1 — Bundle download fallback + rendered Harness Markdown
+
+- Harden automatic ChatGPT result capture when generated files are rendered without their canonical filename: exact filename metadata remains preferred, with a fail-closed fallback to exactly one visible file/download affordance in the newest assistant turn.
+- Include href/download/accessibility metadata in the narrow download-control matcher without scraping assistant prose or weakening post-download request/bundle validation.
+- Strengthen the manual planner contract so generated bundle basename, attachment metadata and visible label use the exact canonical `wharness-bundle-<request_id>.zip` and reject icon-only substitutes.
+- Render Harness/agent transcript responses as sanitized GitHub-flavoured Markdown while preserving user messages as literal text.
+- Add regression coverage for exact-vs-icon-only download selection, ambiguous fallback rejection, and Markdown headings/emphasis in Harness responses.
+
+## v1.2.22 — Persistent managed Chrome account + personal Chrome shortcut
+
+- Keep the real-browser OAuth callback profile under Wharness `userData` instead of deleting a fresh temporary Chrome profile after every login, so the Google account and ChatGPT session can be reused on subsequent external authentications.
+- Keep callback automation isolated from the user's personal/default Chrome profile; Chrome 136+ intentionally blocks remote-debugging against that profile, so Wharness does not bypass the browser's credential protections.
+- Add a visible **Chrome pessoal** action that opens the normal system browser with its already-active profile/session for manual use, while clearly keeping it separate from the callback-capable managed profile.
+- Serialize callback-capable external authentication across chats because the persistent managed profile is shared.
+- Make **Limpar sessão do navegador** and full Wharness reset delete both the embedded Electron browser state and the persistent managed-browser auth profile; storage metrics include both browser stores.
+- Add regression tests for the persistent profile location and the personal-Chrome shortcut.
+
 ## v1.2.21 — Export provenance + Git/runtime diagnostics
 
 - Add a generated root `EXPORTS.md` to `make export` archives with export provenance, project metadata, current Git branch/HEAD, `git status --short --branch --untracked-files=all`, and `git worktree list --porcelain`.

@@ -73,7 +73,7 @@ Workflow stdout/stderr may quote untrusted project content and therefore does no
 
 Wharness MUST NOT depend on arbitrary DOM scraping or programmatic prose/output extraction from the ChatGPT consumer web UI. Supported planner provider adapters may return structured turns directly. In manual-planner Desktop mode, ChatGPT delivers a downloaded structured turn bundle.
 
-Desktop transport may use the narrow allowlisted bridge to focus/fill/submit the composer, attach project context/prompt files, and activate the exact expected bundle download control. It MUST NOT infer the model response by reading remote response text.
+Desktop transport may use the narrow allowlisted bridge to focus/fill/submit the composer, attach project context/prompt files, and activate the pending bundle download affordance using exact canonical filename metadata first and, only when ChatGPT hides that filename, the unique visible file/download control in the newest assistant turn. It MUST NOT infer the model response by reading remote response text.
 
 In Auto mode, a downloaded `workflow` bundle may trigger a local Protected probe. Wharness then packages the observations into a fresh planner prompt and automatically submits that continuation to the same linked ChatGPT conversation. The pipeline waits again at the validated bundle-download seam. This cycle repeats only within the workflow round cap.
 

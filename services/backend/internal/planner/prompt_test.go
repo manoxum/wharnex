@@ -21,6 +21,8 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
 		"BUNDLE_GENERATION_UNAVAILABLE",
 		"final visible answer contains the downloadable ZIP attachment only",
 		"Do NOT call the attachment",
+		"generated file basename and downloadable filename metadata MUST both be exactly",
+		"icon-only Markdown link",
 		"MANDATORY SELF-CHECK BEFORE ATTACHING",
 		"Do NOT wrap the required files inside another top-level directory",
 		requestID,

@@ -135,8 +135,10 @@ describe('ChatGPTDesktopPane overlay suspension', () => {
     />)
     screen.getByRole('button', { name: 'Login incorporado' }).click()
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'embedded'))
-    screen.getByRole('button', { name: /Login externo/i }).click()
+    screen.getByRole('button', { name: /Login externo \(callback\)/i }).click()
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'external'))
+    screen.getByRole('button', { name: 'Chrome pessoal' }).click()
+    await waitFor(() => expect(desktop.chatgpt.openExternal).toHaveBeenCalledWith('https://chatgpt.com/'))
   })
 
 

@@ -6,11 +6,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
-import { closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth } from './managed-browser-auth.mjs'
+import { closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -75,11 +75,20 @@ function canonicalBundleFilename(requestId) {
   return filename
 }
 
-function armExpectedChatGPTBundle(cacheKey, requestId) {
+function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0) {
   const key = sanitizeChatCacheKey(cacheKey)
   const filename = canonicalBundleFilename(requestId)
-  expectedChatGPTBundles.set(key, { requestId: String(requestId), filename, armedAt: Date.now() })
+  expectedChatGPTBundles.set(key, { requestId: String(requestId), filename, armedAt: Date.now(), assistantBaseline: Math.max(0, Number(assistantBaseline) || 0) })
   return filename
+}
+
+async function chatGPTAssistantTurnCount(wc) {
+  try {
+    const count = await wc.executeJavaScript(chatGPTAssistantTurnCountScript(), true)
+    return Math.max(0, Number(count) || 0)
+  } catch {
+    return 0
+  }
 }
 
 function expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename = '') {
@@ -105,6 +114,10 @@ function chatGPTPartitionPath() {
   return path.join(app.getPath('userData'), 'Partitions', 'wharness-chatgpt')
 }
 
+function managedAuthProfilePath() {
+  return managedBrowserProfileDirectory(app.getPath('userData'))
+}
+
 function pendingBrowserImportPath() {
   return path.join(app.getPath('userData'), '.wharness-browser-session-import.whbs')
 }
@@ -113,7 +126,6 @@ function closeAllChatGPTViews() {
   for (const record of chatGPTAuthBrowsers.values()) {
     record.cancelled = true
     void closeManagedBrowserAuth(record)
-    if (record.profileDir) void rm(record.profileDir, { recursive: true, force: true })
   }
   chatGPTAuthBrowsers.clear()
   for (const entry of chatgptViews.values()) {
@@ -385,7 +397,6 @@ async function relayManagedBrowserCookies(cookies) {
 async function cleanupManagedAuthentication(cacheKey, record) {
   if (chatGPTAuthBrowsers.get(cacheKey) === record) chatGPTAuthBrowsers.delete(cacheKey)
   await closeManagedBrowserAuth(record)
-  if (record.profileDir) await rm(record.profileDir, { recursive: true, force: true })
 }
 
 async function completeExternalAuthentication(cacheKey, entry, record, result) {
@@ -428,7 +439,6 @@ function cancelExternalAuthentication(cacheKey) {
   record.cancelled = true
   chatGPTAuthBrowsers.delete(cacheKey)
   void closeManagedBrowserAuth(record)
-  if (record.profileDir) void rm(record.profileDir, { recursive: true, force: true })
 }
 
 function startExternalAuthentication(entry, provider = 'OpenAI') {
@@ -441,11 +451,13 @@ function startExternalAuthentication(entry, provider = 'OpenAI') {
     return { ok: true, cacheKey, reused: true }
   }
 
-  const profileDir = path.join(app.getPath('temp'), 'wharness-auth-browser', `${process.pid}-${Date.now()}-${cacheKey}`)
+  const profileDir = managedAuthProfilePath()
+  const activeRecord = [...chatGPTAuthBrowsers.entries()].find(([key, candidate]) => key !== cacheKey && !candidate.cancelled && !candidate.completed)
+  if (activeRecord) throw new Error('Já existe uma autenticação externa em curso. Conclua ou cancele essa janela antes de iniciar outra.')
   const record = { completed: false, cancelled: false, provider, profileDir, port: 0, child: undefined }
   chatGPTAuthBrowsers.set(cacheKey, record)
   publishExternalAuth(entry, provider, CHATGPT_LOGIN_URL)
-  console.log(`[chatgpt-auth] starting managed browser key=${cacheKey} provider=${provider}`)
+  console.log(`[chatgpt-auth] starting managed browser key=${cacheKey} provider=${provider} profile=persistent`)
   void launchManagedBrowserAuth({
     profileDir,
     loginURL: CHATGPT_LOGIN_URL,
@@ -460,14 +472,12 @@ function startExternalAuthentication(entry, provider = 'OpenAI') {
     record.child = result.child
     if (record.cancelled) {
       void closeManagedBrowserAuth(record)
-      void rm(record.profileDir, { recursive: true, force: true })
       return
     }
     void completeExternalAuthentication(cacheKey, entry, record, result)
   }).catch((error) => {
     if (record.cancelled) {
       void closeManagedBrowserAuth(record)
-      void rm(record.profileDir, { recursive: true, force: true })
       return
     }
     void failExternalAuthentication(cacheKey, entry, record, error)
@@ -752,8 +762,9 @@ async function preparePromptForChatGPT(request) {
   }
   if (autoSubmit) {
     await wait(chatInputSettleDelay(input.bytes, transportPaths.length))
+    const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     await submitChatGPTDraft(key)
-    armExpectedChatGPTBundle(key, requestId)
+    armExpectedChatGPTBundle(key, requestId, assistantBaseline)
     preparedChatGPTDrafts.delete(key)
   } else {
     preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: transportPaths.length, requestId })
@@ -805,8 +816,9 @@ async function submitPreparedChatGPTDraft(cacheKey) {
   const prepared = preparedChatGPTDrafts.get(key)
   if (!prepared || Date.now() - prepared.preparedAt > 10 * 60 * 1000) throw new Error('No recent prepared ChatGPT draft exists for this chat')
   const entry = activateChatGPTView(key)
+  const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
   await submitChatGPTDraft(key)
-  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId)
+  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline)
   preparedChatGPTDrafts.delete(key)
   touchChatGPTEntry(entry)
   return { ok: true, cacheKey: key, expectedFilename }
@@ -820,11 +832,12 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   const key = sanitizeChatCacheKey(cacheKey)
   const expectedFilename = canonicalBundleFilename(requestId)
   const target = await targetChatGPTComposer(key, expectedURL)
+  const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(text), true)
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated')
   await wait(100)
   await submitChatGPTDraft(key)
-  armExpectedChatGPTBundle(key, requestId)
+  armExpectedChatGPTBundle(key, requestId, assistantBaseline)
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=dom`)
   return { ok: true, cacheKey: key, expectedFilename }
@@ -842,11 +855,11 @@ async function pollExpectedChatGPTDownloads() {
     const wc = entry?.view.webContents
     if (!entry || wc?.isDestroyed() || entry.loading || !isTrustedChatGPTOrigin(wc.getURL())) continue
     try {
-      const clicked = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename), true)
-      if (!clicked) continue
+      const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
+      if (!clickMode) continue
       expected.lastDOMClick = now
       recentExpectedDownload = { key, requestId: expected.requestId, at: now }
-      console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename}`)
+      console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
       break
     } catch (error) {
       console.warn(`[chatgpt-bundle-dom] scan-failed key=${key} error=${error instanceof Error ? error.message : String(error)}`)
@@ -897,7 +910,9 @@ async function applyPendingBrowserSessionImport() {
 }
 
 async function clearBrowserSession() {
+  const authRecords = [...chatGPTAuthBrowsers.values()]
   closeAllChatGPTViews()
+  for (const record of authRecords) await closeManagedBrowserAuth(record)
   preparedChatGPTDrafts.clear()
   expectedChatGPTBundles.clear()
   recentExpectedDownload = undefined
@@ -905,12 +920,15 @@ async function clearBrowserSession() {
   await chatSession.clearStorageData()
   await chatSession.clearCache()
   await chatSession.flushStorageData()
+  await rm(managedAuthProfilePath(), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   return { ok: true }
 }
 
 async function desktopStorageUsage() {
   const userData = app.getPath('userData')
-  const browserBytes = await pathSize(chatGPTPartitionPath())
+  const embeddedBrowserBytes = await pathSize(chatGPTPartitionPath())
+  const managedBrowserBytes = await pathSize(managedAuthProfilePath())
+  const browserBytes = embeddedBrowserBytes + managedBrowserBytes
   const attachmentBytes = await pathSize(chatAttachmentRoot())
   let tempBytes = 0
   let entries = []

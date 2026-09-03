@@ -215,7 +215,7 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     if (!bridge) return
     setNotice(mode === 'embedded'
       ? 'A iniciar login incorporado. E-mail/senha e provedores compatíveis permanecem no Wharness; se o Google bloquear o WebView, o fluxo muda automaticamente para navegador seguro.'
-      : 'A abrir um Chrome/Chromium/Brave real com perfil temporário. O callback será detetado e a sessão ChatGPT regressará automaticamente ao Wharness.')
+      : 'A abrir um Chrome/Chromium/Brave real com o perfil persistente do Wharness. A conta Google/ChatGPT será reutilizada nas próximas autenticações e o callback regressará automaticamente ao Wharness.')
     try {
       const next = await bridge.chatgpt.startAuth(chatId, mode)
       setState(next)
@@ -251,17 +251,18 @@ export function ChatGPTDesktopPane({ suspended = false, session, manualPrompt, b
     </div>
 
     <div className="chatgpt-auth-mode-bar">
-      <div className="chatgpt-auth-mode-copy"><strong>Autenticação</strong><span>Escolha o modo de login. Incorporado usa o Chromium do Wharness; Google pode recusá-lo por política e será encaminhado automaticamente. Externo usa Chrome/Chromium/Brave real e devolve a sessão ao Wharness após o callback.</span></div>
+      <div className="chatgpt-auth-mode-copy"><strong>Autenticação</strong><span>Escolha o modo de login. Incorporado usa o Chromium do Wharness; Google pode recusá-lo e será encaminhado automaticamente. Externo (callback) usa um perfil Chrome dedicado e persistente do Wharness, preservando a conta Google/ChatGPT entre autenticações. O Chrome pessoal pode ser aberto à parte com a sessão já existente, mas não é inspecionado nem usado para importar cookies.</span></div>
       <div className="chatgpt-auth-mode-actions" role="group" aria-label="Modo de autenticação ChatGPT">
         <button className={state.authMode === 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('embedded')}>Login incorporado</button>
-        <button className={state.authMode !== 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('external')}><Icon name="external" size={13}/> Login externo</button>
+        <button className={state.authMode !== 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('external')}><Icon name="external" size={13}/> Login externo (callback)</button>
+        <button className="text-button" type="button" disabled={busy} title="Abre o Chrome/navegador pessoal com o perfil e a sessão atuais. Esta sessão permanece isolada do Wharness." onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={13}/> Chrome pessoal</button>
       </div>
     </div>
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa do ChatGPT.</span><button className="text-button" onClick={bindCurrentConversation}>Vincular esta conversa</button></div>}
 
     {externalAuth && <div className="chatgpt-external-auth-banner">
-      <div><strong>Autenticação externa — {externalAuth.provider}</strong><span>Conclua o login no navegador Chrome/Chromium/Brave aberto pelo Wharness. O fluxo começa do zero num perfil temporário; ao regressar autenticado a chatgpt.com, o Wharness deteta o callback, transfere somente cookies ChatGPT para a partition incorporada e fecha o navegador temporário.</span></div>
+      <div><strong>Autenticação externa — {externalAuth.provider}</strong><span>Conclua o login no Chrome/Chromium/Brave aberto pelo Wharness. O perfil é dedicado e persistente: depois do primeiro login, a conta Google e a sessão ChatGPT ficam disponíveis nas próximas autenticações. Ao regressar autenticado a chatgpt.com, o Wharness deteta o callback, transfere somente cookies ChatGPT para a partition incorporada e fecha a janela externa sem apagar o perfil.</span></div>
       <div className="chatgpt-external-auth-actions">
         <button className="secondary-button" type="button" onClick={() => void startAuthentication('external')}><Icon name="external" size={14}/> Reabrir login</button>
         <button className="text-button" type="button" onClick={() => void startAuthentication('embedded')}>Usar incorporado</button>

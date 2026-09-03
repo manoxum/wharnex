@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chooseChatGPTDownloadCandidate } from './chatgpt-dom.mjs'
 
 test('DOM automation scripts stay narrow and escape user text', () => {
   const fill = chatGPTFillComposerScript('hello ` ${world} </script>')
@@ -12,9 +12,39 @@ test('DOM automation scripts stay narrow and escape user text', () => {
   assert.match(chatGPTSubmitScript(), /send-button/)
 })
 
-test('download DOM automation is bound to expected canonical filename', () => {
-  const script = chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip')
+test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {
+  const script = chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip', 3)
   assert.match(script, /wharness-bundle-req_12345678\.zip/)
   assert.match(script, /download\|baixar\|descarregar/)
-  assert.doesNotMatch(script, /fetch\(|XMLHttpRequest|document\.cookie/)
+  assert.match(script, /data-message-author-role=\"assistant\"/)
+  assert.match(script, /latest-assistant-unique/)
+  assert.match(script, /const baseline = 3/)
+  assert.match(script, /assistantTurns\.length > baseline/)
+  assert.match(chatGPTAssistantTurnCountScript(), /data-message-author-role/)
+  assert.doesNotMatch(script, /fetch\(|XMLHttpRequest|document\.cookie|localStorage|sessionStorage/)
+})
+
+test('download candidate policy prefers exact filename and only accepts one newest assistant fallback', () => {
+  assert.deepEqual(chooseChatGPTDownloadCandidate([
+    { index: 0, metadata: 'download old.zip', latestAssistant: true, downloadSemantic: true, visible: true },
+    { index: 1, metadata: 'wharness-bundle-req_12345678.zip', latestAssistant: false, visible: true },
+  ], 'wharness-bundle-req_12345678.zip'), { index: 1, mode: 'exact' })
+
+  assert.deepEqual(chooseChatGPTDownloadCandidate([
+    { index: 4, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
+  ], 'wharness-bundle-req_12345678.zip'), { index: 4, mode: 'latest-assistant-unique' })
+
+  assert.deepEqual(chooseChatGPTDownloadCandidate([
+    { index: 4, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
+    { index: 5, metadata: 'Download', latestAssistant: true, downloadSemantic: true, visible: true },
+  ], 'wharness-bundle-req_12345678.zip'), { index: -1, mode: '' })
+
+  assert.deepEqual(chooseChatGPTDownloadCandidate([
+    { index: 4, metadata: '⬇️', latestAssistant: false, iconOnly: true, visible: true },
+  ], 'wharness-bundle-req_12345678.zip'), { index: -1, mode: '' })
+
+  assert.deepEqual(chooseChatGPTDownloadCandidate([
+    { index: 7, metadata: 'Download', latestAssistant: true, downloadSemantic: true, visible: true, nested: true },
+    { index: 8, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
+  ], 'wharness-bundle-req_12345678.zip'), { index: 8, mode: 'latest-assistant-unique' })
 })

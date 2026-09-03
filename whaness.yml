@@ -1,0 +1,9 @@
+# Wharness project configuration. Managed by Wharness; safe to edit.
+version: 1
+project:
+  name: "wharness"
+context:
+  auto_exclude: true
+  max_file_bytes: 2097152
+  include: []
+  exclude: []

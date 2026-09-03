@@ -1,0 +1,462 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index e609b1e..ad11374 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -86,7 +86,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Interactive terminal submission MUST provide a visible explicit run affordance in addition to Enter; Host submission still passes through the dedicated interactive policy and direct argv runner.
+ - Editor saves are explicit human host mutations. Agent mutations are sandbox-first in Protected mode; only an explicitly selected Unprotected project may execute the Agent plan directly on the host.
+ - Every agent request MUST refresh project context so manually edited files are visible to the planner.
+-- Consumer ChatGPT response scraping, login-cookie inspection, arbitrary DOM extraction, or automatic prose/output scraping MUST NOT be introduced. The Desktop MAY use a tightly allowlisted DOM bridge only to locate/focus the composer, write a prepared Wharness prompt, click submit, and click the download control for the exact expected `wharness-bundle-<request_id>.zip`; downloaded bytes still pass the normal strict bundle validator. Automatic planning otherwise uses supported provider adapters.
++- Consumer ChatGPT response scraping, login-cookie inspection, arbitrary DOM extraction, or automatic prose/output scraping MUST NOT be introduced. The Desktop MAY use a tightly allowlisted DOM bridge only to locate/focus the composer, write a prepared Wharness prompt, click submit, and activate a pending bundle download affordance. Download selection MUST first prefer exact canonical filename metadata; when ChatGPT hides the filename, it MAY fall back only to exactly one file/download affordance inside the newest assistant turn. Ambiguous candidates fail closed. Downloaded bytes still pass the normal strict bundle/request validator. Automatic planning otherwise uses supported provider adapters.
+ - ASK/advice is a first-class Agent outcome and MUST NOT be converted to a coding/change task merely because project context exists or Auto is enabled. A non-terminal `workflow` MAY gather missing local evidence, but it MUST be command-only, network-disabled, Protected-sandbox-only, never host-applied, and bounded to six rounds before a terminal result.
+ - Future MCP integration MUST be implemented as an adapter behind Wharness application/security ports. Remote consumer ChatGPT MUST NOT receive direct localhost MCP access that bypasses protocol validation, Policy, path containment, or Protected execution.
+ 
+@@ -95,7 +95,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ 
+ - Remote ChatGPT content MUST run in a separate `WebContentsView` with Node integration disabled, Chromium sandbox enabled, context isolation enabled, and no Wharness preload.
+ - The privileged Wharness preload MUST be attached only to the trusted local frontend origin and MUST expose narrow, named IPC capabilities rather than `ipcRenderer` or generic send/invoke primitives.
+-- Wharness MUST NOT inspect ChatGPT cookies, local storage, generated response prose, or authentication state. The only permitted DOM interaction is the allowlisted transport bridge described above (composer focus/fill, submit, exact expected bundle download control); it MUST NOT enumerate arbitrary DOM or infer model content/completion from response text. Electron persists the remote browser partition and MAY export/import that partition only as an opaque user-requested Wharness session backup that is treated as a secret. ChatGPT authentication has two explicit user-selectable modes: **Embedded**, where the OAuth/SSO navigation remains inside the sandboxed ChatGPT `WebContentsView`; and **External window**, where the entire login transaction starts in a separate sandboxed `BrowserWindow` owned by Wharness and sharing only the same dedicated `persist:wharness-chatgpt` partition. An in-flight OAuth URL created in one renderer MUST NEVER be handed to the operating-system browser. Wharness MUST NOT copy/import system-browser cookies or credentials back into Electron.
++- Wharness MUST NOT inspect ChatGPT cookies, local storage, generated response prose, or authentication state. The only permitted DOM interaction is the allowlisted transport bridge described above (composer focus/fill, submit, exact-filename-first pending bundle download affordance with the fail-closed newest-assistant fallback described above); it MUST NOT enumerate arbitrary DOM or infer model content/completion from response text. Electron persists the remote browser partition and MAY export/import that partition only as an opaque user-requested Wharness session backup that is treated as a secret. ChatGPT authentication has two explicit user-selectable modes: **Embedded**, where the OAuth/SSO navigation remains inside the sandboxed ChatGPT `WebContentsView`; and **External window**, where the entire login transaction starts in a separate sandboxed `BrowserWindow` owned by Wharness and sharing only the same dedicated `persist:wharness-chatgpt` partition. An in-flight OAuth URL created in one renderer MUST NEVER be handed to the operating-system browser. Wharness MUST NOT copy/import system-browser cookies or credentials back into Electron.
+ - The desktop context-copy IPC MUST derive the backend bundle URL internally from an allowlisted local backend plus a validated session ID. Renderer-supplied arbitrary fetch URLs are forbidden.
+ - ChatGPT remote permissions are denied unless explicitly allowlisted in the security model.
+ - Native clipboard file references MUST point only to context artifacts generated by Wharness in its temporary context directory.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4549acb..ce6c49f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,13 @@
+ # Changelog
+ 
++## v1.2.21 — Bundle download fallback + rendered Harness Markdown
++
++- Harden automatic ChatGPT result capture when generated files are rendered without their canonical filename: exact filename metadata remains preferred, with a fail-closed fallback to exactly one visible file/download affordance in the newest assistant turn.
++- Include href/download/accessibility metadata in the narrow download-control matcher without scraping assistant prose or weakening post-download request/bundle validation.
++- Strengthen the manual planner contract so generated bundle basename, attachment metadata and visible label use the exact canonical `wharness-bundle-<request_id>.zip` and reject icon-only substitutes.
++- Render Harness/agent transcript responses as sanitized GitHub-flavoured Markdown while preserving user messages as literal text.
++- Add regression coverage for exact-vs-icon-only download selection, ambiguous fallback rejection, and Markdown headings/emphasis in Harness responses.
++
+ ## v1.2.20 — Dual ChatGPT authentication + same-session callback
+ 
+ - Add explicit **Login incorporado** and **Login externo** modes to the ChatGPT panel.
+diff --git a/SoT/AI_PROTOCOL.md b/SoT/AI_PROTOCOL.md
+index 24863af..3fc12d6 100644
+--- a/SoT/AI_PROTOCOL.md
++++ b/SoT/AI_PROTOCOL.md
+@@ -73,7 +73,7 @@ Workflow stdout/stderr may quote untrusted project content and therefore does no
+ 
+ Wharness MUST NOT depend on arbitrary DOM scraping or programmatic prose/output extraction from the ChatGPT consumer web UI. Supported planner provider adapters may return structured turns directly. In manual-planner Desktop mode, ChatGPT delivers a downloaded structured turn bundle.
+ 
+-Desktop transport may use the narrow allowlisted bridge to focus/fill/submit the composer, attach project context/prompt files, and activate the exact expected bundle download control. It MUST NOT infer the model response by reading remote response text.
++Desktop transport may use the narrow allowlisted bridge to focus/fill/submit the composer, attach project context/prompt files, and activate the pending bundle download affordance using exact canonical filename metadata first and, only when ChatGPT hides that filename, the unique visible file/download control in the newest assistant turn. It MUST NOT infer the model response by reading remote response text.
+ 
+ In Auto mode, a downloaded `workflow` bundle may trigger a local Protected probe. Wharness then packages the observations into a fresh planner prompt and automatically submits that continuation to the same linked ChatGPT conversation. The pipeline waits again at the validated bundle-download seam. This cycle repeats only within the workflow round cap.
+ 
+diff --git a/SoT/AUTOMATION_BUNDLE.md b/SoT/AUTOMATION_BUNDLE.md
+index 22d5d90..0bad319 100644
+--- a/SoT/AUTOMATION_BUNDLE.md
++++ b/SoT/AUTOMATION_BUNDLE.md
+@@ -30,7 +30,7 @@ Primary manual Desktop delivery is:
+ 
+ `wharness-bundle-<request_id>.zip`
+ 
+-The planner prompt MUST state the exact canonical filename, require a file-only visible response, prohibit localized/generic/UUID bundle names, require the ZIP root layout, and require the model to self-check the archive before attaching it. The Desktop records the expected request id when a draft is submitted. If ChatGPT nevertheless downloads a generic ZIP name while exactly that request is pending in the active chat, the Desktop MAY rename the transport file to the canonical filename before backend submission. A different valid Wharness request id is never rewritten.
++The planner prompt MUST state the exact canonical filename, require the generated file basename/attachment metadata to use it, prohibit icon-only/prose-only substitutes, require the ZIP root layout, and require the model to self-check the archive before attaching it. The Desktop records the expected request id when a draft is submitted. Automatic download activation first matches canonical filename metadata, including non-visible link attributes. If ChatGPT renders the generated result without exposing that filename, Desktop MAY activate a fallback only when the newest assistant turn contains exactly one visible enabled file/download affordance; zero or multiple candidates fail closed. This narrow fallback identifies only the download control, never reads response prose to infer completion. If ChatGPT nevertheless downloads a generic ZIP name while exactly that request is pending in the active chat, the Desktop MAY rename the transport file to the canonical filename before backend submission. A different valid Wharness request id is never rewritten, and normal bundle/request validation remains authoritative.
+ 
+ Every new bundle contains `turn.json` using `harness.turn/v1` plus a non-empty `README.md`. `answer`, `clarification`, `investigation`, and `blocked` omit `plan.json` and patches. `workflow` and `change` contain `plan.json`; only `change` may contain patches. Legacy bundles without `turn.json` remain compatible and are interpreted as `change`.
+ 
+diff --git a/SoT/SECURITY_MODEL.md b/SoT/SECURITY_MODEL.md
+index 5998e6c..8a216ff 100644
+--- a/SoT/SECURITY_MODEL.md
++++ b/SoT/SECURITY_MODEL.md
+@@ -32,7 +32,7 @@ When **External window** authentication is entered, the affected ChatGPT view is
+ 
+ Context ZIP copying is privileged main-process work. The renderer passes only a validated Wharness session identifier; the main process derives the exact local backend endpoint, limits bundle size, verifies ZIP signature, writes a private temporary file, and places that file reference on the native OS clipboard.
+ 
+-User-selected chat attachments cross a narrow trusted-renderer IPC seam as bounded base64 payloads. The main process MUST validate count, decoded size, filename, and MIME metadata. For ChatGPT transport it materializes temporary private copies below the Wharness temporary directory and exposes them only as native clipboard file references. The generated planner prompt MUST likewise be materialized as a private temporary Markdown file and exposed only as a native clipboard file reference. For Harness transcript durability it MAY additionally persist private copies below Electron `userData`, keyed only by validated local chat/message identifiers; the renderer receives opaque storage references rather than arbitrary filesystem paths. Thumbnail/icon reads and open actions MUST resolve only those references. Input automation may focus the remote view and paste those references. Before pasting it MUST await bounded page-load and network-stability gates. It may track request identifiers, WebContents ownership, status codes, and network errors only for the exact trusted ChatGPT upload endpoint so that each file can be retried and confirmed. It may also observe only the start of a POST to the exact trusted ChatGPT conversation endpoint to confirm that a submit command was accepted. In addition, a tightly allowlisted DOM bridge MAY execute JavaScript solely to (1) locate/focus the composer, (2) write the already-prepared prompt into that composer, (3) activate the submit control, and (4) activate a download control bound to the exact expected `wharness-bundle-<request_id>.zip`, including while the corresponding ChatGPT view is hidden in Auto mode. The bridge MUST NOT enumerate arbitrary DOM, read generated response prose, inspect cookies/local storage, read request/response bodies or headers, or infer model-completion state from response content. Downloaded bytes remain untrusted and MUST still pass canonical request-id, filename, ZIP and bundle validation before execution. Submission may occur after either a separate trusted-renderer confirmation or a backend-verified explicit project Auto preference, but never after an unconfirmed/exhausted upload. Project open/restore MAY initialize Agent + Protected + Auto as the safe default, but Auto MUST never coexist with Unprotected execution. An explicit trusted-renderer action MAY send the freshly rebuilt project context ZIP or prepared prompt to the currently visible trusted ChatGPT conversation; this does not authorize reading remote content and does not weaken bundle validation.
++User-selected chat attachments cross a narrow trusted-renderer IPC seam as bounded base64 payloads. The main process MUST validate count, decoded size, filename, and MIME metadata. For ChatGPT transport it materializes temporary private copies below the Wharness temporary directory and exposes them only as native clipboard file references. The generated planner prompt MUST likewise be materialized as a private temporary Markdown file and exposed only as a native clipboard file reference. For Harness transcript durability it MAY additionally persist private copies below Electron `userData`, keyed only by validated local chat/message identifiers; the renderer receives opaque storage references rather than arbitrary filesystem paths. Thumbnail/icon reads and open actions MUST resolve only those references. Input automation may focus the remote view and paste those references. Before pasting it MUST await bounded page-load and network-stability gates. It may track request identifiers, WebContents ownership, status codes, and network errors only for the exact trusted ChatGPT upload endpoint so that each file can be retried and confirmed. It may also observe only the start of a POST to the exact trusted ChatGPT conversation endpoint to confirm that a submit command was accepted. In addition, a tightly allowlisted DOM bridge MAY execute JavaScript solely to (1) locate/focus the composer, (2) write the already-prepared prompt into that composer, (3) activate the submit control, and (4) activate the pending result download affordance, including while the corresponding ChatGPT view is hidden in Auto mode. Download selection MUST prefer exact canonical filename metadata. Because ChatGPT may render generated files without exposing their filename, the bridge MAY use a fallback only when exactly one visible enabled file/download affordance exists inside the newest assistant turn; it may inspect only narrow control attributes, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry for that decision. Zero or multiple candidates fail closed. The bridge MUST NOT enumerate arbitrary DOM for semantic analysis, read generated response prose, inspect cookies/local storage, read request/response bodies or headers, or infer model-completion state from response content. Downloaded bytes remain untrusted and MUST still pass canonical request-id, filename, ZIP and bundle validation before execution. Submission may occur after either a separate trusted-renderer confirmation or a backend-verified explicit project Auto preference, but never after an unconfirmed/exhausted upload. Project open/restore MAY initialize Agent + Protected + Auto as the safe default, but Auto MUST never coexist with Unprotected execution. An explicit trusted-renderer action MAY send the freshly rebuilt project context ZIP or prepared prompt to the currently visible trusted ChatGPT conversation; this does not authorize reading remote content and does not weaken bundle validation.
+ 
+ ## Project bootstrap boundary (v1.2.17)
+ 
+diff --git a/SoT/UI_UX.md b/SoT/UI_UX.md
+index 7938178..c0ac2c4 100644
+--- a/SoT/UI_UX.md
++++ b/SoT/UI_UX.md
+@@ -54,4 +54,4 @@ The Editor Host terminal MUST expose an explicit submit affordance in addition t
+ 
+ ## Harness message affordances (v1.2.18)
+ 
+-Every sent or received Harness transcript message displays a local date/time and exposes a compact copy action without changing message content. Legacy messages without a stored timestamp may be migrated to a bounded local fallback timestamp when loaded.
++Every sent or received Harness transcript message displays a local date/time and exposes a compact copy action without changing the stored message content. Harness/agent responses are rendered as sanitized GitHub-flavoured Markdown so headings, emphasis, lists, tables, links and code blocks remain readable; user-authored transcript text stays literal. Legacy messages without a stored timestamp may be migrated to a bounded local fallback timestamp when loaded.
+diff --git a/adr/ADR-0014-chatgpt-dom-automation-and-local-data.md b/adr/ADR-0014-chatgpt-dom-automation-and-local-data.md
+index 0126ea1..f48cdc1 100644
+--- a/adr/ADR-0014-chatgpt-dom-automation-and-local-data.md
++++ b/adr/ADR-0014-chatgpt-dom-automation-and-local-data.md
+@@ -2,7 +2,7 @@
+ 
+ ## Status
+ 
+-Accepted.
++Accepted; amended for v1.2.21.
+ 
+ ## Context
+ 
+@@ -17,9 +17,9 @@ Wharness permits a **narrow, allowlisted DOM transport bridge** inside the isola
+ 1. locate/focus the ChatGPT composer;
+ 2. write the already-prepared Wharness prompt into that composer;
+ 3. activate the submit control; and
+-4. activate the download control associated with the exact expected `wharness-bundle-<request_id>.zip`.
++4. activate the pending result download control. Selection first matches the exact expected `wharness-bundle-<request_id>.zip` against download/link metadata. If ChatGPT omits the filename from the rendered control, Wharness may fall back only to one visible enabled file/download affordance contained in the newest assistant turn. If there are zero or multiple fallback candidates, it does nothing.
+ 
+-Those operations may run while the ChatGPT view is hidden when the project is explicitly in Auto mode. Wharness does not scrape response prose, enumerate arbitrary DOM, read cookies/local storage, inspect authentication state, or use DOM text to infer model completion. The existing `will-download` boundary and backend bundle validator remain authoritative; a DOM click never makes downloaded bytes trusted.
++Those operations may run while the ChatGPT view is hidden when the project is explicitly in Auto mode. The fallback may inspect only narrow control metadata, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry. Wharness does not scrape response prose, enumerate arbitrary page content for semantic analysis, read cookies/local storage, inspect authentication state, or use response text to infer model completion. The existing `will-download` boundary and backend bundle validator remain authoritative; a DOM click never makes downloaded bytes trusted.
+ 
+ A Policy-blocked Auto bundle now emits an explicit non-execution event containing the denial reason and enters the existing bounded repair loop. The repair prompt must request a Policy-compatible alternative and must not ask the model to weaken, bypass or reconfigure Policy.
+ 
+diff --git a/services/backend/internal/planner/prompt.go b/services/backend/internal/planner/prompt.go
+index 491ff7c..ef82342 100644
+--- a/services/backend/internal/planner/prompt.go
++++ b/services/backend/internal/planner/prompt.go
+@@ -151,7 +151,10 @@ VISIBLE RESPONSE CONTRACT:
+ - The final visible answer contains the downloadable ZIP attachment only.
+ - Do NOT write “Pronto”, “preparei”, summaries, bullet lists, explanations, filenames, JSON, patches, or any other prose in the chat.
+ - Do NOT call the attachment “Wharness.zip”, “bundle.zip”, “Baixar o bundle Wharness.zip”, a UUID/hash, a translated label, or any other name.
+-- The downloadable filename MUST be exactly: wharness-bundle-%s.zip
++- The generated file basename and downloadable filename metadata MUST both be exactly: wharness-bundle-%s.zip
++- Use ChatGPT's generated-file attachment/download mechanism. Do NOT replace the file with an icon-only Markdown link, a bare download emoji, or a prose link whose accessible label hides the canonical filename.
++- If a visible attachment/link label is rendered, include the exact canonical filename in that label as well as in the generated file basename.
++- If using Python/file tools to create the archive, write the final archive directly with basename wharness-bundle-%s.zip; do not create a differently named archive and merely describe it as canonical afterward.
+ - If file generation is unavailable, output exactly BUNDLE_GENERATION_UNAVAILABLE and nothing else.
+ 
+ ZIP ROOT CONTRACT:
+@@ -206,5 +209,5 @@ wharness-bundle-%s.zip
+ ├── plan.json
+ └── README.md
+ 
+-Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
++Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
+ }
+diff --git a/services/backend/internal/planner/prompt_test.go b/services/backend/internal/planner/prompt_test.go
+index c773d14..fff732b 100644
+--- a/services/backend/internal/planner/prompt_test.go
++++ b/services/backend/internal/planner/prompt_test.go
+@@ -21,6 +21,8 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
+ 		"BUNDLE_GENERATION_UNAVAILABLE",
+ 		"final visible answer contains the downloadable ZIP attachment only",
+ 		"Do NOT call the attachment",
++		"generated file basename and downloadable filename metadata MUST both be exactly",
++		"icon-only Markdown link",
+ 		"MANDATORY SELF-CHECK BEFORE ATTACHING",
+ 		"Do NOT wrap the required files inside another top-level directory",
+ 		requestID,
+diff --git a/services/desktop/chatgpt-dom.mjs b/services/desktop/chatgpt-dom.mjs
+index e272c81..f57b005 100644
+--- a/services/desktop/chatgpt-dom.mjs
++++ b/services/desktop/chatgpt-dom.mjs
+@@ -49,26 +49,65 @@ export function chatGPTSubmitScript() {
+   })()`
+ }
+ 
+-export function chatGPTExpectedDownloadScript(filename) {
++
++export function chatGPTAssistantTurnCountScript() {
++  return `(() => document.querySelectorAll('[data-message-author-role="assistant"]').length)()`
++}
++
++export function chooseChatGPTDownloadCandidate(candidates, expectedFilename) {
++  const expected = String(expectedFilename || '').trim().toLowerCase()
++  if (!expected || !Array.isArray(candidates)) return { index: -1, mode: '' }
++  const usable = candidates.filter((candidate) => candidate && candidate.visible !== false && candidate.disabled !== true)
++  const exact = usable.find((candidate) => String(candidate.metadata || '').toLowerCase().includes(expected))
++  if (exact) return { index: Number(exact.index), mode: 'exact' }
++
++  // ChatGPT occasionally renders a generated file as an icon-only link/button
++  // without exposing the requested filename in visible/accessible text. In that
++  // case fail closed unless the newest assistant turn contains exactly one
++  // download/file affordance. The subsequent will-download + bundle validators
++  // remain authoritative for the request id and ZIP contents.
++  const fallback = usable.filter((candidate) => candidate.latestAssistant === true && candidate.nested !== true && (
++    candidate.downloadSemantic === true || candidate.fileLike === true || candidate.iconOnly === true
++  ))
++  if (fallback.length === 1) return { index: Number(fallback[0].index), mode: 'latest-assistant-unique' }
++  return { index: -1, mode: '' }
++}
++
++export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
+   const expected = encode(filename)
++  const baseline = Math.max(0, Number(assistantBaseline) || 0)
++  const choose = chooseChatGPTDownloadCandidate.toString()
+   return `(() => {
+-    const expected = ${expected}.toLowerCase();
++    const expected = ${expected};
++    const baseline = ${baseline};
++    const choose = ${choose};
++    const assistantTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
++    const latestAssistant = assistantTurns.length > baseline ? assistantTurns[assistantTurns.length - 1] : null;
+     const nodes = [...document.querySelectorAll('a[download], a[href], button')];
+-    const text = (node) => [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), node.textContent].filter(Boolean).join(' ').toLowerCase();
+-    let target = nodes.find((node) => text(node).includes(expected));
+-    if (!target) {
+-      target = nodes.find((node) => {
+-        const own = text(node);
+-        if (!/(download|baixar|descarregar)/i.test(own)) return false;
+-        let parent = node.parentElement;
+-        for (let i = 0; i < 4 && parent; i += 1, parent = parent.parentElement) {
+-          if ((parent.textContent || '').toLowerCase().includes(expected)) return true;
+-        }
+-        return false;
+-      });
+-    }
+-    if (!target) return false;
+-    target.click();
+-    return true;
++    const visible = (node) => {
++      const rects = typeof node.getClientRects === 'function' ? node.getClientRects() : [];
++      return Boolean(node.offsetWidth || node.offsetHeight || rects?.length);
++    };
++    const candidates = nodes.map((node, index) => {
++      const href = String(node.getAttribute?.('href') || '');
++      const ownText = String(node.textContent || '').trim();
++      const metadata = [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), href, ownText].filter(Boolean).join(' ');
++      const normalized = metadata.toLowerCase();
++      return {
++        index,
++        metadata,
++        visible: visible(node),
++        disabled: Boolean(node.disabled || node.getAttribute?.('aria-disabled') === 'true'),
++        latestAssistant: Boolean(latestAssistant && latestAssistant.contains(node)),
++        nested: nodes.some((other, otherIndex) => otherIndex !== index && node.contains?.(other)),
++        downloadSemantic: /(download|baixar|descarregar)/i.test(normalized),
++        fileLike: Boolean(node.hasAttribute?.('download') || /(^|[\\/])(download|downloads|file|files|attachment|attachments)([\\/?#]|$)/i.test(href) || /^sandbox:/i.test(href)),
++        iconOnly: /^(?:⬇️?|📥|⤓|↓)$/u.test(ownText),
++      };
++    });
++    const decision = choose(candidates, expected);
++    if (!Number.isInteger(decision.index) || decision.index < 0 || !nodes[decision.index]) return '';
++    nodes[decision.index].click();
++    return decision.mode || 'exact';
+   })()`
+ }
+diff --git a/services/desktop/chatgpt-dom.test.mjs b/services/desktop/chatgpt-dom.test.mjs
+index f0499cd..2d7a6b1 100644
+--- a/services/desktop/chatgpt-dom.test.mjs
++++ b/services/desktop/chatgpt-dom.test.mjs
+@@ -1,6 +1,6 @@
+ import test from 'node:test'
+ import assert from 'node:assert/strict'
+-import { chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
++import { chatGPTAssistantTurnCountScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chooseChatGPTDownloadCandidate } from './chatgpt-dom.mjs'
+ 
+ test('DOM automation scripts stay narrow and escape user text', () => {
+   const fill = chatGPTFillComposerScript('hello ` ${world} </script>')
+@@ -12,9 +12,39 @@ test('DOM automation scripts stay narrow and escape user text', () => {
+   assert.match(chatGPTSubmitScript(), /send-button/)
+ })
+ 
+-test('download DOM automation is bound to expected canonical filename', () => {
+-  const script = chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip')
++test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {
++  const script = chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip', 3)
+   assert.match(script, /wharness-bundle-req_12345678\.zip/)
+   assert.match(script, /download\|baixar\|descarregar/)
+-  assert.doesNotMatch(script, /fetch\(|XMLHttpRequest|document\.cookie/)
++  assert.match(script, /data-message-author-role=\"assistant\"/)
++  assert.match(script, /latest-assistant-unique/)
++  assert.match(script, /const baseline = 3/)
++  assert.match(script, /assistantTurns\.length > baseline/)
++  assert.match(chatGPTAssistantTurnCountScript(), /data-message-author-role/)
++  assert.doesNotMatch(script, /fetch\(|XMLHttpRequest|document\.cookie|localStorage|sessionStorage/)
++})
++
++test('download candidate policy prefers exact filename and only accepts one newest assistant fallback', () => {
++  assert.deepEqual(chooseChatGPTDownloadCandidate([
++    { index: 0, metadata: 'download old.zip', latestAssistant: true, downloadSemantic: true, visible: true },
++    { index: 1, metadata: 'wharness-bundle-req_12345678.zip', latestAssistant: false, visible: true },
++  ], 'wharness-bundle-req_12345678.zip'), { index: 1, mode: 'exact' })
++
++  assert.deepEqual(chooseChatGPTDownloadCandidate([
++    { index: 4, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
++  ], 'wharness-bundle-req_12345678.zip'), { index: 4, mode: 'latest-assistant-unique' })
++
++  assert.deepEqual(chooseChatGPTDownloadCandidate([
++    { index: 4, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
++    { index: 5, metadata: 'Download', latestAssistant: true, downloadSemantic: true, visible: true },
++  ], 'wharness-bundle-req_12345678.zip'), { index: -1, mode: '' })
++
++  assert.deepEqual(chooseChatGPTDownloadCandidate([
++    { index: 4, metadata: '⬇️', latestAssistant: false, iconOnly: true, visible: true },
++  ], 'wharness-bundle-req_12345678.zip'), { index: -1, mode: '' })
++
++  assert.deepEqual(chooseChatGPTDownloadCandidate([
++    { index: 7, metadata: 'Download', latestAssistant: true, downloadSemantic: true, visible: true, nested: true },
++    { index: 8, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
++  ], 'wharness-bundle-req_12345678.zip'), { index: 8, mode: 'latest-assistant-unique' })
+ })
+diff --git a/services/desktop/main-regression.test.mjs b/services/desktop/main-regression.test.mjs
+index 704753a..87a88eb 100644
+--- a/services/desktop/main-regression.test.mjs
++++ b/services/desktop/main-regression.test.mjs
+@@ -55,3 +55,21 @@ test('dual ChatGPT auth never forwards an in-flight OAuth provider URL to the sy
+   assert.match(externalAuth, /partition: CHATGPT_PARTITION/)
+   assert.match(externalAuth, /loadURL\(CHATGPT_LOGIN_URL/)
+ })
++
++
++test('bundle fallback snapshots assistant-turn baseline before each planner submit', async () => {
++  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
++  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
++  const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
++  const prepare = source.slice(prepareStart, prepareEnd)
++  const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
++  const submit = prepare.indexOf('await submitChatGPTDraft(key)')
++  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline)')
++  assert.ok(baseline >= 0 && submit > baseline && arm > submit)
++
++  const repairStart = source.indexOf('async function submitPromptToChatGPT')
++  const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
++  const repair = source.slice(repairStart, repairEnd)
++  assert.match(repair, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
++  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline\)/)
++})
+diff --git a/services/desktop/main.mjs b/services/desktop/main.mjs
+index bd6d031..d306a4c 100644
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
+ import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit } from './chatgpt-input.mjs'
+ import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
+ import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
+-import { chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
++import { chatGPTAssistantTurnCountScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
+ import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
+ import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+ import { shouldAttachProjectContext } from './chatgpt-context.mjs'
+@@ -74,13 +74,22 @@ function canonicalBundleFilename(requestId) {
+   return filename
+ }
+ 
+-function armExpectedChatGPTBundle(cacheKey, requestId) {
++function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0) {
+   const key = sanitizeChatCacheKey(cacheKey)
+   const filename = canonicalBundleFilename(requestId)
+-  expectedChatGPTBundles.set(key, { requestId: String(requestId), filename, armedAt: Date.now() })
++  expectedChatGPTBundles.set(key, { requestId: String(requestId), filename, armedAt: Date.now(), assistantBaseline: Math.max(0, Number(assistantBaseline) || 0) })
+   return filename
+ }
+ 
++async function chatGPTAssistantTurnCount(wc) {
++  try {
++    const count = await wc.executeJavaScript(chatGPTAssistantTurnCountScript(), true)
++    return Math.max(0, Number(count) || 0)
++  } catch {
++    return 0
++  }
++}
++
+ function expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename = '') {
+   const canonicalRequestId = wharnessBundleRequestIdFromFilename(path.basename(String(sourceFilename || '')))
+   if (canonicalRequestId) {
+@@ -721,8 +730,9 @@ async function preparePromptForChatGPT(request) {
+   }
+   if (autoSubmit) {
+     await wait(chatInputSettleDelay(input.bytes, transportPaths.length))
++    const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+     await submitChatGPTDraft(key)
+-    armExpectedChatGPTBundle(key, requestId)
++    armExpectedChatGPTBundle(key, requestId, assistantBaseline)
+     preparedChatGPTDrafts.delete(key)
+   } else {
+     preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: transportPaths.length, requestId })
+@@ -774,8 +784,9 @@ async function submitPreparedChatGPTDraft(cacheKey) {
+   const prepared = preparedChatGPTDrafts.get(key)
+   if (!prepared || Date.now() - prepared.preparedAt > 10 * 60 * 1000) throw new Error('No recent prepared ChatGPT draft exists for this chat')
+   const entry = activateChatGPTView(key)
++  const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
+   await submitChatGPTDraft(key)
+-  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId)
++  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline)
+   preparedChatGPTDrafts.delete(key)
+   touchChatGPTEntry(entry)
+   return { ok: true, cacheKey: key, expectedFilename }
+@@ -789,11 +800,12 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
+   const key = sanitizeChatCacheKey(cacheKey)
+   const expectedFilename = canonicalBundleFilename(requestId)
+   const target = await targetChatGPTComposer(key, expectedURL)
++  const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+   const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(text), true)
+   if (!filled) throw new Error('ChatGPT composer DOM could not be populated')
+   await wait(100)
+   await submitChatGPTDraft(key)
+-  armExpectedChatGPTBundle(key, requestId)
++  armExpectedChatGPTBundle(key, requestId, assistantBaseline)
+   touchChatGPTEntry(target.entry)
+   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=dom`)
+   return { ok: true, cacheKey: key, expectedFilename }
+@@ -811,11 +823,11 @@ async function pollExpectedChatGPTDownloads() {
+     const wc = entry?.view.webContents
+     if (!entry || wc?.isDestroyed() || entry.loading || !isTrustedChatGPTOrigin(wc.getURL())) continue
+     try {
+-      const clicked = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename), true)
+-      if (!clicked) continue
++      const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
++      if (!clickMode) continue
+       expected.lastDOMClick = now
+       recentExpectedDownload = { key, requestId: expected.requestId, at: now }
+-      console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename}`)
++      console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
+       break
+     } catch (error) {
+       console.warn(`[chatgpt-bundle-dom] scan-failed key=${key} error=${error instanceof Error ? error.message : String(error)}`)
+diff --git a/services/frontend/src/components/ChatPanel.test.tsx b/services/frontend/src/components/ChatPanel.test.tsx
+index eb880f8..d86a653 100644
+--- a/services/frontend/src/components/ChatPanel.test.tsx
++++ b/services/frontend/src/components/ChatPanel.test.tsx
+@@ -42,6 +42,15 @@ describe('ChatPanel', () => {
+   })
+ 
+ 
++  it('renders Harness responses as sanitized Markdown instead of raw markdown text', () => {
++    render(
++      <ChatPanel session={session} items={[{ id: 'md-1', role: 'harness', text: '## Prioridade\n\nA funcionalidade **Perfil Inteligente** é a primeira recomendação.' }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onNewChat={async () => undefined} onSelectChat={async () => undefined} />,
++    )
++    expect(screen.getByRole('heading', { level: 2, name: 'Prioridade' })).toBeTruthy()
++    expect(screen.getByText('Perfil Inteligente').tagName).toBe('STRONG')
++    expect(screen.queryByText('**Perfil Inteligente**')).toBeNull()
++  })
++
+   it('shows message date/time and copies any previous message', async () => {
+     const writeText = vi.fn().mockResolvedValue(undefined)
+     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+diff --git a/services/frontend/src/components/ChatPanel.tsx b/services/frontend/src/components/ChatPanel.tsx
+index c5d2885..841b0b0 100644
+--- a/services/frontend/src/components/ChatPanel.tsx
++++ b/services/frontend/src/components/ChatPanel.tsx
+@@ -6,6 +6,7 @@ import { StatusPill } from './StatusPill'
+ import { stateLabel } from '../lib/risk'
+ import { addChatAttachments } from '../lib/chatAttachments'
+ import { MessageAttachmentCard, ComposerAttachmentChip } from './ChatAttachmentCard'
++import { MarkdownContent } from './MarkdownContent'
+ 
+ export function ChatPanel({ session, items, chats, activeChatId, busy, attachmentsEnabled, preparedAttachmentCount, onSend, onConfirmPrepared, onDismissPrepared, onNewChat, onSelectChat, onDeleteChat }: {
+   session: Session
+@@ -97,7 +98,7 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, attachmen
+       <div className="system-note"><Icon name="shield" size={17}/><div><strong>Contexto isolado</strong><span>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</span></div></div>
+       {items.map((item) => <article key={item.id} className={`message message-${item.role}`}>
+         <div className="message-heading"><div className="message-label">{item.role === 'user' ? 'Você' : 'Wharness'}</div><div className="message-tools"><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><button type="button" onClick={() => void copyMessage(item)} title="Copiar mensagem" aria-label="Copiar mensagem"><Icon name={copiedMessageId === item.id ? 'check' : 'copy'} size={12}/></button></div></div>
+-        <div className="message-body">{item.text}</div>
++        <div className="message-body">{item.role === 'harness' ? <MarkdownContent markdown={item.text} /> : item.text}</div>
+         {item.attachments?.length ? <div className="message-attachments">{item.attachments.map((file, index) => <MessageAttachmentCard key={file.storageRef || `${file.name}-${file.size}-${index}`} attachment={file}/>)}</div> : null}
+         {item.meta && <div className="message-meta">{item.meta}</div>}
+       </article>)}
+diff --git a/services/frontend/src/styles.css b/services/frontend/src/styles.css
+index 4c632d1..7057fa4 100644
+--- a/services/frontend/src/styles.css
++++ b/services/frontend/src/styles.css
+@@ -88,6 +88,8 @@ button:disabled { opacity: .46; cursor: not-allowed; }
+ .message-user .message-tools button:hover { background: #dfe2d9; }
+ .message-body { padding: 13px 15px; border: 1px solid #d7dad0; background: #fff; border-radius: 4px 13px 13px 13px; line-height: 1.55; font-size: 13px; white-space: pre-wrap; }
+ .message-user .message-body { background: var(--dark); border-color: var(--dark); color: #f2f4ed; border-radius: 13px 4px 13px 13px; }
++.message-harness .message-body { white-space: normal; }
++.message-harness .message-body > .markdown-content { color: inherit; font-size: inherit; line-height: inherit; }
+ .message-meta { margin-top: 6px; color: #888c82; font: 9px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+ .message-user .message-meta { text-align: right; }
+ .message-attachments { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; margin-top: 8px; }

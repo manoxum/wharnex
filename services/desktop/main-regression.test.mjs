@@ -57,3 +57,39 @@ test('dual ChatGPT auth uses a real managed browser and never forwards an in-fli
   assert.match(externalAuth, /loginURL: CHATGPT_LOGIN_URL/)
   assert.doesNotMatch(externalAuth, /new BrowserWindow/)
 })
+
+
+test('bundle fallback snapshots assistant-turn baseline before each planner submit', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
+  const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
+  const prepare = source.slice(prepareStart, prepareEnd)
+  const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
+  const submit = prepare.indexOf('await submitChatGPTDraft(key)')
+  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline)')
+  assert.ok(baseline >= 0 && submit > baseline && arm > submit)
+
+  const repairStart = source.indexOf('async function submitPromptToChatGPT')
+  const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
+  const repair = source.slice(repairStart, repairEnd)
+  assert.match(repair, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
+  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline\)/)
+})
+
+test('external auth reuses the persistent Wharness browser profile and clear-session owns deletion', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const externalStart = source.indexOf('function startExternalAuthentication(entry, provider')
+  const externalEnd = source.indexOf('\nfunction routeChatGPTNavigation', externalStart)
+  assert.notEqual(externalStart, -1)
+  assert.notEqual(externalEnd, -1)
+  const externalAuth = source.slice(externalStart, externalEnd)
+  assert.match(externalAuth, /const profileDir = managedAuthProfilePath\(\)/)
+  assert.doesNotMatch(externalAuth, /app\.getPath\('temp'\)/)
+  assert.doesNotMatch(externalAuth, /rm\(record\.profileDir/)
+
+  const clearStart = source.indexOf('async function clearBrowserSession()')
+  const clearEnd = source.indexOf('\nasync function desktopStorageUsage', clearStart)
+  assert.notEqual(clearStart, -1)
+  assert.notEqual(clearEnd, -1)
+  assert.match(source.slice(clearStart, clearEnd), /rm\(managedAuthProfilePath\(\), \{ recursive: true, force: true/)
+})

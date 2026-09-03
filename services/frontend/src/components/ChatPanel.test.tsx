@@ -42,6 +42,15 @@ describe('ChatPanel', () => {
   })
 
 
+  it('renders Harness responses as sanitized Markdown instead of raw markdown text', () => {
+    render(
+      <ChatPanel session={session} items={[{ id: 'md-1', role: 'harness', text: '## Prioridade\n\nA funcionalidade **Perfil Inteligente** é a primeira recomendação.' }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onNewChat={async () => undefined} onSelectChat={async () => undefined} />,
+    )
+    expect(screen.getByRole('heading', { level: 2, name: 'Prioridade' })).toBeTruthy()
+    expect(screen.getByText('Perfil Inteligente').tagName).toBe('STRONG')
+    expect(screen.queryByText('**Perfil Inteligente**')).toBeNull()
+  })
+
   it('shows message date/time and copies any previous message', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

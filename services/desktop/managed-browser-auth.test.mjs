@@ -1,6 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { electronCookieDetails, isChatGPTCookie, resolveManagedBrowserExecutable } from './managed-browser-auth.mjs'
+import { electronCookieDetails, isChatGPTCookie, managedBrowserProfileDirectory, resolveManagedBrowserExecutable } from './managed-browser-auth.mjs'
+
+
+test('managed auth profile is persistent below Wharness userData rather than a temporary directory', () => {
+  assert.equal(managedBrowserProfileDirectory('/home/demo/.config/Wharness'), '/home/demo/.config/Wharness/ManagedBrowser/AuthProfile')
+  assert.throws(() => managedBrowserProfileDirectory('/'), /userData inválido/)
+})
 
 test('managed auth browser resolves an explicitly configured real browser first', () => {
   const env = { WHARNESS_BROWSER_EXECUTABLE: '/opt/google/chrome', PATH: '/bin:/usr/bin' }

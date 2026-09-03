@@ -49,26 +49,65 @@ export function chatGPTSubmitScript() {
   })()`
 }
 
-export function chatGPTExpectedDownloadScript(filename) {
+
+export function chatGPTAssistantTurnCountScript() {
+  return `(() => document.querySelectorAll('[data-message-author-role="assistant"]').length)()`
+}
+
+export function chooseChatGPTDownloadCandidate(candidates, expectedFilename) {
+  const expected = String(expectedFilename || '').trim().toLowerCase()
+  if (!expected || !Array.isArray(candidates)) return { index: -1, mode: '' }
+  const usable = candidates.filter((candidate) => candidate && candidate.visible !== false && candidate.disabled !== true)
+  const exact = usable.find((candidate) => String(candidate.metadata || '').toLowerCase().includes(expected))
+  if (exact) return { index: Number(exact.index), mode: 'exact' }
+
+  // ChatGPT occasionally renders a generated file as an icon-only link/button
+  // without exposing the requested filename in visible/accessible text. In that
+  // case fail closed unless the newest assistant turn contains exactly one
+  // download/file affordance. The subsequent will-download + bundle validators
+  // remain authoritative for the request id and ZIP contents.
+  const fallback = usable.filter((candidate) => candidate.latestAssistant === true && candidate.nested !== true && (
+    candidate.downloadSemantic === true || candidate.fileLike === true || candidate.iconOnly === true
+  ))
+  if (fallback.length === 1) return { index: Number(fallback[0].index), mode: 'latest-assistant-unique' }
+  return { index: -1, mode: '' }
+}
+
+export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
   const expected = encode(filename)
+  const baseline = Math.max(0, Number(assistantBaseline) || 0)
+  const choose = chooseChatGPTDownloadCandidate.toString()
   return `(() => {
-    const expected = ${expected}.toLowerCase();
+    const expected = ${expected};
+    const baseline = ${baseline};
+    const choose = ${choose};
+    const assistantTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+    const latestAssistant = assistantTurns.length > baseline ? assistantTurns[assistantTurns.length - 1] : null;
     const nodes = [...document.querySelectorAll('a[download], a[href], button')];
-    const text = (node) => [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), node.textContent].filter(Boolean).join(' ').toLowerCase();
-    let target = nodes.find((node) => text(node).includes(expected));
-    if (!target) {
-      target = nodes.find((node) => {
-        const own = text(node);
-        if (!/(download|baixar|descarregar)/i.test(own)) return false;
-        let parent = node.parentElement;
-        for (let i = 0; i < 4 && parent; i += 1, parent = parent.parentElement) {
-          if ((parent.textContent || '').toLowerCase().includes(expected)) return true;
-        }
-        return false;
-      });
-    }
-    if (!target) return false;
-    target.click();
-    return true;
+    const visible = (node) => {
+      const rects = typeof node.getClientRects === 'function' ? node.getClientRects() : [];
+      return Boolean(node.offsetWidth || node.offsetHeight || rects?.length);
+    };
+    const candidates = nodes.map((node, index) => {
+      const href = String(node.getAttribute?.('href') || '');
+      const ownText = String(node.textContent || '').trim();
+      const metadata = [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), href, ownText].filter(Boolean).join(' ');
+      const normalized = metadata.toLowerCase();
+      return {
+        index,
+        metadata,
+        visible: visible(node),
+        disabled: Boolean(node.disabled || node.getAttribute?.('aria-disabled') === 'true'),
+        latestAssistant: Boolean(latestAssistant && latestAssistant.contains(node)),
+        nested: nodes.some((other, otherIndex) => otherIndex !== index && node.contains?.(other)),
+        downloadSemantic: /(download|baixar|descarregar)/i.test(normalized),
+        fileLike: Boolean(node.hasAttribute?.('download') || /(^|[\\/])(download|downloads|file|files|attachment|attachments)([\\/?#]|$)/i.test(href) || /^sandbox:/i.test(href)),
+        iconOnly: /^(?:⬇️?|📥|⤓|↓)$/u.test(ownText),
+      };
+    });
+    const decision = choose(candidates, expected);
+    if (!Number.isInteger(decision.index) || decision.index < 0 || !nodes[decision.index]) return '';
+    nodes[decision.index].click();
+    return decision.mode || 'exact';
   })()`
 }

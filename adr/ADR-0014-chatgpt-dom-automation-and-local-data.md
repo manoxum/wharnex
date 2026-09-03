@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted; amended for v1.2.21.
 
 ## Context
 
@@ -17,9 +17,9 @@ Wharness permits a **narrow, allowlisted DOM transport bridge** inside the isola
 1. locate/focus the ChatGPT composer;
 2. write the already-prepared Wharness prompt into that composer;
 3. activate the submit control; and
-4. activate the download control associated with the exact expected `wharness-bundle-<request_id>.zip`.
+4. activate the pending result download control. Selection first matches the exact expected `wharness-bundle-<request_id>.zip` against download/link metadata. If ChatGPT omits the filename from the rendered control, Wharness may fall back only to one visible enabled file/download affordance contained in the newest assistant turn. If there are zero or multiple fallback candidates, it does nothing.
 
-Those operations may run while the ChatGPT view is hidden when the project is explicitly in Auto mode. Wharness does not scrape response prose, enumerate arbitrary DOM, read cookies/local storage, inspect authentication state, or use DOM text to infer model completion. The existing `will-download` boundary and backend bundle validator remain authoritative; a DOM click never makes downloaded bytes trusted.
+Those operations may run while the ChatGPT view is hidden when the project is explicitly in Auto mode. The fallback may inspect only narrow control metadata, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry. Wharness does not scrape response prose, enumerate arbitrary page content for semantic analysis, read cookies/local storage, inspect authentication state, or use response text to infer model completion. The existing `will-download` boundary and backend bundle validator remain authoritative; a DOM click never makes downloaded bytes trusted.
 
 A Policy-blocked Auto bundle now emits an explicit non-execution event containing the denial reason and enters the existing bounded repair loop. The repair prompt must request a Policy-compatible alternative and must not ask the model to weaken, bypass or reconfigure Policy.
 

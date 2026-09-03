@@ -6,6 +6,7 @@ import { StatusPill } from './StatusPill'
 import { stateLabel } from '../lib/risk'
 import { addChatAttachments } from '../lib/chatAttachments'
 import { MessageAttachmentCard, ComposerAttachmentChip } from './ChatAttachmentCard'
+import { MarkdownContent } from './MarkdownContent'
 
 export function ChatPanel({ session, items, chats, activeChatId, busy, attachmentsEnabled, preparedAttachmentCount, onSend, onConfirmPrepared, onDismissPrepared, onNewChat, onSelectChat, onDeleteChat }: {
   session: Session
@@ -97,7 +98,7 @@ export function ChatPanel({ session, items, chats, activeChatId, busy, attachmen
       <div className="system-note"><Icon name="shield" size={17}/><div><strong>Contexto isolado</strong><span>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</span></div></div>
       {items.map((item) => <article key={item.id} className={`message message-${item.role}`}>
         <div className="message-heading"><div className="message-label">{item.role === 'user' ? 'Você' : 'Wharness'}</div><div className="message-tools"><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><button type="button" onClick={() => void copyMessage(item)} title="Copiar mensagem" aria-label="Copiar mensagem"><Icon name={copiedMessageId === item.id ? 'check' : 'copy'} size={12}/></button></div></div>
-        <div className="message-body">{item.text}</div>
+        <div className="message-body">{item.role === 'harness' ? <MarkdownContent markdown={item.text} /> : item.text}</div>
         {item.attachments?.length ? <div className="message-attachments">{item.attachments.map((file, index) => <MessageAttachmentCard key={file.storageRef || `${file.name}-${file.size}-${index}`} attachment={file}/>)}</div> : null}
         {item.meta && <div className="message-meta">{item.meta}</div>}
       </article>)}

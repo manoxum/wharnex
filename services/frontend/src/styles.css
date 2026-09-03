@@ -88,6 +88,8 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .message-user .message-tools button:hover { background: #dfe2d9; }
 .message-body { padding: 13px 15px; border: 1px solid #d7dad0; background: #fff; border-radius: 4px 13px 13px 13px; line-height: 1.55; font-size: 13px; white-space: pre-wrap; }
 .message-user .message-body { background: var(--dark); border-color: var(--dark); color: #f2f4ed; border-radius: 13px 4px 13px 13px; }
+.message-harness .message-body { white-space: normal; }
+.message-harness .message-body > .markdown-content { color: inherit; font-size: inherit; line-height: inherit; }
 .message-meta { margin-top: 6px; color: #888c82; font: 9px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
 .message-user .message-meta { text-align: right; }
 .message-attachments { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; margin-top: 8px; }
@@ -344,7 +346,7 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .chatgpt-auth-mode-copy { min-width: 0; display: grid; gap: 2px; }
 .chatgpt-auth-mode-copy strong { color: #f0f3ec; font-size: 10px; }
 .chatgpt-auth-mode-copy span { max-width: 760px; color: #8f9888; font-size: 9px; line-height: 1.4; }
-.chatgpt-auth-mode-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.chatgpt-auth-mode-actions { flex: 0 1 auto; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 .chatgpt-auth-mode-actions button { min-height: 27px; font-size: 9px; }
 .chatgpt-auth-mode-actions .secondary-button.active { border-color: #789c65; background: #293326; color: #dff4d4; }
 

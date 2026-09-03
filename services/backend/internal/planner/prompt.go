@@ -151,7 +151,10 @@ VISIBLE RESPONSE CONTRACT:
 - The final visible answer contains the downloadable ZIP attachment only.
 - Do NOT write “Pronto”, “preparei”, summaries, bullet lists, explanations, filenames, JSON, patches, or any other prose in the chat.
 - Do NOT call the attachment “Wharness.zip”, “bundle.zip”, “Baixar o bundle Wharness.zip”, a UUID/hash, a translated label, or any other name.
-- The downloadable filename MUST be exactly: wharness-bundle-%s.zip
+- The generated file basename and downloadable filename metadata MUST both be exactly: wharness-bundle-%s.zip
+- Use ChatGPT's generated-file attachment/download mechanism. Do NOT replace the file with an icon-only Markdown link, a bare download emoji, or a prose link whose accessible label hides the canonical filename.
+- If a visible attachment/link label is rendered, include the exact canonical filename in that label as well as in the generated file basename.
+- If using Python/file tools to create the archive, write the final archive directly with basename wharness-bundle-%s.zip; do not create a differently named archive and merely describe it as canonical afterward.
 - If file generation is unavailable, output exactly BUNDLE_GENERATION_UNAVAILABLE and nothing else.
 
 ZIP ROOT CONTRACT:
@@ -206,5 +209,5 @@ wharness-bundle-%s.zip
 ├── plan.json
 └── README.md
 
-Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
+Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
 }
