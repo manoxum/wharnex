@@ -1,3 +1,11 @@
+## v1.2.24 - Network-stable Docker lifecycle
+
+- Decouple `make build` from the Docker runner so normal `make build && make start` never contacts or socket-activates the Docker daemon.
+- Move Docker CLI/runtime prerequisites to the explicit `make build-runner` path and add `make build-all` for operators who intentionally want the application and runner together.
+- Stop Dockerfile-only changes from invalidating the desktop application build stamp now that the runner has an independent lifecycle.
+- Refuse Linux systemd Docker socket activation before Protected execution or runner construction when `docker.service` is stopped but `docker.socket` is listening, preventing Wharness from implicitly rebuilding host bridges/routes/veth devices mid-session.
+- Add lifecycle regression checks plus backend unit coverage for the socket-activation policy.
+
 ## v1.2.23.2 - Electron packaged SUID sandbox correction
 
 - Fix Linux Electron startup after v1.2.23.1 incorrectly treated a valid persistent helper as sufficient even though packaged Electron continued validating its adjacent `node_modules/electron/dist/chrome-sandbox`.

@@ -5,15 +5,17 @@ DIST_DIR ?= $(ROOT_DIR)/dist
 BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 
-.PHONY: help deps build build-backend build-frontend build-desktop build-runner \
-	backend-check frontend-check desktop-check check test start stop restart status logs \
+.PHONY: help deps runner-deps build build-all build-backend build-frontend build-desktop build-runner build-plan \
+	backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
 	run-backend run-frontend run-desktop clean export export-check
 
 help:
 	@printf '%s\n' \
 		'Wharness lifecycle:' \
-		'  make build    Install dependencies and build backend/frontend/desktop/runner' \
+		'  make build    Install dependencies and build backend/frontend/desktop (does not touch Docker)' \
+		'  make build-runner  Explicitly build the Protected Docker runner (Docker must already be active)' \
+		'  make build-all     Build desktop lifecycle + runner explicitly' \
 		'  make start    Start backend + frontend + Electron in background' \
 		'  make stop     Stop services started by make start' \
 		'  make restart  Restart the complete desktop stack' \
@@ -33,7 +35,6 @@ deps:
 	@command -v go >/dev/null || { echo 'go is required' >&2; exit 1; }
 	@command -v node >/dev/null || { echo 'node is required' >&2; exit 1; }
 	@command -v npm >/dev/null || { echo 'npm is required' >&2; exit 1; }
-	@command -v docker >/dev/null || { echo 'docker is required' >&2; exit 1; }
 	@command -v git >/dev/null || { echo 'git is required' >&2; exit 1; }
 	@command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
 	cd "$(ROOT_DIR)/services/backend" && go mod download
@@ -48,6 +49,10 @@ deps:
 		cd "$(ROOT_DIR)/services/desktop" && npm install --cache "$(NPM_CACHE)"; \
 	fi
 
+runner-deps:
+	@command -v docker >/dev/null || { echo 'docker is required to build the Protected runner' >&2; exit 1; }
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/docker-daemon-guard.sh"
+
 build-backend:
 	@mkdir -p "$(dir $(BACKEND_BIN))"
 	cd "$(ROOT_DIR)/services/backend" && CGO_ENABLED=0 go build -o "$(BACKEND_BIN)" ./cmd/harness
@@ -58,7 +63,7 @@ build-frontend:
 build-desktop:
 	cd "$(ROOT_DIR)/services/desktop" && npm run build
 
-build-runner:
+build-runner: runner-deps
 	docker build -t "$(RUNNER_IMAGE)" -f "$(ROOT_DIR)/docker/runner/Dockerfile" "$(ROOT_DIR)"
 
 build:
@@ -67,10 +72,18 @@ build:
 	@$(MAKE) --no-print-directory build-backend
 	@$(MAKE) --no-print-directory build-frontend
 	@$(MAKE) --no-print-directory build-desktop
-	@$(MAKE) --no-print-directory build-runner
 	@mkdir -p "$(dir $(BUILD_STAMP))"
 	@touch "$(BUILD_STAMP)"
-	@printf '\nWharness build complete. Start with: make start\n'
+	@printf '\nWharness build complete without Docker daemon access. Start with: make start\n'
+
+
+build-all:
+	@$(MAKE) --no-print-directory build
+	@$(MAKE) --no-print-directory build-runner
+	@printf '\nWharness application + Protected runner build complete.\n'
+
+build-plan:
+	@printf '%s\n' deps build-backend build-frontend build-desktop
 
 backend-check:
 	cd "$(ROOT_DIR)/services/backend" && gofmt -w . && go vet ./... && go test ./... && go test -race ./...
@@ -81,10 +94,14 @@ frontend-check:
 desktop-check:
 	cd "$(ROOT_DIR)/services/desktop" && npm run check
 
+lifecycle-check:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/lifecycle-check.sh"
+
 check:
 	@$(MAKE) --no-print-directory backend-check
 	@$(MAKE) --no-print-directory frontend-check
 	@$(MAKE) --no-print-directory desktop-check
+	@$(MAKE) --no-print-directory lifecycle-check
 
 test: check
 

@@ -14,6 +14,8 @@ Required controls:
 - network `none` by default;
 - no Docker socket;
 - non-root host UID/GID when possible.
+- normal `make build` / `make start` lifecycle MUST NOT invoke Docker or activate the Docker daemon; runner image construction is an explicit operator action.
+- on Linux/systemd, Protected execution MUST fail closed when `docker.socket` is active but `docker.service` is stopped, rather than triggering socket activation that can recreate host bridges/routes while the desktop browser is online.
 
 Local sandbox exists only for tests/development and must require explicit opt-in.
 

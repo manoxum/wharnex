@@ -46,6 +46,9 @@ func (r *DockerRunner) Run(ctx context.Context, workspace Workspace, command dom
 	if _, err := exec.LookPath("docker"); err != nil {
 		return domain.CommandResult{}, errors.New("docker CLI not found; build/install Docker or use explicitly-enabled local dev sandbox")
 	}
+	if err := refuseDockerSocketActivation(); err != nil {
+		return domain.CommandResult{}, err
+	}
 	timeout := time.Duration(command.TimeoutSeconds) * time.Second
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

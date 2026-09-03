@@ -73,26 +73,35 @@ For Node.js projects, `node_modules` stays out of model context and the initial 
 
 ## Recommended lifecycle — Desktop
 
-Prerequisites: Go, Node.js 20+, npm, Docker and `curl`. Run lifecycle commands from the repository root.
+Prerequisites for the desktop lifecycle: Go, Node.js 20+, npm and `curl`. Docker is required only for the explicit Protected runner build/execution path. Run lifecycle commands from the repository root.
 
-### Build everything
+### Build the desktop lifecycle
 
 ```bash
 cd ~/workspace/wharness
 make build
 ```
 
-`make build` performs the complete local build path:
+`make build` performs the complete desktop/application build path **without invoking Docker**:
 
 - downloads/resolves Go modules;
 - installs frontend dependencies using `~/.cache/wharness-npm`;
 - installs Electron desktop dependencies using the same isolated npm cache;
 - compiles the Go backend to `dist/bin/wharness-backend`;
 - builds the React frontend into `services/frontend/dist`;
-- validates the Electron main/preload/dev code and installed Electron binary;
-- builds `kernl-runner:local` using the Dockerfile from the repository root.
+- validates the Electron main/preload/dev code and installed Electron binary.
 
-This avoids path-sensitive commands such as running `docker build -f docker/runner/Dockerfile .` from inside `services/backend`.
+The Protected runner image is intentionally decoupled so `make build && make start` cannot wake a socket-activated Docker daemon and recreate host bridges/veth interfaces while Electron/ChatGPT is online. Build the runner only when required:
+
+```bash
+# Docker must already be running; Wharness will not auto-start it.
+make build-runner
+
+# Explicit equivalent of the old all-in-one build behavior:
+make build-all
+```
+
+On Linux/systemd, both runner construction and Protected execution refuse to invoke Docker when `docker.socket` is active but `docker.service` is stopped. Start Docker yourself only when you intentionally want to use the Protected Docker runner.
 
 ### Start all services + Electron
 

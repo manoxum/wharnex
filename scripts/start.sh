@@ -33,7 +33,6 @@ fi
 if find \
   "$ROOT/Makefile" \
   "$ROOT/scripts" \
-  "$ROOT/docker" \
   "$ROOT/services/backend" \
   "$ROOT/services/frontend/src" \
   "$ROOT/services/frontend/index.html" \
