@@ -9,6 +9,8 @@ export function electronChildEnvironment(env = process.env) {
 export function electronLaunchArguments(platform = process.platform, env = process.env) {
   const args = ['.']
   if (platform !== 'linux') return { args, ozone: '' }
+  const sandboxMode = String(env.WHARNESS_LINUX_SANDBOX_MODE || '').trim().toLowerCase()
+  if (sandboxMode === 'userns') args.push('--disable-setuid-sandbox')
   const ozone = resolveLinuxOzonePlatform(env)
   args.push(`--ozone-platform=${ozone}`)
   if (ozone === 'wayland') {

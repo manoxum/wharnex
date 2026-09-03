@@ -22,3 +22,13 @@ test('Wayland launch arguments disable Vulkan', () => {
     args: ['.', '--ozone-platform=wayland', '--disable-vulkan', '--disable-features=Vulkan'],
   })
 })
+
+test('Linux user-namespace mode disables only the SUID sandbox helper', () => {
+  assert.deepEqual(electronLaunchArguments('linux', {
+    DISPLAY: ':0',
+    WHARNESS_LINUX_SANDBOX_MODE: 'userns',
+  }), {
+    ozone: 'x11',
+    args: ['.', '--disable-setuid-sandbox', '--ozone-platform=x11'],
+  })
+})

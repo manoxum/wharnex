@@ -63,6 +63,17 @@ if [ ! -x "$ROOT/services/frontend/node_modules/.bin/vite" ]; then
   exit 1
 fi
 
+if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
+  if ! WHARNESS_LINUX_SANDBOX_MODE=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-sandbox.sh" mode); then
+    exit 1
+  fi
+  export WHARNESS_LINUX_SANDBOX_MODE
+  # Electron validates the chrome-sandbox shipped beside its own executable.
+  # Do not redirect SUID execution through CHROME_DEVEL_SANDBOX; on packaged
+  # Chromium/Electron builds that developer override is not a reliable launch path.
+  unset CHROME_DEVEL_SANDBOX 2>/dev/null || true
+fi
+
 : > "$LOG_FILE"
 
 (

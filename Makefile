@@ -7,6 +7,7 @@ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 
 .PHONY: help deps build build-backend build-frontend build-desktop build-runner \
 	backend-check frontend-check desktop-check check test start stop restart status logs \
+	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
 	run-backend run-frontend run-desktop clean export export-check
 
 help:
@@ -19,6 +20,11 @@ help:
 		'  make status   Show coordinator/services status' \
 		'  make logs     Follow desktop stack logs' \
 		'  make check    Run backend/frontend/desktop quality checks' \
+		'' \
+		'Linux Electron sandbox:' \
+		'  make electron-sandbox-check     Verify secure SUID/user-namespace launch support' \
+		'  make electron-sandbox-install   Configure Electron packaged helper as root:root 4755' \
+		'  make electron-sandbox-restore   Restore packaged helper from persistent recovery copy' \
 		'' \
 		'Linux graphics override:' \
 		'  WHARNESS_OZONE_PLATFORM=wayland make start'
@@ -81,6 +87,15 @@ check:
 	@$(MAKE) --no-print-directory desktop-check
 
 test: check
+
+electron-sandbox-check:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-sandbox.sh" check
+
+electron-sandbox-install:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-sandbox.sh" install
+
+electron-sandbox-restore:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-sandbox.sh" restore
 
 start:
 	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_RUNNER_IMAGE="$(RUNNER_IMAGE)" "$(ROOT_DIR)/scripts/start.sh"

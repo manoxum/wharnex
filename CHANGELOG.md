@@ -1,4 +1,18 @@
+## v1.2.23.2 - Electron packaged SUID sandbox correction
+
+- Fix Linux Electron startup after v1.2.23.1 incorrectly treated a valid persistent helper as sufficient even though packaged Electron continued validating its adjacent `node_modules/electron/dist/chrome-sandbox`.
+- Treat only the Electron-packaged helper as a valid SUID launch path and stop exporting `CHROME_DEVEL_SANDBOX` from the Wharness lifecycle.
+- Add `make electron-sandbox-install` to configure the exact Electron helper as `root:root` mode `4755`, plus a recovery-copy restore target and metadata-rich diagnostics.
+- Preserve the secure user-namespace fallback and continue to forbid `--no-sandbox`.
+
 # Changelog
+
+## v1.2.23.1 — Secure Linux Electron sandbox startup hotfix
+
+- Detect the Linux Electron sandbox capability before startup instead of letting Chromium abort with an opaque `chrome-sandbox` SUID fatal error.
+- Prefer a persistent root-owned mode-4755 helper outside `node_modules`, and verify that it is byte-identical to the helper shipped by the installed Electron version so npm reinstalls cannot silently invalidate startup.
+- When a privileged helper is unavailable, probe unprivileged user namespaces and use only `--disable-setuid-sandbox` when that sandbox path is actually usable; never fall back to `--no-sandbox`.
+- Fail closed with actionable installation commands when neither secure Linux sandbox path is available, and expose `make electron-sandbox-check` for diagnostics.
 
 ## v1.2.23 — Transactional self-evolution
 

@@ -105,6 +105,9 @@ async function main() {
   ])
 
   const launch = electronLaunchArguments(process.platform, process.env)
+  if (process.platform === 'linux') {
+    console.log(`Electron Linux sandbox: mode=${process.env.WHARNESS_LINUX_SANDBOX_MODE || 'default'}`)
+  }
   if (launch.ozone) console.log(`Electron Linux graphics: ozone=${launch.ozone}`)
   const desktop = run('electron', electronPath, launch.args, here)
   desktop.on('exit', (code) => {
