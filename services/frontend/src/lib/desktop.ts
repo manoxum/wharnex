@@ -25,8 +25,36 @@ export function formatBytes(bytes: number) {
 export function chatgptConversationURL(value: string) {
   try {
     const url = new URL(value)
-    const trusted = url.protocol === 'https:' && (url.hostname === 'chatgpt.com' || url.hostname.endsWith('.chatgpt.com'))
-    if (!trusted || !/\/c\/[^/]+/.test(url.pathname)) return ''
-    return `${url.origin}${url.pathname}`
+    const host = url.hostname.toLowerCase()
+    const trusted = url.protocol === 'https:' && (host === 'chatgpt.com' || host.endsWith('.chatgpt.com'))
+    if (!trusted) return ''
+    const match = /^\/c\/([^/]+)(?:\/.*)?$/.exec(url.pathname)
+    if (!match?.[1]) return ''
+    return `https://chatgpt.com/c/${match[1]}`
   } catch { return '' }
+}
+
+
+export function isChatGPTNewChatURL(value: string) {
+  try {
+    const url = new URL(value)
+    const host = url.hostname.toLowerCase()
+    const trusted = url.protocol === 'https:' && (host === 'chatgpt.com' || host.endsWith('.chatgpt.com'))
+    return trusted && (url.pathname === '/' || url.pathname === '')
+  } catch { return false }
+}
+
+export function chatgptAutoBindingDecision(linkedURL: string | undefined, currentURL: string, loading: boolean, newChatSurfaceSeen: boolean) {
+  const linkedConversation = chatgptConversationURL(linkedURL || '')
+  if (linkedConversation || loading) return { newChatSurfaceSeen, bindURL: '' }
+  if (isChatGPTNewChatURL(currentURL)) return { newChatSurfaceSeen: true, bindURL: '' }
+  const currentConversation = chatgptConversationURL(currentURL)
+  if (newChatSurfaceSeen && currentConversation) return { newChatSurfaceSeen: true, bindURL: currentConversation }
+  return { newChatSurfaceSeen, bindURL: '' }
+}
+
+export function sameChatGPTConversation(left?: string, right?: string) {
+  const a = chatgptConversationURL(left || '')
+  const b = chatgptConversationURL(right || '')
+  return Boolean(a && b && a === b)
 }

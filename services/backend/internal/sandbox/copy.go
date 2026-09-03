@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
+	"kernl.local/harness/backend/internal/domain"
 )
 
 func copyProject(source string) (Workspace, error) {
@@ -61,7 +62,146 @@ func copyProject(source string) (Workspace, error) {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
 	}
-	return Workspace{Path: tmp}, nil
+	return Workspace{Path: tmp, SourcePath: root}, nil
+}
+
+func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec) error {
+	if !requiresLocalNodeDependencies(command.Argv) || workspace.SourcePath == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(workspace.Path, ".pnp.cjs")); err == nil {
+		return nil
+	}
+
+	relCwd := command.Cwd
+	if relCwd == "" || relCwd == "." {
+		relCwd = "."
+	}
+	if _, err := safeRelativePath(workspace.SourcePath, relCwd); err != nil {
+		return err
+	}
+	if _, err := safeRelativePath(workspace.Path, relCwd); err != nil {
+		return err
+	}
+
+	candidates := [][2]string{{workspace.SourcePath, workspace.Path}}
+	if relCwd != "." {
+		candidates = append(candidates, [2]string{
+			filepath.Join(workspace.SourcePath, filepath.Clean(relCwd)),
+			filepath.Join(workspace.Path, filepath.Clean(relCwd)),
+		})
+	}
+	copied := false
+	for _, candidate := range candidates {
+		sourceModules := filepath.Join(candidate[0], "node_modules")
+		destModules := filepath.Join(candidate[1], "node_modules")
+		if info, err := os.Stat(destModules); err == nil && info.IsDir() {
+			copied = true
+			continue
+		}
+		info, err := os.Stat(sourceModules)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if err := copyDependencyTree(sourceModules, destModules, workspace.SourcePath, workspace.Path); err != nil {
+			return fmt.Errorf("prepare sandbox node dependencies: %w", err)
+		}
+		copied = true
+	}
+	if copied {
+		return nil
+	}
+	return errors.New("sandbox node dependencies unavailable: node_modules was not found in the project; install dependencies on the host before Protected execution")
+}
+
+func requiresLocalNodeDependencies(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	tool := filepath.Base(argv[0])
+	switch tool {
+	case "npx":
+		return true
+	case "npm":
+		if len(argv) < 2 {
+			return false
+		}
+		switch argv[1] {
+		case "run", "run-script", "test", "start", "exec":
+			return true
+		}
+	case "pnpm", "yarn", "bun":
+		if len(argv) < 2 {
+			return false
+		}
+		switch argv[1] {
+		case "install", "add", "remove", "update", "config", "cache", "--version", "-v":
+			return false
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func copyDependencyTree(source, dest, sourceRoot, destRoot string) error {
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		dst := dest
+		if rel != "." {
+			dst = filepath.Join(dest, rel)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			resolved := target
+			if !filepath.IsAbs(resolved) {
+				resolved = filepath.Join(filepath.Dir(path), resolved)
+			}
+			resolved = filepath.Clean(resolved)
+			targetRel, err := filepath.Rel(sourceRoot, resolved)
+			if err != nil || targetRel == ".." || strings.HasPrefix(targetRel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("dependency symlink escapes project: %s -> %s", path, target)
+			}
+			destTarget := filepath.Join(destRoot, targetRel)
+			rewritten, err := filepath.Rel(filepath.Dir(dst), destTarget)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				return err
+			}
+			return os.Symlink(rewritten, dst)
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		return copyFile(path, dst, info.Mode().Perm())
+	})
+}
+
+func safeRelativePath(root, relative string) (string, error) {
+	joined := filepath.Join(root, filepath.Clean(relative))
+	rel, err := filepath.Rel(root, joined)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("cwd escapes project")
+	}
+	return joined, nil
 }
 
 func initializeWorkspaceGit(root string) error {

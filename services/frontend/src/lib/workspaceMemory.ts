@@ -1,4 +1,4 @@
-import type { ChatItem, ExecutionMode, WorkspaceMode } from '../types'
+import type { AutomationMode, ChatItem, ExecutionMode, WorkspaceMode } from '../types'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
 const RECENT_KEY = 'kernl.workspace.recent.v1'
@@ -6,6 +6,7 @@ const LEGACY_CHAT_PREFIX = 'kernl.workspace.chat.v1:'
 const CHAT_INDEX_PREFIX = 'kernl.workspace.chats.v2:'
 const CHAT_ITEMS_PREFIX = 'kernl.workspace.chat.v2:'
 const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
+const AUTOMATION_MODE_PREFIX = 'kernl.workspace.automation-mode.v1:'
 
 export type ActiveWorkspace = {
   sessionId: string
@@ -13,6 +14,7 @@ export type ActiveWorkspace = {
   mode: WorkspaceMode
   chatId?: string
   executionMode?: ExecutionMode
+  automationMode?: AutomationMode
 }
 
 export type WorkspaceChat = {
@@ -63,6 +65,14 @@ export function loadExecutionMode(projectPath: string): ExecutionMode {
 
 export function saveExecutionMode(projectPath: string, mode: ExecutionMode) {
   try { localStorage.setItem(EXECUTION_MODE_PREFIX + projectPath, mode) } catch { /* storage unavailable/full */ }
+}
+
+export function loadAutomationMode(projectPath: string): AutomationMode {
+  try { return localStorage.getItem(AUTOMATION_MODE_PREFIX + projectPath) === 'auto' ? 'auto' : 'manual' } catch { return 'manual' }
+}
+
+export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
+  try { localStorage.setItem(AUTOMATION_MODE_PREFIX + projectPath, mode) } catch { /* storage unavailable/full */ }
 }
 
 export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {

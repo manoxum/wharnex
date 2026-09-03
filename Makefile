@@ -7,7 +7,7 @@ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 
 .PHONY: help deps build build-backend build-frontend build-desktop build-runner \
 	backend-check frontend-check desktop-check check test start stop restart status logs \
-	run-backend run-frontend run-desktop clean export
+	run-backend run-frontend run-desktop clean export export-check
 
 help:
 	@printf '%s\n' \
@@ -101,10 +101,12 @@ clean:
 	@$(MAKE) --no-print-directory stop || true
 	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" "$(BUILD_STAMP)"
 
-EXPORT_ARCHIVE ?= $(DIST_DIR)/wharness.zip
+EXPORT_DIR ?= $(abspath $(ROOT_DIR)/../project-context/wharness)
+EXPORT_ARCHIVE ?= $(EXPORT_DIR)/wharness.zip
 export:
 	@mkdir -p "$(dir $(EXPORT_ARCHIVE))"
-	@tmp_dir=$$(mktemp -d); \
+	@set -eu; \
+		tmp_dir=$$(mktemp -d); \
 		trap 'rm -rf "$$tmp_dir"' EXIT; \
 		cd "$(ROOT_DIR)"; \
 		zip -q -y -r "$$tmp_dir/wharness.zip" . \
@@ -119,4 +121,21 @@ export:
 			'credentials.json' '*/credentials.json' 'secrets/*' '*/secrets/*' \
 			'*.db' '*.sqlite' '*.sqlite3' '*.dump' '*.sql.gz'; \
 		mv -f "$$tmp_dir/wharness.zip" "$(EXPORT_ARCHIVE)"; \
+		test -f "$(EXPORT_ARCHIVE)"; \
+		test -s "$(EXPORT_ARCHIVE)"; \
+		unzip -tqq "$(EXPORT_ARCHIVE)"; \
 		printf 'Project exported to %s\n' "$(EXPORT_ARCHIVE)"
+
+export-check:
+	@set -eu; \
+		tmp_dir=$$(mktemp -d); \
+		trap 'rm -rf "$$tmp_dir"' EXIT; \
+		$(MAKE) --no-print-directory export EXPORT_ARCHIVE="$$tmp_dir/wharness.zip"; \
+		test -s "$$tmp_dir/wharness.zip"; \
+		unzip -tqq "$$tmp_dir/wharness.zip"; \
+		mkdir "$$tmp_dir/not-an-archive"; \
+		if $(MAKE) --no-print-directory export EXPORT_ARCHIVE="$$tmp_dir/not-an-archive" >/dev/null 2>&1; then \
+			echo 'export unexpectedly accepted a directory as its archive path' >&2; \
+			exit 1; \
+		fi; \
+		printf 'Export archive checks passed.\n'

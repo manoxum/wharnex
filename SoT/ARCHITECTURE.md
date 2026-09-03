@@ -10,7 +10,11 @@ Planner adapters and sandbox adapters are replaceable. AI providers cannot depen
 
 ## Core workflow
 
-`Session -> Context -> Plan -> Policy -> Sandbox Execute -> Verify -> Explicit Host Apply`
+`Session -> Context -> Agent Turn -> [Answer | Clarification | Investigation | Change Plan]`
+
+Only the change branch continues through:
+
+`Plan -> Policy -> Sandbox Execute -> Verify -> Explicit or Auto-approved Host Apply`
 
 There is no direct `AI -> shell` path.
 

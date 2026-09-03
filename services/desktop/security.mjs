@@ -4,6 +4,41 @@ export function sanitizeSessionId(value) {
   return id
 }
 
+export function sanitizeChatCacheKey(value) {
+  const key = String(value || '').trim()
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(key)) throw new Error('Invalid ChatGPT cache key')
+  return key
+}
+
+export function sanitizeAttachmentFilename(value) {
+  const name = String(value || '').normalize('NFC').trim()
+  if (!name || name === '.' || name === '..' || name.length > 180) throw new Error('Invalid attachment filename')
+  if (/[\\/\u0000-\u001f\u007f<>:"|?*]/.test(name) || name.endsWith('.')) throw new Error('Invalid attachment filename')
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) throw new Error('Invalid attachment filename')
+  return name
+}
+
+export function decodeUserAttachment(value, maxBytes) {
+  if (!value || typeof value !== 'object') throw new Error('Invalid attachment')
+  const name = sanitizeAttachmentFilename(value.name)
+  const source = String(value.contentBase64 || '')
+  if (!source || !/^[A-Za-z0-9+/]*={0,2}$/.test(source) || source.length % 4 !== 0) throw new Error(`Attachment ${name} has invalid base64 content`)
+  const bytes = Buffer.from(source, 'base64')
+  const mime = String(value.mime || '').trim().toLowerCase()
+  if (mime.length > 120 || (mime && !/^[a-z0-9!#$&^_.+\-]+\/[a-z0-9!#$&^_.+\-]+$/.test(mime))) throw new Error(`Attachment ${name} has invalid MIME type`)
+  if (!bytes.byteLength) throw new Error(`Attachment ${name} is empty`)
+  if (bytes.byteLength > maxBytes) throw new Error(`Attachment ${name} exceeds the size limit`)
+  if (bytes.toString('base64') !== source) throw new Error(`Attachment ${name} has non-canonical base64 content`)
+  return { name, bytes, mime: mime || 'application/octet-stream' }
+}
+
+export function chatInputSettleDelay(bytes, attachmentCount) {
+  const safeBytes = Math.max(0, Number(bytes) || 0)
+  const safeCount = Math.max(0, Math.floor(Number(attachmentCount) || 0))
+  const megabytes = Math.ceil(safeBytes / (1024 * 1024))
+  return Math.min(30_000, 1_500 + safeCount * 350 + megabytes * 200)
+}
+
 export function requireLocalHTTPURL(value, label = 'URL') {
   let url
   try { url = new URL(String(value)) } catch { throw new Error(`${label} is invalid`) }
@@ -69,6 +104,27 @@ export function externalAuthProvider(value) {
   return ''
 }
 
+
+export function wharnessBundleRequestIdFromFilename(value) {
+  const name = String(value || '')
+  const match = /^wharness-bundle-(req_[A-Za-z0-9_-]{8,180})\.zip$/.exec(name)
+  return match ? match[1] : ''
+}
+
+export function validateWharnessBundleDownload(filename, bytes) {
+  const requestId = wharnessBundleRequestIdFromFilename(filename)
+  if (!requestId) throw new Error('Nome de ficheiro de bundle inválido.')
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || [])
+  if (data.byteLength < 4 || data[0] !== 0x50 || data[1] !== 0x4b) throw new Error('O bundle Wharness não é um ficheiro ZIP válido.')
+  return { requestId }
+}
+
+export function wharnessPlanRequestIdFromFilename(value) {
+  const name = String(value || '')
+  const match = /^wharness-plan-(req_[A-Za-z0-9_-]{8,180})\.json$/.exec(name)
+  return match ? match[1] : ''
+}
+
 export function chromeCompatibleUserAgent(platform = process.platform, chromiumVersion = '152.0.7977.65') {
   const version = String(chromiumVersion || '152.0.7977.65').replace(/[^0-9.]/g, '') || '152.0.7977.65'
   const os = platform === 'win32'
@@ -86,4 +142,17 @@ export function sanitizeDiagnosticURL(value) {
   } catch {
     return '<invalid-url>'
   }
+}
+
+export function validateWharnessPlanFile(filename, text) {
+  const requestId = wharnessPlanRequestIdFromFilename(filename)
+  if (!requestId) throw new Error('Nome de ficheiro de plano inválido.')
+  const source = String(text || '').replace(/^\uFEFF/, '').trim()
+  if (!source) throw new Error('O ficheiro de plano está vazio.')
+  let plan
+  try { plan = JSON.parse(source) } catch { throw new Error('O ficheiro de plano não contém JSON válido.') }
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('O ficheiro de plano deve conter um objeto JSON.')
+  if (plan.protocol !== 'harness.execution/v1') throw new Error('O ficheiro de plano usa um protocolo inválido.')
+  if (plan.request_id !== requestId) throw new Error('O request_id do ficheiro não corresponde ao nome do plano.')
+  return { requestId, text: source }
 }

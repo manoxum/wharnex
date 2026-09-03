@@ -39,6 +39,9 @@ export type CommandResult = {
   stderr: string
   duration_ms: number
   success: boolean
+  baseline_failure?: boolean
+  baseline_exit_code?: number
+  baseline_output?: string
 }
 
 export type ExecutionResult = {
@@ -48,6 +51,7 @@ export type ExecutionResult = {
   completed_at: string
   commands: CommandResult[]
   error?: string
+  warnings?: string[]
 }
 
 export type ContextManifest = {
@@ -60,11 +64,22 @@ export type ContextManifest = {
 }
 
 export type ExecutionMode = 'protected' | 'unprotected'
+export type AutomationMode = 'manual' | 'auto'
+
+export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'change' | 'blocked'
+
+export type AgentTurn = {
+  protocol: 'harness.turn/v1'
+  request_id: string
+  kind: TurnKind
+  message: string
+}
 
 export type Session = {
   id: string
   project_path: string
   execution_mode: ExecutionMode
+  automation_mode: AutomationMode
   state: string
   created_at: string
   context: { id: string; manifest: ContextManifest }
@@ -73,6 +88,12 @@ export type Session = {
   last_execution?: ExecutionResult
   last_manual_prompt?: string
   last_request_id?: string
+  pending_manual_request_ids?: string[]
+  last_bundle?: { filename: string; readme: string; files: string[]; patches: string[]; sha256: string }
+  last_turn?: AgentTurn
+  repair_attempt?: number
+  repair_parent_plan_id?: string
+  last_repair_error?: string
 }
 
 export type HarnessEvent = {
@@ -107,4 +128,14 @@ export type WorkspaceFile = {
 
 export type WorkspaceMode = 'editor' | 'agent'
 
-export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; meta?: string }
+export type ChatAttachmentInfo = {
+  name: string
+  size: number
+  mime?: string
+  storageRef?: string
+  previewKind?: 'thumbnail' | 'icon' | 'none'
+}
+
+export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[] }
+
+export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult }

@@ -1,0 +1,93 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
+
+const conversationURL = 'https://chatgpt.com/backend-api/f/conversation/prepare'
+
+test('ChatGPT submit uses a layout-independent native Enter key', () => {
+  const events = []
+  let focused = 0
+  const webContents = {
+    focus() { focused += 1 },
+    sendInputEvent(event) { events.push(event) },
+  }
+
+  const result = dispatchChatGPTSubmit(webContents)
+
+  assert.equal(focused, 1)
+  assert.deepEqual(result, { method: 'native-enter' })
+  assert.deepEqual(events, [
+    { type: 'keyDown', keyCode: 'Enter' },
+    { type: 'keyUp', keyCode: 'Enter' },
+  ])
+})
+
+test('automatic submit retries until ChatGPT starts the conversation request', async () => {
+  const coordinator = new ChatGPTSubmitCoordinator()
+  let submitCount = 0
+
+  const result = await submitWithRetry({
+    attempts: 3,
+    beforeAttempt: async () => {},
+    beginSubmission: () => coordinator.expect(42, { startTimeoutMs: 2 }),
+    submit: () => {
+      submitCount += 1
+      if (submitCount === 2) {
+        coordinator.onBeforeRequest({ id: 91, method: 'POST', webContentsId: 42, url: conversationURL })
+      }
+    },
+    wait: async () => {},
+  })
+
+  assert.equal(submitCount, 2)
+  assert.deepEqual(result, { accepted: true, requestId: '91' })
+})
+
+test('automatic submit rejects after confirmation attempts are exhausted', async () => {
+  const coordinator = new ChatGPTSubmitCoordinator()
+  let submitCount = 0
+
+  await assert.rejects(() => submitWithRetry({
+    attempts: 2,
+    beforeAttempt: async () => {},
+    beginSubmission: () => coordinator.expect(8, { startTimeoutMs: 1 }),
+    submit: () => { submitCount += 1 },
+    wait: async () => {},
+  }), /not accepted after 2 attempts/)
+
+  assert.equal(submitCount, 2)
+})
+
+
+test('automatic submit never replays Enter when request observation times out', async () => {
+  const coordinator = new ChatGPTSubmitCoordinator()
+  let submitCount = 0
+
+  const result = await submitWithoutReplay({
+    beginObservation: () => coordinator.expect(17, { startTimeoutMs: 1 }),
+    submit: () => { submitCount += 1 },
+  })
+
+  assert.equal(submitCount, 1)
+  assert.deepEqual(result, {
+    accepted: false,
+    requestId: '',
+    observationError: 'ChatGPT did not accept the submit command before timeout',
+  })
+})
+
+test('automatic submit still reports a confirmed observed request when available', async () => {
+  const coordinator = new ChatGPTSubmitCoordinator()
+  let submitCount = 0
+
+  const result = await submitWithoutReplay({
+    beginObservation: () => coordinator.expect(23, { startTimeoutMs: 100 }),
+    submit: () => {
+      submitCount += 1
+      coordinator.onBeforeRequest({ id: 123, method: 'POST', webContentsId: 23, url: conversationURL })
+    },
+  })
+
+  assert.equal(submitCount, 1)
+  assert.deepEqual(result, { accepted: true, requestId: '123' })
+})

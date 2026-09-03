@@ -6,7 +6,10 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 )
 
-type Workspace struct{ Path string }
+type Workspace struct {
+	Path       string
+	SourcePath string
+}
 
 type Runner interface {
 	Prepare(ctx context.Context, projectRoot string) (Workspace, error)

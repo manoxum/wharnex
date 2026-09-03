@@ -26,7 +26,10 @@ import (
 func main() {
 	cfg := config.Load()
 	bus := audit.NewBus()
-	store := session.NewStore()
+	store, err := session.NewPersistentStore(cfg.StateFile)
+	if err != nil {
+		log.Fatalf("session store: %v", err)
+	}
 	builder := contextbundle.NewBuilder(cfg.MaxContextBytes, cfg.MaxBundleBytes)
 	policies := policy.NewEngine()
 

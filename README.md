@@ -2,6 +2,13 @@
 
 Wharness is a local coding-agent harness and lightweight IDE. It combines a React workspace, a Go orchestration backend, isolated Docker execution and—when launched through **Wharness Desktop**—a real ChatGPT web surface in the same native window.
 
+### Estado durável e cache de chats
+
+O backend persiste o estado operacional das sessões em `.harness/state/sessions.json`; planos, request ids pendentes e resultados deixam de desaparecer quando a stack é reiniciada. Em Protected Mode, verificações que já falhavam na baseline podem ser classificadas como dívida preexistente somente quando o resultado pós-patch é idêntico.
+
+No Desktop, cada Harness Chat pode manter um `WebContentsView` próprio em memória. Até 20 chats recentes permanecem vivos em cache LRU, permitindo alternância instantânea sem recarregar a conversa do ChatGPT. O cache de DOM é deliberadamente somente em memória; após encerrar o Electron, as URLs persistidas continuam sendo a fonte para reabrir as conversas.
+
+
 ## What v1.2.8 includes
 
 - **Wharness Desktop** (`services/desktop`) built with Electron `WebContentsView`.
@@ -61,6 +68,8 @@ Unprotected removes the sandbox for the Agent plan only. It does not bypass prot
 Opening a workspace guarantees that the selected project root owns a Git repository. If `.git` is absent, the backend runs `git init` automatically before building context. It does not create an automatic host commit or overwrite `.gitignore`. Before host apply the repository is checked again.
 
 Every sandbox copy gets its own temporary Git repository and baseline commit after secret/excluded files have been removed. This makes allowed verification commands such as `git diff --check` meaningful inside the sandbox without copying host `.git` metadata or credentials.
+
+For Node.js projects, `node_modules` stays out of model context and the initial sandbox snapshot. When a Protected command such as `npm run build` actually needs local dependencies, Wharness lazily copies the project's existing `node_modules` into the temporary workspace (including safe internal `.bin` symlinks). The host project is still not mounted into Docker. Install dependencies in the project first if they are absent.
 
 ## Recommended lifecycle — Desktop
 
@@ -138,19 +147,21 @@ make start
 
 The default remains `HARNESS_PLANNER=manual`.
 
+With the supported provider, every request returns a structured `harness.turn/v1` result. Questions and investigations are rendered directly in Harness without execution. In project Auto mode, only an explicit `change` result continues through Policy, Protected sandbox, verification, and host Apply; no browser download is involved.
+
 ## Manual ChatGPT workflow inside one window
 
 1. Open a project and switch to **Agent**.
-2. Send the request to the Harness. It prepares the planner prompt.
+2. Send the request to the Harness. It prepares the agent-turn prompt and project context.
 3. Open the **ChatGPT** tab. The actual ChatGPT site is displayed inside Wharness Desktop.
 4. Click **Copiar contexto ZIP**. Wharness refreshes the project snapshot and places the ZIP on the native system clipboard.
 5. Click the ChatGPT composer and press `Ctrl+V` to attach the ZIP.
 6. Click **Copiar prompt**, then paste the prompt into ChatGPT.
-7. When ChatGPT returns the plan JSON, copy it.
-8. Click **Colar resposta JSON**, review it, then **Validar plano**.
+7. Wait for ChatGPT to return `wharness-bundle-<request_id>.zip`, then initiate its download in the ChatGPT surface.
+8. Wharness imports the bundle automatically after the download starts. Answers appear in chat; only `change` bundles expose and execute a plan.
 
 Manual import is transport-resilient: Wharness accepts fenced JSON and can repair the narrow case where a unified-diff `patch` contains unescaped source-code quotes (for example CSS `content: "";`). The repaired plan is still subjected to the same strict protocol/path/policy validation before execution.
-9. In **Protected**, execute in the sandbox and Apply only after verification. In **Unprotected**, the execution button requires confirmation and runs the validated plan directly on the project; there is no separate Apply step.
+9. For a change in **Protected**, execute in the sandbox and Apply only after verification. In **Unprotected**, the execution button requires confirmation and runs the validated plan directly on the project; there is no separate Apply step.
 
 The file clipboard behavior uses the OS native copied-file representation. Acceptance of pasted file attachments remains a capability of the destination web application; if a particular ChatGPT UI version does not accept file paste, the ZIP remains available in the OS clipboard/temp path for normal attachment selection.
 
@@ -169,6 +180,8 @@ The preference is stored by project path and restored when that workspace is reo
 The active project path, current mode, recent workspaces, active Harness chat, per-chat transcript, per-chat backend session ID, and per-chat ChatGPT conversation URL are stored locally. After `F5` or reopening Wharness Desktop, the active workspace and chat are restored. Selecting another Harness chat restores its own transcript and navigates the embedded ChatGPT surface to its linked conversation URL. If the Go backend has restarted and a remembered in-memory session no longer exists, Wharness creates a fresh backend session for that chat while preserving the local transcript and ChatGPT URL.
 
 The ChatGPT login/session is separate and is persisted by Electron's dedicated browser partition.
+
+Harness chat attachments are also durable in Desktop mode. Wharness stores private copies under Electron application data rather than inside the target project; the transcript keeps opaque references plus filename/size/MIME metadata. Reopening a chat restores its attachment cards, including image thumbnails when available and native file icons as fallback. Clicking a persisted attachment opens the stored local copy. Attachments from older transcripts created before this storage model remain metadata-only because their original bytes cannot be reconstructed.
 
 ## Web-only mode
 

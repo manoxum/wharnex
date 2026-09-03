@@ -70,6 +70,7 @@ fi
   nohup env \
     WHARNESS_ROOT="$ROOT" \
     WHARNESS_RUNTIME_DIR="$RUN_DIR" \
+    HARNESS_STATE_FILE="$ROOT/.harness/state/sessions.json" \
     WHARNESS_RUNNER_IMAGE="${WHARNESS_RUNNER_IMAGE:-kernl-runner:local}" \
     WHARNESS_OZONE_PLATFORM="${WHARNESS_OZONE_PLATFORM:-auto}" \
     node dev.mjs >>"$LOG_FILE" 2>&1 </dev/null &

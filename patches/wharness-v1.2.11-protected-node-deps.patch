@@ -1,0 +1,433 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c45c903..9fa115b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,17 @@
+ # Changelog
+ 
++## 1.2.11 — Protected sandbox dependency hydration (2026-09-03)
++
++### Fixed
++- Protected Node.js verification no longer fails with `tsc: not found` merely because `node_modules` is excluded from the context/sandbox snapshot.
++- `npm run`, `npm test`, `npm exec`, `npx`, and equivalent pnpm/yarn/bun script execution lazily hydrate local `node_modules` into the isolated workspace before the command runs.
++- Missing host dependencies now produce an actionable `sandbox node dependencies unavailable` error instead of a misleading package-script exit 127.
++
++### Security
++- `node_modules` remains excluded from model context and the initial sandbox copy.
++- Dependencies are copied into the temporary sandbox only when a local Node command needs them; the real project is never mounted into the container.
++- Dependency symlinks are rewritten only when their targets stay inside the project tree; symlinks escaping the project are rejected.
++
+ ## 1.2.9 — File-first planner delivery (2026-09-02)
+ 
+ ### Added
+diff --git a/README.md b/README.md
+index 8949435..8722527 100644
+--- a/README.md
++++ b/README.md
+@@ -62,6 +62,8 @@ Opening a workspace guarantees that the selected project root owns a Git reposit
+ 
+ Every sandbox copy gets its own temporary Git repository and baseline commit after secret/excluded files have been removed. This makes allowed verification commands such as `git diff --check` meaningful inside the sandbox without copying host `.git` metadata or credentials.
+ 
++For Node.js projects, `node_modules` stays out of model context and the initial sandbox snapshot. When a Protected command such as `npm run build` actually needs local dependencies, Wharness lazily copies the project's existing `node_modules` into the temporary workspace (including safe internal `.bin` symlinks). The host project is still not mounted into Docker. Install dependencies in the project first if they are absent.
++
+ ## Recommended lifecycle — Desktop
+ 
+ Prerequisites: Go, Node.js 20+, npm, Docker and `curl`. Run lifecycle commands from the repository root.
+diff --git a/SoT/SANDBOX_MODEL.md b/SoT/SANDBOX_MODEL.md
+index e6d0f8e..763188b 100644
+--- a/SoT/SANDBOX_MODEL.md
++++ b/SoT/SANDBOX_MODEL.md
+@@ -19,6 +19,8 @@ Local sandbox exists only for tests/development and must require explicit opt-in
+ 
+ Sandbox project copies initialize a fresh temporary Git repository and baseline commit. The host `.git` directory is excluded from the copy; this baseline exists only to support deterministic patching and read-only Git verification inside the isolated workspace.
+ 
++Node dependency hydration is execution-only. `node_modules` MUST remain excluded from context/model payloads and from the initial sandbox snapshot. For Protected Node package scripts that require local dependencies, the runner MAY lazily copy an existing project-local `node_modules` tree into the temporary sandbox. It MUST NOT mount the host project or dependency tree into the container. Internal dependency symlinks may be rewritten to their copied sandbox targets; any dependency symlink that escapes the project root MUST be rejected.
++
+ ## Unprotected exception
+ 
+ A workspace may be explicitly switched to `Unprotected` in the UI. This is not a sandbox variant: Agent plan operations execute directly in the real project directory. The Policy Engine remains mandatory and each direct execution requires user confirmation. The UI must display a persistent host-direct warning while the mode is active. This choice is stored per project and must never become the global/default mode.
+diff --git a/VALIDATION.md b/VALIDATION.md
+index fa4f4e2..d5c73d4 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -71,3 +71,12 @@ A real frontend `npm ci` could not run offline because at least `zod-validation-
+ ### Docker / live external services
+ 
+ Docker daemon execution and a live ChatGPT/OpenAI account were not used in this build environment. Existing Go runner contracts and provider `httptest` coverage remain green; no user credentials were requested or used.
++## Protected Node dependency hydration
++
++- Initial sandbox copy still excludes `node_modules`.
++- `npm run build` lazily hydrates project-local `node_modules` before execution.
++- `.bin` symlinks targeting dependencies inside the project remain usable after copying.
++- Dependency symlinks escaping the project root are rejected.
++- Missing host `node_modules` yields an actionable error rather than `tsc: not found`.
++- Regression test executes an isolated `npm run build` whose `tsc` exists only under the host project `node_modules/.bin`.
++
+diff --git a/services/backend/internal/sandbox/copy.go b/services/backend/internal/sandbox/copy.go
+index c903bdb..c831bc2 100644
+--- a/services/backend/internal/sandbox/copy.go
++++ b/services/backend/internal/sandbox/copy.go
+@@ -11,6 +11,7 @@ import (
+ 	"strings"
+ 
+ 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
++	"kernl.local/harness/backend/internal/domain"
+ )
+ 
+ func copyProject(source string) (Workspace, error) {
+@@ -61,7 +62,146 @@ func copyProject(source string) (Workspace, error) {
+ 		_ = os.RemoveAll(tmp)
+ 		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
+ 	}
+-	return Workspace{Path: tmp}, nil
++	return Workspace{Path: tmp, SourcePath: root}, nil
++}
++
++func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec) error {
++	if !requiresLocalNodeDependencies(command.Argv) || workspace.SourcePath == "" {
++		return nil
++	}
++	if _, err := os.Stat(filepath.Join(workspace.Path, ".pnp.cjs")); err == nil {
++		return nil
++	}
++
++	relCwd := command.Cwd
++	if relCwd == "" || relCwd == "." {
++		relCwd = "."
++	}
++	if _, err := safeRelativePath(workspace.SourcePath, relCwd); err != nil {
++		return err
++	}
++	if _, err := safeRelativePath(workspace.Path, relCwd); err != nil {
++		return err
++	}
++
++	candidates := [][2]string{{workspace.SourcePath, workspace.Path}}
++	if relCwd != "." {
++		candidates = append(candidates, [2]string{
++			filepath.Join(workspace.SourcePath, filepath.Clean(relCwd)),
++			filepath.Join(workspace.Path, filepath.Clean(relCwd)),
++		})
++	}
++	copied := false
++	for _, candidate := range candidates {
++		sourceModules := filepath.Join(candidate[0], "node_modules")
++		destModules := filepath.Join(candidate[1], "node_modules")
++		if info, err := os.Stat(destModules); err == nil && info.IsDir() {
++			copied = true
++			continue
++		}
++		info, err := os.Stat(sourceModules)
++		if err != nil || !info.IsDir() {
++			continue
++		}
++		if err := copyDependencyTree(sourceModules, destModules, workspace.SourcePath, workspace.Path); err != nil {
++			return fmt.Errorf("prepare sandbox node dependencies: %w", err)
++		}
++		copied = true
++	}
++	if copied {
++		return nil
++	}
++	return errors.New("sandbox node dependencies unavailable: node_modules was not found in the project; install dependencies on the host before Protected execution")
++}
++
++func requiresLocalNodeDependencies(argv []string) bool {
++	if len(argv) == 0 {
++		return false
++	}
++	tool := filepath.Base(argv[0])
++	switch tool {
++	case "npx":
++		return true
++	case "npm":
++		if len(argv) < 2 {
++			return false
++		}
++		switch argv[1] {
++		case "run", "run-script", "test", "start", "exec":
++			return true
++		}
++	case "pnpm", "yarn", "bun":
++		if len(argv) < 2 {
++			return false
++		}
++		switch argv[1] {
++		case "install", "add", "remove", "update", "config", "cache", "--version", "-v":
++			return false
++		default:
++			return true
++		}
++	}
++	return false
++}
++
++func copyDependencyTree(source, dest, sourceRoot, destRoot string) error {
++	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
++		if walkErr != nil {
++			return walkErr
++		}
++		rel, err := filepath.Rel(source, path)
++		if err != nil {
++			return err
++		}
++		dst := dest
++		if rel != "." {
++			dst = filepath.Join(dest, rel)
++		}
++		if entry.Type()&os.ModeSymlink != 0 {
++			target, err := os.Readlink(path)
++			if err != nil {
++				return err
++			}
++			resolved := target
++			if !filepath.IsAbs(resolved) {
++				resolved = filepath.Join(filepath.Dir(path), resolved)
++			}
++			resolved = filepath.Clean(resolved)
++			targetRel, err := filepath.Rel(sourceRoot, resolved)
++			if err != nil || targetRel == ".." || strings.HasPrefix(targetRel, ".."+string(filepath.Separator)) {
++				return fmt.Errorf("dependency symlink escapes project: %s -> %s", path, target)
++			}
++			destTarget := filepath.Join(destRoot, targetRel)
++			rewritten, err := filepath.Rel(filepath.Dir(dst), destTarget)
++			if err != nil {
++				return err
++			}
++			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
++				return err
++			}
++			return os.Symlink(rewritten, dst)
++		}
++		if entry.IsDir() {
++			return os.MkdirAll(dst, 0o755)
++		}
++		info, err := entry.Info()
++		if err != nil {
++			return err
++		}
++		if !info.Mode().IsRegular() {
++			return nil
++		}
++		return copyFile(path, dst, info.Mode().Perm())
++	})
++}
++
++func safeRelativePath(root, relative string) (string, error) {
++	joined := filepath.Join(root, filepath.Clean(relative))
++	rel, err := filepath.Rel(root, joined)
++	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
++		return "", fmt.Errorf("cwd escapes project")
++	}
++	return joined, nil
+ }
+ 
+ func initializeWorkspaceGit(root string) error {
+diff --git a/services/backend/internal/sandbox/copy_test.go b/services/backend/internal/sandbox/copy_test.go
+index 623dff7..dc7801a 100644
+--- a/services/backend/internal/sandbox/copy_test.go
++++ b/services/backend/internal/sandbox/copy_test.go
+@@ -7,6 +7,8 @@ import (
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
++
++	"kernl.local/harness/backend/internal/domain"
+ )
+ 
+ func TestCopyProjectExcludesSecrets(t *testing.T) {
+@@ -107,3 +109,137 @@ func TestLocalRunnerApplyPatchReportsGitDiagnostic(t *testing.T) {
+ 		t.Fatalf("expected useful git diagnostic, got %v", err)
+ 	}
+ }
++
++func TestPrepareCommandDependenciesCopiesNodeModulesLazily(t *testing.T) {
++	if _, err := exec.LookPath("git"); err != nil {
++		t.Skip("git is not installed")
++	}
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"build":"tsc --noEmit"}}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	binDir := filepath.Join(root, "node_modules", ".bin")
++	pkgDir := filepath.Join(root, "node_modules", "typescript", "bin")
++	if err := os.MkdirAll(binDir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(pkgDir, "tsc"), []byte("#!/usr/bin/env node\n"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink("../typescript/bin/tsc", filepath.Join(binDir, "tsc")); err != nil {
++		t.Fatal(err)
++	}
++
++	ws, err := copyProject(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer os.RemoveAll(ws.Path)
++	if _, err := os.Stat(filepath.Join(ws.Path, "node_modules")); !os.IsNotExist(err) {
++		t.Fatal("node_modules must stay out of the initial sandbox copy")
++	}
++
++	command := domain.CommandSpec{Argv: []string{"npm", "run", "build"}, Cwd: "."}
++	if err := prepareCommandDependencies(ws, command); err != nil {
++		t.Fatal(err)
++	}
++	copiedLink := filepath.Join(ws.Path, "node_modules", ".bin", "tsc")
++	target, err := os.Readlink(copiedLink)
++	if err != nil {
++		t.Fatalf("expected copied .bin symlink: %v", err)
++	}
++	resolved := filepath.Clean(filepath.Join(filepath.Dir(copiedLink), target))
++	data, err := os.ReadFile(resolved)
++	if err != nil {
++		t.Fatalf("copied dependency target is unusable: %v", err)
++	}
++	if !strings.Contains(string(data), "/usr/bin/env node") {
++		t.Fatalf("unexpected copied dependency: %q", data)
++	}
++}
++
++func TestPrepareCommandDependenciesExplainsMissingNodeModules(t *testing.T) {
++	if _, err := exec.LookPath("git"); err != nil {
++		t.Skip("git is not installed")
++	}
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"build":"tsc --noEmit"}}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	ws, err := copyProject(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer os.RemoveAll(ws.Path)
++	err = prepareCommandDependencies(ws, domain.CommandSpec{Argv: []string{"npm", "run", "build"}, Cwd: "."})
++	if err == nil || !strings.Contains(err.Error(), "install dependencies on the host") {
++		t.Fatalf("expected actionable dependency error, got %v", err)
++	}
++}
++
++func TestCopyDependencyTreeRejectsSymlinkOutsideProject(t *testing.T) {
++	root := t.TempDir()
++	external := t.TempDir()
++	modules := filepath.Join(root, "node_modules")
++	if err := os.MkdirAll(modules, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(external, filepath.Join(modules, "linked-package")); err != nil {
++		t.Fatal(err)
++	}
++	dest := t.TempDir()
++	err := copyDependencyTree(modules, filepath.Join(dest, "node_modules"), root, dest)
++	if err == nil || !strings.Contains(err.Error(), "dependency symlink escapes project") {
++		t.Fatalf("expected external dependency symlink to be rejected, got %v", err)
++	}
++}
++
++func TestLocalRunnerNpmRunUsesHydratedNodeModules(t *testing.T) {
++	if _, err := exec.LookPath("git"); err != nil {
++		t.Skip("git is not installed")
++	}
++	if _, err := exec.LookPath("npm"); err != nil {
++		t.Skip("npm is not installed")
++	}
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"sandbox-deps-test","version":"1.0.0","scripts":{"build":"tsc --noEmit"}}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	binDir := filepath.Join(root, "node_modules", ".bin")
++	pkgDir := filepath.Join(root, "node_modules", "typescript", "bin")
++	if err := os.MkdirAll(binDir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	fakeTSC := filepath.Join(pkgDir, "tsc")
++	if err := os.WriteFile(fakeTSC, []byte("#!/bin/sh\necho hydrated-tsc\nexit 0\n"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink("../typescript/bin/tsc", filepath.Join(binDir, "tsc")); err != nil {
++		t.Fatal(err)
++	}
++
++	runner := NewLocalRunner()
++	workspace, err := runner.Prepare(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer runner.Cleanup(workspace)
++	result, err := runner.Run(context.Background(), workspace, domain.CommandSpec{
++		Argv:              []string{"npm", "run", "build"},
++		Cwd:               ".",
++		TimeoutSeconds:    30,
++		ExpectedExitCodes: []int{0},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !result.Success || !strings.Contains(result.Stdout, "hydrated-tsc") {
++		t.Fatalf("npm build did not use hydrated dependencies: success=%v stdout=%q stderr=%q", result.Success, result.Stdout, result.Stderr)
++	}
++}
+diff --git a/services/backend/internal/sandbox/docker.go b/services/backend/internal/sandbox/docker.go
+index 7e62cf8..7ed6cae 100644
+--- a/services/backend/internal/sandbox/docker.go
++++ b/services/backend/internal/sandbox/docker.go
+@@ -40,6 +40,9 @@ func (r *DockerRunner) Run(ctx context.Context, workspace Workspace, command dom
+ 	if _, err := safeWorkspaceCwd(workspace.Path, command.Cwd); err != nil {
+ 		return domain.CommandResult{}, err
+ 	}
++	if err := prepareCommandDependencies(workspace, command); err != nil {
++		return domain.CommandResult{}, err
++	}
+ 	if _, err := exec.LookPath("docker"); err != nil {
+ 		return domain.CommandResult{}, errors.New("docker CLI not found; build/install Docker or use explicitly-enabled local dev sandbox")
+ 	}
+diff --git a/services/backend/internal/sandbox/host.go b/services/backend/internal/sandbox/host.go
+index 53a5e04..b03aa85 100644
+--- a/services/backend/internal/sandbox/host.go
++++ b/services/backend/internal/sandbox/host.go
+@@ -29,7 +29,7 @@ func (r *HostRunner) Prepare(_ context.Context, projectRoot string) (Workspace,
+ 	if err != nil || !info.IsDir() {
+ 		return Workspace{}, errors.New("host project path must be an existing directory")
+ 	}
+-	return Workspace{Path: root}, nil
++	return Workspace{Path: root, SourcePath: root}, nil
+ }
+ 
+ func (r *HostRunner) Cleanup(Workspace) error { return nil }
+diff --git a/services/backend/internal/sandbox/local.go b/services/backend/internal/sandbox/local.go
+index f105662..7017c5c 100644
+--- a/services/backend/internal/sandbox/local.go
++++ b/services/backend/internal/sandbox/local.go
+@@ -36,6 +36,9 @@ func (r *LocalRunner) Run(ctx context.Context, workspace Workspace, command doma
+ 	if err != nil {
+ 		return domain.CommandResult{}, err
+ 	}
++	if err := prepareCommandDependencies(workspace, command); err != nil {
++		return domain.CommandResult{}, err
++	}
+ 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(command.TimeoutSeconds)*time.Second)
+ 	defer cancel()
+ 	started := time.Now()
+diff --git a/services/backend/internal/sandbox/runner.go b/services/backend/internal/sandbox/runner.go
+index da2e16b..55a6e78 100644
+--- a/services/backend/internal/sandbox/runner.go
++++ b/services/backend/internal/sandbox/runner.go
+@@ -6,7 +6,10 @@ import (
+ 	"kernl.local/harness/backend/internal/domain"
+ )
+ 
+-type Workspace struct{ Path string }
++type Workspace struct {
++	Path       string
++	SourcePath string
++}
+ 
+ type Runner interface {
+ 	Prepare(ctx context.Context, projectRoot string) (Workspace, error)

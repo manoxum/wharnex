@@ -1,0 +1,239 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6ae165097e3f1184e61d5d1ffa2857511a57bc28..c556e317cd9ab400b1cf9edc314cfba94e05190a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,12 @@
+ # Changelog
+ 
++## v1.2.14.2 — Definitive ChatGPT conversation binding
++
++- New Harness Chats no longer adopt whichever `/c/...` conversation happens to be visible while the ChatGPT view initializes.
++- An unbound Harness Chat is armed only after the trusted ChatGPT new-chat/home surface is observed; the first subsequent concrete `/c/<id>` URL becomes the automatic link.
++- Returning to an unbound cached chat preserves the home DOM/draft when already on the new-chat surface, while a stale concrete conversation is reset to home before binding can arm.
++- Existing linked chats keep explicit mismatch handling: `Vincular esta conversa` appears only when the current concrete conversation differs from the stored link.
++
+ ## Unreleased — Harness chat attachments
+ 
+ - The Desktop Harness composer accepts up to 10 user-selected files (25 MiB each, 100 MiB total).
+diff --git a/services/desktop/main.mjs b/services/desktop/main.mjs
+index 6288eb775418d14f2e72f5f76a4e521561be2f4b..34df18d834c1c2f9ec8e1f2c996dbadd1d807216 100644
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -423,14 +423,17 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '') {
+   return { ok: true, cacheKey: key }
+ }
+ 
+-function sameConversationURL(left, right) {
++function chatGPTConversationID(value) {
+   try {
+-    const a = requireTrustedChatGPTURL(left)
+-    const b = requireTrustedChatGPTURL(right)
+-    const ma = /^\/c\/([^/]+)/.exec(new URL(a).pathname)
+-    const mb = /^\/c\/([^/]+)/.exec(new URL(b).pathname)
+-    return Boolean(ma?.[1] && mb?.[1] && ma[1] === mb[1])
+-  } catch { return false }
++    const trusted = requireTrustedChatGPTURL(value)
++    return /^\/c\/([^/]+)/.exec(new URL(trusted).pathname)?.[1] || ''
++  } catch { return '' }
++}
++
++function sameConversationURL(left, right) {
++  const a = chatGPTConversationID(left)
++  const b = chatGPTConversationID(right)
++  return Boolean(a && b && a === b)
+ }
+ 
+ function createWindow() {
+@@ -493,8 +496,9 @@ function registerIPC() {
+     const wc = entry.view.webContents
+     const current = wc.getURL()
+     const targetIsHome = target === CHATGPT_URL
+-    const keepCachedDOM = targetIsHome && isTrustedChatGPTOrigin(current) && current !== 'about:blank'
+-    if (!keepCachedDOM && current !== target && !sameConversationURL(current, target)) {
++    const resetToHome = Boolean(request?.resetToHomeIfConversation && targetIsHome && chatGPTConversationID(current))
++    const keepCachedDOM = !resetToHome && targetIsHome && isTrustedChatGPTOrigin(current) && current !== 'about:blank'
++    if (resetToHome || (!keepCachedDOM && current !== target && !sameConversationURL(current, target))) {
+       await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
+     }
+     return currentChatGPTState()
+diff --git a/services/desktop/preload.cjs b/services/desktop/preload.cjs
+index bd0c0e3dd503b21f8601add7ff7566828aff9148..8a31710e6dfcf79c0025bd9f49c3403344867d62 100644
+--- a/services/desktop/preload.cjs
++++ b/services/desktop/preload.cjs
+@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
+     show: (bounds, cacheKey) => invoke('wharness:chatgpt:show', { bounds, cacheKey }),
+     hide: () => invoke('wharness:chatgpt:hide'),
+     setBounds: (bounds) => invoke('wharness:chatgpt:set-bounds', bounds),
+-    navigate: (url, cacheKey) => invoke('wharness:chatgpt:navigate', { url: String(url), cacheKey }),
++    navigate: (url, cacheKey, options = {}) => invoke('wharness:chatgpt:navigate', { url: String(url), cacheKey, resetToHomeIfConversation: Boolean(options?.resetToHomeIfConversation) }),
+     reload: () => invoke('wharness:chatgpt:reload'),
+     focus: () => invoke('wharness:chatgpt:focus'),
+     back: () => invoke('wharness:chatgpt:back'),
+diff --git a/services/frontend/src/components/ChatGPTDesktopPane.tsx b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+index 4d6ee30d9b759e1544d227d6646f6d2205337f9c..c57a9cab3ee681e91bacafb0839756e5331c87d5 100644
+--- a/services/frontend/src/components/ChatGPTDesktopPane.tsx
++++ b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+@@ -1,7 +1,7 @@
+ import { useEffect, useRef, useState } from 'react'
+ import type { Session } from '../types'
+ import { api } from '../lib/api'
+-import { chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../lib/desktop'
++import { chatgptAutoBindingDecision, chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../lib/desktop'
+ import { Icon } from './Icon'
+ import { StatusPill } from './StatusPill'
+ 
+@@ -21,7 +21,7 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
+   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
+ }) {
+   const hostRef = useRef<HTMLDivElement>(null)
+-  const bindingReadyRef = useRef(false)
++  const newChatSurfaceSeenRef = useRef(false)
+   const linkedURLRef = useRef(chatgptUrl)
+   const onURLRef = useRef(onChatGPTURL)
+   const onPlanFileRef = useRef(onPlanFile)
+@@ -48,11 +48,13 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
+     void bridge.chatgpt.state().then(setState)
+     const unsubscribe = bridge.chatgpt.onState((next) => {
+       setState(next)
+-      const conversation = chatgptConversationURL(next.url)
+-      if (bindingReadyRef.current && !linkedURLRef.current && conversation) {
+-        linkedURLRef.current = conversation
+-        onURLRef.current(conversation)
+-        setNotice('Conversa ChatGPT vinculada automaticamente a este chat do Harness.')
++      const decision = chatgptAutoBindingDecision(linkedURLRef.current, next.url, next.loading, newChatSurfaceSeenRef.current)
++      newChatSurfaceSeenRef.current = decision.newChatSurfaceSeen
++      if (decision.bindURL) {
++        linkedURLRef.current = decision.bindURL
++        onURLRef.current(decision.bindURL)
++        newChatSurfaceSeenRef.current = false
++        setNotice('Conversa ChatGPT definitiva vinculada automaticamente a este chat do Harness.')
+       }
+     })
+     const unsubscribeAuth = bridge.chatgpt.onExternalAuth(({ provider }) => {
+@@ -83,28 +85,31 @@ export function ChatGPTDesktopPane({ session, manualPrompt, busy, chatId, chatTi
+     if (!bridge || !chatId) return
+     setManualJSON('')
+     let alive = true
+-    bindingReadyRef.current = false
++    linkedURLRef.current = chatgptUrl
++    newChatSurfaceSeenRef.current = false
+     setLinkReady(false)
+     const target = chatgptUrl || CHATGPT_HOME
+-    setNotice(chatgptUrl ? `A recuperar a conversa ChatGPT vinculada a “${chatTitle}”…` : `Novo chat “${chatTitle}”: a primeira conversa criada no ChatGPT será vinculada automaticamente.`)
+-    void bridge.chatgpt.navigate(target, chatId).then((next) => {
++    setNotice(chatgptUrl ? `A recuperar a conversa ChatGPT vinculada a “${chatTitle}”…` : `Novo chat “${chatTitle}”: aguardando o ChatGPT criar uma URL definitiva /c/... antes de vincular.`)
++    void bridge.chatgpt.navigate(target, chatId, { resetToHomeIfConversation: !chatgptUrl }).then((next) => {
+       if (!alive) return
+       setState(next)
+-      bindingReadyRef.current = true
+       setLinkReady(true)
+-      const conversation = chatgptConversationURL(next.url)
+       const linkedConversation = chatgptConversationURL(linkedURLRef.current || '')
+-      if (!linkedConversation && conversation) {
+-        linkedURLRef.current = conversation
+-        onURLRef.current(conversation)
+-      } else if (linkedConversation && linkedURLRef.current !== linkedConversation) {
++      if (linkedConversation && linkedURLRef.current !== linkedConversation) {
+         linkedURLRef.current = linkedConversation
+         onURLRef.current(linkedConversation)
+       }
++      if (!linkedConversation) {
++        const decision = chatgptAutoBindingDecision(undefined, next.url, next.loading, false)
++        newChatSurfaceSeenRef.current = decision.newChatSurfaceSeen
++        setNotice(decision.newChatSurfaceSeen
++          ? `Novo chat “${chatTitle}” pronto. O vínculo será criado somente quando o ChatGPT atribuir a URL definitiva da conversa.`
++          : `Novo chat “${chatTitle}” ainda sem vínculo. A conversa que já estava aberta não será assumida; aguardando a página de novo chat e depois uma URL /c/....`)
++      }
+     }).catch((error) => {
+       if (alive) setNotice(error instanceof Error ? error.message : 'Não foi possível abrir a conversa ChatGPT vinculada.')
+     })
+-    return () => { alive = false; bindingReadyRef.current = false; setLinkReady(false) }
++    return () => { alive = false; newChatSurfaceSeenRef.current = false; setLinkReady(false) }
+   }, [bridge, chatId, chatTitle, chatgptUrl])
+ 
+   async function copyContext() {
+diff --git a/services/frontend/src/desktop.d.ts b/services/frontend/src/desktop.d.ts
+index 13aae9a10309ea303c2141e682f08493bbe8ec16..5b47fffbef96fc0ed1367baf4d59797aea08f0ef 100644
+--- a/services/frontend/src/desktop.d.ts
++++ b/services/frontend/src/desktop.d.ts
+@@ -14,7 +14,7 @@ interface WharnessDesktopBridge {
+     show(bounds: DesktopBounds, cacheKey: string): Promise<{ ok: boolean }>
+     hide(): Promise<{ ok: boolean }>
+     setBounds(bounds: DesktopBounds): Promise<{ ok: boolean }>
+-    navigate(url: string, cacheKey: string): Promise<DesktopChatGPTState>
++    navigate(url: string, cacheKey: string, options?: { resetToHomeIfConversation?: boolean }): Promise<DesktopChatGPTState>
+     reload(): Promise<{ ok: boolean }>
+     focus(): Promise<{ ok: boolean }>
+     back(): Promise<{ ok: boolean }>
+diff --git a/services/frontend/src/lib/desktop.test.ts b/services/frontend/src/lib/desktop.test.ts
+index cfa8ff83e1f81275f93579b393513258b359cf12..dc2f79e95908149e87f767fb208da63d55894d10 100644
+--- a/services/frontend/src/lib/desktop.test.ts
++++ b/services/frontend/src/lib/desktop.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from 'vitest'
+-import { chatgptConversationURL, formatBytes, sameChatGPTConversation } from './desktop'
++import { chatgptAutoBindingDecision, chatgptConversationURL, formatBytes, isChatGPTNewChatURL, sameChatGPTConversation } from './desktop'
+ 
+ describe('desktop helpers', () => {
+   it('formats context bundle sizes', () => {
+@@ -23,3 +23,30 @@ describe('desktop helpers', () => {
+     expect(sameChatGPTConversation('https://chatgpt.com/', 'https://chatgpt.com/c/abc')).toBe(false)
+   })
+ })
++
++
++describe('ChatGPT new Harness-chat binding', () => {
++  it('recognizes only the trusted home surface as an unbound new-chat surface', () => {
++    expect(isChatGPTNewChatURL('https://chatgpt.com/')).toBe(true)
++    expect(isChatGPTNewChatURL('https://chatgpt.com/?model=auto')).toBe(true)
++    expect(isChatGPTNewChatURL('https://chatgpt.com/c/existing')).toBe(false)
++    expect(isChatGPTNewChatURL('https://chatgpt.com/library')).toBe(false)
++  })
++
++  it('does not bind a conversation that was already open before the new-chat surface is observed', () => {
++    const initial = chatgptAutoBindingDecision(undefined, 'https://chatgpt.com/c/existing', false, false)
++    expect(initial).toEqual({ newChatSurfaceSeen: false, bindURL: '' })
++  })
++
++  it('binds only after home/new-chat is observed and ChatGPT assigns a concrete conversation URL', () => {
++    const home = chatgptAutoBindingDecision(undefined, 'https://chatgpt.com/', false, false)
++    expect(home).toEqual({ newChatSurfaceSeen: true, bindURL: '' })
++    const created = chatgptAutoBindingDecision(undefined, 'https://chatgpt.com/c/new-conversation?model=auto', false, home.newChatSurfaceSeen)
++    expect(created.bindURL).toBe('https://chatgpt.com/c/new-conversation')
++  })
++
++  it('never auto-rebinds a Harness chat that already has a linked conversation', () => {
++    const decision = chatgptAutoBindingDecision('https://chatgpt.com/c/linked', 'https://chatgpt.com/c/other', false, true)
++    expect(decision.bindURL).toBe('')
++  })
++})
+diff --git a/services/frontend/src/lib/desktop.ts b/services/frontend/src/lib/desktop.ts
+index be7957892b1b076d1b1a8b7e54e15685824b844a..8bcc9b6a0294ea6472c256fe2238dc7aadbbd2a5 100644
+--- a/services/frontend/src/lib/desktop.ts
++++ b/services/frontend/src/lib/desktop.ts
+@@ -34,6 +34,25 @@ export function chatgptConversationURL(value: string) {
+   } catch { return '' }
+ }
+ 
++
++export function isChatGPTNewChatURL(value: string) {
++  try {
++    const url = new URL(value)
++    const host = url.hostname.toLowerCase()
++    const trusted = url.protocol === 'https:' && (host === 'chatgpt.com' || host.endsWith('.chatgpt.com'))
++    return trusted && (url.pathname === '/' || url.pathname === '')
++  } catch { return false }
++}
++
++export function chatgptAutoBindingDecision(linkedURL: string | undefined, currentURL: string, loading: boolean, newChatSurfaceSeen: boolean) {
++  const linkedConversation = chatgptConversationURL(linkedURL || '')
++  if (linkedConversation || loading) return { newChatSurfaceSeen, bindURL: '' }
++  if (isChatGPTNewChatURL(currentURL)) return { newChatSurfaceSeen: true, bindURL: '' }
++  const currentConversation = chatgptConversationURL(currentURL)
++  if (newChatSurfaceSeen && currentConversation) return { newChatSurfaceSeen: true, bindURL: currentConversation }
++  return { newChatSurfaceSeen, bindURL: '' }
++}
++
+ export function sameChatGPTConversation(left?: string, right?: string) {
+   const a = chatgptConversationURL(left || '')
+   const b = chatgptConversationURL(right || '')

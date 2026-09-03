@@ -250,7 +250,7 @@ func repairMalformedPatchStrings(raw []byte) ([]byte, bool, error) {
 			continue
 		}
 		contentStart := valueStart + 1
-		if contentStart >= len(out) || !(bytes.HasPrefix(out[contentStart:], []byte("diff --git ")) || bytes.HasPrefix(out[contentStart:], []byte("*** Begin Patch"))) {
+		if contentStart >= len(out) || !isSupportedLoosePatchPrefix(out[contentStart:]) {
 			searchFrom = contentStart
 			continue
 		}
@@ -274,6 +274,13 @@ func repairMalformedPatchStrings(raw []byte) ([]byte, bool, error) {
 		searchFrom = valueStart + len(encoded)
 	}
 	return out, changed, nil
+}
+
+func isSupportedLoosePatchPrefix(value []byte) bool {
+	return bytes.HasPrefix(value, []byte("diff --git ")) ||
+		bytes.HasPrefix(value, []byte("--- a/")) ||
+		bytes.HasPrefix(value, []byte("--- /dev/null")) ||
+		bytes.HasPrefix(value, []byte("*** Begin Patch"))
 }
 
 func decodeLooseJSONStringFragment(fragment []byte) (string, error) {

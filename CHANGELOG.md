@@ -1,5 +1,83 @@
 # Changelog
 
+## Unreleased — ChatGPT submit acknowledgement hotfix
+
+- Auto mode emits the native Enter submit gesture exactly once after attachments settle; an observation timeout is now diagnostic instead of triggering repeated Enter presses.
+- A ChatGPT network-observation miss no longer turns an already-dispatched prompt into a `prepare-prompt` IPC failure or causes the attachment draft to be repeatedly disturbed.
+- Confirmed conversation POST observation is still logged when available, while file-first result download remains the authoritative completion signal.
+
+## Unreleased — intent-aware agent turns
+
+- Adds the structured `harness.turn/v1` envelope with answer, clarification, investigation, change, and blocked outcomes.
+- Questions and non-mutating analysis now return their complete message to the Harness transcript without entering execution or Apply.
+- Manual ChatGPT result bundles use `turn.json`; only change bundles include `plan.json` and patches. Legacy plan-only bundles remain compatible.
+- Supported provider results bypass browser downloads, and provider change plans complete the Auto sandbox/verification/Apply pipeline directly.
+- A new request supersedes older pending manual requests so delayed stale bundles cannot execute later in Auto mode.
+- The embedded ChatGPT UI now states that the remote surface must initiate the result download; Wharness imports it automatically after it starts.
+- The Plan inspector now tolerates legacy persisted plans whose empty operation or verification arrays were serialized as `null`; new plans are normalized to arrays before persistence.
+
+## v1.2.14.2 — Definitive ChatGPT conversation binding
+
+- New Harness Chats no longer adopt whichever `/c/...` conversation happens to be visible while the ChatGPT view initializes.
+- An unbound Harness Chat is armed only after the trusted ChatGPT new-chat/home surface is observed; the first subsequent concrete `/c/<id>` URL becomes the automatic link.
+- Returning to an unbound cached chat preserves the home DOM/draft when already on the new-chat surface, while a stale concrete conversation is reset to home before binding can arm.
+- Existing linked chats keep explicit mismatch handling: `Vincular esta conversa` appears only when the current concrete conversation differs from the stored link.
+
+## Unreleased — Harness chat attachments
+
+- The Desktop Harness composer accepts up to 10 user-selected files (25 MiB each, 100 MiB total).
+- `Ctrl+V` in the Harness composer now converts files from the native clipboard into attachments.
+- Enter prepares the linked ChatGPT draft with the refreshed project context ZIP, selected files, and planner prompt.
+- A separate “Confirmar e enviar” action emits Enter only after the user visually confirms the attachments in ChatGPT; Wharness does not inspect the remote DOM.
+- In explicit project Auto mode, Desktop now submits the prepared ChatGPT prompt after a bounded attachment settle delay and waits for the validated bundle download event.
+- Manual planner prompts now require the final visible response to contain only the downloadable bundle, with no descriptive text, Markdown, inline JSON, or patches.
+- Harness chat attachments are now persisted in private Desktop application storage before submission; transcript entries keep durable opaque references so reload/restart restores the files with the conversation.
+- Image files get persisted thumbnails when Electron can decode them; other file types fall back to the native OS file icon. Persisted attachment cards can be opened explicitly from chat history.
+
+## v1.2.12.1 — Baseline diagnostic fingerprints
+
+- Protected verification now compares structured TypeScript diagnostics when raw output differs only by runner/npm noise.
+- Existing TypeScript failures are tolerated only when the post-patch diagnostic set contains no new error fingerprint.
+- Unstructured verification failures keep the previous strict output comparison.
+
+## v1.2.12 — durable agent state + differential verification + ChatGPT DOM cache
+
+- Persiste sessões do backend em `.harness/state/sessions.json`, incluindo plano validado, policy, request ids pendentes, último prompt e último resultado de execução.
+- Reiniciar `make stop` / `make start` deixa de apagar o plano/requisição do Harness Chat.
+- Protected Mode compara um gate que falhou com uma sandbox pristine; uma falha preexistente só é tolerada quando exit code e diagnóstico permanecem idênticos.
+- Regressões novas ou diagnósticos diferentes continuam a bloquear a execução.
+- ChatGPT Desktop mantém até 20 `WebContentsView` vivos em LRU, um por Harness Chat, preservando o DOM em memória nas trocas de chat. O botão Reload continua a forçar refresh do chat ativo.
+
+## 1.2.11 — Protected sandbox dependency hydration (2026-09-03)
+
+### Fixed
+- Protected Node.js verification no longer fails with `tsc: not found` merely because `node_modules` is excluded from the context/sandbox snapshot.
+- `npm run`, `npm test`, `npm exec`, `npx`, and equivalent pnpm/yarn/bun script execution lazily hydrate local `node_modules` into the isolated workspace before the command runs.
+- Missing host dependencies now produce an actionable `sandbox node dependencies unavailable` error instead of a misleading package-script exit 127.
+
+### Security
+- `node_modules` remains excluded from model context and the initial sandbox copy.
+- Dependencies are copied into the temporary sandbox only when a local Node command needs them; the real project is never mounted into the container.
+- Dependency symlinks are rewritten only when their targets stay inside the project tree; symlinks escaping the project are rejected.
+
+## 1.2.9 — File-first planner delivery (2026-09-02)
+
+### Added
+- Manual ChatGPT planner responses are delivered as downloadable `wharness-plan-<request_id>.json` files.
+- Electron intercepts only matching plan downloads from the embedded ChatGPT WebContentsView.
+- Downloaded plan files are limited to 2 MiB, validated as JSON, checked for `harness.execution/v1`, and must match the request id encoded in the filename.
+- Plan downloads are imported automatically into the Harness Chat owning the pending request and the Inspector switches to the Plan tab after successful validation.
+
+### Changed
+- The planner prompt requires the model to serialize the plan with a real JSON encoder instead of hand-writing JSON, preventing TSX/CSS quotes from corrupting transport.
+- Clipboard/manual JSON remains available only as a fallback.
+- Harness Chat deletion remains local: removing a chat closes its backend session and unlinks its ChatGPT URL without deleting the remote ChatGPT conversation.
+
+### Security
+- Non-Wharness downloads remain normal downloads and are not read by the harness.
+- Temporary plan files are deleted after import.
+- The backend remains authoritative for request correlation, protocol validation, policy evaluation and execution.
+
 ## v1.2.8.4
 
 - Repair malformed manual-plan quotes in both `summary` and `patch` string fields before strict v1 validation.
@@ -121,3 +199,10 @@
 - Route Google/Microsoft/Apple OAuth popups from the embedded ChatGPT surface to the system browser.
 - Add an explicit Open in browser control to the ChatGPT toolbar.
 - Keep Chrome/Electron cookie stores isolated; no browser-profile or cookie import is performed.
+
+## v1.2.10 — Chat affinity canonicalization + file-first hardening
+
+- Canonicaliza URLs `/c/<id>` antes de comparar o chat atual com o chat vinculado, ignorando trailing slash, query, fragment e subdomínio ChatGPT.
+- O aviso “Está a visualizar outra conversa” só aparece depois da navegação estabilizar e apenas quando os IDs de conversa realmente diferem.
+- Reforça o planner manual para criar um ficheiro real `wharness-plan-<request_id>.json` com a ferramenta de geração de ficheiros/Python e proíbe fallback inline.
+- O importador manual passa a reparar também patches unified diff que começam diretamente em `--- a/...`, além de `diff --git`.

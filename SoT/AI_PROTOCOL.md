@@ -1,12 +1,25 @@
 # AI Protocol SoT
 
-## Protocol identifier
+## Protocol identifiers
 
-`harness.execution/v1`
+- `harness.turn/v1`: classifies one conversational agent outcome.
+- `harness.execution/v1`: describes executable project work for a `change` turn.
+
+## Agent turn rule
+
+Every provider result MUST first normalize to a structured agent turn with one of these kinds:
+
+- `answer`: a direct project-aware answer;
+- `clarification`: a concise question needed before proceeding;
+- `investigation`: non-mutating analysis based on available evidence;
+- `change`: an explicitly requested project mutation and the only kind that may carry an execution plan;
+- `blocked`: a safe explanation of why the request cannot proceed.
+
+Answer, clarification, investigation, and blocked turns MUST NOT enter Policy, execution, verification, or Apply. A question or diagnosis MUST NOT become a change merely because project context is attached or Auto is enabled. Ambiguous mutation intent defaults to clarification/non-mutation.
 
 ## AI output rule
 
-The planner returns a single structured JSON `ExecutionPlan`. Markdown command extraction and regex-based shell scraping are forbidden.
+The provider returns a structured agent turn. Only `change` carries a structured JSON `ExecutionPlan`. Markdown command extraction and regex-based shell scraping are forbidden.
 
 ## Command representation
 
@@ -31,4 +44,6 @@ Source mutation uses unified diff text in `apply_patch` operations. Paths must b
 
 ## ChatGPT web UI boundary
 
-The Harness MUST NOT depend on DOM scraping or programmatic output extraction from the ChatGPT consumer web UI. Automatic operation uses a supported planner provider adapter (OpenAI Responses API in v1.1). Manual use may open ChatGPT in a separate browser tab and accept a pasted structured plan.
+The Harness MUST NOT depend on DOM scraping or programmatic output extraction from the ChatGPT consumer web UI. Automatic operation uses a supported planner provider adapter (OpenAI Responses API in v1.1). Manual use may open ChatGPT in a separate browser tab and accept a downloaded structured turn bundle.
+
+Desktop manual transport may prepare ChatGPT input through native focus/paste events, including bounded user-selected files and the context ZIP. This is transport only and never reads the remote DOM or response. Manual automation mode requires explicit confirmation before submission; project Auto mode may submit only after transport-level upload confirmation as defined by `AUTOMATION_BUNDLE.md`. Initiating generated-result downloads remains controlled by the ChatGPT surface.

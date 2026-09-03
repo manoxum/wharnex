@@ -1,0 +1,613 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index e89c597..35ef87e 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,11 @@
++## v1.2.13 — Automatic repair loop
++
++- Execution failures now create a fresh bounded repair request with captured command/verification diagnostics and a new request_id.
++- Manual/Desktop repair requests are persisted as `repair_pending` and delivered through the existing file-first planner contract.
++- The Desktop switches to the linked ChatGPT chat, focuses the composer, pastes the prepared repair prompt and presses Enter automatically; it does not inspect or scrape ChatGPT output.
++- Repair loops are capped at three consecutive attempts for one user task; a successful execution or a new user message resets the counter.
++- New repair plans are never auto-approved or auto-executed in Wharness; the normal policy/approval flow remains authoritative.
++
+ ## v1.2.12.1 — Baseline diagnostic fingerprints
+ 
+ - Protected verification now compares structured TypeScript diagnostics when raw output differs only by runner/npm noise.
+diff --git a/README.md b/README.md
+index 58bde02..61098a4 100644
+--- a/README.md
++++ b/README.md
+@@ -155,6 +155,8 @@ The default remains `HARNESS_PLANNER=manual`.
+ 4. Use **Copiar contexto ZIP** and paste/attach the ZIP in ChatGPT.
+ 5. Use **Copiar prompt** and send it. The prompt requires ChatGPT to create a downloadable file named exactly `wharness-plan-<request_id>.json`.
+ 6. Click **Download** on that file in ChatGPT. Electron intercepts only matching Wharness plan filenames, stores the file temporarily, verifies size/JSON/protocol/request-id consistency and forwards it to the trusted local UI.
++
++If execution fails because the candidate plan introduces a new command/verification failure, Wharness starts a bounded automatic repair loop. It captures the failure evidence, creates a fresh request id, prepares a new file-first planner prompt, switches to the same linked ChatGPT view and submits that repair prompt with input events. ChatGPT output is still never scraped; the corrected plan returns through the normal `wharness-plan-<request_id>.json` download. Repair is capped at three attempts and corrected plans still require the normal Policy/approval/execution flow.
+ 7. The UI finds the Harness Chat whose backend session still owns that pending request, imports the file through the normal backend manual-plan endpoint, and switches to **Plano** after successful validation.
+ 8. Execute under the workspace's **Protected** or **Unprotected** mode.
+ 
+diff --git a/services/backend/internal/app/service.go b/services/backend/internal/app/service.go
+index 746d1eb..8e64348 100644
+--- a/services/backend/internal/app/service.go
++++ b/services/backend/internal/app/service.go
+@@ -29,6 +29,8 @@ var (
+ 	ErrExecutionRequired = errors.New("successful sandbox execution required before host apply")
+ )
+ 
++const maxAutoRepairAttempts = 3
++
+ type Service struct {
+ 	store      *session.Store
+ 	bus        *audit.Bus
+@@ -125,6 +127,9 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string)
+ 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+ 		current.LastManualPrompt = result.ManualPrompt
+ 		current.LastRequestID = requestID
++		current.RepairAttempt = 0
++		current.RepairParentPlanID = ""
++		current.LastRepairError = ""
+ 		if result.Plan == nil && result.ManualPrompt != "" {
+ 			current.PendingManualRequestIDs = appendPendingManualRequest(current.PendingManualRequestIDs, requestID)
+ 		}
+@@ -218,14 +223,14 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 	s.bus.Publish(sessionID, "execution.started", map[string]any{"plan_id": item.Plan.PlanID, "execution_mode": item.ExecutionMode, "target": executionTarget})
+ 	workspace, err := runner.Prepare(ctx, item.ProjectPath)
+ 	if err != nil {
+-		return s.failExecution(sessionID, result, err)
++		return s.failExecution(ctx, sessionID, result, err)
+ 	}
+ 	defer runner.Cleanup(workspace)
+ 
+ 	for _, op := range item.Plan.Operations {
+ 		if op.Type == "apply_patch" {
+ 			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
+-				return s.failExecution(sessionID, result, err)
++				return s.failExecution(ctx, sessionID, result, err)
+ 			}
+ 			s.bus.Publish(sessionID, "patch.started", map[string]any{"target": executionTarget})
+ 			commandResult, runErr := runner.ApplyPatch(ctx, workspace, op.Patch)
+@@ -234,7 +239,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 				if runErr == nil {
+ 					runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
+ 				}
+-				return s.failExecution(sessionID, result, runErr)
++				return s.failExecution(ctx, sessionID, result, runErr)
+ 			}
+ 			s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": executionTarget})
+ 			continue
+@@ -245,7 +250,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 			if runErr == nil {
+ 				runErr = fmt.Errorf("command exited with %d", commandResult.ExitCode)
+ 			}
+-			return s.failExecution(sessionID, result, runErr)
++			return s.failExecution(ctx, sessionID, result, runErr)
+ 		}
+ 	}
+ 	var baselineWorkspace *sandbox.Workspace
+@@ -282,7 +287,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 			if runErr == nil {
+ 				runErr = fmt.Errorf("verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), commandResult.ExitCode, commandResultDiagnostic(commandResult))
+ 			}
+-			return s.failExecution(sessionID, result, runErr)
++			return s.failExecution(ctx, sessionID, result, runErr)
+ 		}
+ 		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode, "target": executionTarget, "baseline_failure": commandResult.BaselineFailure})
+ 	}
+@@ -290,6 +295,9 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool)
+ 	result.CompletedAt = time.Now().UTC()
+ 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+ 		current.LastExecution = &result
++		current.RepairAttempt = 0
++		current.RepairParentPlanID = ""
++		current.LastRepairError = ""
+ 		if unprotected {
+ 			current.State = "applied"
+ 		} else {
+@@ -424,7 +432,7 @@ func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, ru
+ 	return result, err
+ }
+ 
+-func (s *Service) failExecution(sessionID string, result domain.ExecutionResult, cause error) (domain.ExecutionResult, domain.Session, error) {
++func (s *Service) failExecution(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.ExecutionResult, domain.Session, error) {
+ 	result.Success = false
+ 	result.Error = cause.Error()
+ 	result.CompletedAt = time.Now().UTC()
+@@ -435,14 +443,126 @@ func (s *Service) failExecution(sessionID string, result domain.ExecutionResult,
+ 	})
+ 	if updated.ExecutionMode == domain.ExecutionModeUnprotected {
+ 		s.resetDevspace(sessionID)
+-		if refreshed, err := s.refreshContext(sessionID); err == nil {
+-			updated = refreshed
+-		}
+ 	}
+-	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode})
++
++	// A failed plan becomes the input of a bounded repair loop. The planner
++	// creates a fresh request_id and file-first delivery prompt; Desktop is
++	// responsible only for submitting that prompt to the already-linked ChatGPT
++	// conversation. New plans are never auto-approved or auto-executed here.
++	if repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, result, cause); repairErr == nil {
++		updated = repaired
++	} else {
++		s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error()})
++	}
++
++	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": updated.State == "repair_pending", "repair_attempt": updated.RepairAttempt})
+ 	return result, updated, cause
+ }
+ 
++func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.Session, error) {
++	current, err := s.store.Get(sessionID)
++	if err != nil {
++		return current, err
++	}
++	if current.RepairAttempt >= maxAutoRepairAttempts {
++		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": current.RepairAttempt, "plan_id": result.PlanID})
++		return current, nil
++	}
++
++	refreshed, err := s.refreshContext(sessionID)
++	if err != nil {
++		return current, fmt.Errorf("refresh context for repair: %w", err)
++	}
++	requestID := ids.New("req")
++	attempt := refreshed.RepairAttempt + 1
++	repairMessage := buildRepairMessage(refreshed, result, cause, attempt)
++	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
++
++	planned, err := s.planner.Plan(ctx, planner.Request{
++		SessionID:          sessionID,
++		RequestID:          requestID,
++		Message:            repairMessage,
++		ContextTextPath:    refreshed.Context.TextPath,
++		ContextManifest:    refreshed.Context.Manifest,
++		PreviousResponseID: refreshed.LastProviderResponseID,
++	})
++	if err != nil {
++		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
++	}
++
++	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
++		item.LastRequestID = requestID
++		item.LastManualPrompt = planned.ManualPrompt
++		item.LastRepairError = cause.Error()
++		item.RepairAttempt = attempt
++		if item.RepairParentPlanID == "" {
++			item.RepairParentPlanID = result.PlanID
++		}
++		if planned.ProviderResponseID != "" {
++			item.LastProviderResponseID = planned.ProviderResponseID
++		}
++		if planned.Plan == nil {
++			item.PendingManualRequestIDs = appendPendingManualRequest(item.PendingManualRequestIDs, requestID)
++			item.State = "repair_pending"
++			return nil
++		}
++		if planned.Plan.RequestID != requestID {
++			return fmt.Errorf("repair planner request_id mismatch: expected %s", requestID)
++		}
++		if err := protocol.Validate(*planned.Plan); err != nil {
++			return err
++		}
++		decision := s.policy.Evaluate(*planned.Plan)
++		item.Plan = planned.Plan
++		item.Policy = &decision
++		item.State = "planned"
++		item.LastExecution = nil
++		return nil
++	})
++	if err != nil {
++		return refreshed, err
++	}
++	if planned.Plan == nil {
++		s.bus.Publish(sessionID, "repair.prompt_ready", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
++	} else {
++		s.bus.Publish(sessionID, "repair.plan_ready", map[string]any{"request_id": requestID, "attempt": attempt, "plan_id": planned.Plan.PlanID})
++	}
++	return updated, nil
++}
++
++func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt int) string {
++	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharness context."
++	if item.ExecutionMode == domain.ExecutionModeUnprotected {
++		modeNote = "The failed Unprotected execution may have partially changed the host. Wharness refreshed the project context before creating this repair request; use that current context as authoritative."
++	}
++	var diagnostics strings.Builder
++	for index, command := range result.Commands {
++		fmt.Fprintf(&diagnostics, "\n[%d] %s (exit %d, success=%t)\n%s\n", index+1, strings.Join(command.Argv, " "), command.ExitCode, command.Success, truncateRepairText(commandResultDiagnostic(command), 6000))
++	}
++	return fmt.Sprintf(`AUTOMATIC REPAIR REQUEST — attempt %d of %d
++
++The previous execution plan failed and Wharness captured the failure automatically.
++Do not repeat the failed plan unchanged. Produce a corrected replacement plan for the SAME user intent.
++%s
++
++FAILED PLAN ID: %s
++EXECUTION MODE: %s
++FAILURE:
++%s
++
++CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
++
++Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String())
++}
++
++func truncateRepairText(value string, limit int) string {
++	value = strings.TrimSpace(value)
++	if len(value) <= limit {
++		return value
++	}
++	return value[:limit] + "\n...[truncated by Wharness]"
++}
++
+ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Session, error) {
+ 	item, err := s.store.Get(sessionID)
+ 	if err != nil {
+diff --git a/services/backend/internal/app/service_test.go b/services/backend/internal/app/service_test.go
+index bf66057..d5843d2 100644
+--- a/services/backend/internal/app/service_test.go
++++ b/services/backend/internal/app/service_test.go
+@@ -457,3 +457,86 @@ func TestVerificationFailureEquivalentRejectsUnstructuredDifferentFailures(t *te
+ 		t.Fatal("unstructured failures must retain strict comparison")
+ 	}
+ }
++
++type repairFailureRunner struct{ runCount int }
++
++func (repairFailureRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
++	return sandbox.Workspace{Path: "/tmp/repair-fake"}, nil
++}
++func (repairFailureRunner) ApplyPatch(context.Context, sandbox.Workspace, string) (domain.CommandResult, error) {
++	return domain.CommandResult{Argv: []string{"git", "apply"}, ExitCode: 0, Success: true}, nil
++}
++func (r *repairFailureRunner) Run(_ context.Context, _ sandbox.Workspace, c domain.CommandSpec) (domain.CommandResult, error) {
++	r.runCount++
++	output := "src/new.ts(4,2): error TS9999: repair me"
++	if r.runCount > 1 {
++		output = "src/old.ts(1,1): error TS2322: old baseline debt"
++	}
++	return domain.CommandResult{Argv: c.Argv, Cwd: c.Cwd, ExitCode: 2, Stderr: output, Success: false}, nil
++}
++func (*repairFailureRunner) Cleanup(sandbox.Workspace) error { return nil }
++
++func TestExecutionFailurePreparesFreshManualRepairRequest(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{}\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), &repairFailureRunner{})
++	started, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "fix feature")
++	if err != nil {
++		t.Fatal(err)
++	}
++	originalRequest := prompted.LastRequestID
++	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
++	planned, err := service.SubmitManualPlan(started.ID, raw)
++	if err != nil {
++		t.Fatal(err)
++	}
++	result, repaired, err := service.Execute(context.Background(), planned.ID, true)
++	if err == nil || result.Success {
++		t.Fatalf("expected execution failure, result=%#v err=%v", result, err)
++	}
++	if repaired.State != "repair_pending" {
++		t.Fatalf("expected repair_pending state, got %q", repaired.State)
++	}
++	if repaired.RepairAttempt != 1 {
++		t.Fatalf("expected repair attempt 1, got %d", repaired.RepairAttempt)
++	}
++	if repaired.LastRequestID == "" || repaired.LastRequestID == originalRequest {
++		t.Fatalf("expected fresh repair request id, got %q", repaired.LastRequestID)
++	}
++	if !containsString(repaired.PendingManualRequestIDs, repaired.LastRequestID) {
++		t.Fatalf("repair request must be pending: %#v", repaired.PendingManualRequestIDs)
++	}
++	if !strings.Contains(repaired.LastManualPrompt, "AUTOMATIC REPAIR REQUEST") || !strings.Contains(repaired.LastManualPrompt, "TS9999") {
++		t.Fatalf("repair prompt lost failure evidence: %q", repaired.LastManualPrompt)
++	}
++}
++
++func TestRepairLoopStopsAfterBoundedAttempts(t *testing.T) {
++	root := t.TempDir()
++	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
++	started, err := service.StartSession(context.Background(), root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = service.store.Update(started.ID, func(item *domain.Session) error {
++		item.RepairAttempt = maxAutoRepairAttempts
++		item.State = "failed"
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	current, err := service.prepareRepairRequest(context.Background(), started.ID, domain.ExecutionResult{PlanID: "p"}, errors.New("boom"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if current.RepairAttempt != maxAutoRepairAttempts || current.State != "failed" {
++		t.Fatalf("repair loop should stop without new request: %#v", current)
++	}
++}
+diff --git a/services/backend/internal/domain/types.go b/services/backend/internal/domain/types.go
+index 3a2ee25..be0019e 100644
+--- a/services/backend/internal/domain/types.go
++++ b/services/backend/internal/domain/types.go
+@@ -107,6 +107,9 @@ type Session struct {
+ 	LastRequestID           string           `json:"last_request_id,omitempty"`
+ 	PendingManualRequestIDs []string         `json:"pending_manual_request_ids,omitempty"`
+ 	LastManualPrompt        string           `json:"last_manual_prompt,omitempty"`
++	RepairAttempt           int              `json:"repair_attempt,omitempty"`
++	RepairParentPlanID      string           `json:"repair_parent_plan_id,omitempty"`
++	LastRepairError         string           `json:"last_repair_error,omitempty"`
+ }
+ 
+ type Event struct {
+diff --git a/services/backend/internal/planner/prompt.go b/services/backend/internal/planner/prompt.go
+index 9bcabbe..2d85de5 100644
+--- a/services/backend/internal/planner/prompt.go
++++ b/services/backend/internal/planner/prompt.go
+@@ -82,7 +82,8 @@ USER REQUEST:
+ PROJECT MANIFEST:
+ %s
+ 
+-Attach the Wharness context ZIP to this chat.
++Attach the Wharness context ZIP to this chat if it is not already attached for this project conversation.
++For an AUTOMATIC REPAIR REQUEST sent by Wharness into the same linked ChatGPT conversation, reuse the project context already attached earlier and do not wait for a duplicate ZIP.
+ 
+ MANUAL DESKTOP DELIVERY — FILE ONLY — MANDATORY:
+ - This task is NOT complete until your response contains a REAL DOWNLOADABLE FILE ATTACHMENT.
+diff --git a/services/desktop/main.mjs b/services/desktop/main.mjs
+index e49f64c..b5af953 100644
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -221,6 +221,49 @@ function activateChatGPTView(cacheKey, bounds) {
+   return entry
+ }
+ 
++function wait(ms) {
++  return new Promise((resolve) => setTimeout(resolve, ms))
++}
++
++async function submitPromptToChatGPT(cacheKey, value, expectedURL = '') {
++  const text = String(value || '').trim()
++  if (!text) throw new Error('Repair prompt is empty')
++  if (text.length > 1024 * 1024) throw new Error('Repair prompt exceeds 1 MiB limit')
++
++  const key = sanitizeChatCacheKey(cacheKey)
++  const entry = activateChatGPTView(key)
++  const wc = entry.view.webContents
++  if (expectedURL) {
++    const target = requireTrustedChatGPTURL(expectedURL)
++    const current = wc.getURL()
++    if (!sameConversationURL(current, target)) {
++      await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
++    }
++  }
++  for (let attempt = 0; attempt < 50 && entry.loading; attempt += 1) await wait(100)
++  if (!isTrustedChatGPTOrigin(wc.getURL())) throw new Error('Active cached view is not a trusted ChatGPT page')
++
++  // Input-only automation: focus the fixed ChatGPT composer area, paste the
++  // prepared repair request and press Enter. Wharness never reads or scrapes
++  // the remote DOM; the response still returns through the file-first download
++  // contract.
++  const bounds = entry.view.getBounds()
++  const x = Math.max(80, Math.floor(bounds.width * 0.62))
++  const y = Math.max(40, bounds.height - 58)
++  wc.focus()
++  wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
++  wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
++  await wait(80)
++  clipboard.writeText(text)
++  wc.paste()
++  await wait(120)
++  wc.sendInputEvent({ type: 'keyDown', keyCode: 'ENTER' })
++  wc.sendInputEvent({ type: 'keyUp', keyCode: 'ENTER' })
++  touchChatGPTEntry(entry)
++  console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length}`)
++  return { ok: true, cacheKey: key }
++}
++
+ function sameConversationURL(left, right) {
+   try {
+     const a = requireTrustedChatGPTURL(left)
+@@ -318,6 +361,10 @@ function registerIPC() {
+     return { ok: true }
+   })
+   ipcMain.handle('wharness:chatgpt:paste', (event) => { trustedSender(event); activeChatGPTEntry()?.view.webContents.paste(); return { ok: true } })
++  ipcMain.handle('wharness:chatgpt:submit-prompt', async (event, request) => {
++    trustedSender(event)
++    return submitPromptToChatGPT(request?.cacheKey, request?.text, request?.url)
++  })
+   ipcMain.handle('wharness:clipboard:read-text', (event) => { trustedSender(event); return clipboard.readText() })
+   ipcMain.handle('wharness:clipboard:write-text', async (event, value) => {
+     trustedSender(event)
+diff --git a/services/desktop/preload.cjs b/services/desktop/preload.cjs
+index bb089cc..bcb56cd 100644
+--- a/services/desktop/preload.cjs
++++ b/services/desktop/preload.cjs
+@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
+     back: () => invoke('wharness:chatgpt:back'),
+     forward: () => invoke('wharness:chatgpt:forward'),
+     paste: () => invoke('wharness:chatgpt:paste'),
++    submitPrompt: (request) => invoke('wharness:chatgpt:submit-prompt', request),
+     state: () => invoke('wharness:chatgpt:state'),
+     openExternal: () => invoke('wharness:chatgpt:open-external'),
+     onState: (callback) => {
+diff --git a/services/frontend/src/App.tsx b/services/frontend/src/App.tsx
+index e55f930..78e310d 100644
+--- a/services/frontend/src/App.tsx
++++ b/services/frontend/src/App.tsx
+@@ -11,6 +11,7 @@ import {
+   loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
+   removeChat as removeStoredChat, saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
+ } from './lib/workspaceMemory'
++import { desktopBridge, isDesktop } from './lib/desktop'
+ 
+ export default function App() {
+   const activeAtLoad = loadActiveWorkspace()
+@@ -27,6 +28,7 @@ export default function App() {
+   const [restoring, setRestoring] = useState(Boolean(activeAtLoad))
+   const [busy, setBusy] = useState(false)
+   const [error, setError] = useState<string>()
++  const [chatgptFocusNonce, setChatgptFocusNonce] = useState(0)
+   const sourceRef = useRef<EventSource | null>(null)
+ 
+   const connectEvents = useCallback((id: string) => {
+@@ -340,7 +342,52 @@ export default function App() {
+         text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
+         meta: direct && ok ? 'Host alterado diretamente' : (warnings.length ? `${warnings.length} dívida(s) pré-existente(s)` : undefined),
+       }])
+-    } catch (e) { setError(messageOf(e)); void refreshSession() } finally { setBusy(false) }
++    } catch (e) {
++      const message = messageOf(e)
++      setError(message)
++      const payload = e instanceof APIError ? e.data as { session?: Session } | undefined : undefined
++      const failedSession = payload?.session
++      if (failedSession) {
++        setSession(failedSession)
++        setManualPrompt(failedSession.last_manual_prompt || '')
++        updateChat({ sessionId: failedSession.id })
++      } else {
++        void refreshSession()
++      }
++
++      const repairPrompt = failedSession?.state === 'repair_pending' ? failedSession.last_manual_prompt : ''
++      const activeChat = chats.find((chat) => chat.id === activeChatId)
++      if (repairPrompt && activeChat) {
++        const attempt = failedSession?.repair_attempt || 1
++        setItems((current) => [...current, {
++          id: crypto.randomUUID(), role: 'harness',
++          text: `Falha capturada. O Wharness criou automaticamente a requisição de reparação ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
++          meta: failedSession?.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
++        }])
++        if (isDesktop()) {
++          setChatgptFocusNonce((value) => value + 1)
++          try {
++            // Give React a brief moment to mount/show the cached ChatGPT view
++            // before Desktop focuses the composer and presses Enter.
++            await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
++            const bridge = desktopBridge()
++            if (!bridge) throw new Error('Desktop bridge indisponível')
++            await bridge.chatgpt.submitPrompt({ cacheKey: activeChat.id, text: repairPrompt, url: activeChat.chatgptUrl })
++            setItems((current) => [...current, {
++              id: crypto.randomUUID(), role: 'harness',
++              text: 'Requisição de reparação enviada automaticamente ao ChatGPT. Aguardando o novo ficheiro de plano.',
++              meta: 'ChatGPT acionado automaticamente',
++            }])
++          } catch (sendError) {
++            setItems((current) => [...current, {
++              id: crypto.randomUUID(), role: 'harness',
++              text: `A requisição de reparação foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`,
++              meta: 'Abra a aba ChatGPT e envie o prompt preparado',
++            }])
++          }
++        }
++      }
++    } finally { setBusy(false) }
+   }
+ 
+   async function apply() {
+@@ -383,7 +430,7 @@ export default function App() {
+       ? <EditorWorkspace session={session} onError={setError} />
+       : <div className="agent-workspace">
+           <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} onSend={send} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
+-          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onSession={setSession} />
++          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptFocusNonce={chatgptFocusNonce} onChatGPTURL={(url) => updateChat({ chatgptUrl: url })} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onSession={setSession} />
+         </div>}
+   </main>
+ }
+diff --git a/services/frontend/src/components/Inspector.tsx b/services/frontend/src/components/Inspector.tsx
+index 23eb383..df57863 100644
+--- a/services/frontend/src/components/Inspector.tsx
++++ b/services/frontend/src/components/Inspector.tsx
+@@ -10,13 +10,14 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
+ 
+ type Tab = 'plan' | 'terminal' | 'chatgpt'
+ 
+-export function Inspector({ config, session, events, manualPrompt, busy, chat, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onSession }: {
++export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptFocusNonce, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onSession }: {
+   config?: AppConfig
+   session: Session
+   events: HarnessEvent[]
+   manualPrompt: string
+   busy: boolean
+   chat?: WorkspaceChat
++  chatgptFocusNonce?: number
+   onChatGPTURL: (url: string) => void
+   onExecute: (approved: boolean) => Promise<void>
+   onApply: () => Promise<void>
+@@ -27,6 +28,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, o
+   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
+   const [manualJSON, setManualJSON] = useState('')
+   useEffect(() => { setManualJSON('') }, [chat?.id])
++  useEffect(() => { if (chatgptFocusNonce) setTab('chatgpt') }, [chatgptFocusNonce])
+   const terminalEvents = useMemo(() => events.filter((e) => e.type === 'command.completed' || e.type === 'execution.failed' || e.type === 'verification.baseline_unchanged'), [events])
+   const canExecute = Boolean(session.plan && session.policy?.allowed)
+   const needsApproval = Boolean(session.policy?.requires_approval)
+diff --git a/services/frontend/src/desktop.d.ts b/services/frontend/src/desktop.d.ts
+index 43e509d..e27d79d 100644
+--- a/services/frontend/src/desktop.d.ts
++++ b/services/frontend/src/desktop.d.ts
+@@ -17,6 +17,7 @@ interface WharnessDesktopBridge {
+     back(): Promise<{ ok: boolean }>
+     forward(): Promise<{ ok: boolean }>
+     paste(): Promise<{ ok: boolean }>
++    submitPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string }>
+     state(): Promise<DesktopChatGPTState>
+     openExternal(): Promise<{ ok: boolean }>
+     onState(callback: (state: DesktopChatGPTState) => void): () => void
+diff --git a/services/frontend/src/lib/api.ts b/services/frontend/src/lib/api.ts
+index acece5b..db0c2c0 100644
+--- a/services/frontend/src/lib/api.ts
++++ b/services/frontend/src/lib/api.ts
+@@ -1,9 +1,9 @@
+-import type { AppConfig, CommandResult, CommandSpec, ExecutionMode, FileEntry, Session, WorkspaceFile } from '../types'
++import type { AppConfig, CommandResult, CommandSpec, ExecutionMode, ExecutionResult, FileEntry, Session, WorkspaceFile } from '../types'
+ 
+ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+ 
+ export class APIError extends Error {
+-  constructor(message: string, public status: number) {
++  constructor(message: string, public status: number, public data?: unknown) {
+     super(message)
+   }
+ }
+@@ -16,7 +16,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
+   const data = await response.json().catch(() => ({}))
+   if (!response.ok) {
+     const message = data?.error?.message || `HTTP ${response.status}`
+-    throw new APIError(message, response.status)
++    throw new APIError(message, response.status, data)
+   }
+   return data as T
+ }
+@@ -37,7 +37,7 @@ export const api = {
+   manualPlan: (id: string, rawJSON: string) =>
+     request<Session>(`/api/sessions/${id}/manual-plan`, { method: 'POST', body: rawJSON }),
+   execute: (id: string, approved: boolean) =>
+-    request<{ session: Session }>(`/api/sessions/${id}/execute`, {
++    request<{ session: Session; result: ExecutionResult }>(`/api/sessions/${id}/execute`, {
+       method: 'POST', body: JSON.stringify({ approved }),
+     }),
+   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
+diff --git a/services/frontend/src/types.ts b/services/frontend/src/types.ts
+index f00bc18..11dd694 100644
+--- a/services/frontend/src/types.ts
++++ b/services/frontend/src/types.ts
+@@ -78,6 +78,9 @@ export type Session = {
+   last_manual_prompt?: string
+   last_request_id?: string
+   pending_manual_request_ids?: string[]
++  repair_attempt?: number
++  repair_parent_plan_id?: string
++  last_repair_error?: string
+ }
+ 
+ export type HarnessEvent = {

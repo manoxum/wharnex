@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/agent-turn.schema.json",
+  "title": "Wharness Agent Turn v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "request_id", "kind", "message"],
+  "properties": {
+    "protocol": {"const": "harness.turn/v1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["answer", "clarification", "investigation", "change", "blocked"]},
+    "message": {"type": "string", "minLength": 1, "maxLength": 262144}
+  }
+}

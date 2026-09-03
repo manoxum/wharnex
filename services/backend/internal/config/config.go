@@ -16,6 +16,7 @@ type Config struct {
 	MaxContextBytes   int64
 	MaxBundleBytes    int64
 	AllowLocalSandbox bool
+	StateFile         string
 }
 
 func Load() Config {
@@ -30,7 +31,16 @@ func Load() Config {
 		MaxContextBytes:   envInt64("HARNESS_MAX_CONTEXT_BYTES", 4*1024*1024),
 		MaxBundleBytes:    envInt64("HARNESS_MAX_BUNDLE_BYTES", 128*1024*1024),
 		AllowLocalSandbox: envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
+		StateFile:         env("HARNESS_STATE_FILE", defaultStateFile()),
 	}
+}
+
+func defaultStateFile() string {
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		return ""
+	}
+	return dir + "/wharness/sessions.json"
 }
 
 func env(key, fallback string) string {

@@ -1,0 +1,127 @@
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,11 @@
+ # Changelog
+ 
++## Unreleased — ChatGPT submit acknowledgement hotfix
++
++- Auto mode emits the native Enter submit gesture exactly once after attachments settle; an observation timeout is now diagnostic instead of triggering repeated Enter presses.
++- A ChatGPT network-observation miss no longer turns an already-dispatched prompt into a `prepare-prompt` IPC failure or causes the attachment draft to be repeatedly disturbed.
++- Confirmed conversation POST observation is still logged when available, while file-first result download remains the authoritative completion signal.
++
+ ## Unreleased — intent-aware agent turns
+ 
+ - Adds the structured `harness.turn/v1` envelope with answer, clarification, investigation, change, and blocked outcomes.
+--- a/services/desktop/chatgpt-input.mjs
++++ b/services/desktop/chatgpt-input.mjs
+@@ -63,6 +63,22 @@
+   }
+ }
+ 
++export async function submitWithoutReplay({
++  beforeSubmit = async () => {},
++  beginObservation,
++  submit,
++}) {
++  await beforeSubmit()
++  const observed = beginObservation()
++  submit()
++  try {
++    return await observed
++  } catch (error) {
++    const observationError = error instanceof Error ? error.message : String(error)
++    return { accepted: false, requestId: '', observationError }
++  }
++}
++
+ export async function submitWithRetry({
+   beforeAttempt,
+   beginSubmission,
+--- a/services/desktop/chatgpt-input.test.mjs
++++ b/services/desktop/chatgpt-input.test.mjs
+@@ -1,6 +1,6 @@
+ import test from 'node:test'
+ import assert from 'node:assert/strict'
+-import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithRetry } from './chatgpt-input.mjs'
++import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
+ 
+ const conversationURL = 'https://chatgpt.com/backend-api/f/conversation/prepare'
+ 
+@@ -57,3 +57,37 @@
+ 
+   assert.equal(submitCount, 2)
+ })
++
++
++test('automatic submit never replays Enter when request observation times out', async () => {
++  const coordinator = new ChatGPTSubmitCoordinator()
++  let submitCount = 0
++
++  const result = await submitWithoutReplay({
++    beginObservation: () => coordinator.expect(17, { startTimeoutMs: 1 }),
++    submit: () => { submitCount += 1 },
++  })
++
++  assert.equal(submitCount, 1)
++  assert.deepEqual(result, {
++    accepted: false,
++    requestId: '',
++    observationError: 'ChatGPT did not accept the submit command before timeout',
++  })
++})
++
++test('automatic submit still reports a confirmed observed request when available', async () => {
++  const coordinator = new ChatGPTSubmitCoordinator()
++  let submitCount = 0
++
++  const result = await submitWithoutReplay({
++    beginObservation: () => coordinator.expect(23, { startTimeoutMs: 100 }),
++    submit: () => {
++      submitCount += 1
++      coordinator.onBeforeRequest({ id: 123, method: 'POST', webContentsId: 23, url: conversationURL })
++    },
++  })
++
++  assert.equal(submitCount, 1)
++  assert.deepEqual(result, { accepted: true, requestId: '123' })
++})
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -3,7 +3,7 @@
+ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+ import path from 'node:path'
+ import { fileURLToPath, pathToFileURL } from 'node:url'
+-import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithRetry } from './chatgpt-input.mjs'
++import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithoutReplay } from './chatgpt-input.mjs'
+ import { ChatGPTUploadCoordinator, chatGPTComposerPoint, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
+ import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
+ import { chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+@@ -439,19 +439,20 @@
+ 
+ async function submitChatGPTDraft(key) {
+   let wc
+-  const accepted = await submitWithRetry({
+-    beforeAttempt: async () => {
++  const result = await submitWithoutReplay({
++    beforeSubmit: async () => {
+       const target = await focusChatGPTComposer(key)
+       wc = target.wc
+     },
+-    beginSubmission: () => chatGPTSubmissions.expect(wc.id),
++    beginObservation: () => chatGPTSubmissions.expect(wc.id),
+     submit: () => dispatchChatGPTSubmit(wc),
+-    onRetry: ({ attempt, error }) => {
+-      console.warn(`[chatgpt-submit] retry key=${key} failedAttempt=${attempt} error=${error.message}`)
+-    },
+   })
+-  console.log(`[chatgpt-submit] accepted key=${key} method=native-enter request=${accepted.requestId}`)
+-  return accepted
++  if (result.accepted) {
++    console.log(`[chatgpt-submit] accepted key=${key} method=native-enter request=${result.requestId}`)
++  } else {
++    console.warn(`[chatgpt-submit] dispatched-unconfirmed key=${key} method=native-enter observation=${result.observationError}`)
++  }
++  return result
+ }
+ 
+ async function preparePromptForChatGPT(request) {

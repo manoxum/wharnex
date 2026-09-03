@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/execution-bundle-plan.schema.json",
+  "type": "object",
+  "required": ["protocol", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"],
+  "properties": {
+    "protocol": {"const": "harness.execution/v1"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "request_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["ready", "blocked"]},
+    "summary": {"type": "string"},
+    "risk": {"enum": ["low", "medium", "high"]},
+    "requires_approval": {"type": "boolean"},
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "command"],
+        "properties": {
+          "type": {"enum": ["apply_patch", "command"]},
+          "patch": {"type": "string"},
+          "patch_file": {"type": "string", "pattern": "^patches/[^/]+\\.patch$"},
+          "command": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "verification": {"type": "array"}
+  },
+  "additionalProperties": false
+}

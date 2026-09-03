@@ -29,7 +29,7 @@ func (r *HostRunner) Prepare(_ context.Context, projectRoot string) (Workspace, 
 	if err != nil || !info.IsDir() {
 		return Workspace{}, errors.New("host project path must be an existing directory")
 	}
-	return Workspace{Path: root}, nil
+	return Workspace{Path: root, SourcePath: root}, nil
 }
 
 func (r *HostRunner) Cleanup(Workspace) error { return nil }

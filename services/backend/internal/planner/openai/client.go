@@ -46,7 +46,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	}
 	body := map[string]any{
 		"model":        c.model,
-		"instructions": planner.SystemProtocol,
+		"instructions": planner.SystemProtocol + planner.ProviderTurnContract,
 		"text":         map[string]any{"format": executionFormat(request.RequestID)},
 		"store":        true,
 		"truncation":   "auto",
@@ -88,11 +88,20 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	if text == "" {
 		return planner.Result{}, errors.New("provider returned no structured output text")
 	}
-	var plan domain.ExecutionPlan
-	if err := json.Unmarshal([]byte(text), &plan); err != nil {
-		return planner.Result{}, fmt.Errorf("decode execution plan: %w", err)
+	var wire struct {
+		Protocol  string                `json:"protocol"`
+		RequestID string                `json:"request_id"`
+		Kind      domain.TurnKind       `json:"kind"`
+		Message   string                `json:"message"`
+		Plan      *domain.ExecutionPlan `json:"plan"`
 	}
-	return planner.Result{Plan: &plan, ProviderResponseID: decoded.ID}, nil
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return planner.Result{}, fmt.Errorf("decode agent turn: %w", err)
+	}
+	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, Message: wire.Message}
+	return planner.Result{Plan: wire.Plan, Turn: &turn, ProviderResponseID: decoded.ID}, nil
 }
 
 func (c *Client) contextFileID(ctx context.Context, path, cacheKey string) (string, error) {
@@ -184,6 +193,22 @@ func sanitizeProviderError(data []byte) string {
 }
 
 func executionFormat(requestID string) map[string]any {
+	plan := executionPlanSchema(requestID)
+	schema := map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required": []string{"protocol", "request_id", "kind", "message", "plan"},
+		"properties": map[string]any{
+			"protocol":   map[string]any{"type": "string", "const": domain.TurnProtocolV1},
+			"request_id": map[string]any{"type": "string", "const": requestID},
+			"kind":       map[string]any{"type": "string", "enum": []string{"answer", "clarification", "investigation", "change", "blocked"}},
+			"message":    map[string]any{"type": "string"},
+			"plan":       map[string]any{"anyOf": []any{plan, map[string]any{"type": "null"}}},
+		},
+	}
+	return map[string]any{"type": "json_schema", "name": "wharness_agent_turn", "strict": true, "schema": schema}
+}
+
+func executionPlanSchema(requestID string) map[string]any {
 	command := map[string]any{
 		"type": "object", "additionalProperties": false,
 		"required": []string{"argv", "cwd", "timeout_seconds", "network", "expected_exit_codes"},
@@ -219,5 +244,5 @@ func executionFormat(requestID string) map[string]any {
 			"verification":      map[string]any{"type": "array", "items": command},
 		},
 	}
-	return map[string]any{"type": "json_schema", "name": "kernl_execution_plan", "strict": true, "schema": schema}
+	return schema
 }

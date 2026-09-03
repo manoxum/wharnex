@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,8 +34,10 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}", a.getSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
 	mux.HandleFunc("POST /api/sessions/{id}/manual-plan", a.manualPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/execution-bundle", a.executionBundle)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
@@ -58,8 +61,9 @@ func (a *API) config(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ProjectPath   string               `json:"project_path"`
-		ExecutionMode domain.ExecutionMode `json:"execution_mode"`
+		ProjectPath    string                `json:"project_path"`
+		ExecutionMode  domain.ExecutionMode  `json:"execution_mode"`
+		AutomationMode domain.AutomationMode `json:"automation_mode"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -68,7 +72,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_project_path", "project_path is required")
 		return
 	}
-	item, err := a.service.StartSession(r.Context(), body.ProjectPath, body.ExecutionMode)
+	item, err := a.service.StartSessionWithModes(r.Context(), body.ProjectPath, body.ExecutionMode, body.AutomationMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "session_create_failed", err.Error())
 		return
@@ -112,6 +116,21 @@ func (a *API) executionMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) automationMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AutomationMode domain.AutomationMode `json:"automation_mode"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetAutomationMode(r.PathValue("id"), body.AutomationMode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "automation_mode_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (a *API) message(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Message string `json:"message"`
@@ -128,7 +147,7 @@ func (a *API) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "planning_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": item, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
 }
 
 func (a *API) manualPlan(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +162,33 @@ func (a *API) manualPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, item)
+}
+
+func (a *API) executionBundle(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Filename string `json:"filename"`
+		Base64   string `json:"content_base64"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 24<<20))
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_bundle_request", err.Error())
+		return
+	}
+	if strings.TrimSpace(body.Filename) == "" || strings.TrimSpace(body.Base64) == "" {
+		writeError(w, http.StatusBadRequest, "invalid_bundle_request", "filename and content_base64 are required")
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(body.Base64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_bundle_base64", "content_base64 is invalid")
+		return
+	}
+	result, err := a.service.SubmitExecutionBundle(r.Context(), r.PathValue("id"), body.Filename, raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_execution_bundle", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *API) execute(w http.ResponseWriter, r *http.Request) {

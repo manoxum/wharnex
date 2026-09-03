@@ -63,8 +63,11 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 			if responses.Load() == 2 {
 				requestID = "req2"
 			}
-			plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "p1", RequestID: requestID, Status: "ready", Summary: "ok", Risk: "low", Operations: []domain.Operation{}, Verification: []domain.CommandSpec{}}
-			encoded, _ := json.Marshal(plan)
+			turn := domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindAnswer, Message: "Resposta baseada no projeto."}
+			encoded, _ := json.Marshal(struct {
+				domain.AgentTurn
+				Plan *domain.ExecutionPlan `json:"plan"`
+			}{AgentTurn: turn, Plan: nil})
 			responseID := "resp1"
 			if responses.Load() == 2 {
 				responseID = "resp2"
@@ -86,14 +89,14 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Plan == nil || first.ProviderResponseID != "resp1" {
+	if first.Plan != nil || first.Turn == nil || first.Turn.Kind != domain.TurnKindAnswer || first.ProviderResponseID != "resp1" {
 		t.Fatalf("unexpected first result: %#v", first)
 	}
 	second, err := client.Plan(context.Background(), planner.Request{RequestID: "req2", Message: "continue", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}, PreviousResponseID: "resp1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Plan == nil || second.ProviderResponseID != "resp2" {
+	if second.Plan != nil || second.Turn == nil || second.Turn.Message == "" || second.ProviderResponseID != "resp2" {
 		t.Fatalf("unexpected second result: %#v", second)
 	}
 	if uploads.Load() != 1 || responses.Load() != 2 {

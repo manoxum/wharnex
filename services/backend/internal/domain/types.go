@@ -3,6 +3,33 @@ package domain
 import "time"
 
 const ProtocolV1 = "harness.execution/v1"
+const TurnProtocolV1 = "harness.turn/v1"
+
+type TurnKind string
+
+const (
+	TurnKindAnswer        TurnKind = "answer"
+	TurnKindClarification TurnKind = "clarification"
+	TurnKindInvestigation TurnKind = "investigation"
+	TurnKindChange        TurnKind = "change"
+	TurnKindBlocked       TurnKind = "blocked"
+)
+
+func ValidTurnKind(kind TurnKind) bool {
+	switch kind {
+	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindChange, TurnKindBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentTurn struct {
+	Protocol  string   `json:"protocol"`
+	RequestID string   `json:"request_id"`
+	Kind      TurnKind `json:"kind"`
+	Message   string   `json:"message"`
+}
 
 type ExecutionMode string
 
@@ -13,6 +40,17 @@ const (
 
 func ValidExecutionMode(mode ExecutionMode) bool {
 	return mode == ExecutionModeProtected || mode == ExecutionModeUnprotected
+}
+
+type AutomationMode string
+
+const (
+	AutomationModeManual AutomationMode = "manual"
+	AutomationModeAuto   AutomationMode = "auto"
+)
+
+func ValidAutomationMode(mode AutomationMode) bool {
+	return mode == AutomationModeManual || mode == AutomationModeAuto
 }
 
 type CommandSpec struct {
@@ -49,13 +87,24 @@ type PolicyDecision struct {
 }
 
 type CommandResult struct {
-	Argv       []string `json:"argv"`
-	Cwd        string   `json:"cwd"`
-	ExitCode   int      `json:"exit_code"`
-	Stdout     string   `json:"stdout"`
-	Stderr     string   `json:"stderr"`
-	DurationMS int64    `json:"duration_ms"`
-	Success    bool     `json:"success"`
+	Argv             []string `json:"argv"`
+	Cwd              string   `json:"cwd"`
+	ExitCode         int      `json:"exit_code"`
+	Stdout           string   `json:"stdout"`
+	Stderr           string   `json:"stderr"`
+	DurationMS       int64    `json:"duration_ms"`
+	Success          bool     `json:"success"`
+	BaselineFailure  bool     `json:"baseline_failure,omitempty"`
+	BaselineExitCode int      `json:"baseline_exit_code,omitempty"`
+	BaselineOutput   string   `json:"baseline_output,omitempty"`
+}
+
+type ExecutionBundleInfo struct {
+	Filename string   `json:"filename"`
+	README   string   `json:"readme"`
+	Files    []string `json:"files"`
+	Patches  []string `json:"patches"`
+	SHA256   string   `json:"sha256"`
 }
 
 type ExecutionResult struct {
@@ -65,6 +114,7 @@ type ExecutionResult struct {
 	CompletedAt time.Time       `json:"completed_at"`
 	Commands    []CommandResult `json:"commands"`
 	Error       string          `json:"error,omitempty"`
+	Warnings    []string        `json:"warnings,omitempty"`
 }
 
 type ContextFile struct {
@@ -90,19 +140,25 @@ type ContextBundle struct {
 }
 
 type Session struct {
-	ID                      string           `json:"id"`
-	ProjectPath             string           `json:"project_path"`
-	ExecutionMode           ExecutionMode    `json:"execution_mode"`
-	State                   string           `json:"state"`
-	CreatedAt               time.Time        `json:"created_at"`
-	Context                 ContextBundle    `json:"context"`
-	Plan                    *ExecutionPlan   `json:"plan,omitempty"`
-	Policy                  *PolicyDecision  `json:"policy,omitempty"`
-	LastExecution           *ExecutionResult `json:"last_execution,omitempty"`
-	LastProviderResponseID  string           `json:"-"`
-	LastRequestID           string           `json:"last_request_id,omitempty"`
-	PendingManualRequestIDs []string         `json:"pending_manual_request_ids,omitempty"`
-	LastManualPrompt        string           `json:"last_manual_prompt,omitempty"`
+	ID                      string               `json:"id"`
+	ProjectPath             string               `json:"project_path"`
+	ExecutionMode           ExecutionMode        `json:"execution_mode"`
+	AutomationMode          AutomationMode       `json:"automation_mode"`
+	State                   string               `json:"state"`
+	CreatedAt               time.Time            `json:"created_at"`
+	Context                 ContextBundle        `json:"context"`
+	Plan                    *ExecutionPlan       `json:"plan,omitempty"`
+	Policy                  *PolicyDecision      `json:"policy,omitempty"`
+	LastExecution           *ExecutionResult     `json:"last_execution,omitempty"`
+	LastProviderResponseID  string               `json:"last_provider_response_id,omitempty"`
+	LastRequestID           string               `json:"last_request_id,omitempty"`
+	PendingManualRequestIDs []string             `json:"pending_manual_request_ids,omitempty"`
+	LastManualPrompt        string               `json:"last_manual_prompt,omitempty"`
+	LastBundle              *ExecutionBundleInfo `json:"last_bundle,omitempty"`
+	LastTurn                *AgentTurn           `json:"last_turn,omitempty"`
+	RepairAttempt           int                  `json:"repair_attempt,omitempty"`
+	RepairParentPlanID      string               `json:"repair_parent_plan_id,omitempty"`
+	LastRepairError         string               `json:"last_repair_error,omitempty"`
 }
 
 type Event struct {

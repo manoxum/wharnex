@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"kernl.local/harness/backend/internal/audit"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/executionbundle"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/policy"
@@ -27,6 +29,16 @@ var (
 	ErrApprovalRequired  = errors.New("explicit approval required")
 	ErrExecutionRequired = errors.New("successful sandbox execution required before host apply")
 )
+
+type BundleSubmission struct {
+	Session      domain.Session          `json:"session"`
+	AutoExecuted bool                    `json:"auto_executed"`
+	AutoApplied  bool                    `json:"auto_applied"`
+	AutoError    string                  `json:"auto_error,omitempty"`
+	Execution    *domain.ExecutionResult `json:"execution,omitempty"`
+}
+
+const maxAutoRepairAttempts = 3
 
 type Service struct {
 	store      *session.Store
@@ -45,13 +57,29 @@ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Bui
 }
 
 func (s *Service) StartSession(ctx context.Context, projectPath string, requestedMode ...domain.ExecutionMode) (domain.Session, error) {
-	id := ids.New("ses")
 	mode := domain.ExecutionModeProtected
 	if len(requestedMode) > 0 && requestedMode[0] != "" {
 		mode = requestedMode[0]
 	}
-	if !domain.ValidExecutionMode(mode) {
-		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
+	return s.StartSessionWithModes(ctx, projectPath, mode, domain.AutomationModeManual)
+}
+
+func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string, executionMode domain.ExecutionMode, automationMode domain.AutomationMode) (domain.Session, error) {
+	id := ids.New("ses")
+	if executionMode == "" {
+		executionMode = domain.ExecutionModeProtected
+	}
+	if automationMode == "" {
+		automationMode = domain.AutomationModeManual
+	}
+	if !domain.ValidExecutionMode(executionMode) {
+		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", executionMode)
+	}
+	if !domain.ValidAutomationMode(automationMode) {
+		return domain.Session{}, fmt.Errorf("unsupported automation mode %q", automationMode)
+	}
+	if automationMode == domain.AutomationModeAuto && executionMode != domain.ExecutionModeProtected {
+		return domain.Session{}, errors.New("auto mode requires protected execution mode")
 	}
 	initialized, err := projectgit.Ensure(ctx, projectPath)
 	if err != nil {
@@ -69,9 +97,11 @@ func (s *Service) StartSession(ctx context.Context, projectPath string, requeste
 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
 		return domain.Session{}, err
 	}
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: mode, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
-	s.store.Put(item)
-	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": mode})
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	if err := s.store.Put(item); err != nil {
+		return domain.Session{}, fmt.Errorf("persist session: %w", err)
+	}
+	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode})
 	return item, nil
 }
 
@@ -96,6 +126,9 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
 	}
 	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		if mode == domain.ExecutionModeUnprotected && current.AutomationMode == domain.AutomationModeAuto {
+			return errors.New("disable auto mode before switching to unprotected")
+		}
 		current.ExecutionMode = mode
 		return nil
 	})
@@ -104,6 +137,24 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 	}
 	s.resetDevspace(sessionID)
 	s.bus.Publish(sessionID, "execution.mode_changed", map[string]any{"execution_mode": mode})
+	return item, nil
+}
+
+func (s *Service) SetAutomationMode(sessionID string, mode domain.AutomationMode) (domain.Session, error) {
+	if !domain.ValidAutomationMode(mode) {
+		return domain.Session{}, fmt.Errorf("unsupported automation mode %q", mode)
+	}
+	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		if mode == domain.AutomationModeAuto && current.ExecutionMode != domain.ExecutionModeProtected {
+			return errors.New("auto mode requires protected execution mode")
+		}
+		current.AutomationMode = mode
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.bus.Publish(sessionID, "automation.mode_changed", map[string]any{"automation_mode": mode})
 	return item, nil
 }
 
@@ -119,16 +170,44 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 		s.bus.Publish(sessionID, "planner.failed", map[string]any{"error": err.Error()})
 		return planner.Result{}, item, err
 	}
+	normalizePlanCollections(result.Plan)
+	if result.Turn == nil && result.Plan != nil {
+		result.Turn = &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindChange, Message: result.Plan.Summary}
+	}
+	if result.Turn != nil {
+		if result.Turn.RequestID != requestID {
+			return planner.Result{}, item, fmt.Errorf("turn request_id mismatch: expected %s", requestID)
+		}
+		if err := protocol.ValidateTurn(*result.Turn); err != nil {
+			return planner.Result{}, item, err
+		}
+		if result.Turn.Kind == domain.TurnKindChange && result.Plan == nil {
+			return planner.Result{}, item, errors.New("change turn requires an execution plan")
+		}
+		if result.Turn.Kind != domain.TurnKindChange && result.Plan != nil {
+			return planner.Result{}, item, errors.New("non-change turn cannot contain an execution plan")
+		}
+	}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastManualPrompt = result.ManualPrompt
 		current.LastRequestID = requestID
+		current.RepairAttempt = 0
+		current.RepairParentPlanID = ""
+		current.LastRepairError = ""
+		current.LastTurn = result.Turn
 		if result.Plan == nil && result.ManualPrompt != "" {
-			current.PendingManualRequestIDs = appendPendingManualRequest(current.PendingManualRequestIDs, requestID)
+			current.PendingManualRequestIDs = []string{requestID}
+			current.Plan = nil
+			current.Policy = nil
+			current.LastExecution = nil
+			current.LastBundle = nil
+			current.State = "awaiting_plan"
 		}
 		if result.ProviderResponseID != "" {
 			current.LastProviderResponseID = result.ProviderResponseID
 		}
 		if result.Plan != nil {
+			current.LastBundle = nil
 			if result.Plan.RequestID != requestID {
 				return fmt.Errorf("planner request_id mismatch: expected %s", requestID)
 			}
@@ -140,6 +219,12 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 			current.Policy = &decision
 			current.State = "planned"
 			current.LastExecution = nil
+		} else if result.Turn != nil {
+			current.Plan = nil
+			current.Policy = nil
+			current.LastExecution = nil
+			current.LastBundle = nil
+			current.State = turnState(result.Turn.Kind)
 		}
 		return nil
 	})
@@ -149,8 +234,14 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 	}
 	if result.Plan != nil {
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": result.Plan.PlanID, "allowed": updated.Policy.Allowed, "requires_approval": updated.Policy.RequiresApproval, "risk": updated.Policy.Risk})
-	} else {
+	} else if result.ManualPrompt != "" {
 		s.bus.Publish(sessionID, "manual.prompt_ready", map[string]any{"request_id": requestID})
+	} else if result.Turn != nil {
+		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": requestID, "kind": result.Turn.Kind, "transport": "provider"})
+	}
+	if result.Plan != nil && updated.AutomationMode == domain.AutomationModeAuto && updated.Policy != nil && updated.Policy.Allowed && result.Plan.Status == "ready" {
+		automated := s.runAutomaticPlan(ctx, sessionID, "provider")
+		updated = automated.Session
 	}
 	return result, updated, nil
 }
@@ -164,6 +255,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("decode manual plan: %w", err)
 	}
+	normalizePlanCollections(&plan)
 	if err := protocol.Validate(plan); err != nil {
 		return domain.Session{}, err
 	}
@@ -174,6 +266,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.Plan = &plan
 		current.Policy = &decision
+		current.LastBundle = nil
 		current.State = "planned"
 		current.LastExecution = nil
 		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, plan.RequestID)
@@ -183,6 +276,150 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk})
 	}
 	return updated, err
+}
+
+func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename string, raw []byte) (BundleSubmission, error) {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return BundleSubmission{}, err
+	}
+	parsed, err := executionbundle.Parse(filename, raw)
+	if err != nil {
+		return BundleSubmission{}, err
+	}
+	normalizePlanCollections(parsed.Plan)
+	filenameRequestID := bundleFilenameRequestID(filename)
+	if filenameRequestID == "" || filenameRequestID != parsed.Turn.RequestID {
+		return BundleSubmission{}, errors.New("execution bundle filename/request_id mismatch")
+	}
+	if !containsString(current.PendingManualRequestIDs, parsed.Turn.RequestID) {
+		return BundleSubmission{}, fmt.Errorf("bundle request_id %q is not pending for this chat/session", parsed.Turn.RequestID)
+	}
+	if parsed.Plan == nil {
+		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+			turn := parsed.Turn
+			item.LastTurn = &turn
+			item.Plan = nil
+			item.Policy = nil
+			item.LastExecution = nil
+			item.LastBundle = &parsed.Info
+			item.State = turnState(turn.Kind)
+			item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, turn.RequestID)
+			return nil
+		})
+		if updateErr != nil {
+			return BundleSubmission{}, updateErr
+		}
+		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": parsed.Turn.RequestID, "kind": parsed.Turn.Kind, "transport": "zip_bundle"})
+		return BundleSubmission{Session: updated}, nil
+	}
+	if err := protocol.Validate(*parsed.Plan); err != nil {
+		return BundleSubmission{}, err
+	}
+	decision := s.policy.Evaluate(*parsed.Plan)
+	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
+		turn := parsed.Turn
+		item.LastTurn = &turn
+		item.Plan = parsed.Plan
+		item.Policy = &decision
+		item.LastBundle = &parsed.Info
+		item.State = "planned"
+		item.LastExecution = nil
+		item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, parsed.Plan.RequestID)
+		return nil
+	})
+	if err != nil {
+		return BundleSubmission{}, err
+	}
+	s.bus.Publish(sessionID, "bundle.received", map[string]any{"filename": parsed.Info.Filename, "files": len(parsed.Info.Files), "patches": len(parsed.Info.Patches), "sha256": parsed.Info.SHA256})
+	s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": parsed.Plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk, "transport": "zip_bundle"})
+
+	submission := BundleSubmission{Session: updated}
+	if updated.AutomationMode != domain.AutomationModeAuto || !decision.Allowed || parsed.Plan.Status != "ready" {
+		return submission, nil
+	}
+	if updated.ExecutionMode != domain.ExecutionModeProtected {
+		submission.AutoError = "auto mode requires protected execution mode"
+		return submission, nil
+	}
+
+	return s.runAutomaticPlan(ctx, sessionID, "zip_bundle"), nil
+}
+
+func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport string) BundleSubmission {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return BundleSubmission{Session: current, AutoError: err.Error()}
+	}
+	result := BundleSubmission{Session: current}
+	for attempt := 0; attempt <= maxAutoRepairAttempts; attempt++ {
+		if current.Plan == nil || current.Policy == nil || !current.Policy.Allowed || current.Plan.Status != "ready" {
+			return result
+		}
+		planID := current.Plan.PlanID
+		s.bus.Publish(sessionID, "automation.started", map[string]any{"plan_id": planID, "transport": transport, "attempt": attempt + 1})
+		execution, executed, execErr := s.Execute(ctx, sessionID, true)
+		result.AutoExecuted = true
+		result.Execution = &execution
+		result.Session = executed
+		if execErr != nil {
+			current = executed
+			if executed.State == "planned" && executed.Plan != nil && executed.Plan.PlanID != planID {
+				continue
+			}
+			result.AutoError = execErr.Error()
+			s.bus.Publish(sessionID, "automation.execution_failed", map[string]any{"error": execErr.Error(), "repair_pending": executed.State == "repair_pending"})
+			return result
+		}
+		applied, applyErr := s.ApplyToHost(ctx, sessionID)
+		if applyErr != nil {
+			result.AutoError = applyErr.Error()
+			result.Session = executed
+			s.bus.Publish(sessionID, "automation.apply_failed", map[string]any{"error": applyErr.Error()})
+			return result
+		}
+		result.AutoApplied = true
+		result.Session = applied
+		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport})
+		return result
+	}
+	return result
+}
+
+func turnState(kind domain.TurnKind) string {
+	switch kind {
+	case domain.TurnKindAnswer:
+		return "answered"
+	case domain.TurnKindClarification:
+		return "awaiting_clarification"
+	case domain.TurnKindInvestigation:
+		return "investigated"
+	case domain.TurnKindBlocked:
+		return "blocked"
+	default:
+		return "planned"
+	}
+}
+
+func normalizePlanCollections(plan *domain.ExecutionPlan) {
+	if plan == nil {
+		return
+	}
+	if plan.Operations == nil {
+		plan.Operations = make([]domain.Operation, 0)
+	}
+	if plan.Verification == nil {
+		plan.Verification = make([]domain.CommandSpec, 0)
+	}
+}
+
+func bundleFilenameRequestID(filename string) string {
+	base := filepath.Base(strings.TrimSpace(filename))
+	match := regexp.MustCompile(`^wharness-bundle-(req_[A-Za-z0-9_-]{8,180})\.zip$`).FindStringSubmatch(base)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
 }
 
 func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) (domain.ExecutionResult, domain.Session, error) {
@@ -215,14 +452,14 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	s.bus.Publish(sessionID, "execution.started", map[string]any{"plan_id": item.Plan.PlanID, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	workspace, err := runner.Prepare(ctx, item.ProjectPath)
 	if err != nil {
-		return s.failExecution(sessionID, result, err)
+		return s.failExecution(ctx, sessionID, result, err)
 	}
 	defer runner.Cleanup(workspace)
 
 	for _, op := range item.Plan.Operations {
 		if op.Type == "apply_patch" {
 			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
-				return s.failExecution(sessionID, result, err)
+				return s.failExecution(ctx, sessionID, result, err)
 			}
 			s.bus.Publish(sessionID, "patch.started", map[string]any{"target": executionTarget})
 			commandResult, runErr := runner.ApplyPatch(ctx, workspace, op.Patch)
@@ -231,7 +468,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 				if runErr == nil {
 					runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
 				}
-				return s.failExecution(sessionID, result, runErr)
+				return s.failExecution(ctx, sessionID, result, runErr)
 			}
 			s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": executionTarget})
 			continue
@@ -242,25 +479,54 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 			if runErr == nil {
 				runErr = fmt.Errorf("command exited with %d", commandResult.ExitCode)
 			}
-			return s.failExecution(sessionID, result, runErr)
+			return s.failExecution(ctx, sessionID, result, runErr)
 		}
 	}
+	var baselineWorkspace *sandbox.Workspace
+	defer func() {
+		if baselineWorkspace != nil {
+			_ = runner.Cleanup(*baselineWorkspace)
+		}
+	}()
 	for _, command := range item.Plan.Verification {
 		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv, "target": executionTarget})
 		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
+		if runErr == nil && !commandResult.Success && !unprotected {
+			baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, runner, &baselineWorkspace, item.ProjectPath, command, commandResult)
+			if baselineErr == nil && unchanged {
+				commandResult.BaselineFailure = true
+				commandResult.BaselineExitCode = baselineResult.ExitCode
+				commandResult.BaselineOutput = commandResultDiagnostic(baselineResult)
+				commandResult.Success = true
+				warning := fmt.Sprintf("pre-existing verification failure unchanged: %s (exit %d)", strings.Join(command.Argv, " "), baselineResult.ExitCode)
+				result.Warnings = append(result.Warnings, warning)
+				s.bus.Publish(sessionID, "verification.baseline_unchanged", map[string]any{"argv": command.Argv, "exit_code": baselineResult.ExitCode, "diagnostic": commandResultDiagnostic(baselineResult)})
+			} else if baselineErr == nil && !baselineResult.Success {
+				s.bus.Publish(sessionID, "verification.baseline_changed", map[string]any{
+					"argv":                command.Argv,
+					"baseline_exit_code":  baselineResult.ExitCode,
+					"post_exit_code":      commandResult.ExitCode,
+					"baseline_diagnostic": commandResultDiagnostic(baselineResult),
+					"post_diagnostic":     commandResultDiagnostic(commandResult),
+				})
+			}
+		}
 		result.Commands = append(result.Commands, commandResult)
 		if runErr != nil || !commandResult.Success {
 			if runErr == nil {
 				runErr = fmt.Errorf("verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), commandResult.ExitCode, commandResultDiagnostic(commandResult))
 			}
-			return s.failExecution(sessionID, result, runErr)
+			return s.failExecution(ctx, sessionID, result, runErr)
 		}
-		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode, "target": executionTarget})
+		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode, "target": executionTarget, "baseline_failure": commandResult.BaselineFailure})
 	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastExecution = &result
+		current.RepairAttempt = 0
+		current.RepairParentPlanID = ""
+		current.LastRepairError = ""
 		if unprotected {
 			current.State = "applied"
 		} else {
@@ -283,16 +549,6 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 
 func (s *Service) runCommand(ctx context.Context, sessionID string, workspace sandbox.Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
 	return s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "sandbox")
-}
-
-func appendPendingManualRequest(values []string, requestID string) []string {
-	const maxPending = 32
-	values = removeString(values, requestID)
-	values = append(values, requestID)
-	if len(values) > maxPending {
-		values = append([]string(nil), values[len(values)-maxPending:]...)
-	}
-	return values
 }
 
 func containsString(values []string, target string) bool {
@@ -324,6 +580,70 @@ func commandResultDiagnostic(result domain.CommandResult) string {
 	return "no stdout/stderr"
 }
 
+func (s *Service) compareVerificationBaseline(ctx context.Context, runner sandbox.Runner, workspace **sandbox.Workspace, projectPath string, command domain.CommandSpec, post domain.CommandResult) (domain.CommandResult, bool, error) {
+	if *workspace == nil {
+		prepared, err := runner.Prepare(ctx, projectPath)
+		if err != nil {
+			return domain.CommandResult{}, false, fmt.Errorf("prepare verification baseline: %w", err)
+		}
+		*workspace = &prepared
+	}
+	baseline, err := runner.Run(ctx, **workspace, command)
+	if err != nil {
+		return baseline, false, err
+	}
+	if baseline.Success || baseline.ExitCode != post.ExitCode {
+		return baseline, false, nil
+	}
+	return baseline, verificationFailureEquivalent(baseline, post), nil
+}
+
+func normalizedVerificationOutput(result domain.CommandResult) string {
+	stdout := strings.ReplaceAll(strings.TrimSpace(result.Stdout), "\r\n", "\n")
+	stderr := strings.ReplaceAll(strings.TrimSpace(result.Stderr), "\r\n", "\n")
+	return fmt.Sprintf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
+}
+
+var typescriptDiagnosticPattern = regexp.MustCompile(`(?m)^(.+?)\(\d+,\d+\):\s+error\s+(TS\d+):\s+(.+?)\s*$`)
+
+// verificationFailureEquivalent first preserves the original strict byte-level
+// comparison. If that differs, it falls back only to structured diagnostics we
+// understand. This avoids treating harmless npm/path formatting differences as
+// a regression while still rejecting any new TypeScript error introduced by a
+// plan.
+func verificationFailureEquivalent(baseline, post domain.CommandResult) bool {
+	if normalizedVerificationOutput(baseline) == normalizedVerificationOutput(post) {
+		return true
+	}
+	baselineDiagnostics := typescriptDiagnosticFingerprints(baseline)
+	postDiagnostics := typescriptDiagnosticFingerprints(post)
+	if len(baselineDiagnostics) == 0 || len(postDiagnostics) == 0 {
+		return false
+	}
+	for diagnostic := range postDiagnostics {
+		if _, ok := baselineDiagnostics[diagnostic]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func typescriptDiagnosticFingerprints(result domain.CommandResult) map[string]struct{} {
+	combined := strings.ReplaceAll(result.Stdout+"\n"+result.Stderr, "\r\n", "\n")
+	matches := typescriptDiagnosticPattern.FindAllStringSubmatch(combined, -1)
+	out := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		if len(match) != 4 {
+			continue
+		}
+		path := strings.TrimSpace(strings.ReplaceAll(match[1], "\\", "/"))
+		code := strings.TrimSpace(match[2])
+		message := strings.Join(strings.Fields(match[3]), " ")
+		out[path+"|"+code+"|"+message] = struct{}{}
+	}
+	return out
+}
+
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
 	s.bus.Publish(sessionID, "command.started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
 	result, err := runner.Run(ctx, workspace, command)
@@ -331,7 +651,7 @@ func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, ru
 	return result, err
 }
 
-func (s *Service) failExecution(sessionID string, result domain.ExecutionResult, cause error) (domain.ExecutionResult, domain.Session, error) {
+func (s *Service) failExecution(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.ExecutionResult, domain.Session, error) {
 	result.Success = false
 	result.Error = cause.Error()
 	result.CompletedAt = time.Now().UTC()
@@ -342,12 +662,150 @@ func (s *Service) failExecution(sessionID string, result domain.ExecutionResult,
 	})
 	if updated.ExecutionMode == domain.ExecutionModeUnprotected {
 		s.resetDevspace(sessionID)
-		if refreshed, err := s.refreshContext(sessionID); err == nil {
-			updated = refreshed
+	}
+
+	// A failed plan becomes the input of a bounded repair loop. The planner
+	// creates a fresh request_id and file-first delivery prompt; Desktop is
+	// responsible only for submitting that prompt to the already-linked ChatGPT
+	// conversation. New plans are never auto-approved or auto-executed here.
+	if repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, result, cause); repairErr == nil {
+		updated = repaired
+	} else {
+		s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error()})
+	}
+
+	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": updated.State == "repair_pending", "repair_attempt": updated.RepairAttempt})
+	return result, updated, cause
+}
+
+func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.Session, error) {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return current, err
+	}
+	if current.RepairAttempt >= maxAutoRepairAttempts {
+		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": current.RepairAttempt, "plan_id": result.PlanID})
+		return current, nil
+	}
+
+	refreshed, err := s.refreshContext(sessionID)
+	if err != nil {
+		return current, fmt.Errorf("refresh context for repair: %w", err)
+	}
+	requestID := ids.New("req")
+	attempt := refreshed.RepairAttempt + 1
+	repairMessage := buildRepairMessage(refreshed, result, cause, attempt)
+	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
+
+	planned, err := s.planner.Plan(ctx, planner.Request{
+		SessionID:          sessionID,
+		RequestID:          requestID,
+		Message:            repairMessage,
+		ContextTextPath:    refreshed.Context.TextPath,
+		ContextManifest:    refreshed.Context.Manifest,
+		PreviousResponseID: refreshed.LastProviderResponseID,
+	})
+	if err != nil {
+		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
+	}
+	normalizePlanCollections(planned.Plan)
+	if planned.Turn == nil && planned.Plan != nil {
+		planned.Turn = &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindChange, Message: planned.Plan.Summary}
+	}
+	if planned.Turn != nil {
+		if planned.Turn.RequestID != requestID {
+			return refreshed, fmt.Errorf("repair turn request_id mismatch: expected %s", requestID)
+		}
+		if err := protocol.ValidateTurn(*planned.Turn); err != nil {
+			return refreshed, err
+		}
+		if planned.Turn.Kind == domain.TurnKindChange && planned.Plan == nil {
+			return refreshed, errors.New("repair change turn requires an execution plan")
+		}
+		if planned.Turn.Kind != domain.TurnKindChange && planned.Plan != nil {
+			return refreshed, errors.New("repair non-change turn cannot contain an execution plan")
 		}
 	}
-	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode})
-	return result, updated, cause
+
+	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
+		item.LastRequestID = requestID
+		item.LastManualPrompt = planned.ManualPrompt
+		item.LastRepairError = cause.Error()
+		item.RepairAttempt = attempt
+		item.LastTurn = planned.Turn
+		if item.RepairParentPlanID == "" {
+			item.RepairParentPlanID = result.PlanID
+		}
+		if planned.ProviderResponseID != "" {
+			item.LastProviderResponseID = planned.ProviderResponseID
+		}
+		if planned.Plan == nil && planned.ManualPrompt != "" {
+			item.PendingManualRequestIDs = []string{requestID}
+			item.State = "repair_pending"
+			return nil
+		}
+		if planned.Plan == nil && planned.Turn != nil {
+			item.PendingManualRequestIDs = nil
+			item.Plan = nil
+			item.Policy = nil
+			item.State = turnState(planned.Turn.Kind)
+			return nil
+		}
+		if planned.Plan.RequestID != requestID {
+			return fmt.Errorf("repair planner request_id mismatch: expected %s", requestID)
+		}
+		if err := protocol.Validate(*planned.Plan); err != nil {
+			return err
+		}
+		decision := s.policy.Evaluate(*planned.Plan)
+		item.Plan = planned.Plan
+		item.Policy = &decision
+		item.State = "planned"
+		item.LastExecution = nil
+		return nil
+	})
+	if err != nil {
+		return refreshed, err
+	}
+	if planned.Plan == nil {
+		s.bus.Publish(sessionID, "repair.prompt_ready", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
+	} else {
+		s.bus.Publish(sessionID, "repair.plan_ready", map[string]any{"request_id": requestID, "attempt": attempt, "plan_id": planned.Plan.PlanID})
+	}
+	return updated, nil
+}
+
+func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt int) string {
+	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharness context."
+	if item.ExecutionMode == domain.ExecutionModeUnprotected {
+		modeNote = "The failed Unprotected execution may have partially changed the host. Wharness refreshed the project context before creating this repair request; use that current context as authoritative."
+	}
+	var diagnostics strings.Builder
+	for index, command := range result.Commands {
+		fmt.Fprintf(&diagnostics, "\n[%d] %s (exit %d, success=%t)\n%s\n", index+1, strings.Join(command.Argv, " "), command.ExitCode, command.Success, truncateRepairText(commandResultDiagnostic(command), 6000))
+	}
+	return fmt.Sprintf(`AUTOMATIC REPAIR REQUEST — attempt %d of %d
+
+The previous execution plan failed and Wharness captured the failure automatically.
+Do not repeat the failed plan unchanged. Produce a corrected replacement plan for the SAME user intent.
+%s
+
+FAILED PLAN ID: %s
+EXECUTION MODE: %s
+FAILURE:
+%s
+
+CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
+
+Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String())
+}
+
+func truncateRepairText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "\n...[truncated by Wharness]"
 }
 
 func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Session, error) {
@@ -391,6 +849,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if err == nil {
 		s.resetDevspace(sessionID)
 		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID})
+		if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
+			updated = refreshed
+		} else {
+			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
+		}
 	}
 	return updated, err
 }

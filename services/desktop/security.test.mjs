@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chromeCompatibleUserAgent, contextBundleURL, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeDiagnosticURL, sanitizeSessionId } from './security.mjs'
+import { chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeAttachmentFilename, sanitizeChatCacheKey, sanitizeDiagnosticURL, sanitizeSessionId, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 
 test('session ids are strictly allowlisted', () => {
   assert.equal(sanitizeSessionId('ses_20260902_abc-123'), 'ses_20260902_abc-123')
@@ -67,4 +67,58 @@ test('ChatGPT navigation URLs are restricted to the trusted remote surface', () 
   assert.throws(() => requireTrustedChatGPTURL('https://chatgpt.com.evil.example/c/abc'))
   assert.throws(() => requireTrustedChatGPTURL('http://chatgpt.com/c/abc'))
   assert.throws(() => requireTrustedChatGPTURL('https://user:secret@chatgpt.com/c/abc'))
+})
+
+
+test('Wharness plan filenames are strict and expose the request id', () => {
+  assert.equal(wharnessPlanRequestIdFromFilename('wharness-plan-req_20260902T222529_d18d51d84abc677c.json'), 'req_20260902T222529_d18d51d84abc677c')
+  assert.equal(wharnessPlanRequestIdFromFilename('plan.json'), '')
+  assert.equal(wharnessPlanRequestIdFromFilename('wharness-plan-../../evil.json'), '')
+})
+
+test('downloaded plan JSON must match filename request id and protocol', () => {
+  const filename = 'wharness-plan-req_20260902T222529_d18d51d84abc677c.json'
+  const valid = JSON.stringify({ protocol: 'harness.execution/v1', request_id: 'req_20260902T222529_d18d51d84abc677c' })
+  assert.equal(validateWharnessPlanFile(filename, valid).requestId, 'req_20260902T222529_d18d51d84abc677c')
+  assert.throws(() => validateWharnessPlanFile(filename, '{bad json'))
+  assert.throws(() => validateWharnessPlanFile(filename, JSON.stringify({ protocol: 'other', request_id: 'req_20260902T222529_d18d51d84abc677c' })))
+  assert.throws(() => validateWharnessPlanFile(filename, JSON.stringify({ protocol: 'harness.execution/v1', request_id: 'req_other_12345678' })))
+})
+
+
+test('ChatGPT DOM cache keys are local identifiers only', () => {
+  assert.equal(sanitizeChatCacheKey('c6c0810a-1234-4abc-a123-1234567890ab'), 'c6c0810a-1234-4abc-a123-1234567890ab')
+  assert.throws(() => sanitizeChatCacheKey('../escape'))
+  assert.throws(() => sanitizeChatCacheKey(''))
+})
+
+test('user attachment filenames and payloads cannot escape the temp directory', () => {
+  assert.equal(sanitizeAttachmentFilename('requirements (final).pdf'), 'requirements (final).pdf')
+  assert.throws(() => sanitizeAttachmentFilename('../secret'))
+  assert.throws(() => sanitizeAttachmentFilename('folder/file.txt'))
+  assert.throws(() => sanitizeAttachmentFilename('bad\u0000name'))
+  assert.throws(() => sanitizeAttachmentFilename('CON.txt'))
+  assert.throws(() => sanitizeAttachmentFilename('bad:name.txt'))
+  const decoded = decodeUserAttachment({ name: 'note.txt', mime: 'text/plain', contentBase64: Buffer.from('hello').toString('base64') }, 10)
+  assert.equal(decoded.name, 'note.txt')
+  assert.equal(decoded.mime, 'text/plain')
+  assert.equal(decoded.bytes.toString(), 'hello')
+  assert.throws(() => decodeUserAttachment({ name: 'large.bin', contentBase64: Buffer.from('too large').toString('base64') }, 2))
+  assert.throws(() => decodeUserAttachment({ name: 'bad.bin', contentBase64: '%%%=' }, 10))
+  assert.throws(() => decodeUserAttachment({ name: 'bad.bin', mime: 'text/plain; charset=utf-8', contentBase64: Buffer.from('ok').toString('base64') }, 10))
+})
+
+test('automatic ChatGPT submission waits longer for larger attachment sets and remains bounded', () => {
+  assert.equal(chatInputSettleDelay(0, 0), 1500)
+  assert.ok(chatInputSettleDelay(25 * 1024 * 1024, 2) > chatInputSettleDelay(1024, 1))
+  assert.equal(chatInputSettleDelay(1024 * 1024 * 1024, 100), 30_000)
+})
+
+
+test('Wharness execution bundle filenames are strict and ZIP bytes are checked', () => {
+  const name = 'wharness-bundle-req_20260903T005500_abcdef1234567890.zip'
+  assert.equal(wharnessBundleRequestIdFromFilename(name), 'req_20260903T005500_abcdef1234567890')
+  assert.equal(validateWharnessBundleDownload(name, Uint8Array.from([0x50, 0x4b, 0x03, 0x04])).requestId, 'req_20260903T005500_abcdef1234567890')
+  assert.throws(() => validateWharnessBundleDownload(name, Uint8Array.from([1, 2, 3, 4])))
+  assert.equal(wharnessBundleRequestIdFromFilename('bundle.zip'), '')
 })

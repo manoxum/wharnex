@@ -36,6 +36,9 @@ func (r *LocalRunner) Run(ctx context.Context, workspace Workspace, command doma
 	if err != nil {
 		return domain.CommandResult{}, err
 	}
+	if err := prepareCommandDependencies(workspace, command); err != nil {
+		return domain.CommandResult{}, err
+	}
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(command.TimeoutSeconds)*time.Second)
 	defer cancel()
 	started := time.Now()

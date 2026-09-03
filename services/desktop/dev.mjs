@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveLinuxOzonePlatform } from './security.mjs'
+import { electronChildEnvironment, electronLaunchArguments } from './electron-launch.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(here, '../..')
@@ -31,9 +31,10 @@ function clearPid(label) {
 
 function run(label, command, args, cwd, env = {}) {
   const detached = process.platform !== 'win32'
+  const childEnvironment = { ...process.env, ...env }
   const child = spawn(command, args, {
     cwd,
-    env: { ...process.env, ...env },
+    env: label === 'electron' ? electronChildEnvironment(childEnvironment) : childEnvironment,
     stdio: 'inherit',
     detached,
   })
@@ -81,19 +82,6 @@ function frontendCommand() {
   return { command: npm, args: ['run', productionBuild && !forceDev ? 'preview' : 'dev'] }
 }
 
-function electronArgs() {
-  const args = ['.']
-  if (process.platform !== 'linux') return args
-  const ozone = resolveLinuxOzonePlatform(process.env)
-  args.unshift(`--ozone-platform=${ozone}`)
-  if (ozone === 'wayland') {
-    args.unshift('--disable-vulkan')
-    args.unshift('--disable-features=Vulkan')
-  }
-  console.log(`Electron Linux graphics: ozone=${ozone}`)
-  return args
-}
-
 async function main() {
   if (!await ready('http://127.0.0.1:8080/api/health')) {
     const backend = backendCommand()
@@ -116,7 +104,9 @@ async function main() {
     waitFor('http://127.0.0.1:5173', 'frontend'),
   ])
 
-  const desktop = run('electron', electronPath, electronArgs(), here)
+  const launch = electronLaunchArguments(process.platform, process.env)
+  if (launch.ozone) console.log(`Electron Linux graphics: ozone=${launch.ozone}`)
+  const desktop = run('electron', electronPath, launch.args, here)
   desktop.on('exit', (code) => {
     if (!shuttingDown) shutdown(code || 0)
   })

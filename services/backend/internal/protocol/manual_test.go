@@ -166,3 +166,33 @@ func TestNormalizeManualPlanDoesNotRepairStructuralQuoteInjectionOutsideKnownStr
 		t.Fatalf("expected malformed structure to remain rejected, got %v", err)
 	}
 }
+
+func TestNormalizeManualPlanRepairsUnescapedQuotesInsidePlainUnifiedPatch(t *testing.T) {
+	raw := []byte(`{
+      "protocol":"harness.execution/v1",
+      "plan_id":"plan_plain",
+      "request_id":"req_plain_12345678",
+      "status":"ready",
+      "summary":"icon buttons",
+      "risk":"low",
+      "requires_approval":false,
+      "operations":[{
+        "type":"apply_patch",
+        "patch":"--- a/src/view.tsx\n+++ b/src/view.tsx\n@@ -1 +1 @@\n-<button title=\"Old\">Old</button>\n+<button title=\"New\" aria-label=\"New\">New</button>\n",
+        "command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}
+      }],
+      "verification":[{"argv":["git","diff","--check"],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}]
+    }`)
+	// Simulate ChatGPT/clipboard transport stripping JSON escaping from source quotes.
+	raw = []byte(strings.ReplaceAll(string(raw), `\"`, `"`))
+	plan, err := NormalizeManualPlan(raw, "req_plain_12345678")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.Operations[0].Patch, `title="New" aria-label="New"`) {
+		t.Fatalf("plain unified patch quotes were not preserved: %q", plan.Operations[0].Patch)
+	}
+	if err := Validate(plan); err != nil {
+		t.Fatalf("repaired plain unified plan should validate: %v", err)
+	}
+}

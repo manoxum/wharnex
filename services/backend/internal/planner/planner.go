@@ -17,6 +17,7 @@ type Request struct {
 
 type Result struct {
 	Plan               *domain.ExecutionPlan
+	Turn               *domain.AgentTurn
 	ManualPrompt       string
 	ProviderResponseID string
 }

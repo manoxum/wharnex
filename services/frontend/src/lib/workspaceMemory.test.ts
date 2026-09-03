@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeChat, saveActiveWorkspace, saveChat, saveExecutionMode, saveWorkspaceChats,
+  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
+  loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionMode, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -25,6 +25,12 @@ describe('workspace memory', () => {
     expect(loadExecutionMode('/tmp/other')).toBe('protected')
   })
 
+  it('persists manual/auto automation mode per project', () => {
+    expect(loadAutomationMode('/tmp/project')).toBe('manual')
+    saveAutomationMode('/tmp/project', 'auto')
+    expect(loadAutomationMode('/tmp/project')).toBe('auto')
+  })
+
   it('deduplicates recent workspaces', () => {
     rememberRecent('/tmp/a'); rememberRecent('/tmp/b'); rememberRecent('/tmp/a')
     expect(loadRecentWorkspaces()).toEqual(['/tmp/a', '/tmp/b'])
@@ -42,6 +48,17 @@ describe('workspace memory', () => {
     expect(loaded.map((item) => item.chatgptUrl).sort()).toEqual(['https://chatgpt.com/c/aaa', 'https://chatgpt.com/c/bbb'])
     expect(loadChat('/tmp/project', first.id)[0].text).toBe('A')
     expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
+  })
+
+  it('persists attachment metadata and durable storage references with chat history', () => {
+    const chat = newWorkspaceChat('ses-1', 'Com anexos')
+    saveChat('/tmp/project', chat.id, [{
+      id: 'm1', role: 'user', text: 'Veja o anexo',
+      attachments: [{ name: 'screen.png', size: 1234, mime: 'image/png', storageRef: `${chat.id}/m1/0`, previewKind: 'thumbnail' }],
+    }])
+    expect(loadChat('/tmp/project', chat.id)[0].attachments).toEqual([
+      { name: 'screen.png', size: 1234, mime: 'image/png', storageRef: `${chat.id}/m1/0`, previewKind: 'thumbnail' },
+    ])
   })
 
   it('removes one Harness chat and its local history without affecting other chats', () => {
