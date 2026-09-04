@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     hide: (cacheKey) => invoke('wharness:chatgpt:hide', { cacheKey }),
     setBounds: (bounds, cacheKey) => invoke('wharness:chatgpt:set-bounds', { bounds, cacheKey }),
     navigate: (url, cacheKey, options = {}) => invoke('wharness:chatgpt:navigate', { url: String(url), cacheKey, resetToHomeIfConversation: Boolean(options?.resetToHomeIfConversation) }),
+    confirmAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:confirm-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
+    rejectAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:reject-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
     reload: (cacheKey) => invoke('wharness:chatgpt:reload', { cacheKey }),
     focus: (cacheKey) => invoke('wharness:chatgpt:focus', { cacheKey }),
     back: (cacheKey) => invoke('wharness:chatgpt:back', { cacheKey }),

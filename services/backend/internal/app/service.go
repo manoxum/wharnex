@@ -223,6 +223,9 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 		if mode == domain.ExecutionModeUnprotected && s.isSelfEvolution(*current) {
 			return errors.New("Wharness self-evolution is locked to Protected execution mode")
 		}
+		if mode == domain.ExecutionModeUnprotected && len(pendingHostChanges(*current)) > 0 {
+			return errors.New("apply or reject the pending Protected changes before switching to Unprotected mode")
+		}
 		if mode == domain.ExecutionModeUnprotected && current.AutomationMode == domain.AutomationModeAuto {
 			return errors.New("disable auto mode before switching to unprotected")
 		}
@@ -271,6 +274,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	if err != nil {
 		return planner.Result{}, domain.Session{}, err
 	}
+	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID})
 	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode})
@@ -556,11 +560,9 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			result.AutoError = applyErr.Error()
 			result.Session = executed
 			s.bus.Publish(sessionID, "automation.apply_failed", map[string]any{"error": applyErr.Error()})
-			if executed.SelfEvolution {
-				if repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, execution, applyErr); repairErr == nil {
-					result.Session = repaired
-					result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
-				}
+			if repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, execution, applyErr); repairErr == nil {
+				result.Session = repaired
+				result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
 			}
 			return result
 		}
@@ -648,6 +650,27 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		return s.failExecution(ctx, sessionID, result, err)
 	}
 	defer runner.Cleanup(workspace)
+	if !unprotected {
+		for _, pending := range item.PendingHostChanges {
+			if pending.Plan.PlanID == item.Plan.PlanID {
+				continue
+			}
+			for _, patch := range planPatches(&pending.Plan) {
+				if err := protocol.ValidatePatchPaths(patch); err != nil {
+					return s.failExecution(ctx, sessionID, result, fmt.Errorf("replay pending plan %s: %w", pending.Plan.PlanID, err))
+				}
+				commandResult, runErr := runner.ApplyPatch(ctx, workspace, patch)
+				result.Commands = append(result.Commands, commandResult)
+				if runErr != nil || !commandResult.Success {
+					if runErr == nil {
+						runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
+					}
+					return s.failExecution(ctx, sessionID, result, fmt.Errorf("replay pending plan %s: %w", pending.Plan.PlanID, runErr))
+				}
+				s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": "sandbox-pending", "plan_id": pending.Plan.PlanID, "files": patchPaths(patch), "duration_ms": commandResult.DurationMS})
+			}
+		}
+	}
 
 	for _, op := range item.Plan.Operations {
 		if op.Type == "apply_patch" {
@@ -690,7 +713,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv, "target": executionTarget})
 		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
 		if runErr == nil && !commandResult.Success && !unprotected {
-			baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, runner, &baselineWorkspace, item.ProjectPath, command, commandResult)
+			baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, runner, &baselineWorkspace, item.ProjectPath, item.PendingHostChanges, command, commandResult)
 			if baselineErr == nil && unchanged {
 				commandResult.BaselineFailure = true
 				commandResult.BaselineExitCode = baselineResult.ExitCode
@@ -728,6 +751,9 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		if unprotected {
 			current.State = "applied"
 		} else {
+			current.PendingHostChanges = upsertPendingHostChange(current.PendingHostChanges, domain.PendingHostChange{
+				Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt,
+			})
 			current.State = "verified"
 		}
 		return nil
@@ -778,11 +804,23 @@ func commandResultDiagnostic(result domain.CommandResult) string {
 	return "no stdout/stderr"
 }
 
-func (s *Service) compareVerificationBaseline(ctx context.Context, runner sandbox.Runner, workspace **sandbox.Workspace, projectPath string, command domain.CommandSpec, post domain.CommandResult) (domain.CommandResult, bool, error) {
+func (s *Service) compareVerificationBaseline(ctx context.Context, runner sandbox.Runner, workspace **sandbox.Workspace, projectPath string, pending []domain.PendingHostChange, command domain.CommandSpec, post domain.CommandResult) (domain.CommandResult, bool, error) {
 	if *workspace == nil {
 		prepared, err := runner.Prepare(ctx, projectPath)
 		if err != nil {
 			return domain.CommandResult{}, false, fmt.Errorf("prepare verification baseline: %w", err)
+		}
+		for index := range pending {
+			for _, patch := range planPatches(&pending[index].Plan) {
+				result, applyErr := runner.ApplyPatch(ctx, prepared, patch)
+				if applyErr != nil || !result.Success {
+					_ = runner.Cleanup(prepared)
+					if applyErr != nil {
+						return domain.CommandResult{}, false, fmt.Errorf("prepare pending verification baseline: %w", applyErr)
+					}
+					return domain.CommandResult{}, false, fmt.Errorf("prepare pending verification baseline: %s", strings.TrimSpace(result.Stderr))
+				}
+			}
 		}
 		*workspace = &prepared
 	}
@@ -986,6 +1024,9 @@ POLICY REASONS:
 Use the current Wharness project context as authoritative. Replace denied commands with safe project-local alternatives where possible. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, result.PlanID, truncateRepairText(strings.TrimPrefix(cause.Error(), "policy denied plan:"), 12000))
 	}
 	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharness context."
+	if len(item.PendingHostChanges) > 0 {
+		modeNote = "Verified host-pending changes are retained. Build the correction incrementally against the candidate state produced by the pending patches listed below; Wharness will replay and verify the complete chain in a fresh Protected sandbox before offering Apply again."
+	}
 	if item.ExecutionMode == domain.ExecutionModeUnprotected {
 		modeNote = "The failed Unprotected execution may have partially changed the host. Wharness refreshed the project context before creating this repair request; use that current context as authoritative."
 	}
@@ -1006,7 +1047,9 @@ FAILURE:
 
 CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
 
-Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String())
+%s
+
+Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges))
 }
 
 func truncateRepairText(value string, limit int) string {
@@ -1064,43 +1107,51 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if initialized {
 		s.bus.Publish(sessionID, "project.git_initialized", map[string]any{"project_path": item.ProjectPath, "reason": "host_apply"})
 	}
-	if item.Plan == nil || item.LastExecution == nil || !item.LastExecution.Success || item.LastExecution.PlanID != item.Plan.PlanID {
+	pending := pendingHostChanges(item)
+	if len(pending) == 0 {
 		return item, ErrExecutionRequired
 	}
+	if pendingHostResolutionBlocked(item) {
+		return item, errors.New("finish the active planner/repair turn before applying pending host changes")
+	}
 
-	patches := planPatches(item.Plan)
+	patches := make([]string, 0)
+	for index := range pending {
+		patches = append(patches, planPatches(&pending[index].Plan)...)
+	}
 	for _, patch := range patches {
 		if err := protocol.ValidatePatchPaths(patch); err != nil {
 			return item, err
 		}
 	}
+	latestPlanID := pending[len(pending)-1].Plan.PlanID
 	selfEvolution := s.isSelfEvolution(item) && len(patches) > 0
 	var transaction selfevolution.Transaction
 	if selfEvolution {
-		transaction, err = s.selfEvolution.Prepare(sessionID, item.Plan.PlanID, patches)
+		transaction, err = s.selfEvolution.Prepare(sessionID, latestPlanID, patches)
 		if err != nil {
 			return item, fmt.Errorf("prepare Wharness self-evolution transaction: %w", err)
 		}
-		s.bus.Publish(sessionID, "self_evolution.transaction_started", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+		s.bus.Publish(sessionID, "self_evolution.transaction_started", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 	}
 	rollback := func(cause error) error {
 		if !selfEvolution {
 			return cause
 		}
 		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
-			_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rollback_failed", rollbackErr.Error())
+			_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "rollback_failed", rollbackErr.Error())
 			s.updateSelfEvolutionBatchSessions(transaction, "restart_pending", rollbackErr.Error())
 			transaction.ReleaseStage()
 			return fmt.Errorf("%w; automatic self-evolution rollback also failed: %v", cause, rollbackErr)
 		}
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rolled_back", cause.Error())
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "rolled_back", cause.Error())
 		s.updateSelfEvolutionBatchSessions(transaction, "verified", cause.Error())
 		transaction.Release()
-		s.bus.Publish(sessionID, "self_evolution.rolled_back", map[string]any{"plan_id": item.Plan.PlanID, "error": cause.Error()})
+		s.bus.Publish(sessionID, "self_evolution.rolled_back", map[string]any{"plan_id": latestPlanID, "error": cause.Error()})
 		return cause
 	}
 
-	s.bus.Publish(sessionID, "host.apply_started", map[string]any{"plan_id": item.Plan.PlanID, "patch_count": len(patches)})
+	s.bus.Publish(sessionID, "host.apply_started", map[string]any{"plan_id": latestPlanID, "plan_count": len(pending), "patch_count": len(patches)})
 	workspace, err := s.hostRunner.Prepare(ctx, item.ProjectPath)
 	if err != nil {
 		if selfEvolution {
@@ -1109,48 +1160,66 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		return item, err
 	}
 	defer s.hostRunner.Cleanup(workspace)
-	for _, op := range item.Plan.Operations {
-		if op.Type == "apply_patch" {
-			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
-				return item, rollback(err)
-			}
-			runID := ids.New("host-patch")
-			s.bus.Publish(sessionID, "patch.started", map[string]any{"run_id": runID, "target": "host", "files": patchPaths(op.Patch)})
-			patchResult, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch)
-			if applyErr != nil || !patchResult.Success {
-				if applyErr != nil {
-					return item, rollback(fmt.Errorf("host apply failed: %w", applyErr))
-				}
-				return item, rollback(fmt.Errorf("host apply failed: %s", strings.TrimSpace(patchResult.Stderr)))
-			}
-			s.bus.Publish(sessionID, "patch.applied", map[string]any{"run_id": runID, "target": "host", "files": patchPaths(op.Patch), "duration_ms": patchResult.DurationMS})
-			continue
+	appliedPatches := make([]string, 0, len(patches))
+	failApply := func(cause error) error {
+		var failure error
+		if selfEvolution {
+			failure = rollback(cause)
+		} else {
+			failure = s.rollbackHostPatches(ctx, item.ProjectPath, appliedPatches, cause)
 		}
-		if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
-			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, op.Command, "host")
-			if runErr != nil || !result.Success {
-				if runErr != nil {
-					return item, rollback(fmt.Errorf("host git operation failed: %w", runErr))
+		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+			current.LastRepairError = failure.Error()
+			return nil
+		})
+		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": latestPlanID, "error": failure.Error(), "rolled_back_patch_count": len(appliedPatches)})
+		return failure
+	}
+	for _, change := range pending {
+		for _, op := range change.Plan.Operations {
+			if op.Type == "apply_patch" {
+				if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
+					return item, failApply(err)
 				}
-				return item, rollback(fmt.Errorf("host git operation failed: %s", strings.TrimSpace(result.Stderr)))
+				runID := ids.New("host-patch")
+				s.bus.Publish(sessionID, "patch.started", map[string]any{"run_id": runID, "target": "host", "files": patchPaths(op.Patch)})
+				patchResult, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch)
+				if applyErr != nil || !patchResult.Success {
+					if applyErr != nil {
+						return item, failApply(fmt.Errorf("host apply failed: %w", applyErr))
+					}
+					return item, failApply(fmt.Errorf("host apply failed: %s", strings.TrimSpace(patchResult.Stderr)))
+				}
+				appliedPatches = append(appliedPatches, op.Patch)
+				s.bus.Publish(sessionID, "patch.applied", map[string]any{"run_id": runID, "target": "host", "files": patchPaths(op.Patch), "duration_ms": patchResult.DurationMS})
+				continue
+			}
+			if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
+				result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, op.Command, "host")
+				if runErr != nil || !result.Success {
+					if runErr != nil {
+						return item, failApply(fmt.Errorf("host git operation failed: %w", runErr))
+					}
+					return item, failApply(fmt.Errorf("host git operation failed: %s", strings.TrimSpace(result.Stderr)))
+				}
 			}
 		}
 	}
 
 	if selfEvolution {
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "building", "verified patch applied; building real Wharness host runtime")
-		s.bus.Publish(sessionID, "self_evolution.host_build_started", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "building", "verified patch applied; building real Wharness host runtime")
+		s.bus.Publish(sessionID, "self_evolution.host_build_started", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 		output, buildErr := s.selfEvolution.BuildHost(ctx, transaction)
 		if buildErr != nil {
 			detail := truncateRepairText(output, 12000)
 			if detail != "" {
 				buildErr = fmt.Errorf("%w\n%s", buildErr, detail)
 			}
-			s.bus.Publish(sessionID, "self_evolution.host_build_failed", map[string]any{"plan_id": item.Plan.PlanID, "error": buildErr.Error()})
-			return item, rollback(buildErr)
+			s.bus.Publish(sessionID, "self_evolution.host_build_failed", map[string]any{"plan_id": latestPlanID, "error": buildErr.Error()})
+			return item, failApply(buildErr)
 		}
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "restart_pending", "host build passed; explicit restart confirmation pending")
-		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "restart_pending", "host build passed; explicit restart confirmation pending")
+		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 	}
 
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -1161,6 +1230,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			current.State = "applied"
 		}
 		current.SelfEvolution = current.SelfEvolution || selfEvolution
+		current.LastAppliedChanges = append([]domain.PendingHostChange(nil), pending...)
+		current.PendingHostChanges = nil
+		current.LastRepairError = ""
 		return nil
 	})
 	if err != nil {
@@ -1170,13 +1242,13 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if selfEvolution {
 		transaction.ReleaseStage()
 		s.resetDevspace(sessionID)
-		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID, "self_evolution": true, "restart_required": true})
-		s.bus.Publish(sessionID, "self_evolution.restart_pending", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": latestPlanID, "self_evolution": true, "restart_required": true})
+		s.bus.Publish(sessionID, "self_evolution.restart_pending", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 		return updated, nil
 	}
 
 	s.resetDevspace(sessionID)
-	s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID})
+	s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": latestPlanID, "plan_count": len(pending)})
 	if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
 		updated = refreshed
 	} else {
@@ -1193,25 +1265,35 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 	if item.ExecutionMode != domain.ExecutionModeProtected {
 		return item, errors.New("revert is available only for Protected host apply")
 	}
-	if item.Plan == nil || item.LastExecution == nil || !item.LastExecution.Success || item.LastExecution.PlanID != item.Plan.PlanID {
-		return item, ErrExecutionRequired
-	}
 	if item.State != "applied" && item.State != "restart_pending" {
 		return item, errors.New("there is no applied change available to revert")
 	}
-	for _, op := range item.Plan.Operations {
-		if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
-			return item, errors.New("deterministic revert is unavailable for plans containing host git mutation commands")
+	applied := append([]domain.PendingHostChange(nil), item.LastAppliedChanges...)
+	if len(applied) == 0 && item.Plan != nil && item.LastExecution != nil && item.LastExecution.Success && item.LastExecution.PlanID == item.Plan.PlanID {
+		applied = []domain.PendingHostChange{{Plan: *item.Plan, Execution: *item.LastExecution, VerifiedAt: item.LastExecution.CompletedAt}}
+	}
+	if len(applied) == 0 {
+		return item, ErrExecutionRequired
+	}
+	for _, change := range applied {
+		for _, op := range change.Plan.Operations {
+			if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
+				return item, errors.New("deterministic revert is unavailable for plans containing host git mutation commands")
+			}
 		}
 	}
-	patches := planPatches(item.Plan)
+	patches := make([]string, 0)
+	for index := range applied {
+		patches = append(patches, planPatches(&applied[index].Plan)...)
+	}
 	if len(patches) == 0 {
 		return item, errors.New("the current plan has no patch changes to revert")
 	}
-	s.bus.Publish(sessionID, "host.revert_started", map[string]any{"plan_id": item.Plan.PlanID, "patch_count": len(patches)})
+	latestPlanID := applied[len(applied)-1].Plan.PlanID
+	s.bus.Publish(sessionID, "host.revert_started", map[string]any{"plan_id": latestPlanID, "plan_count": len(applied), "patch_count": len(patches)})
 
 	if s.isSelfEvolution(item) && item.State == "restart_pending" {
-		transaction, pendingErr := s.selfEvolution.ClaimPendingTransaction(sessionID, item.Plan.PlanID)
+		transaction, pendingErr := s.selfEvolution.ClaimPendingTransaction(sessionID, latestPlanID)
 		if pendingErr != nil {
 			return item, fmt.Errorf("recover self-evolution transaction for revert: %w", pendingErr)
 		}
@@ -1219,7 +1301,7 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 			transaction.ReleaseStage()
 			return item, fmt.Errorf("revert self-evolution transaction: %w", rollbackErr)
 		}
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rolled_back", "user requested rollback of the pending self-evolution batch before restart")
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "rolled_back", "user requested rollback of the pending self-evolution batch before restart")
 		s.updateSelfEvolutionBatchSessions(transaction, "reverted", "")
 		transaction.Release()
 		transaction.Finalize()
@@ -1256,12 +1338,16 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 		}
 	}
 
-	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "reverted"; return nil })
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.State = "reverted"
+		current.LastAppliedChanges = nil
+		return nil
+	})
 	if err != nil {
 		return item, err
 	}
 	s.resetDevspace(sessionID)
-	s.bus.Publish(sessionID, "host.reverted", map[string]any{"plan_id": item.Plan.PlanID})
+	s.bus.Publish(sessionID, "host.reverted", map[string]any{"plan_id": latestPlanID, "plan_count": len(applied)})
 	if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
 		updated = refreshed
 	} else {

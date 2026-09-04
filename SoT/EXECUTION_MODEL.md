@@ -12,10 +12,14 @@ Wharness supports a per-project execution mode selected in the workspace UI.
 6. Commands/verification run with declared cwd, timeout, network policy, and expected exit codes.
 7. Host application is a separate endpoint/action and is allowed only after successful sandbox verification.
 8. Host application re-validates patch paths and re-checks patch applicability before mutation.
+9. A verified plan remains a host-pending candidate independent from the next planner turn. A later Protected plan MAY extend that candidate: Wharness replays every earlier pending patch in order in a fresh isolated copy, then applies and verifies the new plan against the cumulative candidate state.
+10. Apply accepts the complete ordered candidate as one user decision. If a later patch fails during host application, Wharness reverses patches already applied by that attempt before returning the error; the verified candidate remains pending for correction or retry.
+11. Reject discards the complete host-pending candidate and resets its execution state without mutating the host. It is distinct from Revert, which acts only after a successful host application.
 
 ## Unprotected (explicit per project)
 
 1. The project must be switched to `Unprotected` from the workspace UI.
+   Any Protected candidate must first be applied or rejected; changing mode MUST NOT carry a hidden pending candidate across the trust-boundary switch.
 2. The choice is persisted per project and restored when the workspace is reopened.
 3. Plans still require structural validation and Policy Engine approval.
 4. Every execution requires an explicit user confirmation even when the plan would not otherwise require approval.

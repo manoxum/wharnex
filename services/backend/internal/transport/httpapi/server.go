@@ -45,6 +45,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/execution-bundle", a.executionBundle)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
+	mux.HandleFunc("POST /api/sessions/{id}/pending-changes/reject", a.rejectPendingChanges)
 	mux.HandleFunc("POST /api/sessions/{id}/revert", a.revert)
 	mux.HandleFunc("POST /api/sessions/{id}/self-restart", a.selfRestart)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
@@ -284,6 +285,15 @@ func (a *API) apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, item)
+}
+
+func (a *API) rejectPendingChanges(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RejectPendingHostChanges(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "pending_changes_reject_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (a *API) revert(w http.ResponseWriter, r *http.Request) {

@@ -352,7 +352,7 @@ export default function App() {
     const active = chats.find((chat) => chat.id === activeChatId)
     if (!active) return
     const contextRequired = !active.lastContextSha256 || active.lastContextSha256 !== session.context.manifest.sha256 || Boolean(active.chatgptUrl && active.lastContextChatgptUrl && !sameChatGPTConversation(active.chatgptUrl, active.lastContextChatgptUrl))
-    const errorRequired = session.state === 'repair_pending' || session.last_execution?.success === false
+    const errorRequired = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
     if ((kind === 'context' && contextRequired) || (kind === 'error' && errorRequired)) return
     const current = Boolean(active.artifactSelection?.[kind])
     updateWorkspaceChat(active.id, session.project_path, { artifactSelection: { ...active.artifactSelection, [kind]: !current } })
@@ -372,21 +372,27 @@ export default function App() {
     })
   }
 
-  function bindChatGPTURL(url: string) {
-    if (!session || !activeChatId) return false
+  function bindChatGPTURLForChat(chatId: string, projectPath: string, url: string) {
     const conversation = chatgptConversationURL(url)
     if (!conversation) return false
-    const conflict = [...chats, ...archivedChats].find((chat) => chat.id !== activeChatId && sameChatGPTConversation(chat.chatgptUrl, conversation))
+    const conflict = [...chats, ...archivedChats].find((chat) => chat.id !== chatId && sameChatGPTConversation(chat.chatgptUrl, conversation))
     if (conflict) {
       setError(`A conversa ChatGPT já está vinculada ao Harness Chat ${conflict.title}. Abra outra conversa ou reabra esse chat para continuar nela.`)
+      void desktopBridge()?.chatgpt.rejectAffinity(chatId, conversation)
       return false
     }
-    const active = chats.find((chat) => chat.id === activeChatId)
-    updateWorkspaceChat(activeChatId, session.project_path, {
+    const target = chats.find((chat) => chat.id === chatId)
+    updateWorkspaceChat(chatId, projectPath, {
       chatgptUrl: conversation,
-      lastContextChatgptUrl: active?.lastContextSha256 && !active.lastContextChatgptUrl ? conversation : active?.lastContextChatgptUrl,
+      lastContextChatgptUrl: target?.lastContextSha256 && !target.lastContextChatgptUrl ? conversation : target?.lastContextChatgptUrl,
     })
+    void desktopBridge()?.chatgpt.confirmAffinity(chatId, conversation).catch((error) => setError(messageOf(error)))
     return true
+  }
+
+  function bindChatGPTURL(url: string) {
+    if (!session || !activeChatId) return false
+    return bindChatGPTURLForChat(activeChatId, session.project_path, url)
   }
 
   function markContextSent(sha256: string, conversationUrl?: string) {
@@ -703,7 +709,7 @@ export default function App() {
       }
       appendChatItem(targetChat, updated.project_path, bundleItem)
       if (submission.auto_applied) {
-        const change = buildChangeSummary(updated.plan)
+        const change = buildChangeSummary(appliedSummaryPlan(updated))
         if (change) appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'change', createdAt: change.appliedAt, text: 'Resumo das alterações aplicadas ao host.', change })
       }
       if (submission.auto_error) setError(submission.auto_error)
@@ -783,9 +789,9 @@ export default function App() {
       contextSha256: promptSession.context.manifest.sha256, lastContextSha256: targetChat.lastContextSha256,
       lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: continuationArtifacts.context, preferCurrentConversation: false,
     })
+    const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForChat(targetChat.id, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}
-    if (prepared.conversationUrl) patch.chatgptUrl = prepared.conversationUrl
-    if (prepared.includedContext) {
+    if (prepared.includedContext && bindingAccepted) {
       patch.lastContextSha256 = promptSession.context.manifest.sha256
       patch.lastContextChatgptUrl = prepared.conversationUrl || targetChat.chatgptUrl
     }
@@ -852,11 +858,25 @@ export default function App() {
       setSession(updated)
       markContextDirtyForOtherChats(updated.project_path, activeChatId)
       if (updated.self_evolution && updated.state === 'restart_pending') setRestartModalOpen(true)
-      const change = buildChangeSummary(updated.plan)
+      const change = buildChangeSummary(appliedSummaryPlan(updated))
       setItems((current) => [...current,
         { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado' },
         ...(change ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, createdAt: change.appliedAt, text: 'Resumo das alterações aplicadas ao host.', change }] : []),
       ])
+    } catch (e) { setError(messageOf(e)); await refreshSession() } finally { setBusy(false) }
+  }
+
+  async function rejectPendingChanges() {
+    if (!session || !window.confirm('Rejeitar todas as alterações verificadas que ainda não foram aplicadas ao host? O projeto real permanecerá inalterado.')) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.rejectPendingChanges(session.id)
+      setSession(updated)
+      setItems((current) => [...current, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: 'Todas as alterações pendentes foram rejeitadas. A candidata verificada foi descartada e nada foi incorporado no host.',
+        meta: 'Host inalterado',
+      }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -868,7 +888,8 @@ export default function App() {
 
   async function revertChange(item: ChatItem) {
     if (!session || !item.change || item.change.reverted || busy) return
-    if (!session.plan || session.plan.plan_id !== item.change.planId) {
+    const latestAppliedPlanId = session.last_applied_changes?.[session.last_applied_changes.length - 1]?.plan.plan_id || session.plan?.plan_id
+    if (!latestAppliedPlanId || latestAppliedPlanId !== item.change.planId) {
       setError('Este resumo pertence a um plano anterior. A reversão segura só está disponível para o último plano aplicado desta sessão.')
       return
     }
@@ -989,7 +1010,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const activeChat = chats.find((chat) => chat.id === activeChatId)
   const contextArtifactRequired = Boolean(activeChat && (!activeChat.lastContextSha256 || activeChat.lastContextSha256 !== session.context.manifest.sha256 || activeChat.artifactSelection?.context || (activeChat.chatgptUrl && activeChat.lastContextChatgptUrl && !sameChatGPTConversation(activeChat.chatgptUrl, activeChat.lastContextChatgptUrl))))
-  const errorArtifactRequired = session.state === 'repair_pending' || session.last_execution?.success === false
+  const errorArtifactRequired = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
   const composerArtifacts: ChatArtifactSelection = {
     context: contextArtifactRequired,
     prompt: true,
@@ -1009,7 +1030,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
     <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
       <div className="agent-workspace">
         <ChatPanel key={activeChatId} session={session} items={items} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} artifactSelection={composerArtifacts} artifactRequired={{ context: contextArtifactRequired, error: errorArtifactRequired }} artifactContent={{ context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) }} requestMode={activeChat?.requestMode || 'direct'} taskInFlight={taskInFlight} queuedRequests={queuedRequestsByChat[activeChatId] || []} onToggleArtifact={toggleComposerArtifact} onRequestMode={changeRequestMode} onSend={enqueueMainRequest} onComment={commentOnActiveTask} onQueueEdit={updateQueuedRequest} onQueueMove={moveQueuedRequest} onQueueRemove={removeQueuedRequest} onQueueMerge={mergeQueuedRequest} onQueuePromote={promoteQueuedRequest} onApprovePlan={approvePlanProposal} onRejectPlan={rejectPlanProposal} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onOpenFile={openFileFromChat} onRevertChange={revertChange} onNewChat={newChat} onSelectChat={selectChat} onArchiveChat={archiveChat} onRestoreChat={restoreArchivedChat} onDeleteArchivedChat={deleteArchivedChat} />
-        <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={mode !== 'agent' || projectSettingsOpen || restartModalOpen} onChatGPTURL={bindChatGPTURL} onChatGPTActivity={handleChatGPTActivity} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
+        <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={mode !== 'agent' || projectSettingsOpen || restartModalOpen} onChatGPTURL={bindChatGPTURL} onChatGPTActivity={handleChatGPTActivity} onContextSent={markContextSent} onExecute={execute} onApply={apply} onRejectPendingChanges={rejectPendingChanges} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
       </div>
     </div>
   </main>
@@ -1055,7 +1076,19 @@ function contextArtifact(session: Session) {
 function requestChainActive(session: Session) {
   if (session.pending_manual_request_ids?.length) return true
   if (session.self_evolution_activation === 'restart_scheduled') return true
-  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'verified', 'restart_scheduled']).has(session.state)
+  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'restart_scheduled']).has(session.state)
+}
+
+function appliedSummaryPlan(session: Session) {
+  const applied = session.last_applied_changes || []
+  if (!applied.length) return session.plan
+  const latest = applied[applied.length - 1].plan
+  return {
+    ...latest,
+    summary: applied.map((change) => change.plan.summary).filter(Boolean).join(' + '),
+    operations: applied.flatMap((change) => change.plan.operations || []),
+    verification: applied.flatMap((change) => change.plan.verification || []),
+  }
 }
 
 function executionArtifact(session: Session) {

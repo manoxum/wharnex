@@ -54,6 +54,12 @@ export type ExecutionResult = {
   warnings?: string[]
 }
 
+export type PendingHostChange = {
+  plan: ExecutionPlan
+  execution: ExecutionResult
+  verified_at: string
+}
+
 export type ContextExclusion = { path: string; kind: string; reason: string; rule: string }
 
 export type ContextManifest = {
@@ -133,6 +139,8 @@ export type Session = {
   plan?: ExecutionPlan
   policy?: PolicyDecision
   last_execution?: ExecutionResult
+  pending_host_changes?: PendingHostChange[]
+  last_applied_changes?: PendingHostChange[]
   last_manual_prompt?: string
   last_request_id?: string
   pending_manual_request_ids?: string[]

@@ -1,6 +1,7 @@
 type DesktopBounds = { x: number; y: number; width: number; height: number }
 type DesktopChatGPTAuthMode = 'embedded' | 'external'
-type DesktopChatGPTState = { cacheKey?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string; authMode?: DesktopChatGPTAuthMode; authWindowOpen?: boolean; authenticated?: boolean }
+type DesktopChatGPTAffinityPhase = 'unbound' | 'armed' | 'candidate' | 'bound'
+type DesktopChatGPTState = { cacheKey?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string; authMode?: DesktopChatGPTAuthMode; authWindowOpen?: boolean; authenticated?: boolean; affinityPhase?: DesktopChatGPTAffinityPhase; boundConversationUrl?: string; bindingCandidate?: string }
 type ContextClipboardResult = { ok: boolean; filePath: string; bytes: number }
 type DesktopExternalAuthState = { cacheKey?: string; provider: string; url: string; authMode?: DesktopChatGPTAuthMode; managedWindow?: boolean; managedBrowser?: boolean }
 type DesktopAuthCompleteState = { cacheKey?: string; authMode: DesktopChatGPTAuthMode; url: string }
@@ -27,6 +28,8 @@ interface WharnessDesktopBridge {
     hide(cacheKey: string): Promise<{ ok: boolean }>
     setBounds(bounds: DesktopBounds, cacheKey: string): Promise<{ ok: boolean }>
     navigate(url: string, cacheKey: string, options?: { resetToHomeIfConversation?: boolean }): Promise<DesktopChatGPTState>
+    confirmAffinity(cacheKey: string, conversationUrl: string): Promise<{ ok: boolean; cacheKey: string; conversationUrl: string; affinityPhase: DesktopChatGPTAffinityPhase; boundConversationUrl: string; bindingCandidate: string }>
+    rejectAffinity(cacheKey: string, conversationUrl: string): Promise<{ ok: boolean; cacheKey: string; affinityPhase: DesktopChatGPTAffinityPhase; boundConversationUrl: string; bindingCandidate: string }>
     reload(cacheKey: string): Promise<{ ok: boolean }>
     focus(cacheKey: string): Promise<{ ok: boolean }>
     back(cacheKey: string): Promise<{ ok: boolean }>

@@ -129,6 +129,16 @@ type ExecutionResult struct {
 	Warnings    []string        `json:"warnings,omitempty"`
 }
 
+// PendingHostChange is a Protected plan that has passed sandbox verification
+// but has not yet been accepted into the host project. Keeping the plan and its
+// execution together lets later plans verify against the cumulative candidate
+// without making the host the source of truth prematurely.
+type PendingHostChange struct {
+	Plan       ExecutionPlan   `json:"plan"`
+	Execution  ExecutionResult `json:"execution"`
+	VerifiedAt time.Time       `json:"verified_at"`
+}
+
 type ContextFile struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`
@@ -172,6 +182,8 @@ type Session struct {
 	Plan                    *ExecutionPlan       `json:"plan,omitempty"`
 	Policy                  *PolicyDecision      `json:"policy,omitempty"`
 	LastExecution           *ExecutionResult     `json:"last_execution,omitempty"`
+	PendingHostChanges      []PendingHostChange  `json:"pending_host_changes,omitempty"`
+	LastAppliedChanges      []PendingHostChange  `json:"last_applied_changes,omitempty"`
 	LastProviderResponseID  string               `json:"last_provider_response_id,omitempty"`
 	LastRequestID           string               `json:"last_request_id,omitempty"`
 	PendingManualRequestIDs []string             `json:"pending_manual_request_ids,omitempty"`

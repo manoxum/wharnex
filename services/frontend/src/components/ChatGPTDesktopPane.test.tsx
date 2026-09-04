@@ -11,7 +11,7 @@ function bridge() {
     platform: 'linux', projects: { pickDirectory: vi.fn() },
     chatgpt: {
       show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
-      navigate: vi.fn().mockResolvedValue(state), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(),
+      navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(),
       state: vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1' }), release: vi.fn().mockResolvedValue({ ok: true, released: true }), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
       onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
       onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
@@ -103,5 +103,44 @@ describe('ChatGPTDesktopPane', () => {
     act(() => authHandler?.({ cacheKey: 'chat-1', provider: 'Google', url: 'https://accounts.google.com/', authMode: 'external', managedWindow: false, managedBrowser: true }))
     expect(await screen.findByText('Autenticação Google em curso')).toBeTruthy()
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+  })
+})
+
+
+describe('ChatGPTDesktopPane affinity events', () => {
+  beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); window.localStorage.clear() })
+  afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
+
+  it('ignores delayed state from another Harness chat and accepts the desktop-owned candidate for the active chat', async () => {
+    let stateHandler: ((value: DesktopChatGPTState) => void) | undefined
+    const desktop = bridge()
+    desktop.chatgpt.onState = vi.fn((callback) => { stateHandler = callback; return () => undefined })
+    const onChatGPTURL = vi.fn(() => true)
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} onChatGPTURL={onChatGPTURL} />)
+    await waitFor(() => expect(stateHandler).toBeTypeOf('function'))
+
+    act(() => stateHandler?.({ ...state, cacheKey: 'chat-old', url: 'https://chatgpt.com/c/wrong', bindingCandidate: 'https://chatgpt.com/c/wrong' }))
+    expect(onChatGPTURL).not.toHaveBeenCalled()
+
+    act(() => stateHandler?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/right', bindingCandidate: 'https://chatgpt.com/c/right', affinityPhase: 'candidate' }))
+    expect(onChatGPTURL).toHaveBeenCalledTimes(1)
+    expect(onChatGPTURL).toHaveBeenCalledWith('https://chatgpt.com/c/right')
+    expect(desktop.chatgpt.confirmAffinity).not.toHaveBeenCalled()
+    expect(desktop.chatgpt.rejectAffinity).not.toHaveBeenCalled()
+  })
+
+  it('rejects a desktop-owned candidate when the frontend one-to-one validator reports a conflict', async () => {
+    let stateHandler: ((value: DesktopChatGPTState) => void) | undefined
+    const desktop = bridge()
+    desktop.chatgpt.onState = vi.fn((callback) => { stateHandler = callback; return () => undefined })
+    const onChatGPTURL = vi.fn(() => false)
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} onChatGPTURL={onChatGPTURL} />)
+    await waitFor(() => expect(stateHandler).toBeTypeOf('function'))
+
+    act(() => stateHandler?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/conflict', bindingCandidate: 'https://chatgpt.com/c/conflict', affinityPhase: 'candidate' }))
+    expect(desktop.chatgpt.confirmAffinity).not.toHaveBeenCalled()
+    expect(desktop.chatgpt.rejectAffinity).not.toHaveBeenCalled()
   })
 })

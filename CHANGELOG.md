@@ -1,3 +1,8 @@
+## v1.2.34.1 - Composer send edge alignment
+
+- Remove the residual right padding from the pinned composer footer so the send button sits flush against the far-right internal edge as required by the UI/UX contract.
+- Preserve breathing room for the helper hint independently and add a focused CSS regression test for the alignment.
+
 ## v1.2.34 - Batched pending self-evolution
 
 - Replace the single pending self-evolution deadlock with one atomic pending batch: after a verified host build reaches `restart_pending`, additional verified Wharness changes may extend the same transaction without restarting first.

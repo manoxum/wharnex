@@ -41,25 +41,6 @@ export function chatgptConversationURL(value: string) {
 }
 
 
-export function isChatGPTNewChatURL(value: string) {
-  try {
-    const url = new URL(value)
-    const host = url.hostname.toLowerCase()
-    const trusted = url.protocol === 'https:' && (host === 'chatgpt.com' || host.endsWith('.chatgpt.com'))
-    return trusted && (url.pathname === '/' || url.pathname === '')
-  } catch { return false }
-}
-
-export function chatgptAutoBindingDecision(linkedURL: string | undefined, currentURL: string, loading: boolean, newChatSurfaceSeen: boolean) {
-  const linkedConversation = chatgptConversationURL(linkedURL || '')
-  if (linkedConversation) return { newChatSurfaceSeen, bindURL: '' }
-  if (isChatGPTNewChatURL(currentURL)) return { newChatSurfaceSeen: true, bindURL: '' }
-  if (loading) return { newChatSurfaceSeen, bindURL: '' }
-  const currentConversation = chatgptConversationURL(currentURL)
-  if (newChatSurfaceSeen && currentConversation) return { newChatSurfaceSeen: true, bindURL: currentConversation }
-  return { newChatSurfaceSeen, bindURL: '' }
-}
-
 export function sameChatGPTConversation(left?: string, right?: string) {
   const a = chatgptConversationURL(left || '')
   const b = chatgptConversationURL(right || '')

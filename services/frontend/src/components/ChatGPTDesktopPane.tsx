@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { chatgptAutoBindingDecision, chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../lib/desktop'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../lib/desktop'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 
@@ -18,8 +18,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   onActivity?: (activity: DesktopChatGPTActivity) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const newChatSurfaceSeenRef = useRef(false)
   const linkedURLRef = useRef(chatgptUrl)
+  const affinityCandidateRef = useRef('')
   const chatIdRef = useRef(chatId)
   const onURLRef = useRef(onChatGPTURL)
   const onPlanFileRef = useRef(onPlanFile)
@@ -34,6 +34,26 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     try { return window.localStorage.getItem(CHATGPT_CONTROLS_KEY) === '1' } catch { return false }
   })
   const bridge = desktopBridge()
+
+  const applyDesktopState = useCallback((next: DesktopChatGPTState) => {
+    if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
+    setState(next)
+    if (next.externalAuthProvider) setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
+    const candidate = chatgptConversationURL(next.bindingCandidate || '')
+    if (!candidate) {
+      affinityCandidateRef.current = ''
+      return
+    }
+    if (affinityCandidateRef.current === candidate) return
+    affinityCandidateRef.current = candidate
+    if (onURLRef.current(candidate)) {
+      linkedURLRef.current = candidate
+      setNotice('Conversa ChatGPT vinculada automaticamente a este chat.')
+      return
+    }
+    setNotice('Esta conversa já pertence a outro chat do Wharness.')
+  }, [])
+
 
   useEffect(() => {
     chatIdRef.current = chatId
@@ -54,27 +74,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     const observer = new ResizeObserver(sync)
     observer.observe(hostRef.current)
     window.addEventListener('resize', sync)
-    void bridge.chatgpt.state(chatIdRef.current).then((next) => {
-      if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
-      setState(next)
-      if (next.externalAuthProvider) setExternalAuth({ provider: next.externalAuthProvider, url: '' })
-    })
-    const unsubscribe = bridge.chatgpt.onState((next) => {
-      if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
-      setState(next)
-      if (next.externalAuthProvider) setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
-      const decision = chatgptAutoBindingDecision(linkedURLRef.current, next.url, next.loading, newChatSurfaceSeenRef.current)
-      newChatSurfaceSeenRef.current = decision.newChatSurfaceSeen
-      if (decision.bindURL) {
-        if (onURLRef.current(decision.bindURL)) {
-          linkedURLRef.current = decision.bindURL
-          newChatSurfaceSeenRef.current = false
-          setNotice('Conversa ChatGPT vinculada automaticamente a este chat.')
-        } else {
-          setNotice('Esta conversa já pertence a outro chat do Wharness.')
-        }
-      }
-    })
+    void bridge.chatgpt.state(chatIdRef.current).then(applyDesktopState)
+    const unsubscribe = bridge.chatgpt.onState(applyDesktopState)
     const unsubscribeAuth = bridge.chatgpt.onExternalAuth(({ cacheKey, provider, url }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth({ provider, url })
@@ -83,16 +84,12 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     const unsubscribeAuthComplete = bridge.chatgpt.onAuthComplete(({ cacheKey }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth(null); setControlsExpanded(false); setNotice('Sessão ChatGPT autenticada.')
-      void bridge.chatgpt.state(chatIdRef.current).then((next) => {
-        if (!next.cacheKey || next.cacheKey === chatIdRef.current) setState(next)
-      })
+      void bridge.chatgpt.state(chatIdRef.current).then(applyDesktopState)
     })
     const unsubscribeAuthError = bridge.chatgpt.onAuthError(({ cacheKey, provider, message }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth(null); setControlsExpanded(true); setNotice(`${provider}: ${message}`)
-      void bridge.chatgpt.state(chatIdRef.current).then((next) => {
-        if (!next.cacheKey || next.cacheKey === chatIdRef.current) setState(next)
-      })
+      void bridge.chatgpt.state(chatIdRef.current).then(applyDesktopState)
     })
     const unsubscribePlan = bridge.chatgpt.onPlanDownloaded(({ cacheKey, filename, requestId, text, bytes }) => {
       if (!cacheKey || cacheKey !== chatIdRef.current) return
@@ -111,7 +108,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync)
       unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); unsubscribeActivity(); void bridge.chatgpt.hide(chatIdRef.current)
     }
-  }, [bridge])
+  }, [bridge, applyDesktopState])
 
   useEffect(() => {
     const selector = '[role="dialog"][aria-modal="true"], [data-chatgpt-overlay-blocker="true"]'
@@ -132,22 +129,19 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     if (!bridge || !chatId) return
     let alive = true
     linkedURLRef.current = chatgptUrl
-    newChatSurfaceSeenRef.current = false
+    affinityCandidateRef.current = ''
     setLinkReady(false)
     const target = chatgptUrl || CHATGPT_HOME
     setNotice(chatgptUrl ? `A recuperar “${chatTitle}”…` : `Novo chat “${chatTitle}”: aguardando URL definitiva do ChatGPT.`)
     void bridge.chatgpt.navigate(target, chatId, { resetToHomeIfConversation: !chatgptUrl }).then((next) => {
       if (!alive) return
-      setState(next); setLinkReady(true)
+      applyDesktopState(next)
+      setLinkReady(true)
       const linkedConversation = chatgptConversationURL(linkedURLRef.current || '')
       if (linkedConversation && linkedURLRef.current !== linkedConversation && onURLRef.current(linkedConversation)) linkedURLRef.current = linkedConversation
-      if (!linkedConversation) {
-        const decision = chatgptAutoBindingDecision(undefined, next.url, next.loading, false)
-        newChatSurfaceSeenRef.current = decision.newChatSurfaceSeen
-      }
     }).catch((error) => { if (alive) setNotice(error instanceof Error ? error.message : 'Não foi possível abrir a conversa ChatGPT.') })
-    return () => { alive = false; newChatSurfaceSeenRef.current = false; setLinkReady(false) }
-  }, [bridge, chatId, chatTitle, chatgptUrl])
+    return () => { alive = false; affinityCandidateRef.current = ''; setLinkReady(false) }
+  }, [bridge, chatId, chatTitle, chatgptUrl, applyDesktopState])
 
   async function startAuthentication(mode: DesktopChatGPTAuthMode) {
     if (!bridge) return
@@ -169,7 +163,10 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   function bindCurrentConversation() {
     const conversation = chatgptConversationURL(state.url)
     if (!conversation) { setNotice('Abra primeiro uma conversa concreta do ChatGPT.'); return }
-    if (!onChatGPTURL(conversation)) { setNotice('Esta conversa já está vinculada a outro chat.'); return }
+    if (!onChatGPTURL(conversation)) {
+      setNotice('Esta conversa já está vinculada a outro chat.')
+      return
+    }
     linkedURLRef.current = conversation
     setNotice('Conversa vinculada ao chat atual.')
   }

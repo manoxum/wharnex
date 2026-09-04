@@ -237,7 +237,163 @@ func TestVerifiedPatchDoesNotTouchHostUntilApply(t *testing.T) {
 	}
 }
 
+func TestVerifiedPatchCanBeExtendedByAnotherPatchBeforeHostApply(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "hello.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "pending-base", RequestID: "req-base", Status: "ready", Summary: "first pending change", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+middle\n"}},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{first}, policy.NewEngine(), sandbox.NewLocalRunner())
+	created, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), created.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.Execute(context.Background(), created.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	second := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "pending-fix", RequestID: "req-fix", Status: "ready", Summary: "extend pending change", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-middle\n+new\n"}},
+	}
+	decision := service.policy.Evaluate(second)
+	if _, err = service.store.Update(created.ID, func(item *domain.Session) error {
+		item.Plan = &second
+		item.Policy = &decision
+		item.State = "planned"
+		item.LastExecution = nil
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err = service.Execute(context.Background(), created.ID, false); err != nil {
+		t.Fatalf("a second patch should execute on top of the verified pending change: %v", err)
+	}
+	if _, err = service.ApplyToHost(context.Background(), created.ID); err != nil {
+		t.Fatalf("the cumulative pending change should apply to the host: %v", err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "new\n" {
+		t.Fatalf("cumulative host apply produced %q", contents)
+	}
+}
+
+func TestRejectPendingHostChangesDiscardsCandidateWithoutTouchingHost(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "hello.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "reject-pending", Status: "ready", Summary: "pending", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+	created, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), created.ID, "change"); err != nil {
+		t.Fatal(err)
+	}
+	verified, _, err := service.Execute(context.Background(), created.ID, false)
+	if err != nil || !verified.Success {
+		t.Fatalf("verify pending change: result=%#v err=%v", verified, err)
+	}
+	rejected, err := service.RejectPendingHostChanges(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.State != "ready" || len(rejected.PendingHostChanges) != 0 {
+		t.Fatalf("pending candidate was not cleared: %#v", rejected)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "old\n" {
+		t.Fatalf("reject touched the host: %q", contents)
+	}
+}
+
+func TestFailedCumulativeHostApplyRollsBackPatchesFromThatAttempt(t *testing.T) {
+	root := t.TempDir()
+	firstPath := filepath.Join(root, "first.txt")
+	secondPath := filepath.Join(root, "second.txt")
+	if err := os.WriteFile(firstPath, []byte("old-first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secondPath, []byte("old-second\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "atomic-apply", Status: "ready", Summary: "two patches", Risk: "low",
+		Operations: []domain.Operation{
+			{Type: "apply_patch", Patch: "--- a/first.txt\n+++ b/first.txt\n@@ -1 +1 @@\n-old-first\n+new-first\n"},
+			{Type: "apply_patch", Patch: "--- a/second.txt\n+++ b/second.txt\n@@ -1 +1 @@\n-old-second\n+new-second\n"},
+		},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+	created, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), created.ID, "change both"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.Execute(context.Background(), created.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(secondPath, []byte("host-diverged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ApplyToHost(context.Background(), created.ID); err == nil {
+		t.Fatal("expected cumulative host apply to fail on the diverged second file")
+	}
+	firstContents, _ := os.ReadFile(firstPath)
+	secondContents, _ := os.ReadFile(secondPath)
+	if string(firstContents) != "old-first\n" || string(secondContents) != "host-diverged\n" {
+		t.Fatalf("failed apply was not rolled back: first=%q second=%q", firstContents, secondContents)
+	}
+	current, err := service.GetSession(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current.PendingHostChanges) != 1 {
+		t.Fatalf("failed apply must retain the pending candidate: %#v", current.PendingHostChanges)
+	}
+	if !strings.Contains(current.LastRepairError, "host apply failed") {
+		t.Fatalf("host apply failure was not retained for the correction turn: %q", current.LastRepairError)
+	}
+	capture := &messageCapturePlanner{}
+	service.planner = capture
+	if _, _, err = service.SubmitMessage(context.Background(), created.ID, "corrija a aplicação"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(capture.seen, "HOST-PENDING PROTECTED CANDIDATE") || !strings.Contains(capture.seen, "LAST HOST APPLY ERROR") {
+		t.Fatalf("correction turn did not receive the pending candidate and apply error: %s", capture.seen)
+	}
+}
+
 type contextCapturePlanner struct{ seen string }
+
+type messageCapturePlanner struct{ seen string }
+
+func (p *messageCapturePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
+	p.seen = request.Message
+	return planner.Result{Turn: &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: request.RequestID, Kind: domain.TurnKindAnswer, Message: "captured"}}, nil
+}
 
 func (p *contextCapturePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
 	data, err := os.ReadFile(request.ContextTextPath)

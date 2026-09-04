@@ -974,9 +974,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* v1.2.32 — auto-growing composer with permanently visible actions */
 .composer { display: flex; flex-direction: column; overflow: hidden; }
 .composer-scroll-area { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
-.composer-footer { flex: 0 0 auto; margin-top: 0; padding: 6px 6px 9px 9px; border-top: 1px solid rgba(210,216,205,.72); background: inherit; }
+.composer-footer { flex: 0 0 auto; margin-top: 0; padding: 6px 0 9px 9px; border-top: 1px solid rgba(210,216,205,.72); background: inherit; }
 .composer-toolbar-row { width: 100%; }
 .composer-toolbar-row .send-button { justify-self: end; margin-left: auto; margin-right: 0; }
+.composer-hint { padding-right: 6px; }
 
 .change-summary-card { margin: 0 0 22px; max-width: 94%; overflow: hidden; border: 1px solid #cfd5ca; border-radius: 13px; background: #f9faf6; box-shadow: 0 8px 22px rgba(30,36,27,.05); }
 .change-summary-card > header { min-height: 52px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #dfe3da; }

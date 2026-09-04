@@ -49,6 +49,7 @@ export const api = {
       method: 'POST', body: JSON.stringify({ approved }),
     }),
   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
+  rejectPendingChanges: (id: string) => request<Session>(`/api/sessions/${id}/pending-changes/reject`, { method: 'POST', body: '{}' }),
   revert: (id: string) => request<Session>(`/api/sessions/${id}/revert`, { method: 'POST', body: '{}' }),
   restartSelfEvolution: (id: string) => request<Session>(`/api/sessions/${id}/self-restart`, { method: 'POST', body: '{}' }),
   listFiles: (id: string) => request<{ files: FileEntry[] }>(`/api/sessions/${id}/files`),

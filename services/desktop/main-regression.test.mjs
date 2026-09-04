@@ -11,7 +11,7 @@ test('prepare-prompt uses the background composer targeting helper', async () =>
   assert.notEqual(end, -1)
 
   const preparePrompt = source.slice(start, end)
-  assert.match(preparePrompt, /await targetChatGPTComposer\(key, request\?\.url \|\| '', request\?\.preferCurrentConversation === true\)/)
+  assert.match(preparePrompt, /await targetChatGPTComposer\(key, linkedConversation \|\| CHATGPT_URL, linkedConversation \? request\?\.preferCurrentConversation === true : false\)/)
   assert.doesNotMatch(preparePrompt, /focusChatGPTComposer/)
 })
 
@@ -95,6 +95,23 @@ test('external auth reuses the persistent Wharness browser profile and clear-ses
 })
 
 
+test('desktop owns the new-chat affinity handshake and renderer only confirms or rejects its candidate', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /\.\.\.publicChatGPTAffinity\(entry\?\.affinity\)/)
+  assert.match(source, /observeChatGPTAffinityURL\(cacheKey, entry, url\)/)
+  assert.match(source, /syncChatGPTAffinityURL\(key, entry, linkedConversation\)/)
+  assert.match(source, /wharness:chatgpt:confirm-affinity/)
+  assert.match(source, /confirmChatGPTAffinity\(entry\.affinity, request\?\.conversationUrl\)/)
+  assert.match(source, /wharness:chatgpt:reject-affinity/)
+  assert.match(source, /rejectChatGPTAffinity\(entry\.affinity, rejectedURL\)/)
+  assert.match(source, /markChatGPTAffinitySubmitted\(target\.entry\.affinity\)/)
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
+  const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
+  const prepare = source.slice(prepareStart, prepareEnd)
+  assert.match(prepare, /linkedConversation \|\| CHATGPT_URL/)
+  assert.match(prepare, /syncChatGPTAffinityURL\(key, target\.entry\)/)
+})
+
 test('automatic and confirmed submissions wait briefly for the definitive ChatGPT conversation URL', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
@@ -103,8 +120,8 @@ test('automatic and confirmed submissions wait briefly for the definitive ChatGP
   const preparedEnd = source.indexOf('\nasync function', preparedStart + 20)
   const prepare = source.slice(prepareStart, prepareEnd)
   const submitted = source.slice(preparedStart, preparedEnd > preparedStart ? preparedEnd : undefined)
-  assert.match(prepare, /conversationUrl = await waitForConcreteChatGPTConversation\(target\.wc, target\.conversationUrl\)/)
-  assert.match(submitted, /const conversationUrl = await waitForConcreteChatGPTConversation\(entry\.view\.webContents\)/)
+  assert.match(prepare, /conversationUrl = await waitForConcreteChatGPTConversation\(target\.wc, target\.conversationUrl, 20_000\)/)
+  assert.match(submitted, /const conversationUrl = await waitForConcreteChatGPTConversation\(entry\.view\.webContents, '', 20_000\)/)
   assert.match(submitted, /return \{ ok: true, cacheKey: key, expectedFilename, conversationUrl \}/)
 })
 

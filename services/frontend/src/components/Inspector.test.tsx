@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Session } from '../types'
 import { Inspector } from './Inspector'
 
@@ -84,6 +84,37 @@ it('shows workflow as a local probe without exposing change execution controls',
   expect(screen.getByText('Probe autorizada')).toBeTruthy()
   expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
   expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+})
+
+it('offers apply and reject for a verified cumulative host candidate', () => {
+  const session = legacySession()
+  session.state = 'verified'
+  session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+  session.pending_host_changes = [
+    { plan: session.plan!, execution: session.last_execution, verified_at: session.last_execution.completed_at },
+    { plan: { ...session.plan!, plan_id: 'plan-fix', summary: 'Correção incremental' }, execution: { ...session.last_execution, plan_id: 'plan-fix' }, verified_at: session.last_execution.completed_at },
+  ]
+  const onApply = vi.fn(async () => undefined)
+  const onReject = vi.fn(async () => undefined)
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onApply={onApply}
+    onRejectPendingChanges={onReject}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  fireEvent.click(screen.getByRole('button', { name: /Aplicar no host \(2\)/i }))
+  fireEvent.click(screen.getByRole('button', { name: /^Rejeitar$/i }))
+  expect(onApply).toHaveBeenCalledOnce()
+  expect(onReject).toHaveBeenCalledOnce()
 })
 
 
