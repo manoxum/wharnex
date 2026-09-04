@@ -9,6 +9,7 @@ BASE="$ROOT/.harness/self-evolution"
 STATUS="$BASE/status"
 LOG="$ROOT/.harness/logs/self-evolution.log"
 LOCK="$BASE/active.lock"
+STAGE_LOCK="$BASE/stage.lock"
 KNOWN_STOP="$TXN/stop-known-good.sh"
 KNOWN_START="$TXN/start-known-good.sh"
 ROLLBACK="$TXN/rollback.sh"
@@ -36,7 +37,12 @@ status() {
   printf '[%s] self-evolution %s plan=%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$phase" "$PLAN_ID" "$detail" >> "$LOG"
 }
 
+release_stage_lock() {
+  rm -f "$STAGE_LOCK"
+}
+
 cleanup_lock() {
+  release_stage_lock
   rm -f "$LOCK"
 }
 
@@ -53,14 +59,13 @@ recover_old_runtime() {
   WHARNESS_ROOT="$ROOT" "$KNOWN_STOP" >/dev/null 2>&1 || true
   if ! "$ROLLBACK" "$ROOT" "$TXN" >>"$LOG" 2>&1; then
     status rollback_failed "source/artifact rollback failed; manual recovery required"
-    cleanup_lock
+    release_stage_lock
     return 1
   fi
   status rollback_restored "previous source/artifacts restored; restarting known-good runtime"
   if WHARNESS_ROOT="$ROOT" "$KNOWN_START" >>"$LOG" 2>&1 && runtime_healthy; then
     status rolled_back_runtime "previous Wharness runtime restored"
     cleanup_lock
-    rm -rf "$TXN"
     return 0
   fi
   status rollback_deps "known-good runtime did not start; reconciling dependencies once"
@@ -70,11 +75,10 @@ recover_old_runtime() {
   if WHARNESS_ROOT="$ROOT" "$KNOWN_START" >>"$LOG" 2>&1 && runtime_healthy; then
     status rolled_back_runtime "previous Wharness runtime restored after dependency reconciliation"
     cleanup_lock
-    rm -rf "$TXN"
     return 0
   fi
   status rollback_failed "previous runtime could not be restarted; inspect self-evolution.log"
-  cleanup_lock
+  release_stage_lock
   return 1
 }
 
@@ -83,15 +87,14 @@ sleep 2
 status restarting "host build passed; handing off to detached restart supervisor"
 
 if ! WHARNESS_ROOT="$ROOT" "$KNOWN_STOP" >>"$LOG" 2>&1; then
-  status restart_failed "could not stop current Wharness coordinator"
-  cleanup_lock
+  status restart_failed "could not stop current Wharness coordinator; pending batch retained for retry or extension"
+  release_stage_lock
   exit 1
 fi
 
 if WHARNESS_ROOT="$ROOT" "$ROOT/scripts/start.sh" >>"$LOG" 2>&1 && runtime_healthy; then
   status restarted "new Wharness runtime is healthy"
   cleanup_lock
-  rm -rf "$TXN"
   find "$BASE" -mindepth 1 -maxdepth 1 -type d -name 'txn-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true
   exit 0
 fi

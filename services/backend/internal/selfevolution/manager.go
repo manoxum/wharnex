@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -40,6 +41,12 @@ type Transaction struct {
 	Worker         string
 	RollbackScript string
 	lockPath       string
+	stageLockPath  string
+}
+
+type PendingPlan struct {
+	SessionID string `json:"session_id"`
+	PlanID    string `json:"plan_id"`
 }
 
 func New(root string) *Manager {
@@ -82,7 +89,7 @@ func (m *Manager) IsProject(project string) bool {
 	return err == nil && canonical == m.root
 }
 
-func (m *Manager) Prepare(planID string, patches []string) (Transaction, error) {
+func (m *Manager) Prepare(sessionID, planID string, patches []string) (Transaction, error) {
 	if !m.Enabled() {
 		return Transaction{}, errors.New("Wharness runtime root is not available")
 	}
@@ -94,22 +101,50 @@ func (m *Manager) Prepare(planID string, patches []string) (Transaction, error) 
 		return Transaction{}, fmt.Errorf("create self-evolution directory: %w", err)
 	}
 	lockPath := filepath.Join(base, "active.lock")
-	if err := acquireLock(lockPath); err != nil {
+	stageLockPath := filepath.Join(base, "stage.lock")
+	if err := acquireActiveLock(lockPath); err == nil {
+		if status, statusErr := m.LastStatus(); statusErr == nil && extendablePendingPhase(status.Phase) {
+			if _, txErr := m.transactionFromStatus(status); txErr == nil {
+				return m.extendPendingBatch(base, lockPath, stageLockPath, sessionID, planID, patches)
+			}
+		}
+		if err := acquireLock(stageLockPath); err != nil {
+			_ = os.Remove(lockPath)
+			return Transaction{}, err
+		}
+		return m.prepareNewBatch(base, lockPath, stageLockPath, sessionID, planID, patches)
+	} else if !errors.Is(err, ErrBusy) {
 		return Transaction{}, err
 	}
-	cleanupLock := true
+	status, statusErr := m.LastStatus()
+	if statusErr == nil && extendablePendingPhase(status.Phase) {
+		return m.extendPendingBatch(base, lockPath, stageLockPath, sessionID, planID, patches)
+	}
+	if !activeLockOwnerAlive(lockPath) && (statusErr != nil || !persistentSelfEvolutionPhase(status.Phase)) {
+		_ = os.Remove(lockPath)
+		return m.Prepare(sessionID, planID, patches)
+	}
+	return Transaction{}, ErrBusy
+}
+
+func (m *Manager) prepareNewBatch(base, lockPath, stageLockPath, sessionID, planID string, patches []string) (Transaction, error) {
+	cleanup := true
 	defer func() {
-		if cleanupLock {
+		if cleanup {
+			_ = os.Remove(stageLockPath)
 			_ = os.Remove(lockPath)
 		}
 	}()
-
 	id := transactionID()
 	dir := filepath.Join(base, "txn-"+id)
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		return Transaction{}, fmt.Errorf("create transaction: %w", err)
 	}
-	tx := Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: lockPath}
+	tx := Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: lockPath, stageLockPath: stageLockPath}
+	if err := m.RecordStatus(tx, sessionID, planID, "preparing", "capturing rollback baseline for pending self-evolution batch"); err != nil {
+		_ = os.RemoveAll(dir)
+		return Transaction{}, err
+	}
 	if err := tx.captureSource(patches); err != nil {
 		_ = os.RemoveAll(dir)
 		return Transaction{}, err
@@ -122,11 +157,58 @@ func (m *Manager) Prepare(planID string, patches []string) (Transaction, error) 
 		_ = os.RemoveAll(dir)
 		return Transaction{}, err
 	}
-	if err := tx.writeMetadata(planID); err != nil {
+	if err := tx.writeMetadata(sessionID, planID); err != nil {
 		_ = os.RemoveAll(dir)
 		return Transaction{}, err
 	}
-	cleanupLock = false
+	if err := m.RecordStatus(tx, sessionID, planID, "prepared", "rollback baseline captured; host apply pending"); err != nil {
+		_ = os.RemoveAll(dir)
+		return Transaction{}, err
+	}
+	cleanup = false
+	return tx, nil
+}
+
+func (m *Manager) extendPendingBatch(base, lockPath, stageLockPath, sessionID, planID string, patches []string) (Transaction, error) {
+	status, err := m.LastStatus()
+	if err != nil || !extendablePendingPhase(status.Phase) {
+		return Transaction{}, ErrBusy
+	}
+	if err := acquireLock(stageLockPath); err != nil {
+		return Transaction{}, ErrBusy
+	}
+	releaseStage := true
+	defer func() {
+		if releaseStage {
+			_ = os.Remove(stageLockPath)
+		}
+	}()
+	latest, err := m.LastStatus()
+	if err != nil || !extendablePendingPhase(latest.Phase) || latest.Transaction != status.Transaction {
+		return Transaction{}, ErrBusy
+	}
+	tx, err := m.transactionFromStatus(latest)
+	if err != nil {
+		return Transaction{}, err
+	}
+	tx.lockPath = lockPath
+	tx.stageLockPath = stageLockPath
+	if err := m.RecordStatus(tx, sessionID, planID, "preparing", "extending pending self-evolution batch without restarting the running runtime"); err != nil {
+		return Transaction{}, err
+	}
+	if err := tx.captureSource(patches); err != nil {
+		_ = m.RecordStatus(tx, latest.SessionID, latest.PlanID, "restart_pending", "previous pending batch retained after extension preparation failed")
+		return Transaction{}, err
+	}
+	if err := tx.appendPendingPlan(sessionID, planID); err != nil {
+		_ = m.RecordStatus(tx, latest.SessionID, latest.PlanID, "restart_pending", "previous pending batch retained after extension metadata failed")
+		return Transaction{}, err
+	}
+	if err := m.RecordStatus(tx, sessionID, planID, "prepared", "pending batch extended; host apply pending"); err != nil {
+		_ = m.RecordStatus(tx, latest.SessionID, latest.PlanID, "restart_pending", "previous pending batch retained after extension status update failed")
+		return Transaction{}, err
+	}
+	releaseStage = false
 	return tx, nil
 }
 
@@ -156,26 +238,113 @@ func (m *Manager) PendingTransaction(sessionID, planID string) (Transaction, err
 		return Transaction{}, errors.New("Wharness runtime root is not available")
 	}
 	status, err := m.LastStatus()
+	if err != nil || !extendablePendingPhase(status.Phase) {
+		return Transaction{}, errors.New("matching self-evolution restart transaction is not pending")
+	}
+	tx, err := m.transactionFromStatus(status)
 	if err != nil {
 		return Transaction{}, err
 	}
-	if status.Phase != "restart_pending" || status.SessionID != sessionID || status.PlanID != planID {
-		return Transaction{}, errors.New("matching self-evolution restart transaction is not pending")
+	plans, err := tx.PendingPlans()
+	if err != nil {
+		return Transaction{}, err
 	}
+	if len(plans) == 0 && status.SessionID == sessionID && status.PlanID == planID {
+		return tx, nil
+	}
+	for _, pending := range plans {
+		if pending.SessionID == sessionID && pending.PlanID == planID {
+			return tx, nil
+		}
+	}
+	return Transaction{}, errors.New("matching self-evolution restart transaction is not pending")
+}
+
+func (m *Manager) PendingPlanForSession(sessionID string) (Transaction, PendingPlan, error) {
+	if !m.Enabled() {
+		return Transaction{}, PendingPlan{}, errors.New("Wharness runtime root is not available")
+	}
+	status, err := m.LastStatus()
+	if err != nil || !extendablePendingPhase(status.Phase) {
+		return Transaction{}, PendingPlan{}, errors.New("matching self-evolution restart transaction is not pending")
+	}
+	tx, err := m.transactionFromStatus(status)
+	if err != nil {
+		return Transaction{}, PendingPlan{}, err
+	}
+	plans, err := tx.PendingPlans()
+	if err != nil {
+		return Transaction{}, PendingPlan{}, err
+	}
+	for index := len(plans) - 1; index >= 0; index-- {
+		if plans[index].SessionID == sessionID {
+			return tx, plans[index], nil
+		}
+	}
+	if len(plans) == 0 && status.SessionID == sessionID {
+		return tx, PendingPlan{SessionID: sessionID, PlanID: status.PlanID}, nil
+	}
+	return Transaction{}, PendingPlan{}, errors.New("matching self-evolution restart transaction is not pending")
+}
+
+func (m *Manager) ClaimPendingForSession(sessionID string) (Transaction, PendingPlan, error) {
+	tx, pending, err := m.PendingPlanForSession(sessionID)
+	if err != nil {
+		return Transaction{}, PendingPlan{}, err
+	}
+	stageLockPath := filepath.Join(m.root, ".harness", "self-evolution", "stage.lock")
+	if err := acquireLock(stageLockPath); err != nil {
+		return Transaction{}, PendingPlan{}, ErrBusy
+	}
+	status, err := m.LastStatus()
+	if err != nil || !extendablePendingPhase(status.Phase) || status.Transaction != "txn-"+tx.ID {
+		_ = os.Remove(stageLockPath)
+		return Transaction{}, PendingPlan{}, ErrBusy
+	}
+	tx.stageLockPath = stageLockPath
+	return tx, pending, nil
+}
+
+func (m *Manager) ClaimPendingTransaction(sessionID, planID string) (Transaction, error) {
+	tx, err := m.PendingTransaction(sessionID, planID)
+	if err != nil {
+		return Transaction{}, err
+	}
+	stageLockPath := filepath.Join(m.root, ".harness", "self-evolution", "stage.lock")
+	if err := acquireLock(stageLockPath); err != nil {
+		return Transaction{}, ErrBusy
+	}
+	status, err := m.LastStatus()
+	if err != nil || !extendablePendingPhase(status.Phase) || status.Transaction != "txn-"+tx.ID {
+		_ = os.Remove(stageLockPath)
+		return Transaction{}, ErrBusy
+	}
+	tx.stageLockPath = stageLockPath
+	return tx, nil
+}
+
+func (m *Manager) transactionFromStatus(status Status) (Transaction, error) {
 	transactionName := sanitizeLabel(status.Transaction)
 	if transactionName == "" || transactionName != status.Transaction || !strings.HasPrefix(transactionName, "txn-") {
-		return Transaction{}, errors.New("invalid pending self-evolution transaction reference")
+		return Transaction{}, errors.New("invalid self-evolution transaction reference")
 	}
 	id := strings.TrimPrefix(transactionName, "txn-")
 	if id == "" {
-		return Transaction{}, errors.New("invalid pending self-evolution transaction id")
+		return Transaction{}, errors.New("invalid self-evolution transaction id")
 	}
 	dir := filepath.Join(m.root, ".harness", "self-evolution", transactionName)
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		return Transaction{}, errors.New("pending self-evolution transaction directory is unavailable")
+		return Transaction{}, errors.New("self-evolution transaction directory is unavailable")
 	}
 	return Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: filepath.Join(m.root, ".harness", "self-evolution", "active.lock")}, nil
+}
+
+func (m *Manager) TransactionForStatus(status Status) (Transaction, error) {
+	if !m.Enabled() {
+		return Transaction{}, errors.New("Wharness runtime root is not available")
+	}
+	return m.transactionFromStatus(status)
 }
 
 func (m *Manager) RecordStatus(tx Transaction, sessionID, planID, phase, detail string) error {
@@ -312,9 +481,22 @@ func (tx Transaction) Rollback() error {
 	return nil
 }
 
+func (tx Transaction) ReleaseStage() {
+	if tx.stageLockPath != "" {
+		_ = os.Remove(tx.stageLockPath)
+	}
+}
+
 func (tx Transaction) Release() {
+	tx.ReleaseStage()
 	if tx.lockPath != "" {
 		_ = os.Remove(tx.lockPath)
+	}
+}
+
+func (tx Transaction) Finalize() {
+	if tx.Dir != "" {
+		_ = os.RemoveAll(tx.Dir)
 	}
 }
 
@@ -381,6 +563,51 @@ func looksLikeWharness(root string) bool {
 	return true
 }
 
+func acquireActiveLock(path string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, _ = fmt.Fprintf(file, "pid=%d\ncreated=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+		return file.Close()
+	}
+	if errors.Is(err, os.ErrExist) {
+		return ErrBusy
+	}
+	return err
+}
+
+func activeLockOwnerAlive(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != "pid" {
+			continue
+		}
+		pid, parseErr := strconv.Atoi(strings.TrimSpace(value))
+		if parseErr != nil || pid <= 0 {
+			return false
+		}
+		err := syscall.Kill(pid, 0)
+		return err == nil || errors.Is(err, syscall.EPERM)
+	}
+	return false
+}
+
+func extendablePendingPhase(phase string) bool {
+	return phase == "restart_pending" || phase == "restart_failed"
+}
+
+func persistentSelfEvolutionPhase(phase string) bool {
+	switch phase {
+	case "preparing", "prepared", "building", "restart_pending", "restart_failed", "restart_scheduled", "restarting", "rollback_runtime", "rollback_restored", "rollback_deps", "rollback_failed":
+		return true
+	default:
+		return false
+	}
+}
+
 func acquireLock(path string) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err == nil {
@@ -390,7 +617,7 @@ func acquireLock(path string) error {
 	if !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > time.Hour {
+	if !activeLockOwnerAlive(path) {
 		_ = os.Remove(path)
 		return acquireLock(path)
 	}

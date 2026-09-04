@@ -165,6 +165,7 @@ type Session struct {
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
+	SelfEvolutionActivation string               `json:"self_evolution_activation,omitempty"`
 	State                   string               `json:"state"`
 	CreatedAt               time.Time            `json:"created_at"`
 	Context                 ContextBundle        `json:"context"`

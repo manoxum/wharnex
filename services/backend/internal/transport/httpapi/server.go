@@ -161,7 +161,7 @@ func (a *API) deleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
-	item, err := a.store.Get(r.PathValue("id"))
+	item, err := a.service.GetSession(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session_not_found", "session not found")
 		return

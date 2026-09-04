@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -16,6 +17,12 @@ type sourceBackup struct {
 	Existed bool   `json:"existed"`
 	Backup  string `json:"backup,omitempty"`
 	Mode    uint32 `json:"mode,omitempty"`
+}
+
+type transactionMetadata struct {
+	TransactionID string        `json:"transaction_id"`
+	Root          string        `json:"root"`
+	Plans         []PendingPlan `json:"plans"`
 }
 
 var buildGuardPaths = []string{
@@ -43,8 +50,19 @@ func (tx Transaction) captureSource(patches []string) error {
 	for _, path := range buildGuardPaths {
 		paths[path] = struct{}{}
 	}
-	backups := make([]sourceBackup, 0, len(paths))
-	for index, relative := range uniqueSorted(paths) {
+	backups, err := tx.readSourceBackups()
+	if err != nil {
+		return err
+	}
+	known := make(map[string]struct{}, len(backups))
+	for _, backup := range backups {
+		known[backup.Path] = struct{}{}
+	}
+	nextIndex := len(backups)
+	for _, relative := range uniqueSorted(paths) {
+		if _, exists := known[relative]; exists {
+			continue
+		}
 		absolute, err := containedPath(tx.Root, relative)
 		if err != nil {
 			return err
@@ -52,6 +70,7 @@ func (tx Transaction) captureSource(patches []string) error {
 		info, err := os.Lstat(absolute)
 		if errors.Is(err, os.ErrNotExist) {
 			backups = append(backups, sourceBackup{Path: relative})
+			known[relative] = struct{}{}
 			continue
 		}
 		if err != nil {
@@ -60,12 +79,15 @@ func (tx Transaction) captureSource(patches []string) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("self-evolution refuses non-regular target %s", relative)
 		}
-		backupName := fmt.Sprintf("source/%04d.bin", index)
+		backupName := fmt.Sprintf("source/%04d.bin", nextIndex)
+		nextIndex++
 		if err := copyFile(absolute, filepath.Join(tx.Dir, backupName), info.Mode()); err != nil {
 			return fmt.Errorf("backup %s: %w", relative, err)
 		}
 		backups = append(backups, sourceBackup{Path: relative, Existed: true, Backup: backupName, Mode: uint32(info.Mode().Perm())})
+		known[relative] = struct{}{}
 	}
+	sort.Slice(backups, func(i, j int) bool { return backups[i].Path < backups[j].Path })
 	data, err := json.MarshalIndent(backups, "", "  ")
 	if err != nil {
 		return err
@@ -74,6 +96,21 @@ func (tx Transaction) captureSource(patches []string) error {
 		return err
 	}
 	return tx.writeRollback(backups)
+}
+
+func (tx Transaction) readSourceBackups() ([]sourceBackup, error) {
+	data, err := os.ReadFile(filepath.Join(tx.Dir, "source-backup.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var backups []sourceBackup
+	if err := json.Unmarshal(data, &backups); err != nil {
+		return nil, fmt.Errorf("read self-evolution source backup metadata: %w", err)
+	}
+	return backups, nil
 }
 
 func (tx Transaction) captureRuntime() error {
@@ -118,9 +155,54 @@ func (tx Transaction) captureLifecycleScripts() error {
 	return nil
 }
 
-func (tx Transaction) writeMetadata(planID string) error {
-	data := map[string]string{"transaction_id": tx.ID, "plan_id": planID, "root": tx.Root}
-	raw, err := json.MarshalIndent(data, "", "  ")
+func (tx Transaction) writeMetadata(sessionID, planID string) error {
+	metadata := transactionMetadata{
+		TransactionID: tx.ID,
+		Root:          tx.Root,
+		Plans:         []PendingPlan{{SessionID: sessionID, PlanID: planID}},
+	}
+	return tx.saveMetadata(metadata)
+}
+
+func (tx Transaction) appendPendingPlan(sessionID, planID string) error {
+	metadata, err := tx.readMetadata()
+	if err != nil {
+		return err
+	}
+	for _, pending := range metadata.Plans {
+		if pending.SessionID == sessionID && pending.PlanID == planID {
+			return nil
+		}
+	}
+	metadata.Plans = append(metadata.Plans, PendingPlan{SessionID: sessionID, PlanID: planID})
+	return tx.saveMetadata(metadata)
+}
+
+func (tx Transaction) PendingPlans() ([]PendingPlan, error) {
+	metadata, err := tx.readMetadata()
+	if err != nil {
+		return nil, err
+	}
+	return append([]PendingPlan(nil), metadata.Plans...), nil
+}
+
+func (tx Transaction) readMetadata() (transactionMetadata, error) {
+	data, err := os.ReadFile(filepath.Join(tx.Dir, "transaction.json"))
+	if err != nil {
+		return transactionMetadata{}, err
+	}
+	var metadata transactionMetadata
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return transactionMetadata{}, fmt.Errorf("read self-evolution transaction metadata: %w", err)
+	}
+	if metadata.TransactionID != tx.ID || metadata.Root != tx.Root {
+		return transactionMetadata{}, errors.New("self-evolution transaction metadata does not match transaction")
+	}
+	return metadata, nil
+}
+
+func (tx Transaction) saveMetadata(metadata transactionMetadata) error {
+	raw, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		return err
 	}

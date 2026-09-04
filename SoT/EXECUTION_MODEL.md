@@ -57,19 +57,22 @@ Opening, creating, and cloning a project occurs before Agent execution and is dr
 
 The human Host terminal remains a direct argv executor rooted at the real project. Submission is available through both Enter/form submit and an explicit run button. This UI affordance does not introduce a shell: tokenization remains client-side argv parsing, backend interactive policy validation remains mandatory, and the Host runner executes the selected executable directly with the project-relative cwd.
 
-## Transactional self-evolution (v1.2.23)
+## Transactional self-evolution (v1.2.23, amended v1.2.34)
 
 A session is `self_evolution=true` only when its canonical project root is exactly the canonical root of the currently running Wharness instance. A child directory, another checkout, or another worktree is not self-evolution unless it resolves to that exact runtime root.
 
-Self-evolution is locked to `Protected`; switching that session to `Unprotected` MUST be rejected. Normal sandbox execution and verification happen first. A successful Protected execution that contains patches then uses a self-evolution host transaction instead of the generic Apply path:
+Self-evolution is locked to `Protected`; switching that session to `Unprotected` MUST be rejected. Normal sandbox execution and verification happen first. A successful Protected execution that contains patches then uses a self-evolution host batch instead of the generic Apply path:
 
-1. acquire the exclusive `.harness/self-evolution/active.lock`;
-2. snapshot patch-touched source files, root/frontend compiled artifacts, build stamp and known-good lifecycle scripts;
-3. apply validated patches to the real root;
-4. run `make build` on the real root while the old Wharness is still healthy;
-5. rollback immediately on host Apply/build failure;
-6. on success, detach the pre-captured restart supervisor and return control to the caller;
-7. supervisor stops the current runtime and starts the newly built runtime using normal health checks;
-8. if new-runtime startup fails, restore the captured source/artifacts and restart the previous known-good runtime.
+1. acquire a durable `.harness/self-evolution/active.lock` for the pending activation batch and a short-lived `stage.lock` for the current mutation stage;
+2. for the first batch member, snapshot patch-touched source files, root/frontend compiled artifacts, build stamp and known-good lifecycle scripts;
+3. apply validated patches to the real root and run `make build` while the old Wharness remains healthy;
+4. rollback the whole batch immediately on host Apply/build failure;
+5. on success, persist `restart_pending`, keep `active.lock`, and release only `stage.lock`;
+6. another verified self-evolution plan MAY extend that same `restart_pending` transaction: it reuses the original runtime rollback baseline, snapshots only newly touched source paths, records its session/plan membership, applies, rebuilds, and returns to `restart_pending`;
+7. Apply/build/revert/restart stages remain mutually exclusive through `stage.lock`, so only the idle pending state is batch-extendable;
+8. pending activation is represented independently from the current chat task; after the user chooses Later, that session may process another request while retaining the restart control and batch membership;
+9. explicit restart confirmation claims the stage lock and hands the complete pending batch to the pre-captured detached supervisor; a failed stop/handoff keeps the durable batch lock and returns the batch to an extendable/retryable pending state;
+10. the supervisor activates the cumulative build and, if health checks fail, restores the original running-runtime baseline rather than an intermediate pending build;
+11. after restart/rollback, the backend reconciles every recorded batch member to the resulting state without overwriting a newer unrelated chat task, then performs final transaction cleanup.
 
-Model plans MUST NOT own start/stop/restart of Wharness in self-evolution mode. They verify source changes in the Protected sandbox; Wharness owns host build, lifecycle handoff and recovery. Runtime recovery files under `.harness` are not project-mutation targets.
+Model plans MUST NOT own start/stop/restart of Wharness in self-evolution mode. They verify source changes in the Protected sandbox; Wharness owns host build, batching, lifecycle handoff and recovery. Runtime recovery files under `.harness` are not project-mutation targets.

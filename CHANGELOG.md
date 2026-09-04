@@ -1,3 +1,14 @@
+## v1.2.34 - Batched pending self-evolution
+
+- Replace the single pending self-evolution deadlock with one atomic pending batch: after a verified host build reaches `restart_pending`, additional verified Wharness changes may extend the same transaction without restarting first.
+- Keep the original source/runtime/lifecycle rollback baseline for the whole batch while snapshotting newly touched paths only once, so a later failure rolls the complete pending batch back to the runtime that is actually running.
+- Add a short-lived stage lock on top of the durable batch lock so Apply/build/revert/restart transitions stay serialized while the idle `restart_pending` state remains extendable.
+- Persist every session/plan participating in the batch, allowing any member to confirm activation and keeping all participating sessions synchronized through restart, rollback and reconciliation.
+- Retain completed transaction metadata until the restarted backend reconciles all batch members, then clean it up; the detached supervisor also clears both batch/stage locks.
+- Clarify the restart dialog that choosing Later can safely accumulate more verified changes into the same pending activation.
+- Track pending activation independently from the current chat task, so choosing Later releases the request queue for additional work while the restart control remains available even after that session advances to a newer request.
+- Keep the durable batch lock on a failed restart handoff so the same baseline can be retried or safely extended instead of accidentally starting a second rollback universe.
+
 ## v1.2.33 - Dedicated ChatGPT renderer per Harness chat
 
 - Give every live Harness chat its own owned ChatGPT `WebContentsView`/`webContents` instance instead of treating the active remote surface as a reusable renderer.

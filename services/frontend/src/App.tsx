@@ -562,14 +562,14 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!session || !activeChatId || busy || queueDrainRef.current || requestChainActive(session) || preparedDrafts[activeChatId]) return
+    if (!session || !activeChatId || busy || restartModalOpen || queueDrainRef.current || requestChainActive(session) || preparedDrafts[activeChatId]) return
     const next = (queuedRequestsByChat[activeChatId] || [])[0]
     if (!next) return
     queueDrainRef.current = true
     setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: (current[activeChatId] || []).filter((item) => item.id !== next.id) }))
     void send(next.message, next.attachments, next.artifacts, next.requestMode).finally(() => { queueDrainRef.current = false })
     // send intentionally stays outside the dependency array: this effect is a serialized queue dispatcher.
-  }, [activeChatId, busy, preparedDrafts, queuedRequestsByChat, session?.state, session?.pending_manual_request_ids])
+  }, [activeChatId, busy, preparedDrafts, queuedRequestsByChat, restartModalOpen, session?.state, session?.pending_manual_request_ids, session?.self_evolution_activation])
 
   async function confirmPreparedDraft() {
     if (!activeChatId || busy) return
@@ -922,7 +922,7 @@ export default function App() {
   }
 
   async function confirmSelfRestart() {
-    if (!session || !session.self_evolution || session.state !== 'restart_pending' || busy) return
+    if (!session || !session.self_evolution || (session.self_evolution_activation !== 'restart_pending' && session.state !== 'restart_pending') || busy) return
     setBusy(true); setError(undefined)
     try {
       const updated = await api.restartSelfEvolution(session.id)
@@ -996,10 +996,10 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
     result: Boolean(activeChat?.artifactSelection?.result),
     error: errorArtifactRequired || Boolean(activeChat?.artifactSelection?.error),
   }
-  const taskInFlight = requestChainActive(session)
-  const restartPending = Boolean(session.self_evolution && session.state === 'restart_pending')
+  const taskInFlight = requestChainActive(session) || restartModalOpen
+  const restartPending = Boolean(session.self_evolution && (session.self_evolution_activation === 'restart_pending' || (!session.self_evolution_activation && session.state === 'restart_pending')))
   return <main className="workspace-root">
-    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
+    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
     {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={() => setRestartModalOpen(false)} onRestart={() => void confirmSelfRestart()} />}
     {error && <div className="toast-error" data-chatgpt-overlay-blocker="true" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
@@ -1019,7 +1019,7 @@ function RestartConfirmation({ busy, onLater, onRestart }: { busy: boolean; onLa
   return <div className="restart-confirmation-backdrop" role="presentation">
     <section className="restart-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="restart-confirmation-title">
       <div className="restart-confirmation-icon"><Icon name="refresh" size={24}/></div>
-      <div><span className="panel-kicker">Auto-evolução concluída</span><h2 id="restart-confirmation-title">Ativar a nova versão do Wharness?</h2><p>As alterações já foram verificadas, aplicadas e compiladas. O reinício ativa o novo runtime; o supervisor transacional mantém rollback automático se a nova versão não ficar saudável.</p></div>
+      <div><span className="panel-kicker">Auto-evolução concluída</span><h2 id="restart-confirmation-title">Ativar a nova versão do Wharness?</h2><p>As alterações já foram verificadas, aplicadas e compiladas. Pode reiniciar agora ou escolher Mais tarde e continuar a acumular outras alterações verificadas no mesmo lote pendente. O reinício ativa o lote completo; o supervisor transacional mantém rollback automático se a nova versão não ficar saudável.</p></div>
       <div className="restart-confirmation-actions"><button className="secondary-button" disabled={busy} onClick={onLater}>Mais tarde</button><button className="apply-button" disabled={busy} onClick={onRestart}><Icon name="refresh" size={14}/> Reiniciar agora</button></div>
     </section>
   </div>
@@ -1054,7 +1054,8 @@ function contextArtifact(session: Session) {
 
 function requestChainActive(session: Session) {
   if (session.pending_manual_request_ids?.length) return true
-  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'verified', 'restart_pending', 'restart_scheduled']).has(session.state)
+  if (session.self_evolution_activation === 'restart_scheduled') return true
+  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'verified', 'restart_scheduled']).has(session.state)
 }
 
 function executionArtifact(session: Session) {

@@ -49,7 +49,7 @@ func TestTransactionRollbackRestoresTouchedSourceAndRuntime(t *testing.T) {
 	}, "\n")
 
 	manager := New(root)
-	tx, err := manager.Prepare("plan-test", []string{patch})
+	tx, err := manager.Prepare("ses-test", "plan-test", []string{patch})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,14 +80,62 @@ func TestTransactionLockRejectsConcurrentSelfEvolution(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
 	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
 	manager := New(root)
-	first, err := manager.Prepare("plan-one", []string{patch})
+	first, err := manager.Prepare("ses-one", "plan-one", []string{patch})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer first.Release()
-	if _, err := manager.Prepare("plan-two", []string{patch}); !errors.Is(err, ErrBusy) {
+	if _, err := manager.Prepare("ses-two", "plan-two", []string{patch}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("expected ErrBusy, got %v", err)
 	}
+}
+
+func TestPendingBatchAcceptsSequentialHostChangesAndKeepsOriginalRollbackBaseline(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	firstPatch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"
+	first, err := manager.Prepare("ses-one", "plan-one", []string{firstPatch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-one\n", 0o644)
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_pending", "first build ready"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	secondPatch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-after-one\n+after-two\n"
+	second, err := manager.Prepare("ses-two", "plan-two", []string{secondPatch})
+	if err != nil {
+		t.Fatalf("expected pending batch extension, got %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("expected one atomic pending batch, got %s then %s", first.ID, second.ID)
+	}
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-two\n", 0o644)
+	if err := manager.RecordStatus(second, "ses-two", "plan-two", "restart_pending", "second build ready"); err != nil {
+		t.Fatal(err)
+	}
+	second.ReleaseStage()
+	plans, err := second.PendingPlans()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 2 || plans[0].PlanID != "plan-one" || plans[1].PlanID != "plan-two" {
+		t.Fatalf("unexpected pending plans: %#v", plans)
+	}
+	if _, err := manager.PendingTransaction("ses-one", "plan-one"); err != nil {
+		t.Fatalf("first plan should remain a member of the pending batch: %v", err)
+	}
+	if _, err := manager.PendingTransaction("ses-two", "plan-two"); err != nil {
+		t.Fatalf("second plan should be a member of the pending batch: %v", err)
+	}
+	if err := second.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, filepath.Join(root, "hello.txt"), "before\n")
 }
 
 func fakeRoot(t *testing.T) string {
@@ -129,7 +177,7 @@ func TestBuildHostRejectsDependencyMetadataMutation(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "Makefile"), "build:\n\t@mkdir -p services/frontend\n\t@printf 'unexpected\\n' > services/frontend/package-lock.json\n", 0o644)
 	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
 	manager := New(root)
-	tx, err := manager.Prepare("plan-build-guard", []string{patch})
+	tx, err := manager.Prepare("ses-build-guard", "plan-build-guard", []string{patch})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,8 +197,66 @@ func TestTransactionRejectsHarnessRuntimePaths(t *testing.T) {
 	root := fakeRoot(t)
 	manager := New(root)
 	patch := "--- /dev/null\n+++ b/.harness/state/poison.json\n@@ -0,0 +1 @@\n+{}\n"
-	if _, err := manager.Prepare("plan-runtime-owned", []string{patch}); err == nil || !strings.Contains(err.Error(), "runtime-owned path .harness/state/poison.json") {
+	if _, err := manager.Prepare("ses-runtime-owned", "plan-runtime-owned", []string{patch}); err == nil || !strings.Contains(err.Error(), "runtime-owned path .harness/state/poison.json") {
 		t.Fatalf("expected runtime-owned path rejection, got %v", err)
+	}
+}
+
+func TestRestartFailureKeepsPendingBatchExtendable(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	first, err := manager.Prepare("ses-one", "plan-one", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-one\n", 0o644)
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_failed", "coordinator stop failed"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	second, err := manager.Prepare("ses-two", "plan-two", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-after-one\n+after-two\n"})
+	if err != nil {
+		t.Fatalf("expected failed restart to retain an extendable batch, got %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("expected restart retry extension to reuse transaction %s, got %s", first.ID, second.ID)
+	}
+}
+
+func TestPendingPlanForSessionReturnsLatestMemberAfterSameSessionExtension(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	first, err := manager.Prepare("ses-one", "plan-one", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-one\n", 0o644)
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_pending", "first build ready"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	second, err := manager.Prepare("ses-one", "plan-two", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-after-one\n+after-two\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-two\n", 0o644)
+	if err := manager.RecordStatus(second, "ses-one", "plan-two", "restart_pending", "second build ready"); err != nil {
+		t.Fatal(err)
+	}
+	second.ReleaseStage()
+
+	recovered, pending, err := manager.PendingPlanForSession("ses-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.ID != first.ID || pending.PlanID != "plan-two" {
+		t.Fatalf("expected latest same-session member plan-two in transaction %s, got transaction=%s pending=%#v", first.ID, recovered.ID, pending)
 	}
 }
 
@@ -158,7 +264,7 @@ func TestPendingTransactionRecoversRestartConfirmationHandoff(t *testing.T) {
 	root := fakeRoot(t)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
 	manager := New(root)
-	tx, err := manager.Prepare("plan-confirm", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	tx, err := manager.Prepare("ses-confirm", "plan-confirm", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,6 +272,7 @@ func TestPendingTransactionRecoversRestartConfirmationHandoff(t *testing.T) {
 	if err := manager.RecordStatus(tx, "ses-confirm", "plan-confirm", "restart_pending", "awaiting user confirmation"); err != nil {
 		t.Fatal(err)
 	}
+	tx.ReleaseStage()
 	recovered, err := manager.PendingTransaction("ses-confirm", "plan-confirm")
 	if err != nil {
 		t.Fatal(err)

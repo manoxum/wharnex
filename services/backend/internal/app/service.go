@@ -194,6 +194,11 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	return item, nil
 }
 
+func (s *Service) GetSession(sessionID string) (domain.Session, error) {
+	s.reconcileSelfEvolutionStatus()
+	return s.store.Get(sessionID)
+}
+
 func (s *Service) DeleteSession(sessionID string) error {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -1072,11 +1077,10 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	selfEvolution := s.isSelfEvolution(item) && len(patches) > 0
 	var transaction selfevolution.Transaction
 	if selfEvolution {
-		transaction, err = s.selfEvolution.Prepare(item.Plan.PlanID, patches)
+		transaction, err = s.selfEvolution.Prepare(sessionID, item.Plan.PlanID, patches)
 		if err != nil {
 			return item, fmt.Errorf("prepare Wharness self-evolution transaction: %w", err)
 		}
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "prepared", "rollback snapshot captured; host apply pending")
 		s.bus.Publish(sessionID, "self_evolution.transaction_started", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
 	}
 	rollback := func(cause error) error {
@@ -1085,10 +1089,12 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
 			_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rollback_failed", rollbackErr.Error())
-			transaction.Release()
+			s.updateSelfEvolutionBatchSessions(transaction, "restart_pending", rollbackErr.Error())
+			transaction.ReleaseStage()
 			return fmt.Errorf("%w; automatic self-evolution rollback also failed: %v", cause, rollbackErr)
 		}
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rolled_back", cause.Error())
+		s.updateSelfEvolutionBatchSessions(transaction, "verified", cause.Error())
 		transaction.Release()
 		s.bus.Publish(sessionID, "self_evolution.rolled_back", map[string]any{"plan_id": item.Plan.PlanID, "error": cause.Error()})
 		return cause
@@ -1098,7 +1104,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	workspace, err := s.hostRunner.Prepare(ctx, item.ProjectPath)
 	if err != nil {
 		if selfEvolution {
-			transaction.Release()
+			return item, rollback(err)
 		}
 		return item, err
 	}
@@ -1150,6 +1156,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		if selfEvolution {
 			current.State = "restart_pending"
+			current.SelfEvolutionActivation = "restart_pending"
 		} else {
 			current.State = "applied"
 		}
@@ -1161,6 +1168,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 
 	if selfEvolution {
+		transaction.ReleaseStage()
 		s.resetDevspace(sessionID)
 		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID, "self_evolution": true, "restart_required": true})
 		s.bus.Publish(sessionID, "self_evolution.restart_pending", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
@@ -1203,15 +1211,18 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 	s.bus.Publish(sessionID, "host.revert_started", map[string]any{"plan_id": item.Plan.PlanID, "patch_count": len(patches)})
 
 	if s.isSelfEvolution(item) && item.State == "restart_pending" {
-		transaction, pendingErr := s.selfEvolution.PendingTransaction(sessionID, item.Plan.PlanID)
+		transaction, pendingErr := s.selfEvolution.ClaimPendingTransaction(sessionID, item.Plan.PlanID)
 		if pendingErr != nil {
 			return item, fmt.Errorf("recover self-evolution transaction for revert: %w", pendingErr)
 		}
 		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+			transaction.ReleaseStage()
 			return item, fmt.Errorf("revert self-evolution transaction: %w", rollbackErr)
 		}
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rolled_back", "user requested regression rollback before restart")
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rolled_back", "user requested rollback of the pending self-evolution batch before restart")
+		s.updateSelfEvolutionBatchSessions(transaction, "reverted", "")
 		transaction.Release()
+		transaction.Finalize()
 	} else {
 		workspace, prepareErr := s.hostRunner.Prepare(ctx, item.ProjectPath)
 		if prepareErr != nil {
@@ -1264,25 +1275,26 @@ func (s *Service) RestartSelfEvolution(sessionID string) (domain.Session, error)
 	if err != nil {
 		return item, err
 	}
-	if !s.isSelfEvolution(item) || item.Plan == nil || item.State != "restart_pending" {
+	if !s.isSelfEvolution(item) || (item.SelfEvolutionActivation != "restart_pending" && item.State != "restart_pending") {
 		return item, errors.New("no Wharness self-evolution restart is pending confirmation")
 	}
-	transaction, err := s.selfEvolution.PendingTransaction(sessionID, item.Plan.PlanID)
+	transaction, pending, err := s.selfEvolution.ClaimPendingForSession(sessionID)
 	if err != nil {
 		return item, fmt.Errorf("recover pending Wharness self-evolution transaction: %w", err)
 	}
-	if err := s.selfEvolution.ScheduleRestart(transaction, sessionID, item.Plan.PlanID); err != nil {
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "restart_pending", "restart confirmation accepted but detached handoff failed: "+err.Error())
+	if err := s.selfEvolution.ScheduleRestart(transaction, sessionID, pending.PlanID); err != nil {
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_pending", "restart confirmation accepted but detached handoff failed: "+err.Error())
+		transaction.ReleaseStage()
 		return item, fmt.Errorf("schedule Wharness restart: %w", err)
 	}
-	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
-		current.State = "restart_scheduled"
-		return nil
-	})
+	_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_scheduled", "detached restart supervisor accepted the pending self-evolution batch")
+	s.updateSelfEvolutionBatchSessions(transaction, "restart_scheduled", "")
+	transaction.ReleaseStage()
+	updated, err := s.store.Get(sessionID)
 	if err != nil {
 		return item, err
 	}
-	s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+	s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": pending.PlanID, "transaction_id": transaction.ID})
 	return updated, nil
 }
 
@@ -1308,6 +1320,50 @@ func (s *Service) normalizeSelfEvolutionSessions() {
 	}
 }
 
+func (s *Service) updateSelfEvolutionBatchSessions(transaction selfevolution.Transaction, state, detail string) int {
+	plans, err := transaction.PendingPlans()
+	if err != nil {
+		return 0
+	}
+	activationState := ""
+	if state == "restart_pending" || state == "restart_scheduled" {
+		activationState = state
+	}
+	seen := map[string]struct{}{}
+	updatedCount := 0
+	for index := len(plans) - 1; index >= 0; index-- {
+		pending := plans[index]
+		if _, ok := seen[pending.SessionID]; ok {
+			continue
+		}
+		seen[pending.SessionID] = struct{}{}
+		matchedPlan := false
+		updated, updateErr := s.store.Update(pending.SessionID, func(current *domain.Session) error {
+			if !s.isSelfEvolution(*current) {
+				return nil
+			}
+			current.SelfEvolution = true
+			current.SelfEvolutionActivation = activationState
+			matchedPlan = current.Plan != nil && current.Plan.PlanID == pending.PlanID
+			batchOwnsVisibleState := matchedPlan || current.State == "restart_pending" || current.State == "restart_scheduled"
+			if batchOwnsVisibleState {
+				current.State = state
+				if detail != "" {
+					current.LastRepairError = detail
+				} else if state == "applied" || state == "restart_scheduled" || state == "reverted" {
+					current.LastRepairError = ""
+				}
+			}
+			return nil
+		})
+		if updateErr == nil && updated.ID != "" {
+			updatedCount++
+			s.bus.Publish(pending.SessionID, "self_evolution.batch_state", map[string]any{"plan_id": pending.PlanID, "state": state, "transaction_id": transaction.ID, "current_plan_matched": matchedPlan})
+		}
+	}
+	return updatedCount
+}
+
 func (s *Service) reconcileSelfEvolutionStatus() {
 	if s.selfEvolution == nil || !s.selfEvolution.Enabled() {
 		return
@@ -1317,23 +1373,43 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 		return
 	}
 	state := ""
+	finalize := false
 	switch status.Phase {
 	case "rollback_restored", "rolled_back_runtime":
 		state = "verified"
-	case "restart_pending":
+		finalize = true
+	case "restart_pending", "restart_failed":
 		state = "restart_pending"
+	case "restart_scheduled", "restarting":
+		state = "restart_scheduled"
 	case "restarted":
 		state = "applied"
-	case "restart_failed":
-		state = "restart_pending"
+		finalize = true
 	default:
 		return
+	}
+	if transaction, txErr := s.selfEvolution.TransactionForStatus(status); txErr == nil {
+		detail := status.Detail
+		if status.Phase == "restarted" {
+			detail = ""
+		}
+		if s.updateSelfEvolutionBatchSessions(transaction, state, detail) > 0 {
+			if finalize {
+				transaction.Finalize()
+			}
+			return
+		}
 	}
 	updated, err := s.store.Update(status.SessionID, func(current *domain.Session) error {
 		if !s.isSelfEvolution(*current) || current.Plan == nil || current.Plan.PlanID != status.PlanID {
 			return nil
 		}
 		current.SelfEvolution = true
+		if state == "restart_pending" || state == "restart_scheduled" {
+			current.SelfEvolutionActivation = state
+		} else {
+			current.SelfEvolutionActivation = ""
+		}
 		current.State = state
 		if status.Phase == "restarted" {
 			current.LastRepairError = ""

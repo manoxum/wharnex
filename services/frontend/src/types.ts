@@ -126,6 +126,7 @@ export type Session = {
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
   self_evolution?: boolean
+  self_evolution_activation?: 'restart_pending' | 'restart_scheduled'
   state: string
   created_at: string
   context: { id: string; manifest: ContextManifest }
