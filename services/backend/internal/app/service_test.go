@@ -23,6 +23,10 @@ import (
 	"kernl.local/harness/backend/internal/session"
 )
 
+func appCommand(argv ...string) domain.CommandSpec {
+	return domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}
+}
+
 type fakePlanner struct{ plan domain.ExecutionPlan }
 
 func (f fakePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
@@ -155,7 +159,7 @@ func TestServicePlansAndExecutes(t *testing.T) {
 	}
 	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "p1", RequestID: "r1", Status: "ready", Summary: "test", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"go", "test", "./..."}, Cwd: ".", TimeoutSeconds: 10, ExpectedExitCodes: []int{0}}}}}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
-	s, err := service.StartSession(context.Background(), root)
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +176,29 @@ func TestServicePlansAndExecutes(t *testing.T) {
 	}
 	if !result.Success {
 		t.Fatal("expected success")
+	}
+}
+
+func TestAutoExecutionCannotBeExecutedAgain(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "auto-single-shot", RequestID: "r-auto", Status: "ready", Summary: "test", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"go", "test", "./..."}, Cwd: ".", TimeoutSeconds: 10, ExpectedExitCodes: []int{0}}}}}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, automated, err := service.SubmitMessage(context.Background(), started.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if automated.LastExecution == nil || !automated.LastExecution.Success || automated.LastExecution.PlanID != plan.PlanID {
+		t.Fatalf("auto mode should have executed the plan exactly once: %#v", automated.LastExecution)
+	}
+	if _, _, err := service.Execute(context.Background(), started.ID, false); err == nil || !strings.Contains(err.Error(), "already executed successfully") {
+		t.Fatalf("completed auto plan must reject an explicit duplicate Execute, got %v", err)
 	}
 }
 
@@ -737,7 +764,7 @@ func TestProtectedExecutionAcceptsUnchangedBaselineVerificationDebt(t *testing.T
 	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "baseline-debt", Status: "ready", Summary: "test", Risk: "low", Verification: []domain.CommandSpec{{Argv: []string{"npm", "run", "build"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}}
 	runner := &verificationDebtRunner{baselineSame: true}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), runner)
-	s, err := service.StartSession(context.Background(), root)
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1283,6 +1310,113 @@ func TestWorkflowRoundLimitKeepsTerminalRequestPending(t *testing.T) {
 	}
 	if !containsString(current.PendingManualRequestIDs, requestID) {
 		t.Fatalf("terminal request should remain pending after rejecting an extra workflow round: %#v", current.PendingManualRequestIDs)
+	}
+}
+
+func TestAutoSelfEvolutionRunsProjectVerificationAndReachesRestartPending(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"Makefile":                      "build:\n\t@true\n",
+		"scripts/start.sh":              "#!/usr/bin/env sh\nexit 0\n",
+		"scripts/stop.sh":               "#!/usr/bin/env sh\nexit 0\n",
+		"scripts/self-restart.sh":       "#!/usr/bin/env sh\nexit 0\n",
+		"services/backend/go.mod":       "module example.invalid/self-auto\n",
+		"services/desktop/package.json": "{}\n",
+		"auto.txt":                      "old\n",
+	}
+	for relative, content := range files {
+		absolute := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasPrefix(relative, "scripts/") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(absolute, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("WHARNESS_ROOT", root)
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "self-auto-project-verification", Status: "ready", Summary: "verify and evolve", Risk: "low",
+		Operations:   []domain.Operation{{Type: "apply_patch", Patch: "--- a/auto.txt\n+++ b/auto.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
+		Verification: []domain.CommandSpec{appCommand("node", "scripts/check.mjs")},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !started.SelfEvolution {
+		t.Fatal("expected self-evolution session")
+	}
+	_, updated, err := service.SubmitMessage(context.Background(), started.ID, "Atualize o próprio Wharness")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Policy == nil || updated.Policy.RequiresApproval {
+		t.Fatalf("ordinary project verification must not stop Auto self-evolution: %#v", updated.Policy)
+	}
+	if updated.State != "restart_pending" || updated.SelfEvolutionActivation != "restart_pending" {
+		t.Fatalf("Auto self-evolution should execute, apply, build and stop only at activation confirmation: %#v", updated)
+	}
+	contents, err := os.ReadFile(filepath.Join(root, "auto.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "new\n" {
+		t.Fatalf("self-evolution host patch was not applied automatically: %q", contents)
+	}
+	status, err := service.selfEvolution.LastStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := service.selfEvolution.TransactionForStatus(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.selfEvolution.RecordStatus(transaction, started.ID, updated.Plan.PlanID, "restarted", "new Wharness runtime is healthy"); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewService(service.store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	reconciled, err := restarted.store.Get(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconciled.State != "applied" || reconciled.SelfEvolutionActivation != "" {
+		t.Fatalf("successful restart should reconcile to terminal applied state: %#v", reconciled)
+	}
+	if _, _, err := restarted.Execute(context.Background(), started.ID, false); err == nil || !strings.Contains(err.Error(), "already executed successfully") {
+		t.Fatalf("completed self-evolution plan must be single-shot after restart, got %v", err)
+	}
+}
+
+func TestAutoApprovalPauseReturnsActionableError(t *testing.T) {
+	root := t.TempDir()
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "explicit-approval", Status: "ready", Summary: "approval", Risk: "low", RequiresApproval: true,
+		Operations: []domain.Operation{{Type: "command", Command: appCommand("go", "test", "./...")}},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, updated, err := service.SubmitMessage(context.Background(), started.ID, "Execute")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != "planned" {
+		t.Fatalf("explicit approval plan must remain planned, got %s", updated.State)
+	}
+	current, err := service.store.Get(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := service.runAutomaticPlan(context.Background(), started.ID, "test")
+	if !strings.Contains(result.AutoError, "still requires explicit approval") || result.AutoExecuted {
+		t.Fatalf("approval gate should be visible and non-executing: result=%#v session=%#v", result, current)
 	}
 }
 

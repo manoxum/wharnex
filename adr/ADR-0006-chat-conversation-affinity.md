@@ -1,7 +1,7 @@
 # ADR-0006 — Harness chat / ChatGPT conversation affinity
 
 ## Status
-Accepted for v1.2.6; amended for v1.2.18.2, v1.2.25 and v1.2.33.
+Accepted for v1.2.6; amended for v1.2.18.2, v1.2.25, v1.2.33 and v1.2.38.1.
 
 ## Context
 A workspace may contain several independent coding threads. Reusing one Harness transcript and one arbitrary ChatGPT page causes context collisions and makes reopening work unreliable.
@@ -11,7 +11,7 @@ Each Harness chat is a local persistent record containing a unique chat id, one 
 
 The Electron shell owns one isolated ChatGPT `WebContentsView` per live Harness chat. A view is created for a chat id, records that id as its immutable owner, and is never reassigned to another chat. Switching Harness chats hides the previous view and activates only the selected chat's own view. The views share the persistent `persist:wharness-chatgpt` browser partition solely so authentication/browser-session state remains common; DOM, navigation history, composer state and page renderer state remain separated by `WebContentsView`/`webContents` instance.
 
-A new Harness chat navigates to `https://chatgpt.com/`. Observing that trusted new-chat surface arms automatic affinity even while the page is still loading. After the first prompt causes ChatGPT to transition to a concrete conversation URL containing `/c/`, Wharness stores the origin + pathname as the binding. Query strings and fragments are not persisted. The post-submit transport waits a bounded interval for that URL transition instead of persisting the home page as the conversation.
+A new Harness chat navigates to `https://chatgpt.com/`. Observing that trusted new-chat surface arms automatic affinity even while the page is still loading. After the first prompt causes ChatGPT to transition to a concrete conversation URL containing `/c/`, Wharness stores the origin + pathname as the binding. Query strings and fragments are not persisted. The post-submit transport waits a bounded interval for that URL transition instead of persisting the home page as the conversation. In v1.2.38.1 the concrete URL must remain stable for a short settling window and the owned page must no longer be loading before Desktop publishes it as the definitive affinity candidate. The application controller consumes candidate events globally and persists/confirms them even when the ChatGPT Inspector pane is not mounted, removing pane visibility from the binding contract.
 
 Every DOM/input/navigation operation is addressed by Harness chat id. The main process verifies that the resolved entry is still registered under the same owner id before executing allowlisted JavaScript or native input; active-view fallback is not used for these operations. A concrete ChatGPT conversation may belong to only one active Harness chat. Automatic or explicit binding rejects a `/c/...` URL already owned by another Harness chat and leaves the current chat unchanged.
 

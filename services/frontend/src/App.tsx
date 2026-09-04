@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
-import { ChatPanel } from './components/ChatPanel'
-import { Inspector } from './components/Inspector'
+import { AgentWorkspace } from './components/AgentWorkspace'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+import { WorkspaceShell } from './components/WorkspaceShell'
 import { ProjectSettings } from './components/ProjectSettings'
 import { Icon } from './components/Icon'
 import {
@@ -14,11 +14,20 @@ import {
   saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
 } from './lib/workspaceMemory'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
+import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
 import { buildChangeSummary } from './lib/changeSummary'
+import { confirmDialog } from './lib/appDialog'
 
 export default function App() {
-  const activeAtLoad = loadActiveWorkspace()
+  const embeddedProject = embeddedProjectPath()
+  if (embeddedProject) return <ProjectApp embeddedProject={embeddedProject} />
+  if (isDesktop()) return <WorkspaceShell />
+  return <ProjectApp />
+}
+
+function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
+  const activeAtLoad = embeddedProject ? undefined : loadActiveWorkspace()
   const [config, setConfig] = useState<AppConfig>()
   const [session, setSession] = useState<Session>()
   const [chats, setChats] = useState<WorkspaceChat[]>([])
@@ -31,7 +40,7 @@ export default function App() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('protected')
   const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
-  const [restoring, setRestoring] = useState(Boolean(activeAtLoad))
+  const [restoring, setRestoring] = useState(Boolean(activeAtLoad || embeddedProject))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
@@ -42,6 +51,7 @@ export default function App() {
   const [editorOpenPath, setEditorOpenPath] = useState<string>()
   const [editorOpenNonce, setEditorOpenNonce] = useState(0)
   const sourceRef = useRef<EventSource | null>(null)
+  const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
 
   const connectEvents = useCallback((id: string, projectPath: string, chatId: string) => {
     sourceRef.current?.close()
@@ -75,6 +85,13 @@ export default function App() {
         if (alive) setConfig(value)
       } catch (e) { if (alive) setError(messageOf(e)) }
 
+      if (embeddedProject) {
+        try {
+          await start(embeddedProject)
+        } catch (e) { if (alive) setError(`Não foi possível abrir o workspace vinculado: ${messageOf(e)}`) }
+        finally { if (alive) setRestoring(false) }
+        return
+      }
       const active = loadActiveWorkspace()
       if (!active) { if (alive) setRestoring(false); return }
       try {
@@ -117,15 +134,32 @@ export default function App() {
     }
     void initialize()
     return () => { alive = false }
-  }, [connectEvents])
+  }, [connectEvents, embeddedProject])
 
   useEffect(() => () => { sourceRef.current?.close(); sourceRef.current = null }, [])
 
   useEffect(() => {
     if (!session) return
-    saveActiveWorkspace({ sessionId: session.id, projectPath: session.project_path, mode, chatId: activeChatId || undefined, executionMode, automationMode })
+    if (!embeddedProject) saveActiveWorkspace({ sessionId: session.id, projectPath: session.project_path, mode, chatId: activeChatId || undefined, executionMode, automationMode })
     setRecent(loadRecentWorkspaces())
-  }, [session, mode, activeChatId, executionMode, automationMode])
+  }, [session, mode, activeChatId, executionMode, automationMode, embeddedProject])
+
+  useEffect(() => {
+    if (!embeddedProject) return
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type === 'wharness:project-active') setShellActive(Boolean(event.data.active))
+      if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent')) setMode(event.data.mode)
+      if (event.data?.type === 'wharness:open-project-settings') setProjectSettingsOpen(true)
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [embeddedProject])
+
+  useEffect(() => {
+    if (!embeddedProject) return
+    window.parent.postMessage({ type: 'wharness:workspace-mode', projectPath: embeddedProject, mode }, window.location.origin)
+  }, [embeddedProject, mode])
 
   useEffect(() => {
     if (session && activeChatId && items.length) saveChat(session.project_path, activeChatId, items)
@@ -192,6 +226,10 @@ export default function App() {
   }
 
   function closeWorkspace() {
+    if (embeddedProject) {
+      window.parent.postMessage({ type: 'wharness:unbind-project', projectPath: session?.project_path || embeddedProject }, window.location.origin)
+      return
+    }
     sourceRef.current?.close(); sourceRef.current = null
     clearActiveWorkspace(); setSession(undefined); setChats([]); setArchivedChats([]); setActiveChatId(''); setProjectSettingsOpen(false)
     setEvents([]); setManualPrompt(''); setItems([]); setPreparedDrafts({}); setError(undefined); setRecent(loadRecentWorkspaces())
@@ -288,7 +326,12 @@ export default function App() {
     if (!session || busy) return
     const target = archivedChats.find((chat) => chat.id === chatId)
     if (!target) return
-    if (!window.confirm(`Eliminar definitivamente o Harness Chat "${target.title}"?\n\nO histórico local e os anexos do Wharness serão apagados. A conversa correspondente na tua conta ChatGPT continuará intacta.`)) return
+    if (!(await confirmDialog({
+      title: 'Eliminar Harness Chat?',
+      message: `“${target.title}” será eliminado definitivamente do histórico local e os anexos do Wharness serão apagados. A conversa correspondente na tua conta ChatGPT continuará intacta.`,
+      tone: 'danger',
+      confirmLabel: 'Eliminar chat',
+    }))) return
 
     setBusy(true); setError(undefined)
     try {
@@ -326,13 +369,13 @@ export default function App() {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
-  function updateWorkspaceChat(chatId: string, projectPath: string, patch: Partial<WorkspaceChat>) {
+  const updateWorkspaceChat = useCallback((chatId: string, projectPath: string, patch: Partial<WorkspaceChat>) => {
     setChats((current) => {
       const next = current.map((chat) => chat.id === chatId ? { ...chat, ...patch, updatedAt: new Date().toISOString() } : chat)
       saveWorkspaceChats(projectPath, next)
       return next
     })
-  }
+  }, [])
 
   function updateChat(patch: Partial<WorkspaceChat>) {
     if (!session || !activeChatId) return
@@ -372,7 +415,7 @@ export default function App() {
     })
   }
 
-  function bindChatGPTURLForChat(chatId: string, projectPath: string, url: string) {
+  const bindChatGPTURLForChat = useCallback((chatId: string, projectPath: string, url: string) => {
     const conversation = chatgptConversationURL(url)
     if (!conversation) return false
     const conflict = [...chats, ...archivedChats].find((chat) => chat.id !== chatId && sameChatGPTConversation(chat.chatgptUrl, conversation))
@@ -382,13 +425,28 @@ export default function App() {
       return false
     }
     const target = chats.find((chat) => chat.id === chatId)
-    updateWorkspaceChat(chatId, projectPath, {
-      chatgptUrl: conversation,
-      lastContextChatgptUrl: target?.lastContextSha256 && !target.lastContextChatgptUrl ? conversation : target?.lastContextChatgptUrl,
-    })
+    if (!target) return false
+    if (!sameChatGPTConversation(target.chatgptUrl, conversation)) {
+      updateWorkspaceChat(chatId, projectPath, {
+        chatgptUrl: conversation,
+        lastContextChatgptUrl: target.lastContextSha256 && !target.lastContextChatgptUrl ? conversation : target.lastContextChatgptUrl,
+      })
+    }
     void desktopBridge()?.chatgpt.confirmAffinity(chatId, conversation).catch((error) => setError(messageOf(error)))
     return true
-  }
+  }, [archivedChats, chats, updateWorkspaceChat])
+
+  useEffect(() => {
+    if (!session || !isDesktop()) return
+    const bridge = desktopBridge()
+    if (!bridge) return
+    return bridge.chatgpt.onState((next) => {
+      const ownerKey = String(next?.cacheKey || '').trim()
+      const candidate = chatgptConversationURL(next?.bindingCandidate || '')
+      if (!ownerKey || !candidate) return
+      bindChatGPTURLForChat(ownerKey, session.project_path, candidate)
+    })
+  }, [bindChatGPTURLForChat, session])
 
   function bindChatGPTURL(url: string) {
     if (!session || !activeChatId) return false
@@ -737,7 +795,12 @@ export default function App() {
   async function execute(approved: boolean) {
     if (!session) return
     const direct = executionMode === 'unprotected'
-    if (direct && !window.confirm('Modo UNPROTECTED: executar este plano diretamente no projeto real? As alterações e comandos não passarão pela sandbox.')) return
+    if (direct && !(await confirmDialog({
+      title: 'Executar em Unprotected?',
+      message: 'Este plano será executado diretamente no projeto real. As alterações e comandos não passarão pela sandbox e não terão a etapa Apply.',
+      tone: 'danger',
+      confirmLabel: 'Executar no host',
+    }))) return
     setBusy(true); setError(undefined)
     try {
       const response = await api.execute(session.id, approved || direct)
@@ -851,7 +914,12 @@ export default function App() {
   }
 
   async function apply() {
-    if (!session || !window.confirm('Aplicar os patches verificados no projeto real?')) return
+    if (!session || !(await confirmDialog({
+      title: 'Aplicar alterações verificadas?',
+      message: 'Os patches já verificados na sandbox serão incorporados no projeto real.',
+      tone: 'warning',
+      confirmLabel: 'Aplicar patches',
+    }))) return
     setBusy(true); setError(undefined)
     try {
       const updated = await api.apply(session.id)
@@ -867,7 +935,12 @@ export default function App() {
   }
 
   async function rejectPendingChanges() {
-    if (!session || !window.confirm('Rejeitar todas as alterações verificadas que ainda não foram aplicadas ao host? O projeto real permanecerá inalterado.')) return
+    if (!session || !(await confirmDialog({
+      title: 'Rejeitar alterações pendentes?',
+      message: 'Todas as alterações verificadas que ainda não foram aplicadas serão descartadas. O projeto real permanecerá inalterado.',
+      tone: 'warning',
+      confirmLabel: 'Rejeitar alterações',
+    }))) return
     setBusy(true); setError(undefined)
     try {
       const updated = await api.rejectPendingChanges(session.id)
@@ -893,7 +966,12 @@ export default function App() {
       setError('Este resumo pertence a um plano anterior. A reversão segura só está disponível para o último plano aplicado desta sessão.')
       return
     }
-    if (!window.confirm(`Reverter as alterações do plano ${item.change.planId} no projeto real?`)) return
+    if (!(await confirmDialog({
+      title: 'Reverter alterações aplicadas?',
+      message: `O plano ${item.change.planId} será revertido no projeto real.`,
+      tone: 'danger',
+      confirmLabel: 'Reverter plano',
+    }))) return
     setBusy(true); setError(undefined)
     try {
       const updated = await api.revert(session.id)
@@ -911,7 +989,12 @@ export default function App() {
       const warning = automationMode === 'auto'
         ? 'Ativar UNPROTECTED? O modo Auto será desativado porque Auto sempre exige sandbox Protected antes de aplicar no host.'
         : 'Ativar UNPROTECTED para este projeto? Os planos do Agent poderão alterar ficheiros e executar comandos diretamente no host, sem sandbox e sem etapa Apply.'
-      if (!window.confirm(warning)) return
+      if (!(await confirmDialog({
+        title: 'Ativar Unprotected?',
+        message: warning,
+        tone: 'danger',
+        confirmLabel: 'Ativar Unprotected',
+      }))) return
       nextAutomation = 'manual'
     }
     setBusy(true); setError(undefined)
@@ -928,7 +1011,12 @@ export default function App() {
 
   async function changeAutomationMode(next: AutomationMode) {
     if (!session || next === automationMode || busy) return
-    if (next === 'auto' && !window.confirm('Ativar AUTO para este projeto? Somente pedidos classificados como mudança, com plano válido, serão executados na sandbox Protected e aplicados após verificação. Perguntas e análises nunca serão executadas. No ChatGPT web, ainda é necessário iniciar o download do resultado; com provider API não há download.')) return
+    if (next === 'auto' && !(await confirmDialog({
+      title: 'Ativar modo Auto?',
+      message: 'Somente pedidos classificados como mudança, com plano válido, serão executados na sandbox Protected e aplicados após verificação. Perguntas e análises nunca serão executadas. No ChatGPT web, ainda é necessário iniciar o download do resultado; com provider API não há download.',
+      tone: 'warning',
+      confirmLabel: 'Ativar Auto',
+    }))) return
     setBusy(true); setError(undefined)
     try {
       const nextExecution: ExecutionMode = next === 'auto' ? 'protected' : executionMode
@@ -942,13 +1030,15 @@ export default function App() {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
-  async function confirmSelfRestart() {
+  async function confirmSelfRestart(scope: 'all' | 'current') {
     if (!session || !session.self_evolution || (session.self_evolution_activation !== 'restart_pending' && session.state !== 'restart_pending') || busy) return
     setBusy(true); setError(undefined)
     try {
+      await desktopBridge()?.windows.prepareRestart(scope)
       const updated = await api.restartSelfEvolution(session.id)
       setSession(updated); setRestartModalOpen(false)
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'Reinício confirmado. O supervisor transacional vai reiniciar o Wharness e validar o novo runtime; se falhar, restaura automaticamente a versão anterior.', meta: 'AUTO-EVOLUÇÃO · reinício confirmado' }])
+      const detail = scope === 'current' ? 'As outras janelas serão restauradas com os respetivos projetos e estado de trabalho.' : 'Todas as janelas serão restauradas na nova runtime.'
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Reinício confirmado. ${detail} O supervisor transacional valida a nova runtime e restaura automaticamente a versão anterior se a ativação falhar.`, meta: 'AUTO-EVOLUÇÃO · reinício confirmado' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -1020,28 +1110,46 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
   const taskInFlight = requestChainActive(session) || restartModalOpen
   const restartPending = Boolean(session.self_evolution && (session.self_evolution_activation === 'restart_pending' || (!session.self_evolution_activation && session.state === 'restart_pending')))
   return <main className="workspace-root">
-    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
+    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
-    {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={() => setRestartModalOpen(false)} onRestart={() => void confirmSelfRestart()} />}
+    {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={() => setRestartModalOpen(false)} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {error && <div className="toast-error" data-chatgpt-overlay-blocker="true" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
     <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
       <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
     </div>
     <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
-      <div className="agent-workspace">
-        <ChatPanel key={activeChatId} session={session} items={items} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} artifactSelection={composerArtifacts} artifactRequired={{ context: contextArtifactRequired, error: errorArtifactRequired }} artifactContent={{ context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) }} requestMode={activeChat?.requestMode || 'direct'} taskInFlight={taskInFlight} queuedRequests={queuedRequestsByChat[activeChatId] || []} onToggleArtifact={toggleComposerArtifact} onRequestMode={changeRequestMode} onSend={enqueueMainRequest} onComment={commentOnActiveTask} onQueueEdit={updateQueuedRequest} onQueueMove={moveQueuedRequest} onQueueRemove={removeQueuedRequest} onQueueMerge={mergeQueuedRequest} onQueuePromote={promoteQueuedRequest} onApprovePlan={approvePlanProposal} onRejectPlan={rejectPlanProposal} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onOpenFile={openFileFromChat} onRevertChange={revertChange} onNewChat={newChat} onSelectChat={selectChat} onArchiveChat={archiveChat} onRestoreChat={restoreArchivedChat} onDeleteArchivedChat={deleteArchivedChat} />
-        <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={mode !== 'agent' || projectSettingsOpen || restartModalOpen} onChatGPTURL={bindChatGPTURL} onChatGPTActivity={handleChatGPTActivity} onContextSent={markContextSent} onExecute={execute} onApply={apply} onRejectPendingChanges={rejectPendingChanges} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
-      </div>
+      <AgentWorkspace
+        session={session}
+        busy={busy}
+        onOpenFile={openFileFromChat}
+        onError={setError}
+        chatProps={{
+          session, items, chats, archivedChats, activeChatId, busy, executionMode, automationMode,
+          attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId],
+          artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
+          artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
+          requestMode: activeChat?.requestMode || 'direct', taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [],
+          onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
+          onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
+          onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onOpenFile: openFileFromChat, onRevertChange: revertChange,
+          onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat,
+        }}
+        inspectorProps={{
+          config, session, events, manualPrompt, busy, chat: activeChat, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
+          onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
+          onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onSession: setSession,
+        }}
+      />
     </div>
   </main>
 }
 
-function RestartConfirmation({ busy, onLater, onRestart }: { busy: boolean; onLater: () => void; onRestart: () => void }) {
+function RestartConfirmation({ busy, onLater, onRestart }: { busy: boolean; onLater: () => void; onRestart: (scope: 'all' | 'current') => void }) {
   return <div className="restart-confirmation-backdrop" role="presentation">
     <section className="restart-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="restart-confirmation-title">
       <div className="restart-confirmation-icon"><Icon name="refresh" size={24}/></div>
-      <div><span className="panel-kicker">Auto-evolução concluída</span><h2 id="restart-confirmation-title">Ativar a nova versão do Wharness?</h2><p>As alterações já foram verificadas, aplicadas e compiladas. Pode reiniciar agora ou escolher Mais tarde e continuar a acumular outras alterações verificadas no mesmo lote pendente. O reinício ativa o lote completo; o supervisor transacional mantém rollback automático se a nova versão não ficar saudável.</p></div>
-      <div className="restart-confirmation-actions"><button className="secondary-button" disabled={busy} onClick={onLater}>Mais tarde</button><button className="apply-button" disabled={busy} onClick={onRestart}><Icon name="refresh" size={14}/> Reiniciar agora</button></div>
+      <div><span className="panel-kicker">Auto-evolução concluída</span><h2 id="restart-confirmation-title">Como ativar a nova versão?</h2><p>O restart transacional reinicia a runtime do Wharness, mas o gestor multi-janela restaura automaticamente os projetos vinculados. Pode recarregar todas as janelas, priorizar apenas esta janela de auto-evolução e preservar as restantes, ou adiar a ativação.</p></div>
+      <div className="restart-confirmation-actions restart-scope-actions"><button className="secondary-button" disabled={busy} onClick={onLater}>Mais tarde</button><button className="secondary-button" disabled={busy} onClick={() => onRestart('current')}><Icon name="refresh" size={14}/> Apenas esta</button><button className="apply-button" disabled={busy} onClick={() => onRestart('all')}><Icon name="refresh" size={14}/> Todas agora</button></div>
     </section>
   </div>
 }

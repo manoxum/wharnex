@@ -1,16 +1,27 @@
 export function desktopBridge() {
-  return window.wharnessDesktop
+  if (window.wharnessDesktop) return window.wharnessDesktop
+  try { return window.parent !== window ? window.parent.wharnessDesktop : undefined } catch { return undefined }
 }
 
 export function isDesktop() {
-  return Boolean(window.wharnessDesktop)
+  return Boolean(desktopBridge())
 }
 
 export function elementBounds(element: HTMLElement) {
   const rect = element.getBoundingClientRect()
+  let offsetX = 0
+  let offsetY = 0
+  try {
+    const frame = window.frameElement as HTMLElement | null
+    if (frame) {
+      const frameRect = frame.getBoundingClientRect()
+      offsetX = frameRect.left
+      offsetY = frameRect.top
+    }
+  } catch { /* cross-frame offset is best effort */ }
   return {
-    x: Math.round(rect.left),
-    y: Math.round(rect.top),
+    x: Math.round(rect.left + offsetX),
+    y: Math.round(rect.top + offsetY),
     width: Math.max(1, Math.round(rect.width)),
     height: Math.max(1, Math.round(rect.height)),
   }

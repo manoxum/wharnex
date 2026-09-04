@@ -22,6 +22,14 @@ interface WharnessDesktopBridge {
   platform: string
   projects: {
     pickDirectory(request?: { title?: string; defaultPath?: string }): Promise<{ cancelled: boolean; path: string }>
+    acquire(projectPath: string): Promise<{ ok: boolean; path: string; ownerWindowId?: string; message?: string }>
+    release(projectPath: string): Promise<{ ok: boolean; released: boolean; path: string }>
+    bindings(): Promise<{ windowId: string; projects: string[] }>
+  }
+  windows: {
+    info(): Promise<{ windowId: string; windowCount: number }>
+    open(): Promise<{ ok: boolean; windowId: string }>
+    prepareRestart(scope: 'all' | 'current'): Promise<{ ok: boolean; scope: 'all' | 'current'; windowCount: number }>
   }
   chatgpt: {
     show(bounds: DesktopBounds, cacheKey: string): Promise<{ ok: boolean }>

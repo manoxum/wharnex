@@ -537,7 +537,12 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		}
 		planID := current.Plan.PlanID
 		if current.Policy.RequiresApproval {
-			s.bus.Publish(sessionID, "automation.approval_required", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": current.Policy.Reasons})
+			reason := strings.Join(current.Policy.Reasons, "; ")
+			if strings.TrimSpace(reason) == "" {
+				reason = "policy requires explicit approval"
+			}
+			result.AutoError = "automatic execution paused because this plan still requires explicit approval: " + reason
+			s.bus.Publish(sessionID, "automation.approval_required", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": current.Policy.Reasons, "error": result.AutoError})
 			result.Session = current
 			return result
 		}
@@ -621,6 +626,10 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	}
 	if item.Plan == nil || item.Policy == nil {
 		return domain.ExecutionResult{}, item, errors.New("no plan available")
+	}
+	if planExecutionAlreadyCompleted(item, item.Plan.PlanID) {
+		s.bus.Publish(sessionID, "execution.duplicate_blocked", map[string]any{"plan_id": item.Plan.PlanID, "state": item.State})
+		return domain.ExecutionResult{}, item, fmt.Errorf("plan %s already executed successfully; submit a new change request instead of executing it again", item.Plan.PlanID)
 	}
 	if !item.Policy.Allowed {
 		return domain.ExecutionResult{}, item, errors.New("policy denied plan")
@@ -1523,6 +1532,26 @@ func planPatches(plan *domain.ExecutionPlan) []string {
 }
 
 func planHasPatch(plan *domain.ExecutionPlan) bool { return len(planPatches(plan)) > 0 }
+
+func planExecutionAlreadyCompleted(item domain.Session, planID string) bool {
+	if strings.TrimSpace(planID) == "" {
+		return false
+	}
+	if item.LastExecution != nil && item.LastExecution.Success && item.LastExecution.PlanID == planID {
+		return true
+	}
+	for _, change := range item.PendingHostChanges {
+		if change.Plan.PlanID == planID && change.Execution.Success {
+			return true
+		}
+	}
+	for _, change := range item.LastAppliedChanges {
+		if change.Plan.PlanID == planID && change.Execution.Success {
+			return true
+		}
+	}
+	return false
+}
 
 func (s *Service) ListFiles(sessionID string) ([]workspacefs.Entry, error) {
 	item, err := s.store.Get(sessionID)

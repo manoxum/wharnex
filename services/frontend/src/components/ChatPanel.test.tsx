@@ -115,6 +115,32 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('button', { name: 'Prompt' }).getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('moves execution and automation choices into compact composer icons', () => {
+    const onExecutionMode = vi.fn()
+    const onAutomationMode = vi.fn()
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} executionMode="protected" automationMode="manual" onExecutionMode={onExecutionMode} onAutomationMode={onAutomationMode} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…').closest('form')!
+    expect(composer.querySelector('[aria-label="Proteção de execução"]')).toBeTruthy()
+    expect(composer.querySelector('[aria-label="Automação de execução"]')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Protected' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Manual' }).getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unprotected' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Auto' }))
+    expect(onExecutionMode).toHaveBeenCalledWith('unprotected')
+    expect(onAutomationMode).toHaveBeenCalledWith('auto')
+  })
+
+  it('keeps Unprotected disabled in the composer during self-evolution', () => {
+    render(
+      <ChatPanel session={{ ...session, self_evolution: true }} items={[]} chats={[]} activeChatId="chat-1" busy={false} executionMode="protected" automationMode="auto" onExecutionMode={vi.fn()} onAutomationMode={vi.fn()} onSend={async () => undefined} {...chatActions} />,
+    )
+    expect((screen.getByRole('button', { name: 'Unprotected' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: 'Auto' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
   it('keeps composer actions outside the scrolling text surface', () => {
     const view = render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} onSend={async () => undefined} {...chatActions} />,

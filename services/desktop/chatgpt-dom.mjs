@@ -129,7 +129,7 @@ export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
     const assistantCount = document.querySelectorAll('[data-message-author-role="assistant"]').length;
     const stop = document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"]');
     const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
-    return { assistantCount, complete: Boolean(assistantCount > baseline && !stop && composer) };
+    return { assistantCount, thinking: Boolean(stop), complete: Boolean(assistantCount > baseline && !stop && composer) };
   })()`
 }
 

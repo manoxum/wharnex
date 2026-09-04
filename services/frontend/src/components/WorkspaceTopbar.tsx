@@ -1,8 +1,7 @@
 import type { AppConfig, AutomationMode, ExecutionMode, Session, WorkspaceMode } from '../types'
 import { Icon } from './Icon'
-import { StatusPill } from './StatusPill'
 
-export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, restartPending = false, restartBlocked = false, busy, onMode, onExecutionMode, onAutomationMode, onRestartPending, onSettings, onClose }: {
+export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, restartPending = false, restartBlocked = false, busy, onMode, onRestartPending, onSettings, onClose }: {
   config?: AppConfig
   session: Session
   mode: WorkspaceMode
@@ -12,13 +11,12 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
   restartBlocked?: boolean
   busy: boolean
   onMode: (mode: WorkspaceMode) => void
-  onExecutionMode: (mode: ExecutionMode) => void
-  onAutomationMode: (mode: AutomationMode) => void
   onRestartPending?: () => void
   onSettings: () => void
   onClose: () => void
 }) {
   const projectName = session.project_path.split('/').filter(Boolean).at(-1) || session.project_path
+  const automaticPlanner = config?.planner === 'openai' && config.api_configured
   return <header className="workspace-topbar">
     <div className="workspace-identity">
       <div className="brand-mark">K</div>
@@ -29,23 +27,19 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
         <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
         <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>
       </div>
-      <div className={`protection-switch ${executionMode}`} role="group" aria-label="Proteção de execução do projeto">
-        <button disabled={busy} className={executionMode === 'protected' ? 'active' : ''} onClick={() => void onExecutionMode('protected')} title="Executa o plano primeiro na sandbox Docker"><Icon name="shield" size={13}/> Protected</button>
-        <button disabled={busy || session.self_evolution} className={executionMode === 'unprotected' ? 'active' : ''} onClick={() => void onExecutionMode('unprotected')} title={session.self_evolution ? 'Auto-evolução do Wharness é sempre Protected' : 'Executa o plano diretamente no projeto real'}>Unprotected</button>
-      </div>
-      <div className={`automation-switch ${automationMode}`} role="group" aria-label="Automação de execução do projeto">
-        <button disabled={busy} className={automationMode === 'manual' ? 'active' : ''} onClick={() => void onAutomationMode('manual')} title="Plano exige ação manual para executar/aplicar">Manual</button>
-        <button disabled={busy} className={automationMode === 'auto' ? 'active' : ''} onClick={() => void onAutomationMode('auto')} title="Mudanças válidas executam na sandbox e aplicam no host automaticamente; respostas nunca executam">Auto</button>
-      </div>
     </div>
     <div className="workspace-status">
-      {session.self_evolution && <StatusPill tone="warning">AUTO-EVOLUÇÃO</StatusPill>}
-      {restartPending && <button className="restart-pending-badge" type="button" disabled={busy || restartBlocked} title={restartBlocked ? 'Conclua a tarefa ativa antes de reiniciar o Wharness' : 'Alterações prontas · reinício pendente'} onClick={onRestartPending}><span/> Reinício pendente</button>}
-      {executionMode === 'unprotected' && <StatusPill tone="warning">HOST DIRETO</StatusPill>}
-      {automationMode === 'auto' && <StatusPill tone="success">AUTO</StatusPill>}
-      <StatusPill tone={config?.planner === 'openai' && config.api_configured ? 'success' : 'neutral'}>{config?.planner === 'openai' ? 'AI automático' : 'AI manual'}</StatusPill>
-      <button className="icon-button" title="Configuração do projeto" onClick={onSettings}><Icon name="settings" size={16}/></button>
-      <button className="icon-button" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
+      {session.self_evolution && <TopbarIndicator tone="warning" label="Auto-evolução ativa" icon="refresh" />}
+      {restartPending && <button className="topbar-indicator warning actionable restart" type="button" disabled={busy || restartBlocked} title={restartBlocked ? 'Conclua a tarefa ativa antes de reiniciar o Wharness' : 'Alterações prontas · reinício pendente'} aria-label="Reinício pendente" onClick={onRestartPending}><Icon name="refresh" size={14}/><span className="indicator-dot"/></button>}
+      {executionMode === 'unprotected' && <TopbarIndicator tone="danger" label="Host direto · Unprotected" icon="terminal" />}
+      {automationMode === 'auto' && <TopbarIndicator tone="success" label="Automação automática" icon="play" />}
+      <TopbarIndicator tone={automaticPlanner ? 'success' : 'neutral'} label={config?.planner === 'openai' ? 'AI automático' : 'AI manual'} icon={config?.planner === 'openai' ? 'chatgpt' : 'agent'} />
+      <button className="icon-button" aria-label="Configuração do projeto" title="Configuração do projeto" onClick={onSettings}><Icon name="settings" size={16}/></button>
+      <button className="icon-button" aria-label="Fechar workspace" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
     </div>
   </header>
+}
+
+function TopbarIndicator({ tone, label, icon }: { tone: 'neutral' | 'success' | 'warning' | 'danger'; label: string; icon: 'refresh' | 'terminal' | 'play' | 'chatgpt' | 'agent' }) {
+  return <span className={`topbar-indicator ${tone}`} role="img" aria-label={label} title={label}><Icon name={icon} size={14}/></span>
 }

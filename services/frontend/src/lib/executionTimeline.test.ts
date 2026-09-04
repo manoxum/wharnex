@@ -15,3 +15,13 @@ it('groups one command with all of its streamed output and duration', () => {
   expect(entries[0].output).toContain('[stdout] one')
   expect(entries[0].output).toContain('[stderr] two')
 })
+
+it('renders duplicate execution protection as a warning status', () => {
+  const entries = buildExecutionTimeline([{
+    id: 'evt-duplicate', session_id: 'ses-1', type: 'execution.duplicate_blocked', timestamp: '2026-09-04T18:00:00Z',
+    data: { plan_id: 'plan-done', state: 'applied' },
+  }])
+  expect(entries).toHaveLength(1)
+  expect(entries[0]).toMatchObject({ title: 'Reexecução bloqueada', badge: 'DONE', tone: 'warning' })
+  expect(entries[0].detail).toContain('plan-done')
+})

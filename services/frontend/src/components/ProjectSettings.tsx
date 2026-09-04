@@ -6,6 +6,7 @@ import { ContextInspector } from './ContextInspector'
 import { Icon } from './Icon'
 import { desktopBridge, formatBytes } from '../lib/desktop'
 import { loadUIPreferences, saveUIPreferences, type UIPreferences } from '../lib/uiPreferences'
+import { confirmDialog, noticeDialog } from '../lib/appDialog'
 
 export function ProjectSettings({ session, onClose, onSession, onError }: {
   session: Session
@@ -95,7 +96,12 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
     setStorageBusy(true)
     try {
       const result = await bridge.data.exportBrowserSession()
-      if (!result.cancelled) window.alert(`Sessão exportada: ${result.filename || 'ficheiro .whbs'} (${formatBytes(result.bytes || 0)}). Guarde este ficheiro como um segredo.`)
+      if (!result.cancelled) await noticeDialog({
+        title: 'Sessão exportada',
+        message: `${result.filename || 'ficheiro .whbs'} (${formatBytes(result.bytes || 0)}) foi exportado. Guarde este ficheiro como um segredo.`,
+        tone: 'success',
+        confirmLabel: 'Concluir',
+      })
       await refreshStorage()
     } catch (error) { onError(messageOf(error, 'Falha ao exportar a sessão do navegador')) }
     finally { setStorageBusy(false) }
@@ -104,7 +110,12 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
   async function importBrowserSession() {
     const bridge = desktopBridge()
     if (!bridge) return onError('Importação da sessão do navegador requer Wharness Desktop.')
-    if (!window.confirm('Importar uma sessão substitui a sessão atual do navegador interno e reinicia o Wharness. Continuar?')) return
+    if (!(await confirmDialog({
+      title: 'Importar sessão do navegador?',
+      message: 'A sessão atual do navegador interno será substituída e o Wharness será reiniciado para ativar a sessão importada.',
+      tone: 'warning',
+      confirmLabel: 'Importar e reiniciar',
+    }))) return
     setStorageBusy(true)
     try { await bridge.data.importBrowserSession() }
     catch (error) { setStorageBusy(false); onError(messageOf(error, 'Falha ao importar a sessão do navegador')) }
@@ -113,9 +124,18 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
   async function clearBrowserSession() {
     const bridge = desktopBridge()
     if (!bridge) return onError('Limpeza da sessão do navegador requer Wharness Desktop.')
-    if (!window.confirm('Limpar cookies, cache e armazenamento da sessão do navegador interno? Será necessário autenticar novamente no ChatGPT.')) return
+    if (!(await confirmDialog({
+      title: 'Limpar sessão do navegador?',
+      message: 'Cookies, cache e armazenamento da sessão do navegador interno serão removidos. Será necessário autenticar novamente no ChatGPT.',
+      tone: 'danger',
+      confirmLabel: 'Limpar sessão',
+    }))) return
     setStorageBusy(true)
-    try { await bridge.data.clearBrowserSession(); await refreshStorage(); window.alert('Sessão do navegador interno limpa.') }
+    try {
+      await bridge.data.clearBrowserSession()
+      await refreshStorage()
+      await noticeDialog({ title: 'Sessão limpa', message: 'Os dados da sessão do navegador interno foram removidos.', tone: 'success' })
+    }
     catch (error) { onError(messageOf(error, 'Falha ao limpar a sessão do navegador')) }
     finally { setStorageBusy(false) }
   }

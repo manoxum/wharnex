@@ -1,28 +1,66 @@
-import * as monaco from 'monaco-editor'
-import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
-import CSSWorker from 'monaco-editor/language/css/css.worker?worker'
-import HTMLWorker from 'monaco-editor/language/html/html.worker?worker'
-import JSONWorker from 'monaco-editor/language/json/json.worker?worker'
-import TypeScriptWorker from 'monaco-editor/language/typescript/ts.worker?worker'
+import type * as Monaco from 'monaco-editor'
 
+declare const __MONACO_BASE_URL__: string
+
+type AMDRequire = {
+  (dependencies: string[], onLoad: () => void, onError: (error: unknown) => void): void
+  config: (options: { paths: { vs: string } }) => void
+}
+
+type MonacoScope = {
+  monaco?: typeof Monaco
+  require?: AMDRequire
+}
+
+let loadPromise: Promise<typeof Monaco> | undefined
 let configured = false
 
-type MonacoScope = typeof globalThis & {
-  MonacoEnvironment?: { getWorker: (_moduleId: string, label: string) => Worker }
+export let monaco: typeof Monaco
+
+export function loadMonaco(): Promise<typeof Monaco> {
+  if (monaco) return Promise.resolve(monaco)
+  if (loadPromise) return loadPromise
+
+  loadPromise = new Promise((resolve, reject) => {
+    const scope = globalThis as unknown as MonacoScope
+    const startEditor = () => {
+      if (!scope.require) {
+        reject(new Error('Monaco AMD loader did not initialize'))
+        return
+      }
+      scope.require.config({ paths: { vs: __MONACO_BASE_URL__ } })
+      scope.require(
+        ['vs/editor/editor.main'],
+        () => {
+          if (!scope.monaco) {
+            reject(new Error('Monaco editor runtime did not initialize'))
+            return
+          }
+          monaco = scope.monaco
+          resolve(monaco)
+        },
+        reject,
+      )
+    }
+
+    if (scope.require) {
+      startEditor()
+      return
+    }
+    const script = document.createElement('script')
+    script.src = `${__MONACO_BASE_URL__}/loader.js`
+    script.dataset.wharnessMonacoLoader = 'true'
+    script.addEventListener('load', startEditor, { once: true })
+    script.addEventListener('error', () => reject(new Error('Unable to load the local Monaco runtime')), { once: true })
+    document.head.append(script)
+  })
+
+  return loadPromise
 }
 
 export function configureMonaco() {
   if (configured) return
   configured = true
-  ;(globalThis as MonacoScope).MonacoEnvironment = {
-    getWorker: (_moduleId, label) => {
-      if (label === 'json') return new JSONWorker()
-      if (label === 'css' || label === 'scss' || label === 'less') return new CSSWorker()
-      if (label === 'html' || label === 'handlebars' || label === 'razor') return new HTMLWorker()
-      if (label === 'typescript' || label === 'javascript') return new TypeScriptWorker()
-      return new EditorWorker()
-    },
-  }
   monaco.editor.defineTheme('wharness-ide', {
     base: 'vs-dark',
     inherit: true,
@@ -54,5 +92,3 @@ export function editorModelURI(path: string) {
 export function disposeEditorModel(path: string) {
   monaco.editor.getModel(editorModelURI(path))?.dispose()
 }
-
-export { monaco }

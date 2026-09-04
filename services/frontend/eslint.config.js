@@ -14,6 +14,16 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'no-restricted-globals': ['error',
+        { name: 'alert', message: 'Use the Wharness application dialog helpers instead of native browser dialogs.' },
+        { name: 'confirm', message: 'Use confirmDialog from lib/appDialog instead of native browser dialogs.' },
+        { name: 'prompt', message: 'Use promptDialog from lib/appDialog instead of native browser dialogs.' },
+      ],
+      'no-restricted-properties': ['error',
+        { object: 'window', property: 'alert', message: 'Use noticeDialog from lib/appDialog.' },
+        { object: 'window', property: 'confirm', message: 'Use confirmDialog from lib/appDialog.' },
+        { object: 'window', property: 'prompt', message: 'Use promptDialog from lib/appDialog.' },
+      ],
     },
   },
 )

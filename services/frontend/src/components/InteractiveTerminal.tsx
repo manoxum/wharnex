@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, APIError } from '../lib/api'
 import { parseArgv } from '../lib/shell'
+import { confirmDialog } from '../lib/appDialog'
 import type { CommandResult, Session, TerminalTarget } from '../types'
 import { Icon } from './Icon'
 
@@ -30,10 +31,15 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
     setHistoryIndex(-1)
   }, [session.id])
 
-  function selectTarget(next: TerminalTarget) {
+  async function selectTarget(next: TerminalTarget) {
     if (next === target) return
     if (next === 'host') {
-      const accepted = window.confirm('Ativar Terminal HOST?\n\nOs comandos serão executados diretamente no projeto real, sem sandbox. O Policy Engine continua ativo e comandos perigosos continuam bloqueados. Alterações podem ser imediatas e não têm rollback automático.')
+      const accepted = await confirmDialog({
+        title: 'Ativar Terminal HOST?',
+        message: 'Os comandos serão executados diretamente no projeto real, sem sandbox. O Policy Engine continua ativo e comandos perigosos continuam bloqueados. Alterações podem ser imediatas e não têm rollback automático.',
+        tone: 'danger',
+        confirmLabel: 'Ativar Terminal HOST',
+      })
       if (!accepted) return
       setHostConfirmed(true)
       setNetwork(false)
@@ -73,7 +79,7 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
 
   return <section className={`ide-terminal terminal-target-${target}`} style={{ height }}>
     <header>
-      <div><Icon name="terminal" size={14}/><strong>Terminal</strong><div className="terminal-target-switch" role="group" aria-label="Destino do terminal"><button className={target === 'sandbox' ? 'active' : ''} onClick={() => selectTarget('sandbox')}>Sandbox</button><button className={target === 'host' ? 'active host' : 'host'} onClick={() => selectTarget('host')}>Host</button></div><span>{cwd}</span></div>
+      <div><Icon name="terminal" size={14}/><strong>Terminal</strong><div className="terminal-target-switch" role="group" aria-label="Destino do terminal"><button className={target === 'sandbox' ? 'active' : ''} onClick={() => void selectTarget('sandbox')}>Sandbox</button><button className={target === 'host' ? 'active host' : 'host'} onClick={() => void selectTarget('host')}>Host</button></div><span>{cwd}</span></div>
       <div className="terminal-controls">
         {target === 'sandbox' ? <label title="Permitir rede no próximo comando"><input type="checkbox" checked={network} onChange={(e) => setNetwork(e.target.checked)}/><Icon name="network" size={13}/> rede</label> : <span className="host-network-label" title="O terminal Host herda a rede do sistema">rede do host</span>}
         <button className="icon-button" disabled={target !== 'sandbox'} title={target === 'sandbox' ? 'Recriar sandbox a partir do host' : 'Reset só existe para a sandbox'} onClick={() => void reset()}><Icon name="reset" size={14}/></button>

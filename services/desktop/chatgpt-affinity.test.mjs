@@ -42,6 +42,16 @@ test('explicit send can propose a different visible conversation while retaining
   assert.equal(tracker.boundURL, 'https://chatgpt.com/c/original')
 })
 
+test('explicit confirmation can rebind only to the currently visible concrete conversation', () => {
+  const tracker = createChatGPTAffinityTracker('https://chatgpt.com/c/original')
+  assert.throws(() => confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/other'), /conflicts with the current binding/)
+  assert.equal(confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/other?model=auto', 'https://chatgpt.com/c/other'), 'https://chatgpt.com/c/other')
+  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'bound', boundConversationUrl: 'https://chatgpt.com/c/other', bindingCandidate: '' })
+
+  const mismatched = createChatGPTAffinityTracker('https://chatgpt.com/c/original')
+  assert.throws(() => confirmChatGPTAffinity(mismatched, 'https://chatgpt.com/c/other', 'https://chatgpt.com/c/third'), /conflicts with the current binding/)
+})
+
 test('syncing an existing persisted binding resets stale candidate state', () => {
   const tracker = createChatGPTAffinityTracker()
   syncChatGPTAffinity(tracker, '', true)

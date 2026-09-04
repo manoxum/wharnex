@@ -17,7 +17,7 @@ function session(): Session {
 }
 
 describe('WorkspaceTopbar self-evolution', () => {
-  it('marks the workspace and disables Unprotected mode', () => {
+  it('marks the workspace without exposing execution choices in the top bar', () => {
     render(<WorkspaceTopbar
       session={session()}
       mode="agent"
@@ -25,13 +25,17 @@ describe('WorkspaceTopbar self-evolution', () => {
       automationMode="auto"
       busy={false}
       onMode={vi.fn()}
-      onExecutionMode={vi.fn()}
-      onAutomationMode={vi.fn()}
       onSettings={vi.fn()}
       onClose={vi.fn()}
     />)
-    expect(screen.getByText('AUTO-EVOLUÇÃO')).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Unprotected' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('img', { name: 'Auto-evolução ativa' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Automação automática' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'AI manual' })).toBeTruthy()
+    expect(screen.queryByText('AUTO-EVOLUÇÃO')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Protected' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Unprotected' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Manual' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull()
   })
   it('keeps the pending restart visible but blocks activation while another task is active', () => {
     render(<WorkspaceTopbar
@@ -43,8 +47,6 @@ describe('WorkspaceTopbar self-evolution', () => {
       restartBlocked
       busy={false}
       onMode={vi.fn()}
-      onExecutionMode={vi.fn()}
-      onAutomationMode={vi.fn()}
       onRestartPending={vi.fn()}
       onSettings={vi.fn()}
       onClose={vi.fn()}

@@ -6,6 +6,14 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   platform: process.platform,
   projects: Object.freeze({
     pickDirectory: (request = {}) => invoke('wharness:projects:pick-directory', request),
+    acquire: (projectPath) => invoke('wharness:projects:acquire', { projectPath: String(projectPath || '') }),
+    release: (projectPath) => invoke('wharness:projects:release', { projectPath: String(projectPath || '') }),
+    bindings: () => invoke('wharness:projects:bindings'),
+  }),
+  windows: Object.freeze({
+    info: () => invoke('wharness:windows:info'),
+    open: () => invoke('wharness:windows:open'),
+    prepareRestart: (scope) => invoke('wharness:windows:prepare-restart', { scope }),
   }),
   chatgpt: Object.freeze({
     show: (bounds, cacheKey) => invoke('wharness:chatgpt:show', { bounds, cacheKey }),

@@ -30,9 +30,10 @@ Canonical local build command: `make build`. It must:
 
 - resolve/install service dependencies;
 - build the Go backend binary under `dist/bin`;
-- build the React production bundle;
+- build the React production bundle and copy the versioned precompiled local Monaco runtime without rebundling Monaco's dependency source graph;
 - validate the Electron desktop runtime and installed Electron binary;
-- build the Docker runner from the repository root context.
+
+The Docker runner is deliberately excluded from normal `make build`; `make build-runner` builds it explicitly from the repository root context.
 
 ## G6 Security
 

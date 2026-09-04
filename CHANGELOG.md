@@ -1,3 +1,84 @@
+## v1.2.39 - Unified Agent workspace and activity drawer
+
+- Replace the permanent Harness-chat/Agent-Inspector split with one end-to-end Agent surface whose top tabs switch between Chat, Plano, Execução and ChatGPT.
+- Move Execute, verified Apply and Reject to compact icon-only actions in the unified Agent tab bar while preserving the existing policy/state gates and accessible descriptions.
+- Add a JetBrains-inspired left activity rail: archived chats open in a dedicated drawer and a second Project action opens a searchable read-only project tree that hands selected files to the existing Editor flow.
+- Convert workspace-topbar operational labels (self-evolution, Auto, host-direct and planner mode) into icon-only status affordances with tooltips/ARIA labels.
+- Keep embedded Chat/Inspector chrome out of the unified surface, preserve chat and inspector state across tab switches, and suspend the native ChatGPT view whenever ChatGPT is not the visible Agent tab or a drawer overlays it.
+- Harden chat auto-scroll for non-visual DOMs by feature-detecting `scrollIntoView`.
+- Add focused frontend regressions for the unified tabs, icon-only Execute action, archived drawer, project explorer and topbar status icons.
+
+## v1.2.38.1 - ChatGPT request rehydration and definitive auto-binding
+
+- Add a bounded ChatGPT request-liveness recovery state machine for active expected bundles: recoverable socket/network and renderer failures re-hydrate the owned page, while silent or stalled processing reloads once and then emits at most one same-request recovery prompt if the request still does not resume.
+- Reload once when ChatGPT appears to have completed a response but the expected validated bundle is still absent, before falling back to the existing delivery-continuation prompt.
+- Wait for a concrete `chatgpt.com/c/...` URL to be stable and fully loaded after submission, publish that definitive affinity candidate from the Desktop main process, and persist/confirm it from the application controller even when the ChatGPT inspector pane is not mounted.
+- Keep recovery bounded and project-safe: no lifecycle commands, no arbitrary assistant-prose scraping, no cross-chat renderer access, and no infinite reload/prompt loop.
+- Add Desktop recovery/affinity regressions plus a frontend regression proving candidate persistence is independent of inspector visibility.
+
+## v1.2.38 - Multi-window and bound multi-project workspaces
+
+- Allow Agent and Editor users to open additional independent Wharness desktop windows while keeping a per-window project ownership registry that rejects the same canonical project path in two windows at once and focuses the existing owner.
+- Add a persistent top-level workspace shell with **Bind projecto**, fast project switching and one mounted same-origin project frame per binding, so Agent/Editor state, running requests, page state and project-local UI remain alive while another project is selected.
+- Scope embedded ChatGPT `WebContentsView` ownership, visibility, bounds and IPC delivery to the desktop window that owns the project/chat, preserving the dedicated-view-per-chat security invariant across multiple windows.
+- Persist window identities, bound-project sets and the active project across restart; keep each project renderer mounted during switching so its live page/Agent/Editor state remains intact, and extend self-evolution activation with **Todas agora**, **Apenas esta**, and **Mais tarde** choices.
+- Add Desktop regression coverage for window-scoped ChatGPT ownership and the project/window IPC surface.
+
+## v1.2.37.1 - Single-shot successful execution
+
+- Make successful plan execution idempotent across Wharness restarts: once a `plan_id` has a recorded successful sandbox/direct execution or appears in verified/applied history, the backend refuses to execute that same plan again.
+- Keep persisted plan/policy/result objects as audit history after self-evolution restart reconciliation without treating them as an actionable task.
+- Hide the Inspector Execute action outside actionable `planned`/retryable `failed` states, including `verified`, `restart_pending`, `restart_scheduled` and `applied`.
+- Emit an explicit `execution.duplicate_blocked` audit event when a stale/manual caller still attempts the completed plan, and show that protection in the execution timeline.
+- Correct manual execution regression fixtures so they do not auto-run once before explicitly calling Execute, while adding dedicated Auto and self-evolution single-shot regressions.
+
+## v1.2.37 - Application-owned dialog system
+
+- Replace every frontend `window.alert`, `window.confirm` and `window.prompt` flow with a unified Wharness-owned modal layer for information, confirmation and text input.
+- Give confirmations explicit semantic tones and action labels, polished responsive styling, keyboard/focus handling and overlay-blocker semantics so critical actions remain clear without browser-native chrome.
+- Move Explorer create/rename input into validated application modals and keep destructive file, terminal-host, execution-mode, Apply/reject/revert and browser-session operations behind explicit Wharness confirmations.
+- Make native browser dialog APIs a prohibited UI pattern in `SoT/UI_UX.md` and enforce the rule in ESLint so future regressions fail the normal lint gate.
+- Add focused modal regressions covering confirmation, prompt validation and informational notices.
+
+## v1.2.36.1 - Composer mode selected palette
+
+- Replace the harsh generic dark/lime selected treatment on the composer mode choices with quieter semantic palettes designed for the light composer surface.
+- Give Protected a cool blue selected state and Manual a warm amber state; align Unprotected to restrained red and Auto to soft green so all four choices remain visually distinct and coherent.
+- Preserve the existing icons, tooltips, `aria-pressed` state and safety behaviour; this is a visual refinement only.
+- Add a focused CSS regression covering the selected-state palette contract.
+
+## v1.2.36 - Composer execution mode icons
+
+- Move the Protected/Unprotected and Manual/Auto project choices out of the workspace top bar and into compact icon groups in the Wharness chat composer action rail.
+- Keep current execution and automation state visible through selected icon states and tooltips while preserving the existing HOST DIRETO/AUTO status pills in the top bar.
+- Preserve safety semantics: self-evolution keeps Unprotected disabled, Auto still forces Protected, and the existing mode-change confirmations/notices remain owned by the application controller.
+- Add focused frontend regressions for composer mode placement, callbacks and self-evolution locking.
+
+## v1.2.35 - Auto self-evolution execution gate fix
+
+- Keep normal project-defined build/test/runtime commands (`node`, `npm test`, `npx`, `make`) medium-risk and observable without turning them into an implicit per-plan approval gate; in Protected Auto they execute only inside the sandbox and therefore no longer stall valid self-evolution changes at `planned`.
+- Preserve explicit approval for planner-requested approval, network access, package mutation such as `npm install`, Git mutation and high-risk plans.
+- Make the remaining Auto approval stop explicit through `auto_error`/`automation.approval_required` instead of silently importing a valid bundle without explaining why execution did not start.
+- Add a full self-evolution regression proving that Auto performs sandbox verification, host Apply and host build, reaching only the intentional `restart_pending` activation confirmation when a change uses a normal project verification command.
+
+## v1.2.34.4 - Composer send right inset
+
+- Keep the send action deterministically anchored at the far-right composer rail while adding an 8px inner inset so the icon no longer sits flush against the composer edge.
+- Preserve the existing absolute positioning, toolbar independence and 40px reserved rail; only the visual breathing room at the right edge changes.
+- Update the focused composer CSS regression to assert the final effective `right: 8px` anchor.
+
+## v1.2.34.3 - Visible ChatGPT affinity rebind hotfix
+
+- Allow the explicit **Vincular esta** action to replace an existing ChatGPT conversation affinity when the requested conversation is exactly the concrete conversation currently visible in that chat's owned renderer.
+- Keep silent or stale rebinding fail-closed: confirmations without a matching active candidate still conflict unless the renderer itself is visibly on the requested conversation.
+- Add focused affinity and Desktop IPC regression coverage for the visible-conversation rebind path.
+
+## v1.2.34.2 - Deterministic composer send anchor
+
+- Fix the actual cascade/layout failure that can keep the send action immediately after the left control cluster: the footer retained a legacy `justify-content: space-between` after becoming a grid, so its implicit content track may remain narrower than the composer.
+- Make the footer a full-width positioning context, reserve the send rail, and anchor the send button absolutely at `right: 0` so its horizontal position no longer depends on toolbar/grid intrinsic sizing.
+- Keep the existing composer controls and send behavior unchanged, while strengthening the CSS regression to assert the final effective footer, toolbar and send rules.
+
 ## v1.2.34.1 - Composer send edge alignment
 
 - Remove the residual right padding from the pinned composer footer so the send button sits flush against the far-right internal edge as required by the UI/UX contract.

@@ -87,6 +87,7 @@ function statusMeta(event: HarnessEvent) {
     case 'execution.started': return { title: 'Execução iniciada', detail: target || String(event.data.execution_mode || ''), badge: 'RUN', tone: 'warning' as const }
     case 'execution.completed': return { title: 'Execução concluída', detail: target, badge: 'OK', tone: 'ok' as const }
     case 'execution.failed': case 'automation.execution_failed': return { title: 'Execução falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
+    case 'execution.duplicate_blocked': return { title: 'Reexecução bloqueada', detail: `Plano ${String(event.data.plan_id || '')} já concluído`, badge: 'DONE', tone: 'warning' as const }
     case 'host.apply_started': return { title: 'Aplicação no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'HOST', tone: 'warning' as const }
     case 'host.apply_failed': return { title: 'Aplicação no host falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
     case 'host.applied': return { title: 'Alterações aplicadas no host', detail: '', badge: 'HOST', tone: 'ok' as const }

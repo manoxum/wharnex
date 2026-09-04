@@ -65,6 +65,31 @@ func cmd(argv ...string) domain.CommandSpec {
 	return domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}
 }
 
+func TestProjectDefinedCommandsRaiseRiskWithoutForcingApproval(t *testing.T) {
+	for _, argv := range [][]string{
+		{"node", "scripts/check.mjs"},
+		{"npm", "test"},
+		{"npx", "vitest", "run"},
+		{"make", "test"},
+	} {
+		plan := basePlan()
+		plan.Verification = []domain.CommandSpec{cmd(argv...)}
+		decision := NewEngine().Evaluate(plan)
+		if !decision.Allowed || decision.RequiresApproval || decision.Risk != "medium" {
+			t.Fatalf("project-defined verification %v should stay auto-eligible in Protected mode: %#v", argv, decision)
+		}
+	}
+}
+
+func TestPackageMutationStillRequiresApproval(t *testing.T) {
+	plan := basePlan()
+	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("npm", "install")}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("npm install must remain approval-gated: %#v", decision)
+	}
+}
+
 func TestInteractiveTerminalAllowsDeveloperMutationsWithoutModelPlanRestrictions(t *testing.T) {
 	command := cmd("git", "add", "README.md")
 	decision := NewEngine().EvaluateInteractiveCommand(command)

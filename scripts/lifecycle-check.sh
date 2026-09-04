@@ -108,6 +108,10 @@ if ! grep -Fq 'services/frontend/dist/index.html' "$BUILD_CACHE"; then
   echo 'lifecycle regression: frontend cache hit must require the production artifact' >&2
   exit 1
 fi
+if ! grep -Fq 'services/frontend/dist/monaco/vs/loader.js' "$BUILD_CACHE"; then
+  echo 'lifecycle regression: frontend cache hit must require the precompiled Monaco runtime' >&2
+  exit 1
+fi
 if ! grep -Fq 'build-previous-success' "$MAKEFILE"; then
   echo 'lifecycle regression: build adoption must preserve fail-closed active build stamp semantics' >&2
   exit 1

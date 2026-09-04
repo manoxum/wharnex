@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type MutableRefObject } from 'react'
 import type { FileEntry } from '../types'
 import { Icon } from './Icon'
+import { confirmDialog, promptDialog } from '../lib/appDialog'
 
 type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
 type ContextMenu = { x: number; y: number; node: TreeNode }
@@ -62,10 +63,15 @@ export function WorkspaceExplorer({ entries, activePath, loading, revealNonce, o
   }
 
   async function create(kind: 'file' | 'directory') {
-    const label = kind === 'file' ? 'Nome do novo ficheiro' : 'Nome da nova pasta'
-    const name = window.prompt(label)
-    if (!name) return
-    const clean = cleanLeafName(name)
+    const isFile = kind === 'file'
+    const clean = await promptDialog({
+      title: isFile ? 'Criar novo ficheiro' : 'Criar nova pasta',
+      message: `O novo ${isFile ? 'ficheiro' : 'diretório'} será criado dentro de ${parentForCreate() || 'raiz do workspace'}.`,
+      inputLabel: isFile ? 'Nome do ficheiro' : 'Nome da pasta',
+      placeholder: isFile ? 'exemplo.ts' : 'nova-pasta',
+      confirmLabel: 'Criar',
+      validate: validateLeafName,
+    })
     if (!clean) return
     const parent = parentForCreate()
     const path = parent ? `${parent}/${clean}` : clean
@@ -77,10 +83,15 @@ export function WorkspaceExplorer({ entries, activePath, loading, revealNonce, o
 
   async function rename(node = focused) {
     if (!node) return
-    const name = window.prompt('Novo nome', node.name)
-    if (!name || name === node.name) return
-    const clean = cleanLeafName(name)
-    if (!clean) return
+    const clean = await promptDialog({
+      title: node.kind === 'file' ? 'Renomear ficheiro' : 'Renomear pasta',
+      message: `O caminho atual é “${node.path}”.`,
+      inputLabel: 'Novo nome',
+      initialValue: node.name,
+      confirmLabel: 'Renomear',
+      validate: validateLeafName,
+    })
+    if (!clean || clean === node.name) return
     const parent = parentPath(node.path)
     const target = parent ? `${parent}/${clean}` : clean
     try { await onRename(node.path, target) } catch { return }
@@ -91,7 +102,12 @@ export function WorkspaceExplorer({ entries, activePath, loading, revealNonce, o
   async function remove(node = focused) {
     if (!node) return
     const detail = node.kind === 'directory' ? 'A pasta e todo o seu conteúdo serão removidos.' : 'O ficheiro será removido.'
-    if (!window.confirm(`Eliminar “${node.path}”?\n\n${detail}`)) return
+    if (!(await confirmDialog({
+      title: node.kind === 'directory' ? 'Eliminar pasta?' : 'Eliminar ficheiro?',
+      message: `“${node.path}” será removido. ${detail}`,
+      tone: 'danger',
+      confirmLabel: 'Eliminar',
+    }))) return
     try { await onDelete(node.path) } catch { return }
     setFocusedPath(parentPath(node.path) || undefined)
   }
@@ -215,13 +231,11 @@ function parentPath(path: string) {
   return index > -1 ? path.slice(0, index) : ''
 }
 
-function cleanLeafName(value: string) {
+function validateLeafName(value: string) {
   const clean = value.trim()
-  if (!clean || clean === '.' || clean === '..' || clean.includes('/') || clean.includes('\\')) {
-    window.alert('Use apenas o nome do ficheiro/pasta, sem /, \\ ou segmentos ..')
-    return ''
-  }
-  return clean
+  if (!clean) return 'Introduza um nome.'
+  if (clean === '.' || clean === '..' || clean.includes('/') || clean.includes('\\')) return 'Use apenas o nome do ficheiro/pasta, sem /, \\ ou segmentos ..'
+  return undefined
 }
 
 function sortTree(node: TreeNode) {

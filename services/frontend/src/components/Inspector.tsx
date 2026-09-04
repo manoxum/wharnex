@@ -10,9 +10,9 @@ import { MarkdownContent } from './MarkdownContent'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { buildExecutionTimeline } from '../lib/executionTimeline'
 
-type Tab = 'plan' | 'terminal' | 'chatgpt'
+export type InspectorTab = 'plan' | 'terminal' | 'chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onChatGPTActivity, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -20,6 +20,9 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   busy: boolean
   chat?: WorkspaceChat
   chatgptSuspended?: boolean
+  activeTab?: InspectorTab
+  onTabChange?: (tab: InspectorTab) => void
+  embedded?: boolean
   onChatGPTURL: (url: string) => boolean
   onChatGPTActivity?: (activity: ChatGPTActivity) => void
   onContextSent?: (sha256: string, conversationUrl?: string) => void
@@ -31,11 +34,13 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
   onSession: (session: Session) => void
 }) {
-  const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
+  const [tab, setTab] = useState<InspectorTab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
+  const selectedTab = activeTab ?? tab
+  const selectTab = (next: InspectorTab) => { if (activeTab === undefined) setTab(next); onTabChange?.(next) }
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'self_evolution.host_build_started', 'self_evolution.host_build_completed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
-  const canExecute = Boolean(session.plan && session.policy?.allowed && session.last_turn?.kind !== 'workflow')
+  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'self_evolution.host_build_started', 'self_evolution.host_build_completed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
+  const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
   const pendingCount = session.pending_host_changes?.length || (session.last_execution?.success && session.state === 'verified' ? 1 : 0)
@@ -46,12 +51,12 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   async function copy(text: string) { await navigator.clipboard.writeText(text) }
   async function importPlanFile(json: string, requestId: string) {
     const message = await onPlanFile(json, requestId)
-    setTab('plan')
+    selectTab('plan')
     return message
   }
   return (
-    <section className="inspector-panel">
-      <header className="panel-header inspector-header">
+    <section className={`inspector-panel ${embedded ? 'embedded' : ''}`}>
+      {!embedded && <header className="panel-header inspector-header">
         <div className="brand-lockup small"><div className="brand-mark">K</div><div><strong>Agent Inspector</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}{desktop ? ' · desktop' : ''}</span></div></div>
         <div className="header-actions">
           {session.policy && <StatusPill tone={session.policy.allowed ? (session.policy.risk === 'high' ? 'warning' : 'accent') : 'danger'}>{riskLabel(session.policy.risk)}</StatusPill>}
@@ -61,18 +66,18 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
           {canApply && <button className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={14}/> Rejeitar</button>}
           {canApply && <button className="apply-button" disabled={busy} onClick={onApply}><Icon name="apply" size={16}/> Aplicar no host{pendingCount > 1 ? ` (${pendingCount})` : ''}</button>}
         </div>
-      </header>
+      </header>}
 
-      <nav className="tabs" aria-label="Inspector">
-        <button className={tab === 'plan' ? 'active' : ''} onClick={() => setTab('plan')}><Icon name="plan" size={16}/> Plano</button>
-        <button className={tab === 'terminal' ? 'active' : ''} onClick={() => setTab('terminal')}><Icon name="terminal" size={16}/> Execução <span className="tab-count">{terminalEvents.length}</span></button>
-        <button className={tab === 'chatgpt' ? 'active' : ''} onClick={() => setTab('chatgpt')}><Icon name="chatgpt" size={16}/> ChatGPT {desktop && <span className="desktop-dot" title="Wharness Desktop"/>}</button>
-      </nav>
+      {!embedded && <nav className="tabs" aria-label="Inspector">
+        <button className={selectedTab === 'plan' ? 'active' : ''} onClick={() => selectTab('plan')}><Icon name="plan" size={16}/> Plano</button>
+        <button className={selectedTab === 'terminal' ? 'active' : ''} onClick={() => selectTab('terminal')}><Icon name="terminal" size={16}/> Execução <span className="tab-count">{terminalEvents.length}</span></button>
+        <button className={selectedTab === 'chatgpt' ? 'active' : ''} onClick={() => selectTab('chatgpt')}><Icon name="chatgpt" size={16}/> ChatGPT {desktop && <span className="desktop-dot" title="Wharness Desktop"/>}</button>
+      </nav>}
 
-      <div className={`inspector-content ${tab === 'chatgpt' && desktop ? 'desktop-content' : ''}`}>
-        {tab === 'plan' && <PlanView session={session} />}
-        {tab === 'terminal' && <TerminalView events={terminalEvents} />}
-        {tab === 'chatgpt' && (desktop
+      <div className={`inspector-content ${selectedTab === 'chatgpt' && desktop ? 'desktop-content' : ''}`}>
+        {selectedTab === 'plan' && <PlanView session={session} />}
+        {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
+        {selectedTab === 'chatgpt' && (desktop
           ? <ChatGPTDesktopPane suspended={chatgptSuspended} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onActivity={onChatGPTActivity} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
       </div>

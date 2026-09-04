@@ -1,0 +1,199 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api } from '../lib/api'
+import { desktopBridge } from '../lib/desktop'
+import { desktopWindowScope, loadBoundActiveProject, loadBoundProjects, saveBoundActiveProject, saveBoundProjects } from '../lib/projectBindings'
+import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent } from '../lib/workspaceMemory'
+import type { AppConfig, WorkspaceMode } from '../types'
+import { Bootstrap } from './Bootstrap'
+import { Icon } from './Icon'
+
+type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
+
+const MAX_BOUND_PROJECTS = 12
+
+export function WorkspaceShell() {
+  const [config, setConfig] = useState<AppConfig>()
+  const [projects, setProjects] = useState<string[]>([])
+  const [activeProject, setActiveProject] = useState('')
+  const [projectModes, setProjectModes] = useState<Record<string, WorkspaceMode>>({})
+  const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState<string>()
+  const frames = useRef(new Map<string, HTMLIFrameElement>())
+
+  useEffect(() => {
+    let alive = true
+    async function initialize() {
+      try { if (alive) setConfig(await api.config()) } catch (reason) { if (alive) setError(messageOf(reason)) }
+      const bridge = desktopBridge()
+      const legacy = desktopWindowScope() === 'primary' ? loadActiveWorkspace()?.projectPath || '' : ''
+      const candidates = loadBoundProjects()
+      if (!candidates.length && legacy) candidates.push(legacy)
+      const acquired: string[] = []
+      for (const candidate of candidates) {
+        try {
+          const lock = await bridge?.projects.acquire(candidate)
+          if (!bridge || lock?.ok) acquired.push(lock?.path || candidate)
+        } catch { /* stale saved binding is ignored */ }
+      }
+      if (!alive) return
+      const preferred = loadBoundActiveProject()
+      const active = acquired.includes(preferred) ? preferred : acquired[0] || ''
+      setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active); setBusy(false)
+    }
+    void initialize()
+    return () => { alive = false }
+  }, [])
+
+  useEffect(() => {
+    saveBoundProjects(projects)
+    saveBoundActiveProject(activeProject)
+    for (const [projectPath, frame] of frames.current) publishActivation(frame, projectPath === activeProject)
+  }, [projects, activeProject])
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type === 'wharness:unbind-project') {
+        const projectPath = String(event.data.projectPath || '')
+        if (projectPath) void unbindProject(projectPath)
+      }
+      if (event.data?.type === 'wharness:workspace-mode') {
+        const projectPath = String(event.data.projectPath || '')
+        const mode = event.data.mode === 'editor' ? 'editor' : event.data.mode === 'agent' ? 'agent' : undefined
+        if (projectPath && mode) setProjectModes((current) => ({ ...current, [projectPath]: mode }))
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  })
+
+  // Keep iframe URLs stable across project switches. Hidden frames remain mounted so in-flight
+  // work and page/UI state are preserved instead of being reloaded on activation.
+  const frameSources = useMemo(() => new Map(projects.map((projectPath) => [projectPath, projectFrameURL(projectPath)])), [projects])
+
+  async function bindProject(projectPath: string) {
+    const requested = projectPath.trim()
+    if (!requested || busy) return
+    setBusy(true); setError(undefined)
+    try {
+      const bridge = desktopBridge()
+      const lock = bridge ? await bridge.projects.acquire(requested) as ProjectLockResult : { ok: true, path: requested }
+      if (!lock.ok) throw new Error(lock.message || 'Este projeto já está aberto noutra janela do Wharness.')
+      const canonical = lock.path || requested
+      if (!projects.includes(canonical) && projects.length >= MAX_BOUND_PROJECTS) {
+        if (bridge) await bridge.projects.release(canonical)
+        throw new Error(`Esta janela já atingiu o limite de ${MAX_BOUND_PROJECTS} projetos vinculados.`)
+      }
+      if (!projects.includes(canonical)) setProjects((current) => [...current, canonical])
+      rememberRecent(canonical); setRecent(loadRecentWorkspaces()); setActiveProject(canonical)
+    } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
+  }
+
+  async function chooseAndBind() {
+    const picked = await desktopBridge()?.projects.pickDirectory({ title: 'Vincular projeto' })
+    if (picked && !picked.cancelled && picked.path) await bindProject(picked.path)
+  }
+
+  async function unbindProject(projectPath: string) {
+    if (busy) return
+    setBusy(true); setError(undefined)
+    try {
+      await desktopBridge()?.projects.release(projectPath)
+      const next = projects.filter((item) => item !== projectPath)
+      frames.current.delete(projectPath)
+      setProjects(next)
+      if (activeProject === projectPath) setActiveProject(next[0] || '')
+    } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
+  }
+
+  async function createProject(parentPath: string, name: string) {
+    setBusy(true); setError(undefined)
+    try { const created = await api.createProject(parentPath, name); setBusy(false); await bindProject(created.project_path) }
+    catch (reason) { setError(messageOf(reason)); setBusy(false) }
+  }
+
+  async function cloneProject(repositoryURL: string, parentPath: string, directory: string) {
+    setBusy(true); setError(undefined)
+    try { const cloned = await api.cloneProject(repositoryURL, parentPath, directory); setBusy(false); await bindProject(cloned.project_path) }
+    catch (reason) { setError(messageOf(reason)); setBusy(false) }
+  }
+
+  if (!projects.length) return <div className="desktop-shell-root">
+    <ShellChrome projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => void chooseAndBind()} onNewWindow={() => void desktopBridge()?.windows.open()} />
+    <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={busy} onStart={bindProject} onCreate={createProject} onClone={cloneProject} />
+  </div>
+
+  return <main className="desktop-shell-root">
+    <ShellChrome projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => void chooseAndBind()} onNewWindow={() => void desktopBridge()?.windows.open()} />
+    {error && <div className="toast-error shell-toast" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
+    <section className="bound-project-stage">
+      {projects.map((projectPath) => <iframe
+        key={projectPath}
+        ref={(node) => { if (node) frames.current.set(projectPath, node); else frames.current.delete(projectPath) }}
+        className={`bound-project-frame ${projectPath === activeProject ? 'active' : ''}`}
+        title={`Wharness · ${projectName(projectPath)}`}
+        src={frameSources.get(projectPath)}
+        onLoad={(event) => publishActivation(event.currentTarget, projectPath === activeProject)}
+      />)}
+    </section>
+  </main>
+}
+
+function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, onSettings, onUnbind, onBind, onNewWindow }: {
+  projects: string[]; activeProject: string; busy: boolean
+  mode: WorkspaceMode
+  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onSettings: () => void; onUnbind: () => void; onBind: () => void; onNewWindow: () => void
+}) {
+  const [projectActionsOpen, setProjectActionsOpen] = useState(false)
+  const projectActionsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!projectActionsOpen) return
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setProjectActionsOpen(false) }
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !projectActionsRef.current?.contains(event.target)) setProjectActionsOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => { document.removeEventListener('keydown', onKeyDown); document.removeEventListener('pointerdown', onPointerDown) }
+  }, [projectActionsOpen])
+
+  return <header className="multi-project-bar">
+    <div className="multi-project-brand"><div className="brand-mark">K</div><strong>Wharness</strong></div>
+    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button></div>}
+    <nav className="project-quick-switch" aria-label="Projetos vinculados">
+      {projects.map((projectPath) => <button key={projectPath} className={projectPath === activeProject ? 'active' : ''} onClick={() => onActivate(projectPath)} title={projectPath}><Icon name="workspace" size={13}/><span>{projectName(projectPath)}</span></button>)}
+    </nav>
+    <div className="multi-project-actions">
+      <div ref={projectActionsRef} className="project-actions-menu">
+        <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => setProjectActionsOpen((current) => !current)} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
+        {projectActionsOpen && <div className="project-actions-popover" role="menu">
+          <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBind() }}><Icon name="workspace" size={14}/><span><strong>Vincular projeto</strong><small>Nesta janela</small></span></button>
+          <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="external" size={14}/><span><strong>Nova janela</strong><small>Workspace independente</small></span></button>
+        </div>}
+      </div>
+      {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
+      {activeProject && <button type="button" disabled={busy} onClick={onUnbind} aria-label="Fechar workspace" title="Fechar workspace"><Icon name="close" size={14}/></button>}
+    </div>
+  </header>
+}
+
+function projectFrameURL(projectPath: string) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('embedded', '1')
+  url.searchParams.set('project', projectPath)
+  url.searchParams.delete('active')
+  return url.toString()
+}
+
+function publishActivation(frame: HTMLIFrameElement, active: boolean) {
+  try { frame.contentWindow?.postMessage({ type: 'wharness:project-active', active }, window.location.origin) } catch { /* same-origin best effort */ }
+}
+
+function sendToProject(frame: HTMLIFrameElement | undefined, message: Record<string, string>) {
+  try { frame?.contentWindow?.postMessage(message, window.location.origin) } catch { /* same-origin best effort */ }
+}
+
+function projectName(projectPath: string) { return projectPath.split('/').filter(Boolean).at(-1) || projectPath }
+function messageOf(error: unknown) { return error instanceof Error ? error.message : 'Erro inesperado' }

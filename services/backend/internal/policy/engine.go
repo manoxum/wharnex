@@ -78,7 +78,12 @@ func classifyCommand(command domain.CommandSpec, decision *domain.PolicyDecision
 		}
 	}
 	if elevated[name] {
-		decision.RequiresApproval = true
+		// Project-defined build/test/runtime commands execute only in the selected
+		// target. In Protected Auto they remain isolated from the host, so merely
+		// running project code must raise visibility/risk without silently turning
+		// every normal verification command into a per-plan approval gate. Explicit
+		// planner approval, network access, package mutation and Git mutation keep
+		// their dedicated approval rules above.
 		decision.Risk = maxRisk(decision.Risk, "medium")
 		decision.Reasons = append(decision.Reasons, fmt.Sprintf("%s executes project-defined behavior", name))
 	}

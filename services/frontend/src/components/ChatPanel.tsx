@@ -1,5 +1,5 @@
 import { type ClipboardEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, QueuedChatRequest, Session } from '../types'
+import type { AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
 import { clearComposerDraft, loadComposerDraft, saveComposerDraft, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
@@ -8,13 +8,17 @@ import { addChatAttachments, uniquifyPastedChatFiles } from '../lib/chatAttachme
 import { MessageAttachmentCard, ComposerAttachmentChip } from './ChatAttachmentCard'
 import { MarkdownContent } from './MarkdownContent'
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, attachmentsEnabled, preparedAttachmentCount, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', taskInFlight = false, queuedRequests = [], onToggleArtifact, onRequestMode, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onOpenFile, onRevertChange, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, attachmentsEnabled, preparedAttachmentCount, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', taskInFlight = false, queuedRequests = [], onExecutionMode, onAutomationMode, onToggleArtifact, onRequestMode, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onOpenFile, onRevertChange, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
   archivedChats: WorkspaceChat[]
   activeChatId: string
   busy: boolean
+  embedded?: boolean
+  hideSwitcher?: boolean
+  executionMode?: ExecutionMode
+  automationMode?: AutomationMode
   attachmentsEnabled?: boolean
   preparedAttachmentCount?: number
   artifactSelection?: ChatArtifactSelection
@@ -23,6 +27,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   requestMode?: ChatRequestMode
   taskInFlight?: boolean
   queuedRequests?: QueuedChatRequest[]
+  onExecutionMode?: (mode: ExecutionMode) => void
+  onAutomationMode?: (mode: AutomationMode) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
   onRequestMode?: (mode: ChatRequestMode) => void
   onSend: (message: string, attachments: File[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<void>
@@ -59,12 +65,14 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const [inspectedArtifact, setInspectedArtifact] = useState<ChatArtifactKind | ''>('')
   const [inspectedChangeFile, setInspectedChangeFile] = useState<ChatChangeFile>()
   const selectedArtifacts: ChatArtifactSelection = artifactSelection || { context: false, prompt: true, result: false, error: false }
+  const currentExecutionMode = executionMode || session.execution_mode || 'protected'
+  const currentAutomationMode = automationMode || session.automation_mode || 'manual'
   const endRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLFormElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const todos = useMemo(() => latestTodoSnapshot(items), [items])
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [items, busy])
+  useEffect(() => { endRef.current?.scrollIntoView?.({ behavior: 'smooth' }) }, [items, busy])
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
     const draft = loadComposerDraft(session.project_path, activeChatId)
@@ -153,13 +161,13 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     window.setTimeout(() => setCopiedMessageId((current) => current === item.id ? '' : current), 1400)
   }
 
-  return <section className="chat-panel">
-    <header className="panel-header chat-header">
+  return <section className={`chat-panel ${embedded ? 'embedded' : ''}`}>
+    {!embedded && <header className="panel-header chat-header">
       <div><span className="panel-kicker">Harness chat</span><h2>{session.context.manifest.project_root.split('/').pop() || 'Projeto'}</h2></div>
       <StatusPill tone={session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'}>{stateLabel(session.state)}</StatusPill>
-    </header>
+    </header>}
 
-    <div className="chat-switcher" aria-label="Conversas do Harness">
+    {!hideSwitcher && <div className="chat-switcher" aria-label="Conversas do Harness">
       <button className="chat-new-button" disabled={busy} onClick={() => void onNewChat()} title="Novo chat"><Icon name="plus" size={14}/> Novo</button>
       <div className="chat-tabs">
         {chats.map((chat) => <div key={chat.id} className={chat.id === activeChatId ? 'chat-tab-group active' : 'chat-tab-group'}>
@@ -169,10 +177,10 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <button className="chat-tab-remove" disabled={busy} onClick={() => void onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={11}/></button>
         </div>)}
       </div>
-      <button className={archiveOpen ? 'chat-archive-toggle active' : 'chat-archive-toggle'} disabled={busy && !archiveOpen} onClick={() => setArchiveOpen((current) => !current)} title="Chats fechados"><Icon name="folder" size={13}/><span>Arquivados</span>{archivedChats.length > 0 && <b>{archivedChats.length}</b>}</button>
-    </div>
+      {!embedded && <button className={archiveOpen ? 'chat-archive-toggle active' : 'chat-archive-toggle'} disabled={busy && !archiveOpen} onClick={() => setArchiveOpen((current) => !current)} title="Chats fechados"><Icon name="folder" size={13}/><span>Arquivados</span>{archivedChats.length > 0 && <b>{archivedChats.length}</b>}</button>}
+    </div>}
 
-    {archiveOpen && <div className="chat-archive-panel">
+    {!embedded && archiveOpen && <div className="chat-archive-panel">
       <div className="chat-archive-heading"><div><strong>Chats arquivados</strong><span>Fechar um chat preserva o histórico, o vínculo ChatGPT e os anexos locais.</span></div><button className="icon-button light" onClick={() => setArchiveOpen(false)} title="Fechar área de arquivados"><Icon name="close" size={13}/></button></div>
       {archivedChats.length ? <div className="chat-archive-list">{archivedChats.map((chat) => <div className="chat-archive-row" key={chat.id}>
         <div className="chat-archive-copy"><strong>{chat.title}</strong><span>{chat.chatgptUrl ? 'ChatGPT vinculado' : 'Sem vínculo ChatGPT'} · fechado em {formatMessageTime(chat.updatedAt)}</span></div>
@@ -211,6 +219,15 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <ArtifactToggle kind="error" label="Erro" selected={selectedArtifacts.error} required={artifactRequired?.error} disabled={!session.last_repair_error && session.last_execution?.success !== false && !artifactRequired?.error} onToggle={onToggleArtifact} onInspect={setInspectedArtifact} inspectable={Boolean(artifactContent?.error)} />
           <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(Array.from(event.target.files || []))}/>
           <button type="button" className={attachments.length ? 'composer-round-action selected' : 'composer-round-action'} disabled={!attachmentsEnabled || Boolean(preparedAttachmentCount)} onClick={() => fileInputRef.current?.click()} title={attachmentsEnabled ? `Ficheiros do utilizador${attachments.length ? ` · ${attachments.length} selecionado(s)` : ''}` : 'Anexos diretos requerem o Desktop com planner manual'} aria-label="Anexar ficheiros"><Icon name="file" size={12}/>{attachments.length > 0 && <b>{attachments.length}</b>}</button>
+          <span className="composer-action-divider" />
+          <span className="composer-mode-group" role="group" aria-label="Proteção de execução">
+            <button type="button" className={`composer-round-action mode-protected ${currentExecutionMode === 'protected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode} aria-pressed={currentExecutionMode === 'protected'} aria-label="Protected" title="Protected · executar e verificar primeiro na sandbox" onClick={() => onExecutionMode?.('protected')}><Icon name="shield" size={12}/></button>
+            <button type="button" className={`composer-round-action mode-unprotected ${currentExecutionMode === 'unprotected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode || Boolean(session.self_evolution)} aria-pressed={currentExecutionMode === 'unprotected'} aria-label="Unprotected" title={session.self_evolution ? 'Unprotected indisponível · auto-evolução do Wharness é sempre Protected' : 'Unprotected · executar diretamente no projeto real'} onClick={() => onExecutionMode?.('unprotected')}><Icon name="external" size={12}/></button>
+          </span>
+          <span className="composer-mode-group" role="group" aria-label="Automação de execução">
+            <button type="button" className={`composer-round-action mode-manual ${currentAutomationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
+            <button type="button" className={`composer-round-action mode-auto ${currentAutomationMode === 'auto' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto'} aria-label="Auto" title="Auto · mudanças válidas seguem Protected e são aplicadas após verificação" onClick={() => onAutomationMode?.('auto')}><Icon name="agent" size={12}/></button>
+          </span>
           <span className="composer-action-divider" />
           <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharness pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>
           <button type="button" className={`composer-round-action ${queueOpen ? 'selected' : ''}`} aria-label="Fila de espera" title="Fila de requests principais" onClick={() => setQueueOpen((current) => !current)}><Icon name="clipboard" size={12}/>{queuedRequests.length > 0 && <b>{queuedRequests.length}</b>}</button>

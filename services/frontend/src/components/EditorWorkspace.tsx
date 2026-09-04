@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from '../lib/api'
 import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
+import { confirmDialog } from '../lib/appDialog'
 import type { FileEntry, Session, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
@@ -91,7 +92,12 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
 
   async function renameWorkspacePath(from: string, to: string) {
     const dirtyAffected = documents.filter((item) => (item.path === from || item.path.startsWith(`${from}/`)) && item.draft !== item.content)
-    if (dirtyAffected.length && !window.confirm(`Renomear “${from}” com ${dirtyAffected.length} ficheiro(s) aberto(s) com alterações não guardadas?\n\nOs rascunhos serão preservados nas tabs com o novo caminho.`)) throw new Error('rename cancelled')
+    if (dirtyAffected.length && !(await confirmDialog({
+      title: 'Renomear com rascunhos abertos?',
+      message: `“${from}” contém ${dirtyAffected.length} ficheiro(s) aberto(s) com alterações não guardadas. Os rascunhos serão preservados nas tabs com o novo caminho.`,
+      tone: 'warning',
+      confirmLabel: 'Renomear mesmo assim',
+    }))) throw new Error('rename cancelled')
     try {
       await api.renameWorkspacePath(session.id, from, to)
       const affected = documents.filter((item) => item.path === from || item.path.startsWith(`${from}/`))
@@ -105,7 +111,12 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
 
   async function deleteWorkspacePath(path: string) {
     const dirtyAffected = documents.filter((item) => (item.path === path || item.path.startsWith(`${path}/`)) && item.draft !== item.content)
-    if (dirtyAffected.length && !window.confirm(`Existem ${dirtyAffected.length} ficheiro(s) com alterações não guardadas dentro de “${path}”.\n\nEliminar mesmo assim e descartar esses rascunhos?`)) throw new Error('delete cancelled')
+    if (dirtyAffected.length && !(await confirmDialog({
+      title: 'Eliminar com alterações não guardadas?',
+      message: `Existem ${dirtyAffected.length} ficheiro(s) com alterações não guardadas dentro de “${path}”. Esses rascunhos serão descartados.`,
+      tone: 'danger',
+      confirmLabel: 'Eliminar e descartar',
+    }))) throw new Error('delete cancelled')
     try {
       await api.deleteWorkspacePath(session.id, path)
       const removed = documents.filter((item) => item.path === path || item.path.startsWith(`${path}/`))
@@ -116,10 +127,15 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
     } catch (error) { onError(messageOf(error)); throw error }
   }
 
-  function closeDocument(path: string) {
+  async function closeDocument(path: string) {
     const document = documents.find((item) => item.path === path)
     if (!document) return
-    if (document.draft !== document.content && !window.confirm(`Fechar ${path} e descartar alterações não guardadas?`)) return
+    if (document.draft !== document.content && !(await confirmDialog({
+      title: 'Descartar alterações não guardadas?',
+      message: `Fechar “${path}” agora descartará as alterações ainda não guardadas deste ficheiro.`,
+      tone: 'warning',
+      confirmLabel: 'Fechar e descartar',
+    }))) return
     disposeEditorModel(path)
     const index = documents.findIndex((item) => item.path === path)
     const remaining = documents.filter((item) => item.path !== path)

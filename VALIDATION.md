@@ -91,3 +91,22 @@ The frontend Vitest/Vite build suite was not re-run in this container because a 
 - The current host snapshot already contains the complete v1.2.32 auto-growing composer implementation, documentation, styles and focused regressions, so the failed repair patch must not replay those hunks.
 - The preceding Protected execution established `git diff --check`, 14 focused `ChatPanel` tests and frontend lint as passing for this implementation.
 - The preceding `npm run build` failure was environmental: Vite reached the Node heap ceiling near 1 GiB during transform and exited 134. The repaired Protected gate set therefore uses focused tests, lint and TypeScript typecheck, while the transactional self-evolution flow retains ownership of the real host build/restart.
+
+## v1.2.38.1 — ChatGPT request re-hydration + definitive affinity
+
+Focused validation for this update:
+
+- `npm run check` in `services/desktop` — PASS, 85/85 Node/Electron transport regressions on the current v1.2.38 multi-window baseline.
+- New recovery-state tests cover recoverable socket/internet failures, completion-without-bundle reload, silent/stalled reload-then-prompt behavior, bounded transport retries, narrow URL/error classification, and same-request prompt preservation.
+- Desktop source regressions verify post-submit conversation binding waits for a stable loaded concrete `/c/...` URL and that expected-bundle polling wires transport/renderer faults into bounded reload/recovery actions.
+- Frontend regression `App.affinity.test.ts` verifies definitive affinity candidates are consumed at application level and persisted/confirmed independently of ChatGPT Inspector visibility.
+- `git diff --check` — PASS.
+- The exported context intentionally excludes frontend `node_modules`, so frontend Vitest/typecheck/lint are retained as Protected verification commands in the execution plan rather than claimed as locally executed here.
+
+## v1.2.39 - Unified Agent workspace validation
+
+- The replacement patch is rebased against the exact host snapshot exported for request `req_20260904T195033_a85a5d52b30d585a`, preserving the concurrently landed multi-window and ChatGPT recovery work.
+- Local bundle construction validates the unified diff with `git apply --check` against that exact snapshot and runs `git diff --check` on the generated target.
+- The three AgentWorkspace regressions are retained and the ChatPanel auto-scroll feature-detects `scrollIntoView`, addressing the jsdom failure observed in the first repair.
+- Focused Vitest, frontend typecheck and lint remain Protected verification gates in the delivery plan.
+- No new npm dependency is introduced and no Wharness lifecycle command is part of the plan.

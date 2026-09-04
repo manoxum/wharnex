@@ -116,7 +116,9 @@ output_ready() {
       [ -x "$ROOT/dist/bin/wharness-backend" ]
       ;;
     frontend)
-      [ -s "$ROOT/services/frontend/dist/index.html" ]
+      [ -s "$ROOT/services/frontend/dist/index.html" ] &&
+        [ -s "$ROOT/services/frontend/dist/monaco/vs/loader.js" ] &&
+        [ -s "$ROOT/services/frontend/dist/monaco/vs/editor/editor.main.js" ]
       ;;
     desktop)
       electron_root="$ROOT/services/desktop/node_modules/electron"

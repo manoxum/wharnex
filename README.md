@@ -21,6 +21,8 @@ No Desktop, cada Harness Chat pode manter um `WebContentsView` próprio em memó
 - Multiple Harness chats per workspace, each with its own backend session, local transcript, title, and persistent ChatGPT conversation URL.
 - Switching Harness chats automatically navigates the embedded ChatGPT view back to the conversation linked to that chat.
 - New Harness chats start on a fresh ChatGPT surface and automatically bind the first concrete `chatgpt.com/c/...` conversation URL.
+- After a submitted prompt, Desktop waits for that concrete conversation URL to be stable and loaded, then publishes the binding globally so it is persisted even when the ChatGPT inspector is not visible.
+- Active Auto deliveries have bounded ChatGPT liveness recovery: recoverable transport/renderer failures reload the owned page; silent or stalled processing reloads once and, if still interrupted, sends one same-request recovery prompt without changing scope.
 - Clipboard JSON import for the response plan.
 - Per-project **Protected / Unprotected** Agent execution switch in the workspace UI, persisted independently for each project.
 - Protected remains the default; Unprotected executes validated Agent plans directly in the host project after explicit confirmation.
@@ -93,7 +95,7 @@ make build-refresh   # force recompilation, preserving dependency caches
 
 `make build` performs the complete desktop/application build path **without invoking Docker**. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
 
-Compiled artifacts are fingerprinted independently as well. If a component's source/configuration/runtime fingerprint is unchanged and its expected output is present, `make build` skips that component's compilation. This is especially important for the frontend: backend-only or no-change rebuilds no longer rerun Vite across the Monaco Editor module graph. Any real frontend change automatically invalidates only the frontend fingerprint and performs the normal `tsc -b && vite build` path.
+Compiled artifacts are fingerprinted independently as well. If a component's source/configuration/runtime fingerprint is unchanged and its expected output is present, `make build` skips that component's compilation. Backend-only or no-change rebuilds therefore leave the frontend untouched. When a real frontend change does require Vite, the official versioned precompiled Monaco runtime is copied into the production output instead of making Rollup transform and minify Monaco's full source module graph again.
 
 - validates/reuses the Go module cache and frontend/desktop `node_modules`;
 - invalidates dependency stamps automatically when lockfiles or Go/Node/npm runtime versions change;

@@ -111,10 +111,37 @@ it('offers apply and reject for a verified cumulative host candidate', () => {
     onBundleFile={async () => ''}
     onSession={() => undefined}
   />)
+  expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /Aplicar no host \(2\)/i }))
   fireEvent.click(screen.getByRole('button', { name: /^Rejeitar$/i }))
   expect(onApply).toHaveBeenCalledOnce()
   expect(onReject).toHaveBeenCalledOnce()
+})
+
+
+it('does not expose execution again after a self-evolution plan is applied or restart-pending', () => {
+  for (const state of ['restart_pending', 'restart_scheduled', 'applied']) {
+    const session = legacySession()
+    session.self_evolution = true
+    session.state = state
+    session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+    const { unmount } = render(<Inspector
+      config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={session}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+    expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
+    unmount()
+  }
 })
 
 

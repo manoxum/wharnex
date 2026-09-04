@@ -49,9 +49,13 @@ export function proposeChatGPTAffinity(tracker, conversationURL) {
   return candidateURL
 }
 
-export function confirmChatGPTAffinity(tracker, conversationURL) {
+export function confirmChatGPTAffinity(tracker, conversationURL, visibleConversationURL = '') {
   const confirmedURL = normalizeConversationURL(conversationURL)
   if (!confirmedURL) throw new Error('ChatGPT affinity confirmation requires a concrete conversation URL')
+  const visibleURL = normalizeConversationURL(visibleConversationURL)
+  if (!tracker.candidateURL && tracker.boundURL && tracker.boundURL !== confirmedURL && visibleURL === confirmedURL) {
+    proposeChatGPTAffinity(tracker, confirmedURL)
+  }
   if (tracker.candidateURL && tracker.candidateURL !== confirmedURL) throw new Error('ChatGPT affinity confirmation does not match the active candidate')
   if (!tracker.candidateURL && tracker.boundURL && tracker.boundURL !== confirmedURL) throw new Error('ChatGPT affinity confirmation conflicts with the current binding')
   tracker.phase = 'bound'
