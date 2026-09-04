@@ -8,6 +8,23 @@ Wharness uses ports-and-adapters / Clean Architecture boundaries:
 
 Planner adapters and sandbox adapters are replaceable. AI providers cannot depend on Docker execution details. Executor logic cannot depend on OpenAI response formats beyond the normalized domain plan.
 
+Remote context delivery adds a storage port at the application seam. The
+application builds one provider-neutral input artifact and asks that port to
+publish/delete it; HTTP/WebDAV and rclone are adapters behind the seam. Domain,
+planner, policy, and sandbox packages do not import provider concerns.
+
+The port accepts one input artifact plus provider-neutral shape metadata. Its
+pool implementation owns priority, account-scoped quotas, durable usage,
+retention, and failover behind that single interface; application callers do
+not select adapters or accounts.
+
+Provider enrollment uses a separate, small application seam: catalogue,
+connect, check and disconnect. The rclone enrollment adapter maps curated
+provider ids (Drive, Dropbox, OneDrive, S3, WebDAV, Nextcloud and others) to
+provider-specific configuration and browser OAuth while the publication port
+remains provider-neutral. Transport code never constructs commands or handles
+provider semantics directly.
+
 ## Core workflow
 
 `Session -> Context -> Agent Turn -> [Answer | Clarification | Investigation | Workflow Step | Change Plan]`

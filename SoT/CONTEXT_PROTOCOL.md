@@ -13,6 +13,75 @@ For every session Wharness creates:
 
 ZIP is the canonical local snapshot, but model file-input support does not imply arbitrary archive extraction. Therefore V1 uploads a text context export by default while retaining the ZIP locally. A future provider may support archive-aware ingestion.
 
+## Remote consumer-Web transport (v1.3)
+
+Consumer ChatGPT input has two explicit transport modalities. With no remote
+storage provider configured, Wharness retains the local attachment transport.
+With a provider configured, Wharness packages the complete planner prompt,
+eligible current context, selected system artifacts, and user attachments into
+one `wharness-input-<request_id>.zip`, publishes it through the remote-storage
+port, and sends ChatGPT only a short bootstrap instruction containing the
+public HTTPS download URL and SHA-256 digest.
+
+The remote input archive is transport-only and does not alter the execution
+protocol or trust order. ChatGPT MUST read the planner prompt inside the archive
+before acting. The returned `wharness-bundle-<request_id>.zip` still arrives
+through the existing Desktop download seam and passes the same request
+correlation, strict bundle validation, Policy Engine, Protected execution, and
+Apply rules.
+
+Remote objects use unguessable request-scoped names and live in a dedicated
+Wharness namespace. Providers MUST expose a URL that ChatGPT can fetch without
+receiving storage credentials. Signed URLs are preferred; public-prefix URLs
+are permitted only as an explicit provider configuration. Wharness never puts
+provider credentials in prompts, context archives, renderer IPC, events, or
+logs.
+
+Wharness removes its remote input objects after seven days. Cleanup runs on
+publication and startup when supported. A generic provider that cannot list its
+namespace MUST at least support deletion of the Wharness-owned objects recorded
+in the durable local publication index. Cleanup failure is observable but does
+not disclose object URLs or credentials.
+
+The storage seam MUST support multiple adapters. The initial adapters are:
+
+- `rclone`, delegating provider authentication and transfer to a named rclone
+  remote; browser OAuth is preferred whenever that provider supports it;
+- `http`, for PUT/WebDAV-compatible private or self-hosted upload endpoints
+  paired with a public HTTPS download prefix.
+
+Remote storage is disabled by default. Configuration and authentication are
+application-level concerns, never project content, and `whaness.yml` cannot
+enable a provider or contain its credentials.
+
+### Provider-instance pool and quotas (v1.3.1)
+
+Remote storage configuration is an ordered pool of 0..64 named instances. An
+instance represents one account/remote, not merely a provider type; several
+instances MAY use the same adapter. Instance ids are stable and unique because
+usage, request windows, retained objects, cleanup, and diagnostics are all
+account-scoped.
+
+Lower numeric priority is preferred. For each publication Wharness evaluates
+instances in ascending priority and selects the first account whose configured
+limits admit the complete input. A rejected quota or adapter publication
+failure advances to the next instance without consuming another account's
+quota. If no instance succeeds, the request fails closed and local ChatGPT
+uploads are not used.
+
+Each instance independently supports these limits; zero means unlimited:
+
+- successful publications per rolling `window_seconds`;
+- files/entries per remote input archive;
+- largest uncompressed input file;
+- final published archive bytes;
+- retained Wharness object count;
+- retained Wharness storage bytes.
+
+Usage is persisted together with the instance id. Retention cleanup decrements
+stored-object and storage-byte usage only after provider deletion succeeds.
+Request-window accounting and storage accounting MUST survive restart.
+
 ## Exclusions
 
 Credentials, VCS internals, dependencies, generated output, database dumps, private keys, local harness state, and configured ignore paths are excluded.
@@ -49,3 +118,8 @@ For the Wharness repository itself, `make export` MUST additionally capture the 
 
 Managed-context metadata is deterministic and participates in the context fingerprint. A branch/index/status/worktree change therefore invalidates context affinity even if eligible project file bytes alone would otherwise hash identically. Volatile wall-clock generation time and Wharness host-runtime diagnostics MUST NOT affect managed-context fingerprinting. `make export` MAY include its UTC generation timestamp because it is an archival artifact rather than a planner cache key.
 
+## Concurrent baseline fingerprinting
+
+`manifest.sha256` is the authoritative managed-context baseline fingerprint for planner concurrency. Wharness records the fingerprint used for every planner `request_id` and new change/workflow plans echo it as `base_context_sha256`. Equality means the requests were prepared from the same managed context; a different value means the plan must be re-evaluated before execution or host mutation.
+
+The fingerprint remains deterministic: eligible project bytes and stable Git status/worktree metadata participate, while volatile generation time and Wharness runtime diagnostics do not. This distinction is required so concurrency checks detect meaningful project/context changes without being invalidated merely by log growth or wall-clock time.

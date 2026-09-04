@@ -74,11 +74,11 @@ func pendingPatchCount(changes []domain.PendingHostChange) int {
 }
 
 func pendingHostResolutionBlocked(item domain.Session) bool {
-	if len(item.PendingManualRequestIDs) > 0 {
+	if item.PlannerInFlight || len(item.PendingManualRequestIDs) > 0 {
 		return true
 	}
 	switch item.State {
-	case "awaiting_plan", "workflow_pending", "workflow_planned", "workflow_observed", "repair_pending", "planned":
+	case "awaiting_plan", "workflow_pending", "workflow_planned", "workflow_observed", "repair_pending", "planned", "baseline_update_pending":
 		return true
 	default:
 		return false

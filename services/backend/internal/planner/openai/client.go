@@ -47,7 +47,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	body := map[string]any{
 		"model":        c.model,
 		"instructions": planner.SystemProtocol + planner.ProviderTurnContract,
-		"text":         map[string]any{"format": executionFormat(request.RequestID)},
+		"text":         map[string]any{"format": executionFormat(request.RequestID, request.ContextManifest.SHA256)},
 		"store":        true,
 		"truncation":   "auto",
 		"input": []any{map[string]any{
@@ -192,8 +192,8 @@ func sanitizeProviderError(data []byte) string {
 	return strings.ReplaceAll(s, "\n", " ")
 }
 
-func executionFormat(requestID string) map[string]any {
-	plan := executionPlanSchema(requestID)
+func executionFormat(requestID, baselineSHA256 string) map[string]any {
+	plan := executionPlanSchema(requestID, baselineSHA256)
 	schema := map[string]any{
 		"type": "object", "additionalProperties": false,
 		"required": []string{"protocol", "request_id", "kind", "message", "plan"},
@@ -208,7 +208,7 @@ func executionFormat(requestID string) map[string]any {
 	return map[string]any{"type": "json_schema", "name": "wharness_agent_turn", "strict": true, "schema": schema}
 }
 
-func executionPlanSchema(requestID string) map[string]any {
+func executionPlanSchema(requestID, baselineSHA256 string) map[string]any {
 	command := map[string]any{
 		"type": "object", "additionalProperties": false,
 		"required": []string{"argv", "cwd", "timeout_seconds", "network", "expected_exit_codes"},
@@ -231,17 +231,19 @@ func executionPlanSchema(requestID string) map[string]any {
 	}
 	schema := map[string]any{
 		"type": "object", "additionalProperties": false,
-		"required": []string{"protocol", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"},
+		"required": []string{"protocol", "base_context_sha256", "impact_files", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"},
 		"properties": map[string]any{
-			"protocol":          map[string]any{"type": "string", "const": domain.ProtocolV1},
-			"plan_id":           map[string]any{"type": "string"},
-			"request_id":        map[string]any{"type": "string", "const": requestID},
-			"status":            map[string]any{"type": "string", "enum": []string{"ready", "blocked"}},
-			"summary":           map[string]any{"type": "string"},
-			"risk":              map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}},
-			"requires_approval": map[string]any{"type": "boolean"},
-			"operations":        map[string]any{"type": "array", "items": operation},
-			"verification":      map[string]any{"type": "array", "items": command},
+			"protocol":            map[string]any{"type": "string", "const": domain.ProtocolV1},
+			"base_context_sha256": map[string]any{"type": "string", "const": baselineSHA256},
+			"impact_files":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 256},
+			"plan_id":             map[string]any{"type": "string"},
+			"request_id":          map[string]any{"type": "string", "const": requestID},
+			"status":              map[string]any{"type": "string", "enum": []string{"ready", "blocked"}},
+			"summary":             map[string]any{"type": "string"},
+			"risk":                map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}},
+			"requires_approval":   map[string]any{"type": "boolean"},
+			"operations":          map[string]any{"type": "array", "items": operation},
+			"verification":        map[string]any{"type": "array", "items": command},
 		},
 	}
 	return schema

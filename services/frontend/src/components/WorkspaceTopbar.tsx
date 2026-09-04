@@ -1,5 +1,6 @@
 import type { AppConfig, AutomationMode, ExecutionMode, Session, WorkspaceMode } from '../types'
 import { Icon } from './Icon'
+import { ThemeToggle } from './ThemeToggle'
 
 export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, restartPending = false, restartBlocked = false, busy, onMode, onRestartPending, onSettings, onClose }: {
   config?: AppConfig
@@ -34,6 +35,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       {executionMode === 'unprotected' && <TopbarIndicator tone="danger" label="Host direto · Unprotected" icon="terminal" />}
       {automationMode === 'auto' && <TopbarIndicator tone="success" label="Automação automática" icon="play" />}
       <TopbarIndicator tone={automaticPlanner ? 'success' : 'neutral'} label={config?.planner === 'openai' ? 'AI automático' : 'AI manual'} icon={config?.planner === 'openai' ? 'chatgpt' : 'agent'} />
+      <ThemeToggle compact />
       <button className="icon-button" aria-label="Configuração do projeto" title="Configuração do projeto" onClick={onSettings}><Icon name="settings" size={16}/></button>
       <button className="icon-button" aria-label="Fechar workspace" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
     </div>

@@ -31,6 +31,11 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
+	mux.HandleFunc("GET /api/remote-storage-config", a.remoteStorageConfig)
+	mux.HandleFunc("PUT /api/remote-storage-config", a.updateRemoteStorageConfig)
+	mux.HandleFunc("GET /api/remote-storage/providers", a.remoteStorageProviders)
+	mux.HandleFunc("POST /api/remote-storage/connections", a.connectRemoteStorage)
+	mux.HandleFunc("POST /api/remote-storage/connections/check", a.checkRemoteStorage)
 	mux.HandleFunc("GET /api/storage", a.storage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
 	mux.HandleFunc("POST /api/projects/create", a.createProject)
@@ -41,6 +46,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
+	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/manual-plan", a.manualPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-bundle", a.executionBundle)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
@@ -70,7 +76,86 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false})
+	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.service.RemoteInputStatus()})
+}
+
+func (a *API) remoteStorageConfig(w http.ResponseWriter, _ *http.Request) {
+	document, err := config.ReadRemoteStorageDocument(a.cfg.RemoteStorage)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "remote_storage_config_read_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"config": document, "restart_required": false})
+}
+
+func (a *API) updateRemoteStorageConfig(w http.ResponseWriter, r *http.Request) {
+	previous, _ := config.ReadRemoteStorageDocument(a.cfg.RemoteStorage)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, (2<<20)+1))
+	if err != nil || len(raw) > 2<<20 {
+		writeError(w, http.StatusBadRequest, "invalid_json", "remote storage config exceeds the 2 MiB limit")
+		return
+	}
+	document, err := config.DecodeRemoteStorageDocument(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "remote_storage_config_invalid", err.Error())
+		return
+	}
+	if err := config.SaveRemoteStorageDocument(a.cfg.RemoteStorage, document); err != nil {
+		writeError(w, http.StatusBadRequest, "remote_storage_config_invalid", err.Error())
+		return
+	}
+	cleanupWarning := false
+	if a.service != nil {
+		active := make(map[string]struct{}, len(document.Instances))
+		for _, instance := range document.Instances {
+			if instance.RcloneRemote != "" {
+				active[instance.RcloneRemote] = struct{}{}
+			}
+		}
+		for _, instance := range previous.Instances {
+			if instance.RcloneRemote == "" {
+				continue
+			}
+			if _, exists := active[instance.RcloneRemote]; exists {
+				continue
+			}
+			if err := a.service.DisconnectRemoteStorage(r.Context(), instance.RcloneRemote); err != nil {
+				cleanupWarning = true
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"config": document, "restart_required": true, "credential_cleanup_warning": cleanupWarning})
+}
+
+func (a *API) remoteStorageProviders(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"providers": a.service.RemoteStorageProviders(r.Context())})
+}
+
+func (a *API) connectRemoteStorage(w http.ResponseWriter, r *http.Request) {
+	var request app.RemoteStorageConnectionRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	connection, err := a.service.ConnectRemoteStorage(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "remote_storage_connection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, connection)
+}
+
+func (a *API) checkRemoteStorage(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Remote string `json:"remote"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	if err := a.service.CheckRemoteStorage(r.Context(), request.Remote); err != nil {
+		writeError(w, http.StatusBadRequest, "remote_storage_check_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connected": true})
 }
 
 func (a *API) storage(w http.ResponseWriter, _ *http.Request) {
@@ -218,6 +303,29 @@ func (a *API) message(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
+}
+
+func (a *API) remoteInput(w http.ResponseWriter, r *http.Request) {
+	if !a.service.RemoteInputStatus().Enabled {
+		writeError(w, http.StatusConflict, "remote_storage_disabled", "remote storage is not configured")
+		return
+	}
+	var body app.RemoteInputRequest
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 150<<20))
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_remote_input", err.Error())
+		return
+	}
+	result, err := a.service.PublishRemoteInput(r.Context(), r.PathValue("id"), body)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, session.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, "remote_input_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
 }
 
 func (a *API) manualPlan(w http.ResponseWriter, r *http.Request) {

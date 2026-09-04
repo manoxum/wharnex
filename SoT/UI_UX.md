@@ -10,6 +10,13 @@ Wharness is an engineering workspace, not a chatbot skin.
 - destructive/apply actions are visually distinct and require explicit intent;
 - mobile layout stacks panels without hiding execution state.
 
+## Appearance themes
+
+- Wharness supports complete Light and Dark themes across bootstrap, workspace chrome, Agent, Editor, Monaco, terminal, settings, dialogs and observability surfaces. Theme selection is a local interface preference and MUST NOT alter project data.
+- The default **System** preference follows the operating-system colour scheme; explicit Light/Dark choices persist across reloads, project frames and Desktop windows. A compact top-bar control provides immediate Light/Dark switching and project settings expose all three choices.
+- Semantic execution and safety states retain distinct blue, green, amber and red palettes calibrated independently for each theme. Meaning MUST continue to be carried by labels, icons or shape as well as colour.
+- The remote ChatGPT renderer owns its own appearance. Wharness MUST NOT inspect or mutate arbitrary remote DOM to force it to match the local theme.
+
 ## Workspace modes (v1.1)
 
 The workspace has two first-class modes:
@@ -126,3 +133,12 @@ Execution actions belong to the unified Agent tab bar. The available Execute act
 - Inactive bound projects must suspend their native embedded ChatGPT surface so a hidden project's `WebContentsView` cannot paint over the active project. Native bounds for an embedded project include its frame offset.
 - Self-evolution restart confirmation exposes three choices: **Mais tarde**, **Apenas esta**, and **Todas agora**. Because the transactional host handoff restarts the Wharness runtime, window/project layout is persisted before scheduling the handoff and restored on startup; the current-only choice prioritizes the self-evolution window while preserving the remaining window compositions.
 - Each bound project keeps its live Agent/Editor surface mounted while switching, so its in-memory page state survives activation changes independently of other projects. A fresh process restore continues to use the existing safe Agent + Protected + Auto startup profile.
+
+## Unified settings and remote storage accounts (v1.3)
+
+- Project settings MUST use distinct, keyboard-accessible sections for appearance, context, remote storage and local data instead of presenting an undifferentiated scrolling form.
+- Remote storage configuration is global to Wharness. The UI MUST support zero or more named instances, including several accounts of the same provider, and present a curated provider catalogue rather than requiring rclone terminology or manual JSON editing.
+- Every instance MUST expose an explicit numeric priority and its own request-window, file-count, per-file, per-input, stored-object and storage-capacity limits. Zero is visibly documented as unlimited. Reordering instances MAY normalize priorities while preserving lower-number-first semantics.
+- Drive, Dropbox, OneDrive and other OAuth-capable providers MUST expose a single connect action that launches browser authorization and returns the user to a visibly connected state. S3, WebDAV and Nextcloud MUST use provider-specific frontend forms; secret values are transient password inputs and are never re-rendered after enrollment.
+- The empty instance list MUST clearly identify local ChatGPT attachments as the active fallback. The remote configuration surface MUST state the seven-day retention rule, HTTPS public-URL requirement and rclone-owned credential boundary.
+- Saving validates and atomically persists the complete pool document. Because the remote pool is constructed during backend startup, the UI MUST show that a restart is required and MUST NOT imply that the edited instances are already active.

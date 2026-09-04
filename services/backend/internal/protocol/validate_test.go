@@ -76,3 +76,23 @@ func TestValidateWorkflowPlanRejectsHostApproval(t *testing.T) {
 		t.Fatal("workflow requiring host approval must be rejected")
 	}
 }
+
+func TestValidateBaselineAndImpactMetadata(t *testing.T) {
+	plan := validPlan()
+	plan.BaseContextSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	plan.ImpactFiles = []string{"services/backend/a.go", "services/frontend/App.tsx"}
+	if err := Validate(plan); err != nil {
+		t.Fatal(err)
+	}
+
+	plan.BaseContextSHA256 = "NOT-A-SHA"
+	if err := Validate(plan); err == nil {
+		t.Fatal("expected invalid baseline hash rejection")
+	}
+
+	plan.BaseContextSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	plan.ImpactFiles = []string{"../../outside"}
+	if err := Validate(plan); err == nil {
+		t.Fatal("expected impact traversal rejection")
+	}
+}

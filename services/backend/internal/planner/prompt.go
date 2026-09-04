@@ -62,6 +62,8 @@ EXECUTION RULES FOR CHANGE:
 - cwd is relative to the project root. Use "." for project root.
 - Network must be false unless absolutely necessary for a CHANGE; setting it true causes explicit policy handling. Workflow network is always false.
 - Verification must include the smallest relevant tests and, when practical, broader quality gates.
+- Every change plan MUST set base_context_sha256 to the exact PROJECT MANIFEST sha256 supplied for that request. Before constructing patches, identify the likely affected project files and put their relative paths in impact_files; keep this forecast conservative and update it after any concurrent baseline notification.
+- A BASELINE UPDATE continuation never changes the user goal. Reassess the forecast and patches against the new context hash, then continue the same task.
 - Do not place secrets in patches, commands, summaries, messages, or logs.
 - Git requests are valid CHANGE requests. Use argv-only git commands. Read-only git inspection may run normally; git mutations such as add, commit, branch, switch, merge, rebase, revert, restore, tag and stash require explicit user approval. Remote fetch/pull/push MUST set network=true. Never request git clean, reset --hard, force push, credential/config manipulation, or destructive flags.
 - For every CHANGE, turn.message MUST contain a concise Markdown section ## TODO with a checklist of the implementation units. Mark items [x] when included in the delivered bundle and leave [ ] only for intentionally deferred work, explaining why. This checklist is the user-visible progress contract.
@@ -81,6 +83,8 @@ EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 Exact change-plan shape:
 {
   "protocol": "harness.execution/v1",
+  "base_context_sha256": "<PROJECT MANIFEST SHA256>",
+  "impact_files": ["relative/path.ext"],
   "plan_id": "plan_<unique>",
   "request_id": "<REQUEST ID FROM WHARNESS>",
   "status": "ready",
@@ -152,6 +156,7 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 REQUEST ID: %s
 AUTOMATION MODE: %s
 SELF-EVOLUTION MODE: %t
+BASELINE CONTEXT SHA256: %s
 USER REQUEST OR WHARNESS CONTINUATION:
 %s
 
@@ -165,7 +170,7 @@ INTENT REMINDER:
 - If AUTOMATION MODE is manual, do not emit workflow; answer/investigate from current context or ask the user for the needed information.
 - Only explicit mutation intent may end in kind=change.
 
-Attach the Wharness context ZIP to this chat if it is not already attached for this project conversation or if Wharness supplied a newer snapshot.
+Use the Wharness context ZIP if it is not already represented in this project conversation or if Wharness supplied a newer snapshot. In local transport it is a ChatGPT attachment; in remote transport it is 'context/wharness-context.zip' inside the downloaded input archive.
 For AUTOMATIC REPAIR or WORKFLOW CONTINUATION requests sent by Wharness into the same linked ChatGPT conversation, reuse the project context already attached when the snapshot is unchanged and do not wait for a duplicate ZIP.
 
 MANUAL DESKTOP DELIVERY — FILE-FIRST CONTRACT — ABSOLUTE:
@@ -196,6 +201,8 @@ ZIP ROOT CONTRACT:
 
 CHANGE PLAN CONTRACT:
 - request_id in turn.json and plan.json MUST be exactly %q.
+- base_context_sha256 in plan.json MUST be exactly %q.
+- impact_files MUST list the relative project files/areas you expect this change can touch; identify this forecast before patch construction and keep it updated if Wharness sends a concurrent baseline continuation.
 - plan.json uses harness.execution/v1. apply_patch operations SHOULD use patch_file=patches/NNN-description.patch and an empty patch string.
 - patch files are raw UTF-8 standard unified diffs accepted by git apply; never use proprietary *** Begin Patch syntax.
 - command operations remain argv arrays and never use shell strings.
@@ -235,5 +242,5 @@ wharness-bundle-%s.zip
 ├── plan.json
 └── README.md
 
-Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.SelfEvolution, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
+Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.ContextManifest.SHA256, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
 }

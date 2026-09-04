@@ -6,6 +6,7 @@ import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent } from '../li
 import type { AppConfig, WorkspaceMode } from '../types'
 import { Bootstrap } from './Bootstrap'
 import { Icon } from './Icon'
+import { ThemeToggle } from './ThemeToggle'
 
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 
@@ -166,6 +167,7 @@ function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, 
       {projects.map((projectPath) => <button key={projectPath} className={projectPath === activeProject ? 'active' : ''} onClick={() => onActivate(projectPath)} title={projectPath}><Icon name="workspace" size={13}/><span>{projectName(projectPath)}</span></button>)}
     </nav>
     <div className="multi-project-actions">
+      <ThemeToggle compact />
       <div ref={projectActionsRef} className="project-actions-menu">
         <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => setProjectActionsOpen((current) => !current)} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
         {projectActionsOpen && <div className="project-actions-popover" role="menu">

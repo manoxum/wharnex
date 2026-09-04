@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_UI_PREFERENCES, loadUIPreferences, resolveTheme, saveUIPreferences } from './uiPreferences'
 
 describe('UI preferences', () => {
-  beforeEach(() => { localStorage.clear(); document.documentElement.removeAttribute('style') })
+  beforeEach(() => {
+    localStorage.clear()
+    document.documentElement.removeAttribute('style')
+    document.documentElement.removeAttribute('data-theme')
+    document.documentElement.removeAttribute('data-theme-preference')
+  })
 
   it('uses a readable 100% baseline and applies the expanded bounded scale', () => {
     expect(loadUIPreferences()).toEqual(DEFAULT_UI_PREFERENCES)

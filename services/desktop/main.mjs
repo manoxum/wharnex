@@ -15,6 +15,7 @@ import { confirmChatGPTAffinity, createChatGPTAffinityTracker, markChatGPTAffini
 import { chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress } from './chatgpt-recovery.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
+import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -915,6 +916,17 @@ async function fetchContextZip(sessionId) {
   return { id, bytes }
 }
 
+async function publishRemoteChatInput(sessionId, requestId, prompt, includeContext, attachments, artifacts) {
+  const id = sanitizeSessionId(sessionId)
+  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/remote-input`, BACKEND_URL)
+  const response = await fetch(target, {
+    method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(remoteInputPayload(requestId, prompt, includeContext, attachments, artifacts)),
+  })
+  const result = await response.json().catch(() => ({}))
+  return parseRemoteInputResponse(response.status, result)
+}
+
 async function requireAutoSession(sessionId) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}`, BACKEND_URL)
@@ -1108,6 +1120,27 @@ async function preparePromptForChatGPT(request) {
   const previousSha = String(request?.lastContextSha256 || '').trim()
   const previousURL = String(request?.lastContextChatgptUrl || '').trim()
   const includeContext = shouldAttachProjectContext({ currentSha, previousSha, currentConversationId: chatGPTConversationID(target.conversationUrl), previousConversationId: chatGPTConversationID(previousURL), force: request?.includeContext === true })
+
+  const remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, includeContext, request?.attachments || [], request?.artifacts || [])
+  if (remoteInput) {
+    const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(remoteInput.bootstrapPrompt), true)
+    if (!filled) throw new Error('ChatGPT composer DOM could not be populated with remote input bootstrap')
+    let conversationUrl = target.conversationUrl
+    if (autoSubmit) {
+      const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+      await wait(250)
+      await submitChatGPTDraft(key)
+      armExpectedChatGPTBundle(key, requestId, assistantBaseline)
+      conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
+      preparedChatGPTDrafts.delete(key)
+    } else {
+      preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 0, requestId })
+    }
+    touchChatGPTEntry(target.entry)
+    console.log(`[chatgpt-draft] prepared key=${key} transport=remote provider=${String(remoteInput.provider || 'configured')} instance=${String(remoteInput.instance_id || 'configured')} bytes=${Number(remoteInput.bytes || 0)} chars=${remoteInput.bootstrapPrompt.length} autoSubmit=${autoSubmit}`)
+    return { ok: true, cacheKey: key, attachmentCount: 1, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl, transport: 'remote_url', provider: remoteInput.provider, instanceId: remoteInput.instance_id, expiresAt: remoteInput.expires_at }
+  }
+
   const input = await materializeChatInput(key, request?.sessionId, request?.attachments || [], request?.artifacts || [], text, includeContext)
   const transportPaths = [...input.paths, input.promptPath]
   for (let index = 0; index < transportPaths.length; index += 1) {

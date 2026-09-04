@@ -14,6 +14,8 @@ export type Operation = {
 
 export type ExecutionPlan = {
   protocol: 'harness.execution/v1'
+  base_context_sha256?: string
+  impact_files?: string[]
   plan_id: string
   request_id: string
   status: 'ready' | 'blocked'
@@ -52,6 +54,19 @@ export type ExecutionResult = {
   commands: CommandResult[]
   error?: string
   warnings?: string[]
+}
+
+export type BaselineNotice = {
+  id: string
+  source_session_id: string
+  source_plan_id: string
+  previous_sha256: string
+  new_sha256: string
+  changed_files: string[]
+  overlap_files?: string[]
+  relevant: boolean
+  complete_delta?: boolean
+  created_at: string
 }
 
 export type PendingHostChange = {
@@ -151,6 +166,9 @@ export type Session = {
   last_repair_error?: string
   workflow_round?: number
   last_request_mode?: ChatRequestMode
+  planner_in_flight?: boolean
+  request_baselines?: Record<string, string>
+  baseline_notices?: BaselineNotice[]
 }
 
 export type HarnessEvent = {
@@ -167,7 +185,49 @@ export type AppConfig = {
   model: string
   api_configured: boolean
   chatgpt_web_embed: boolean
+  remote_input?: {
+    enabled: boolean
+    provider?: string
+    mode: 'local_attachments' | 'remote_url'
+    instances?: Array<{
+      id: string
+      provider: string
+      priority: number
+      limits: { max_requests: number; window_seconds: number; max_files_per_input: number; max_file_bytes: number; max_input_bytes: number; max_stored_objects: number; max_storage_bytes: number }
+      usage: { requests_in_window: number; stored_objects: number; storage_bytes: number }
+    }>
+  }
 }
+
+export type RemoteStorageLimits = {
+  max_requests: number
+  window_seconds: number
+  max_files_per_input: number
+  max_file_bytes: number
+  max_input_bytes: number
+  max_stored_objects: number
+  max_storage_bytes: number
+}
+
+export type RemoteStorageInstance = {
+  id: string
+  provider: RemoteStorageProviderID
+  priority: number
+  limits: RemoteStorageLimits
+  upload_url?: string
+  public_url?: string
+  authorization_env?: string
+  rclone_remote?: string
+  rclone_prefix?: string
+}
+
+export type RemoteStorageProviderID = 'http' | 'rclone' | 'drive' | 'dropbox' | 'onedrive' | 's3' | 'webdav' | 'nextcloud' | 'box' | 'pcloud'
+export type RemoteStorageProviderField = { id: string; label: string; placeholder?: string; secret?: boolean; required?: boolean; advanced?: boolean }
+export type RemoteStorageProvider = { id: RemoteStorageProviderID; name: string; description: string; auth_mode: 'oauth_browser' | 'credentials'; available: boolean; fields: RemoteStorageProviderField[] }
+export type RemoteStorageConnection = { provider: RemoteStorageProviderID; remote: string; connected: boolean; display_name?: string }
+
+export type RemoteStorageDocument = { version: 1; instances: RemoteStorageInstance[] }
+export type RemoteStorageConfigResponse = { config: RemoteStorageDocument; restart_required: boolean; credential_cleanup_warning?: boolean }
 
 export type FileEntry = {
   path: string

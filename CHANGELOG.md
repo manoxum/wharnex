@@ -1,3 +1,12 @@
+## v1.2.40 - Concurrent context-baseline coordination
+
+- Add deterministic managed-context SHA-256 concurrency tokens to planner requests and execution plans, plus conservative `impact_files` forecasts for change routing.
+- Serialize Wharness-controlled host mutations per canonical project root and re-check the current baseline immediately before Execute, Apply and Revert mutation boundaries.
+- Broadcast successful Apply/Revert baseline transitions to active parallel chats with previous/new hashes, changed files, overlap and delta completeness; relevant Auto/ChatGPT sessions receive a same-conversation adaptation continuation in background.
+- Fast-forward only through complete, non-overlapping baseline-delta chains and always re-run the candidate against a fresh current-host sandbox before host Apply.
+- Suppress superseded late bundles so an older parallel response cannot replace a newer baseline-adaptation request.
+- Surface baseline synchronization/adaptation state and audit events in the Wharness chat/Inspector, including Unprotected direct-host changes.
+
 ## v1.2.39 - Unified Agent workspace and activity drawer
 
 - Replace the permanent Harness-chat/Agent-Inspector split with one end-to-end Agent surface whose top tabs switch between Chat, Plano, Execução and ChatGPT.

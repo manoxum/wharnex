@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/remote-input-manifest.schema.json",
+  "title": "Wharness remote input transport manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "request_id", "prompt", "context_included"],
+  "properties": {
+    "protocol": { "const": "wharness.remote-input/v1" },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9_-]+$" },
+    "prompt": { "const": "prompt/wharness-planner-prompt.md" },
+    "context_included": { "type": "boolean" }
+  }
+}

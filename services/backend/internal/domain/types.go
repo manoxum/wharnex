@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const ProtocolV1 = "harness.execution/v1"
 const TurnProtocolV1 = "harness.turn/v1"
@@ -80,15 +83,17 @@ type Operation struct {
 }
 
 type ExecutionPlan struct {
-	Protocol         string        `json:"protocol"`
-	PlanID           string        `json:"plan_id"`
-	RequestID        string        `json:"request_id"`
-	Status           string        `json:"status"`
-	Summary          string        `json:"summary"`
-	Risk             string        `json:"risk"`
-	RequiresApproval bool          `json:"requires_approval"`
-	Operations       []Operation   `json:"operations"`
-	Verification     []CommandSpec `json:"verification"`
+	Protocol          string        `json:"protocol"`
+	BaseContextSHA256 string        `json:"base_context_sha256,omitempty"`
+	ImpactFiles       []string      `json:"impact_files,omitempty"`
+	PlanID            string        `json:"plan_id"`
+	RequestID         string        `json:"request_id"`
+	Status            string        `json:"status"`
+	Summary           string        `json:"summary"`
+	Risk              string        `json:"risk"`
+	RequiresApproval  bool          `json:"requires_approval"`
+	Operations        []Operation   `json:"operations"`
+	Verification      []CommandSpec `json:"verification"`
 }
 
 type PolicyDecision struct {
@@ -127,6 +132,30 @@ type ExecutionResult struct {
 	Commands    []CommandResult `json:"commands"`
 	Error       string          `json:"error,omitempty"`
 	Warnings    []string        `json:"warnings,omitempty"`
+}
+
+func (r ExecutionResult) MarshalJSON() ([]byte, error) {
+	type executionResult ExecutionResult
+	if r.Commands == nil {
+		r.Commands = []CommandResult{}
+	}
+	return json.Marshal(executionResult(r))
+}
+
+// BaselineNotice records one project-context transition observed by a peer
+// session. CompleteDelta is false when Wharness could not prove that the peer
+// observed the immediately preceding baseline, disabling optimistic fast-forward.
+type BaselineNotice struct {
+	ID              string    `json:"id"`
+	SourceSessionID string    `json:"source_session_id"`
+	SourcePlanID    string    `json:"source_plan_id"`
+	PreviousSHA256  string    `json:"previous_sha256"`
+	NewSHA256       string    `json:"new_sha256"`
+	ChangedFiles    []string  `json:"changed_files"`
+	OverlapFiles    []string  `json:"overlap_files,omitempty"`
+	Relevant        bool      `json:"relevant"`
+	CompleteDelta   bool      `json:"complete_delta"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // PendingHostChange is a Protected plan that has passed sandbox verification
@@ -195,6 +224,9 @@ type Session struct {
 	LastRepairError         string               `json:"last_repair_error,omitempty"`
 	WorkflowRound           int                  `json:"workflow_round,omitempty"`
 	LastRequestMode         string               `json:"last_request_mode,omitempty"`
+	PlannerInFlight         bool                 `json:"planner_in_flight,omitempty"`
+	RequestBaselines        map[string]string    `json:"request_baselines,omitempty"`
+	BaselineNotices         []BaselineNotice     `json:"baseline_notices,omitempty"`
 }
 
 type Event struct {

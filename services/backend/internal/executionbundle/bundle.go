@@ -31,15 +31,17 @@ type operationWire struct {
 }
 
 type planWire struct {
-	Protocol         string               `json:"protocol"`
-	PlanID           string               `json:"plan_id"`
-	RequestID        string               `json:"request_id"`
-	Status           string               `json:"status"`
-	Summary          string               `json:"summary"`
-	Risk             string               `json:"risk"`
-	RequiresApproval bool                 `json:"requires_approval"`
-	Operations       []operationWire      `json:"operations"`
-	Verification     []domain.CommandSpec `json:"verification"`
+	Protocol          string               `json:"protocol"`
+	BaseContextSHA256 string               `json:"base_context_sha256,omitempty"`
+	ImpactFiles       []string             `json:"impact_files,omitempty"`
+	PlanID            string               `json:"plan_id"`
+	RequestID         string               `json:"request_id"`
+	Status            string               `json:"status"`
+	Summary           string               `json:"summary"`
+	Risk              string               `json:"risk"`
+	RequiresApproval  bool                 `json:"requires_approval"`
+	Operations        []operationWire      `json:"operations"`
+	Verification      []domain.CommandSpec `json:"verification"`
 }
 
 type Parsed struct {
@@ -139,7 +141,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 			return Parsed{}, fmt.Errorf("decode plan.json: %w", err)
 		}
 		resolvedPlan := domain.ExecutionPlan{
-			Protocol: wire.Protocol, PlanID: wire.PlanID, RequestID: wire.RequestID,
+			Protocol: wire.Protocol, BaseContextSHA256: wire.BaseContextSHA256, ImpactFiles: wire.ImpactFiles, PlanID: wire.PlanID, RequestID: wire.RequestID,
 			Status: wire.Status, Summary: wire.Summary, Risk: wire.Risk,
 			RequiresApproval: wire.RequiresApproval, Operations: make([]domain.Operation, 0), Verification: wire.Verification,
 		}

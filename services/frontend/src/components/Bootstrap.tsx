@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react'
 import type { AppConfig } from '../types'
 import { desktopBridge, isDesktop } from '../lib/desktop'
 import { Icon } from './Icon'
+import { ThemeToggle } from './ThemeToggle'
 
 type SetupMode = 'open' | 'create' | 'clone'
 
@@ -55,6 +56,7 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
   return (
     <main className="bootstrap-shell">
       <section className="bootstrap-card bootstrap-card-wide">
+        <div className="bootstrap-theme-toggle"><ThemeToggle /></div>
         <div className="brand-lockup"><div className="brand-mark">K</div><div><strong>Wharness</strong><span>Local Agent Harness</span></div></div>
         <div className="bootstrap-copy">
           <span className="eyebrow">Execution workspace</span>

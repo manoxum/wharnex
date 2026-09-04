@@ -48,6 +48,7 @@ export function applyUIPreferences(value: UIPreferences) {
   root.dataset.themePreference = normalized.theme
   root.dataset.theme = resolveTheme(normalized.theme)
   root.style.colorScheme = resolveTheme(normalized.theme)
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', resolveTheme(normalized.theme) === 'dark' ? '#171717' : '#eceee8')
 }
 
 export function resolveTheme(theme: ThemePreference): ResolvedTheme {

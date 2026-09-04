@@ -145,6 +145,34 @@ it('does not expose execution again after a self-evolution plan is applied or re
 })
 
 
+it('blocks apply while a baseline adaptation is active', () => {
+  const session = legacySession()
+  session.state = 'baseline_update_pending'
+  session.planner_in_flight = true
+  session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+  session.pending_host_changes = [
+    { plan: session.plan!, execution: session.last_execution, verified_at: session.last_execution.completed_at },
+  ]
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onApply={async () => undefined}
+    onRejectPendingChanges={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Rejeitar$/i })).toBeNull()
+})
+
+
 it('shows streamed command output immediately below the command event', () => {
   const session = legacySession()
   const timestamp = '2026-09-03T23:10:00.000Z'

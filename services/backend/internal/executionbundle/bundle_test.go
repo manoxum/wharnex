@@ -45,6 +45,21 @@ func TestParseResolvesPatchFile(t *testing.T) {
 	}
 }
 
+func TestParsePreservesBaselineConcurrencyMetadata(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Fix\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Atualizar."}`,
+		"plan.json": `{"protocol":"harness.execution/v1","base_context_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","impact_files":["services/backend/a.go"],"plan_id":"p1","request_id":"req_12345678","status":"ready","summary":"fix","risk":"low","requires_approval":false,"operations":[],"verification":[]}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Plan == nil || parsed.Plan.BaseContextSHA256 == "" || !slices.Equal(parsed.Plan.ImpactFiles, []string{"services/backend/a.go"}) {
+		t.Fatalf("missing concurrency metadata: %#v", parsed.Plan)
+	}
+}
+
 func TestParseRejectsTraversalAndMissingStructuredContent(t *testing.T) {
 	traversal := zipBytes(t, map[string]string{"../evil": "x", "plan.json": "{}", "README.md": "x"})
 	if _, err := Parse("x.zip", traversal); err == nil {

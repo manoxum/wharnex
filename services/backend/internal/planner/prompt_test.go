@@ -125,3 +125,13 @@ func TestBuildManualPromptCarriesTodoAcrossChangeWorkflow(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManualPromptPinsContextBaselineAndImpactForecast(t *testing.T) {
+	const baseline = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	prompt := BuildManualPrompt(Request{RequestID: "req-baseline", Message: "change", ContextManifest: domain.ContextManifest{SHA256: baseline}})
+	for _, want := range []string{baseline, "BASELINE CONTEXT SHA256", "base_context_sha256", "impact_files", "concurrent baseline"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("baseline concurrency prompt missing %q", want)
+		}
+	}
+}

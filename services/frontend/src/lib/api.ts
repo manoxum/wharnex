@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AutomationMode, ChatRequestMode, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, Session, TerminalTarget, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, AutomationMode, ChatRequestMode, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -24,6 +24,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   url: API_URL,
   config: () => request<AppConfig>('/api/config'),
+  remoteStorageConfig: () => request<RemoteStorageConfigResponse>('/api/remote-storage-config'),
+  updateRemoteStorageConfig: (config: RemoteStorageDocument) => request<RemoteStorageConfigResponse>('/api/remote-storage-config', { method: 'PUT', body: JSON.stringify(config) }),
+  remoteStorageProviders: () => request<{ providers: RemoteStorageProvider[] }>('/api/remote-storage/providers'),
+  connectRemoteStorage: (instanceID: string, provider: RemoteStorageProviderID, fields: Record<string, string>) => request<RemoteStorageConnection>('/api/remote-storage/connections', { method: 'POST', body: JSON.stringify({ instance_id: instanceID, provider, fields }) }),
+  checkRemoteStorage: (remote: string) => request<{ connected: boolean }>('/api/remote-storage/connections/check', { method: 'POST', body: JSON.stringify({ remote }) }),
   storage: () => request<BackendStorageUsage>('/api/storage'),
   clearStorage: (confirm: string) => request<{ status: string }>('/api/storage', { method: 'DELETE', body: JSON.stringify({ confirm }) }),
   createProject: (parentPath: string, name: string) => request<ProjectProvision>('/api/projects/create', { method: 'POST', body: JSON.stringify({ parent_path: parentPath, name }) }),

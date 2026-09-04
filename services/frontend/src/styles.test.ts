@@ -82,6 +82,7 @@ describe('split Agent layout CSS', () => {
     expect(splitLayout).toContain('grid-template-columns: 1fr minmax(0, 1fr) auto')
     expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / -1')
     expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1')
+    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; padding-left: 42px')
     expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 2')
     expect(splitLayout).toContain('.agent-drawer { position: absolute')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')

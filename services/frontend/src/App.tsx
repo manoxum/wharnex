@@ -18,6 +18,7 @@ import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/proje
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
 import { buildChangeSummary } from './lib/changeSummary'
 import { confirmDialog } from './lib/appDialog'
+import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 
 export default function App() {
   const embeddedProject = embeddedProjectPath()
@@ -51,6 +52,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [editorOpenPath, setEditorOpenPath] = useState<string>()
   const [editorOpenNonce, setEditorOpenNonce] = useState(0)
   const sourceRef = useRef<EventSource | null>(null)
+  const baselineSeenRef = useRef(new Set<string>())
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
 
   const connectEvents = useCallback((id: string, projectPath: string, chatId: string) => {
@@ -390,6 +392,42 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
   }
 
+  async function syncPeerBaselineUpdates(projectPath: string, sourceChatId: string) {
+    const targets = chats.filter((chat) => chat.id !== sourceChatId)
+    await Promise.all(targets.map(async (target) => {
+      try {
+        const peer = await api.getSession(target.sessionId)
+        const notices = (peer.baseline_notices || []).filter((notice) => notice.new_sha256 === peer.context.manifest.sha256)
+        const notice = notices[notices.length - 1]
+        if (!notice) return
+        const noticeKey = `${target.id}:${notice.id}`
+        if (!baselineSeenRef.current.has(noticeKey)) {
+          baselineSeenRef.current.add(noticeKey)
+          const changed = notice.changed_files.slice(0, 12).map((path) => `- ${path}`).join('\n') || '- alterações fora do inventário textual'
+          const overlap = (notice.overlap_files || []).slice(0, 12).map((path) => `- ${path}`).join('\n')
+          appendChatItem(target, projectPath, {
+            id: `baseline-${notice.id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: notice.created_at,
+            text: `Baseline do projeto atualizado por outro chat.\n\nAnterior: \`${notice.previous_sha256.slice(0, 12)}…\`\nNovo: \`${notice.new_sha256.slice(0, 12)}…\`\n\nFicheiros alterados:\n${changed}${overlap ? `\n\nInterseção provável com este trabalho:\n${overlap}` : ''}`,
+            meta: notice.relevant ? 'Concorrência · revisão necessária' : 'Concorrência · sem interseção conhecida',
+          })
+        }
+        if (notice.relevant && peer.state === 'baseline_update_pending' && peer.last_manual_prompt && peer.automation_mode === 'auto') {
+          const dispatchKey = `dispatch:${target.id}:${peer.last_request_id || notice.id}`
+          if (baselineSeenRef.current.has(dispatchKey)) return
+          baselineSeenRef.current.add(dispatchKey)
+          const prepared = await transportPlannerContinuation(peer, target)
+          appendChatItem(target, projectPath, {
+            id: `baseline-dispatch-${peer.last_request_id || notice.id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+            text: prepared.submitted ? 'Atualização de baseline enviada automaticamente ao ChatGPT deste chat em background para rever e adaptar o trabalho em curso.' : 'Atualização de baseline preparada para este chat.',
+            meta: prepared.submitted ? 'Baseline sincronizado · ChatGPT acionado' : 'Baseline sincronizado · envio pendente',
+          })
+        }
+      } catch (error) {
+        console.warn('peer baseline synchronization failed', target.id, messageOf(error))
+      }
+    }))
+  }
+
   function toggleComposerArtifact(kind: ChatArtifactKind) {
     if (!session || !activeChatId || kind === 'prompt') return
     const active = chats.find((chat) => chat.id === activeChatId)
@@ -548,11 +586,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           : transportFailure
             ? `O prompt foi preparado, mas não foi possível montar o rascunho no ChatGPT: ${transportFailure}`
             : autoSubmitted
-              ? 'Prompt e anexos submetidos automaticamente ao ChatGPT em modo Auto. O Wharness aguarda agora o download validado do bundle.'
+              ? 'Entrada do planner submetida automaticamente ao ChatGPT em modo Auto. O Wharness aguarda agora o download validado do bundle.'
             : draftCount
-              ? 'A preparação foi enviada ao composer do ChatGPT. Verifique visualmente se o prompt e os anexos aparecem antes de confirmar o envio.'
+              ? 'A preparação foi enviada ao composer do ChatGPT. Verifique visualmente a entrada preparada antes de confirmar o envio.'
               : 'Prompt do planner preparado. No ChatGPT, gere o bundle ZIP solicitado e clique em Download; o Desktop irá importá-lo automaticamente.',
-        meta: immediateConversationalTurn ? turnMeta(turn!.kind) : (response.session.state === 'applied' ? 'AUTO · Host aplicado' : (response.session.plan ? `Plano ${response.session.plan.plan_id}` : (autoSubmitted ? `${draftCount} anexo(s) transportados · aguardando resultado ZIP` : (draftCount ? `${draftCount} anexo(s) preparados · aguardando confirmação` : 'Aguardando resultado externo')))),
+        meta: immediateConversationalTurn ? turnMeta(turn!.kind) : (response.session.state === 'applied' ? 'AUTO · Host aplicado' : (response.session.plan ? `Plano ${response.session.plan.plan_id}` : (autoSubmitted ? `${draftCount} item(ns) de entrada transportados · aguardando resultado ZIP` : (draftCount ? `${draftCount} item(ns) de entrada preparados · aguardando confirmação` : 'Aguardando resultado externo')))),
         turnKind: turn?.kind,
       }])
     } catch (e) {
@@ -772,13 +810,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       if (submission.auto_error) setError(submission.auto_error)
       if (submission.auto_executed && updated.last_execution) updateWorkspaceChat(targetChat.id, updated.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: updated.last_execution.success === false } })
-      if (submission.auto_applied) markContextDirtyForOtherChats(updated.project_path, targetChat.id)
+      if (submission.auto_applied) {
+        markContextDirtyForOtherChats(updated.project_path, targetChat.id)
+        void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
+      }
       if (submission.restart_required) setRestartModalOpen(true)
       let workflowSubmitted = false
       if (submission.workflow_prepared && updated.state === 'workflow_pending' && updated.last_manual_prompt) {
         workflowSubmitted = await submitWorkflowPrompt(updated, targetChat)
       } else if (updated.state === 'repair_pending' && updated.last_manual_prompt) {
         await submitRepairPrompt(updated, targetChat)
+      } else if (updated.state === 'baseline_update_pending' && updated.last_manual_prompt && updated.automation_mode === 'auto') {
+        const dispatchKey = `dispatch:${targetChat.id}:${updated.last_request_id || requestId}`
+        if (!baselineSeenRef.current.has(dispatchKey)) {
+          baselineSeenRef.current.add(dispatchKey)
+          await transportPlannerContinuation(updated, targetChat)
+        }
       }
       return submission.auto_applied
         ? (submission.restart_required ? `Bundle ${filename} aplicado ao próprio Wharness; build do host concluído e reinício pendente de confirmação.` : `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`)
@@ -810,6 +857,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (response.session.last_execution) {
         const active = chats.find((chat) => chat.id === activeChatId)
         if (active) updateWorkspaceChat(active.id, response.session.project_path, { artifactSelection: { ...active.artifactSelection, result: true, error: !ok } })
+      }
+      if (direct && ok && activeChatId) {
+        markContextDirtyForOtherChats(response.session.project_path, activeChatId)
+        void syncPeerBaselineUpdates(response.session.project_path, activeChatId)
       }
       setItems((current) => [...current, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
@@ -925,6 +976,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const updated = await api.apply(session.id)
       setSession(updated)
       markContextDirtyForOtherChats(updated.project_path, activeChatId)
+      void syncPeerBaselineUpdates(updated.project_path, activeChatId)
       if (updated.self_evolution && updated.state === 'restart_pending') setRestartModalOpen(true)
       const change = buildChangeSummary(appliedSummaryPlan(updated))
       setItems((current) => [...current,
@@ -978,6 +1030,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setSession(updated)
       setItems((current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: true } } : candidate))
       markContextDirtyForOtherChats(updated.project_path, activeChatId)
+      void syncPeerBaselineUpdates(updated.project_path, activeChatId)
     } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
   }
 
@@ -1182,9 +1235,9 @@ function contextArtifact(session: Session) {
 }
 
 function requestChainActive(session: Session) {
-  if (session.pending_manual_request_ids?.length) return true
+  if (session.planner_in_flight || session.pending_manual_request_ids?.length) return true
   if (session.self_evolution_activation === 'restart_scheduled') return true
-  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'restart_scheduled']).has(session.state)
+  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'restart_scheduled']).has(session.state)
 }
 
 function appliedSummaryPlan(session: Session) {
@@ -1197,29 +1250,6 @@ function appliedSummaryPlan(session: Session) {
     operations: applied.flatMap((change) => change.plan.operations || []),
     verification: applied.flatMap((change) => change.plan.verification || []),
   }
-}
-
-function executionArtifact(session: Session) {
-  const execution = session.last_execution
-  if (!execution) return '# Wharness execution result\n\nNo execution result is available.\n'
-  const commands = execution.commands.slice(-30).map((command, index) => {
-    const stdout = boundedArtifactText(command.stdout)
-    const stderr = boundedArtifactText(command.stderr)
-    return [`## Command ${index + 1}`, `- argv: ${JSON.stringify(command.argv)}`, `- cwd: ${command.cwd}`, `- exit: ${command.exit_code}`, `- success: ${command.success}`, stdout ? `### stdout\n\n\`\`\`text\n${stdout}\n\`\`\`` : '', stderr ? `### stderr\n\n\`\`\`text\n${stderr}\n\`\`\`` : ''].filter(Boolean).join('\n')
-  }).join('\n\n')
-  return `# Wharness execution result\n\n- plan: ${execution.plan_id}\n- success: ${execution.success}\n- started: ${execution.started_at}\n- completed: ${execution.completed_at}\n${execution.error ? `- error: ${boundedArtifactText(execution.error)}` : ''}\n\n${commands}\n`
-}
-
-function errorArtifact(session: Session) {
-  const execution = session.last_execution
-  const failed = execution?.commands.filter((command) => !command.success).slice(-12) || []
-  const commandText = failed.map((command) => `## Failed command\n\n- argv: ${JSON.stringify(command.argv)}\n- exit: ${command.exit_code}\n\n### stderr\n\n\`\`\`text\n${boundedArtifactText(command.stderr || command.stdout)}\n\`\`\``).join('\n\n')
-  return `# Wharness failure evidence\n\n- state: ${session.state}\n- plan: ${execution?.plan_id || session.repair_parent_plan_id || 'unknown'}\n- request: ${session.last_request_id || 'unknown'}\n${session.last_repair_error ? `- repair error: ${boundedArtifactText(session.last_repair_error)}` : ''}\n${execution?.error ? `- execution error: ${boundedArtifactText(execution.error)}` : ''}\n\n${commandText}\n`
-}
-
-function boundedArtifactText(value: string, limit = 12000) {
-  const text = String(value || '').trim()
-  return text.length > limit ? `${text.slice(0, limit)}\n...[truncated by Wharness]` : text
 }
 
 function sessionHasPendingRequest(session: Session, requestId: string) {

@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type * as Monaco from 'monaco-editor'
-import { configureMonaco, editorModelURI, monaco } from '../lib/monaco'
+import { activeMonacoTheme, configureMonaco, editorModelURI, monaco } from '../lib/monaco'
 import { editorLanguageForPath } from '../lib/editorLanguage'
+import { subscribeUIPreferences } from '../lib/uiPreferences'
 
 type Cursor = { line: number; column: number }
 
@@ -30,7 +31,7 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange }: Pr
     if (!host.current) return
     configureMonaco()
     const instance = monaco.editor.create(host.current, {
-      theme: 'wharness-ide',
+      theme: activeMonacoTheme(),
       automaticLayout: true,
       fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
       fontSize: 12.5,
@@ -96,6 +97,8 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange }: Pr
       editor.current = null
     }
   }, [])
+
+  useEffect(() => subscribeUIPreferences(() => monaco.editor.setTheme(activeMonacoTheme())), [])
 
   useEffect(() => {
     const instance = editor.current

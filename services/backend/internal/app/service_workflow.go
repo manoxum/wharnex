@@ -46,7 +46,8 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 			execution := domain.ExecutionResult{
 				PlanID: current.Plan.PlanID, Success: false,
 				StartedAt: time.Now().UTC(), CompletedAt: time.Now().UTC(),
-				Error: "workflow policy denied plan: " + strings.Join(decision.Reasons, "; "),
+				Error:    "workflow policy denied plan: " + strings.Join(decision.Reasons, "; "),
+				Commands: []domain.CommandResult{},
 			}
 			s.bus.Publish(sessionID, "workflow.policy_blocked", map[string]any{"plan_id": current.Plan.PlanID, "reasons": decision.Reasons, "transport": transport})
 			if _, err := s.store.Update(sessionID, func(item *domain.Session) error {
@@ -115,7 +116,7 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 	if err != nil {
 		return domain.ExecutionResult{}, err
 	}
-	result := domain.ExecutionResult{PlanID: plan.PlanID, StartedAt: time.Now().UTC()}
+	result := domain.ExecutionResult{PlanID: plan.PlanID, StartedAt: time.Now().UTC(), Commands: []domain.CommandResult{}}
 	s.bus.Publish(sessionID, "workflow.started", map[string]any{"plan_id": plan.PlanID, "transport": transport, "round": current.WorkflowRound + 1})
 	workspace, err := s.runner.Prepare(ctx, current.ProjectPath)
 	if err != nil {
@@ -191,6 +192,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	if err != nil {
 		return fmt.Errorf("prepare workflow continuation: %w", err)
 	}
+	enrichPlanConcurrency(planned.Plan, refreshed.Context.Manifest.SHA256)
 	if err := normalizePlannerResult(requestID, &planned); err != nil {
 		return err
 	}
@@ -201,6 +203,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
 		item.WorkflowRound = round
 		item.LastRequestID = requestID
+		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastTurn = planned.Turn
 		if planned.ProviderResponseID != "" {

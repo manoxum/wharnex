@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/remote-storage-config.schema.json",
+  "title": "Wharness remote storage pool configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "instances"],
+  "properties": {
+    "version": { "const": 1 },
+    "instances": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/instance" }
+    }
+  },
+  "$defs": {
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_requests": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
+        "window_seconds": { "type": "integer", "minimum": 0, "maximum": 31536000 },
+        "max_files_per_input": { "type": "integer", "minimum": 0, "maximum": 1024 },
+        "max_file_bytes": { "type": "integer", "minimum": 0, "maximum": 1125899906842624 },
+        "max_input_bytes": { "type": "integer", "minimum": 0, "maximum": 1125899906842624 },
+        "max_stored_objects": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+        "max_storage_bytes": { "type": "integer", "minimum": 0, "maximum": 1125899906842624 }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["max_requests"], "properties": { "max_requests": { "minimum": 1 } } },
+          "then": { "required": ["window_seconds"], "properties": { "window_seconds": { "minimum": 1 } } }
+        }
+      ]
+    },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "provider", "priority"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+        "provider": { "enum": ["http", "rclone", "drive", "dropbox", "onedrive", "s3", "webdav", "nextcloud", "box", "pcloud"] },
+        "priority": { "type": "integer", "minimum": 0 },
+        "limits": { "$ref": "#/$defs/limits" },
+        "upload_url": { "type": "string" },
+        "public_url": { "type": "string" },
+        "authorization_env": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" },
+        "rclone_remote": { "type": "string" },
+        "rclone_prefix": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "http" } } },
+          "then": { "required": ["upload_url", "public_url"] }
+        },
+        {
+          "if": { "properties": { "provider": { "enum": ["rclone", "drive", "dropbox", "onedrive", "s3", "nextcloud", "box", "pcloud"] } } },
+          "then": { "required": ["rclone_remote"] }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "webdav" } } },
+          "then": { "anyOf": [{ "required": ["rclone_remote"] }, { "required": ["upload_url", "public_url"] }] }
+        },
+        {
+          "if": { "properties": { "provider": { "enum": ["s3", "webdav", "nextcloud"] } } },
+          "then": { "required": ["public_url"] }
+        }
+      ]
+    }
+  }
+}

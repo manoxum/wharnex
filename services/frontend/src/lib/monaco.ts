@@ -61,28 +61,54 @@ export function loadMonaco(): Promise<typeof Monaco> {
 export function configureMonaco() {
   if (configured) return
   configured = true
-  monaco.editor.defineTheme('wharness-ide', {
+  monaco.editor.defineTheme('wharness-dark', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
     colors: {
-      'editor.background': '#151713',
-      'editor.foreground': '#d6dacf',
-      'editorLineNumber.foreground': '#596056',
-      'editorLineNumber.activeForeground': '#b8c4ad',
-      'editorCursor.foreground': '#b9ff56',
-      'editor.selectionBackground': '#344628',
-      'editor.inactiveSelectionBackground': '#293522',
-      'editorIndentGuide.background1': '#2a2e27',
-      'editorIndentGuide.activeBackground1': '#5f6d54',
-      'editorBracketMatch.background': '#35442c',
-      'editorBracketMatch.border': '#769b46',
-      'editorGutter.background': '#151713',
-      'minimap.background': '#121410',
-      'scrollbarSlider.background': '#69706433',
-      'scrollbarSlider.hoverBackground': '#89917f55',
+      'editor.background': '#212121',
+      'editor.foreground': '#ececec',
+      'editorLineNumber.foreground': '#686868',
+      'editorLineNumber.activeForeground': '#c8c8c8',
+      'editorCursor.foreground': '#f2f2f2',
+      'editor.selectionBackground': '#3f3f3f',
+      'editor.inactiveSelectionBackground': '#333333',
+      'editorIndentGuide.background1': '#333333',
+      'editorIndentGuide.activeBackground1': '#666666',
+      'editorBracketMatch.background': '#383838',
+      'editorBracketMatch.border': '#8a8a8a',
+      'editorGutter.background': '#212121',
+      'minimap.background': '#1b1b1b',
+      'scrollbarSlider.background': '#77777733',
+      'scrollbarSlider.hoverBackground': '#99999955',
     },
   })
+  monaco.editor.defineTheme('wharness-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#f7f8f4',
+      'editor.foreground': '#252a22',
+      'editorLineNumber.foreground': '#9aa196',
+      'editorLineNumber.activeForeground': '#4a5347',
+      'editorCursor.foreground': '#527c20',
+      'editor.selectionBackground': '#d9e8c8',
+      'editor.inactiveSelectionBackground': '#e7edde',
+      'editorIndentGuide.background1': '#e0e4db',
+      'editorIndentGuide.activeBackground1': '#9aa88f',
+      'editorBracketMatch.background': '#e2ecd7',
+      'editorBracketMatch.border': '#6f963c',
+      'editorGutter.background': '#f7f8f4',
+      'minimap.background': '#f1f3ed',
+      'scrollbarSlider.background': '#7b857833',
+      'scrollbarSlider.hoverBackground': '#626d5f55',
+    },
+  })
+}
+
+export function activeMonacoTheme() {
+  return document.documentElement.dataset.theme === 'dark' ? 'wharness-dark' : 'wharness-light'
 }
 
 export function editorModelURI(path: string) {

@@ -31,6 +31,24 @@ func Validate(plan domain.ExecutionPlan) error {
 	if plan.Status == "blocked" && (len(plan.Operations) != 0 || len(plan.Verification) != 0) {
 		return errors.New("blocked plan cannot contain operations or verification")
 	}
+	if baseline := strings.TrimSpace(plan.BaseContextSHA256); baseline != "" {
+		if len(baseline) != 64 {
+			return errors.New("base_context_sha256 must be a 64-character lowercase SHA-256")
+		}
+		for _, value := range baseline {
+			if (value < '0' || value > '9') && (value < 'a' || value > 'f') {
+				return errors.New("base_context_sha256 must be lowercase hexadecimal")
+			}
+		}
+	}
+	if len(plan.ImpactFiles) > 256 {
+		return errors.New("impact_files exceeds 256 paths")
+	}
+	for i, path := range plan.ImpactFiles {
+		if err := validateImpactPath(path); err != nil {
+			return fmt.Errorf("impact_files %d: %w", i, err)
+		}
+	}
 	for i, op := range plan.Operations {
 		switch op.Type {
 		case "apply_patch":
@@ -58,6 +76,24 @@ func Validate(plan domain.ExecutionPlan) error {
 		if err := ValidateCommand(command); err != nil {
 			return fmt.Errorf("verification %d: %w", i, err)
 		}
+	}
+	return nil
+}
+
+func validateImpactPath(value string) error {
+	path := strings.TrimSpace(value)
+	if path == "" {
+		return errors.New("path is empty")
+	}
+	if strings.ContainsRune(path, '\x00') {
+		return errors.New("path contains NUL")
+	}
+	if filepath.IsAbs(path) {
+		return errors.New("path must be relative")
+	}
+	clean := filepath.Clean(path)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return errors.New("path escapes project root")
 	}
 	return nil
 }

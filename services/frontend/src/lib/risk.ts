@@ -16,6 +16,7 @@ export function stateLabel(state?: string) {
     investigated: 'Analisado',
     blocked: 'Bloqueado',
     repair_pending: 'Correção em curso',
+    baseline_update_pending: 'A adaptar ao novo baseline',
     verified: 'Verificado',
     failed: 'Falhou',
     applied: 'Aplicado',

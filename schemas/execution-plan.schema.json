@@ -4,9 +4,11 @@
   "title": "Wharness Execution Plan v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"],
+  "required": ["protocol", "base_context_sha256", "impact_files", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"],
   "properties": {
     "protocol": {"const": "harness.execution/v1"},
+    "base_context_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "impact_files": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
     "plan_id": {"type": "string", "minLength": 1},
     "request_id": {"type": "string", "minLength": 1},
     "status": {"enum": ["ready", "blocked"]},

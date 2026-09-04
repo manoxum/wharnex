@@ -12,6 +12,11 @@ vi.mock('../lib/api', () => ({
     updateProjectConfig: vi.fn(),
     storage: vi.fn(),
     clearStorage: vi.fn(),
+    remoteStorageConfig: vi.fn(),
+    updateRemoteStorageConfig: vi.fn(),
+    remoteStorageProviders: vi.fn(),
+    connectRemoteStorage: vi.fn(),
+    checkRemoteStorage: vi.fn(),
   },
 }))
 
