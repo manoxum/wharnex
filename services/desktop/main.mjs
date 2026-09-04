@@ -10,7 +10,7 @@ import { chatGPTAssistantTurnCountScript, chatGPTExpectedDownloadScript, chatGPT
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
-import { closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
+import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -25,6 +25,9 @@ const MAX_EXECUTION_BUNDLE_BYTES = 16 * 1024 * 1024
 const MAX_CHAT_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const MAX_CHAT_ATTACHMENTS_BYTES = 100 * 1024 * 1024
 const MAX_CHAT_ATTACHMENTS = 10
+const MAX_CHAT_ARTIFACTS = 4
+const MAX_CHAT_ARTIFACT_BYTES = 2 * 1024 * 1024
+const MAX_CHAT_ARTIFACTS_BYTES = 6 * 1024 * 1024
 const CHATGPT_CHROMIUM_VERSION = '152.0.7977.65'
 const CHATGPT_USER_AGENT = chromeCompatibleUserAgent(process.platform, CHATGPT_CHROMIUM_VERSION)
 const CHATGPT_ACCEPT_LANGUAGES = 'pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7'
@@ -179,12 +182,45 @@ function currentChatGPTState() {
     externalAuthProvider: entry?.externalAuthProvider || '',
     authMode: entry?.authMode || 'external',
     authWindowOpen: Boolean(activeChatGPTKey && chatGPTAuthBrowsers.has(activeChatGPTKey)),
+    authenticated: Boolean(entry?.authenticated),
   }
 }
 
 function publishChatGPTState(key = activeChatGPTKey) {
   if (key !== activeChatGPTKey || !mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('wharness:chatgpt:state', currentChatGPTState())
+}
+
+async function refreshEmbeddedChatGPTAuthentication(cacheKey, entry) {
+  const wc = entry?.view?.webContents
+  if (!wc || wc.isDestroyed()) return
+  const probedURL = wc.getURL()
+  if (!isTrustedChatGPTOrigin(probedURL) || isChatGPTAuthURL(probedURL) || entry.externalAuthProvider) {
+    if (entry.authenticated) {
+      entry.authenticated = false
+      publishChatGPTState(cacheKey)
+    }
+    return
+  }
+  try {
+    const authenticated = Boolean(await wc.executeJavaScript(chatGPTSessionProbeExpression(), true))
+    if (wc.isDestroyed() || wc.getURL() !== probedURL || entry.externalAuthProvider) return
+    if (entry.authenticated !== authenticated) {
+      entry.authenticated = authenticated
+      publishChatGPTState(cacheKey)
+    }
+  } catch {
+    // Keep the previous state on transient page/network failures instead of
+    // falsely asking an already-authenticated user to sign in again.
+  }
+}
+
+function scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry, delayMs = 120) {
+  clearTimeout(entry.authProbeTimer)
+  entry.authProbeTimer = setTimeout(() => {
+    entry.authProbeTimer = undefined
+    void refreshEmbeddedChatGPTAuthentication(cacheKey, entry)
+  }, delayMs)
 }
 
 function publishPlanDownload(payload) {
@@ -405,6 +441,7 @@ async function completeExternalAuthentication(cacheKey, entry, record, result) {
   try {
     const imported = await relayManagedBrowserCookies(result.cookies)
     entry.externalAuthProvider = ''
+    entry.authenticated = true
     const embedded = entry.view.webContents
     if (!embedded.isDestroyed()) {
       const current = embedded.getURL()
@@ -534,7 +571,7 @@ function createChatGPTView(cacheKey) {
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION }) })
   view.setBackgroundColor('#ffffff')
   view.setVisible(false)
-  const entry = { view, loading: true, lastUsed: Date.now(), lastNetworkActivity: Date.now(), externalAuthProvider: '', authMode: 'external', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false }
+  const entry = { view, loading: true, lastUsed: Date.now(), lastNetworkActivity: Date.now(), externalAuthProvider: '', authMode: 'external', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined }
   chatgptViews.set(cacheKey, entry)
   mainWindow.contentView.addChildView(view)
 
@@ -553,9 +590,9 @@ function createChatGPTView(cacheKey) {
   wc.on('will-navigate', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('will-redirect', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('did-start-loading', () => { entry.loading = true; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
-  wc.on('did-stop-loading', () => { entry.loading = false; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
-  wc.on('did-navigate', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
-  wc.on('did-navigate-in-page', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
+  wc.on('did-stop-loading', () => { entry.loading = false; touchChatGPTEntry(entry); publishChatGPTState(cacheKey); scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry) })
+  wc.on('did-navigate', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); touchChatGPTEntry(entry); publishChatGPTState(cacheKey); scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry) })
+  wc.on('did-navigate-in-page', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); touchChatGPTEntry(entry); publishChatGPTState(cacheKey); scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry) })
   wc.on('page-title-updated', () => publishChatGPTState(cacheKey))
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     console.error(`[chatgpt-load] key=${cacheKey} code=${code} main=${Boolean(isMainFrame)} url=${sanitizeDiagnosticURL(url)} error=${description}`)
@@ -594,6 +631,19 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+async function waitForConcreteChatGPTConversation(wc, fallback = '', timeoutMs = 8000) {
+  const existing = canonicalChatGPTConversationURL(wc?.getURL?.() || '') || canonicalChatGPTConversationURL(fallback)
+  if (existing) return existing
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await wait(100)
+    if (!wc || wc.isDestroyed()) break
+    const current = canonicalChatGPTConversationURL(wc.getURL())
+    if (current) return current
+  }
+  return canonicalChatGPTConversationURL(fallback)
+}
+
 async function fetchContextZip(sessionId) {
   const id = sanitizeSessionId(sessionId)
   const response = await fetch(contextBundleURL(BACKEND_URL, id), { redirect: 'error' })
@@ -630,6 +680,21 @@ function decodeChatAttachmentSet(values) {
   return { decoded, total }
 }
 
+function decodeChatArtifactSet(values) {
+  if (!Array.isArray(values) || values.length > MAX_CHAT_ARTIFACTS) throw new Error(`At most ${MAX_CHAT_ARTIFACTS} Wharness artifacts are allowed`)
+  const decoded = values.map((value) => decodeUserAttachment(value, MAX_CHAT_ARTIFACT_BYTES))
+  const names = new Set()
+  let total = 0
+  for (const artifact of decoded) {
+    const portableName = artifact.name.toLocaleLowerCase('en-US')
+    if (names.has(portableName)) throw new Error(`Duplicate Wharness artifact filename: ${artifact.name}`)
+    names.add(portableName)
+    total += artifact.bytes.byteLength
+  }
+  if (total > MAX_CHAT_ARTIFACTS_BYTES) throw new Error('Wharness artifacts exceed the 6 MiB total limit')
+  return { decoded, total }
+}
+
 async function createPersistentAttachmentPreview(sourcePath, targetPath, mime, sourceBytes) {
   const safeRaster = SAFE_ATTACHMENT_IMAGE_MIMES.has(String(mime || '').toLowerCase()) && Number(sourceBytes || 0) <= MAX_ATTACHMENT_THUMBNAIL_SOURCE_BYTES
   let image = safeRaster ? nativeImage.createFromPath(sourcePath) : nativeImage.createEmpty()
@@ -650,8 +715,9 @@ function chatAttachmentRoot() {
   return path.join(app.getPath('userData'), 'chat-attachments-v1')
 }
 
-async function materializeChatInput(cacheKey, sessionId, values, promptText, includeContext) {
+async function materializeChatInput(cacheKey, sessionId, values, artifactValues, promptText, includeContext) {
   const { decoded, total } = decodeChatAttachmentSet(values)
+  const artifacts = decodeChatArtifactSet(artifactValues)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', cacheKey)
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -664,6 +730,11 @@ async function materializeChatInput(cacheKey, sessionId, values, promptText, inc
     paths.push(contextPath)
     contextBytes = context.bytes.byteLength
   }
+  for (const artifact of artifacts.decoded) {
+    const target = path.join(dir, artifact.name)
+    await writeFile(target, artifact.bytes, { mode: 0o600, flag: 'wx' })
+    paths.push(target)
+  }
   for (const attachment of decoded) {
     const target = path.join(dir, attachment.name)
     await writeFile(target, attachment.bytes, { mode: 0o600, flag: 'wx' })
@@ -674,7 +745,7 @@ async function materializeChatInput(cacheKey, sessionId, values, promptText, inc
   await mkdir(promptDir, { recursive: true, mode: 0o700 })
   const promptPath = path.join(promptDir, prompt.name)
   await writeFile(promptPath, prompt.bytes, { mode: 0o600, flag: 'wx' })
-  return { paths, promptPath, userAttachmentCount: decoded.length, bytes: contextBytes + total + prompt.bytes.byteLength }
+  return { paths, promptPath, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, bytes: contextBytes + total + artifacts.total + prompt.bytes.byteLength }
 }
 
 async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentConversation = false) {
@@ -755,23 +826,25 @@ async function preparePromptForChatGPT(request) {
   const previousSha = String(request?.lastContextSha256 || '').trim()
   const previousURL = String(request?.lastContextChatgptUrl || '').trim()
   const includeContext = shouldAttachProjectContext({ currentSha, previousSha, currentConversationId: chatGPTConversationID(target.conversationUrl), previousConversationId: chatGPTConversationID(previousURL), force: request?.includeContext === true })
-  const input = await materializeChatInput(key, request?.sessionId, request?.attachments || [], text, includeContext)
+  const input = await materializeChatInput(key, request?.sessionId, request?.attachments || [], request?.artifacts || [], text, includeContext)
   const transportPaths = [...input.paths, input.promptPath]
   for (let index = 0; index < transportPaths.length; index += 1) {
     await pasteChatGPTFile(target.entry, transportPaths[index], index + 1, transportPaths.length)
   }
+  let conversationUrl = target.conversationUrl
   if (autoSubmit) {
     await wait(chatInputSettleDelay(input.bytes, transportPaths.length))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     await submitChatGPTDraft(key)
+    conversationUrl = await waitForConcreteChatGPTConversation(target.wc, target.conversationUrl)
     armExpectedChatGPTBundle(key, requestId, assistantBaseline)
     preparedChatGPTDrafts.delete(key)
   } else {
     preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: transportPaths.length, requestId })
   }
   touchChatGPTEntry(target.entry)
-  console.log(`[chatgpt-draft] prepared key=${key} attachments=${transportPaths.length} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
-  return { ok: true, cacheKey: key, attachmentCount: transportPaths.length, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl: target.conversationUrl }
+  console.log(`[chatgpt-draft] prepared key=${key} attachments=${transportPaths.length} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
+  return { ok: true, cacheKey: key, attachmentCount: transportPaths.length, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl }
 }
 
 async function attachContextToChatGPT(request) {
@@ -818,10 +891,11 @@ async function submitPreparedChatGPTDraft(cacheKey) {
   const entry = activateChatGPTView(key)
   const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
   await submitChatGPTDraft(key)
+  const conversationUrl = await waitForConcreteChatGPTConversation(entry.view.webContents)
   const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline)
   preparedChatGPTDrafts.delete(key)
   touchChatGPTEntry(entry)
-  return { ok: true, cacheKey: key, expectedFilename }
+  return { ok: true, cacheKey: key, expectedFilename, conversationUrl }
 }
 
 async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestId = '') {

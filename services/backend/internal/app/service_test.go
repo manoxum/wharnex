@@ -118,6 +118,23 @@ func (fakeRunner) Run(_ context.Context, _ sandbox.Workspace, c domain.CommandSp
 }
 func (fakeRunner) Cleanup(sandbox.Workspace) error { return nil }
 
+type streamingEventRunner struct{}
+
+func (streamingEventRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
+	return sandbox.Workspace{Path: "/tmp/streaming"}, nil
+}
+func (streamingEventRunner) ApplyPatch(context.Context, sandbox.Workspace, string) (domain.CommandResult, error) {
+	return domain.CommandResult{}, errors.New("unexpected patch")
+}
+func (streamingEventRunner) Run(_ context.Context, _ sandbox.Workspace, c domain.CommandSpec) (domain.CommandResult, error) {
+	return domain.CommandResult{Argv: c.Argv, Cwd: c.Cwd, ExitCode: 0, Stdout: "final output\n", Success: true}, nil
+}
+func (streamingEventRunner) RunStreaming(_ context.Context, _ sandbox.Workspace, c domain.CommandSpec, onOutput sandbox.StreamCallback) (domain.CommandResult, error) {
+	onOutput("stdout", "live output\n")
+	return domain.CommandResult{Argv: c.Argv, Cwd: c.Cwd, ExitCode: 0, Stdout: "live output\n", Success: true}, nil
+}
+func (streamingEventRunner) Cleanup(sandbox.Workspace) error { return nil }
+
 type workflowEvidenceRunner struct{}
 
 func (workflowEvidenceRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
@@ -156,6 +173,29 @@ func TestServicePlansAndExecutes(t *testing.T) {
 	if !result.Success {
 		t.Fatal("expected success")
 	}
+}
+
+func TestExecutionPublishesLiveCommandOutput(t *testing.T) {
+	root := t.TempDir()
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "stream-plan", Status: "ready", Summary: "stream", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"printf", "live"}, Cwd: ".", TimeoutSeconds: 5, ExpectedExitCodes: []int{0}}}}}
+	bus := audit.NewBus()
+	service := NewService(session.NewStore(), bus, contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), streamingEventRunner{})
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), s.ID, "execute"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.Execute(context.Background(), s.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range bus.History(s.ID) {
+		if event.Type == "command.output" && event.Data["stream"] == "stdout" && event.Data["text"] == "live output\n" {
+			return
+		}
+	}
+	t.Fatal("expected live command.output event")
 }
 
 func TestVerifiedPatchDoesNotTouchHostUntilApply(t *testing.T) {

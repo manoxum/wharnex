@@ -1,3 +1,32 @@
+## v1.2.26 - Composer artifacts, durable iterations and confirmed self-restart
+
+- Move ChatGPT transport controls out of the ChatGPT header and into compact artifact selectors embedded directly in the Wharness chat composer for Context ZIP, Prompt, Result, Error and user files.
+- Automatically select context when another Harness chat changes the project snapshot, and select result/error evidence after executions or repair paths while keeping the user able to toggle non-required artifacts.
+- Persist execution events per Harness chat so reopening Wharness or switching chats restores the execution history instead of resetting the execution tab.
+- Persist a Wharness-side iteration reference with request id, phase, ChatGPT conversation and attached artifact kinds for outbound, workflow, repair and result turns.
+- Collapse authenticated ChatGPT state to a single compact status icon, remove the manual ZIP/prompt/result action cards and retire the Desktop manual fallback panel.
+- Change transactional self-evolution so a verified host build stops at restart-pending and requires explicit user confirmation; choosing Later leaves a restart badge visible and keeps rollback state available.
+- Add local typography settings with an elegant 110% default, selectable UI/monospace font stacks and a 90%-130% interface scale.
+- Add regression coverage for composer artifact placement, execution-history persistence, compact ChatGPT auth UI, typography preferences and restart-confirmation transaction recovery.
+
+## v1.2.25 - Chat affinity, recoverable archive and live execution logs
+
+- Arm first-conversation affinity as soon as the trusted ChatGPT new-chat surface is observed, including while it is still loading, then wait longer for the post-submit `/c/...` transition before finalizing the binding.
+- Keep ChatGPT conversation affinity one-to-one: a concrete conversation already owned by another Harness chat is rejected instead of being silently duplicated.
+- Replace destructive close-on-X with a recoverable local archive. Archived chats preserve transcript, ChatGPT binding and durable attachments; the archive area can reopen them or perform explicit confirmed permanent deletion.
+- Stream command stdout/stderr chunks from Local, Docker and Host runners through SSE `command.output` events while operations are executing.
+- Redesign the Agent execution tab as a compact event timeline followed by a live aggregated log console, with the inspector as the single vertical scrolling surface instead of per-operation nested output scrolls.
+- Add regression coverage for first-chat binding while loading, archive/restore/permanent-delete semantics, live runner output and the execution log UI.
+
+## v1.2.24.1 - Immutable Linux Electron runtime
+
+- Move the Linux Electron execution binary and its SUID `chrome-sandbox` out of npm-managed `node_modules` into a versioned root-owned runtime under `/opt/wharness/electron/<version>-linux-<arch>/`.
+- Make the complete runtime root-owned and non-user-writable, keep `chrome-sandbox` at `root:root` mode `4755`, and verify the Electron/helper SHA-256 values from a root-owned runtime manifest before every launch.
+- Resolve the exact current Electron version/architecture at startup and pass its immutable absolute binary to the desktop coordinator, so `npm install`, `npm ci`, `make build`, worktree changes and dependency cleanup cannot reset sandbox permissions.
+- Keep user namespaces only as a verified fallback, continue to forbid `--no-sandbox`, remove the obsolete standalone helper during runtime installation, and retain the old `electron-sandbox-*` Make targets only as compatibility aliases.
+- Route `make start`, `make run-desktop`, `npm run dev` and `npm start` through the same runtime resolver so no supported desktop launch path falls back to `electron .` from `node_modules`.
+- Add regression coverage proving the desktop honors an absolute immutable runtime binary and lifecycle checks preventing privileged in-place `node_modules` sandbox configuration from returning.
+
 ## v1.2.24 - Network-stable Docker lifecycle
 
 - Decouple `make build` from the Docker runner so normal `make build && make start` never contacts or socket-activates the Docker daemon.

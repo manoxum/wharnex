@@ -2,16 +2,18 @@ import type { AppConfig, AutomationMode, ExecutionMode, Session, WorkspaceMode }
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 
-export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, busy, onMode, onExecutionMode, onAutomationMode, onSettings, onClose }: {
+export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, restartPending = false, busy, onMode, onExecutionMode, onAutomationMode, onRestartPending, onSettings, onClose }: {
   config?: AppConfig
   session: Session
   mode: WorkspaceMode
   executionMode: ExecutionMode
   automationMode: AutomationMode
+  restartPending?: boolean
   busy: boolean
   onMode: (mode: WorkspaceMode) => void
   onExecutionMode: (mode: ExecutionMode) => void
   onAutomationMode: (mode: AutomationMode) => void
+  onRestartPending?: () => void
   onSettings: () => void
   onClose: () => void
 }) {
@@ -37,6 +39,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
     </div>
     <div className="workspace-status">
       {session.self_evolution && <StatusPill tone="warning">AUTO-EVOLUÇÃO</StatusPill>}
+      {restartPending && <button className="restart-pending-badge" type="button" title="Alterações prontas · reinício pendente" onClick={onRestartPending}><span/> Reinício pendente</button>}
       {executionMode === 'unprotected' && <StatusPill tone="warning">HOST DIRETO</StatusPill>}
       {automationMode === 'auto' && <StatusPill tone="success">AUTO</StatusPill>}
       <StatusPill tone={config?.planner === 'openai' && config.api_configured ? 'success' : 'neutral'}>{config?.planner === 'openai' ? 'AI automático' : 'AI manual'}</StatusPill>

@@ -52,8 +52,9 @@ export function isChatGPTNewChatURL(value: string) {
 
 export function chatgptAutoBindingDecision(linkedURL: string | undefined, currentURL: string, loading: boolean, newChatSurfaceSeen: boolean) {
   const linkedConversation = chatgptConversationURL(linkedURL || '')
-  if (linkedConversation || loading) return { newChatSurfaceSeen, bindURL: '' }
+  if (linkedConversation) return { newChatSurfaceSeen, bindURL: '' }
   if (isChatGPTNewChatURL(currentURL)) return { newChatSurfaceSeen: true, bindURL: '' }
+  if (loading) return { newChatSurfaceSeen, bindURL: '' }
   const currentConversation = chatgptConversationURL(currentURL)
   if (newChatSurfaceSeen && currentConversation) return { newChatSurfaceSeen: true, bindURL: currentConversation }
   return { newChatSurfaceSeen, bindURL: '' }

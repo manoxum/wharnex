@@ -153,3 +153,27 @@ func TestTransactionRejectsHarnessRuntimePaths(t *testing.T) {
 		t.Fatalf("expected runtime-owned path rejection, got %v", err)
 	}
 }
+
+func TestPendingTransactionRecoversRestartConfirmationHandoff(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	tx, err := manager.Prepare("plan-confirm", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	if err := manager.RecordStatus(tx, "ses-confirm", "plan-confirm", "restart_pending", "awaiting user confirmation"); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := manager.PendingTransaction("ses-confirm", "plan-confirm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.ID != tx.ID || recovered.Dir != tx.Dir || recovered.Worker != tx.Worker {
+		t.Fatalf("unexpected recovered transaction: %#v", recovered)
+	}
+	if _, err := manager.PendingTransaction("ses-other", "plan-confirm"); err == nil {
+		t.Fatal("pending transaction must be scoped to the originating session")
+	}
+}

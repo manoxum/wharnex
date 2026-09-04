@@ -11,7 +11,7 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
 
 type Tab = 'plan' | 'terminal' | 'chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onContextSent, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile, onSession }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -19,7 +19,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   busy: boolean
   chat?: WorkspaceChat
   chatgptSuspended?: boolean
-  onChatGPTURL: (url: string) => void
+  onChatGPTURL: (url: string) => boolean
   onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean) => Promise<void>
   onApply: () => Promise<void>
@@ -31,7 +31,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => ['command.completed', 'execution.failed', 'verification.baseline_unchanged', 'automation.policy_blocked', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
+  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
@@ -67,7 +67,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         {tab === 'plan' && <PlanView session={session} />}
         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
         {tab === 'chatgpt' && (desktop
-          ? <ChatGPTDesktopPane suspended={chatgptSuspended} session={session} manualPrompt={manualPrompt} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onContextSent={onContextSent} onSession={onSession} onManualPlan={onManualPlan} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
+          ? <ChatGPTDesktopPane suspended={chatgptSuspended} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
       </div>
     </section>
@@ -95,7 +95,7 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
     </div>
     <label className="field-label">Prompt preparado</label>
     <div className="code-box prompt-box"><button className="code-copy" disabled={!manualPrompt} onClick={() => void copy(manualPrompt)}><Icon name="copy" size={14}/> Copiar</button><pre>{manualPrompt || 'Envie uma mensagem no Agent para gerar o prompt.'}</pre></div>
-    <label className="field-label" htmlFor="manual-json">Plano JSON recebido (fallback web)</label>
+    <label className="field-label" htmlFor="manual-json">Plano JSON recebido</label>
     <textarea id="manual-json" className="json-input" spellCheck={false} value={manualJSON} onChange={(e) => setManualJSON(e.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
     <button className="primary-button full" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano no Harness</button>
   </div>
@@ -120,26 +120,92 @@ function PlanView({ session }: { session: Session }) {
 }
 
 function TerminalView({ events }: { events: HarnessEvent[] }) {
-  if (!events.length) return <Empty title="Execução limpa" text="Comandos de mudanças e passos de investigação local, stdout, stderr, bloqueios de Policy e reparações automáticas aparecerão aqui. O terminal interativo está no modo Editor." />
-  return <div className="terminal-view">{events.map((event) => {
-    const baseline = event.type === 'verification.baseline_unchanged'
-    const policyBlocked = event.type === 'automation.policy_blocked' || event.type === 'workflow.policy_blocked'
-    const repair = event.type.startsWith('repair.')
-    const workflow = event.type.startsWith('workflow.')
-    const title = Array.isArray(event.data.argv)
-      ? (event.data.argv as string[]).join(' ')
-      : policyBlocked ? (workflow ? 'Policy bloqueou o passo local' : 'Policy bloqueou o plano antes da execução')
-        : event.type === 'repair.started' ? 'Preparando correção automática'
-          : event.type === 'repair.prompt_ready' ? 'Prompt de correção pronto'
-            : event.type === 'workflow.started' ? 'Iniciando investigação local'
-              : event.type === 'workflow.completed' ? 'Passo local concluído'
-                : event.type === 'workflow.step_failed' ? 'Passo local produziu falha/diagnóstico'
-                  : event.type === 'workflow.continuation_started' ? 'Preparando continuação com evidências'
-                    : event.type === 'workflow.prompt_ready' ? 'Continuação pronta para o ChatGPT'
-                      : event.type
-    const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String) : []
-    return <div className="terminal-event" key={event.id}><div className="terminal-line"><span className={event.type === 'execution.failed' || policyBlocked || event.type === 'repair.prepare_failed' ? 'lamp fail' : (baseline || repair || event.type === 'workflow.step_failed' ? 'lamp warning' : 'lamp')} /> <code>{title}</code><span className="exit-code">{policyBlocked ? 'não executado' : baseline ? 'baseline unchanged' : repair ? `attempt ${String(event.data.attempt || '')}` : workflow ? (event.data.round ? `round ${String(event.data.round)}/6` : 'sandbox') : (event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : '')}</span></div>{reasons.map((reason) => <pre className="stderr" key={reason}>{reason}</pre>)}{event.data.stdout ? <pre>{String(event.data.stdout)}</pre> : null}{event.data.stderr ? <pre className="stderr">{String(event.data.stderr)}</pre> : null}{event.data.diagnostic ? <pre className="warning-output">{String(event.data.diagnostic)}</pre> : null}{event.data.error ? <pre className="stderr">{String(event.data.error)}</pre> : null}</div>
-  })}</div>
+  if (!events.length) return <Empty title="Execução limpa" text="O estado das operações, verificações, stdout, stderr, bloqueios de Policy e reparações automáticas aparecerá aqui em tempo real. O terminal interativo continua no modo Editor." />
+  const streamedRunIDs = new Set(events.filter((event) => event.type === 'command.output').map((event) => String(event.data.run_id || '')).filter(Boolean))
+  const logs = events.flatMap((event) => eventLogEntries(event, streamedRunIDs))
+  const timelineEvents = events.filter((event) => event.type !== 'command.output')
+  const running = [...timelineEvents].reverse().find((event) => event.type.endsWith('.started') || event.type === 'command.started')
+  const completed = [...timelineEvents].reverse().find((event) => event.type === 'execution.completed' || event.type === 'execution.failed' || event.type === 'automation.execution_failed')
+  return <div className="execution-view">
+    <div className="execution-overview">
+      <div><span className="panel-kicker">Execução observável</span><h3>{completed?.type === 'execution.completed' ? 'Execução concluída' : running ? 'Operação em curso' : 'Atividade de execução'}</h3><p>Os eventos SSE aparecem nesta linha temporal assim que são emitidos. A consola no final agrega as saídas sem criar scrolls verticais dentro de cada operação.</p></div>
+      <StatusPill tone={completed?.type === 'execution.failed' || completed?.type === 'automation.execution_failed' ? 'danger' : running ? 'warning' : 'success'}>{running ? 'LIVE' : completed?.type === 'execution.completed' ? 'Concluída' : 'Atualizada'}</StatusPill>
+    </div>
+    <div className="execution-timeline">
+      {timelineEvents.map((event) => {
+        const meta = executionEventMeta(event)
+        return <div className="execution-event" key={event.id}>
+          <span className={meta.tone === 'fail' ? 'lamp fail' : meta.tone === 'warning' ? 'lamp warning' : 'lamp'} />
+          <div className="execution-event-copy"><strong>{meta.title}</strong><span>{formatEventTime(event.timestamp)}{meta.detail ? ` · ${meta.detail}` : ''}</span></div>
+          {meta.badge && <code>{meta.badge}</code>}
+        </div>
+      })}
+    </div>
+    <section className="execution-log-panel" aria-label="Logs de execução em tempo real">
+      <div className="execution-log-heading"><div><span className="panel-kicker">Logs em tempo real</span><strong>Saída das operações</strong></div><span>{logs.length} entrada(s)</span></div>
+      <div className="execution-log-stream">
+        {logs.length ? logs.map((entry) => <div className={`execution-log-line ${entry.kind}`} key={entry.id}><time>{entry.time}</time><span>{entry.label}</span><pre>{entry.text}</pre></div>) : <div className="execution-log-empty">As operações em curso aparecem acima; stdout/stderr surgem aqui assim que cada comando produz um resultado.</div>}
+      </div>
+    </section>
+  </div>
+}
+
+function executionEventMeta(event: HarnessEvent) {
+  const argv = Array.isArray(event.data.argv) ? (event.data.argv as string[]).join(' ') : ''
+  const exit = event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : ''
+  const target = typeof event.data.target === 'string' ? event.data.target : ''
+  switch (event.type) {
+    case 'execution.started': return { title: 'Execução iniciada', detail: target || String(event.data.execution_mode || ''), badge: 'RUN', tone: 'ok' }
+    case 'execution.completed': return { title: 'Execução concluída', detail: target, badge: 'OK', tone: 'ok' }
+    case 'execution.failed':
+    case 'automation.execution_failed': return { title: 'Execução falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' }
+    case 'command.started': return { title: argv || 'Comando iniciado', detail: [String(event.data.cwd || '.'), target].filter(Boolean).join(' · '), badge: 'RUN', tone: 'warning' }
+    case 'command.completed': return { title: argv || 'Comando concluído', detail: target, badge: exit, tone: event.data.success === false ? 'fail' : 'ok' }
+    case 'patch.started': return { title: 'Aplicando patch', detail: target, badge: 'RUN', tone: 'warning' }
+    case 'patch.applied': return { title: 'Patch aplicado', detail: target, badge: 'OK', tone: 'ok' }
+    case 'verification.started': return { title: argv || 'Verificação iniciada', detail: target, badge: 'CHECK', tone: 'warning' }
+    case 'verification.completed': return { title: 'Verificação concluída', detail: target, badge: exit, tone: event.data.baseline_failure ? 'warning' : 'ok' }
+    case 'verification.baseline_unchanged': return { title: argv || 'Falha pré-existente inalterada', detail: 'baseline unchanged', badge: exit, tone: 'warning' }
+    case 'verification.baseline_changed': return { title: argv || 'Baseline alterada', detail: 'verification drift', badge: 'WARN', tone: 'warning' }
+    case 'automation.policy_blocked':
+    case 'workflow.policy_blocked': return { title: 'Policy bloqueou a execução', detail: '', badge: 'BLOCK', tone: 'fail' }
+    case 'repair.started': return { title: 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' }
+    case 'repair.prompt_ready': return { title: 'Prompt de correção pronto', detail: '', badge: 'READY', tone: 'warning' }
+    case 'repair.prepare_failed': return { title: 'Falha ao preparar correção', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' }
+    case 'workflow.started': return { title: 'Investigação local iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' }
+    case 'workflow.completed': return { title: 'Passo local concluído', detail: '', badge: 'OK', tone: 'ok' }
+    case 'workflow.step_failed': return { title: 'Passo local produziu diagnóstico', detail: '', badge: 'WARN', tone: 'warning' }
+    case 'workflow.continuation_started': return { title: 'Continuação com evidências iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' }
+    case 'workflow.prompt_ready': return { title: 'Continuação pronta para o ChatGPT', detail: '', badge: 'READY', tone: 'ok' }
+    default: return { title: event.type, detail: '', badge: '', tone: 'ok' }
+  }
+}
+
+function eventLogEntries(event: HarnessEvent, streamedRunIDs: Set<string>) {
+  const time = formatEventTime(event.timestamp)
+  if (event.type === 'command.output') {
+    const text = typeof event.data.text === 'string' ? event.data.text : ''
+    const stream = event.data.stream === 'stderr' ? 'stderr' : 'stdout'
+    return text ? [{ id: `${event.id}-stream`, time, label: stream, kind: stream, text }] : []
+  }
+  const streamed = event.type === 'command.completed' && streamedRunIDs.has(String(event.data.run_id || ''))
+  const values: Array<{ key: string; label: string; kind: string }> = [
+    ...(!streamed ? [{ key: 'stdout', label: 'stdout', kind: 'stdout' }, { key: 'stderr', label: 'stderr', kind: 'stderr' }] : []),
+    { key: 'diagnostic', label: 'diagnóstico', kind: 'warning' }, { key: 'baseline_diagnostic', label: 'baseline', kind: 'warning' },
+    { key: 'post_diagnostic', label: 'pós-verificação', kind: 'warning' }, { key: 'error', label: 'erro', kind: 'stderr' },
+  ]
+  const entries = values.flatMap(({ key, label, kind }) => {
+    const text = typeof event.data[key] === 'string' ? String(event.data[key]).trim() : ''
+    return text ? [{ id: `${event.id}-${key}`, time, label, kind, text }] : []
+  })
+  const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String).filter(Boolean) : []
+  return [...entries, ...reasons.map((text, index) => ({ id: `${event.id}-reason-${index}`, time, label: 'policy', kind: 'stderr', text }))]
+}
+
+function formatEventTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--:--:--'
+  return new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date)
 }
 
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty-state"><div className="empty-mark">K/</div><h3>{title}</h3><p>{text}</p></div> }

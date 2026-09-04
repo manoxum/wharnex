@@ -151,6 +151,33 @@ func (m *Manager) LastStatus() (Status, error) {
 	}, nil
 }
 
+func (m *Manager) PendingTransaction(sessionID, planID string) (Transaction, error) {
+	if !m.Enabled() {
+		return Transaction{}, errors.New("Wharness runtime root is not available")
+	}
+	status, err := m.LastStatus()
+	if err != nil {
+		return Transaction{}, err
+	}
+	if status.Phase != "restart_pending" || status.SessionID != sessionID || status.PlanID != planID {
+		return Transaction{}, errors.New("matching self-evolution restart transaction is not pending")
+	}
+	transactionName := sanitizeLabel(status.Transaction)
+	if transactionName == "" || transactionName != status.Transaction || !strings.HasPrefix(transactionName, "txn-") {
+		return Transaction{}, errors.New("invalid pending self-evolution transaction reference")
+	}
+	id := strings.TrimPrefix(transactionName, "txn-")
+	if id == "" {
+		return Transaction{}, errors.New("invalid pending self-evolution transaction id")
+	}
+	dir := filepath.Join(m.root, ".harness", "self-evolution", transactionName)
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return Transaction{}, errors.New("pending self-evolution transaction directory is unavailable")
+	}
+	return Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: filepath.Join(m.root, ".harness", "self-evolution", "active.lock")}, nil
+}
+
 func (m *Manager) RecordStatus(tx Transaction, sessionID, planID, phase, detail string) error {
 	if !m.Enabled() || tx.Root != m.root || tx.ID == "" {
 		return errors.New("invalid self-evolution transaction")

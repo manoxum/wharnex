@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -57,6 +56,10 @@ func (r *HostRunner) ApplyPatch(ctx context.Context, workspace Workspace, patch 
 }
 
 func (r *HostRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+	return r.RunStreaming(ctx, workspace, command, nil)
+}
+
+func (r *HostRunner) RunStreaming(ctx context.Context, workspace Workspace, command domain.CommandSpec, onOutput StreamCallback) (domain.CommandResult, error) {
 	cwd, err := safeWorkspaceCwd(workspace.Path, command.Cwd)
 	if err != nil {
 		return domain.CommandResult{}, err
@@ -74,9 +77,10 @@ func (r *HostRunner) Run(ctx context.Context, workspace Workspace, command domai
 	cmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newStreamCapture("stdout", onOutput)
+	stderr := newStreamCapture("stderr", onOutput)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err = cmd.Run()
 	code := exitCode(err)
 	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: code, Stdout: limit(stdout.String()), Stderr: limit(stderr.String()), DurationMS: time.Since(started).Milliseconds()}

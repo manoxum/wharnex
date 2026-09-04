@@ -33,7 +33,6 @@ export function resolveManagedBrowserExecutable(platform = process.platform, env
   return pathCandidates(platform, env).find((candidate) => candidate && exists(candidate)) || ''
 }
 
-
 export function managedBrowserProfileDirectory(userDataPath) {
   const root = path.resolve(String(userDataPath || ''))
   if (!root || root === path.parse(root).root) throw new Error('Diretório userData inválido para o perfil Chrome gerido.')
@@ -48,6 +47,10 @@ export function isChatGPTCookie(cookie) {
   return Boolean(name && typeof cookie?.value === 'string')
 }
 
+
+export function chatGPTSessionProbeExpression() {
+  return `(async()=>{try{const r=await fetch('/api/auth/session',{credentials:'include',cache:'no-store'});const t=await r.text();let j=null;try{j=JSON.parse(t)}catch{};return Boolean(r.ok&&j&&(j.user||j.accessToken||j.expires))}catch{return false}})()`
+}
 
 function hasAuthenticatedSessionCookie(cookies) {
   return (cookies || []).some((cookie) => isChatGPTCookie(cookie) && /(?:authjs|next-auth).*session-token|^oai(?:[-_].*)?session(?:[-_].*)?$/i.test(String(cookie.name || '')))
@@ -126,11 +129,11 @@ async function authenticatedTarget(port) {
   for (const target of pages) {
     try {
       const evaluated = await cdpCommand(target.webSocketDebuggerUrl, 'Runtime.evaluate', {
-        expression: `(async()=>{try{const r=await fetch('/api/auth/session',{credentials:'include',cache:'no-store'});const t=await r.text();let j=null;try{j=JSON.parse(t)}catch{};return {ok:r.ok,authenticated:Boolean(j&&(j.user||j.accessToken||j.expires))}}catch{return {ok:false,authenticated:false}}})()`,
+        expression: chatGPTSessionProbeExpression(),
         awaitPromise: true,
         returnByValue: true,
       })
-      if (evaluated?.result?.value?.authenticated) return target
+      if (evaluated?.result?.value === true) return target
       const cookieResult = await cdpCommand(target.webSocketDebuggerUrl, 'Network.getAllCookies')
       if (hasAuthenticatedSessionCookie(cookieResult.cookies)) return target
     } catch { /* keep polling other targets */ }

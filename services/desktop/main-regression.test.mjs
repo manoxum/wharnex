@@ -93,3 +93,23 @@ test('external auth reuses the persistent Wharness browser profile and clear-ses
   assert.notEqual(clearEnd, -1)
   assert.match(source.slice(clearStart, clearEnd), /rm\(managedAuthProfilePath\(\), \{ recursive: true, force: true/)
 })
+
+
+test('automatic and confirmed submissions wait briefly for the definitive ChatGPT conversation URL', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
+  const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
+  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(cacheKey)')
+  const preparedEnd = source.indexOf('\nasync function', preparedStart + 20)
+  const prepare = source.slice(prepareStart, prepareEnd)
+  const submitted = source.slice(preparedStart, preparedEnd > preparedStart ? preparedEnd : undefined)
+  assert.match(prepare, /conversationUrl = await waitForConcreteChatGPTConversation\(target\.wc, target\.conversationUrl\)/)
+  assert.match(submitted, /const conversationUrl = await waitForConcreteChatGPTConversation\(entry\.view\.webContents\)/)
+  assert.match(submitted, /return \{ ok: true, cacheKey: key, expectedFilename, conversationUrl \}/)
+})
+
+test('desktop ChatGPT state publishes only a boolean authentication result to the renderer', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /authenticated: Boolean\(entry\?\.authenticated\)/)
+  assert.match(source, /executeJavaScript\(chatGPTSessionProbeExpression\(\), true\)/)
+})

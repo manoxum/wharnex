@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { electronChildEnvironment, electronLaunchArguments } from './electron-launch.mjs'
+import { electronChildEnvironment, electronLaunchArguments, resolveElectronBinary } from './electron-launch.mjs'
 
 test('Electron child environment cannot inherit run-as-node mode', () => {
   assert.deepEqual(
@@ -31,4 +31,21 @@ test('Linux user-namespace mode disables only the SUID sandbox helper', () => {
     ozone: 'x11',
     args: ['.', '--disable-setuid-sandbox', '--ozone-platform=x11'],
   })
+})
+
+
+test('Linux lifecycle can pin Electron to an immutable absolute runtime binary', () => {
+  assert.equal(
+    resolveElectronBinary('/workspace/node_modules/electron/dist/electron', {
+      WHARNESS_ELECTRON_BINARY: '/opt/wharness/electron/44.1.1-linux-x64/electron',
+    }),
+    '/opt/wharness/electron/44.1.1-linux-x64/electron',
+  )
+})
+
+test('Electron runtime override rejects relative executable paths', () => {
+  assert.throws(
+    () => resolveElectronBinary('/workspace/node_modules/electron/dist/electron', { WHARNESS_ELECTRON_BINARY: '../electron' }),
+    /absolute path/,
+  )
 })

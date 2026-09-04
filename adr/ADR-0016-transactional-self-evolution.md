@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for Wharness v1.2.23.
+Accepted for Wharness v1.2.23; amended for v1.2.26.
 
 ## Context
 
@@ -19,15 +19,17 @@ Self-evolution is always Protected. After sandbox verification, host Apply becom
 3. Apply only the validated patches to the host.
 4. Run the real host `make build` while the current runtime is still alive.
 5. If Apply/build fails, restore source/runtime immediately and keep the current runtime running.
-6. If build succeeds, hand restart to a detached supervisor copied into the transaction before mutation.
-7. The supervisor stops the old coordinator and starts the new runtime using its normal health checks.
-8. If the new runtime fails, restore the previous source/runtime and start the known-good lifecycle scripts. Dependency reconciliation is attempted once only if needed.
+6. If build succeeds, persist the transaction as `restart_pending` and keep the current runtime alive. The UI asks the user to activate the new build.
+7. Only after explicit restart confirmation, hand restart to the detached supervisor copied into the transaction before mutation. Choosing **Later** preserves the pending transaction and exposes a restart-required indicator.
+8. The supervisor stops the old coordinator and starts the new runtime using its normal health checks.
+9. If the new runtime fails, restore the previous source/runtime and start the known-good lifecycle scripts. Dependency reconciliation is attempted once only if needed.
 
 The planner receives `SELF-EVOLUTION MODE: true` and must not place Wharness start/stop/restart/process-management commands in model plans. `.harness` recovery state remains runtime-owned and cannot be patched.
 
 ## Consequences
 
 - A verified source patch cannot silently leave stale host binaries.
+- A successful build no longer implies an immediate restart; activation is an explicit user decision while rollback state remains retained.
 - A broken new runtime has a known-good rollback path independent of the process being replaced.
 - Concurrent self-updates are rejected.
 - Sessions, chats, browser data and other `.harness` state are preserved across a successful restart.

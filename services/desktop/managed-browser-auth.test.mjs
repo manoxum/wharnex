@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { electronCookieDetails, isChatGPTCookie, managedBrowserProfileDirectory, resolveManagedBrowserExecutable } from './managed-browser-auth.mjs'
+import { chatGPTSessionProbeExpression, electronCookieDetails, isChatGPTCookie, managedBrowserProfileDirectory, resolveManagedBrowserExecutable } from './managed-browser-auth.mjs'
 
 
 test('managed auth profile is persistent below Wharness userData rather than a temporary directory', () => {
@@ -29,4 +29,12 @@ test('managed auth cookie relay maps cookie metadata without exposing unrelated 
     secure: true, httpOnly: true, domain: '.chatgpt.com', expirationDate: 1900000000, sameSite: 'lax',
   })
   assert.equal(electronCookieDetails({ domain: '.openai.com', name: 'session', value: 'x' }), undefined)
+})
+
+
+test('session probe exposes only an authenticated boolean from the trusted ChatGPT session endpoint', () => {
+  const expression = chatGPTSessionProbeExpression()
+  assert.match(expression, /\/api\/auth\/session/)
+  assert.match(expression, /return Boolean/)
+  assert.doesNotMatch(expression, /document\.|localStorage|cookie/)
 })

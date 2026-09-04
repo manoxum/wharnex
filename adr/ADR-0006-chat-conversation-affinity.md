@@ -1,7 +1,7 @@
 # ADR-0006 — Harness chat / ChatGPT conversation affinity
 
 ## Status
-Accepted for v1.2.6; amended for v1.2.18.2.
+Accepted for v1.2.6; amended for v1.2.18.2 and v1.2.25.
 
 ## Context
 A workspace may contain several independent coding threads. Reusing one Harness transcript and one arbitrary ChatGPT page causes context collisions and makes reopening work unreliable.
@@ -11,7 +11,9 @@ Each Harness chat is a local persistent record containing a unique chat id, one 
 
 The Electron shell still owns only one isolated ChatGPT `WebContentsView`. Switching Harness chats navigates that view to the selected chat's stored URL. This avoids multiplying remote renderers while preserving one-to-one logical affinity.
 
-A new Harness chat navigates to `https://chatgpt.com/`. After ChatGPT creates a concrete conversation URL containing `/c/`, Wharness stores the origin + pathname as the binding. Query strings and fragments are not persisted.
+A new Harness chat navigates to `https://chatgpt.com/`. Observing that trusted new-chat surface arms automatic affinity even while the page is still loading. After the first prompt causes ChatGPT to transition to a concrete conversation URL containing `/c/`, Wharness stores the origin + pathname as the binding. Query strings and fragments are not persisted. The post-submit transport waits a bounded interval for that URL transition instead of persisting the home page as the conversation.
+
+A concrete ChatGPT conversation may belong to only one active Harness chat. Automatic or explicit binding rejects a `/c/...` URL already owned by another Harness chat and leaves the current chat unchanged.
 
 If an existing linked chat is manually navigated to another ChatGPT conversation, navigation alone does not overwrite the binding. Rebinding requires explicit user action. An explicit Harness Send while that different concrete conversation is open is considered such an action: transport stays on the visible conversation, updates the local binding, and sends a fresh context ZIP before the new prompt.
 

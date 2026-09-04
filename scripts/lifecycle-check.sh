@@ -4,6 +4,8 @@ set -eu
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 MAKEFILE="$ROOT/Makefile"
 START="$ROOT/scripts/start.sh"
+ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
+DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
 
 section() {
   target=$1
@@ -38,3 +40,32 @@ if ! grep -Fq 'build-runner: runner-deps' "$MAKEFILE"; then
 fi
 
 printf 'Lifecycle network-stability checks passed.\n'
+
+
+if [ ! -x "$ELECTRON_RUNTIME" ]; then
+  echo 'lifecycle regression: immutable Electron runtime manager is missing or not executable' >&2
+  exit 1
+fi
+
+if ! grep -Fq '/opt/wharness/electron' "$ELECTRON_RUNTIME"; then
+  echo 'lifecycle regression: Linux Electron runtime must live outside the npm workspace' >&2
+  exit 1
+fi
+
+if grep -Eq 'sudo[[:space:]]+(chown|chmod).*SOURCE_(HELPER|DIST)' "$ELECTRON_RUNTIME"; then
+  echo 'lifecycle regression: node_modules Electron files must never be made privileged in place' >&2
+  exit 1
+fi
+
+if ! grep -Fq 'WHARNESS_ELECTRON_BINARY' "$START" || ! grep -Fq 'electron-runtime.sh' "$START"; then
+  echo 'lifecycle regression: start must resolve the immutable Electron runtime before launch' >&2
+  exit 1
+fi
+
+if ! grep -Fq 'resolveElectronBinary' "$DESKTOP_DEV" || ! grep -Fq 'electron-runtime.sh' "$DESKTOP_DEV"; then
+  echo 'lifecycle regression: desktop coordinator must resolve and honor the immutable Electron binary' >&2
+  exit 1
+fi
+
+printf 'Lifecycle immutable Electron runtime checks passed.
+'

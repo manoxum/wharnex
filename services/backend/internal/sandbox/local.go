@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -32,6 +31,10 @@ func (r *LocalRunner) ApplyPatch(ctx context.Context, workspace Workspace, patch
 }
 
 func (r *LocalRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+	return r.RunStreaming(ctx, workspace, command, nil)
+}
+
+func (r *LocalRunner) RunStreaming(ctx context.Context, workspace Workspace, command domain.CommandSpec, onOutput StreamCallback) (domain.CommandResult, error) {
 	cwd, err := safeWorkspaceCwd(workspace.Path, command.Cwd)
 	if err != nil {
 		return domain.CommandResult{}, err
@@ -44,9 +47,10 @@ func (r *LocalRunner) Run(ctx context.Context, workspace Workspace, command doma
 	started := time.Now()
 	cmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
 	cmd.Dir = cwd
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newStreamCapture("stdout", onOutput)
+	stderr := newStreamCapture("stderr", onOutput)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err = cmd.Run()
 	code := exitCode(err)
 	res := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: code, Stdout: limit(stdout.String()), Stderr: limit(stderr.String()), DurationMS: time.Since(started).Milliseconds(), Success: containsInt(command.ExpectedExitCodes, code) && runCtx.Err() == nil}

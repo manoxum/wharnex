@@ -38,6 +38,11 @@ describe('ChatGPT new Harness-chat binding', () => {
     expect(initial).toEqual({ newChatSurfaceSeen: false, bindURL: '' })
   })
 
+  it('arms binding even while the trusted new-chat surface is still loading', () => {
+    const loadingHome = chatgptAutoBindingDecision(undefined, 'https://chatgpt.com/?model=auto', true, false)
+    expect(loadingHome).toEqual({ newChatSurfaceSeen: true, bindURL: '' })
+  })
+
   it('binds only after home/new-chat is observed and ChatGPT assigns a concrete conversation URL', () => {
     const home = chatgptAutoBindingDecision(undefined, 'https://chatgpt.com/', false, false)
     expect(home).toEqual({ newChatSurfaceSeen: true, bindURL: '' })

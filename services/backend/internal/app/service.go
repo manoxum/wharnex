@@ -45,6 +45,7 @@ type BundleSubmission struct {
 	WorkflowPrepared bool                    `json:"workflow_prepared,omitempty"`
 	WorkflowRound    int                     `json:"workflow_round,omitempty"`
 	RestartScheduled bool                    `json:"restart_scheduled,omitempty"`
+	RestartRequired  bool                    `json:"restart_required,omitempty"`
 }
 
 const maxAutoRepairAttempts = 3
@@ -537,9 +538,10 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			return result
 		}
 		result.AutoApplied = true
-		result.RestartScheduled = applied.SelfEvolution && planHasPatch(current.Plan)
+		result.RestartRequired = applied.SelfEvolution && applied.State == "restart_pending" && planHasPatch(current.Plan)
+		result.RestartScheduled = false
 		result.Session = applied
-		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport, "restart_scheduled": result.RestartScheduled})
+		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport, "restart_required": result.RestartRequired})
 		return result
 	}
 	return result
@@ -809,9 +811,18 @@ func typescriptDiagnosticFingerprints(result domain.CommandResult) map[string]st
 }
 
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
-	s.bus.Publish(sessionID, "command.started", map[string]any{"argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
-	result, err := runner.Run(ctx, workspace, command)
-	s.bus.Publish(sessionID, "command.completed", map[string]any{"argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "target": target})
+	runID := ids.New("run")
+	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
+	var result domain.CommandResult
+	var err error
+	if streaming, ok := runner.(sandbox.StreamingRunner); ok {
+		result, err = streaming.RunStreaming(ctx, workspace, command, func(stream, text string) {
+			s.bus.Publish(sessionID, "command.output", map[string]any{"run_id": runID, "stream": stream, "text": text, "target": target})
+		})
+	} else {
+		result, err = runner.Run(ctx, workspace, command)
+	}
+	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "target": target})
 	return result, err
 }
 
@@ -1059,12 +1070,16 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			s.bus.Publish(sessionID, "self_evolution.host_build_failed", map[string]any{"plan_id": item.Plan.PlanID, "error": buildErr.Error()})
 			return item, rollback(buildErr)
 		}
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "restart_pending", "host build passed; detached restart handoff pending")
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "restart_pending", "host build passed; explicit restart confirmation pending")
 		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
 	}
 
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
-		current.State = "applied"
+		if selfEvolution {
+			current.State = "restart_pending"
+		} else {
+			current.State = "applied"
+		}
 		current.SelfEvolution = current.SelfEvolution || selfEvolution
 		return nil
 	})
@@ -1073,16 +1088,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 
 	if selfEvolution {
-		if scheduleErr := s.selfEvolution.ScheduleRestart(transaction, sessionID, item.Plan.PlanID); scheduleErr != nil {
-			rolledBackErr := rollback(fmt.Errorf("schedule Wharness restart: %w", scheduleErr))
-			if reverted, updateErr := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "verified"; return nil }); updateErr == nil {
-				updated = reverted
-			}
-			return updated, rolledBackErr
-		}
 		s.resetDevspace(sessionID)
-		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID, "self_evolution": true})
-		s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
+		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": item.Plan.PlanID, "self_evolution": true, "restart_required": true})
+		s.bus.Publish(sessionID, "self_evolution.restart_pending", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
 		return updated, nil
 	}
 
@@ -1093,6 +1101,33 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	} else {
 		s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 	}
+	return updated, nil
+}
+
+func (s *Service) RestartSelfEvolution(sessionID string) (domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return item, err
+	}
+	if !s.isSelfEvolution(item) || item.Plan == nil || item.State != "restart_pending" {
+		return item, errors.New("no Wharness self-evolution restart is pending confirmation")
+	}
+	transaction, err := s.selfEvolution.PendingTransaction(sessionID, item.Plan.PlanID)
+	if err != nil {
+		return item, fmt.Errorf("recover pending Wharness self-evolution transaction: %w", err)
+	}
+	if err := s.selfEvolution.ScheduleRestart(transaction, sessionID, item.Plan.PlanID); err != nil {
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "restart_pending", "restart confirmation accepted but detached handoff failed: "+err.Error())
+		return item, fmt.Errorf("schedule Wharness restart: %w", err)
+	}
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.State = "restart_scheduled"
+		return nil
+	})
+	if err != nil {
+		return item, err
+	}
+	s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": item.Plan.PlanID, "transaction_id": transaction.ID})
 	return updated, nil
 }
 
@@ -1123,7 +1158,20 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 		return
 	}
 	status, err := s.selfEvolution.LastStatus()
-	if err != nil || (status.Phase != "rollback_restored" && status.Phase != "rolled_back_runtime") || status.SessionID == "" {
+	if err != nil || status.SessionID == "" {
+		return
+	}
+	state := ""
+	switch status.Phase {
+	case "rollback_restored", "rolled_back_runtime":
+		state = "verified"
+	case "restart_pending":
+		state = "restart_pending"
+	case "restarted":
+		state = "applied"
+	case "restart_failed":
+		state = "restart_pending"
+	default:
 		return
 	}
 	updated, err := s.store.Update(status.SessionID, func(current *domain.Session) error {
@@ -1131,12 +1179,16 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 			return nil
 		}
 		current.SelfEvolution = true
-		current.State = "verified"
-		current.LastRepairError = status.Detail
+		current.State = state
+		if status.Phase == "restarted" {
+			current.LastRepairError = ""
+		} else if status.Detail != "" {
+			current.LastRepairError = status.Detail
+		}
 		return nil
 	})
 	if err == nil && updated.ID != "" {
-		s.bus.Publish(status.SessionID, "self_evolution.runtime_rollback_reconciled", map[string]any{"plan_id": status.PlanID, "phase": status.Phase, "detail": status.Detail})
+		s.bus.Publish(status.SessionID, "self_evolution.status_reconciled", map[string]any{"plan_id": status.PlanID, "phase": status.Phase, "state": state, "detail": status.Detail})
 	}
 }
 

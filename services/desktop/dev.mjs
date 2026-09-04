@@ -1,9 +1,9 @@
 import electronPath from 'electron'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { electronChildEnvironment, electronLaunchArguments } from './electron-launch.mjs'
+import { electronChildEnvironment, electronLaunchArguments, resolveElectronBinary } from './electron-launch.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(here, '../..')
@@ -13,6 +13,22 @@ const runtimeDir = path.resolve(process.env.WHARNESS_RUNTIME_DIR || path.join(pr
 const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
 const children = new Map()
 let shuttingDown = false
+
+function desktopRuntimeEnvironment() {
+  const env = { ...process.env }
+  if (process.platform !== 'linux') return env
+  if (env.WHARNESS_LINUX_SANDBOX_MODE && env.WHARNESS_ELECTRON_BINARY) return env
+  const manager = path.join(projectRoot, 'scripts/electron-runtime.sh')
+  const options = {
+    cwd: projectRoot,
+    env: { ...env, WHARNESS_ROOT: projectRoot },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  }
+  env.WHARNESS_LINUX_SANDBOX_MODE = execFileSync(manager, ['mode'], options).trim()
+  env.WHARNESS_ELECTRON_BINARY = execFileSync(manager, ['path'], options).trim()
+  return env
+}
 
 mkdirSync(runtimeDir, { recursive: true })
 writePid('coordinator', process.pid)
@@ -104,12 +120,15 @@ async function main() {
     waitFor('http://127.0.0.1:5173', 'frontend'),
   ])
 
-  const launch = electronLaunchArguments(process.platform, process.env)
+  const desktopEnv = desktopRuntimeEnvironment()
+  const launch = electronLaunchArguments(process.platform, desktopEnv)
+  const desktopBinary = resolveElectronBinary(electronPath, desktopEnv)
   if (process.platform === 'linux') {
-    console.log(`Electron Linux sandbox: mode=${process.env.WHARNESS_LINUX_SANDBOX_MODE || 'default'}`)
+    console.log(`Electron Linux sandbox: mode=${desktopEnv.WHARNESS_LINUX_SANDBOX_MODE || 'default'}`)
+    console.log(`Electron Linux runtime: ${desktopBinary}`)
   }
   if (launch.ozone) console.log(`Electron Linux graphics: ozone=${launch.ozone}`)
-  const desktop = run('electron', electronPath, launch.args, here)
+  const desktop = run('electron', desktopBinary, launch.args, here, desktopEnv)
   desktop.on('exit', (code) => {
     if (!shuttingDown) shutdown(code || 0)
   })

@@ -7,6 +7,7 @@ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 
 .PHONY: help deps runner-deps build build-all build-backend build-frontend build-desktop build-runner build-plan \
 	backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
+	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
 	run-backend run-frontend run-desktop clean export export-check
 
@@ -23,10 +24,11 @@ help:
 		'  make logs     Follow desktop stack logs' \
 		'  make check    Run backend/frontend/desktop quality checks' \
 		'' \
-		'Linux Electron sandbox:' \
-		'  make electron-sandbox-check     Verify secure SUID/user-namespace launch support' \
-		'  make electron-sandbox-install   Configure Electron packaged helper as root:root 4755' \
-		'  make electron-sandbox-restore   Restore packaged helper from persistent recovery copy' \
+		'Linux Electron runtime:' \
+		'  make electron-runtime-check     Verify immutable runtime / user-namespace fallback' \
+		'  make electron-runtime-install   Install versioned root-owned runtime under /opt/wharness' \
+		'  make electron-runtime-status    Show current runtime metadata' \
+		'  electron-sandbox-* targets remain compatibility aliases' \
 		'' \
 		'Linux graphics override:' \
 		'  WHARNESS_OZONE_PLATFORM=wayland make start'
@@ -105,14 +107,21 @@ check:
 
 test: check
 
-electron-sandbox-check:
-	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-sandbox.sh" check
+electron-runtime-check:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-runtime.sh" check
 
-electron-sandbox-install:
-	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-sandbox.sh" install
+electron-runtime-install:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-runtime.sh" install
 
-electron-sandbox-restore:
-	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-sandbox.sh" restore
+electron-runtime-status:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-runtime.sh" status
+
+# Compatibility aliases retained for operators/scripts from v1.2.23.x.
+electron-sandbox-check: electron-runtime-check
+
+electron-sandbox-install: electron-runtime-install
+
+electron-sandbox-restore: electron-runtime-install
 
 start:
 	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_RUNNER_IMAGE="$(RUNNER_IMAGE)" "$(ROOT_DIR)/scripts/start.sh"

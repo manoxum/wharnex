@@ -1,12 +1,14 @@
-import type { AutomationMode, ChatItem, ExecutionMode, WorkspaceMode } from '../types'
+import type { AutomationMode, ChatArtifactSelection, ChatItem, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
 const RECENT_KEY = 'kernl.workspace.recent.v1'
 const LEGACY_CHAT_PREFIX = 'kernl.workspace.chat.v1:'
 const CHAT_INDEX_PREFIX = 'kernl.workspace.chats.v2:'
 const CHAT_ITEMS_PREFIX = 'kernl.workspace.chat.v2:'
+const ARCHIVED_CHAT_INDEX_PREFIX = 'kernl.workspace.chats.archived.v1:'
 const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
 const AUTOMATION_MODE_PREFIX = 'kernl.workspace.automation-mode.v1:'
+const EXECUTION_HISTORY_PREFIX = 'kernl.workspace.execution-history.v1:'
 
 export type ActiveWorkspace = {
   sessionId: string
@@ -24,6 +26,7 @@ export type WorkspaceChat = {
   chatgptUrl?: string
   lastContextSha256?: string
   lastContextChatgptUrl?: string
+  artifactSelection?: Partial<ChatArtifactSelection>
   createdAt: string
   updatedAt: string
 }
@@ -94,6 +97,21 @@ export function saveWorkspaceChats(projectPath: string, chats: WorkspaceChat[]) 
   try { localStorage.setItem(CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
 }
 
+
+export function loadArchivedWorkspaceChats(projectPath: string): WorkspaceChat[] {
+  try {
+    const raw = localStorage.getItem(ARCHIVED_CHAT_INDEX_PREFIX + projectPath)
+    const parsed = raw ? JSON.parse(raw) as WorkspaceChat[] : []
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(validChat).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30)
+  } catch { return [] }
+}
+
+export function saveArchivedWorkspaceChats(projectPath: string, chats: WorkspaceChat[]) {
+  const normalized = chats.filter(validChat).slice(0, 30)
+  try { localStorage.setItem(ARCHIVED_CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
+}
+
 export function newWorkspaceChat(sessionId: string, title = 'Novo chat'): WorkspaceChat {
   const now = new Date().toISOString()
   return { id: crypto.randomUUID(), title, sessionId, createdAt: now, updatedAt: now }
@@ -114,11 +132,54 @@ export function saveChat(projectPath: string, chatId: string, items: ChatItem[])
   try { localStorage.setItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
 }
 
-export function removeChat(projectPath: string, chatId: string) {
-  try { localStorage.removeItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`) } catch { /* storage unavailable */ }
-  const remaining = loadWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)
+export function archiveChat(projectPath: string, chatId: string) {
+  const active = loadWorkspaceChats(projectPath)
+  const target = active.find((chat) => chat.id === chatId)
+  if (!target) return { active, archived: loadArchivedWorkspaceChats(projectPath) }
+  const remaining = active.filter((chat) => chat.id !== chatId)
+  const archived = [{ ...target, updatedAt: new Date().toISOString() }, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
   saveWorkspaceChats(projectPath, remaining)
-  return remaining
+  saveArchivedWorkspaceChats(projectPath, archived)
+  return { active: remaining, archived }
+}
+
+export function restoreArchivedChat(projectPath: string, chatId: string) {
+  const archived = loadArchivedWorkspaceChats(projectPath)
+  const target = archived.find((chat) => chat.id === chatId)
+  if (!target) return { active: loadWorkspaceChats(projectPath), archived }
+  const remainingArchived = archived.filter((chat) => chat.id !== chatId)
+  const active = [{ ...target, updatedAt: new Date().toISOString() }, ...loadWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  saveArchivedWorkspaceChats(projectPath, remainingArchived)
+  saveWorkspaceChats(projectPath, active)
+  return { active, archived: remainingArchived }
+}
+
+export function removeArchivedChat(projectPath: string, chatId: string) {
+  try {
+    localStorage.removeItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`)
+    localStorage.removeItem(`${EXECUTION_HISTORY_PREFIX}${projectPath}:${chatId}`)
+  } catch { /* storage unavailable */ }
+  const archived = loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)
+  saveArchivedWorkspaceChats(projectPath, archived)
+  return archived
+}
+
+
+export function loadExecutionHistory(projectPath: string, chatId: string): HarnessEvent[] {
+  try {
+    const raw = localStorage.getItem(`${EXECUTION_HISTORY_PREFIX}${projectPath}:${chatId}`)
+    const parsed = raw ? JSON.parse(raw) as HarnessEvent[] : []
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(validEvent).slice(-500)
+  } catch { return [] }
+}
+
+export function saveExecutionHistory(projectPath: string, chatId: string, events: HarnessEvent[]) {
+  const compact = events.filter(validEvent).slice(-500).map((event) => ({
+    ...event,
+    data: compactEventData(event.data),
+  }))
+  try { localStorage.setItem(`${EXECUTION_HISTORY_PREFIX}${projectPath}:${chatId}`, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
 }
 
 export function loadLegacyChat(projectPath: string): ChatItem[] {
@@ -136,4 +197,18 @@ export function deriveChatTitle(message: string) {
 
 function validChat(value: WorkspaceChat) {
   return Boolean(value && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.sessionId === 'string' && typeof value.createdAt === 'string' && typeof value.updatedAt === 'string')
+}
+
+function validEvent(value: HarnessEvent) {
+  return Boolean(value && typeof value.id === 'string' && typeof value.session_id === 'string' && typeof value.type === 'string' && typeof value.timestamp === 'string' && value.data && typeof value.data === 'object')
+}
+
+function compactEventData(data: Record<string, unknown>) {
+  const compact: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(data || {})) {
+    if (typeof value === 'string') compact[key] = value.slice(0, 12000)
+    else if (Array.isArray(value)) compact[key] = value.slice(0, 40)
+    else if (typeof value === 'number' || typeof value === 'boolean' || value == null) compact[key] = value
+  }
+  return compact
 }

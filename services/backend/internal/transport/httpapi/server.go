@@ -45,6 +45,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/execution-bundle", a.executionBundle)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
+	mux.HandleFunc("POST /api/sessions/{id}/self-restart", a.selfRestart)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
@@ -281,6 +282,15 @@ func (a *API) apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, item)
+}
+
+func (a *API) selfRestart(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RestartSelfEvolution(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "self_restart_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (a *API) events(w http.ResponseWriter, r *http.Request) {

@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
-import type { AppConfig, AutomationMode, ChatItem, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
+import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatItem, ChatIterationRef, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { ChatPanel } from './components/ChatPanel'
 import { Inspector } from './components/Inspector'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
 import { ProjectSettings } from './components/ProjectSettings'
+import { Icon } from './components/Icon'
 import {
-  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadChat, loadLegacyChat,
-  loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, saveActiveWorkspace,
-  removeChat as removeStoredChat, saveAutomationMode, saveChat, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
+  archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
+  loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
+  saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
 } from './lib/workspaceMemory'
-import { desktopBridge, isDesktop } from './lib/desktop'
+import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
   const [config, setConfig] = useState<AppConfig>()
   const [session, setSession] = useState<Session>()
   const [chats, setChats] = useState<WorkspaceChat[]>([])
+  const [archivedChats, setArchivedChats] = useState<WorkspaceChat[]>([])
   const [activeChatId, setActiveChatId] = useState(activeAtLoad?.chatId || '')
   const [items, setItems] = useState<ChatItem[]>([])
   const [events, setEvents] = useState<HarnessEvent[]>([])
@@ -33,15 +35,22 @@ export default function App() {
   const [error, setError] = useState<string>()
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
+  const [restartModalOpen, setRestartModalOpen] = useState(false)
   const sourceRef = useRef<EventSource | null>(null)
 
-  const connectEvents = useCallback((id: string) => {
+  const connectEvents = useCallback((id: string, projectPath: string, chatId: string) => {
     sourceRef.current?.close()
+    setEvents(loadExecutionHistory(projectPath, chatId))
     const source = new EventSource(api.eventsURL(id))
     source.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data) as HarnessEvent
-        setEvents((current) => current.some((item) => item.id === parsed.id) ? current : [...current, parsed].slice(-500))
+        setEvents((current) => {
+          if (current.some((item) => item.id === parsed.id)) return current
+          const next = [...current, parsed].slice(-500)
+          saveExecutionHistory(projectPath, chatId, next)
+          return next
+        })
       } catch { /* ignore malformed SSE frame */ }
     }
     sourceRef.current = source
@@ -91,11 +100,11 @@ export default function App() {
           nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
         }
         saveWorkspaceChats(restored.project_path, nextChats)
-        setChats(nextChats); setActiveChatId(nextChat.id); setSession(restored)
+        setChats(nextChats); setArchivedChats(loadArchivedWorkspaceChats(restored.project_path)); setActiveChatId(nextChat.id); setSession(restored)
         setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setManualPrompt(restored.last_manual_prompt || '')
         const chatItems = loadChat(restored.project_path, nextChat.id)
         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
-        connectEvents(restored.id)
+        connectEvents(restored.id, restored.project_path, nextChat.id)
         saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: 'agent', chatId: nextChat.id, executionMode: projectExecutionMode, automationMode: projectAutomationMode })
       } catch (e) {
         if (alive) { clearActiveWorkspace(); setError(`Não foi possível reabrir o workspace: ${messageOf(e)}`) }
@@ -153,11 +162,11 @@ export default function App() {
         if (legacy.length) saveChat(created.project_path, selected.id, legacy)
       }
       persistChats(created.project_path, nextChats)
-      setSession(selectedSession); setActiveChatId(selected.id)
+      setArchivedChats(loadArchivedWorkspaceChats(created.project_path)); setSession(selectedSession); setActiveChatId(selected.id)
       const chatItems = loadChat(created.project_path, selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
       setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode)
-      connectEvents(selectedSession.id)
+      connectEvents(selectedSession.id, selectedSession.project_path, selected.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
   }
 
@@ -179,7 +188,7 @@ export default function App() {
 
   function closeWorkspace() {
     sourceRef.current?.close(); sourceRef.current = null
-    clearActiveWorkspace(); setSession(undefined); setChats([]); setActiveChatId(''); setProjectSettingsOpen(false)
+    clearActiveWorkspace(); setSession(undefined); setChats([]); setArchivedChats([]); setActiveChatId(''); setProjectSettingsOpen(false)
     setEvents([]); setManualPrompt(''); setItems([]); setPreparedDrafts({}); setError(undefined); setRecent(loadRecentWorkspaces())
   }
 
@@ -192,34 +201,28 @@ export default function App() {
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
       setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
-      setEvents([]); setManualPrompt(''); connectEvents(created.id)
+      setEvents([]); setManualPrompt(''); connectEvents(created.id, created.project_path, chat.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
-  async function deleteChat(chatId: string) {
+  async function archiveChat(chatId: string) {
     if (!session || busy) return
     const target = chats.find((chat) => chat.id === chatId)
     if (!target) return
-    if (!window.confirm(`Remover o Harness Chat "${target.title}"?\n\nA conversa correspondente na tua conta ChatGPT NÃO será apagada; apenas o vínculo local será removido.`)) return
 
     setBusy(true); setError(undefined)
     try {
-      try { await api.deleteSession(target.sessionId) }
-      catch (error) { if (!(error instanceof APIError) || error.status !== 404) throw error }
-      if (isDesktop()) {
-        try { await desktopBridge()?.attachments.removeChat({ cacheKey: chatId }) } catch { /* transcript removal must not be blocked by orphan cleanup */ }
-      }
-
       const projectPath = session.project_path
-      const remaining = removeStoredChat(projectPath, chatId)
+      const moved = archiveStoredChat(projectPath, chatId)
+      setArchivedChats(moved.archived)
       setPreparedDrafts((current) => { const next = { ...current }; delete next[chatId]; return next })
       if (chatId !== activeChatId) {
-        persistChats(projectPath, remaining)
+        setChats(moved.active)
         return
       }
 
       sourceRef.current?.close(); sourceRef.current = null
-      let nextChats = remaining
+      let nextChats = moved.active
       let nextChat = nextChats[0]
       let restored: Session
       if (nextChat) {
@@ -243,7 +246,53 @@ export default function App() {
       setManualPrompt(restored.last_manual_prompt || '')
       const chatItems = loadChat(projectPath, nextChat.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
-      connectEvents(restored.id)
+      connectEvents(restored.id, restored.project_path, nextChat.id)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function restoreArchivedChat(chatId: string) {
+    if (!session || busy) return
+    const target = archivedChats.find((chat) => chat.id === chatId)
+    if (!target) return
+    setBusy(true); setError(undefined)
+    try {
+      const projectPath = session.project_path
+      const moved = restoreStoredChat(projectPath, chatId)
+      let selected = moved.active.find((chat) => chat.id === chatId) || target
+      let restored: Session
+      try {
+        restored = await api.getSession(selected.sessionId)
+        restored = await syncSessionModes(restored, executionMode, automationMode)
+      } catch (error) {
+        if (!(error instanceof APIError) || error.status !== 404) throw error
+        restored = await api.createSession(projectPath, executionMode, automationMode)
+        selected = { ...selected, sessionId: restored.id, updatedAt: new Date().toISOString() }
+        moved.active = moved.active.map((chat) => chat.id === selected.id ? selected : chat)
+        saveWorkspaceChats(projectPath, moved.active)
+      }
+      sourceRef.current?.close(); sourceRef.current = null
+      setChats(moved.active); setArchivedChats(moved.archived); setActiveChatId(selected.id); setSession(restored); setEvents([])
+      setManualPrompt(restored.last_manual_prompt || '')
+      const chatItems = loadChat(projectPath, selected.id)
+      setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
+      connectEvents(restored.id, restored.project_path, selected.id)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function deleteArchivedChat(chatId: string) {
+    if (!session || busy) return
+    const target = archivedChats.find((chat) => chat.id === chatId)
+    if (!target) return
+    if (!window.confirm(`Eliminar definitivamente o Harness Chat "${target.title}"?\n\nO histórico local e os anexos do Wharness serão apagados. A conversa correspondente na tua conta ChatGPT continuará intacta.`)) return
+
+    setBusy(true); setError(undefined)
+    try {
+      try { await api.deleteSession(target.sessionId) }
+      catch (error) { if (!(error instanceof APIError) || error.status !== 404) throw error }
+      if (isDesktop()) {
+        try { await desktopBridge()?.attachments.removeChat({ cacheKey: chatId }) } catch { /* permanent local deletion should continue even if orphan cleanup fails */ }
+      }
+      setArchivedChats(removeStoredArchivedChat(session.project_path, chatId))
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -267,7 +316,7 @@ export default function App() {
       setManualPrompt(restored.last_manual_prompt || '')
       const chatItems = loadChat(restored.project_path, chatId)
       setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
-      connectEvents(restored.id)
+      connectEvents(restored.id, restored.project_path, chatId)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -282,6 +331,25 @@ export default function App() {
   function updateChat(patch: Partial<WorkspaceChat>) {
     if (!session || !activeChatId) return
     updateWorkspaceChat(activeChatId, session.project_path, patch)
+  }
+
+  function markContextDirtyForOtherChats(projectPath: string, sourceChatId: string) {
+    setChats((current) => {
+      const next = current.map((chat) => chat.id === sourceChatId ? chat : { ...chat, artifactSelection: { ...chat.artifactSelection, context: true } })
+      saveWorkspaceChats(projectPath, next)
+      return next
+    })
+  }
+
+  function toggleComposerArtifact(kind: ChatArtifactKind) {
+    if (!session || !activeChatId || kind === 'prompt') return
+    const active = chats.find((chat) => chat.id === activeChatId)
+    if (!active) return
+    const contextRequired = !active.lastContextSha256 || active.lastContextSha256 !== session.context.manifest.sha256 || Boolean(active.chatgptUrl && active.lastContextChatgptUrl && !sameChatGPTConversation(active.chatgptUrl, active.lastContextChatgptUrl))
+    const errorRequired = session.state === 'repair_pending' || session.last_execution?.success === false
+    if ((kind === 'context' && contextRequired) || (kind === 'error' && errorRequired)) return
+    const current = Boolean(active.artifactSelection?.[kind])
+    updateWorkspaceChat(active.id, session.project_path, { artifactSelection: { ...active.artifactSelection, [kind]: !current } })
   }
 
   function appendChatItem(targetChat: WorkspaceChat, projectPath: string, item: ChatItem) {
@@ -299,23 +367,27 @@ export default function App() {
   }
 
   function bindChatGPTURL(url: string) {
-    if (!session || !activeChatId) return
-    setChats((current) => {
-      const next = current.map((chat) => chat.id === activeChatId ? {
-        ...chat, chatgptUrl: url,
-        lastContextChatgptUrl: chat.lastContextSha256 && !chat.lastContextChatgptUrl ? url : chat.lastContextChatgptUrl,
-        updatedAt: new Date().toISOString(),
-      } : chat)
-      saveWorkspaceChats(session.project_path, next)
-      return next
+    if (!session || !activeChatId) return false
+    const conversation = chatgptConversationURL(url)
+    if (!conversation) return false
+    const conflict = [...chats, ...archivedChats].find((chat) => chat.id !== activeChatId && sameChatGPTConversation(chat.chatgptUrl, conversation))
+    if (conflict) {
+      setError(`A conversa ChatGPT já está vinculada ao Harness Chat ${conflict.title}. Abra outra conversa ou reabra esse chat para continuar nela.`)
+      return false
+    }
+    const active = chats.find((chat) => chat.id === activeChatId)
+    updateWorkspaceChat(activeChatId, session.project_path, {
+      chatgptUrl: conversation,
+      lastContextChatgptUrl: active?.lastContextSha256 && !active.lastContextChatgptUrl ? conversation : active?.lastContextChatgptUrl,
     })
+    return true
   }
 
   function markContextSent(sha256: string, conversationUrl?: string) {
     updateChat({ lastContextSha256: sha256, lastContextChatgptUrl: conversationUrl || chats.find((chat) => chat.id === activeChatId)?.chatgptUrl })
   }
 
-  async function send(message: string, attachments: File[]) {
+  async function send(message: string, attachments: File[], artifacts: ChatArtifactSelection) {
     if (!session) return
     if (attachments.length && (!isDesktop() || config?.planner !== 'manual')) {
       setError('Anexos diretos requerem o Wharness Desktop com o planner manual.')
@@ -328,6 +400,7 @@ export default function App() {
     const messageId = crypto.randomUUID()
     let encoded: Awaited<ReturnType<typeof encodeChatAttachments>> = []
     let persistedAttachments: ChatItem['attachments'] = undefined
+    const systemArtifacts = await encodeSystemArtifacts(session, artifacts)
     if (attachments.length) {
       try {
         encoded = await encodeChatAttachments(attachments)
@@ -353,7 +426,9 @@ export default function App() {
       setSession(response.session); updateChat({ sessionId: response.session.id })
       const prompt = response.manual_prompt || response.session.last_manual_prompt || ''
       const turn = response.session.last_turn || response.turn
+      const requestId = response.session.last_request_id || turn?.request_id || ''
       setManualPrompt(prompt)
+      if (requestId) setItems((current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, 'outbound', selectedArtifactKinds(artifacts)) } : item))
       let draftCount = 0
       let autoSubmitted = false
       let transportFailure = ''
@@ -364,19 +439,24 @@ export default function App() {
           if (!bridge) throw new Error('Desktop bridge indisponível')
           const prepared = await bridge.chatgpt.preparePrompt({
             cacheKey: activeChat.id, text: prompt, url: activeChat.chatgptUrl, sessionId: response.session.id,
-            requestId: response.session.last_request_id || '', attachments: encoded, autoSubmit: automationMode === 'auto',
+            requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: automationMode === 'auto',
             contextSha256: response.session.context.manifest.sha256, lastContextSha256: activeChat.lastContextSha256,
-            lastContextChatgptUrl: activeChat.lastContextChatgptUrl, preferCurrentConversation: true,
+            lastContextChatgptUrl: activeChat.lastContextChatgptUrl, includeContext: artifacts.context, preferCurrentConversation: true,
           })
           draftCount = prepared.attachmentCount
           autoSubmitted = prepared.submitted
-          const chatPatch: Partial<WorkspaceChat> = {}
-          if (prepared.conversationUrl) chatPatch.chatgptUrl = prepared.conversationUrl
-          if (prepared.includedContext) {
-            chatPatch.lastContextSha256 = response.session.context.manifest.sha256
-            chatPatch.lastContextChatgptUrl = prepared.conversationUrl || activeChat.chatgptUrl
+          const bindingAccepted = prepared.conversationUrl ? bindChatGPTURL(prepared.conversationUrl) : true
+          if (prepared.includedContext && bindingAccepted) {
+            updateChat({
+              lastContextSha256: response.session.context.manifest.sha256,
+              lastContextChatgptUrl: prepared.conversationUrl || activeChat.chatgptUrl,
+            })
           }
-          if (Object.keys(chatPatch).length) updateChat(chatPatch)
+          if (requestId) {
+            const actualArtifacts = selectedArtifactKinds({ ...artifacts, context: prepared.includedContext, prompt: true })
+            setItems((current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', actualArtifacts, prepared.conversationUrl || activeChat.chatgptUrl) } : item))
+          }
+          updateWorkspaceChat(activeChat.id, response.session.project_path, { artifactSelection: { context: false, result: false, error: false } })
           if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [activeChat.id]: prepared.attachmentCount }))
         } catch (prepareError) {
           transportFailure = messageOf(prepareError)
@@ -410,7 +490,8 @@ export default function App() {
     try {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
-      await bridge.chatgpt.submitPrepared({ cacheKey: activeChatId })
+      const submitted = await bridge.chatgpt.submitPrepared({ cacheKey: activeChatId })
+      if (submitted.conversationUrl) bindChatGPTURL(submitted.conversationUrl)
       setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
       setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
@@ -513,7 +594,7 @@ export default function App() {
           : submission.workflow_executed
             ? `Passo local ${workflowRound}/6 executado na sandbox Protected. Nenhuma alteração deste passo foi aplicada ao host.`
             : submission.auto_applied
-              ? (submission.restart_scheduled ? 'Bundle validado. O plano foi verificado na sandbox, aplicado no próprio Wharness, reconstruído no host e o reinício automático foi agendado.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
+              ? (submission.restart_required ? 'Bundle validado. O plano foi verificado na sandbox, aplicado ao próprio Wharness e reconstruído no host. O reinício aguarda confirmação.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
               : submission.auto_executed
                 ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
                 : 'Bundle ZIP importado e plano validado.'
@@ -524,14 +605,18 @@ export default function App() {
           ? `Policy bloqueada${submission.repair_prepared ? ' · reparação automática preparada' : ''}`
           : submission.workflow_prepared || submission.workflow_executed
             ? `Workflow ${workflowRound}/6 · sandbox Protected`
-            : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? (submission.restart_scheduled ? 'AUTO-EVOLUÇÃO · reinício agendado' : 'AUTO · Host aplicado') : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
+            : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? (submission.restart_required ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'AUTO · Host aplicado') : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
         turnKind: updated.last_turn?.kind,
+        iteration: updated.last_turn?.request_id ? iterationRef(updated.last_turn.request_id, 'result', updated.last_execution?.success === false ? ['error', 'result'] : ['result'], targetChat.chatgptUrl) : undefined,
       }
       if (targetChat.id === activeChatId) {
         setSession(updated); setManualPrompt(updated.last_manual_prompt || '')
       }
       appendChatItem(targetChat, updated.project_path, bundleItem)
       if (submission.auto_error) setError(submission.auto_error)
+      if (submission.auto_executed && updated.last_execution) updateWorkspaceChat(targetChat.id, updated.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: updated.last_execution.success === false } })
+      if (submission.auto_applied) markContextDirtyForOtherChats(updated.project_path, targetChat.id)
+      if (submission.restart_required) setRestartModalOpen(true)
       let workflowSubmitted = false
       if (submission.workflow_prepared && updated.state === 'workflow_pending' && updated.last_manual_prompt) {
         workflowSubmitted = await submitWorkflowPrompt(updated, targetChat)
@@ -539,7 +624,7 @@ export default function App() {
         await submitRepairPrompt(updated, targetChat)
       }
       return submission.auto_applied
-        ? (submission.restart_scheduled ? `Bundle ${filename} aplicado ao próprio Wharness; build do host concluído e reinício automático agendado.` : `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`)
+        ? (submission.restart_required ? `Bundle ${filename} aplicado ao próprio Wharness; build do host concluído e reinício pendente de confirmação.` : `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`)
         : submission.workflow_prepared
           ? workflowSubmitted
             ? `Passo ${workflowRound}/6 executado e continuação submetida no Harness Chat “${targetChat.title}”.`
@@ -560,6 +645,10 @@ export default function App() {
       setSession(response.session)
       const ok = response.session.last_execution?.success
       const warnings = response.session.last_execution?.warnings || []
+      if (response.session.last_execution) {
+        const active = chats.find((chat) => chat.id === activeChatId)
+        if (active) updateWorkspaceChat(active.id, response.session.project_path, { artifactSelection: { ...active.artifactSelection, result: true, error: !ok } })
+      }
       setItems((current) => [...current, {
         id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
         text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
@@ -573,7 +662,8 @@ export default function App() {
       if (failedSession) {
         setSession(failedSession)
         setManualPrompt(failedSession.last_manual_prompt || '')
-        updateChat({ sessionId: failedSession.id })
+        const active = chats.find((chat) => chat.id === activeChatId)
+        updateChat({ sessionId: failedSession.id, artifactSelection: { ...active?.artifactSelection, result: Boolean(failedSession.last_execution), error: true } })
       } else {
         void refreshSession()
       }
@@ -593,11 +683,12 @@ export default function App() {
     await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
     const bridge = desktopBridge()
     if (!bridge) throw new Error('Desktop bridge indisponível')
+    const continuationArtifacts = continuationArtifactSelection(promptSession)
     const prepared = await bridge.chatgpt.preparePrompt({
       cacheKey: targetChat.id, text, url: targetChat.chatgptUrl, sessionId: promptSession.id,
-      requestId: promptSession.last_request_id || '', attachments: [], autoSubmit: true,
+      requestId: promptSession.last_request_id || '', attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
       contextSha256: promptSession.context.manifest.sha256, lastContextSha256: targetChat.lastContextSha256,
-      lastContextChatgptUrl: targetChat.lastContextChatgptUrl, preferCurrentConversation: false,
+      lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: continuationArtifacts.context, preferCurrentConversation: false,
     })
     const patch: Partial<WorkspaceChat> = {}
     if (prepared.conversationUrl) patch.chatgptUrl = prepared.conversationUrl
@@ -616,6 +707,7 @@ export default function App() {
       text: `O Wharness terminou o passo local ${round}/6 e vai devolver stdout, stderr e códigos de saída ao mesmo ChatGPT para decidir o próximo passo.`,
       meta: workflowSession.last_request_id ? `Workflow ${round}/6 · ${workflowSession.last_request_id}` : `Workflow ${round}/6`,
       turnKind: 'workflow',
+      iteration: workflowSession.last_request_id ? iterationRef(workflowSession.last_request_id, 'workflow', selectedArtifactKinds(continuationArtifactSelection(workflowSession)), targetChat.chatgptUrl) : undefined,
     })
     try {
       const prepared = await transportPlannerContinuation(workflowSession, targetChat)
@@ -626,6 +718,7 @@ export default function App() {
           : 'A continuação foi preparada no ChatGPT, mas ainda precisa de confirmação manual.',
         meta: prepared.submitted ? `Workflow ${round}/6 · ChatGPT acionado` : `Workflow ${round}/6 · confirmação pendente`,
         turnKind: 'workflow',
+        iteration: workflowSession.last_request_id ? iterationRef(workflowSession.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(workflowSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined,
       })
       return prepared.submitted
     } catch (sendError) {
@@ -648,12 +741,13 @@ export default function App() {
       id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
       text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
+      iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'repair', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined,
     })
     try {
       const prepared = await transportPlannerContinuation(failedSession, targetChat)
-      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.', meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente' })
+      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.', meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (sendError) {
-      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT e envie o prompt preparado' })
+      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT para retomar', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'failed', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined })
     }
   }
 
@@ -662,7 +756,10 @@ export default function App() {
     setBusy(true); setError(undefined)
     try {
       const updated = await api.apply(session.id)
-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou, o host foi reconstruído com sucesso e um supervisor externo assumiu o reinício do Wharness.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício agendado' : 'Host alterado' }])
+      setSession(updated)
+      markContextDirtyForOtherChats(updated.project_path, activeChatId)
+      if (updated.self_evolution && updated.state === 'restart_pending') setRestartModalOpen(true)
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -705,6 +802,16 @@ export default function App() {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
+  async function confirmSelfRestart() {
+    if (!session || !session.self_evolution || session.state !== 'restart_pending' || busy) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.restartSelfEvolution(session.id)
+      setSession(updated); setRestartModalOpen(false)
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Reinício confirmado. O supervisor transacional vai reiniciar o Wharness e validar o novo runtime; se falhar, restaura automaticamente a versão anterior.', meta: 'AUTO-EVOLUÇÃO · reinício confirmado' }])
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
   async function refreshSession() {
     if (!session) return
     try { setSession(await api.getSession(session.id)) } catch { /* retain last known state */ }
@@ -712,17 +819,80 @@ export default function App() {
 
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const activeChat = chats.find((chat) => chat.id === activeChatId)
+  const contextArtifactRequired = Boolean(activeChat && (!activeChat.lastContextSha256 || activeChat.lastContextSha256 !== session.context.manifest.sha256 || activeChat.artifactSelection?.context || (activeChat.chatgptUrl && activeChat.lastContextChatgptUrl && !sameChatGPTConversation(activeChat.chatgptUrl, activeChat.lastContextChatgptUrl))))
+  const errorArtifactRequired = session.state === 'repair_pending' || session.last_execution?.success === false
+  const composerArtifacts: ChatArtifactSelection = {
+    context: contextArtifactRequired,
+    prompt: true,
+    result: Boolean(activeChat?.artifactSelection?.result),
+    error: errorArtifactRequired || Boolean(activeChat?.artifactSelection?.error),
+  }
+  const restartPending = Boolean(session.self_evolution && session.state === 'restart_pending')
   return <main className="workspace-root">
-    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
+    <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
+    {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={() => setRestartModalOpen(false)} onRestart={() => void confirmSelfRestart()} />}
     {error && <div className="toast-error" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
     {mode === 'editor'
       ? <EditorWorkspace session={session} onError={setError} />
       : <div className="agent-workspace">
-          <ChatPanel session={session} items={items} chats={chats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} onSend={send} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onDeleteChat={deleteChat} />
+          <ChatPanel session={session} items={items} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} artifactSelection={composerArtifacts} artifactRequired={{ context: contextArtifactRequired, error: errorArtifactRequired }} onToggleArtifact={toggleComposerArtifact} onSend={send} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onArchiveChat={archiveChat} onRestoreChat={restoreArchivedChat} onDeleteArchivedChat={deleteArchivedChat} />
           <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={bindChatGPTURL} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
         </div>}
   </main>
+}
+
+function RestartConfirmation({ busy, onLater, onRestart }: { busy: boolean; onLater: () => void; onRestart: () => void }) {
+  return <div className="restart-confirmation-backdrop" role="presentation">
+    <section className="restart-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="restart-confirmation-title">
+      <div className="restart-confirmation-icon"><Icon name="refresh" size={24}/></div>
+      <div><span className="panel-kicker">Auto-evolução concluída</span><h2 id="restart-confirmation-title">Ativar a nova versão do Wharness?</h2><p>As alterações já foram verificadas, aplicadas e compiladas. O reinício ativa o novo runtime; o supervisor transacional mantém rollback automático se a nova versão não ficar saudável.</p></div>
+      <div className="restart-confirmation-actions"><button className="secondary-button" disabled={busy} onClick={onLater}>Mais tarde</button><button className="apply-button" disabled={busy} onClick={onRestart}><Icon name="refresh" size={14}/> Reiniciar agora</button></div>
+    </section>
+  </div>
+}
+
+function iterationRef(requestId: string, phase: ChatIterationRef['phase'], artifacts: ChatArtifactKind[], chatgptUrl?: string): ChatIterationRef {
+  return { id: crypto.randomUUID(), requestId, phase, artifacts: [...new Set(artifacts)], chatgptUrl }
+}
+
+function selectedArtifactKinds(selection: ChatArtifactSelection): ChatArtifactKind[] {
+  return (['context', 'prompt', 'result', 'error'] as ChatArtifactKind[]).filter((kind) => selection[kind])
+}
+
+function continuationArtifactSelection(session: Session): ChatArtifactSelection {
+  const failure = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
+  return { context: false, prompt: true, result: Boolean(session.last_execution), error: failure }
+}
+
+async function encodeSystemArtifacts(session: Session, selection: ChatArtifactSelection): Promise<DesktopUserAttachment[]> {
+  const files: File[] = []
+  if (selection.result && session.last_execution) files.push(new File([executionArtifact(session)], 'wharness-execution-result.md', { type: 'text/markdown' }))
+  if (selection.error && (session.last_execution?.success === false || session.last_repair_error)) files.push(new File([errorArtifact(session)], 'wharness-execution-error.md', { type: 'text/markdown' }))
+  return encodeChatAttachments(files)
+}
+
+function executionArtifact(session: Session) {
+  const execution = session.last_execution
+  if (!execution) return '# Wharness execution result\n\nNo execution result is available.\n'
+  const commands = execution.commands.slice(-30).map((command, index) => {
+    const stdout = boundedArtifactText(command.stdout)
+    const stderr = boundedArtifactText(command.stderr)
+    return [`## Command ${index + 1}`, `- argv: ${JSON.stringify(command.argv)}`, `- cwd: ${command.cwd}`, `- exit: ${command.exit_code}`, `- success: ${command.success}`, stdout ? `### stdout\n\n\`\`\`text\n${stdout}\n\`\`\`` : '', stderr ? `### stderr\n\n\`\`\`text\n${stderr}\n\`\`\`` : ''].filter(Boolean).join('\n')
+  }).join('\n\n')
+  return `# Wharness execution result\n\n- plan: ${execution.plan_id}\n- success: ${execution.success}\n- started: ${execution.started_at}\n- completed: ${execution.completed_at}\n${execution.error ? `- error: ${boundedArtifactText(execution.error)}` : ''}\n\n${commands}\n`
+}
+
+function errorArtifact(session: Session) {
+  const execution = session.last_execution
+  const failed = execution?.commands.filter((command) => !command.success).slice(-12) || []
+  const commandText = failed.map((command) => `## Failed command\n\n- argv: ${JSON.stringify(command.argv)}\n- exit: ${command.exit_code}\n\n### stderr\n\n\`\`\`text\n${boundedArtifactText(command.stderr || command.stdout)}\n\`\`\``).join('\n\n')
+  return `# Wharness failure evidence\n\n- state: ${session.state}\n- plan: ${execution?.plan_id || session.repair_parent_plan_id || 'unknown'}\n- request: ${session.last_request_id || 'unknown'}\n${session.last_repair_error ? `- repair error: ${boundedArtifactText(session.last_repair_error)}` : ''}\n${execution?.error ? `- execution error: ${boundedArtifactText(execution.error)}` : ''}\n\n${commandText}\n`
+}
+
+function boundedArtifactText(value: string, limit = 12000) {
+  const text = String(value || '').trim()
+  return text.length > limit ? `${text.slice(0, limit)}\n...[truncated by Wharness]` : text
 }
 
 function sessionHasPendingRequest(session: Session, requestId: string) {
@@ -741,7 +911,7 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
 }
 
 function welcomeItem(session: Session): ChatItem {
-  return { id: 'welcome', role: 'harness', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharness. Mudanças permanecem Protected e, após Apply + build do host, o Wharness reinicia-se automaticamente com rollback se o novo runtime falhar.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+  return { id: 'welcome', role: 'harness', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharness. Mudanças permanecem Protected e, após Apply + build do host, o Wharness pede confirmação antes de reiniciar; o rollback continua disponível até a nova versão ficar saudável.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
 }
 
 function messageOf(error: unknown) {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionMode, saveWorkspaceChats,
+  archiveChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
+  loadWorkspaceChats, loadExecutionHistory, newWorkspaceChat, rememberRecent, removeArchivedChat, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -63,18 +63,34 @@ describe('workspace memory', () => {
     ])
   })
 
-  it('removes one Harness chat and its local history without affecting other chats', () => {
+  it('archives, restores and permanently removes Harness chats without losing history on close', () => {
     const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa' }
     const second = { ...newWorkspaceChat('ses-2', 'Segundo'), chatgptUrl: 'https://chatgpt.com/c/bbb' }
     saveWorkspaceChats('/tmp/project', [first, second])
     saveChat('/tmp/project', first.id, [{ id: 'm1', role: 'user', text: 'A' }])
     saveChat('/tmp/project', second.id, [{ id: 'm2', role: 'user', text: 'B' }])
 
-    const remaining = removeChat('/tmp/project', first.id)
-    expect(remaining.map((chat) => chat.id)).toEqual([second.id])
-    expect(loadWorkspaceChats('/tmp/project').map((chat) => chat.id)).toEqual([second.id])
+    const archived = archiveChat('/tmp/project', first.id)
+    expect(archived.active.map((chat) => chat.id)).toEqual([second.id])
+    expect(loadArchivedWorkspaceChats('/tmp/project').map((chat) => chat.id)).toEqual([first.id])
+    expect(loadChat('/tmp/project', first.id)[0].text).toBe('A')
+
+    const restored = restoreArchivedChat('/tmp/project', first.id)
+    expect(restored.active.map((chat) => chat.id)).toContain(first.id)
+    expect(loadArchivedWorkspaceChats('/tmp/project')).toEqual([])
+    expect(loadChat('/tmp/project', first.id)[0].text).toBe('A')
+
+    archiveChat('/tmp/project', first.id)
+    removeArchivedChat('/tmp/project', first.id)
+    expect(loadArchivedWorkspaceChats('/tmp/project')).toEqual([])
     expect(loadChat('/tmp/project', first.id)).toEqual([])
     expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
+  })
+
+  it('persists execution history per Harness chat across reloads', () => {
+    saveExecutionHistory('/tmp/project', 'chat-1', [{ id: 'evt-1', session_id: 'ses-1', type: 'command.output', timestamp: '2026-09-03T23:00:00Z', data: { stream: 'stdout', text: 'ok' } }])
+    expect(loadExecutionHistory('/tmp/project', 'chat-1')).toEqual([{ id: 'evt-1', session_id: 'ses-1', type: 'command.output', timestamp: '2026-09-03T23:00:00Z', data: { stream: 'stdout', text: 'ok' } }])
+    expect(loadExecutionHistory('/tmp/project', 'chat-2')).toEqual([])
   })
 
   it('derives compact chat titles from the first request', () => {

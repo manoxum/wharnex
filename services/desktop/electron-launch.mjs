@@ -1,9 +1,17 @@
+import path from 'node:path'
 import { resolveLinuxOzonePlatform } from './security.mjs'
 
 export function electronChildEnvironment(env = process.env) {
   const child = { ...env }
   delete child.ELECTRON_RUN_AS_NODE
   return child
+}
+
+export function resolveElectronBinary(defaultBinary, env = process.env) {
+  const override = String(env.WHARNESS_ELECTRON_BINARY || '').trim()
+  if (!override) return defaultBinary
+  if (!path.isAbsolute(override)) throw new Error('WHARNESS_ELECTRON_BINARY must be an absolute path')
+  return path.normalize(override)
 }
 
 export function electronLaunchArguments(platform = process.platform, env = process.env) {

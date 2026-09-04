@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; amended for v1.2.21.
+Accepted; amended for v1.2.21 and v1.2.26.
 
 ## Context
 
@@ -19,7 +19,7 @@ Wharness permits a **narrow, allowlisted DOM transport bridge** inside the isola
 3. activate the submit control; and
 4. activate the pending result download control. Selection first matches the exact expected `wharness-bundle-<request_id>.zip` against download/link metadata. If ChatGPT omits the filename from the rendered control, Wharness may fall back only to one visible enabled file/download affordance contained in the newest assistant turn. If there are zero or multiple fallback candidates, it does nothing.
 
-Those operations may run while the ChatGPT view is hidden when the project is explicitly in Auto mode. The fallback may inspect only narrow control metadata, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry. Wharness does not scrape response prose, enumerate arbitrary page content for semantic analysis, read cookies/local storage, inspect authentication state, or use response text to infer model completion. The existing `will-download` boundary and backend bundle validator remain authoritative; a DOM click never makes downloaded bytes trusted.
+Those operations may run while the ChatGPT view is hidden when the project is explicitly in Auto mode. The fallback may inspect only narrow control metadata, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry. Wharness does not scrape response prose, enumerate arbitrary page content for semantic analysis, read cookies/local storage, inspect authentication state from DOM content, or use response text to infer model completion. A separate main-process same-origin `/api/auth/session` probe may reduce the result to one boolean used only to suppress redundant login UI; it does not expose the returned session object or weaken the DOM transport boundary. The existing `will-download` boundary and backend bundle validator remain authoritative; a DOM click never makes downloaded bytes trusted.
 
 A Policy-blocked Auto bundle now emits an explicit non-execution event containing the denial reason and enters the existing bounded repair loop. The repair prompt must request a Policy-compatible alternative and must not ask the model to weaken, bypass or reconfigure Policy.
 
@@ -30,6 +30,13 @@ Wharness also adds explicit local-data lifecycle controls:
 - browser-session clear invalidates embedded browser state only;
 - full Wharness clear removes Wharness-owned state, contexts/sandboxes, attachments, audit and temporary data but **never deletes the user's project directories/files**;
 - storage metrics expose Wharness totals and per-project Wharness-owned usage without traversing or charging the project working tree itself.
+
+
+### v1.2.26 composer-owned transport intent
+
+Manual transport affordances for context ZIP, planner prompt and result bundle are removed from the ChatGPT header. The Wharness chat composer is the single trusted surface that declares which artefacts accompany the next iteration. The renderer may encode bounded Wharness-generated result/error artefacts and pass them through the existing narrow desktop attachment transport; the main process validates count, size and filename uniqueness before materialization. This does not broaden the permitted remote DOM surface: ChatGPT interaction remains limited to composer file input/fill, submit and exact-result download control.
+
+The legacy Desktop manual fallback panel is removed. File-first request/bundle validation remains authoritative.
 
 ## Consequences
 

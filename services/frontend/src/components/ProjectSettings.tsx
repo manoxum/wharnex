@@ -5,6 +5,7 @@ import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session } f
 import { ContextInspector } from './ContextInspector'
 import { Icon } from './Icon'
 import { desktopBridge, formatBytes } from '../lib/desktop'
+import { loadUIPreferences, saveUIPreferences, type UIPreferences } from '../lib/uiPreferences'
 
 export function ProjectSettings({ session, onClose, onSession, onError }: {
   session: Session
@@ -26,6 +27,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
   const [desktopStorage, setDesktopStorage] = useState<DesktopStorageUsage>()
   const [storageBusy, setStorageBusy] = useState(false)
   const [resetConfirm, setResetConfirm] = useState('')
+  const [uiPreferences, setUIPreferences] = useState<UIPreferences>(() => loadUIPreferences())
 
   useEffect(() => {
     let alive = true
@@ -140,6 +142,14 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
       {!config ? (loadingError
         ? <div className="settings-load-error"><Icon name="shield" size={22}/><div><strong>Não foi possível carregar a configuração</strong><p>{loadingError}</p><span>O backend tenta recriar automaticamente <code>whaness.yml</code> quando ele não existe. Pode tentar novamente sem fechar o projeto.</span><button className="secondary-button" onClick={() => setReloadNonce((value) => value + 1)}><Icon name="refresh" size={14}/> Tentar novamente</button></div></div>
         : <div className="settings-loading"><span className="settings-spinner"/>A carregar configuração…</div>) : <div className="project-settings-body">
+        <section className="appearance-settings-section">
+          <div className="context-section-title"><div><strong>Aparência e tipografia</strong><span>Ajuste a leitura da interface sem alterar o projeto. As preferências são locais ao Wharness.</span></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
+          <div className="typography-settings-grid">
+            <label><span>Fonte da interface</span><select value={uiPreferences.uiFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, uiFont: event.target.value as UIPreferences['uiFont'] }); setUIPreferences(next) }}><option value="elegant">Elegante · Inter / Manrope</option><option value="system">Sistema · Segoe / nativa</option><option value="humanist">Humanista · Aptos / Calibri</option></select></label>
+            <label><span>Fonte monoespaçada</span><select value={uiPreferences.monoFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, monoFont: event.target.value as UIPreferences['monoFont'] }); setUIPreferences(next) }}><option value="jetbrains">JetBrains Mono</option><option value="system">Sistema Mono</option><option value="fira">Fira Code</option></select></label>
+          </div>
+          <label className="font-scale-setting"><span><strong>Tamanho da interface</strong><small>O padrão é 110% para melhorar a legibilidade.</small></span><input type="range" min="0.9" max="1.3" step="0.05" value={uiPreferences.scale} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, scale: Number(event.target.value) }); setUIPreferences(next) }}/><output>{Math.round(uiPreferences.scale * 100)}%</output></label>
+        </section>
         <section className="context-config-section">
           <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><code>{session.context.manifest.sha256.slice(0, 12)}</code></div>
           <label className="settings-toggle"><input type="checkbox" checked={config.context.auto_exclude} onChange={(event) => setConfig({ ...config, context: { ...config.context, auto_exclude: event.target.checked } })}/><span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários, logs, IDE metadata e outros artefactos sem valor para a IA.</small></span></label>

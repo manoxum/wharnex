@@ -63,13 +63,10 @@ if [ ! -x "$ROOT/services/frontend/node_modules/.bin/vite" ]; then
 fi
 
 if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
-  if ! WHARNESS_LINUX_SANDBOX_MODE=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-sandbox.sh" mode); then
-    exit 1
-  fi
-  export WHARNESS_LINUX_SANDBOX_MODE
-  # Electron validates the chrome-sandbox shipped beside its own executable.
-  # Do not redirect SUID execution through CHROME_DEVEL_SANDBOX; on packaged
-  # Chromium/Electron builds that developer override is not a reliable launch path.
+  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" check
+  WHARNESS_LINUX_SANDBOX_MODE=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" mode)
+  WHARNESS_ELECTRON_BINARY=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" path)
+  export WHARNESS_LINUX_SANDBOX_MODE WHARNESS_ELECTRON_BINARY
   unset CHROME_DEVEL_SANDBOX 2>/dev/null || true
 fi
 
@@ -83,6 +80,8 @@ fi
     HARNESS_STATE_FILE="$ROOT/.harness/state/sessions.json" \
     WHARNESS_RUNNER_IMAGE="${WHARNESS_RUNNER_IMAGE:-kernl-runner:local}" \
     WHARNESS_OZONE_PLATFORM="${WHARNESS_OZONE_PLATFORM:-auto}" \
+    WHARNESS_LINUX_SANDBOX_MODE="${WHARNESS_LINUX_SANDBOX_MODE:-}" \
+    WHARNESS_ELECTRON_BINARY="${WHARNESS_ELECTRON_BINARY:-}" \
     node dev.mjs >>"$LOG_FILE" 2>&1 </dev/null &
   echo $! > "$PID_FILE"
 )

@@ -16,6 +16,7 @@ Required controls:
 - non-root host UID/GID when possible.
 - normal `make build` / `make start` lifecycle MUST NOT invoke Docker or activate the Docker daemon; runner image construction is an explicit operator action.
 - on Linux/systemd, Protected execution MUST fail closed when `docker.socket` is active but `docker.service` is stopped, rather than triggering socket activation that can recreate host bridges/routes while the desktop browser is online.
+- on Linux, the Electron desktop MUST NOT depend on privileged metadata inside project `node_modules`. The primary SUID launch path is a versioned, root-owned, non-user-writable Electron runtime outside the workspace (default `/opt/wharness/electron/<version>-linux-<arch>/`) whose complete distribution and root-owned checksum manifest are validated before launch; only that runtime's adjacent `chrome-sandbox` may be mode `4755`. `npm install`, `npm ci`, normal builds and worktree changes MUST NOT mutate that privileged runtime. A version change requires explicit runtime synchronization. If no matching runtime exists, Wharness MAY use the workspace Electron only after an actual unprivileged user-namespace probe succeeds and only with `--disable-setuid-sandbox`; `--no-sandbox` remains forbidden.
 
 Local sandbox exists only for tests/development and must require explicit opt-in.
 

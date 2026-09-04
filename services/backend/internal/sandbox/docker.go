@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -37,6 +36,10 @@ func (r *DockerRunner) ApplyPatch(ctx context.Context, workspace Workspace, patc
 }
 
 func (r *DockerRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+	return r.RunStreaming(ctx, workspace, command, nil)
+}
+
+func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, command domain.CommandSpec, onOutput StreamCallback) (domain.CommandResult, error) {
 	if _, err := safeWorkspaceCwd(workspace.Path, command.Cwd); err != nil {
 		return domain.CommandResult{}, err
 	}
@@ -76,9 +79,10 @@ func (r *DockerRunner) Run(ctx context.Context, workspace Workspace, command dom
 	args = append(args, command.Argv...)
 	started := time.Now()
 	cmd := exec.CommandContext(runCtx, "docker", args...)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newStreamCapture("stdout", onOutput)
+	stderr := newStreamCapture("stderr", onOutput)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err := cmd.Run()
 	exitCode := exitCode(err)
 	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: exitCode, Stdout: limit(stdout.String()), Stderr: limit(stderr.String()), DurationMS: time.Since(started).Milliseconds()}

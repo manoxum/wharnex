@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { Session } from '../types'
 import { Inspector } from './Inspector'
@@ -38,7 +38,7 @@ describe('Inspector plan compatibility', () => {
       events={[]}
       manualPrompt=""
       busy={false}
-      onChatGPTURL={() => undefined}
+      onChatGPTURL={() => true}
       onExecute={async () => undefined}
       onApply={async () => undefined}
       onManualPlan={async () => undefined}
@@ -72,7 +72,7 @@ it('shows workflow as a local probe without exposing change execution controls',
     events={[{ id: 'evt-wf', session_id: session.id, type: 'workflow.started', timestamp: new Date().toISOString(), data: { round: 2 } }]}
     manualPrompt=""
     busy={false}
-    onChatGPTURL={() => undefined}
+    onChatGPTURL={() => true}
     onExecute={async () => undefined}
     onApply={async () => undefined}
     onManualPlan={async () => undefined}
@@ -84,4 +84,32 @@ it('shows workflow as a local probe without exposing change execution controls',
   expect(screen.getByText('Probe autorizada')).toBeTruthy()
   expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
   expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+})
+
+
+it('shows streamed command output in the execution log without a nested terminal card', () => {
+  const session = legacySession()
+  const timestamp = '2026-09-03T23:10:00.000Z'
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[
+      { id: 'evt-start', session_id: session.id, type: 'command.started', timestamp, data: { run_id: 'run-1', argv: ['go', 'test', './...'], cwd: '.', target: 'sandbox' } },
+      { id: 'evt-output', session_id: session.id, type: 'command.output', timestamp, data: { run_id: 'run-1', stream: 'stdout', text: 'package ok\n', target: 'sandbox' } },
+      { id: 'evt-done', session_id: session.id, type: 'command.completed', timestamp, data: { run_id: 'run-1', argv: ['go', 'test', './...'], exit_code: 0, success: true, stdout: 'package ok\n', target: 'sandbox' } },
+    ]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onApply={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  fireEvent.click(screen.getByRole('button', { name: /Execução/ }))
+  expect(screen.getByText('Logs em tempo real')).toBeTruthy()
+  expect(screen.getByText('package ok')).toBeTruthy()
+  expect(document.querySelectorAll('.execution-log-line')).toHaveLength(1)
 })
