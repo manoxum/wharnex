@@ -1,4 +1,4 @@
-import type { AutomationMode, ChatArtifactSelection, ChatItem, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
+import type { AutomationMode, ChatArtifactSelection, ChatItem, ChatRequestMode, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
 const RECENT_KEY = 'kernl.workspace.recent.v1'
@@ -27,6 +27,8 @@ export type WorkspaceChat = {
   lastContextSha256?: string
   lastContextChatgptUrl?: string
   artifactSelection?: Partial<ChatArtifactSelection>
+  requestMode?: ChatRequestMode
+  pendingPlan?: { requestId: string; originalMessage: string }
   createdAt: string
   updatedAt: string
 }

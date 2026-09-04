@@ -61,6 +61,70 @@ func TestCopyProjectCreatesTrackedGitBaseline(t *testing.T) {
 	}
 }
 
+func TestCopyProjectPreservesRepositoryHistoryWithoutSourceHooks(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		argv := append([]string{"-C", root}, args...)
+		cmd := exec.Command("git", argv...)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	git("init", "-q")
+	if err := os.WriteFile(filepath.Join(root, "history.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "history.txt")
+	git("-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "first")
+	if err := os.WriteFile(filepath.Join(root, "history.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "history.txt")
+	git("-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "second")
+	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "hooks", "pre-commit"), []byte("#!/bin/sh\nexit 77\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "history.txt"), []byte("working-copy\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := copyProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(ws.Path)
+	count, err := exec.Command("git", "-C", ws.Path, "rev-list", "--count", "HEAD").Output()
+	if err != nil || strings.TrimSpace(string(count)) != "2" {
+		t.Fatalf("expected source history in sandbox, count=%q err=%v", count, err)
+	}
+	status, err := exec.Command("git", "-C", ws.Path, "status", "--short", "--", "history.txt").Output()
+	if err != nil || !strings.Contains(string(status), "M history.txt") {
+		t.Fatalf("expected dirty source worktree overlay, status=%q err=%v", status, err)
+	}
+	if _, err := os.Stat(filepath.Join(ws.Path, ".git", "hooks", "pre-commit")); !os.IsNotExist(err) {
+		t.Fatalf("source hook must not be copied into Protected sandbox")
+	}
+}
+
+func TestSafeSandboxRemoteURLRejectsCredentialsAndNonHTTPS(t *testing.T) {
+	if got, ok := safeSandboxRemoteURL("https://github.com/example/project.git"); !ok || got == "" {
+		t.Fatalf("expected plain HTTPS remote to be accepted")
+	}
+	for _, raw := range []string{"https://token@github.com/example/project.git", "git@github.com:example/project.git", "file:///tmp/repo", "/tmp/repo"} {
+		if _, ok := safeSandboxRemoteURL(raw); ok {
+			t.Fatalf("unsafe sandbox remote accepted: %s", raw)
+		}
+	}
+}
+
 func TestLocalRunnerApplyPatchFallsBackToRecount(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")

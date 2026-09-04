@@ -31,3 +31,6 @@ MCP is a useful standard for connecting model applications to tools/resources, b
 - The same mechanism can later expose richer read-only/project-local tools without changing the turn protocol.
 - Consumer-web workflows remain bounded by download initiation on the ChatGPT surface; provider adapters are the path to fully unattended multi-round planning.
 - MCP integration can be introduced incrementally without granting remote content direct host capabilities.
+## v1.2.27 amendment — Plan-first is a user gate, not a workflow probe
+
+Plan-first is distinct from iterative workflow. It asks the planner for a terminal proposal with TODO, affected areas, risks and verification, but deliberately carries no execution plan or patch. The backend persists the planning mode and rejects any executable bundle for that request. Only an explicit user approval in Wharness creates a fresh direct implementation request. This prevents Auto mode from silently upgrading a planning request into mutation.

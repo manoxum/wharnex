@@ -1,3 +1,15 @@
+## v1.2.27 - Calm composer, plan-first turns and Git-aware execution
+
+- Refine the Wharness composer into a clean bottom action rail with small circular artefact controls, file attachment and a Plan-first toggle embedded inside the writing surface.
+- Separate transcript semantics into user, ChatGPT and Wharness sources; operational lifecycle notices and visible ChatGPT activity use dedicated notification/thought surfaces instead of masquerading as normal chat messages.
+- Add Plan-first requests: the first ChatGPT turn is proposal-only, Wharness rejects executable bundles for that request, presents the proposal with approve/reject controls, and creates a separate implementation request only after explicit approval.
+- Require every ChatGPT CHANGE deliverable to expose a user-visible `## TODO` checklist so implementation progress is traceable in the transcript.
+- Allow task comments from the composer while ChatGPT is processing; comments stay bound to the same request/conversation and explicitly preserve the original canonical bundle deliverable.
+- Capture only reasoning/status content visibly exposed by the ChatGPT UI and render it as transient thought/activity, without accessing hidden model reasoning, cookies, storage or arbitrary response prose.
+- Add policy-aware Git CHANGE support for read-only inspection plus approved mutations such as add/commit/branch/switch/merge/rebase/revert/restore/tag/stash and network-declared fetch/pull/push; destructive/force operations remain denied.
+- Preserve real Git history and current working-tree state in Protected sandboxes through a hook-free local clone; only credential-free HTTPS remote URLs are reconstructed, and Protected push is exercised as `--dry-run` before any approved host replay.
+- Interleave streamed stdout/stderr directly below the command event that produced it in the Execution timeline instead of collecting output in a detached final log card.
+
 ## v1.2.26 - Composer artifacts, durable iterations and confirmed self-restart
 
 - Move ChatGPT transport controls out of the ChatGPT header and into compact artifact selectors embedded directly in the Wharness chat composer for Context ZIP, Prompt, Result, Error and user files.

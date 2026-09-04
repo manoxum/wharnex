@@ -113,3 +113,18 @@ test('desktop ChatGPT state publishes only a boolean authentication result to th
   assert.match(source, /authenticated: Boolean\(entry\?\.authenticated\)/)
   assert.match(source, /executeJavaScript\(chatGPTSessionProbeExpression\(\), true\)/)
 })
+
+test('in-flight comments defer stale bundle capture and rearm after the comment submit', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const commentStart = source.indexOf('async function flushQueuedChatGPTComments()')
+  const commentEnd = source.indexOf('\nasync function pollChatGPTVisibleActivity', commentStart)
+  const comments = source.slice(commentStart, commentEnd)
+  assert.match(comments, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
+  assert.match(comments, /await submitChatGPTDraft\(key\)/)
+  assert.match(comments, /armExpectedChatGPTBundle\(key, pending\.requestId, assistantBaseline\)/)
+
+  const pollStart = source.indexOf('async function pollExpectedChatGPTDownloads()')
+  const pollEnd = source.indexOf('\nasync function exportBrowserSession', pollStart)
+  const polling = source.slice(pollStart, pollEnd)
+  assert.match(polling, /if \(pendingChatGPTComments\.has\(key\)\) continue/)
+})

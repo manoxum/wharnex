@@ -200,7 +200,8 @@ func (a *API) automationMode(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) message(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Message string `json:"message"`
+		Message      string `json:"message"`
+		PlanningMode string `json:"planning_mode"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -209,7 +210,7 @@ func (a *API) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_message", "message is required")
 		return
 	}
-	result, item, err := a.service.SubmitMessage(r.Context(), r.PathValue("id"), body.Message)
+	result, item, err := a.service.SubmitMessageWithMode(r.Context(), r.PathValue("id"), body.Message, body.PlanningMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "planning_failed", err.Error())
 		return

@@ -111,3 +111,28 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
     return decision.mode || 'exact';
   })()`
 }
+
+export function chatGPTComposerReadyScript() {
+  return `(() => {
+    const stop = document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"]');
+    if (stop) return false;
+    const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
+    if (!composer) return false;
+    const root = composer.closest?.('form') || document;
+    const button = ['button[data-testid="send-button"]','button[aria-label*="Send"]','button[aria-label*="Enviar"]','button[type="submit"]'].map((s) => root.querySelector?.(s) || document.querySelector(s)).find(Boolean);
+    return Boolean(button && !button.disabled && button.getAttribute?.('aria-disabled') !== 'true');
+  })()`
+}
+
+export function chatGPTVisibleActivityScript() {
+  return `(() => {
+    const visible = (node) => { const r = node?.getBoundingClientRect?.(); return Boolean(r && r.width > 0 && r.height > 0); };
+    const stop = document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"]');
+    const candidates = [...document.querySelectorAll('[data-testid*="reason"],[data-testid*="think"],details,[aria-label*="thinking" i],[aria-label*="reason" i],[aria-label*="racioc" i]')]
+      .filter(visible)
+      .map((node) => String(node.innerText || node.textContent || node.getAttribute?.('aria-label') || '').trim())
+      .filter((text) => text && text.length < 5000 && /(think|reason|racioc|pens|analis|consider)/i.test(text));
+    const text = candidates[candidates.length - 1] || '';
+    return { state: stop ? 'thinking' : 'idle', text: text.slice(0, 4000), capturedAt: new Date().toISOString() };
+  })()`
+}

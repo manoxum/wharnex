@@ -26,11 +26,35 @@ func TestNetworkRequiresApproval(t *testing.T) {
 	}
 }
 
-func TestGitMutationDenied(t *testing.T) {
+func TestGitMutationRequiresApproval(t *testing.T) {
+	plan := basePlan()
+	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("git", "commit", "-m", "update")}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval {
+		t.Fatalf("git commit should require approval: %#v", decision)
+	}
+}
+
+func TestDestructiveGitStillDenied(t *testing.T) {
 	plan := basePlan()
 	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("git", "reset", "--hard")}}
 	if NewEngine().Evaluate(plan).Allowed {
-		t.Fatal("git reset should be denied")
+		t.Fatal("git reset --hard should be denied")
+	}
+}
+
+func TestRemoteGitRequiresNetworkAndApproval(t *testing.T) {
+	plan := basePlan()
+	push := cmd("git", "push", "origin", "main")
+	plan.Operations = []domain.Operation{{Type: "command", Command: push}}
+	if NewEngine().Evaluate(plan).Allowed {
+		t.Fatal("git push without network=true should be denied")
+	}
+	push.Network = true
+	plan.Operations = []domain.Operation{{Type: "command", Command: push}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("unexpected push decision: %#v", decision)
 	}
 }
 

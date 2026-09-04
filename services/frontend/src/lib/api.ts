@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AutomationMode, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, Session, TerminalTarget, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, AutomationMode, ChatRequestMode, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, Session, TerminalTarget, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -36,9 +36,9 @@ export const api = {
     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
   setAutomationMode: (id: string, automationMode: AutomationMode) =>
     request<Session>(`/api/sessions/${id}/automation-mode`, { method: 'PUT', body: JSON.stringify({ automation_mode: automationMode }) }),
-  message: (id: string, message: string) =>
+  message: (id: string, message: string, planningMode: ChatRequestMode = 'direct') =>
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
-      method: 'POST', body: JSON.stringify({ message }),
+      method: 'POST', body: JSON.stringify({ message, planning_mode: planningMode }),
     }),
   manualPlan: (id: string, rawJSON: string) =>
     request<Session>(`/api/sessions/${id}/manual-plan`, { method: 'POST', body: rawJSON }),

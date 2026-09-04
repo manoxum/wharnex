@@ -251,13 +251,24 @@ func (s *Service) SetAutomationMode(sessionID string, mode domain.AutomationMode
 }
 
 func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) (planner.Result, domain.Session, error) {
+	return s.SubmitMessageWithMode(ctx, sessionID, message, "direct")
+}
+
+func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message, planningMode string) (planner.Result, domain.Session, error) {
+	planningMode = strings.ToLower(strings.TrimSpace(planningMode))
+	if planningMode == "" {
+		planningMode = "direct"
+	}
+	if planningMode != "direct" && planningMode != "plan_first" {
+		return planner.Result{}, domain.Session{}, fmt.Errorf("unsupported planning mode %q", planningMode)
+	}
 	item, err := s.refreshContext(sessionID)
 	if err != nil {
 		return planner.Result{}, domain.Session{}, err
 	}
 	requestID := ids.New("req")
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID})
-	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item)})
+	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode})
 	if err != nil {
 		s.bus.Publish(sessionID, "planner.failed", map[string]any{"error": err.Error()})
 		return planner.Result{}, item, err
@@ -272,6 +283,7 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 		current.RepairParentPlanID = ""
 		current.LastRepairError = ""
 		current.WorkflowRound = 0
+		current.LastRequestMode = planningMode
 		current.LastTurn = result.Turn
 		if result.Plan == nil && result.ManualPrompt != "" {
 			current.PendingManualRequestIDs = []string{requestID}
@@ -388,6 +400,11 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	if !containsString(current.PendingManualRequestIDs, parsed.Turn.RequestID) {
 		return BundleSubmission{}, fmt.Errorf("bundle request_id %q is not pending for this chat/session", parsed.Turn.RequestID)
+	}
+	if current.LastRequestMode == "plan_first" && parsed.Turn.RequestID == current.LastRequestID {
+		if parsed.Plan != nil || parsed.Turn.Kind == domain.TurnKindChange || parsed.Turn.Kind == domain.TurnKindWorkflow {
+			return BundleSubmission{}, errors.New("plan-first request must return a terminal proposal without plan.json; implementation requires explicit user approval")
+		}
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
 		if current.AutomationMode != domain.AutomationModeAuto {
@@ -510,8 +527,13 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			return result
 		}
 		planID := current.Plan.PlanID
+		if current.Policy.RequiresApproval {
+			s.bus.Publish(sessionID, "automation.approval_required", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": current.Policy.Reasons})
+			result.Session = current
+			return result
+		}
 		s.bus.Publish(sessionID, "automation.started", map[string]any{"plan_id": planID, "transport": transport, "attempt": attempt + 1})
-		execution, executed, execErr := s.Execute(ctx, sessionID, true)
+		execution, executed, execErr := s.Execute(ctx, sessionID, false)
 		result.AutoExecuted = true
 		result.Execution = &execution
 		result.Session = executed
@@ -639,7 +661,11 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 			s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": executionTarget})
 			continue
 		}
-		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, op.Command, executionTarget)
+		command := op.Command
+		if !unprotected {
+			command = protectedGitCommand(command)
+		}
+		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
 		result.Commands = append(result.Commands, commandResult)
 		if runErr != nil || !commandResult.Success {
 			if runErr == nil {
@@ -985,6 +1011,20 @@ func truncateRepairText(value string, limit int) string {
 	return value[:limit] + "\n...[truncated by Wharness]"
 }
 
+func protectedGitCommand(command domain.CommandSpec) domain.CommandSpec {
+	if len(command.Argv) < 2 || strings.ToLower(filepath.Base(command.Argv[0])) != "git" || strings.ToLower(command.Argv[1]) != "push" {
+		return command
+	}
+	for _, arg := range command.Argv[2:] {
+		if arg == "--dry-run" || arg == "-n" {
+			return command
+		}
+	}
+	clone := command
+	clone.Argv = append([]string{"git", "push", "--dry-run"}, command.Argv[2:]...)
+	return clone
+}
+
 func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -1044,17 +1084,26 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	defer s.hostRunner.Cleanup(workspace)
 	for _, op := range item.Plan.Operations {
-		if op.Type != "apply_patch" {
+		if op.Type == "apply_patch" {
+			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
+				return item, rollback(err)
+			}
+			if result, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch); applyErr != nil || !result.Success {
+				if applyErr != nil {
+					return item, rollback(fmt.Errorf("host apply failed: %w", applyErr))
+				}
+				return item, rollback(fmt.Errorf("host apply failed: %s", strings.TrimSpace(result.Stderr)))
+			}
 			continue
 		}
-		if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
-			return item, rollback(err)
-		}
-		if result, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch); applyErr != nil || !result.Success {
-			if applyErr != nil {
-				return item, rollback(fmt.Errorf("host apply failed: %w", applyErr))
+		if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
+			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, op.Command, "host")
+			if runErr != nil || !result.Success {
+				if runErr != nil {
+					return item, rollback(fmt.Errorf("host git operation failed: %w", runErr))
+				}
+				return item, rollback(fmt.Errorf("host git operation failed: %s", strings.TrimSpace(result.Stderr)))
 			}
-			return item, rollback(fmt.Errorf("host apply failed: %s", strings.TrimSpace(result.Stderr)))
 		}
 	}
 

@@ -55,10 +55,8 @@ func classifyCommand(command domain.CommandSpec, decision *domain.PolicyDecision
 		return
 	}
 	if name == "git" {
-		if len(command.Argv) < 2 || !allowedGit[strings.ToLower(command.Argv[1])] {
-			decision.Allowed = false
-			decision.Risk = "high"
-			decision.Reasons = append(decision.Reasons, "git mutation/control command denied in model plan")
+		classifyGit(command, decision)
+		if !decision.Allowed {
 			return
 		}
 	}
@@ -97,7 +95,57 @@ var denied = map[string]bool{
 }
 
 var elevated = map[string]bool{"make": true, "npm": true, "node": true, "npx": true}
-var allowedGit = map[string]bool{"status": true, "diff": true, "grep": true, "ls-files": true, "rev-parse": true, "show": true}
+var readOnlyGit = map[string]bool{"status": true, "diff": true, "grep": true, "ls-files": true, "rev-parse": true, "show": true, "log": true}
+var mutableGit = map[string]bool{"add": true, "commit": true, "branch": true, "checkout": true, "switch": true, "merge": true, "rebase": true, "revert": true, "restore": true, "tag": true, "stash": true, "fetch": true, "pull": true, "push": true}
+
+func classifyGit(command domain.CommandSpec, decision *domain.PolicyDecision) {
+	if len(command.Argv) < 2 {
+		decision.Allowed = false
+		decision.Risk = "high"
+		decision.Reasons = append(decision.Reasons, "git subcommand is required")
+		return
+	}
+	sub := strings.ToLower(command.Argv[1])
+	if readOnlyGit[sub] {
+		return
+	}
+	if !mutableGit[sub] {
+		decision.Allowed = false
+		decision.Risk = "high"
+		decision.Reasons = append(decision.Reasons, "unsupported or destructive git command denied in model plan")
+		return
+	}
+	for _, raw := range command.Argv[2:] {
+		arg := strings.ToLower(raw)
+		if arg == "--force" || arg == "--force-with-lease" || arg == "-f" || arg == "--hard" || arg == "--delete" {
+			decision.Allowed = false
+			decision.Risk = "high"
+			decision.Reasons = append(decision.Reasons, "destructive git flag denied in model plan")
+			return
+		}
+	}
+	decision.RequiresApproval = true
+	decision.Risk = maxRisk(decision.Risk, "medium")
+	decision.Reasons = append(decision.Reasons, "git mutation requires explicit user approval")
+	if sub == "fetch" || sub == "pull" || sub == "push" {
+		if !command.Network {
+			decision.Allowed = false
+			decision.Risk = "high"
+			decision.Reasons = append(decision.Reasons, "remote git command must declare network=true")
+			return
+		}
+		decision.Risk = "high"
+	}
+}
+
+// HostReplayGitCommand identifies mutation commands that were safely exercised in
+// Protected and must be replayed against the real repository only after approval.
+func HostReplayGitCommand(command domain.CommandSpec) bool {
+	if len(command.Argv) < 2 || strings.ToLower(filepath.Base(command.Argv[0])) != "git" {
+		return false
+	}
+	return mutableGit[strings.ToLower(command.Argv[1])]
+}
 
 func maxRisk(a, b string) string {
 	rank := map[string]int{"low": 1, "medium": 2, "high": 3}

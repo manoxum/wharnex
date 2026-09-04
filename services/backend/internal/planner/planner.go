@@ -15,6 +15,7 @@ type Request struct {
 	PreviousResponseID string
 	AutomationMode     domain.AutomationMode
 	SelfEvolution      bool
+	PlanningMode       string
 }
 
 type Result struct {

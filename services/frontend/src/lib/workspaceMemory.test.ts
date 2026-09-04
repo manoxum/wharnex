@@ -39,7 +39,7 @@ describe('workspace memory', () => {
   })
 
   it('persists multiple Harness chats with independent ChatGPT URLs and histories', () => {
-    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa' }
+    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa', requestMode: 'plan_first' as const, pendingPlan: { requestId: 'req-1', originalMessage: 'alterar UI' } }
     const second = { ...newWorkspaceChat('ses-2', 'Segundo'), chatgptUrl: 'https://chatgpt.com/c/bbb' }
     saveWorkspaceChats('/tmp/project', [first, second])
     saveChat('/tmp/project', first.id, [{ id: 'm1', role: 'user', text: 'A' }])
@@ -48,6 +48,7 @@ describe('workspace memory', () => {
     const loaded = loadWorkspaceChats('/tmp/project')
     expect(loaded).toHaveLength(2)
     expect(loaded.map((item) => item.chatgptUrl).sort()).toEqual(['https://chatgpt.com/c/aaa', 'https://chatgpt.com/c/bbb'])
+    expect(loaded.find((item) => item.id === first.id)?.pendingPlan?.requestId).toBe('req-1')
     expect(loadChat('/tmp/project', first.id)[0].text).toBe('A')
     expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
   })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AppConfig, HarnessEvent, Session } from '../types'
+import type { AppConfig, ChatGPTActivity, HarnessEvent, Session } from '../types'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 import { riskLabel } from '../lib/risk'
@@ -11,7 +11,7 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
 
 type Tab = 'plan' | 'terminal' | 'chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, onChatGPTURL, onChatGPTActivity, onExecute, onApply, onManualPlan, onPlanFile, onBundleFile }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -20,6 +20,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   chat?: WorkspaceChat
   chatgptSuspended?: boolean
   onChatGPTURL: (url: string) => boolean
+  onChatGPTActivity?: (activity: ChatGPTActivity) => void
   onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean) => Promise<void>
   onApply: () => Promise<void>
@@ -31,7 +32,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
+  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
@@ -67,7 +68,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         {tab === 'plan' && <PlanView session={session} />}
         {tab === 'terminal' && <TerminalView events={terminalEvents} />}
         {tab === 'chatgpt' && (desktop
-          ? <ChatGPTDesktopPane suspended={chatgptSuspended} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
+          ? <ChatGPTDesktopPane suspended={chatgptSuspended} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onActivity={onChatGPTActivity} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
       </div>
     </section>
@@ -122,31 +123,31 @@ function PlanView({ session }: { session: Session }) {
 function TerminalView({ events }: { events: HarnessEvent[] }) {
   if (!events.length) return <Empty title="Execução limpa" text="O estado das operações, verificações, stdout, stderr, bloqueios de Policy e reparações automáticas aparecerá aqui em tempo real. O terminal interativo continua no modo Editor." />
   const streamedRunIDs = new Set(events.filter((event) => event.type === 'command.output').map((event) => String(event.data.run_id || '')).filter(Boolean))
-  const logs = events.flatMap((event) => eventLogEntries(event, streamedRunIDs))
-  const timelineEvents = events.filter((event) => event.type !== 'command.output')
-  const running = [...timelineEvents].reverse().find((event) => event.type.endsWith('.started') || event.type === 'command.started')
-  const completed = [...timelineEvents].reverse().find((event) => event.type === 'execution.completed' || event.type === 'execution.failed' || event.type === 'automation.execution_failed')
+  const running = [...events].reverse().find((event) => event.type.endsWith('.started') || event.type === 'command.started')
+  const completed = [...events].reverse().find((event) => event.type === 'execution.completed' || event.type === 'execution.failed' || event.type === 'automation.execution_failed')
   return <div className="execution-view">
     <div className="execution-overview">
-      <div><span className="panel-kicker">Execução observável</span><h3>{completed?.type === 'execution.completed' ? 'Execução concluída' : running ? 'Operação em curso' : 'Atividade de execução'}</h3><p>Os eventos SSE aparecem nesta linha temporal assim que são emitidos. A consola no final agrega as saídas sem criar scrolls verticais dentro de cada operação.</p></div>
+      <div><span className="panel-kicker">Execução observável</span><h3>{completed?.type === 'execution.completed' ? 'Execução concluída' : running ? 'Operação em curso' : 'Atividade de execução'}</h3><p>Cada stdout/stderr aparece imediatamente por baixo do comando que o produziu, preservando a sequência real da execução.</p></div>
       <StatusPill tone={completed?.type === 'execution.failed' || completed?.type === 'automation.execution_failed' ? 'danger' : running ? 'warning' : 'success'}>{running ? 'LIVE' : completed?.type === 'execution.completed' ? 'Concluída' : 'Atualizada'}</StatusPill>
     </div>
     <div className="execution-timeline">
-      {timelineEvents.map((event) => {
+      {events.map((event) => {
+        if (event.type === 'command.output') {
+          const entries = eventLogEntries(event, streamedRunIDs)
+          return entries.map((entry) => <div className={`execution-inline-log ${entry.kind}`} key={entry.id}><span>{entry.label}</span><pre>{entry.text}</pre></div>)
+        }
         const meta = executionEventMeta(event)
-        return <div className="execution-event" key={event.id}>
-          <span className={meta.tone === 'fail' ? 'lamp fail' : meta.tone === 'warning' ? 'lamp warning' : 'lamp'} />
-          <div className="execution-event-copy"><strong>{meta.title}</strong><span>{formatEventTime(event.timestamp)}{meta.detail ? ` · ${meta.detail}` : ''}</span></div>
-          {meta.badge && <code>{meta.badge}</code>}
+        const fallback = eventLogEntries(event, streamedRunIDs)
+        return <div className="execution-event-group" key={event.id}>
+          <div className="execution-event">
+            <span className={meta.tone === 'fail' ? 'lamp fail' : meta.tone === 'warning' ? 'lamp warning' : 'lamp'} />
+            <div className="execution-event-copy"><strong>{meta.title}</strong><span>{formatEventTime(event.timestamp)}{meta.detail ? ` · ${meta.detail}` : ''}</span></div>
+            {meta.badge && <code>{meta.badge}</code>}
+          </div>
+          {fallback.map((entry) => <div className={`execution-inline-log ${entry.kind}`} key={entry.id}><span>{entry.label}</span><pre>{entry.text}</pre></div>)}
         </div>
       })}
     </div>
-    <section className="execution-log-panel" aria-label="Logs de execução em tempo real">
-      <div className="execution-log-heading"><div><span className="panel-kicker">Logs em tempo real</span><strong>Saída das operações</strong></div><span>{logs.length} entrada(s)</span></div>
-      <div className="execution-log-stream">
-        {logs.length ? logs.map((entry) => <div className={`execution-log-line ${entry.kind}`} key={entry.id}><time>{entry.time}</time><span>{entry.label}</span><pre>{entry.text}</pre></div>) : <div className="execution-log-empty">As operações em curso aparecem acima; stdout/stderr surgem aqui assim que cada comando produz um resultado.</div>}
-      </div>
-    </section>
   </div>
 }
 
@@ -167,6 +168,7 @@ function executionEventMeta(event: HarnessEvent) {
     case 'verification.completed': return { title: 'Verificação concluída', detail: target, badge: exit, tone: event.data.baseline_failure ? 'warning' : 'ok' }
     case 'verification.baseline_unchanged': return { title: argv || 'Falha pré-existente inalterada', detail: 'baseline unchanged', badge: exit, tone: 'warning' }
     case 'verification.baseline_changed': return { title: argv || 'Baseline alterada', detail: 'verification drift', badge: 'WARN', tone: 'warning' }
+    case 'automation.approval_required': return { title: 'Aprovação do utilizador necessária', detail: String(event.data.risk || ''), badge: 'APPROVE', tone: 'warning' }
     case 'automation.policy_blocked':
     case 'workflow.policy_blocked': return { title: 'Policy bloqueou a execução', detail: '', badge: 'BLOCK', tone: 'fail' }
     case 'repair.started': return { title: 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' }

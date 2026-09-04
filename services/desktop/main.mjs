@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatGPTAssistantTurnCountScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript } from './chatgpt-dom.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
@@ -42,6 +42,8 @@ let activeChatGPTKey = ''
 let chatgptVisible = false
 let chatgptBounds
 const preparedChatGPTDrafts = new Map()
+const pendingChatGPTComments = new Map()
+const chatGPTActivityFingerprints = new Map()
 const expectedChatGPTBundles = new Map()
 const EXPECTED_BUNDLE_TTL_MS = 60 * 60 * 1000
 const DOM_DOWNLOAD_POLL_MS = 2_000
@@ -917,9 +919,65 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   return { ok: true, cacheKey: key, expectedFilename }
 }
 
+
+async function queueChatGPTComment(request) {
+  const key = sanitizeChatCacheKey(request?.cacheKey)
+  const requestId = String(request?.requestId || '').trim()
+  const comment = String(request?.text || '').trim()
+  if (!comment) throw new Error('Task comment is empty')
+  if (comment.length > 16_000) throw new Error('Task comment exceeds 16 KiB limit')
+  const expectedFilename = canonicalBundleFilename(requestId)
+  const text = `USER COMMENT FOR THE ACTIVE WHARNESS TASK:
+${comment}
+
+Treat this as additional guidance for the SAME task and SAME request. Do not replace, cancel or downgrade the original deliverable. Continue the work and still return the required canonical bundle ${expectedFilename}.`
+  pendingChatGPTComments.set(key, { text, url: String(request?.url || ''), requestId, queuedAt: Date.now() })
+  await flushQueuedChatGPTComments()
+  return { ok: true, cacheKey: key, queued: pendingChatGPTComments.has(key), requestId }
+}
+
+async function flushQueuedChatGPTComments() {
+  for (const [key, pending] of pendingChatGPTComments) {
+    if (Date.now() - pending.queuedAt > 30 * 60 * 1000) { pendingChatGPTComments.delete(key); continue }
+    try {
+      const target = await targetChatGPTComposer(key, pending.url, true)
+      const ready = await target.wc.executeJavaScript(chatGPTComposerReadyScript(), true)
+      if (!ready) continue
+      const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(pending.text), true)
+      if (!filled) continue
+      const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+      await wait(80)
+      await submitChatGPTDraft(key)
+      pendingChatGPTComments.delete(key)
+      if (expectedChatGPTBundles.has(key)) armExpectedChatGPTBundle(key, pending.requestId, assistantBaseline)
+      touchChatGPTEntry(target.entry)
+      mainWindow?.webContents.send('wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId })
+    } catch (error) {
+      console.warn(`[chatgpt-comment] queued key=${key} error=${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
+async function pollChatGPTVisibleActivity() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  for (const [key, entry] of chatgptViews) {
+    const wc = entry.view.webContents
+    if (wc.isDestroyed() || !isTrustedChatGPTOrigin(wc.getURL())) continue
+    try {
+      const activity = await wc.executeJavaScript(chatGPTVisibleActivityScript(), true)
+      const normalized = { cacheKey: key, state: activity?.state === 'thinking' ? 'thinking' : 'idle', text: String(activity?.text || '').trim(), capturedAt: String(activity?.capturedAt || new Date().toISOString()) }
+      const fingerprint = `${normalized.state}:${normalized.text}`
+      if (chatGPTActivityFingerprints.get(key) === fingerprint) continue
+      chatGPTActivityFingerprints.set(key, fingerprint)
+      mainWindow.webContents.send('wharness:chatgpt:activity', normalized)
+    } catch { /* best-effort visible DOM telemetry */ }
+  }
+}
+
 async function pollExpectedChatGPTDownloads() {
   const now = Date.now()
   for (const [key, expected] of expectedChatGPTBundles) {
+    if (pendingChatGPTComments.has(key)) continue
     if (now - expected.armedAt > EXPECTED_BUNDLE_TTL_MS) {
       expectedChatGPTBundles.delete(key)
       continue
@@ -1236,6 +1294,10 @@ function registerIPC() {
     trustedSender(event)
     return submitPreparedChatGPTDraft(request?.cacheKey)
   })
+  ipcMain.handle('wharness:chatgpt:queue-comment', async (event, request) => {
+    trustedSender(event)
+    return queueChatGPTComment(request)
+  })
   ipcMain.handle('wharness:data:storage', async (event) => { trustedSender(event); return desktopStorageUsage() })
   ipcMain.handle('wharness:data:export-browser-session', async (event) => { trustedSender(event); return exportBrowserSession() })
   ipcMain.handle('wharness:data:import-browser-session', async (event) => { trustedSender(event); return importBrowserSession() })
@@ -1349,7 +1411,7 @@ app.whenReady().then(async () => {
 
   console.log(`ChatGPT compatibility UA: Chrome/${CHATGPT_CHROMIUM_VERSION}`)
   registerIPC()
-  chatGPTDownloadPoller = setInterval(() => { void pollExpectedChatGPTDownloads() }, DOM_DOWNLOAD_POLL_MS)
+  chatGPTDownloadPoller = setInterval(() => { void pollExpectedChatGPTDownloads(); void flushQueuedChatGPTComments(); void pollChatGPTVisibleActivity() }, DOM_DOWNLOAD_POLL_MS)
   createWindow()
 })
 

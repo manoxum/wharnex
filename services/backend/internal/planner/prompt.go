@@ -62,6 +62,8 @@ EXECUTION RULES FOR CHANGE:
 - Network must be false unless absolutely necessary for a CHANGE; setting it true causes explicit policy handling. Workflow network is always false.
 - Verification must include the smallest relevant tests and, when practical, broader quality gates.
 - Do not place secrets in patches, commands, summaries, messages, or logs.
+- Git requests are valid CHANGE requests. Use argv-only git commands. Read-only git inspection may run normally; git mutations such as add, commit, branch, switch, merge, rebase, revert, restore, tag and stash require explicit user approval. Remote fetch/pull/push MUST set network=true. Never request git clean, reset --hard, force push, credential/config manipulation, or destructive flags.
+- For every CHANGE, turn.message MUST contain a concise Markdown section ## TODO with a checklist of the implementation units. Mark items [x] when included in the delivered bundle and leave [ ] only for intentionally deferred work, explaining why. This checklist is the user-visible progress contract.
 - If the request cannot be safely fulfilled, return blocked and explain briefly.
 
 EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
@@ -119,6 +121,21 @@ EXPECTED_FILE: wharness-bundle-%s.zip
 Do not answer this request with normal chat prose. Build the required ZIP, self-check it, attach exactly that file, and finish.
 
 `, req.RequestID)
+	planningMode := req.PlanningMode
+	if planningMode == "" {
+		planningMode = "direct"
+	}
+	if planningMode == "plan_first" {
+		header += `REQUEST STRATEGY: PLAN_FIRST
+This turn is planning-only. Produce a concrete implementation proposal with a ## TODO checklist, affected areas, risks, verification and trade-offs. Return a terminal answer/investigation bundle only: turn.json + README.md, with NO plan.json and NO patches/. Do NOT implement or mutate anything yet. Wharness will present the proposal to the user and a separate approved request will ask for implementation.
+
+`
+	} else {
+		header += `REQUEST STRATEGY: DIRECT
+For explicit CHANGE requests, implement the requested change in this turn and include the required ## TODO checklist in turn.message.
+
+`
+	}
 	manifestForPlanner := req.ContextManifest
 	// Structured exclusion details exist for local audit/UI inspection. The
 	// legacy exclusion summary is sufficient for the model and avoids sending

@@ -141,6 +141,7 @@ export type Session = {
   repair_parent_plan_id?: string
   last_repair_error?: string
   workflow_round?: number
+  last_request_mode?: ChatRequestMode
 }
 
 export type HarnessEvent = {
@@ -195,6 +196,11 @@ export type WorkspaceMode = 'editor' | 'agent'
 
 export type ChatArtifactKind = 'context' | 'prompt' | 'result' | 'error'
 export type ChatArtifactSelection = Record<ChatArtifactKind, boolean>
+export type ChatRequestMode = 'direct' | 'plan_first'
+export type ChatItemSource = 'user' | 'chatgpt' | 'wharness'
+export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan'
+export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage: string; requestId: string }
+export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 export type ChatIterationRef = {
   id: string
   requestId: string
@@ -211,7 +217,7 @@ export type ChatAttachmentInfo = {
   previewKind?: 'thumbnail' | 'icon' | 'none'
 }
 
-export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef }
+export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef; source?: ChatItemSource; presentation?: ChatItemPresentation; approval?: ChatPlanApproval }
 
 export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number; restart_scheduled?: boolean; restart_required?: boolean }
 

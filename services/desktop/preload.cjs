@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     attachContext: (request) => invoke('wharness:chatgpt:attach-context', request),
     attachPrompt: (request) => invoke('wharness:chatgpt:attach-prompt', request),
     submitPrepared: (request) => invoke('wharness:chatgpt:submit-prepared', request),
+    queueComment: (request) => invoke('wharness:chatgpt:queue-comment', request),
     state: () => invoke('wharness:chatgpt:state'),
     setAuthMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-auth-mode', { cacheKey, mode }),
     startAuth: (cacheKey, mode) => invoke('wharness:chatgpt:start-auth', { cacheKey, mode }),
@@ -75,6 +76,18 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('wharness:chatgpt:bundle-download-error', handler)
       return () => ipcRenderer.removeListener('wharness:chatgpt:bundle-download-error', handler)
+    },
+    onActivity: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:chatgpt:activity', handler)
+      return () => ipcRenderer.removeListener('wharness:chatgpt:activity', handler)
+    },
+    onCommentSent: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:chatgpt:comment-sent', handler)
+      return () => ipcRenderer.removeListener('wharness:chatgpt:comment-sent', handler)
     },
   }),
   data: Object.freeze({

@@ -6,7 +6,7 @@ import { StatusPill } from './StatusPill'
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
 
-export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile }: {
+export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile, onActivity }: {
   suspended?: boolean
   busy: boolean
   chatId: string
@@ -15,6 +15,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   onChatGPTURL: (url: string) => boolean
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
+  onActivity?: (activity: DesktopChatGPTActivity) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const newChatSurfaceSeenRef = useRef(false)
@@ -23,6 +24,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const onURLRef = useRef(onChatGPTURL)
   const onPlanFileRef = useRef(onPlanFile)
   const onBundleFileRef = useRef(onBundleFile)
+  const onActivityRef = useRef(onActivity)
   const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false, authMode: 'external', authWindowOpen: false })
   const [notice, setNotice] = useState('')
   const [linkReady, setLinkReady] = useState(false)
@@ -38,7 +40,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     onURLRef.current = onChatGPTURL
     onPlanFileRef.current = onPlanFile
     onBundleFileRef.current = onBundleFile
-  }, [chatId, chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile])
+    onActivityRef.current = onActivity
+  }, [chatId, chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile, onActivity])
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return
@@ -94,9 +97,10 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       void onBundleFileRef.current(contentBase64, requestId, filename).then(setNotice).catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o bundle.'))
     })
     const unsubscribeBundleError = bridge.chatgpt.onBundleDownloadError(({ message }) => setNotice(message))
+    const unsubscribeActivity = bridge.chatgpt.onActivity((activity) => { if (!activity.cacheKey || activity.cacheKey === chatIdRef.current) onActivityRef.current?.(activity) })
     return () => {
       cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync)
-      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); void bridge.chatgpt.hide()
+      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); unsubscribeActivity(); void bridge.chatgpt.hide()
     }
   }, [bridge])
 

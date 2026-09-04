@@ -181,6 +181,7 @@ type Session struct {
 	RepairParentPlanID      string               `json:"repair_parent_plan_id,omitempty"`
 	LastRepairError         string               `json:"last_repair_error,omitempty"`
 	WorkflowRound           int                  `json:"workflow_round,omitempty"`
+	LastRequestMode         string               `json:"last_request_mode,omitempty"`
 }
 
 type Event struct {

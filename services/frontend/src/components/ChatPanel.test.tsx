@@ -82,7 +82,7 @@ describe('ChatPanel', () => {
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.change(screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…'), { target: { value: 'implementar' } })
     fireEvent.submit(view.container.querySelector('form')!)
-    expect(onSend).toHaveBeenCalledWith('implementar', [file], { context: false, prompt: true, result: false, error: false })
+    expect(onSend).toHaveBeenCalledWith('implementar', [file], { context: false, prompt: true, result: false, error: false }, 'direct')
   })
 
   it('adds files pasted from the operating-system clipboard', () => {
@@ -110,7 +110,7 @@ describe('ChatPanel', () => {
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} artifactSelection={{ context: true, prompt: true, result: false, error: false }} artifactRequired={{ context: true }} onSend={async () => undefined} {...chatActions} />,
     )
     const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…').closest('form')!
-    expect(composer.querySelector('.composer-artifact-strip')).toBeTruthy()
+    expect(composer.querySelector('.composer-action-row')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Contexto ZIP' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Prompt' }).getAttribute('aria-pressed')).toBe('true')
   })
@@ -125,4 +125,27 @@ describe('ChatPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Reabrir/ }))
     expect(onRestoreChat).toHaveBeenCalledWith('arch-1')
   })
+})
+
+
+it('supports plan-first and task comments from the bottom composer actions', async () => {
+  const onRequestMode = vi.fn()
+  const onComment = vi.fn(async () => undefined)
+  const view = render(
+    <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-active'], last_manual_prompt: 'prompt' }} items={[]} chats={[]} activeChatId="chat-1" busy={false} requestMode="plan_first" taskInFlight onRequestMode={onRequestMode} onComment={onComment} onSend={async () => undefined} {...chatActions} />,
+  )
+  const textarea = view.container.querySelector('textarea')!
+  expect(screen.getByText(/Comentário para a tarefa ativa/)).toBeTruthy()
+  fireEvent.change(textarea, { target: { value: 'mantenha também o teste de regressão' } })
+  fireEvent.submit(view.container.querySelector('form')!)
+  expect(onComment).toHaveBeenCalledWith('mantenha também o teste de regressão')
+})
+
+it('renders operational notices and visible ChatGPT activity differently from messages', () => {
+  render(<ChatPanel session={session} items={[
+    { id: 'notice', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Correção automática preparada.' },
+    { id: 'thought', role: 'harness', source: 'chatgpt', presentation: 'thought', text: 'A analisar os testes visíveis.' },
+  ]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />)
+  expect(document.querySelector('.chat-notice')).toBeTruthy()
+  expect(document.querySelector('.chat-thought')).toBeTruthy()
 })

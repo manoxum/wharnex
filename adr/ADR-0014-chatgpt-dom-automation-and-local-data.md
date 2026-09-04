@@ -43,3 +43,8 @@ The legacy Desktop manual fallback panel is removed. File-first request/bundle v
 Background Auto transport becomes independent of Inspector visibility and can recover an expected bundle as soon as its download control appears. The trade-off is a small DOM selector compatibility surface that can change with ChatGPT UI revisions; selectors must therefore stay minimal, covered by regression tests, and fail closed.
 
 Browser-session backups may contain authenticated browser material even though Wharness never decodes it. Users must protect those files like credentials. Full reset is destructive to Wharness state and therefore requires the literal confirmation `APAGAR WHARNESS`.
+### v1.2.27 visible activity and in-flight comments
+
+The narrow bridge may additionally observe **only activity/reasoning text that ChatGPT visibly renders in the current UI** together with the visible stop-generation state. Wharness may surface that material as ephemeral thought/activity in its own transcript. It must not infer, request or extract hidden chain-of-thought, inspect non-visible model state, read arbitrary page prose, cookies/storage, or broaden the download trust boundary.
+
+While the same Wharness request is in flight, the renderer may queue a user comment for that bound conversation. The main process submits a bounded text-only continuation only after the existing composer is ready and prefixes it with an invariant that preserves the same task/request and exact canonical bundle deliverable. The comment does not arm a new expected bundle or create a new planner request.

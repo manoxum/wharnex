@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTAssistantTurnCountScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chooseChatGPTDownloadCandidate } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chooseChatGPTDownloadCandidate } from './chatgpt-dom.mjs'
 
 test('DOM automation scripts stay narrow and escape user text', () => {
   const fill = chatGPTFillComposerScript('hello ` ${world} </script>')
@@ -10,6 +10,11 @@ test('DOM automation scripts stay narrow and escape user text', () => {
   assert.match(fill, /hello ` \$\{world\}/)
   assert.match(chatGPTFocusComposerScript(), /role=\\"textbox\\"|role="textbox"/)
   assert.match(chatGPTSubmitScript(), /send-button/)
+  assert.match(chatGPTComposerReadyScript(), /stop-button/)
+  const activity = chatGPTVisibleActivityScript()
+  assert.match(activity, /data-testid.*reason|reason/)
+  assert.match(activity, /thinking/)
+  assert.doesNotMatch(activity, /document\.cookie|localStorage|sessionStorage|fetch\(/)
 })
 
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {

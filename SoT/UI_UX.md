@@ -66,3 +66,11 @@ Every sent or received Harness transcript message displays a local date/time and
 - `Prompt` is the semantic core of a ChatGPT-bound planner turn; required/automatic artefacts must be visually distinguishable from optional user-selected artefacts without relying only on colour.
 - The default interface typography scale is 110% for legibility. Settings expose bounded UI scale (90%-130%) plus curated interface and monospace font stacks, persisted only in Wharness local UI state.
 - A successful self-evolution host build MUST present a confirmation modal instead of restarting immediately. Dismissing the modal leaves a persistent compact restart-required indicator that reopens the confirmation. The pending transaction remains rollback-capable until restart is scheduled.
+## Conversational semantics, planning and activity (v1.2.27)
+
+- The composer action rail sits at the **bottom inside the composer**. Artefact/file/Plan-first controls are compact circular buttons; selected and automatic states must remain understandable through shape/marker/tooltip as well as colour.
+- Transcript surfaces distinguish `user`, `chatgpt` and `wharness`. Lifecycle automation text is a lightweight notice, visible ChatGPT processing/reasoning is a thought/activity surface, and neither is styled as an ordinary conversational bubble.
+- Plan-first is an explicit composer mode. A planning turn cannot execute or carry patches. The resulting proposal is rendered as a plan card with reject and approve-to-implement actions. Approval creates a new direct request; rejecting it leaves the project untouched.
+- While a ChatGPT-bound request is active, normal composer submission becomes a task comment. The UI makes the mode clear and comments do not replace the task, request identity or required canonical bundle.
+- Every implementation response exposes a `## TODO` checklist in the ChatGPT message so the user can see completed/deferred units directly in the Wharness transcript.
+- The Execution timeline keeps command output adjacent to its command. Streamed stdout/stderr is inserted immediately after the corresponding command event; final command payload output is only used as a fallback when streaming was absent.

@@ -848,6 +848,32 @@ func TestAutoWorkflowBundleExecutesSandboxAndPreparesSameConversationContinuatio
 	}
 }
 
+func TestPlanFirstRejectsImplementationBundleUntilUserApproval(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessageWithMode(context.Background(), started.ID, "refactor UI", "plan_first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompted.LastRequestMode != "plan_first" {
+		t.Fatalf("planning mode not persisted: %#v", prompted)
+	}
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makeExecutionBundle(t, prompted.LastRequestID)); err == nil || !strings.Contains(err.Error(), "plan-first") {
+		t.Fatalf("expected plan-first implementation rejection, got %v", err)
+	}
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AutoExecuted || result.AutoApplied || result.Session.State != "answered" {
+		t.Fatalf("plan proposal must stay terminal: %#v", result)
+	}
+}
+
 func TestAutoAnswerBundleDoesNotExecuteOrApply(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})

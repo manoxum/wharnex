@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
-import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatItem, ChatIterationRef, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
+import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { ChatPanel } from './components/ChatPanel'
 import { Inspector } from './components/Inspector'
@@ -387,7 +387,7 @@ export default function App() {
     updateChat({ lastContextSha256: sha256, lastContextChatgptUrl: conversationUrl || chats.find((chat) => chat.id === activeChatId)?.chatgptUrl })
   }
 
-  async function send(message: string, attachments: File[], artifacts: ChatArtifactSelection) {
+  async function send(message: string, attachments: File[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode = 'direct') {
     if (!session) return
     if (attachments.length && (!isDesktop() || config?.planner !== 'manual')) {
       setError('Anexos diretos requerem o Wharness Desktop com o planner manual.')
@@ -418,17 +418,20 @@ export default function App() {
       }
     }
 
-    const userItem: ChatItem = { id: messageId, role: 'user', text: message, createdAt: new Date().toISOString(), attachments: persistedAttachments }
+    const userItem: ChatItem = { id: messageId, role: 'user', source: 'user', text: message, createdAt: new Date().toISOString(), attachments: persistedAttachments }
     setItems((current) => [...current, userItem])
     if (activeChat.title === 'Novo chat' || activeChat.title === 'Chat principal') updateChat({ title: deriveChatTitle(message) })
     try {
-      const response = await api.message(session.id, message + attachmentPromptSuffix(attachments))
+      const response = await api.message(session.id, message + attachmentPromptSuffix(attachments), requestMode)
       setSession(response.session); updateChat({ sessionId: response.session.id })
       const prompt = response.manual_prompt || response.session.last_manual_prompt || ''
       const turn = response.session.last_turn || response.turn
       const requestId = response.session.last_request_id || turn?.request_id || ''
       setManualPrompt(prompt)
-      if (requestId) setItems((current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, 'outbound', selectedArtifactKinds(artifacts)) } : item))
+      if (requestId) {
+        setItems((current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, 'outbound', selectedArtifactKinds(artifacts)) } : item))
+        updateWorkspaceChat(activeChat.id, response.session.project_path, { requestMode, pendingPlan: requestMode === 'plan_first' ? { requestId, originalMessage: message } : undefined })
+      }
       let draftCount = 0
       let autoSubmitted = false
       let transportFailure = ''
@@ -462,10 +465,14 @@ export default function App() {
           transportFailure = messageOf(prepareError)
         }
       }
+      const immediateConversationalTurn = Boolean(turn && turn.kind !== 'change' && turn.kind !== 'workflow')
       setItems((current) => [...current, {
-        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
-        text: turn && turn.kind !== 'change'
-          ? turn.message
+        id: crypto.randomUUID(), role: 'harness',
+        source: immediateConversationalTurn ? 'chatgpt' : 'wharness',
+        presentation: immediateConversationalTurn ? 'message' : 'notice',
+        createdAt: new Date().toISOString(),
+        text: immediateConversationalTurn
+          ? turn!.message
           : response.session.plan
             ? (turn?.message || response.session.plan.summary)
           : transportFailure
@@ -475,12 +482,12 @@ export default function App() {
             : draftCount
               ? 'A preparação foi enviada ao composer do ChatGPT. Verifique visualmente se o prompt e os anexos aparecem antes de confirmar o envio.'
               : 'Prompt do planner preparado. No ChatGPT, gere o bundle ZIP solicitado e clique em Download; o Desktop irá importá-lo automaticamente.',
-        meta: turn && turn.kind !== 'change' ? turnMeta(turn.kind) : (response.session.state === 'applied' ? 'AUTO · Host aplicado' : (response.session.plan ? `Plano ${response.session.plan.plan_id}` : (autoSubmitted ? `${draftCount} anexo(s) transportados · aguardando resultado ZIP` : (draftCount ? `${draftCount} anexo(s) preparados · aguardando confirmação` : 'Aguardando resultado externo')))),
+        meta: immediateConversationalTurn ? turnMeta(turn!.kind) : (response.session.state === 'applied' ? 'AUTO · Host aplicado' : (response.session.plan ? `Plano ${response.session.plan.plan_id}` : (autoSubmitted ? `${draftCount} anexo(s) transportados · aguardando resultado ZIP` : (draftCount ? `${draftCount} anexo(s) preparados · aguardando confirmação` : 'Aguardando resultado externo')))),
         turnKind: turn?.kind,
       }])
     } catch (e) {
       const msg = messageOf(e); setError(msg)
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `Falha no planeamento: ${msg}` }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Falha no planeamento: ${msg}` }])
     } finally { setBusy(false) }
   }
 
@@ -493,7 +500,7 @@ export default function App() {
       const submitted = await bridge.chatgpt.submitPrepared({ cacheKey: activeChatId })
       if (submitted.conversationUrl) bindChatGPTURL(submitted.conversationUrl)
       setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -506,7 +513,7 @@ export default function App() {
     setBusy(true); setError(undefined)
     try {
       const updated = await api.manualPlan(session.id, raw)
-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' }])
+      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -537,7 +544,7 @@ export default function App() {
 
       const updated = await api.manualPlan(targetSession.id, raw)
       const planItem: ChatItem = {
-        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: updated.plan?.summary || 'Plano importado do ficheiro JSON.',
         meta: updated.policy?.allowed ? 'Ficheiro importado · Policy validada' : 'Ficheiro importado · Policy bloqueou o plano',
       }
@@ -599,8 +606,10 @@ export default function App() {
                 ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
                 : 'Bundle ZIP importado e plano validado.'
       const conversational = updated.last_turn && updated.last_turn.kind !== 'change' && updated.last_turn.kind !== 'workflow'
+      const isPlanProposal = Boolean(conversational && targetChat.pendingPlan?.requestId === updated.last_turn?.request_id)
       const bundleItem: ChatItem = {
-        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: submission.policy_blocked ? autoText : (submission.workflow_executed ? autoText : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText))),
+        id: crypto.randomUUID(), role: 'harness', source: submission.policy_blocked || submission.workflow_executed ? 'wharness' : 'chatgpt', presentation: isPlanProposal ? 'plan' : (submission.policy_blocked || submission.workflow_executed ? 'notice' : 'message'), createdAt: new Date().toISOString(), text: submission.policy_blocked ? autoText : (submission.workflow_executed ? autoText : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText))),
+        approval: isPlanProposal && targetChat.pendingPlan ? { status: 'pending', requestId: targetChat.pendingPlan.requestId, originalMessage: targetChat.pendingPlan.originalMessage } : undefined,
         meta: submission.policy_blocked
           ? `Policy bloqueada${submission.repair_prepared ? ' · reparação automática preparada' : ''}`
           : submission.workflow_prepared || submission.workflow_executed
@@ -650,7 +659,7 @@ export default function App() {
         if (active) updateWorkspaceChat(active.id, response.session.project_path, { artifactSelection: { ...active.artifactSelection, result: true, error: !ok } })
       }
       setItems((current) => [...current, {
-        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
         meta: direct && ok ? 'Host alterado diretamente' : (warnings.length ? `${warnings.length} dívida(s) pré-existente(s)` : undefined),
       }])
@@ -703,7 +712,7 @@ export default function App() {
   async function submitWorkflowPrompt(workflowSession: Session, targetChat: WorkspaceChat): Promise<boolean> {
     const round = workflowSession.workflow_round || 1
     appendChatItem(targetChat, workflowSession.project_path, {
-      id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+      id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
       text: `O Wharness terminou o passo local ${round}/6 e vai devolver stdout, stderr e códigos de saída ao mesmo ChatGPT para decidir o próximo passo.`,
       meta: workflowSession.last_request_id ? `Workflow ${round}/6 · ${workflowSession.last_request_id}` : `Workflow ${round}/6`,
       turnKind: 'workflow',
@@ -712,7 +721,7 @@ export default function App() {
     try {
       const prepared = await transportPlannerContinuation(workflowSession, targetChat)
       appendChatItem(targetChat, workflowSession.project_path, {
-        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: prepared.submitted
           ? 'Resultados locais submetidos automaticamente ao ChatGPT. O Wharness aguarda a próxima decisão ou o encerramento do fluxo.'
           : 'A continuação foi preparada no ChatGPT, mas ainda precisa de confirmação manual.',
@@ -723,7 +732,7 @@ export default function App() {
       return prepared.submitted
     } catch (sendError) {
       appendChatItem(targetChat, workflowSession.project_path, {
-        id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: `O passo local terminou, mas não foi possível devolver os resultados automaticamente ao ChatGPT: ${messageOf(sendError)}`,
         meta: `Workflow ${round}/6 · abra a aba ChatGPT`,
         turnKind: 'workflow',
@@ -738,16 +747,16 @@ export default function App() {
     if (!repairPrompt) return
     const attempt = failedSession.repair_attempt || 1
     appendChatItem(targetChat, failedSession.project_path, {
-      id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(),
+      id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
       text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
       iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'repair', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined,
     })
     try {
       const prepared = await transportPlannerContinuation(failedSession, targetChat)
-      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.', meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
+      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.', meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (sendError) {
-      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT para retomar', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'failed', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined })
+      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT para retomar', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'failed', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined })
     }
   }
 
@@ -759,7 +768,7 @@ export default function App() {
       setSession(updated)
       markContextDirtyForOtherChats(updated.project_path, activeChatId)
       if (updated.self_evolution && updated.state === 'restart_pending') setRestartModalOpen(true)
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -782,7 +791,7 @@ export default function App() {
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, next, nextAutomation) } catch { /* stale chat is repaired on selection */ }
       }))
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -798,7 +807,7 @@ export default function App() {
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, nextExecution, next) } catch { /* stale chat is repaired on selection */ }
       }))
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -808,9 +817,52 @@ export default function App() {
     try {
       const updated = await api.restartSelfEvolution(session.id)
       setSession(updated); setRestartModalOpen(false)
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', createdAt: new Date().toISOString(), text: 'Reinício confirmado. O supervisor transacional vai reiniciar o Wharness e validar o novo runtime; se falhar, restaura automaticamente a versão anterior.', meta: 'AUTO-EVOLUÇÃO · reinício confirmado' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'Reinício confirmado. O supervisor transacional vai reiniciar o Wharness e validar o novo runtime; se falhar, restaura automaticamente a versão anterior.', meta: 'AUTO-EVOLUÇÃO · reinício confirmado' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
+
+  async function commentOnActiveTask(message: string) {
+    if (!session) return
+    const active = chats.find((chat) => chat.id === activeChatId)
+    const requestId = session.last_request_id || active?.pendingPlan?.requestId || ''
+    if (!active || !requestId) throw new Error('Nenhuma tarefa ChatGPT ativa para comentar.')
+    const bridge = desktopBridge()
+    if (!bridge) throw new Error('Comentários de tarefa requerem Wharness Desktop.')
+    const result = await bridge.chatgpt.queueComment({ cacheKey: active.id, text: message, url: active.chatgptUrl, requestId })
+    const item: ChatItem = { id: crypto.randomUUID(), role: 'user', source: 'user', text: message, createdAt: new Date().toISOString(), meta: result.queued ? 'Comentário em fila para a tarefa ativa' : 'Comentário enviado à tarefa ativa', iteration: iterationRef(requestId, 'submitted', ['prompt'], active.chatgptUrl) }
+    appendChatItem(active, session.project_path, item)
+  }
+
+  function handleChatGPTActivity(activity: ChatGPTActivity) {
+    const active = chats.find((chat) => chat.id === activeChatId)
+    if (!active || (activity.cacheKey && activity.cacheKey !== active.id)) return
+    const requestId = session?.last_request_id || ''
+    const thoughtId = `chatgpt-thought:${requestId || active.id}`
+    setItems((current) => {
+      const without = current.filter((item) => item.id !== thoughtId)
+      if (activity.state !== 'thinking' && !activity.text) return without
+      const text = activity.text || 'ChatGPT está a processar a tarefa…'
+      return [...without, { id: thoughtId, role: 'harness', source: 'chatgpt', presentation: 'thought', text, createdAt: activity.capturedAt, meta: 'Conteúdo/estado visível na interface do ChatGPT' }]
+    })
+  }
+
+  async function approvePlanProposal(item: ChatItem) {
+    if (!item.approval || item.approval.status !== 'pending') return
+    const active = chats.find((chat) => chat.id === activeChatId)
+    if (!active) return
+    setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'approved' } } : entry))
+    updateChat({ pendingPlan: undefined, requestMode: 'direct' })
+    await send(`Plano aprovado. Implemente agora o plano proposto para o pedido original: ${item.approval.originalMessage}
+
+Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bundle canónico de implementação.`, [], { context: true, prompt: true, result: false, error: false }, 'direct')
+  }
+
+  function rejectPlanProposal(item: ChatItem) {
+    setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'rejected' } } : entry))
+    updateChat({ pendingPlan: undefined, requestMode: 'direct' })
+  }
+
+  function changeRequestMode(mode: ChatRequestMode) { updateChat({ requestMode: mode }) }
 
   async function refreshSession() {
     if (!session) return
@@ -827,6 +879,7 @@ export default function App() {
     result: Boolean(activeChat?.artifactSelection?.result),
     error: errorArtifactRequired || Boolean(activeChat?.artifactSelection?.error),
   }
+  const taskInFlight = Boolean(session.pending_manual_request_ids?.length && session.last_manual_prompt && !preparedDrafts[activeChatId])
   const restartPending = Boolean(session.self_evolution && session.state === 'restart_pending')
   return <main className="workspace-root">
     <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
@@ -836,8 +889,8 @@ export default function App() {
     {mode === 'editor'
       ? <EditorWorkspace session={session} onError={setError} />
       : <div className="agent-workspace">
-          <ChatPanel session={session} items={items} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} artifactSelection={composerArtifacts} artifactRequired={{ context: contextArtifactRequired, error: errorArtifactRequired }} onToggleArtifact={toggleComposerArtifact} onSend={send} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onArchiveChat={archiveChat} onRestoreChat={restoreArchivedChat} onDeleteArchivedChat={deleteArchivedChat} />
-          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={bindChatGPTURL} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
+          <ChatPanel session={session} items={items} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} artifactSelection={composerArtifacts} artifactRequired={{ context: contextArtifactRequired, error: errorArtifactRequired }} requestMode={activeChat?.requestMode || 'direct'} taskInFlight={taskInFlight} onToggleArtifact={toggleComposerArtifact} onRequestMode={changeRequestMode} onSend={send} onComment={commentOnActiveTask} onApprovePlan={approvePlanProposal} onRejectPlan={rejectPlanProposal} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onArchiveChat={archiveChat} onRestoreChat={restoreArchivedChat} onDeleteArchivedChat={deleteArchivedChat} />
+          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={bindChatGPTURL} onChatGPTActivity={handleChatGPTActivity} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
         </div>}
   </main>
 }
@@ -911,7 +964,7 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
 }
 
 function welcomeItem(session: Session): ChatItem {
-  return { id: 'welcome', role: 'harness', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharness. Mudanças permanecem Protected e, após Apply + build do host, o Wharness pede confirmação antes de reiniciar; o rollback continua disponível até a nova versão ficar saudável.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+  return { id: 'welcome', role: 'harness', source: 'wharness', presentation: 'notice', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharness. Mudanças permanecem Protected e, após Apply + build do host, o Wharness pede confirmação antes de reiniciar; o rollback continua disponível até a nova versão ficar saudável.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
 }
 
 function messageOf(error: unknown) {

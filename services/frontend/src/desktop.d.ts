@@ -9,6 +9,8 @@ type DesktopPlanDownload = { filename: string; requestId: string; text: string; 
 type DesktopPlanDownloadError = { filename?: string; message: string }
 type DesktopBundleDownload = { filename: string; requestId: string; contentBase64: string; bytes: number; sourceFilename?: string; normalizedFilename?: boolean }
 type DesktopBundleDownloadError = { filename?: string; message: string }
+type DesktopChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
+type DesktopChatGPTCommentStatus = { cacheKey?: string; requestId: string }
 type DesktopUserAttachment = { name: string; mime?: string; contentBase64: string }
 type DesktopStoredAttachment = { name: string; size: number; mime: string; storageRef: string; previewKind: 'thumbnail' | 'icon' | 'none' }
 type DesktopAttachmentPreview = { available: boolean; dataUrl: string; previewKind: 'thumbnail' | 'icon' | 'none' }
@@ -35,6 +37,7 @@ interface WharnessDesktopBridge {
     attachContext(request: { cacheKey: string; sessionId: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
     attachPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
     submitPrepared(request: { cacheKey: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string; conversationUrl?: string }>
+    queueComment(request: { cacheKey: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; queued: boolean; requestId: string }>
     state(): Promise<DesktopChatGPTState>
     setAuthMode(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
@@ -49,6 +52,8 @@ interface WharnessDesktopBridge {
     onPlanDownloadError(callback: (error: DesktopPlanDownloadError) => void): () => void
     onBundleDownloaded(callback: (bundle: DesktopBundleDownload) => void): () => void
     onBundleDownloadError(callback: (error: DesktopBundleDownloadError) => void): () => void
+    onActivity(callback: (activity: DesktopChatGPTActivity) => void): () => void
+    onCommentSent(callback: (status: DesktopChatGPTCommentStatus) => void): () => void
   }
   data: {
     storage(): Promise<DesktopStorageUsage>

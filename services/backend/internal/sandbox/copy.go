@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,21 @@ func copyProject(source string) (Workspace, error) {
 	tmp, err := os.MkdirTemp("", "kernl-workspace-*")
 	if err != nil {
 		return Workspace{}, err
+	}
+	tracked, err := isGitWorkTree(root)
+	if err != nil {
+		_ = os.RemoveAll(tmp)
+		return Workspace{}, fmt.Errorf("inspect source git repository: %w", err)
+	}
+	if tracked {
+		if err := cloneGitBaseline(root, tmp); err != nil {
+			_ = os.RemoveAll(tmp)
+			return Workspace{}, fmt.Errorf("clone sandbox git baseline: %w", err)
+		}
+		if err := clearSandboxWorkTree(tmp); err != nil {
+			_ = os.RemoveAll(tmp)
+			return Workspace{}, fmt.Errorf("clear sandbox worktree: %w", err)
+		}
 	}
 	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -58,11 +74,124 @@ func copyProject(source string) (Workspace, error) {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("copy project: %w", err)
 	}
-	if err := initializeWorkspaceGit(tmp); err != nil {
+	if tracked {
+		if err := configureSandboxGitRemotes(root, tmp); err != nil {
+			_ = os.RemoveAll(tmp)
+			return Workspace{}, fmt.Errorf("configure sandbox git remotes: %w", err)
+		}
+	} else if err := initializeWorkspaceGit(tmp); err != nil {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
 	}
 	return Workspace{Path: tmp, SourcePath: root}, nil
+}
+
+func isGitWorkTree(root string) (bool, error) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return false, errors.New("git executable not found")
+	}
+	cmd := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+		return false, err
+	}
+	return strings.TrimSpace(string(output)) == "true", nil
+}
+
+func cloneGitBaseline(source, dest string) error {
+	cmd := exec.Command("git", "clone", "-q", "--local", "--no-hardlinks", source, dest)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git clone: %s", strings.TrimSpace(string(output)))
+	}
+	// A clone creates fresh repository metadata and does not copy source hooks or
+	// arbitrary local config. Keep signing and hooks disabled inside Protected.
+	for _, args := range [][]string{{"config", "commit.gpgSign", "false"}, {"config", "tag.gpgSign", "false"}, {"config", "--unset-all", "core.hooksPath"}} {
+		cmd := exec.Command("git", append([]string{"-C", dest}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		if output, err := cmd.CombinedOutput(); err != nil && !(len(args) > 1 && args[0] == "config" && args[1] == "--unset-all") {
+			return fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(string(output)))
+		}
+	}
+	return nil
+}
+
+func clearSandboxWorkTree(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() == ".git" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func configureSandboxGitRemotes(source, dest string) error {
+	cmd := exec.Command("git", "-C", source, "remote")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+	sourceRemotes := map[string]string{}
+	for _, name := range strings.Fields(string(output)) {
+		urlCmd := exec.Command("git", "-C", source, "remote", "get-url", name)
+		urlCmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		raw, urlErr := urlCmd.Output()
+		if urlErr != nil {
+			continue
+		}
+		if safe, ok := safeSandboxRemoteURL(strings.TrimSpace(string(raw))); ok {
+			sourceRemotes[name] = safe
+		}
+	}
+	current := exec.Command("git", "-C", dest, "remote")
+	current.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	currentOutput, _ := current.Output()
+	currentRemotes := map[string]bool{}
+	for _, name := range strings.Fields(string(currentOutput)) {
+		currentRemotes[name] = true
+	}
+	for name := range currentRemotes {
+		if _, ok := sourceRemotes[name]; ok {
+			continue
+		}
+		remove := exec.Command("git", "-C", dest, "remote", "remove", name)
+		remove.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		_ = remove.Run()
+	}
+	for name, remoteURL := range sourceRemotes {
+		var remoteCmd *exec.Cmd
+		if currentRemotes[name] {
+			remoteCmd = exec.Command("git", "-C", dest, "remote", "set-url", name, remoteURL)
+		} else {
+			remoteCmd = exec.Command("git", "-C", dest, "remote", "add", name, remoteURL)
+		}
+		remoteCmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		if output, err := remoteCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("configure remote %s: %s", name, strings.TrimSpace(string(output)))
+		}
+	}
+	return nil
+}
+
+func safeSandboxRemoteURL(raw string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return "", false
+	}
+	return parsed.String(), true
 }
 
 func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec) error {

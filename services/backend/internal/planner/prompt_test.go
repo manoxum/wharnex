@@ -98,3 +98,21 @@ func TestBuildManualPromptDeclaresSelfEvolutionModeAndLifecycleOwnership(t *test
 		}
 	}
 }
+
+func TestBuildManualPromptPlanFirstIsPlanningOnly(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-plan-first", Message: "refactor", PlanningMode: "plan_first"})
+	for _, want := range []string{"REQUEST STRATEGY: PLAN_FIRST", "NO plan.json", "NO patches/", "## TODO", "separate approved request"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("plan-first prompt missing %q", want)
+		}
+	}
+}
+
+func TestBuildManualPromptDocumentsGitAndTodoContract(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-git", Message: "commit e push"})
+	for _, want := range []string{"Git requests are valid CHANGE requests", "Remote fetch/pull/push MUST set network=true", "force push", "## TODO"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("git/TODO prompt missing %q", want)
+		}
+	}
+}
