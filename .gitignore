@@ -12,3 +12,5 @@ services/frontend/test-results/
 *.rej
 kernl-context-*/
 kernl-context-*.zip
+wharness-bundle-*/
+wharness-bundle-*.zip

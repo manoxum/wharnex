@@ -55,6 +55,45 @@ func (r *HostRunner) ApplyPatch(ctx context.Context, workspace Workspace, patch 
 	return applyPatchWithStrategies(ctx, workspace, patch, path, 60, r.Run)
 }
 
+func (r *HostRunner) ReversePatch(ctx context.Context, workspace Workspace, patch string) (domain.CommandResult, error) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return domain.CommandResult{}, errors.New("git executable not found")
+	}
+	file, err := os.CreateTemp("", "wharness-host-revert-*.diff")
+	if err != nil {
+		return domain.CommandResult{}, err
+	}
+	path := file.Name()
+	if _, err := file.WriteString(patch); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return domain.CommandResult{}, err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return domain.CommandResult{}, err
+	}
+	defer os.Remove(path)
+	check := domain.CommandSpec{Argv: []string{"git", "apply", "--reverse", "--check", path}, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}}
+	checked, err := r.Run(ctx, workspace, check)
+	if err != nil || !checked.Success {
+		if err != nil {
+			return checked, err
+		}
+		return checked, fmt.Errorf("reverse patch check failed: %s", commandDiagnostic(checked))
+	}
+	apply := check
+	apply.Argv = []string{"git", "apply", "--reverse", path}
+	result, err := r.Run(ctx, workspace, apply)
+	if err != nil {
+		return result, err
+	}
+	if !result.Success {
+		return result, fmt.Errorf("reverse patch failed: %s", commandDiagnostic(result))
+	}
+	return result, nil
+}
+
 func (r *HostRunner) Run(ctx context.Context, workspace Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
 	return r.RunStreaming(ctx, workspace, command, nil)
 }

@@ -11,7 +11,7 @@ import { WorkspaceExplorer } from './WorkspaceExplorer'
 type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
 
-export function EditorWorkspace({ session, onError }: { session: Session; onError: (message: string) => void }) {
+export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: { session: Session; onError: (message: string) => void; openPath?: string; openNonce?: number }) {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [documents, setDocuments] = useState<EditorDocument[]>([])
   const documentsRef = useRef<EditorDocument[]>([])
@@ -58,6 +58,11 @@ export function EditorWorkspace({ session, onError }: { session: Session; onErro
       setCursor({ line: 1, column: 1 })
     } catch (error) { onError(messageOf(error)) }
   }
+
+  useEffect(() => {
+    if (openPath && openNonce) void openFile(openPath)
+    // openFile intentionally reads the latest document state for explicit cross-mode navigation.
+  }, [openPath, openNonce])
 
   async function save(path = activePath) {
     const document = documents.find((item) => item.path === path)

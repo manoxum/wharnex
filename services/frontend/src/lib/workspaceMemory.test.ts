@@ -99,3 +99,13 @@ describe('workspace memory', () => {
     expect(deriveChatTitle('x'.repeat(80)).length).toBeLessThanOrEqual(46)
   })
 })
+
+describe('composer draft memory', () => {
+  it('persists text and bounded composer height per chat', async () => {
+    const memory = await import('./workspaceMemory')
+    memory.saveComposerDraft('/p', 'chat-a', { message: 'Olá mundo', height: 999 })
+    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'Olá mundo', height: 420 })
+    memory.clearComposerDraft('/p', 'chat-a')
+    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: '', height: 156 })
+  })
+})

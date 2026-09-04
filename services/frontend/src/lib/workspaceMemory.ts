@@ -214,3 +214,27 @@ function compactEventData(data: Record<string, unknown>) {
   }
   return compact
 }
+
+const COMPOSER_DRAFT_PREFIX = 'kernl.workspace.composer-draft.v1:'
+export type ComposerDraft = { message: string; height: number }
+
+export function loadComposerDraft(projectPath: string, chatId: string): ComposerDraft {
+  try {
+    const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`)
+    const value = raw ? JSON.parse(raw) as Partial<ComposerDraft> : {}
+    return { message: typeof value.message === 'string' ? value.message : '', height: normalizeComposerHeight(value.height) }
+  } catch { return { message: '', height: 156 } }
+}
+
+export function saveComposerDraft(projectPath: string, chatId: string, draft: ComposerDraft) {
+  try { localStorage.setItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`, JSON.stringify({ message: draft.message.slice(0, 20000), height: normalizeComposerHeight(draft.height) })) } catch { /* best effort */ }
+}
+
+export function clearComposerDraft(projectPath: string, chatId: string) {
+  try { localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`) } catch { /* best effort */ }
+}
+
+function normalizeComposerHeight(value: unknown) {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.min(420, Math.max(118, Math.round(number))) : 156
+}

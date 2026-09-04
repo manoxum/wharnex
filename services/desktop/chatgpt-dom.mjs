@@ -83,7 +83,7 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
     const choose = ${choose};
     const assistantTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
     const latestAssistant = assistantTurns.length > baseline ? assistantTurns[assistantTurns.length - 1] : null;
-    const nodes = [...document.querySelectorAll('a[download], a[href], button')];
+    const nodes = [...document.querySelectorAll('a[download], a[href], button, [role="button"], [data-testid*="download"]')];
     const visible = (node) => {
       const rects = typeof node.getClientRects === 'function' ? node.getClientRects() : [];
       return Boolean(node.offsetWidth || node.offsetHeight || rects?.length);
@@ -91,7 +91,9 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
     const candidates = nodes.map((node, index) => {
       const href = String(node.getAttribute?.('href') || '');
       const ownText = String(node.textContent || '').trim();
-      const metadata = [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), href, ownText].filter(Boolean).join(' ');
+      const card = node.closest?.('[data-testid*="file"], [data-testid*="attachment"], [class*="file"], [class*="attachment"]');
+      const nearbyText = card && latestAssistant?.contains(card) ? String(card.textContent || '').trim().slice(0, 1200) : '';
+      const metadata = [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), node.getAttribute?.('data-testid'), href, ownText, nearbyText].filter(Boolean).join(' ');
       const normalized = metadata.toLowerCase();
       return {
         index,
@@ -114,13 +116,20 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
 
 export function chatGPTComposerReadyScript() {
   return `(() => {
-    const stop = document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"]');
-    if (stop) return false;
     const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
     if (!composer) return false;
-    const root = composer.closest?.('form') || document;
-    const button = ['button[data-testid="send-button"]','button[aria-label*="Send"]','button[aria-label*="Enviar"]','button[type="submit"]'].map((s) => root.querySelector?.(s) || document.querySelector(s)).find(Boolean);
-    return Boolean(button && !button.disabled && button.getAttribute?.('aria-disabled') !== 'true');
+    return !composer.disabled && composer.getAttribute?.('aria-disabled') !== 'true';
+  })()`
+}
+
+export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
+  const baseline = Math.max(0, Number(assistantBaseline) || 0)
+  return `(() => {
+    const baseline = ${baseline};
+    const assistantCount = document.querySelectorAll('[data-message-author-role="assistant"]').length;
+    const stop = document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"]');
+    const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
+    return { assistantCount, complete: Boolean(assistantCount > baseline && !stop && composer) };
   })()`
 }
 

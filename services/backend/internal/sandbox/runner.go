@@ -23,3 +23,9 @@ type Runner interface {
 type StreamingRunner interface {
 	RunStreaming(ctx context.Context, workspace Workspace, command domain.CommandSpec, onOutput StreamCallback) (domain.CommandResult, error)
 }
+
+// ReversePatchRunner is an optional host capability used by explicit regression
+// rollback. It must validate the reverse patch before mutating the workspace.
+type ReversePatchRunner interface {
+	ReversePatch(ctx context.Context, workspace Workspace, patch string) (domain.CommandResult, error)
+}

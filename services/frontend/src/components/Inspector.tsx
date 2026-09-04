@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppConfig, ChatGPTActivity, HarnessEvent, Session } from '../types'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
@@ -8,6 +8,7 @@ import { isDesktop } from '../lib/desktop'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
 import { MarkdownContent } from './MarkdownContent'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
+import { buildExecutionTimeline } from '../lib/executionTimeline'
 
 type Tab = 'plan' | 'terminal' | 'chatgpt'
 
@@ -32,7 +33,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [tab, setTab] = useState<Tab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
+  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.applied', 'host.revert_started', 'host.reverted', 'self_evolution.host_build_started', 'self_evolution.host_build_completed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready'].includes(e.type)), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
@@ -121,93 +122,56 @@ function PlanView({ session }: { session: Session }) {
 }
 
 function TerminalView({ events }: { events: HarnessEvent[] }) {
-  if (!events.length) return <Empty title="Execução limpa" text="O estado das operações, verificações, stdout, stderr, bloqueios de Policy e reparações automáticas aparecerá aqui em tempo real. O terminal interativo continua no modo Editor." />
-  const streamedRunIDs = new Set(events.filter((event) => event.type === 'command.output').map((event) => String(event.data.run_id || '')).filter(Boolean))
-  const running = [...events].reverse().find((event) => event.type.endsWith('.started') || event.type === 'command.started')
-  const completed = [...events].reverse().find((event) => event.type === 'execution.completed' || event.type === 'execution.failed' || event.type === 'automation.execution_failed')
+  const entries = useMemo(() => buildExecutionTimeline(events), [events])
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const endRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const expandable = entries.filter((entry) => (entry.kind === 'command' || entry.kind === 'patch') && entry.output).slice(-5)
+    setExpanded(new Set(expandable.map((entry) => entry.id)))
+    endRef.current?.scrollIntoView?.({ block: 'end' })
+    // This component mounts only while the Execução tab is active; the first
+    // render intentionally expands only the five most recent output-bearing commands.
+  }, [])
+  useEffect(() => { endRef.current?.scrollIntoView?.({ block: 'end' }) }, [events.length])
+
+  if (!events.length) return <Empty title="Execução limpa" text="Operações, verificações, aplicação no host, stdout e stderr aparecerão aqui em tempo real. O terminal interativo continua no modo Editor." />
+  const active = entries.some((entry) => entry.running)
+  const failed = [...entries].reverse().find((entry) => entry.tone === 'fail')
   return <div className="execution-view">
     <div className="execution-overview">
-      <div><span className="panel-kicker">Execução observável</span><h3>{completed?.type === 'execution.completed' ? 'Execução concluída' : running ? 'Operação em curso' : 'Atividade de execução'}</h3><p>Cada stdout/stderr aparece imediatamente por baixo do comando que o produziu, preservando a sequência real da execução.</p></div>
-      <StatusPill tone={completed?.type === 'execution.failed' || completed?.type === 'automation.execution_failed' ? 'danger' : running ? 'warning' : 'success'}>{running ? 'LIVE' : completed?.type === 'execution.completed' ? 'Concluída' : 'Atualizada'}</StatusPill>
+      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : 'Atividade de execução'}</h3><p>Cada comando é um único item: stdout/stderr ficam agrupados, com data/hora, duração e expansão sob demanda. A vista acompanha o fim enquanto esta aba estiver ativa.</p></div>
+      <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : 'Atualizada'}</StatusPill>
     </div>
     <div className="execution-timeline">
-      {events.map((event) => {
-        if (event.type === 'command.output') {
-          const entries = eventLogEntries(event, streamedRunIDs)
-          return entries.map((entry) => <div className={`execution-inline-log ${entry.kind}`} key={entry.id}><span>{entry.label}</span><pre>{entry.text}</pre></div>)
-        }
-        const meta = executionEventMeta(event)
-        const fallback = eventLogEntries(event, streamedRunIDs)
-        return <div className="execution-event-group" key={event.id}>
+      {entries.map((entry) => {
+        const canExpand = Boolean(entry.output)
+        const isExpanded = expanded.has(entry.id)
+        return <div className={`execution-command-card ${entry.running ? 'running' : ''}`} key={entry.id}>
           <div className="execution-event">
-            <span className={meta.tone === 'fail' ? 'lamp fail' : meta.tone === 'warning' ? 'lamp warning' : 'lamp'} />
-            <div className="execution-event-copy"><strong>{meta.title}</strong><span>{formatEventTime(event.timestamp)}{meta.detail ? ` · ${meta.detail}` : ''}</span></div>
-            {meta.badge && <code>{meta.badge}</code>}
+            <span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} />
+            <div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatExecutionDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatDuration(entry.durationMs)}` : ''}</span></div>
+            <div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={isExpanded ? 'execution-expand open' : 'execution-expand'} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id); return next })} title={isExpanded ? 'Ocultar output' : 'Mostrar output'} aria-label={isExpanded ? 'Ocultar output' : 'Mostrar output'}>⌄</button>}</div>
           </div>
-          {fallback.map((entry) => <div className={`execution-inline-log ${entry.kind}`} key={entry.id}><span>{entry.label}</span><pre>{entry.text}</pre></div>)}
+          {canExpand && isExpanded && <pre className="execution-command-output">{entry.output}</pre>}
         </div>
       })}
+      <div ref={endRef}/>
     </div>
   </div>
 }
 
-function executionEventMeta(event: HarnessEvent) {
-  const argv = Array.isArray(event.data.argv) ? (event.data.argv as string[]).join(' ') : ''
-  const exit = event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : ''
-  const target = typeof event.data.target === 'string' ? event.data.target : ''
-  switch (event.type) {
-    case 'execution.started': return { title: 'Execução iniciada', detail: target || String(event.data.execution_mode || ''), badge: 'RUN', tone: 'ok' }
-    case 'execution.completed': return { title: 'Execução concluída', detail: target, badge: 'OK', tone: 'ok' }
-    case 'execution.failed':
-    case 'automation.execution_failed': return { title: 'Execução falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' }
-    case 'command.started': return { title: argv || 'Comando iniciado', detail: [String(event.data.cwd || '.'), target].filter(Boolean).join(' · '), badge: 'RUN', tone: 'warning' }
-    case 'command.completed': return { title: argv || 'Comando concluído', detail: target, badge: exit, tone: event.data.success === false ? 'fail' : 'ok' }
-    case 'patch.started': return { title: 'Aplicando patch', detail: target, badge: 'RUN', tone: 'warning' }
-    case 'patch.applied': return { title: 'Patch aplicado', detail: target, badge: 'OK', tone: 'ok' }
-    case 'verification.started': return { title: argv || 'Verificação iniciada', detail: target, badge: 'CHECK', tone: 'warning' }
-    case 'verification.completed': return { title: 'Verificação concluída', detail: target, badge: exit, tone: event.data.baseline_failure ? 'warning' : 'ok' }
-    case 'verification.baseline_unchanged': return { title: argv || 'Falha pré-existente inalterada', detail: 'baseline unchanged', badge: exit, tone: 'warning' }
-    case 'verification.baseline_changed': return { title: argv || 'Baseline alterada', detail: 'verification drift', badge: 'WARN', tone: 'warning' }
-    case 'automation.approval_required': return { title: 'Aprovação do utilizador necessária', detail: String(event.data.risk || ''), badge: 'APPROVE', tone: 'warning' }
-    case 'automation.policy_blocked':
-    case 'workflow.policy_blocked': return { title: 'Policy bloqueou a execução', detail: '', badge: 'BLOCK', tone: 'fail' }
-    case 'repair.started': return { title: 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' }
-    case 'repair.prompt_ready': return { title: 'Prompt de correção pronto', detail: '', badge: 'READY', tone: 'warning' }
-    case 'repair.prepare_failed': return { title: 'Falha ao preparar correção', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' }
-    case 'workflow.started': return { title: 'Investigação local iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' }
-    case 'workflow.completed': return { title: 'Passo local concluído', detail: '', badge: 'OK', tone: 'ok' }
-    case 'workflow.step_failed': return { title: 'Passo local produziu diagnóstico', detail: '', badge: 'WARN', tone: 'warning' }
-    case 'workflow.continuation_started': return { title: 'Continuação com evidências iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' }
-    case 'workflow.prompt_ready': return { title: 'Continuação pronta para o ChatGPT', detail: '', badge: 'READY', tone: 'ok' }
-    default: return { title: event.type, detail: '', badge: '', tone: 'ok' }
-  }
-}
-
-function eventLogEntries(event: HarnessEvent, streamedRunIDs: Set<string>) {
-  const time = formatEventTime(event.timestamp)
-  if (event.type === 'command.output') {
-    const text = typeof event.data.text === 'string' ? event.data.text : ''
-    const stream = event.data.stream === 'stderr' ? 'stderr' : 'stdout'
-    return text ? [{ id: `${event.id}-stream`, time, label: stream, kind: stream, text }] : []
-  }
-  const streamed = event.type === 'command.completed' && streamedRunIDs.has(String(event.data.run_id || ''))
-  const values: Array<{ key: string; label: string; kind: string }> = [
-    ...(!streamed ? [{ key: 'stdout', label: 'stdout', kind: 'stdout' }, { key: 'stderr', label: 'stderr', kind: 'stderr' }] : []),
-    { key: 'diagnostic', label: 'diagnóstico', kind: 'warning' }, { key: 'baseline_diagnostic', label: 'baseline', kind: 'warning' },
-    { key: 'post_diagnostic', label: 'pós-verificação', kind: 'warning' }, { key: 'error', label: 'erro', kind: 'stderr' },
-  ]
-  const entries = values.flatMap(({ key, label, kind }) => {
-    const text = typeof event.data[key] === 'string' ? String(event.data[key]).trim() : ''
-    return text ? [{ id: `${event.id}-${key}`, time, label, kind, text }] : []
-  })
-  const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String).filter(Boolean) : []
-  return [...entries, ...reasons.map((text, index) => ({ id: `${event.id}-reason-${index}`, time, label: 'policy', kind: 'stderr', text }))]
-}
-
-function formatEventTime(value: string) {
+function formatExecutionDate(value: string) {
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--:--:--'
-  return new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date)
+}
+
+function formatDuration(value: number) {
+  if (value < 1000) return `${value} ms`
+  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`
+  const minutes = Math.floor(value / 60_000)
+  return `${minutes}m ${Math.round((value % 60_000) / 1000)}s`
 }
 
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty-state"><div className="empty-mark">K/</div><h3>{title}</h3><p>{text}</p></div> }

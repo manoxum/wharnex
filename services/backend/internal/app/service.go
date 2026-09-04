@@ -649,7 +649,8 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
 				return s.failExecution(ctx, sessionID, result, err)
 			}
-			s.bus.Publish(sessionID, "patch.started", map[string]any{"target": executionTarget})
+			runID := ids.New("patch")
+			s.bus.Publish(sessionID, "patch.started", map[string]any{"run_id": runID, "target": executionTarget, "files": patchPaths(op.Patch)})
 			commandResult, runErr := runner.ApplyPatch(ctx, workspace, op.Patch)
 			result.Commands = append(result.Commands, commandResult)
 			if runErr != nil || !commandResult.Success {
@@ -658,7 +659,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 				}
 				return s.failExecution(ctx, sessionID, result, runErr)
 			}
-			s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": executionTarget})
+			s.bus.Publish(sessionID, "patch.applied", map[string]any{"run_id": runID, "target": executionTarget, "files": patchPaths(op.Patch), "duration_ms": commandResult.DurationMS})
 			continue
 		}
 		command := op.Command
@@ -848,7 +849,7 @@ func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, ru
 	} else {
 		result, err = runner.Run(ctx, workspace, command)
 	}
-	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "target": target})
+	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "duration_ms": result.DurationMS, "target": target})
 	return result, err
 }
 
@@ -1011,6 +1012,24 @@ func truncateRepairText(value string, limit int) string {
 	return value[:limit] + "\n...[truncated by Wharness]"
 }
 
+func patchPaths(patch string) []string {
+	seen := map[string]bool{}
+	paths := []string{}
+	for _, line := range strings.Split(patch, "\n") {
+		if !strings.HasPrefix(line, "+++ ") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, "+++ "))
+		value = strings.TrimPrefix(value, "b/")
+		if value == "" || value == "/dev/null" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		paths = append(paths, value)
+	}
+	return paths
+}
+
 func protectedGitCommand(command domain.CommandSpec) domain.CommandSpec {
 	if len(command.Argv) < 2 || strings.ToLower(filepath.Base(command.Argv[0])) != "git" || strings.ToLower(command.Argv[1]) != "push" {
 		return command
@@ -1075,6 +1094,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		return cause
 	}
 
+	s.bus.Publish(sessionID, "host.apply_started", map[string]any{"plan_id": item.Plan.PlanID, "patch_count": len(patches)})
 	workspace, err := s.hostRunner.Prepare(ctx, item.ProjectPath)
 	if err != nil {
 		if selfEvolution {
@@ -1088,12 +1108,16 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
 				return item, rollback(err)
 			}
-			if result, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch); applyErr != nil || !result.Success {
+			runID := ids.New("host-patch")
+			s.bus.Publish(sessionID, "patch.started", map[string]any{"run_id": runID, "target": "host", "files": patchPaths(op.Patch)})
+			patchResult, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch)
+			if applyErr != nil || !patchResult.Success {
 				if applyErr != nil {
 					return item, rollback(fmt.Errorf("host apply failed: %w", applyErr))
 				}
-				return item, rollback(fmt.Errorf("host apply failed: %s", strings.TrimSpace(result.Stderr)))
+				return item, rollback(fmt.Errorf("host apply failed: %s", strings.TrimSpace(patchResult.Stderr)))
 			}
+			s.bus.Publish(sessionID, "patch.applied", map[string]any{"run_id": runID, "target": "host", "files": patchPaths(op.Patch), "duration_ms": patchResult.DurationMS})
 			continue
 		}
 		if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
@@ -1149,6 +1173,88 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		updated = refreshed
 	} else {
 		s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
+	}
+	return updated, nil
+}
+
+func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return item, err
+	}
+	if item.ExecutionMode != domain.ExecutionModeProtected {
+		return item, errors.New("revert is available only for Protected host apply")
+	}
+	if item.Plan == nil || item.LastExecution == nil || !item.LastExecution.Success || item.LastExecution.PlanID != item.Plan.PlanID {
+		return item, ErrExecutionRequired
+	}
+	if item.State != "applied" && item.State != "restart_pending" {
+		return item, errors.New("there is no applied change available to revert")
+	}
+	for _, op := range item.Plan.Operations {
+		if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
+			return item, errors.New("deterministic revert is unavailable for plans containing host git mutation commands")
+		}
+	}
+	patches := planPatches(item.Plan)
+	if len(patches) == 0 {
+		return item, errors.New("the current plan has no patch changes to revert")
+	}
+	s.bus.Publish(sessionID, "host.revert_started", map[string]any{"plan_id": item.Plan.PlanID, "patch_count": len(patches)})
+
+	if s.isSelfEvolution(item) && item.State == "restart_pending" {
+		transaction, pendingErr := s.selfEvolution.PendingTransaction(sessionID, item.Plan.PlanID)
+		if pendingErr != nil {
+			return item, fmt.Errorf("recover self-evolution transaction for revert: %w", pendingErr)
+		}
+		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+			return item, fmt.Errorf("revert self-evolution transaction: %w", rollbackErr)
+		}
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, item.Plan.PlanID, "rolled_back", "user requested regression rollback before restart")
+		transaction.Release()
+	} else {
+		workspace, prepareErr := s.hostRunner.Prepare(ctx, item.ProjectPath)
+		if prepareErr != nil {
+			return item, prepareErr
+		}
+		defer s.hostRunner.Cleanup(workspace)
+		reverse, ok := s.hostRunner.(sandbox.ReversePatchRunner)
+		if !ok {
+			return item, errors.New("host runner does not support deterministic patch revert")
+		}
+		reverted := []string{}
+		for index := len(patches) - 1; index >= 0; index-- {
+			patch := patches[index]
+			if validateErr := protocol.ValidatePatchPaths(patch); validateErr != nil {
+				return item, validateErr
+			}
+			runID := ids.New("host-revert")
+			s.bus.Publish(sessionID, "patch.started", map[string]any{"run_id": runID, "target": "host-revert", "files": patchPaths(patch)})
+			result, reverseErr := reverse.ReversePatch(ctx, workspace, patch)
+			if reverseErr != nil || !result.Success {
+				for restoreIndex := len(reverted) - 1; restoreIndex >= 0; restoreIndex-- {
+					_, _ = s.hostRunner.ApplyPatch(ctx, workspace, reverted[restoreIndex])
+				}
+				if reverseErr != nil {
+					return item, fmt.Errorf("host revert failed: %w", reverseErr)
+				}
+				return item, fmt.Errorf("host revert failed: %s", strings.TrimSpace(result.Stderr))
+			}
+			reverted = append(reverted, patch)
+			s.bus.Publish(sessionID, "patch.applied", map[string]any{"run_id": runID, "target": "host-revert", "files": patchPaths(patch), "duration_ms": result.DurationMS})
+		}
+	}
+
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.State = "reverted"; return nil })
+	if err != nil {
+		return item, err
+	}
+	s.resetDevspace(sessionID)
+	s.bus.Publish(sessionID, "host.reverted", map[string]any{"plan_id": item.Plan.PlanID})
+	if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
+		updated = refreshed
+	} else {
+		s.bus.Publish(sessionID, "context.refresh_after_revert_failed", map[string]any{"error": refreshErr.Error()})
 	}
 	return updated, nil
 }

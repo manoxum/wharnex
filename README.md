@@ -82,14 +82,25 @@ cd ~/workspace/wharness
 make build
 ```
 
-`make build` performs the complete desktop/application build path **without invoking Docker**:
+Cache diagnostics and explicit recovery are available without changing normal lifecycle semantics:
 
-- downloads/resolves Go modules;
-- installs frontend dependencies using `~/.cache/wharness-npm`;
-- installs Electron desktop dependencies using the same isolated npm cache;
-- compiles the Go backend to `dist/bin/wharness-backend`;
-- builds the React frontend into `services/frontend/dist`;
-- validates the Electron main/preload/dev code and installed Electron binary.
+```bash
+make deps-status
+make deps-refresh    # force only when dependency hydration must be rebuilt
+make build-status    # show backend/frontend/desktop artifact-cache state
+make build-refresh   # force recompilation, preserving dependency caches
+```
+
+`make build` performs the complete desktop/application build path **without invoking Docker**. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
+
+Compiled artifacts are fingerprinted independently as well. If a component's source/configuration/runtime fingerprint is unchanged and its expected output is present, `make build` skips that component's compilation. This is especially important for the frontend: backend-only or no-change rebuilds no longer rerun Vite across the Monaco Editor module graph. Any real frontend change automatically invalidates only the frontend fingerprint and performs the normal `tsc -b && vite build` path.
+
+- validates/reuses the Go module cache and frontend/desktop `node_modules`;
+- invalidates dependency stamps automatically when lockfiles or Go/Node/npm runtime versions change;
+- reuses unchanged backend/frontend/desktop successful build results independently;
+- compiles the Go backend to `dist/bin/wharness-backend` only when backend inputs change;
+- builds the React frontend into `services/frontend/dist` only when frontend inputs change;
+- validates the Electron main/preload/dev code and installed Electron binary only when desktop inputs change.
 
 The Protected runner image is intentionally decoupled so `make build && make start` cannot wake a socket-activated Docker daemon and recreate host bridges/veth interfaces while Electron/ChatGPT is online. Build the runner only when required:
 

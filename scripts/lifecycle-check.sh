@@ -69,3 +69,47 @@ fi
 
 printf 'Lifecycle immutable Electron runtime checks passed.
 '
+
+DEPS_CACHE="$ROOT/scripts/deps-cache.sh"
+if [ ! -x "$DEPS_CACHE" ]; then
+  echo 'lifecycle regression: dependency fingerprint cache helper is missing' >&2
+  exit 1
+fi
+if ! grep -Fq 'deps-cache.sh" sync' "$MAKEFILE"; then
+  echo 'lifecycle regression: make deps must use dependency fingerprint cache' >&2
+  exit 1
+fi
+if ! grep -Fq -- '--prefer-offline' "$DEPS_CACHE" || \
+   ! grep -Fq -- '--no-audit' "$DEPS_CACHE" || \
+   ! grep -Fq -- '--no-fund' "$DEPS_CACHE"; then
+  echo 'lifecycle regression: npm hydration must reuse cache without audit/funding network work' >&2
+  exit 1
+fi
+if printf '%s\n' "$deps_block" | grep -Eq 'npm[[:space:]]+install'; then
+  echo 'lifecycle regression: make deps must not unconditionally run npm install' >&2
+  exit 1
+fi
+if ! printf '%s\n' "$build_block" | grep -Fq '$(BUILD_JOBS)'; then
+  echo 'lifecycle regression: application components must retain bounded parallel build support' >&2
+  exit 1
+fi
+printf 'Lifecycle fast rebuild checks passed.\n'
+
+BUILD_CACHE="$ROOT/scripts/build-cache.sh"
+if [ ! -x "$BUILD_CACHE" ]; then
+  echo 'lifecycle regression: compiled-artifact cache helper is missing' >&2
+  exit 1
+fi
+if ! grep -Fq 'build-cache.sh" run frontend' "$MAKEFILE"; then
+  echo 'lifecycle regression: frontend production build must use the artifact fingerprint cache' >&2
+  exit 1
+fi
+if ! grep -Fq 'services/frontend/dist/index.html' "$BUILD_CACHE"; then
+  echo 'lifecycle regression: frontend cache hit must require the production artifact' >&2
+  exit 1
+fi
+if ! grep -Fq 'build-previous-success' "$MAKEFILE"; then
+  echo 'lifecycle regression: build adoption must preserve fail-closed active build stamp semantics' >&2
+  exit 1
+fi
+printf 'Lifecycle compiled-artifact cache checks passed.\n'

@@ -133,7 +133,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
     } catch (error) { onError(messageOf(error, 'Falha ao limpar todos os dados do Wharness')); setStorageBusy(false) }
   }
 
-  return <div className="project-settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
+  return <div className="project-settings-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
     <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
       <header>
         <div><span className="eyebrow">Projeto</span><h2 id="project-settings-title">Contexto do Wharness</h2><p><code>whaness.yml</code> controla o recorte; o explorador abaixo mostra o que realmente entrou no ZIP.</p></div>
@@ -148,7 +148,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
             <label><span>Fonte da interface</span><select value={uiPreferences.uiFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, uiFont: event.target.value as UIPreferences['uiFont'] }); setUIPreferences(next) }}><option value="elegant">Elegante · Inter / Manrope</option><option value="system">Sistema · Segoe / nativa</option><option value="humanist">Humanista · Aptos / Calibri</option></select></label>
             <label><span>Fonte monoespaçada</span><select value={uiPreferences.monoFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, monoFont: event.target.value as UIPreferences['monoFont'] }); setUIPreferences(next) }}><option value="jetbrains">JetBrains Mono</option><option value="system">Sistema Mono</option><option value="fira">Fira Code</option></select></label>
           </div>
-          <label className="font-scale-setting"><span><strong>Tamanho da interface</strong><small>O padrão é 110% para melhorar a legibilidade.</small></span><input type="range" min="0.9" max="1.3" step="0.05" value={uiPreferences.scale} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, scale: Number(event.target.value) }); setUIPreferences(next) }}/><output>{Math.round(uiPreferences.scale * 100)}%</output></label>
+          <label className="font-scale-setting"><span><strong>Tamanho da interface</strong><small>100% usa a nova base legível; reduza até 80% ou amplie até 160%.</small></span><input type="range" min="0.8" max="1.6" step="0.05" value={uiPreferences.scale} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, scale: Number(event.target.value) }); setUIPreferences(next) }}/><output>{Math.round(uiPreferences.scale * 100)}%</output></label>
         </section>
         <section className="context-config-section">
           <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><code>{session.context.manifest.sha256.slice(0, 12)}</code></div>

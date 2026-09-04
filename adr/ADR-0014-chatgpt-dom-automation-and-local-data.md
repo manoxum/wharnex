@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; amended for v1.2.21 and v1.2.26.
+Accepted; amended for v1.2.21, v1.2.26 and v1.2.31.
 
 ## Context
 
@@ -48,3 +48,9 @@ Browser-session backups may contain authenticated browser material even though W
 The narrow bridge may additionally observe **only activity/reasoning text that ChatGPT visibly renders in the current UI** together with the visible stop-generation state. Wharness may surface that material as ephemeral thought/activity in its own transcript. It must not infer, request or extract hidden chain-of-thought, inspect non-visible model state, read arbitrary page prose, cookies/storage, or broaden the download trust boundary.
 
 While the same Wharness request is in flight, the renderer may queue a user comment for that bound conversation. The main process submits a bounded text-only continuation only after the existing composer is ready and prefixes it with an invariant that preserves the same task/request and exact canonical bundle deliverable. The comment does not arm a new expected bundle or create a new planner request.
+
+### v1.2.31 native-overlay ownership and comment idempotency
+
+Electron `WebContentsView` is a native sibling surface that can paint above renderer DOM regardless of CSS z-index. Wharness therefore treats visibility as a main-process capability, not a styling problem: whenever the renderer contains an aria-modal dialog or an explicit trusted overlay blocker, the ChatGPT view is hidden and is shown again only when the blocker disappears. Context menus and error popups that can intersect the embedded region opt into the same blocker contract.
+
+Task-comment delivery is single-flight per ChatGPT cache key. The queue owns one in-flight head item; periodic retry cannot submit that same head concurrently. A bounded recent identifier cache protects IPC retries, and a short content/attachment fingerprint window protects accidental duplicate renderer dispatches with different transient identifiers. Both are transport idempotency mechanisms only and do not inspect ChatGPT response prose.

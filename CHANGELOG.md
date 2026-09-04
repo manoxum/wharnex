@@ -1,3 +1,39 @@
+## v1.2.31 - Readable workspace, execution timeline and safe regression
+
+- Recalibrate the visible 100% typography baseline for readability, expand UI scaling to 80%-160%, and apply the shared scale to previously fixed small interface text while retaining Inter/Manrope + JetBrains Mono defaults.
+- Rework the chat composer into one resizable scroll surface with roomier text, Portuguese Chromium spell checking, right-aligned submit control and per-chat draft/height persistence across Agent/Editor mode switches.
+- Correlate command stdout/stderr/completion into one execution item, collapse details by default while opening the newest five, follow the active tail, and show execution timestamp, duration and running animation. Host patch Apply/revert and self-evolution build phases now appear in the same timeline.
+- Add post-Apply change summary cards with per-file +/- counts, focused unified-diff inspection, Editor navigation and deterministic reverse-patch regression for the current Protected patch-only plan.
+- Hide the native embedded ChatGPT view whenever trusted Wharness modals, dialogs, menus or popups are present so `WebContentsView` can no longer paint over them.
+- Make same-task ChatGPT comments single-flight and idempotent across timer/immediate flush races, with short semantic duplicate suppression to prevent accidental repeated guidance.
+
+## v1.2.30 - Request queue and resilient ChatGPT delivery
+
+- Introduce a per-chat main-request queue: Enter always creates the next main request and waits until the active request plus workflow/repair continuations are terminal; Ctrl+Enter sends an immediate same-request comment while work is in flight.
+- Add queue controls to promote a waiting request into a live comment, reorder entries, edit text, remove entries and merge adjacent requests, while clearing the composer immediately on submit.
+- Move TODO progress into a dedicated composer task surface that tracks the latest checklist snapshot instead of rendering implementation checklists as loose transcript content.
+- Make iteration artifact icons actionable: context, prompt, execution result and error evidence open in a focused inspector, and refine Wharness operational notices into calmer semantic cards.
+- Right-align the composer send affordance and make the active-request keyboard contract explicit in the helper text.
+- Give generic clipboard screenshots unique local filenames so multiple image.png captures can coexist in one ChatGPT-bound request.
+- Broaden canonical bundle DOM discovery to nearby file-card metadata and add completion-aware delivery continuations when ChatGPT finishes a turn without exposing the required bundle; validated download remains authoritative.
+- Allow queued task comments to carry user attachments and preserve multiple rapid comments instead of overwriting the previous pending comment.
+
+## v1.2.29 - Incremental compiled-artifact cache
+
+- Add per-component build fingerprints for backend, frontend and desktop so `make build` reuses successful compiled artifacts when their exact source/config/runtime inputs are unchanged.
+- Skip the complete Vite production pass on frontend cache hits, avoiding repeated transformation of Monaco Editor's large ESM graph during backend-only, desktop-only or no-change rebuilds.
+- Reuse a previously successful pre-v1.2.29 build on first adoption when the global build-success stamp proves no relevant component input changed afterwards.
+- Keep fail-closed lifecycle semantics: the active build-success stamp is removed while a build is in progress, component stamps are written only after successful commands, and missing outputs always force recompilation.
+- Add `make build-status` for artifact-cache diagnostics and `make build-refresh` to force recompilation without discarding dependency caches.
+
+## v1.2.28 - Fast deterministic rebuilds
+
+- Replace unconditional `go mod download` / `npm install` work in every `make build` with dependency fingerprints stored under `.harness/cache/dependencies`.
+- Skip npm entirely when `package.json`, `package-lock.json`, runtime versions and the validated local install have not changed; safely adopt a recent npm hidden lock on the first build after upgrade.
+- Use deterministic `npm ci --prefer-offline --no-audit --no-fund` only on real dependency invalidation, reusing the existing Wharness npm content cache without contacting audit/funding endpoints.
+- Build backend, frontend and desktop concurrently with a conservative default of two jobs while preserving fail-fast build stamps and the Docker-free application lifecycle.
+- Add `make deps-status` for cache diagnostics and `make deps-refresh` as an explicit recovery path when operators intentionally want dependency re-hydration.
+
 ## v1.2.27 - Calm composer, plan-first turns and Git-aware execution
 
 - Refine the Wharness composer into a clean bottom action rail with small circular artefact controls, file attachment and a Plan-first toggle embedded inside the writing surface.

@@ -1080,6 +1080,26 @@ func TestStorageUsageAndClearAllDataDoNotDeleteProject(t *testing.T) {
 	}
 }
 
+func TestClearAllDataDoesNotSweepForeignActiveWorkspace(t *testing.T) {
+	foreign, err := os.MkdirTemp("", "kernl-workspace-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(foreign)
+	marker := filepath.Join(foreign, "package.json")
+	if err := os.WriteFile(marker, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	if err := service.ClearAllData(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("foreign active workspace must survive reset: %v", err)
+	}
+}
+
 func TestWorkflowRoundLimitKeepsTerminalRequestPending(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), workflowEvidenceRunner{})
@@ -1168,5 +1188,43 @@ func TestSelfEvolutionRootIsForcedToProtectedMode(t *testing.T) {
 	}
 	if reconciled.State != "verified" || reconciled.LastRepairError != "previous runtime restored" {
 		t.Fatalf("runtime rollback should reconcile session to retryable verified state: %#v", reconciled)
+	}
+}
+
+func TestAppliedPatchCanBeRevertedToPreviousHostState(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "rollback.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "revert-change", Status: "ready", Summary: "update rollback", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/rollback.txt\n+++ b/rollback.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, applied, err := service.SubmitMessage(context.Background(), s.ID, "Atualize rollback.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.State != "applied" {
+		t.Fatalf("expected applied state, got %s", applied.State)
+	}
+	reverted, err := service.RevertHostChange(context.Background(), s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reverted.State != "reverted" {
+		t.Fatalf("expected reverted state, got %s", reverted.State)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "old\n" {
+		t.Fatalf("revert produced %q", contents)
 	}
 }

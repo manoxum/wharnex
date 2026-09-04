@@ -126,5 +126,24 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloads()')
   const pollEnd = source.indexOf('\nasync function exportBrowserSession', pollStart)
   const polling = source.slice(pollStart, pollEnd)
-  assert.match(polling, /if \(pendingChatGPTComments\.has\(key\)\) continue/)
+  assert.match(polling, /if \(hasPendingChatGPTComments\(key\)\) continue/)
+  assert.match(polling, /chatGPTResponseCompletionScript\(expected\.assistantBaseline\)/)
+  assert.match(polling, /WHARNESS DELIVERY CONTINUATION/)
+})
+
+test('task comments use a single-flight queue with recent idempotency protection', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const flushingChatGPTComments = new Set\(\)/)
+  assert.match(source, /if \(flushingChatGPTComments\.has\(key\)\) continue/)
+  assert.match(source, /recentChatGPTCommentIds\.set\(`\$\{key\}:\$\{pending\.commentId\}`/)
+  assert.match(source, /recentChatGPTCommentFingerprints\.set\(pending\.fingerprint/)
+  assert.match(source, /item\.commentId === commentId \|\| item\.fingerprint === fingerprint/)
+  assert.match(source, /duplicate: true/)
+})
+
+test('Portuguese spell checking is configured from Chromium dictionaries', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /availableSpellCheckerLanguages/)
+  assert.match(source, /'pt-PT', 'pt-BR', 'en-US'/)
+  assert.match(source, /setSpellCheckerLanguages/)
 })

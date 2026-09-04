@@ -110,6 +110,8 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 
 - Repository-root `make build`, `make start`, `make stop`, `make status`, and `make logs` are the canonical local lifecycle commands.
 - Build commands MUST resolve Docker/build paths from the repository root, not from the caller's current service directory.
+- Normal rebuilds MUST avoid unconditional package-manager hydration: dependency cache invalidation is keyed by lock/dependency metadata and runtime versions, while explicit refresh remains available for recovery.
+- Successful backend/frontend/desktop build artifacts MAY be reused only through content/runtime fingerprints; a missing expected artifact or changed component input MUST invalidate that component, and an explicit forced rebuild path MUST remain available.
 - `make start` MUST track only processes it owns under `.harness/run`; `make stop` MUST NOT indiscriminately kill unrelated processes already using the same ports.
 - Linux Electron startup MUST support an explicit `WHARNESS_OZONE_PLATFORM=x11|wayland` override and default safely when both Wayland and XWayland are present.
 - Runtime PID/log files belong under `.harness/` and MUST remain excluded from project context and source control.

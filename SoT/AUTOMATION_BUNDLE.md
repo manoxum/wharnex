@@ -67,3 +67,11 @@ Clipboard/raw JSON remains a legacy fallback only.
 ### Narrow consumer-web bundle normalization
 
 Before executable validation, the parser MAY normalize only transport/layout mistakes that do not invent execution semantics: remove one common top-level wrapper directory, synthesize missing README documentation from an already valid structured turn/plan message, and canonicalize a root-level `.patch` referenced by an otherwise safe patch basename to `patches/<name>.patch`. Missing `plan.json`, missing executable patches, request-id mismatches, unsafe paths, malformed JSON, or policy violations remain hard failures.
+
+## Host execution observability and regression (v1.2.31)
+
+Protected host Apply MUST emit execution lifecycle events before and after each patch replay, including a stable run id, target and touched paths; elapsed duration is emitted when the runner reports it. The same rule applies to reverse patch replay. Self-evolution build phases remain explicit host events. Renderer timelines correlate these events instead of inventing execution state from transcript prose.
+
+A user-requested regression is allowed only for the current successfully executed/applied Protected plan and only when deterministic patch reversal is available. Wharness validates patch paths again, performs `git apply --reverse --check` before mutation, reverses multiple patches from last to first, and attempts to restore already-reversed patches if a later reverse step fails. Plans containing host-replayed Git mutation commands are not presented as deterministically reversible. A pending self-evolution transaction uses its transaction rollback rather than ad-hoc source replay.
+
+Task comments sent to the active consumer-Web ChatGPT conversation are serialized per conversation. A queue item cannot be flushed concurrently by the immediate submit path and periodic retry loop. The main process retains bounded recent comment identifiers plus a short semantic fingerprint window to collapse accidental duplicate dispatches while preserving the ability to intentionally repeat guidance later. A duplicate comment never creates a new planner request or changes the canonical request id.

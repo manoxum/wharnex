@@ -79,7 +79,9 @@ func (s *Service) ClearAllData() error {
 			_ = os.RemoveAll(dir)
 		}
 	}
-	removeOrphanWharnessTemp()
+	// Only remove artifacts explicitly owned by this Service instance above.
+	// A global kernl-workspace-* sweep can delete an active Protected workspace
+	// belonging to another Wharness instance or a concurrent verification.
 	s.bus.ClearAll()
 	return nil
 }
@@ -142,18 +144,6 @@ func orphanWharnessTempBytes(seen map[string]struct{}) int64 {
 		total += directorySize(root)
 	}
 	return total
-}
-
-func removeOrphanWharnessTemp() {
-	entries, err := os.ReadDir(os.TempDir())
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if entry.IsDir() && wharnessTempName(entry.Name()) {
-			_ = os.RemoveAll(filepath.Join(os.TempDir(), entry.Name()))
-		}
-	}
 }
 
 func wharnessTempName(name string) bool {

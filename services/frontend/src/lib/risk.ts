@@ -19,6 +19,7 @@ export function stateLabel(state?: string) {
     verified: 'Verificado',
     failed: 'Falhou',
     applied: 'Aplicado',
+    reverted: 'Revertido',
   }
   return labels[state || ''] || state || 'Inativo'
 }

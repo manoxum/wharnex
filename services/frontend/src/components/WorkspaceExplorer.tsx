@@ -127,7 +127,7 @@ export function WorkspaceExplorer({ entries, activePath, loading, revealNonce, o
       {tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} activePath={activePath} focusedPath={focusedPath} expanded={expanded} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu} rowRefs={rowRefs} depth={0}/>) : <div className="explorer-empty">Nenhum caminho corresponde à pesquisa.</div>}
     </div>
     <footer className="explorer-footer"><span>{entries.filter((item) => item.kind === 'file').length} ficheiros</span><span>{entries.filter((item) => item.kind === 'directory').length} pastas</span></footer>
-    {menu && <div className="explorer-context-menu" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>
+    {menu && <div className="explorer-context-menu" data-chatgpt-overlay-blocker="true" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>
       {menu.node.kind === 'file' && <button onClick={() => { onOpen(menu.node.path); setMenu(undefined) }}><Icon name="file" size={13}/> Abrir</button>}
       <button onClick={() => { void copyPath(menu.node); setMenu(undefined) }}><Icon name="copy" size={13}/> Copiar caminho</button>
       <button onClick={() => { void rename(menu.node); setMenu(undefined) }}><Icon name="rename" size={13}/> Renomear</button>

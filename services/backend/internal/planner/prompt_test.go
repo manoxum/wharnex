@@ -116,3 +116,12 @@ func TestBuildManualPromptDocumentsGitAndTodoContract(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManualPromptCarriesTodoAcrossChangeWorkflow(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-workflow-todo", Message: "implementar e verificar"})
+	for _, want := range []string{"every workflow turn.message MUST carry", "current ## TODO checklist snapshot", "mark units [x] only when evidence shows"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("workflow/TODO prompt missing %q", want)
+		}
+	}
+}

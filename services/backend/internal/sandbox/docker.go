@@ -68,7 +68,7 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 		"run", "--rm", "--read-only", "--network", network,
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--pids-limit", "256", "--memory", "2g", "--cpus", "2",
-		"--tmpfs", "/tmp:rw,nosuid,nodev,size=512m",
+		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=512m",
 		"--env", "HOME=/tmp/kernl-home", "--env", "XDG_CACHE_HOME=/tmp/cache",
 		"--env", "GOCACHE=/tmp/go-build", "--env", "GOMODCACHE=/tmp/go-mod", "--env", "npm_config_cache=/tmp/npm",
 		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),

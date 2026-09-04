@@ -1,11 +1,15 @@
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 NPM_CACHE ?= $(HOME)/.cache/wharness-npm
+DEPS_CACHE_DIR ?= $(ROOT_DIR)/.harness/cache/dependencies
+BUILD_CACHE_DIR ?= $(ROOT_DIR)/.harness/cache/builds
+BUILD_JOBS ?= 2
 RUNNER_IMAGE ?= kernl-runner:local
 DIST_DIR ?= $(ROOT_DIR)/dist
 BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
+BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
-.PHONY: help deps runner-deps build build-all build-backend build-frontend build-desktop build-runner build-plan \
+.PHONY: help deps deps-status deps-refresh build-status build-refresh runner-deps build build-all build-backend build-frontend build-desktop build-runner build-plan \
 	backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
@@ -14,7 +18,11 @@ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 help:
 	@printf '%s\n' \
 		'Wharness lifecycle:' \
-		'  make build    Install dependencies and build backend/frontend/desktop (does not touch Docker)' \
+		'  make build    Reuse dependency cache and build backend/frontend/desktop (does not touch Docker)' \
+		'  make deps-status   Show dependency fingerprint cache state' \
+		'  make deps-refresh  Force deterministic dependency re-hydration' \
+		'  make build-status  Show compiled-artifact fingerprint cache state' \
+		'  make build-refresh Force recompilation while preserving dependency caches' \
 		'  make build-runner  Explicitly build the Protected Docker runner (Docker must already be active)' \
 		'  make build-all     Build desktop lifecycle + runner explicitly' \
 		'  make start    Start backend + frontend + Electron in background' \
@@ -34,22 +42,35 @@ help:
 		'  WHARNESS_OZONE_PLATFORM=wayland make start'
 
 deps:
-	@command -v go >/dev/null || { echo 'go is required' >&2; exit 1; }
-	@command -v node >/dev/null || { echo 'node is required' >&2; exit 1; }
-	@command -v npm >/dev/null || { echo 'npm is required' >&2; exit 1; }
 	@command -v git >/dev/null || { echo 'git is required' >&2; exit 1; }
 	@command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
-	cd "$(ROOT_DIR)/services/backend" && go mod download
-	@if [ "$${WHARNESS_SELF_EVOLUTION:-0}" = "1" ]; then \
-		cd "$(ROOT_DIR)/services/frontend" && npm ci --cache "$(NPM_CACHE)"; \
-	else \
-		cd "$(ROOT_DIR)/services/frontend" && npm install --cache "$(NPM_CACHE)"; \
-	fi
-	@if [ "$${WHARNESS_SELF_EVOLUTION:-0}" = "1" ]; then \
-		cd "$(ROOT_DIR)/services/desktop" && npm ci --cache "$(NPM_CACHE)"; \
-	else \
-		cd "$(ROOT_DIR)/services/desktop" && npm install --cache "$(NPM_CACHE)"; \
-	fi
+	@WHARNESS_ROOT="$(ROOT_DIR)" \
+		WHARNESS_NPM_CACHE="$(NPM_CACHE)" \
+		WHARNESS_DEPS_CACHE_DIR="$(DEPS_CACHE_DIR)" \
+		"$(ROOT_DIR)/scripts/deps-cache.sh" sync
+
+
+deps-status:
+	@WHARNESS_ROOT="$(ROOT_DIR)" \
+		WHARNESS_NPM_CACHE="$(NPM_CACHE)" \
+		WHARNESS_DEPS_CACHE_DIR="$(DEPS_CACHE_DIR)" \
+		"$(ROOT_DIR)/scripts/deps-cache.sh" status
+
+
+deps-refresh:
+	@WHARNESS_ROOT="$(ROOT_DIR)" \
+		WHARNESS_NPM_CACHE="$(NPM_CACHE)" \
+		WHARNESS_DEPS_CACHE_DIR="$(DEPS_CACHE_DIR)" \
+		"$(ROOT_DIR)/scripts/deps-cache.sh" refresh
+
+build-status:
+	@WHARNESS_ROOT="$(ROOT_DIR)" \
+		WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \
+		WHARNESS_BUILD_BASELINE_STAMP="$(BUILD_BASELINE_STAMP)" \
+		"$(ROOT_DIR)/scripts/build-cache.sh" status
+
+build-refresh:
+	@WHARNESS_BUILD_FORCE=1 $(MAKE) --no-print-directory build
 
 runner-deps:
 	@command -v docker >/dev/null || { echo 'docker is required to build the Protected runner' >&2; exit 1; }
@@ -57,25 +78,34 @@ runner-deps:
 
 build-backend:
 	@mkdir -p "$(dir $(BACKEND_BIN))"
-	cd "$(ROOT_DIR)/services/backend" && CGO_ENABLED=0 go build -o "$(BACKEND_BIN)" ./cmd/harness
+	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \
+		WHARNESS_BUILD_BASELINE_STAMP="$(BUILD_BASELINE_STAMP)" WHARNESS_BUILD_FORCE="$(WHARNESS_BUILD_FORCE)" \
+		"$(ROOT_DIR)/scripts/build-cache.sh" run backend sh -c \
+		'cd "$(ROOT_DIR)/services/backend" && CGO_ENABLED=0 go build -o "$(BACKEND_BIN)" ./cmd/harness'
 
 build-frontend:
-	cd "$(ROOT_DIR)/services/frontend" && npm run build
+	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \
+		WHARNESS_BUILD_BASELINE_STAMP="$(BUILD_BASELINE_STAMP)" WHARNESS_BUILD_FORCE="$(WHARNESS_BUILD_FORCE)" \
+		"$(ROOT_DIR)/scripts/build-cache.sh" run frontend sh -c \
+		'cd "$(ROOT_DIR)/services/frontend" && npm run build'
 
 build-desktop:
-	cd "$(ROOT_DIR)/services/desktop" && npm run build
+	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \
+		WHARNESS_BUILD_BASELINE_STAMP="$(BUILD_BASELINE_STAMP)" WHARNESS_BUILD_FORCE="$(WHARNESS_BUILD_FORCE)" \
+		"$(ROOT_DIR)/scripts/build-cache.sh" run desktop sh -c \
+		'cd "$(ROOT_DIR)/services/desktop" && npm run build'
 
 build-runner: runner-deps
 	docker build -t "$(RUNNER_IMAGE)" -f "$(ROOT_DIR)/docker/runner/Dockerfile" "$(ROOT_DIR)"
 
 build:
+	@mkdir -p "$(dir $(BUILD_STAMP))"
+	@if [ -f "$(BUILD_STAMP)" ]; then cp -p "$(BUILD_STAMP)" "$(BUILD_BASELINE_STAMP)"; fi
 	@rm -f "$(BUILD_STAMP)"
 	@$(MAKE) --no-print-directory deps
-	@$(MAKE) --no-print-directory build-backend
-	@$(MAKE) --no-print-directory build-frontend
-	@$(MAKE) --no-print-directory build-desktop
-	@mkdir -p "$(dir $(BUILD_STAMP))"
+	@$(MAKE) --no-print-directory -j"$(BUILD_JOBS)" build-backend build-frontend build-desktop
 	@touch "$(BUILD_STAMP)"
+	@rm -f "$(BUILD_BASELINE_STAMP)"
 	@printf '\nWharness build complete without Docker daemon access. Start with: make start\n'
 
 
@@ -148,7 +178,8 @@ run-desktop:
 
 clean:
 	@$(MAKE) --no-print-directory stop || true
-	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" "$(BUILD_STAMP)"
+	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" \
+		"$(BUILD_CACHE_DIR)" "$(BUILD_STAMP)" "$(BUILD_BASELINE_STAMP)"
 
 EXPORT_DIR ?= $(abspath $(ROOT_DIR)/../project-context/wharness)
 EXPORT_ARCHIVE ?= $(EXPORT_DIR)/wharness.zip

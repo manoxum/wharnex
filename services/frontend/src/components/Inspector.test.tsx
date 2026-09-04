@@ -109,7 +109,9 @@ it('shows streamed command output immediately below the command event', () => {
     onSession={() => undefined}
   />)
   fireEvent.click(screen.getByRole('button', { name: /Execução/ }))
-  expect(screen.getByText('package ok')).toBeTruthy()
-  expect(document.querySelectorAll('.execution-inline-log')).toHaveLength(1)
+  const output = document.querySelector('.execution-command-output')
+  expect(output?.textContent).toContain('package ok')
+  expect(document.querySelectorAll('.execution-command-output')).toHaveLength(1)
+  expect(document.querySelectorAll('.execution-command-card')).toHaveLength(1)
   expect(document.querySelector('.execution-log-panel')).toBeNull()
 })

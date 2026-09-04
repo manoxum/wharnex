@@ -7,7 +7,7 @@ Required controls:
 - no original project bind mount;
 - isolated copied workspace mounted read-write;
 - root filesystem read-only;
-- `/tmp` tmpfs;
+- `/tmp` tmpfs with explicit `exec` (plus `nosuid,nodev`) so language test runners such as `go test` can execute binaries compiled into the temporary filesystem;
 - `--cap-drop ALL`;
 - `no-new-privileges`;
 - pids/memory/CPU limits;

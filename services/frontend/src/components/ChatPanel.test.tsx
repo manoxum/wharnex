@@ -128,17 +128,54 @@ describe('ChatPanel', () => {
 })
 
 
-it('supports plan-first and task comments from the bottom composer actions', async () => {
+it('queues Enter and reserves Ctrl+Enter for an immediate comment while a task is active', async () => {
   const onRequestMode = vi.fn()
   const onComment = vi.fn(async () => undefined)
+  const onSend = vi.fn(async () => undefined)
   const view = render(
-    <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-active'], last_manual_prompt: 'prompt' }} items={[]} chats={[]} activeChatId="chat-1" busy={false} requestMode="plan_first" taskInFlight onRequestMode={onRequestMode} onComment={onComment} onSend={async () => undefined} {...chatActions} />,
+    <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-active'], last_manual_prompt: 'prompt' }} items={[]} chats={[]} activeChatId="chat-1" busy={false} requestMode="plan_first" taskInFlight onRequestMode={onRequestMode} onComment={onComment} onSend={onSend} {...chatActions} />,
   )
-  const textarea = view.container.querySelector('textarea')!
-  expect(screen.getByText(/Comentário para a tarefa ativa/)).toBeTruthy()
+  const textarea = view.container.querySelector('textarea') as HTMLTextAreaElement
+  expect(screen.getByText(/Ctrl\+Enter comenta/)).toBeTruthy()
+
+  fireEvent.change(textarea, { target: { value: 'fica para a próxima request principal' } })
+  fireEvent.keyDown(textarea, { key: 'Enter' })
+  expect(onSend).toHaveBeenCalledWith('fica para a próxima request principal', [], { context: false, prompt: true, result: false, error: false }, 'plan_first')
+  expect(textarea.value).toBe('')
+
   fireEvent.change(textarea, { target: { value: 'mantenha também o teste de regressão' } })
-  fireEvent.submit(view.container.querySelector('form')!)
-  expect(onComment).toHaveBeenCalledWith('mantenha também o teste de regressão')
+  fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
+  expect(onComment).toHaveBeenCalledWith('mantenha também o teste de regressão', [])
+  expect(textarea.value).toBe('')
+})
+
+it('renders and operates the waiting queue without placing it in the message stream', () => {
+  const onQueueMove = vi.fn()
+  const onQueueRemove = vi.fn()
+  const onQueueMerge = vi.fn()
+  render(<ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} queuedRequests={[
+    { id: 'q1', message: 'primeira alteração', attachments: [], artifacts: { context: false, prompt: true, result: false, error: false }, requestMode: 'direct', createdAt: new Date().toISOString() },
+    { id: 'q2', message: 'segunda alteração', attachments: [], artifacts: { context: false, prompt: true, result: false, error: false }, requestMode: 'direct', createdAt: new Date().toISOString() },
+  ]} onQueueMove={onQueueMove} onQueueRemove={onQueueRemove} onQueueMerge={onQueueMerge} onSend={async () => undefined} {...chatActions} />)
+  expect(screen.getByText('primeira alteração')).toBeTruthy()
+  fireEvent.click(screen.getAllByRole('button', { name: 'Descer request' })[0])
+  expect(onQueueMove).toHaveBeenCalledWith('q1', 1)
+  fireEvent.click(screen.getAllByRole('button', { name: 'Mesclar com a próxima' })[0])
+  expect(onQueueMerge).toHaveBeenCalledWith('q1')
+  fireEvent.click(screen.getAllByRole('button', { name: 'Remover request' })[0])
+  expect(onQueueRemove).toHaveBeenCalledWith('q1')
+})
+
+it('moves the latest TODO snapshot to the composer task panel and makes iteration artifacts clickable', () => {
+  const view = render(<ChatPanel session={session} items={[{
+    id: 'result', role: 'harness', text: 'Implementação concluída.\n\n## TODO\n- [x] fila\n- [ ] validação final', iteration: { id: 'it', requestId: 'req-123', phase: 'result', artifacts: ['prompt'] },
+  }]} chats={[]} activeChatId="chat-1" busy={false} artifactContent={{ prompt: '# Prompt\n\nconteúdo real' }} onSend={async () => undefined} {...chatActions} />)
+  expect(screen.queryByRole('heading', { name: 'TODO' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Tarefas TODO' }))
+  expect(screen.getByText('validação final')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Ver prompt' }))
+  expect(screen.getByText('conteúdo real')).toBeTruthy()
+  expect(view.container.querySelector('.artifact-inspector')).toBeTruthy()
 })
 
 it('renders operational notices and visible ChatGPT activity differently from messages', () => {

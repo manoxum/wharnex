@@ -1,0 +1,380 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 2e908273d5eccb265c974f98b357d41196913db3..bdf0e52828c72cf039d47a32870306d32e36a713 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -110,6 +110,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ 
+ - Repository-root `make build`, `make start`, `make stop`, `make status`, and `make logs` are the canonical local lifecycle commands.
+ - Build commands MUST resolve Docker/build paths from the repository root, not from the caller's current service directory.
++- Normal rebuilds MUST avoid unconditional package-manager hydration: dependency cache invalidation is keyed by lock/dependency metadata and runtime versions, while explicit refresh remains available for recovery.
+ - `make start` MUST track only processes it owns under `.harness/run`; `make stop` MUST NOT indiscriminately kill unrelated processes already using the same ports.
+ - Linux Electron startup MUST support an explicit `WHARNESS_OZONE_PLATFORM=x11|wayland` override and default safely when both Wayland and XWayland are present.
+ - Runtime PID/log files belong under `.harness/` and MUST remain excluded from project context and source control.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index a0df0957a07eddc4272f18f708bda64c3f1bcc57..03c442185167cbd0b5b504c702abe449e37b147c 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,11 @@
++## v1.2.28 - Fast deterministic rebuilds
++
++- Replace unconditional `go mod download` / `npm install` work in every `make build` with dependency fingerprints stored under `.harness/cache/dependencies`.
++- Skip npm entirely when `package.json`, `package-lock.json`, runtime versions and the validated local install have not changed; safely adopt a recent npm hidden lock on the first build after upgrade.
++- Use deterministic `npm ci --prefer-offline --no-audit --no-fund` only on real dependency invalidation, reusing the existing Wharness npm content cache without contacting audit/funding endpoints.
++- Build backend, frontend and desktop concurrently with a conservative default of two jobs while preserving fail-fast build stamps and the Docker-free application lifecycle.
++- Add `make deps-status` for cache diagnostics and `make deps-refresh` as an explicit recovery path when operators intentionally want dependency re-hydration.
++
+ ## v1.2.27 - Calm composer, plan-first turns and Git-aware execution
+ 
+ - Refine the Wharness composer into a clean bottom action rail with small circular artefact controls, file attachment and a Plan-first toggle embedded inside the writing surface.
+diff --git a/Makefile b/Makefile
+index d7105495fbb95281a34aab27a92aed32b19dc72b..b919babfe7fa1e3c9db68577b2daee42ff07167b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,11 +1,13 @@
+ ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+ NPM_CACHE ?= $(HOME)/.cache/wharness-npm
++DEPS_CACHE_DIR ?= $(ROOT_DIR)/.harness/cache/dependencies
++BUILD_JOBS ?= 2
+ RUNNER_IMAGE ?= kernl-runner:local
+ DIST_DIR ?= $(ROOT_DIR)/dist
+ BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
+ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
+ 
+-.PHONY: help deps runner-deps build build-all build-backend build-frontend build-desktop build-runner build-plan \
++.PHONY: help deps deps-status deps-refresh runner-deps build build-all build-backend build-frontend build-desktop build-runner build-plan \
+ 	backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
+ 	electron-runtime-check electron-runtime-install electron-runtime-status \
+ 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
+@@ -14,7 +16,9 @@ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
+ help:
+ 	@printf '%s\n' \
+ 		'Wharness lifecycle:' \
+-		'  make build    Install dependencies and build backend/frontend/desktop (does not touch Docker)' \
++		'  make build    Reuse dependency cache and build backend/frontend/desktop (does not touch Docker)' \
++		'  make deps-status   Show dependency fingerprint cache state' \
++		'  make deps-refresh  Force deterministic dependency re-hydration' \
+ 		'  make build-runner  Explicitly build the Protected Docker runner (Docker must already be active)' \
+ 		'  make build-all     Build desktop lifecycle + runner explicitly' \
+ 		'  make start    Start backend + frontend + Electron in background' \
+@@ -34,22 +38,26 @@ help:
+ 		'  WHARNESS_OZONE_PLATFORM=wayland make start'
+ 
+ deps:
+-	@command -v go >/dev/null || { echo 'go is required' >&2; exit 1; }
+-	@command -v node >/dev/null || { echo 'node is required' >&2; exit 1; }
+-	@command -v npm >/dev/null || { echo 'npm is required' >&2; exit 1; }
+ 	@command -v git >/dev/null || { echo 'git is required' >&2; exit 1; }
+ 	@command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
+-	cd "$(ROOT_DIR)/services/backend" && go mod download
+-	@if [ "$${WHARNESS_SELF_EVOLUTION:-0}" = "1" ]; then \
+-		cd "$(ROOT_DIR)/services/frontend" && npm ci --cache "$(NPM_CACHE)"; \
+-	else \
+-		cd "$(ROOT_DIR)/services/frontend" && npm install --cache "$(NPM_CACHE)"; \
+-	fi
+-	@if [ "$${WHARNESS_SELF_EVOLUTION:-0}" = "1" ]; then \
+-		cd "$(ROOT_DIR)/services/desktop" && npm ci --cache "$(NPM_CACHE)"; \
+-	else \
+-		cd "$(ROOT_DIR)/services/desktop" && npm install --cache "$(NPM_CACHE)"; \
+-	fi
++	@WHARNESS_ROOT="$(ROOT_DIR)" \
++		WHARNESS_NPM_CACHE="$(NPM_CACHE)" \
++		WHARNESS_DEPS_CACHE_DIR="$(DEPS_CACHE_DIR)" \
++		"$(ROOT_DIR)/scripts/deps-cache.sh" sync
++
++
++deps-status:
++	@WHARNESS_ROOT="$(ROOT_DIR)" \
++		WHARNESS_NPM_CACHE="$(NPM_CACHE)" \
++		WHARNESS_DEPS_CACHE_DIR="$(DEPS_CACHE_DIR)" \
++		"$(ROOT_DIR)/scripts/deps-cache.sh" status
++
++
++deps-refresh:
++	@WHARNESS_ROOT="$(ROOT_DIR)" \
++		WHARNESS_NPM_CACHE="$(NPM_CACHE)" \
++		WHARNESS_DEPS_CACHE_DIR="$(DEPS_CACHE_DIR)" \
++		"$(ROOT_DIR)/scripts/deps-cache.sh" refresh
+ 
+ runner-deps:
+ 	@command -v docker >/dev/null || { echo 'docker is required to build the Protected runner' >&2; exit 1; }
+@@ -71,9 +79,7 @@ build-runner: runner-deps
+ build:
+ 	@rm -f "$(BUILD_STAMP)"
+ 	@$(MAKE) --no-print-directory deps
+-	@$(MAKE) --no-print-directory build-backend
+-	@$(MAKE) --no-print-directory build-frontend
+-	@$(MAKE) --no-print-directory build-desktop
++	@$(MAKE) --no-print-directory -j"$(BUILD_JOBS)" build-backend build-frontend build-desktop
+ 	@mkdir -p "$(dir $(BUILD_STAMP))"
+ 	@touch "$(BUILD_STAMP)"
+ 	@printf '\nWharness build complete without Docker daemon access. Start with: make start\n'
+diff --git a/README.md b/README.md
+index 5ac0fb99e97b5ec170aa96c91b9f0635b5fe4053..f4e8733df70796a809582c4f561a7d96c09edec4 100644
+--- a/README.md
++++ b/README.md
+@@ -82,11 +82,17 @@ cd ~/workspace/wharness
+ make build
+ ```
+ 
+-`make build` performs the complete desktop/application build path **without invoking Docker**:
++Cache diagnostics and explicit recovery are available without changing normal lifecycle semantics:
+ 
+-- downloads/resolves Go modules;
+-- installs frontend dependencies using `~/.cache/wharness-npm`;
+-- installs Electron desktop dependencies using the same isolated npm cache;
++```bash
++make deps-status
++make deps-refresh   # force only when dependency hydration must be rebuilt
++```
++
++`make build` performs the complete desktop/application build path **without invoking Docker**. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
++
++- validates/reuses the Go module cache and frontend/desktop `node_modules`;
++- invalidates dependency stamps automatically when lockfiles or Go/Node/npm runtime versions change;
+ - compiles the Go backend to `dist/bin/wharness-backend`;
+ - builds the React frontend into `services/frontend/dist`;
+ - validates the Electron main/preload/dev code and installed Electron binary.
+diff --git a/scripts/deps-cache.sh b/scripts/deps-cache.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..96852c2c6bd63e91f9694985c8e31517d7258990
+--- /dev/null
++++ b/scripts/deps-cache.sh
+@@ -0,0 +1,205 @@
++#!/usr/bin/env sh
++set -eu
++
++ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
++CACHE_DIR=${WHARNESS_DEPS_CACHE_DIR:-$ROOT/.harness/cache/dependencies}
++NPM_CACHE=${WHARNESS_NPM_CACHE:-${HOME:-$ROOT/.harness}/.cache/wharness-npm}
++ACTION=${1:-sync}
++
++mkdir -p "$CACHE_DIR" "$NPM_CACHE"
++
++require() {
++  command -v "$1" >/dev/null 2>&1 || {
++    echo "$1 is required" >&2
++    exit 1
++  }
++}
++
++hash_stream() {
++  sha256sum | awk '{print $1}'
++}
++
++stamp_matches() {
++  stamp=$1
++  expected=$2
++  [ -f "$stamp" ] && [ "$(cat "$stamp" 2>/dev/null || true)" = "$expected" ]
++}
++
++write_stamp() {
++  stamp=$1
++  value=$2
++  tmp="$stamp.tmp.$$"
++  printf '%s\n' "$value" >"$tmp"
++  mv -f "$tmp" "$stamp"
++}
++
++go_fingerprint() {
++  service="$ROOT/services/backend"
++  {
++    go version
++    sha256sum "$service/go.mod"
++    if [ -f "$service/go.sum" ]; then sha256sum "$service/go.sum"; fi
++  } | hash_stream
++}
++
++node_fingerprint() {
++  service=$1
++  {
++    node --version
++    npm --version
++    sha256sum "$service/package.json" "$service/package-lock.json"
++    if [ -f "$service/.npmrc" ]; then sha256sum "$service/.npmrc"; fi
++  } | hash_stream
++}
++
++node_ready() {
++  name=$1
++  service=$2
++  hidden="$service/node_modules/.package-lock.json"
++  [ -f "$hidden" ] || return 1
++  case "$name" in
++    frontend)
++      [ -x "$service/node_modules/.bin/tsc" ] &&
++        [ -x "$service/node_modules/.bin/vite" ]
++      ;;
++    desktop)
++      [ -f "$service/node_modules/electron/package.json" ] &&
++        [ -f "$service/node_modules/electron/path.txt" ]
++      ;;
++    *) return 1 ;;
++  esac
++}
++
++hidden_lock_matches() {
++  service=$1
++  node - "$service/package-lock.json" "$service/node_modules/.package-lock.json" <<'NODE'
++const fs = require('fs')
++const [rootPath, hiddenPath] = process.argv.slice(2)
++const root = JSON.parse(fs.readFileSync(rootPath, 'utf8'))
++const hidden = JSON.parse(fs.readFileSync(hiddenPath, 'utf8'))
++const expected = root.packages || {}
++const installed = hidden.packages || {}
++const rootMeta = expected[''] || {}
++const direct = {
++  ...(rootMeta.dependencies || {}),
++  ...(rootMeta.devDependencies || {}),
++  ...(rootMeta.optionalDependencies || {}),
++}
++for (const name of Object.keys(direct)) {
++  const key = `node_modules/${name}`
++  if (!expected[key] || !installed[key] || expected[key].version !== installed[key].version) {
++    process.exit(1)
++  }
++}
++for (const [key, meta] of Object.entries(installed)) {
++  if (!key || !expected[key]) continue
++  if (meta.version !== expected[key].version ||
++      (meta.integrity && expected[key].integrity && meta.integrity !== expected[key].integrity)) {
++    process.exit(1)
++  }
++}
++NODE
++}
++
++can_adopt_node_modules() {
++  name=$1
++  service=$2
++  hidden="$service/node_modules/.package-lock.json"
++  node_ready "$name" "$service" || return 1
++  hidden_lock_matches "$service" || return 1
++  [ ! "$service/package.json" -nt "$hidden" ] || return 1
++  [ ! "$service/package-lock.json" -nt "$hidden" ] || return 1
++  if [ -f "$service/.npmrc" ] && [ "$service/.npmrc" -nt "$hidden" ]; then
++    return 1
++  fi
++  return 0
++}
++
++sync_go() {
++  service="$ROOT/services/backend"
++  stamp="$CACHE_DIR/backend.sha256"
++  fingerprint=$(go_fingerprint)
++  if [ "${WHARNESS_DEPS_FORCE:-0}" != "1" ] && stamp_matches "$stamp" "$fingerprint"; then
++    printf '[deps] backend: cache hit; go mod download skipped\n'
++    return
++  fi
++  printf '[deps] backend: dependency metadata changed; hydrating Go module cache\n'
++  (cd "$service" && go mod download)
++  write_stamp "$stamp" "$fingerprint"
++}
++
++sync_node() {
++  name=$1
++  service="$ROOT/services/$name"
++  stamp="$CACHE_DIR/$name.sha256"
++  fingerprint=$(node_fingerprint "$service")
++
++  if [ "${WHARNESS_DEPS_FORCE:-0}" != "1" ] && stamp_matches "$stamp" "$fingerprint" && node_ready "$name" "$service"; then
++    printf '[deps] %s: cache hit; npm ci skipped\n' "$name"
++    return
++  fi
++
++  if [ "${WHARNESS_DEPS_FORCE:-0}" != "1" ] && [ ! -f "$stamp" ] && can_adopt_node_modules "$name" "$service"; then
++    write_stamp "$stamp" "$fingerprint"
++    printf '[deps] %s: adopted current lock-consistent node_modules; npm ci skipped\n' "$name"
++    return
++  fi
++
++  printf '[deps] %s: dependency metadata changed or install missing; running deterministic npm ci\n' "$name"
++  (
++    cd "$service"
++    npm ci \
++      --cache "$NPM_CACHE" \
++      --prefer-offline \
++      --no-audit \
++      --no-fund \
++      --progress=false
++  )
++  node_ready "$name" "$service" || {
++    echo "[deps] $name: npm ci completed but required runtime files are missing" >&2
++    exit 1
++  }
++  write_stamp "$stamp" "$fingerprint"
++}
++
++show_status() {
++  for name in backend frontend desktop; do
++    case "$name" in
++      backend) current=$(go_fingerprint) ;;
++      *) current=$(node_fingerprint "$ROOT/services/$name") ;;
++    esac
++    stamp="$CACHE_DIR/$name.sha256"
++    if stamp_matches "$stamp" "$current"; then
++      printf '%-9s valid  %s\n' "$name" "$current"
++    else
++      printf '%-9s stale  %s\n' "$name" "$current"
++    fi
++  done
++}
++
++require sha256sum
++require go
++require node
++require npm
++
++case "$ACTION" in
++  sync)
++    sync_go
++    sync_node frontend
++    sync_node desktop
++    ;;
++  status)
++    show_status
++    ;;
++  refresh)
++    WHARNESS_DEPS_FORCE=1
++    export WHARNESS_DEPS_FORCE
++    sync_go
++    sync_node frontend
++    sync_node desktop
++    ;;
++  *)
++    echo "usage: $0 [sync|status|refresh]" >&2
++    exit 2
++    ;;
++esac
+diff --git a/scripts/lifecycle-check.sh b/scripts/lifecycle-check.sh
+index cd6f0badb691171fc43551312ef355cace28bca1..5b0209a3a49c529b4fd6a8d9c9fd17555d872326 100755
+--- a/scripts/lifecycle-check.sh
++++ b/scripts/lifecycle-check.sh
+@@ -69,3 +69,28 @@ fi
+ 
+ printf 'Lifecycle immutable Electron runtime checks passed.
+ '
++
++DEPS_CACHE="$ROOT/scripts/deps-cache.sh"
++if [ ! -x "$DEPS_CACHE" ]; then
++  echo 'lifecycle regression: dependency fingerprint cache helper is missing' >&2
++  exit 1
++fi
++if ! grep -Fq 'deps-cache.sh" sync' "$MAKEFILE"; then
++  echo 'lifecycle regression: make deps must use dependency fingerprint cache' >&2
++  exit 1
++fi
++if ! grep -Fq -- '--prefer-offline' "$DEPS_CACHE" || \
++   ! grep -Fq -- '--no-audit' "$DEPS_CACHE" || \
++   ! grep -Fq -- '--no-fund' "$DEPS_CACHE"; then
++  echo 'lifecycle regression: npm hydration must reuse cache without audit/funding network work' >&2
++  exit 1
++fi
++if printf '%s\n' "$deps_block" | grep -Eq 'npm[[:space:]]+install'; then
++  echo 'lifecycle regression: make deps must not unconditionally run npm install' >&2
++  exit 1
++fi
++if ! printf '%s\n' "$build_block" | grep -Fq '$(BUILD_JOBS)'; then
++  echo 'lifecycle regression: application components must retain bounded parallel build support' >&2
++  exit 1
++fi
++printf 'Lifecycle fast rebuild checks passed.\n'

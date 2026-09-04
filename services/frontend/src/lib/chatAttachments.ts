@@ -18,6 +18,31 @@ export function addChatAttachments(current: File[], incoming: File[]): Attachmen
   return { files }
 }
 
+export function uniquifyPastedChatFiles(current: File[], incoming: File[]) {
+  const used = new Set(current.map((file) => file.name.toLowerCase()))
+  let imageSequence = 1
+  return incoming.map((file) => {
+    const original = (file.name || '').trim()
+    const genericImage = file.type.startsWith('image/') && (!original || /^image(?:\s*\(\d+\))?\.[a-z0-9]+$/i.test(original))
+    if (!genericImage && original && !used.has(original.toLowerCase())) { used.add(original.toLowerCase()); return file }
+    const ext = extensionFor(file)
+    const stem = genericImage ? 'clipboard-image' : (original.replace(/\.[^.]+$/, '') || 'clipboard-file')
+    let candidate = ''
+    do { candidate = `${stem}-${String(imageSequence++).padStart(3, '0')}${ext}` } while (used.has(candidate.toLowerCase()))
+    used.add(candidate.toLowerCase())
+    return new File([file], candidate, { type: file.type, lastModified: file.lastModified || Date.now() })
+  })
+}
+
+function extensionFor(file: File) {
+  const match = /\.[a-z0-9]+$/i.exec(file.name || '')
+  if (match) return match[0].toLowerCase()
+  if (file.type === 'image/png') return '.png'
+  if (file.type === 'image/jpeg') return '.jpg'
+  if (file.type === 'image/webp') return '.webp'
+  return ''
+}
+
 export async function encodeChatAttachments(files: File[]): Promise<DesktopUserAttachment[]> {
   return Promise.all(files.map(async (file) => ({ name: file.name, mime: file.type || 'application/octet-stream', contentBase64: await fileBase64(file) })))
 }

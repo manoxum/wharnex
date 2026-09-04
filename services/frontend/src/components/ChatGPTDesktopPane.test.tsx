@@ -36,6 +36,19 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
   })
 
+  it('automatically hides the native WebContentsView behind any modal dialog', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} />)
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
+    const dialog = document.createElement('section')
+    dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true')
+    document.body.appendChild(dialog)
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+    const before = vi.mocked(desktop.chatgpt.show).mock.calls.length
+    dialog.remove()
+    await waitFor(() => expect(vi.mocked(desktop.chatgpt.show).mock.calls.length).toBeGreaterThan(before))
+  })
+
   it('represents an authenticated embedded session with one compact icon and no manual artifact controls', async () => {
     const desktop = bridge(); const authenticatedState = { ...state, authenticated: true }
     desktop.chatgpt.state = vi.fn().mockResolvedValue(authenticatedState); desktop.chatgpt.navigate = vi.fn().mockResolvedValue(authenticatedState); window.wharnessDesktop = desktop

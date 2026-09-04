@@ -1,10 +1,11 @@
 const UI_PREFERENCES_KEY = 'kernl.ui.preferences.v1'
+const UI_FONT_BASELINE = 1.12
 
 export type UIFontChoice = 'elegant' | 'system' | 'humanist'
 export type MonoFontChoice = 'jetbrains' | 'system' | 'fira'
 export type UIPreferences = { uiFont: UIFontChoice; monoFont: MonoFontChoice; scale: number }
 
-export const DEFAULT_UI_PREFERENCES: UIPreferences = { uiFont: 'elegant', monoFont: 'jetbrains', scale: 1.1 }
+export const DEFAULT_UI_PREFERENCES: UIPreferences = { uiFont: 'elegant', monoFont: 'jetbrains', scale: 1 }
 
 const UI_FONTS: Record<UIFontChoice, string> = {
   elegant: "Inter, Manrope, 'Segoe UI Variable', 'Segoe UI', ui-sans-serif, system-ui, sans-serif",
@@ -39,13 +40,13 @@ export function applyUIPreferences(value: UIPreferences) {
   const root = document.documentElement
   root.style.setProperty('--ui-font-family', UI_FONTS[normalized.uiFont])
   root.style.setProperty('--mono-font-family', MONO_FONTS[normalized.monoFont])
-  root.style.setProperty('--ui-font-scale', String(normalized.scale))
+  root.style.setProperty('--ui-font-scale', String(Math.round(normalized.scale * UI_FONT_BASELINE * 1000) / 1000))
 }
 
 function normalizeUIPreferences(value: Partial<UIPreferences>): UIPreferences {
   const uiFont: UIFontChoice = value.uiFont === 'system' || value.uiFont === 'humanist' ? value.uiFont : 'elegant'
   const monoFont: MonoFontChoice = value.monoFont === 'system' || value.monoFont === 'fira' ? value.monoFont : 'jetbrains'
   const numeric = Number(value.scale)
-  const scale = Number.isFinite(numeric) ? Math.min(1.3, Math.max(0.9, Math.round(numeric * 20) / 20)) : DEFAULT_UI_PREFERENCES.scale
+  const scale = Number.isFinite(numeric) ? Math.min(1.6, Math.max(0.8, Math.round(numeric * 20) / 20)) : DEFAULT_UI_PREFERENCES.scale
   return { uiFont, monoFont, scale }
 }

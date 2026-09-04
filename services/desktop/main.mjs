@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, dialog, ipcMain, nativeImage, session, shell } from 'electron'
+import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -6,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript } from './chatgpt-dom.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
@@ -43,11 +44,16 @@ let chatgptVisible = false
 let chatgptBounds
 const preparedChatGPTDrafts = new Map()
 const pendingChatGPTComments = new Map()
+const flushingChatGPTComments = new Set()
+const recentChatGPTCommentIds = new Map()
+const recentChatGPTCommentFingerprints = new Map()
 const chatGPTActivityFingerprints = new Map()
 const expectedChatGPTBundles = new Map()
 const EXPECTED_BUNDLE_TTL_MS = 60 * 60 * 1000
 const DOM_DOWNLOAD_POLL_MS = 2_000
 const DOM_DOWNLOAD_RETRY_MS = 5_000
+const BUNDLE_COMPLETION_GRACE_MS = 4_000
+const BUNDLE_CONTINUATION_BASE_MS = 5_000
 let chatGPTDownloadPoller
 let recentExpectedDownload
 const chatGPTUploads = new ChatGPTUploadCoordinator()
@@ -83,7 +89,17 @@ function canonicalBundleFilename(requestId) {
 function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0) {
   const key = sanitizeChatCacheKey(cacheKey)
   const filename = canonicalBundleFilename(requestId)
-  expectedChatGPTBundles.set(key, { requestId: String(requestId), filename, armedAt: Date.now(), assistantBaseline: Math.max(0, Number(assistantBaseline) || 0) })
+  const prior = expectedChatGPTBundles.get(key)
+  const sameRequest = prior?.requestId === String(requestId)
+  expectedChatGPTBundles.set(key, {
+    requestId: String(requestId), filename,
+    armedAt: sameRequest ? prior.armedAt : Date.now(),
+    assistantBaseline: Math.max(0, Number(assistantBaseline) || 0),
+    lastDOMClick: 0,
+    settledAt: 0,
+    continuationCount: sameRequest ? Number(prior.continuationCount || 0) : 0,
+    lastContinuationAt: sameRequest ? Number(prior.lastContinuationAt || 0) : 0,
+  })
   return filename
 }
 
@@ -750,6 +766,21 @@ async function materializeChatInput(cacheKey, sessionId, values, artifactValues,
   return { paths, promptPath, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, bytes: contextBytes + total + artifacts.total + prompt.bytes.byteLength }
 }
 
+
+async function materializeCommentAttachments(cacheKey, values) {
+  const { decoded, total } = decodeChatAttachmentSet(values)
+  if (!decoded.length) return { paths: [], bytes: 0 }
+  const dir = path.join(app.getPath('temp'), 'wharness-chat-comments', cacheKey, `${Date.now()}`)
+  await mkdir(dir, { recursive: true, mode: 0o700 })
+  const paths = []
+  for (const attachment of decoded) {
+    const target = path.join(dir, attachment.name)
+    await writeFile(target, attachment.bytes, { mode: 0o600, flag: 'wx' })
+    paths.push(target)
+  }
+  return { paths, bytes: total }
+}
+
 async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentConversation = false) {
   const key = sanitizeChatCacheKey(cacheKey)
   const { entry } = ensureChatGPTView(key)
@@ -920,6 +951,11 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
 }
 
 
+function chatGPTCommentFingerprint(key, requestId, comment, attachments = []) {
+  const attachmentSignature = attachments.map((item) => [item?.name, item?.size, item?.type || item?.mime].map((value) => String(value || '')).join(':')).join('|')
+  return createHash('sha256').update(`${key}\0${requestId}\0${comment}\0${attachmentSignature}`).digest('hex')
+}
+
 async function queueChatGPTComment(request) {
   const key = sanitizeChatCacheKey(request?.cacheKey)
   const requestId = String(request?.requestId || '').trim()
@@ -931,29 +967,58 @@ async function queueChatGPTComment(request) {
 ${comment}
 
 Treat this as additional guidance for the SAME task and SAME request. Do not replace, cancel or downgrade the original deliverable. Continue the work and still return the required canonical bundle ${expectedFilename}.`
-  pendingChatGPTComments.set(key, { text, url: String(request?.url || ''), requestId, queuedAt: Date.now() })
+  const commentId = String(request?.commentId || `${requestId}:${comment}`).slice(0, 20000)
+  const attachments = Array.isArray(request?.attachments) ? request.attachments : []
+  const fingerprint = chatGPTCommentFingerprint(key, requestId, comment, attachments)
+  const now = Date.now()
+  const priorAt = recentChatGPTCommentIds.get(`${key}:${commentId}`) || 0
+  const priorFingerprintAt = recentChatGPTCommentFingerprints.get(fingerprint) || 0
+  if (now - priorAt < 30 * 60 * 1000 || now - priorFingerprintAt < 60 * 1000) return { ok: true, cacheKey: key, queued: hasPendingChatGPTComments(key), requestId, duplicate: true }
+  const queue = pendingChatGPTComments.get(key) || []
+  if (!queue.some((item) => item.commentId === commentId || item.fingerprint === fingerprint)) queue.push({ commentId, fingerprint, text, url: String(request?.url || ''), requestId, attachments, queuedAt: now })
+  pendingChatGPTComments.set(key, queue)
   await flushQueuedChatGPTComments()
-  return { ok: true, cacheKey: key, queued: pendingChatGPTComments.has(key), requestId }
+  return { ok: true, cacheKey: key, queued: Boolean(pendingChatGPTComments.get(key)?.length), requestId }
+}
+
+function hasPendingChatGPTComments(key) {
+  return Boolean(pendingChatGPTComments.get(key)?.length)
 }
 
 async function flushQueuedChatGPTComments() {
-  for (const [key, pending] of pendingChatGPTComments) {
-    if (Date.now() - pending.queuedAt > 30 * 60 * 1000) { pendingChatGPTComments.delete(key); continue }
+  for (const [key, queue] of pendingChatGPTComments) {
+    while (queue.length && Date.now() - queue[0].queuedAt > 30 * 60 * 1000) queue.shift()
+    if (!queue.length) { pendingChatGPTComments.delete(key); continue }
+    if (flushingChatGPTComments.has(key)) continue
+    flushingChatGPTComments.add(key)
+    const pending = queue[0]
     try {
       const target = await targetChatGPTComposer(key, pending.url, true)
       const ready = await target.wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) continue
+      const attachmentSet = await materializeCommentAttachments(key, pending.attachments)
+      for (let index = 0; index < attachmentSet.paths.length; index += 1) await pasteChatGPTFile(target.entry, attachmentSet.paths[index], index + 1, attachmentSet.paths.length)
       const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(pending.text), true)
       if (!filled) continue
       const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
       await wait(80)
       await submitChatGPTDraft(key)
-      pendingChatGPTComments.delete(key)
+      queue.shift()
+      recentChatGPTCommentIds.set(`${key}:${pending.commentId}`, Date.now())
+      recentChatGPTCommentFingerprints.set(pending.fingerprint, Date.now())
+      if (!queue.length) pendingChatGPTComments.delete(key)
       if (expectedChatGPTBundles.has(key)) armExpectedChatGPTBundle(key, pending.requestId, assistantBaseline)
       touchChatGPTEntry(target.entry)
-      mainWindow?.webContents.send('wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId })
+      mainWindow?.webContents.send('wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId, attachments: attachmentSet.paths.length })
+      break
     } catch (error) {
       console.warn(`[chatgpt-comment] queued key=${key} error=${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      flushingChatGPTComments.delete(key)
+      const cutoff = Date.now() - 30 * 60 * 1000
+      const fingerprintCutoff = Date.now() - 60 * 1000
+      for (const [id, sentAt] of recentChatGPTCommentIds) if (sentAt < cutoff) recentChatGPTCommentIds.delete(id)
+      for (const [fingerprint, sentAt] of recentChatGPTCommentFingerprints) if (sentAt < fingerprintCutoff) recentChatGPTCommentFingerprints.delete(fingerprint)
     }
   }
 }
@@ -977,21 +1042,48 @@ async function pollChatGPTVisibleActivity() {
 async function pollExpectedChatGPTDownloads() {
   const now = Date.now()
   for (const [key, expected] of expectedChatGPTBundles) {
-    if (pendingChatGPTComments.has(key)) continue
+    if (hasPendingChatGPTComments(key)) continue
     if (now - expected.armedAt > EXPECTED_BUNDLE_TTL_MS) {
       expectedChatGPTBundles.delete(key)
+      mainWindow?.webContents.send('wharness:chatgpt:bundle-download-error', { cacheKey: key, requestId: expected.requestId, error: 'Tempo limite excedido enquanto o Wharness aguardava o bundle canónico.' })
       continue
     }
-    if (expected.lastDOMClick && now - expected.lastDOMClick < DOM_DOWNLOAD_RETRY_MS) continue
     const entry = chatgptViews.get(key)
     const wc = entry?.view.webContents
     if (!entry || wc?.isDestroyed() || entry.loading || !isTrustedChatGPTOrigin(wc.getURL())) continue
     try {
-      const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
-      if (!clickMode) continue
-      expected.lastDOMClick = now
-      recentExpectedDownload = { key, requestId: expected.requestId, at: now }
-      console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
+      if (!expected.lastDOMClick || now - expected.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS) {
+        const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
+        if (clickMode) {
+          expected.lastDOMClick = now
+          recentExpectedDownload = { key, requestId: expected.requestId, at: now }
+          console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
+          break
+        }
+      }
+
+      const completion = await wc.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
+      if (!completion?.complete) { expected.settledAt = 0; continue }
+      if (!expected.settledAt) { expected.settledAt = now; continue }
+      if (now - expected.settledAt < BUNDLE_COMPLETION_GRACE_MS) continue
+      const continuationDelay = Math.min(30_000, BUNDLE_CONTINUATION_BASE_MS + Number(expected.continuationCount || 0) * 3_000)
+      if (expected.lastContinuationAt && now - expected.lastContinuationAt < continuationDelay) continue
+
+      const continuation = `WHARNESS DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}
+
+The previous ChatGPT turn finished without a detected validated downloadable bundle named ${expected.filename}.
+Do not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharness file-first contract. Finish with the file attachment only.`
+      const filled = await wc.executeJavaScript(chatGPTFillComposerScript(continuation), true)
+      if (!filled) continue
+      await wait(80)
+      await submitChatGPTDraft(key)
+      expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion.assistantCount) || 0)
+      expected.continuationCount = Number(expected.continuationCount || 0) + 1
+      expected.lastContinuationAt = now
+      expected.settledAt = 0
+      expected.lastDOMClick = 0
+      console.log(`[chatgpt-bundle-dom] continuation-submitted key=${key} request=${expected.requestId} attempt=${expected.continuationCount}`)
+      mainWindow?.webContents.send('wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: `Bundle não detetado após a resposta. Continuação automática ${expected.continuationCount} enviada para preservar o objetivo.`, capturedAt: new Date().toISOString() })
       break
     } catch (error) {
       console.warn(`[chatgpt-bundle-dom] scan-failed key=${key} error=${error instanceof Error ? error.message : String(error)}`)
@@ -1404,6 +1496,15 @@ app.whenReady().then(async () => {
     const trusted = isTrustedChatGPTOrigin(requestingURL)
     return trusted && (permission === 'notifications' || permission === 'clipboard-sanitized-write')
   })
+
+  // Keep the local Wharness composer useful in Portuguese while preserving
+  // English for code/technical terms. Electron only accepts dictionaries that
+  // are actually available in the current Chromium build.
+  try {
+    const available = new Set(session.defaultSession.availableSpellCheckerLanguages || [])
+    const preferred = ['pt-PT', 'pt-BR', 'en-US'].filter((language) => available.has(language))
+    if (preferred.length) session.defaultSession.setSpellCheckerLanguages(preferred)
+  } catch (error) { console.warn('[spellcheck] dictionary configuration failed', error) }
 
   // Cache only: preserve cookies/login while forcing current ChatGPT assets to reload
   // under the Chrome-compatible UA. Failures here must not prevent startup.

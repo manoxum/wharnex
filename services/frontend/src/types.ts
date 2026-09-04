@@ -197,9 +197,19 @@ export type WorkspaceMode = 'editor' | 'agent'
 export type ChatArtifactKind = 'context' | 'prompt' | 'result' | 'error'
 export type ChatArtifactSelection = Record<ChatArtifactKind, boolean>
 export type ChatRequestMode = 'direct' | 'plan_first'
+export type QueuedChatRequest = {
+  id: string
+  message: string
+  attachments: File[]
+  artifacts: ChatArtifactSelection
+  requestMode: ChatRequestMode
+  createdAt: string
+}
 export type ChatItemSource = 'user' | 'chatgpt' | 'wharness'
-export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan'
+export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | 'change'
 export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage: string; requestId: string }
+export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }
+export type ChatChangeSummary = { planId: string; files: ChatChangeFile[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
 export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 export type ChatIterationRef = {
   id: string
@@ -217,7 +227,7 @@ export type ChatAttachmentInfo = {
   previewKind?: 'thumbnail' | 'icon' | 'none'
 }
 
-export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef; source?: ChatItemSource; presentation?: ChatItemPresentation; approval?: ChatPlanApproval }
+export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef; source?: ChatItemSource; presentation?: ChatItemPresentation; approval?: ChatPlanApproval; change?: ChatChangeSummary }
 
 export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number; restart_scheduled?: boolean; restart_required?: boolean }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
-import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
+import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { ChatPanel } from './components/ChatPanel'
 import { Inspector } from './components/Inspector'
@@ -14,7 +14,8 @@ import {
   saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, type WorkspaceChat,
 } from './lib/workspaceMemory'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
-import { attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
+import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
+import { buildChangeSummary } from './lib/changeSummary'
 
 export default function App() {
   const activeAtLoad = loadActiveWorkspace()
@@ -34,8 +35,12 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
+  const [queuedRequestsByChat, setQueuedRequestsByChat] = useState<Record<string, QueuedChatRequest[]>>({})
+  const queueDrainRef = useRef(false)
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const [restartModalOpen, setRestartModalOpen] = useState(false)
+  const [editorOpenPath, setEditorOpenPath] = useState<string>()
+  const [editorOpenNonce, setEditorOpenNonce] = useState(0)
   const sourceRef = useRef<EventSource | null>(null)
 
   const connectEvents = useCallback((id: string, projectPath: string, chatId: string) => {
@@ -491,6 +496,80 @@ export default function App() {
     } finally { setBusy(false) }
   }
 
+
+  function enqueueMainRequest(message: string, attachments: File[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode = 'direct') {
+    if (!activeChatId) return Promise.resolve()
+    const queued: QueuedChatRequest = { id: crypto.randomUUID(), message, attachments, artifacts: { ...artifacts }, requestMode, createdAt: new Date().toISOString() }
+    setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: [...(current[activeChatId] || []), queued] }))
+    return Promise.resolve()
+  }
+
+  function updateQueuedRequest(id: string, message: string) {
+    setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: (current[activeChatId] || []).map((item) => item.id === id ? { ...item, message } : item) }))
+  }
+
+  function moveQueuedRequest(id: string, direction: -1 | 1) {
+    setQueuedRequestsByChat((current) => {
+      const queue = [...(current[activeChatId] || [])]
+      const index = queue.findIndex((item) => item.id === id)
+      const target = index + direction
+      if (index < 0 || target < 0 || target >= queue.length) return current
+      ;[queue[index], queue[target]] = [queue[target], queue[index]]
+      return { ...current, [activeChatId]: queue }
+    })
+  }
+
+  function removeQueuedRequest(id: string) {
+    setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: (current[activeChatId] || []).filter((item) => item.id !== id) }))
+  }
+
+  function mergeQueuedRequest(id: string) {
+    setQueuedRequestsByChat((current) => {
+      const queue = [...(current[activeChatId] || [])]
+      const index = queue.findIndex((item) => item.id === id)
+      if (index < 0 || index >= queue.length - 1) return current
+      const first = queue[index]
+      const second = queue[index + 1]
+      const mergedAttachments = addChatAttachments(first.attachments, second.attachments)
+      if (mergedAttachments.error) { setError(`Não foi possível mesclar as requests: ${mergedAttachments.error}`); return current }
+      const artifacts: ChatArtifactSelection = {
+        context: first.artifacts.context || second.artifacts.context,
+        prompt: first.artifacts.prompt || second.artifacts.prompt,
+        result: first.artifacts.result || second.artifacts.result,
+        error: first.artifacts.error || second.artifacts.error,
+      }
+      queue.splice(index, 2, { ...first, message: `${first.message}\n\n${second.message}`, attachments: mergedAttachments.files, artifacts })
+      return { ...current, [activeChatId]: queue }
+    })
+  }
+
+  async function promoteQueuedRequest(id: string) {
+    if (!session) return
+    const queue = queuedRequestsByChat[activeChatId] || []
+    const queued = queue.find((item) => item.id === id)
+    if (!queued) return
+    removeQueuedRequest(id)
+    if (!requestChainActive(session)) {
+      setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: [queued, ...(current[activeChatId] || [])] }))
+      return
+    }
+    try { await commentOnActiveTask(queued.message, queued.attachments) }
+    catch (error) {
+      setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: [queued, ...(current[activeChatId] || [])] }))
+      setError(messageOf(error))
+    }
+  }
+
+  useEffect(() => {
+    if (!session || !activeChatId || busy || queueDrainRef.current || requestChainActive(session) || preparedDrafts[activeChatId]) return
+    const next = (queuedRequestsByChat[activeChatId] || [])[0]
+    if (!next) return
+    queueDrainRef.current = true
+    setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: (current[activeChatId] || []).filter((item) => item.id !== next.id) }))
+    void send(next.message, next.attachments, next.artifacts, next.requestMode).finally(() => { queueDrainRef.current = false })
+    // send intentionally stays outside the dependency array: this effect is a serialized queue dispatcher.
+  }, [activeChatId, busy, preparedDrafts, queuedRequestsByChat, session?.state, session?.pending_manual_request_ids])
+
   async function confirmPreparedDraft() {
     if (!activeChatId || busy) return
     setBusy(true); setError(undefined)
@@ -608,7 +687,7 @@ export default function App() {
       const conversational = updated.last_turn && updated.last_turn.kind !== 'change' && updated.last_turn.kind !== 'workflow'
       const isPlanProposal = Boolean(conversational && targetChat.pendingPlan?.requestId === updated.last_turn?.request_id)
       const bundleItem: ChatItem = {
-        id: crypto.randomUUID(), role: 'harness', source: submission.policy_blocked || submission.workflow_executed ? 'wharness' : 'chatgpt', presentation: isPlanProposal ? 'plan' : (submission.policy_blocked || submission.workflow_executed ? 'notice' : 'message'), createdAt: new Date().toISOString(), text: submission.policy_blocked ? autoText : (submission.workflow_executed ? autoText : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText))),
+        id: crypto.randomUUID(), role: 'harness', source: submission.policy_blocked || submission.workflow_executed ? 'wharness' : 'chatgpt', presentation: isPlanProposal ? 'plan' : (submission.policy_blocked || submission.workflow_executed ? 'notice' : 'message'), createdAt: new Date().toISOString(), text: submission.policy_blocked ? autoText : (submission.workflow_executed ? `${autoText}${updated.last_turn?.message ? `\n\n${updated.last_turn.message}` : ''}` : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText))),
         approval: isPlanProposal && targetChat.pendingPlan ? { status: 'pending', requestId: targetChat.pendingPlan.requestId, originalMessage: targetChat.pendingPlan.originalMessage } : undefined,
         meta: submission.policy_blocked
           ? `Policy bloqueada${submission.repair_prepared ? ' · reparação automática preparada' : ''}`
@@ -622,6 +701,10 @@ export default function App() {
         setSession(updated); setManualPrompt(updated.last_manual_prompt || '')
       }
       appendChatItem(targetChat, updated.project_path, bundleItem)
+      if (submission.auto_applied) {
+        const change = buildChangeSummary(updated.plan)
+        if (change) appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'change', createdAt: change.appliedAt, text: 'Resumo das alterações aplicadas ao host.', change })
+      }
       if (submission.auto_error) setError(submission.auto_error)
       if (submission.auto_executed && updated.last_execution) updateWorkspaceChat(targetChat.id, updated.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: updated.last_execution.success === false } })
       if (submission.auto_applied) markContextDirtyForOtherChats(updated.project_path, targetChat.id)
@@ -768,8 +851,34 @@ export default function App() {
       setSession(updated)
       markContextDirtyForOtherChats(updated.project_path, activeChatId)
       if (updated.self_evolution && updated.state === 'restart_pending') setRestartModalOpen(true)
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado' }])
+      const change = buildChangeSummary(updated.plan)
+      setItems((current) => [...current,
+        { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado' },
+        ...(change ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, createdAt: change.appliedAt, text: 'Resumo das alterações aplicadas ao host.', change }] : []),
+      ])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  function openFileFromChat(path: string) {
+    setEditorOpenPath(path)
+    setEditorOpenNonce((value) => value + 1)
+    setMode('editor')
+  }
+
+  async function revertChange(item: ChatItem) {
+    if (!session || !item.change || item.change.reverted || busy) return
+    if (!session.plan || session.plan.plan_id !== item.change.planId) {
+      setError('Este resumo pertence a um plano anterior. A reversão segura só está disponível para o último plano aplicado desta sessão.')
+      return
+    }
+    if (!window.confirm(`Reverter as alterações do plano ${item.change.planId} no projeto real?`)) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.revert(session.id)
+      setSession(updated)
+      setItems((current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: true } } : candidate))
+      markContextDirtyForOtherChats(updated.project_path, activeChatId)
+    } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
   }
 
   async function changeExecutionMode(next: ExecutionMode) {
@@ -821,16 +930,23 @@ export default function App() {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
-  async function commentOnActiveTask(message: string) {
+  async function commentOnActiveTask(message: string, attachments: File[] = []) {
     if (!session) return
     const active = chats.find((chat) => chat.id === activeChatId)
-    const requestId = session.last_request_id || active?.pendingPlan?.requestId || ''
+    const pending = session.pending_manual_request_ids || []
+    const requestId = pending[pending.length - 1] || session.last_request_id || active?.pendingPlan?.requestId || ''
     if (!active || !requestId) throw new Error('Nenhuma tarefa ChatGPT ativa para comentar.')
-    const bridge = desktopBridge()
-    if (!bridge) throw new Error('Comentários de tarefa requerem Wharness Desktop.')
-    const result = await bridge.chatgpt.queueComment({ cacheKey: active.id, text: message, url: active.chatgptUrl, requestId })
-    const item: ChatItem = { id: crypto.randomUUID(), role: 'user', source: 'user', text: message, createdAt: new Date().toISOString(), meta: result.queued ? 'Comentário em fila para a tarefa ativa' : 'Comentário enviado à tarefa ativa', iteration: iterationRef(requestId, 'submitted', ['prompt'], active.chatgptUrl) }
-    appendChatItem(active, session.project_path, item)
+    try {
+      const bridge = desktopBridge()
+      if (!bridge) throw new Error('Comentários de tarefa requerem Wharness Desktop.')
+      const encoded = attachments.length ? await encodeChatAttachments(attachments) : []
+      const result = await bridge.chatgpt.queueComment({ cacheKey: active.id, text: message, url: active.chatgptUrl, requestId, commentId: crypto.randomUUID(), attachments: encoded })
+      const item: ChatItem = { id: crypto.randomUUID(), role: 'user', source: 'user', text: message, createdAt: new Date().toISOString(), meta: `${result.queued ? 'Comentário em fila' : 'Comentário enviado'} para a tarefa ativa${attachments.length ? ` · ${attachments.length} anexo(s)` : ''}`, iteration: iterationRef(requestId, 'submitted', ['prompt'], active.chatgptUrl) }
+      appendChatItem(active, session.project_path, item)
+    } catch (error) {
+      setError(messageOf(error))
+      throw error
+    }
   }
 
   function handleChatGPTActivity(activity: ChatGPTActivity) {
@@ -879,19 +995,22 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
     result: Boolean(activeChat?.artifactSelection?.result),
     error: errorArtifactRequired || Boolean(activeChat?.artifactSelection?.error),
   }
-  const taskInFlight = Boolean(session.pending_manual_request_ids?.length && session.last_manual_prompt && !preparedDrafts[activeChatId])
+  const taskInFlight = requestChainActive(session)
   const restartPending = Boolean(session.self_evolution && session.state === 'restart_pending')
   return <main className="workspace-root">
     <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} busy={busy} onMode={setMode} onExecutionMode={changeExecutionMode} onAutomationMode={changeAutomationMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
     {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={() => setRestartModalOpen(false)} onRestart={() => void confirmSelfRestart()} />}
-    {error && <div className="toast-error" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
-    {mode === 'editor'
-      ? <EditorWorkspace session={session} onError={setError} />
-      : <div className="agent-workspace">
-          <ChatPanel session={session} items={items} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} artifactSelection={composerArtifacts} artifactRequired={{ context: contextArtifactRequired, error: errorArtifactRequired }} requestMode={activeChat?.requestMode || 'direct'} taskInFlight={taskInFlight} onToggleArtifact={toggleComposerArtifact} onRequestMode={changeRequestMode} onSend={send} onComment={commentOnActiveTask} onApprovePlan={approvePlanProposal} onRejectPlan={rejectPlanProposal} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onNewChat={newChat} onSelectChat={selectChat} onArchiveChat={archiveChat} onRestoreChat={restoreArchivedChat} onDeleteArchivedChat={deleteArchivedChat} />
-          <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={projectSettingsOpen} onChatGPTURL={bindChatGPTURL} onChatGPTActivity={handleChatGPTActivity} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
-        </div>}
+    {error && <div className="toast-error" data-chatgpt-overlay-blocker="true" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
+    <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
+      <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
+    </div>
+    <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
+      <div className="agent-workspace">
+        <ChatPanel key={activeChatId} session={session} items={items} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} busy={busy} attachmentsEnabled={isDesktop() && config?.planner === 'manual'} preparedAttachmentCount={preparedDrafts[activeChatId]} artifactSelection={composerArtifacts} artifactRequired={{ context: contextArtifactRequired, error: errorArtifactRequired }} artifactContent={{ context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) }} requestMode={activeChat?.requestMode || 'direct'} taskInFlight={taskInFlight} queuedRequests={queuedRequestsByChat[activeChatId] || []} onToggleArtifact={toggleComposerArtifact} onRequestMode={changeRequestMode} onSend={enqueueMainRequest} onComment={commentOnActiveTask} onQueueEdit={updateQueuedRequest} onQueueMove={moveQueuedRequest} onQueueRemove={removeQueuedRequest} onQueueMerge={mergeQueuedRequest} onQueuePromote={promoteQueuedRequest} onApprovePlan={approvePlanProposal} onRejectPlan={rejectPlanProposal} onConfirmPrepared={confirmPreparedDraft} onDismissPrepared={dismissPreparedDraft} onOpenFile={openFileFromChat} onRevertChange={revertChange} onNewChat={newChat} onSelectChat={selectChat} onArchiveChat={archiveChat} onRestoreChat={restoreArchivedChat} onDeleteArchivedChat={deleteArchivedChat} />
+        <Inspector config={config} session={session} events={events} manualPrompt={manualPrompt} busy={busy} chat={activeChat} chatgptSuspended={mode !== 'agent' || projectSettingsOpen || restartModalOpen} onChatGPTURL={bindChatGPTURL} onChatGPTActivity={handleChatGPTActivity} onContextSent={markContextSent} onExecute={execute} onApply={apply} onManualPlan={submitManualPlan} onPlanFile={submitPlanFile} onBundleFile={submitBundleFile} onSession={setSession} />
+      </div>
+    </div>
   </main>
 }
 
@@ -923,6 +1042,18 @@ async function encodeSystemArtifacts(session: Session, selection: ChatArtifactSe
   if (selection.result && session.last_execution) files.push(new File([executionArtifact(session)], 'wharness-execution-result.md', { type: 'text/markdown' }))
   if (selection.error && (session.last_execution?.success === false || session.last_repair_error)) files.push(new File([errorArtifact(session)], 'wharness-execution-error.md', { type: 'text/markdown' }))
   return encodeChatAttachments(files)
+}
+
+function contextArtifact(session: Session) {
+  const manifest = session.context.manifest
+  const files = manifest.files.slice(0, 240).map((file) => `- ${file.path} · ${file.size} B · ${file.sha256.slice(0, 12)}`).join('\n')
+  const omitted = manifest.files.length > 240 ? `\n- ... ${manifest.files.length - 240} ficheiro(s) adicionais` : ''
+  return `# Wharness context snapshot\n\n- id: ${manifest.id}\n- project: ${manifest.project_root}\n- sha256: ${manifest.sha256}\n- files: ${manifest.files.length}\n- text truncated: ${manifest.text_truncated}\n\n## Included files\n\n${files}${omitted}\n`
+}
+
+function requestChainActive(session: Session) {
+  if (session.pending_manual_request_ids?.length) return true
+  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'verified', 'restart_pending', 'restart_scheduled']).has(session.state)
 }
 
 function executionArtifact(session: Session) {

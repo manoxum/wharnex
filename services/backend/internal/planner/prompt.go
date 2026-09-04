@@ -31,6 +31,7 @@ ITERATIVE WORKFLOW RULES:
 - Do not use workflow merely because tools exist. If the project context already answers the question, answer immediately.
 - Wharness sends workflow command outputs back into this SAME conversation as LOCAL WORKFLOW OBSERVATIONS. Read those observations, update your reasoning, and then either: (a) answer/investigate conclusively, (b) request another materially different workflow step, (c) propose an explicit change if the original user asked for mutation, or (d) block/clarify.
 - Never repeat the same failed probe unchanged unless the new observation explains why retrying is useful.
+- When the original user intent is CHANGE, every workflow turn.message MUST carry the current ## TODO checklist snapshot too. Preserve existing units, mark units [x] only when evidence shows they are complete, add newly discovered units when needed, and keep unresolved units [ ]. This lets Wharness present live task progress across workflow rounds.
 - The Wharness workflow is bounded. When a continuation says FINAL WORKFLOW ROUND, you MUST return a terminal answer, investigation, clarification, change, or blocked result and MUST NOT request another workflow turn.
 
 TURN RULES:

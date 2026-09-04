@@ -29,6 +29,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const [notice, setNotice] = useState('')
   const [linkReady, setLinkReady] = useState(false)
   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
+  const [overlayBlocked, setOverlayBlocked] = useState(false)
   const [controlsExpanded, setControlsExpanded] = useState(() => {
     try { return window.localStorage.getItem(CHATGPT_CONTROLS_KEY) === '1' } catch { return false }
   })
@@ -105,10 +106,19 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   }, [bridge])
 
   useEffect(() => {
+    const selector = '[role="dialog"][aria-modal="true"], [data-chatgpt-overlay-blocker="true"]'
+    const sync = () => setOverlayBlocked(Boolean(document.querySelector(selector)))
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'aria-hidden'] })
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
     if (!bridge || !hostRef.current) return
-    if (suspended || externalAuth) { void bridge.chatgpt.hide(); return }
+    if (suspended || overlayBlocked || externalAuth) { void bridge.chatgpt.hide(); return }
     void bridge.chatgpt.show(elementBounds(hostRef.current), chatId)
-  }, [bridge, chatId, suspended, externalAuth])
+  }, [bridge, chatId, suspended, overlayBlocked, externalAuth])
 
   useEffect(() => {
     if (!bridge || !chatId) return
