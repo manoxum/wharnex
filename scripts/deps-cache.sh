@@ -64,10 +64,21 @@ node_ready() {
       ;;
     desktop)
       [ -f "$service/node_modules/electron/package.json" ] &&
-        [ -f "$service/node_modules/electron/path.txt" ]
+        [ -f "$service/node_modules/electron/path.txt" ] || return 1
+      electron_path=$(cat "$service/node_modules/electron/path.txt")
+      [ -n "$electron_path" ] &&
+        [ -x "$service/node_modules/electron/dist/$electron_path" ]
       ;;
     *) return 1 ;;
   esac
+}
+
+hydrate_desktop_runtime() {
+  service=$1
+  # Electron 44 ships its binary downloader as an explicit entry point rather
+  # than an npm lifecycle script. Importing the package preserves Electron's
+  # supported cache/download behavior and materializes path.txt plus dist/.
+  (cd "$service" && node -e "import('electron').then(({default: p}) => { if (!p) process.exit(1) })")
 }
 
 hidden_lock_matches() {
@@ -155,6 +166,9 @@ sync_node() {
       --no-fund \
       --progress=false
   )
+  if [ "$name" = desktop ]; then
+    hydrate_desktop_runtime "$service"
+  fi
   node_ready "$name" "$service" || {
     echo "[deps] $name: npm ci completed but required runtime files are missing" >&2
     exit 1
