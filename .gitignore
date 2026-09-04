@@ -5,6 +5,7 @@ dist/
 coverage/
 *.log
 .DS_Store
+.idea/
 services/frontend/playwright-report/
 services/frontend/test-results/
 *.tsbuildinfo
