@@ -12,7 +12,7 @@ function bridge() {
     chatgpt: {
       show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
       navigate: vi.fn().mockResolvedValue(state), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(),
-      state: vi.fn().mockResolvedValue(state), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
+      state: vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1' }), release: vi.fn().mockResolvedValue({ ok: true, released: true }), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
       onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
       onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
       onActivity: vi.fn(noopSubscription),
@@ -67,6 +67,33 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'embedded'))
     screen.getByRole('button', { name: /Externo/ }).click()
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'external'))
+  })
+
+  it('ignores ChatGPT state events owned by another Harness chat', async () => {
+    let stateHandler: ((value: DesktopChatGPTState) => void) | undefined
+    const desktop = bridge(); desktop.chatgpt.onState = vi.fn((callback) => { stateHandler = callback; return () => undefined }); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} />)
+    act(() => stateHandler?.({ ...state, cacheKey: 'chat-2', externalAuthProvider: 'Google' }))
+    expect(screen.queryByText('Autenticação Google em curso')).toBeNull()
+    expect(desktop.chatgpt.state).toHaveBeenCalledWith('chat-1')
+  })
+
+  it('never imports a plan or bundle event owned by another Harness chat', async () => {
+    let planHandler: ((value: DesktopPlanDownload) => void) | undefined
+    let bundleHandler: ((value: DesktopBundleDownload) => void) | undefined
+    const onPlanFile = vi.fn(async () => '')
+    const onBundleFile = vi.fn(async () => '')
+    const desktop = bridge()
+    desktop.chatgpt.onPlanDownloaded = vi.fn((callback) => { planHandler = callback; return () => undefined })
+    desktop.chatgpt.onBundleDownloaded = vi.fn((callback) => { bundleHandler = callback; return () => undefined })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} onPlanFile={onPlanFile} onBundleFile={onBundleFile} />)
+
+    act(() => planHandler?.({ cacheKey: 'chat-2', filename: 'wharness-plan-req_other.json', requestId: 'req_other', text: '{}', bytes: 2 }))
+    act(() => bundleHandler?.({ cacheKey: 'chat-2', filename: 'wharness-bundle-req_other.zip', requestId: 'req_other', contentBase64: 'AA==', bytes: 1 }))
+
+    expect(onPlanFile).not.toHaveBeenCalled()
+    expect(onBundleFile).not.toHaveBeenCalled()
   })
 
   it('suspends the embedded surface while managed external authentication is active', async () => {

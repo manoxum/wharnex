@@ -49,16 +49,18 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     let frame = 0
     const sync = () => {
       cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => { if (hostRef.current) void bridge.chatgpt.setBounds(elementBounds(hostRef.current)) })
+      frame = requestAnimationFrame(() => { if (hostRef.current) void bridge.chatgpt.setBounds(elementBounds(hostRef.current), chatIdRef.current) })
     }
     const observer = new ResizeObserver(sync)
     observer.observe(hostRef.current)
     window.addEventListener('resize', sync)
-    void bridge.chatgpt.state().then((next) => {
+    void bridge.chatgpt.state(chatIdRef.current).then((next) => {
+      if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
       setState(next)
       if (next.externalAuthProvider) setExternalAuth({ provider: next.externalAuthProvider, url: '' })
     })
     const unsubscribe = bridge.chatgpt.onState((next) => {
+      if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
       setState(next)
       if (next.externalAuthProvider) setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
       const decision = chatgptAutoBindingDecision(linkedURLRef.current, next.url, next.loading, newChatSurfaceSeenRef.current)
@@ -81,27 +83,33 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     const unsubscribeAuthComplete = bridge.chatgpt.onAuthComplete(({ cacheKey }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth(null); setControlsExpanded(false); setNotice('Sessão ChatGPT autenticada.')
-      void bridge.chatgpt.state().then(setState)
+      void bridge.chatgpt.state(chatIdRef.current).then((next) => {
+        if (!next.cacheKey || next.cacheKey === chatIdRef.current) setState(next)
+      })
     })
     const unsubscribeAuthError = bridge.chatgpt.onAuthError(({ cacheKey, provider, message }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth(null); setControlsExpanded(true); setNotice(`${provider}: ${message}`)
-      void bridge.chatgpt.state().then(setState)
+      void bridge.chatgpt.state(chatIdRef.current).then((next) => {
+        if (!next.cacheKey || next.cacheKey === chatIdRef.current) setState(next)
+      })
     })
-    const unsubscribePlan = bridge.chatgpt.onPlanDownloaded(({ filename, requestId, text, bytes }) => {
+    const unsubscribePlan = bridge.chatgpt.onPlanDownloaded(({ cacheKey, filename, requestId, text, bytes }) => {
+      if (!cacheKey || cacheKey !== chatIdRef.current) return
       setNotice(`Plano ${filename} recebido (${formatBytes(bytes)}). A importar…`)
       void onPlanFileRef.current(text, requestId).then(setNotice).catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o plano.'))
     })
-    const unsubscribePlanError = bridge.chatgpt.onPlanDownloadError(({ message }) => setNotice(message))
-    const unsubscribeBundle = bridge.chatgpt.onBundleDownloaded(({ filename, requestId, contentBase64, bytes }) => {
+    const unsubscribePlanError = bridge.chatgpt.onPlanDownloadError(({ cacheKey, message }) => { if (cacheKey === chatIdRef.current) setNotice(message) })
+    const unsubscribeBundle = bridge.chatgpt.onBundleDownloaded(({ cacheKey, filename, requestId, contentBase64, bytes }) => {
+      if (!cacheKey || cacheKey !== chatIdRef.current) return
       setNotice(`Bundle ${filename} recebido (${formatBytes(bytes)}). A importar…`)
       void onBundleFileRef.current(contentBase64, requestId, filename).then(setNotice).catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o bundle.'))
     })
-    const unsubscribeBundleError = bridge.chatgpt.onBundleDownloadError(({ message }) => setNotice(message))
+    const unsubscribeBundleError = bridge.chatgpt.onBundleDownloadError(({ cacheKey, message, error }) => { if (cacheKey === chatIdRef.current) setNotice(message || error || 'Falha ao receber o bundle.') })
     const unsubscribeActivity = bridge.chatgpt.onActivity((activity) => { if (!activity.cacheKey || activity.cacheKey === chatIdRef.current) onActivityRef.current?.(activity) })
     return () => {
       cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync)
-      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); unsubscribeActivity(); void bridge.chatgpt.hide()
+      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); unsubscribeActivity(); void bridge.chatgpt.hide(chatIdRef.current)
     }
   }, [bridge])
 
@@ -116,7 +124,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return
-    if (suspended || overlayBlocked || externalAuth) { void bridge.chatgpt.hide(); return }
+    if (suspended || overlayBlocked || externalAuth) { void bridge.chatgpt.hide(chatIdRef.current); return }
     void bridge.chatgpt.show(elementBounds(hostRef.current), chatId)
   }, [bridge, chatId, suspended, overlayBlocked, externalAuth])
 
@@ -175,11 +183,11 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   return <div className="desktop-chatgpt-shell">
     <div className="desktop-chatgpt-toolbar">
       <div className="desktop-browser-controls">
-        <button className="icon-button light" disabled={!state.canGoBack} title="Voltar" onClick={() => void bridge?.chatgpt.back()}><Icon name="arrow-left" size={15}/></button>
-        <button className="icon-button light" disabled={!state.canGoForward} title="Avançar" onClick={() => void bridge?.chatgpt.forward()}><Icon name="arrow-right" size={15}/></button>
-        <button className="icon-button light" title="Recarregar ChatGPT" onClick={() => void bridge?.chatgpt.reload()}><Icon name="refresh" size={15}/></button>
+        <button className="icon-button light" disabled={!state.canGoBack} title="Voltar" onClick={() => void bridge?.chatgpt.back(chatId)}><Icon name="arrow-left" size={15}/></button>
+        <button className="icon-button light" disabled={!state.canGoForward} title="Avançar" onClick={() => void bridge?.chatgpt.forward(chatId)}><Icon name="arrow-right" size={15}/></button>
+        <button className="icon-button light" title="Recarregar ChatGPT" onClick={() => void bridge?.chatgpt.reload(chatId)}><Icon name="refresh" size={15}/></button>
         <button className="icon-button light" title="Abrir no navegador do sistema" onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={15}/></button>
-        <button className="icon-button light" title="Colar clipboard no campo focado" onClick={() => void bridge?.chatgpt.paste()}><Icon name="clipboard" size={15}/></button>
+        <button className="icon-button light" title="Colar clipboard no campo focado" onClick={() => void bridge?.chatgpt.paste(chatId)}><Icon name="clipboard" size={15}/></button>
       </div>
       <div className="desktop-browser-address" title={state.url}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(state.url)}</span></div>
       <div className="desktop-chatgpt-toolbar-status">

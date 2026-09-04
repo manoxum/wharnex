@@ -1,6 +1,6 @@
 # Wharness Desktop
 
-Electron shell that composes the local Wharness frontend and a persistent, isolated ChatGPT `WebContentsView` in one native window.
+Electron shell that composes the local Wharness frontend and dedicated isolated ChatGPT `WebContentsView` instances, one per live Harness chat, in one native window.
 
 ## Development start
 
@@ -17,8 +17,8 @@ npm run dev
 - ChatGPT remote content has no preload and no Node integration.
 - `sandbox`, `contextIsolation`, and `webSecurity` remain enabled.
 - The Wharness preload is attached only to the trusted local frontend origin.
-- The ChatGPT session uses the persistent partition `persist:wharness-chatgpt`.
-- No ChatGPT DOM, cookies, prompts, or responses are read by Wharness.
+- Every live Harness chat owns a distinct ChatGPT `WebContentsView`; the shared persistent partition `persist:wharness-chatgpt` carries login/browser storage only and is never used as a DOM-sharing surface.
+- Wharness never reads arbitrary/cross-chat ChatGPT page content. The narrow allowlisted DOM probes used for composer readiness, bounded activity/download detection and submission run only inside the owning chat renderer after owner validation; cookies remain inside the shared Electron session boundary.
 
 ## Composer attachments
 
@@ -29,4 +29,4 @@ Result bundles contain `turn.json`. Answers, clarifications, investigations, and
 
 ## Harness chat affinity
 
-Wharness reuses one remote `WebContentsView`, but each Harness chat stores its own stable ChatGPT conversation URL. Switching chats navigates the remote surface to that URL. Renderer-requested navigation is restricted to trusted HTTPS `chatgpt.com` origins.
+Each live Harness chat owns one dedicated remote `WebContentsView` identified by that chat's stable local id. Switching chats hides the previous view and reveals/navigates only the selected chat's own view; Wharness never reassigns a remote renderer from one chat to another. All DOM/input/navigation IPC carries the chat id and the Electron main process rejects ownership mismatches before touching the remote renderer. The shared `persist:wharness-chatgpt` partition exists only to preserve a common authenticated browser session. Permanent local chat deletion explicitly destroys that chat's remote view. Renderer-requested navigation remains restricted to trusted HTTPS `chatgpt.com` origins.

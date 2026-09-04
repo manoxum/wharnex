@@ -20,7 +20,7 @@ The Explorer only exposes files allowed by the context security policy. Text edi
 
 ## Desktop remote-content boundary (v1.2)
 
-The ChatGPT surface is untrusted remote web content. It is isolated from local application privileges by a dedicated `WebContentsView` with sandboxing, context isolation, Node integration disabled, no preload, and a persistent browser partition used only for its web session.
+The ChatGPT surface is untrusted remote web content. Each live Harness chat is isolated in its own dedicated `WebContentsView` with sandboxing, context isolation, Node integration disabled and no preload. A view has one Harness-chat owner id for its lifetime and is never reassigned to another chat. All allowlisted DOM/input/navigation operations must resolve and validate that owner before touching the remote renderer. The views share one persistent ChatGPT browser partition only for authenticated browser-session state; sharing that partition does not authorize DOM or renderer reuse across chats.
 
 On Linux, the Electron/Chromium process MUST retain a usable layer-1 sandbox. The SUID path is valid only when the `chrome-sandbox` shipped beside the Electron executable is root-owned, root-grouped, and mode `4755`; a persistent root-owned copy may be kept only for recovery and MUST NOT be treated as proof that packaged Electron will execute it. When the packaged helper is not privileged, Wharness may disable only the SUID helper with `--disable-setuid-sandbox` after an actual unprivileged user-namespace probe succeeds; Chromium sandboxing itself remains enabled. `--no-sandbox` is forbidden. If neither the packaged SUID helper nor user namespaces are available, desktop startup MUST fail closed with actionable diagnostics.
 

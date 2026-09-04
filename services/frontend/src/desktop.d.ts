@@ -5,10 +5,10 @@ type ContextClipboardResult = { ok: boolean; filePath: string; bytes: number }
 type DesktopExternalAuthState = { cacheKey?: string; provider: string; url: string; authMode?: DesktopChatGPTAuthMode; managedWindow?: boolean; managedBrowser?: boolean }
 type DesktopAuthCompleteState = { cacheKey?: string; authMode: DesktopChatGPTAuthMode; url: string }
 type DesktopAuthErrorState = { cacheKey?: string; provider: string; message: string }
-type DesktopPlanDownload = { filename: string; requestId: string; text: string; bytes: number }
-type DesktopPlanDownloadError = { filename?: string; message: string }
-type DesktopBundleDownload = { filename: string; requestId: string; contentBase64: string; bytes: number; sourceFilename?: string; normalizedFilename?: boolean }
-type DesktopBundleDownloadError = { filename?: string; message: string }
+type DesktopPlanDownload = { cacheKey?: string; filename: string; requestId: string; text: string; bytes: number }
+type DesktopPlanDownloadError = { cacheKey?: string; filename?: string; message: string }
+type DesktopBundleDownload = { cacheKey?: string; filename: string; requestId: string; contentBase64: string; bytes: number; sourceFilename?: string; normalizedFilename?: boolean }
+type DesktopBundleDownloadError = { cacheKey?: string; filename?: string; message?: string; error?: string }
 type DesktopChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 type DesktopChatGPTCommentStatus = { cacheKey?: string; requestId: string }
 type DesktopUserAttachment = { name: string; mime?: string; contentBase64: string }
@@ -24,21 +24,22 @@ interface WharnessDesktopBridge {
   }
   chatgpt: {
     show(bounds: DesktopBounds, cacheKey: string): Promise<{ ok: boolean }>
-    hide(): Promise<{ ok: boolean }>
-    setBounds(bounds: DesktopBounds): Promise<{ ok: boolean }>
+    hide(cacheKey: string): Promise<{ ok: boolean }>
+    setBounds(bounds: DesktopBounds, cacheKey: string): Promise<{ ok: boolean }>
     navigate(url: string, cacheKey: string, options?: { resetToHomeIfConversation?: boolean }): Promise<DesktopChatGPTState>
-    reload(): Promise<{ ok: boolean }>
-    focus(): Promise<{ ok: boolean }>
-    back(): Promise<{ ok: boolean }>
-    forward(): Promise<{ ok: boolean }>
-    paste(): Promise<{ ok: boolean }>
+    reload(cacheKey: string): Promise<{ ok: boolean }>
+    focus(cacheKey: string): Promise<{ ok: boolean }>
+    back(cacheKey: string): Promise<{ ok: boolean }>
+    forward(cacheKey: string): Promise<{ ok: boolean }>
+    paste(cacheKey: string): Promise<{ ok: boolean }>
     submitPrompt(request: { cacheKey: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
     preparePrompt(request: { cacheKey: string; text: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; artifacts?: DesktopUserAttachment[]; autoSubmit?: boolean; contextSha256?: string; lastContextSha256?: string; lastContextChatgptUrl?: string; includeContext?: boolean; preferCurrentConversation?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string }>
     attachContext(request: { cacheKey: string; sessionId: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
     attachPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
     submitPrepared(request: { cacheKey: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string; conversationUrl?: string }>
     queueComment(request: { cacheKey: string; text: string; url?: string; requestId: string; commentId?: string; attachments?: DesktopUserAttachment[] }): Promise<{ ok: boolean; cacheKey: string; queued: boolean; requestId: string; duplicate?: boolean }>
-    state(): Promise<DesktopChatGPTState>
+    state(cacheKey: string): Promise<DesktopChatGPTState>
+    release(cacheKey: string): Promise<{ ok: boolean; released: boolean }>
     setAuthMode(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     openExternal(url?: string): Promise<{ ok: boolean }>

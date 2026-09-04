@@ -77,3 +77,17 @@ Validated for this update:
 - `npm run check` in `services/desktop` — PASS (10/10 security/runtime tests).
 
 The frontend Vitest/Vite build suite was not re-run in this container because a fresh `npm install` did not complete within the available registry/network window; no new frontend dependency was added. TypeScript compilation succeeded against the available toolchain.
+
+
+## v1.2.33 - Dedicated ChatGPT renderer per Harness chat
+
+- Desktop regression coverage verifies one `WebContentsView` owner per Harness chat id, no renderer eviction/reassignment path, keyed DOM/input/navigation IPC, and explicit renderer release on permanent chat deletion.
+- Frontend regression coverage verifies that state events tagged for another Harness chat are ignored by the active ChatGPT pane.
+- `npm run check` in `services/desktop` — PASS, 67/67 tests.
+- `npm run typecheck` in `services/frontend` — NOT EXECUTABLE in the supplied export because `node_modules` is absent; the compiler reports missing Vite/Playwright/Vitest type packages before project source checking. The bundle keeps the normal frontend typecheck and focused Vitest gates for Wharness Protected verification, where project dependencies are hydrated. No npm dependency is added by this change.
+
+## v1.2.32 automatic-repair reconciliation
+
+- The current host snapshot already contains the complete v1.2.32 auto-growing composer implementation, documentation, styles and focused regressions, so the failed repair patch must not replay those hunks.
+- The preceding Protected execution established `git diff --check`, 14 focused `ChatPanel` tests and frontend lint as passing for this implementation.
+- The preceding `npm run build` failure was environmental: Vite reached the Node heap ceiling near 1 GiB during transform and exited 134. The repaired Protected gate set therefore uses focused tests, lint and TypeScript typecheck, while the transactional self-evolution flow retains ownership of the real host build/restart.

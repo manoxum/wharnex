@@ -1,3 +1,18 @@
+## v1.2.33 - Dedicated ChatGPT renderer per Harness chat
+
+- Give every live Harness chat its own owned ChatGPT `WebContentsView`/`webContents` instance instead of treating the active remote surface as a reusable renderer.
+- Key state, bounds, navigation, history, reload, focus, clipboard and allowlisted DOM transport operations by Harness chat id and reject ownership mismatches before remote interaction.
+- Keep the persistent ChatGPT partition shared only for authenticated browser-session state, so login remains reusable without sharing DOM/composer/page renderer state between chats.
+- Stop silent remote-view eviction/reassignment; permanent local chat deletion explicitly destroys that chat's renderer, while process restart recreates renderers from stored per-chat conversation affinity.
+- Ignore stale renderer state events from non-owning chats in the active ChatGPT pane and add regression coverage for per-chat renderer ownership and keyed IPC.
+- Correlate intercepted plan/bundle downloads back to the owning chat and make the frontend ignore unowned download/state events, preventing a background ChatGPT instance from feeding artifacts into whichever Harness chat is currently visible.
+
+## v1.2.32 - Auto-growing composer action rail
+
+- Grow the Wharness chat composer automatically as multiline text expands, up to the existing bounded maximum, while retaining bounded manual resize and per-chat height persistence.
+- Keep the composer action/footer rail outside the scrolling text region so artefact, attachment, Plan-first, queue, TODO and send controls remain visible when long prompts overflow.
+- Anchor the send button flush to the right edge of the composer action row and add focused regressions for action visibility and multiline growth.
+
 ## v1.2.31 - Readable workspace, execution timeline and safe regression
 
 - Recalibrate the visible 100% typography baseline for readability, expand UI scaling to 80%-160%, and apply the shared scale to previously fixed small interface text while retaining Inter/Manrope + JetBrains Mono defaults.

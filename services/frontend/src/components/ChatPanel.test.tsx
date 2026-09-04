@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatPanel } from './ChatPanel'
 import type { Session } from '../types'
@@ -113,6 +113,38 @@ describe('ChatPanel', () => {
     expect(composer.querySelector('.composer-action-row')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Contexto ZIP' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Prompt' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('keeps composer actions outside the scrolling text surface', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = view.container.querySelector('.composer') as HTMLFormElement
+    const scrollArea = composer.querySelector('.composer-scroll-area') as HTMLElement
+    const footer = composer.querySelector('.composer-footer') as HTMLElement
+    const send = screen.getByRole('button', { name: 'Enviar ao agente' })
+
+    expect(scrollArea.contains(footer)).toBe(false)
+    expect(footer.contains(send)).toBe(true)
+  })
+
+  it('grows the composer as multiline content expands, bounded by the configured maximum', async () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-growth" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = view.container.querySelector('.composer') as HTMLFormElement
+    const scrollArea = composer.querySelector('.composer-scroll-area') as HTMLElement
+    const footer = composer.querySelector('.composer-footer') as HTMLElement
+    const textarea = view.container.querySelector('textarea') as HTMLTextAreaElement
+    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 260 })
+    Object.defineProperty(scrollArea, 'scrollHeight', { configurable: true, value: 500 })
+    Object.defineProperty(footer, 'offsetHeight', { configurable: true, value: 52 })
+    Object.defineProperty(composer, 'offsetHeight', { configurable: true, value: 156 })
+    Object.defineProperty(composer, 'clientHeight', { configurable: true, value: 154 })
+
+    fireEvent.change(textarea, { target: { value: 'linha 1\nlinha 2\nlinha 3\nlinha 4' } })
+
+    await waitFor(() => expect(composer.style.height).toBe('420px'))
   })
 
   it('reopens archived chats from the archive area', () => {

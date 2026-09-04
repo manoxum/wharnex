@@ -73,10 +73,19 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
   useEffect(() => {
     const textarea = textareaRef.current
-    if (!textarea) return
+    const composer = composerRef.current
+    if (!textarea || !composer) return
     textarea.style.height = 'auto'
     textarea.style.height = `${Math.max(76, textarea.scrollHeight)}px`
-  }, [message])
+
+    const scrollArea = composer.querySelector<HTMLElement>('.composer-scroll-area')
+    const footer = composer.querySelector<HTMLElement>('.composer-footer')
+    if (!scrollArea || !footer) return
+    const borderBox = Math.max(0, composer.offsetHeight - composer.clientHeight)
+    const contentHeight = scrollArea.scrollHeight + footer.offsetHeight + borderBox
+    const boundedHeight = Math.min(420, Math.max(118, Math.ceil(contentHeight)))
+    setComposerHeight((current) => Math.max(current, boundedHeight))
+  }, [message, attachments.length, attachmentError])
   useEffect(() => {
     const composer = composerRef.current
     if (!composer || typeof ResizeObserver === 'undefined') return
@@ -193,6 +202,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
         if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
         else event.currentTarget.form?.requestSubmit()
       }} placeholder="Pergunte, analise, diagnostique ou descreva uma alteração…" rows={3}/>
+      </div>
       <div className="composer-footer">
         <div className="composer-toolbar-row"><div className="composer-action-row" aria-label="Opções da próxima iteração">
           <ArtifactToggle kind="context" label="Contexto ZIP" selected={selectedArtifacts.context} required={artifactRequired?.context} onToggle={onToggleArtifact} onInspect={setInspectedArtifact} inspectable={Boolean(artifactContent?.context)} />
@@ -208,7 +218,6 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           {taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name="chatgpt" size={12}/> Request ativa · Ctrl+Enter comenta</span>}
         </div><button className="send-button" disabled={commentBusy || (!message.trim() && !attachments.length) || Boolean(preparedAttachmentCount)} aria-label={taskInFlight ? 'Adicionar request à fila' : 'Enviar ao agente'} title={taskInFlight ? 'Adicionar à fila' : 'Enviar'}><Icon name="send" size={15}/></button></div>
         <div className="composer-hint">{taskInFlight ? 'Enter adiciona à fila · Ctrl+Enter envia comentário · Shift+Enter cria linha' : requestMode === 'plan_first' ? 'Enter inicia a próxima request · Plan first aguarda aprovação' : 'Enter inicia a próxima request · Shift+Enter cria linha'}</div>
-      </div>
       </div>
     </form>
 

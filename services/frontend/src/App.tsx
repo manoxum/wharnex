@@ -296,6 +296,7 @@ export default function App() {
       catch (error) { if (!(error instanceof APIError) || error.status !== 404) throw error }
       if (isDesktop()) {
         try { await desktopBridge()?.attachments.removeChat({ cacheKey: chatId }) } catch { /* permanent local deletion should continue even if orphan cleanup fails */ }
+        try { await desktopBridge()?.chatgpt.release?.(chatId) } catch { /* the remote conversation itself remains intact */ }
       }
       setArchivedChats(removeStoredArchivedChat(session.project_path, chatId))
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
