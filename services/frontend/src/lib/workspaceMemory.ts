@@ -36,8 +36,10 @@ export type WorkspaceChat = {
   transport?: TransportOptions
   pendingPlan?: { requestId: string; originalMessage: string }
   conflictSurfaces?: Record<string, { cacheKey: string; url?: string; resolvedAt?: string }>
+  purpose?: 'standard' | 'self-evolution'
   createdAt: string
   updatedAt: string
+  archivedAt?: string
 }
 
 export function conflictChatGPTCacheKey(chatId: string, conflictId: string) {
@@ -173,7 +175,8 @@ export function archiveChat(projectPath: string, chatId: string) {
   const target = active.find((chat) => chat.id === chatId)
   if (!target) return { active, archived: loadArchivedWorkspaceChats(projectPath) }
   const remaining = active.filter((chat) => chat.id !== chatId)
-  const archived = [{ ...target, updatedAt: new Date().toISOString() }, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  const archivedAt = new Date().toISOString()
+  const archived = [{ ...target, updatedAt: archivedAt, archivedAt }, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
   saveWorkspaceChats(projectPath, remaining)
   saveArchivedWorkspaceChats(projectPath, archived)
   return { active: remaining, archived }

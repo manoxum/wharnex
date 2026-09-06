@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentProps } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import type { Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import { Inspector, type InspectorTab } from './Inspector'
@@ -6,12 +6,17 @@ import { Icon } from './Icon'
 import { AgentProjectExplorer } from './AgentProjectExplorer'
 import { ProjectActivityDrawer, type ProjectActivityKind } from './ProjectActivityDrawer'
 import { EvolutionEvidenceDrawer } from './EvolutionEvidenceDrawer'
+import { loadChat } from '../lib/workspaceMemory'
+import { MarkdownContent } from './MarkdownContent'
 
-type Drawer = 'archive' | 'project' | 'evolution' | ProjectActivityKind | ''
+type Drawer = 'archive' | 'project' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
-export function AgentWorkspace({ session, busy, chatgptHumanAction, chatgptAttentionNonce = 0, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution }: {
+export type ExecutionFIFOItem = { key: string; chatId: string; chatTitle: string; planId: string; status: 'submitting' | 'queued' | 'running'; position?: number; addedAt: number }
+
+export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHumanAction, chatgptAttentionNonce = 0, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution }: {
   session: Session
   busy: boolean
+  executionFIFO?: ExecutionFIFOItem[]
   chatgptHumanAction?: DesktopChatGPTHumanAction
   chatgptAttentionNonce?: number
   onChatGPTHumanAction?: () => void
@@ -23,6 +28,8 @@ export function AgentWorkspace({ session, busy, chatgptHumanAction, chatgptAtten
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [drawer, setDrawer] = useState<Drawer>('')
+  const workspaceRef = useRef<HTMLElement>(null)
+  const [chatWidth, setChatWidth] = useState(() => Number(localStorage.getItem('whx.agent.chat-width')) || 0)
   const archived = chatProps.archivedChats || []
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
   useEffect(() => {
@@ -33,7 +40,7 @@ export function AgentWorkspace({ session, busy, chatgptHumanAction, chatgptAtten
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
-  const pendingCount = session.pending_host_changes?.length || (session.last_execution?.success && session.state === 'verified' ? 1 : 0)
+  const pendingCount = session.pending_host_changes?.length || 0
   const pendingBlocked = Boolean(session.pending_manual_request_ids?.length || ['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'conflict_resolution_pending'].includes(session.state))
   const canApply = Boolean(!direct && pendingCount && !pendingBlocked && session.last_turn?.kind !== 'workflow')
   const canReject = canApply || Boolean(!direct && pendingCount && session.integration_conflict)
@@ -44,14 +51,32 @@ export function AgentWorkspace({ session, busy, chatgptHumanAction, chatgptAtten
 
   function toggleDrawer(next: Exclude<Drawer, ''>) { setDrawer((current) => current === next ? '' : next) }
 
+  function beginResize(event: React.PointerEvent<HTMLButtonElement>) {
+    const root = workspaceRef.current
+    if (!root) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const rect = root.getBoundingClientRect()
+    const drawerWidth = drawer ? root.querySelector<HTMLElement>('.agent-drawer')?.offsetWidth || 0 : 0
+    const fixed = 42 + drawerWidth
+    const update = (clientX: number) => {
+      const available = Math.max(720, rect.width - fixed - 6)
+      const next = Math.round(Math.max(320, Math.min(available - 320, clientX - rect.left - fixed)))
+      setChatWidth(next); localStorage.setItem('whx.agent.chat-width', String(next))
+    }
+    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX)
+    const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish)
+  }
+
   const executeLabel = direct ? 'Executar plano diretamente no host' : needsApproval ? 'Aprovar e executar plano' : 'Executar plano na sandbox'
 
-  return <section className={`agent-workspace ${drawer ? 'drawer-open' : ''}`}>
+  return <section ref={workspaceRef} className={`agent-workspace ${drawer ? 'drawer-open' : ''}`} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
     <header className="agent-commandbar">
       <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
         <button className={inspectorTab === 'plan' ? 'active' : ''} onClick={() => openInspector('plan')}><Icon name="plan" size={15}/><span>Plano</span></button>
         <button className={inspectorTab === 'terminal' ? 'active' : ''} onClick={() => openInspector('terminal')}><Icon name="terminal" size={15}/><span>Execução</span></button>
-		<button className={inspectorTab === 'chatgpt' ? 'active' : ''} onClick={() => openInspector('chatgpt')}><Icon name="chatgpt" size={15}/><span>{session.integration_conflict ? 'Conflito GPT' : 'ChatGPT'}</span></button>
+		<button className={inspectorTab === 'chatgpt' ? 'active' : ''} onClick={() => openInspector('chatgpt')}><Icon name="agent" size={15}/><span>{session.integration_conflict ? 'Conflito Engine' : 'Engine'}</span></button>
+		<button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')}><Icon name="chatgpt" size={15}/><span>ChatGPT</span></button>
       </nav>
       <div className="agent-command-actions">
         {session.self_evolution && <span className="self-evolution-badge"><Icon name="refresh" size={13}/> WHX · AUTO-EVOLUÇÃO</span>}
@@ -78,35 +103,56 @@ export function AgentWorkspace({ session, busy, chatgptHumanAction, chatgptAtten
       <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggleDrawer('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
       <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggleDrawer('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>
       <button type="button" className={drawer === 'executions' ? 'active' : ''} onClick={() => toggleDrawer('executions')} aria-label="Execuções do projeto" title="Execuções do projeto"><Icon name="terminal" size={18}/></button>
+      <button type="button" className={drawer === 'fifo' ? 'active' : ''} onClick={() => toggleDrawer('fifo')} aria-label="Fila FIFO de execução" title="Fila FIFO de execução"><Icon name="play" size={18}/>{executionFIFO.length > 0 && <b>{executionFIFO.length}</b>}</button>
       {session.self_evolution && <button type="button" className={drawer === 'evolution' ? 'active' : ''} onClick={() => toggleDrawer('evolution')} aria-label="Logs de auto-evolução" title="Logs e análise de auto-evolução"><Icon name="refresh" size={18}/></button>}
     </aside>
 
     {drawer && <aside className={`agent-drawer ${drawer === 'plans' || drawer === 'executions' ? 'activity-wide' : ''}`}>
-      {drawer === 'archive' ? <ArchiveDrawer chats={archived} busy={busy} onRestore={chatProps.onRestoreChat} onDelete={chatProps.onDeleteArchivedChat} onClose={() => setDrawer('')}/> : null}
+      {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archived} busy={busy} onRestore={chatProps.onRestoreChat} onDelete={chatProps.onDeleteArchivedChat} onRename={chatProps.onRenameChat} onGenerate={chatProps.onGenerateChatTitle} onClose={() => setDrawer('')}/> : null}
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={onOpenFile} onError={onError}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={activityChats} currentSession={session} activeChatId={chatProps.activeChatId} onClose={() => setDrawer('')}/> : null}
+      {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={() => setDrawer('')}/> : null}
       {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={onAnalyzeEvolution || (async () => undefined)} onClose={() => setDrawer('')}/> : null}
     </aside>}
 
     <div className="agent-chat-stage"><ChatPanel key={chatProps.activeChatId} {...chatProps} embedded hideSwitcher /></div>
-    <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} chatgptSuspended={Boolean(inspectorProps.chatgptSuspended || inspectorTab !== 'chatgpt')} /></div>
+    <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
+    <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} /></div>
   </section>
 }
 
-function ArchiveDrawer({ chats, busy, onRestore, onDelete, onClose }: {
+function ExecutionQueueDrawer({ items, onClose }: { items: ExecutionFIFOItem[]; onClose: () => void }) {
+  return <section className="execution-queue-drawer" aria-label="Fila FIFO de execução">
+    <header className="agent-drawer-heading"><div><span className="panel-kicker">Concorrência</span><strong>Fila FIFO de execução</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar fila"><Icon name="close" size={13}/></button></header>
+    <div className="execution-queue-summary"><b>{items.length}</b><span>{items.length === 1 ? 'execução coordenada' : 'execuções coordenadas'}</span></div>
+    <div className="execution-queue-list">{items.length ? items.map((item, index) => <article key={item.key}><span className={`queue-position ${item.status}`}>{item.status === 'running' || (index === 0 && item.status === 'submitting') ? 'ATIVA' : String(item.position || index + 1).padStart(2, '0')}</span><div><strong>{item.chatTitle}</strong><code>{item.planId}</code><small>{item.status === 'queued' ? 'Em espera, ordem preservada' : 'Em execução exclusiva'}</small></div></article>) : <div className="agent-drawer-empty">A fila está livre. Novas execuções aparecerão aqui, em ordem de chegada.</div>}</div>
+  </section>
+}
+
+function ArchiveDrawer({ projectPath, chats, busy, onRestore, onDelete, onRename, onGenerate, onClose }: {
+  projectPath: string
   chats: ComponentProps<typeof ChatPanel>['archivedChats']
   busy: boolean
   onRestore: ComponentProps<typeof ChatPanel>['onRestoreChat']
   onDelete: ComponentProps<typeof ChatPanel>['onDeleteArchivedChat']
+  onRename: ComponentProps<typeof ChatPanel>['onRenameChat']
+  onGenerate: ComponentProps<typeof ChatPanel>['onGenerateChatTitle']
   onClose: () => void
 }) {
+  const [query, setQuery] = useState('')
+  const [preview, setPreview] = useState<string>()
+  const visible = chats.filter((chat) => chat.title.toLowerCase().includes(query.toLowerCase()))
+  const previewChat = chats.find((chat) => chat.id === preview)
+  const previewItems = previewChat ? loadChat(projectPath, previewChat.id) : []
   return <section className="agent-archive-drawer" aria-label="Chats arquivados">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Chats</span><strong>Arquivados</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
+    <label className="archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar chats arquivados"/></label>
     <div className="agent-archive-list">
-      {chats.length ? chats.map((chat) => <article className="agent-archive-item" key={chat.id}>
-        <div><strong>{chat.title}</strong><span>{chat.chatgptUrl ? 'ChatGPT vinculado' : 'Sem vínculo ChatGPT'}</span></div>
-        <div><button type="button" disabled={busy} onClick={() => void onRestore(chat.id)} aria-label={`Reabrir ${chat.title}`} title="Reabrir"><Icon name="refresh" size={13}/></button><button type="button" className="danger" disabled={busy} onClick={() => void onDelete(chat.id)} aria-label={`Eliminar definitivamente ${chat.title}`} title="Eliminar definitivamente"><Icon name="trash" size={13}/></button></div>
-      </article>) : <div className="agent-drawer-empty">Nenhum chat arquivado.</div>}
+      {visible.length ? visible.map((chat) => <article className="agent-archive-item" key={chat.id} onClick={() => setPreview(chat.id)}>
+        <div><strong>{chat.title}</strong><span>Início {new Date(chat.createdAt).toLocaleString()}</span><span>Encerramento {new Date(chat.archivedAt || chat.updatedAt).toLocaleString()}</span></div>
+        <div><button type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); const title = window.prompt('Novo nome do chat', chat.title); if (title) void onRename?.(chat.id, title) }} aria-label={`Renomear ${chat.title}`} title="Renomear"><Icon name="rename" size={13}/></button><button type="button" disabled={busy || !chat.chatgptUrl} onClick={(event) => { event.stopPropagation(); void onGenerate?.(chat.id) }} aria-label={`Gerar nome para ${chat.title}`} title="Usar o título contextual gerado pelo ChatGPT"><Icon name="agent" size={13}/></button><button type="button" className="danger" disabled={busy} onClick={(event) => { event.stopPropagation(); void onDelete(chat.id) }} aria-label={`Eliminar definitivamente ${chat.title}`} title="Eliminar definitivamente"><Icon name="trash" size={13}/></button></div>
+      </article>) : <div className="agent-drawer-empty">Nenhum chat arquivado corresponde à pesquisa.</div>}
     </div>
+    {previewChat && <div className="archived-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(undefined) }}><section className="archived-preview" role="dialog" aria-modal="true" aria-label={`Pré-visualização de ${previewChat.title}`}><header><div><span className="panel-kicker">Somente leitura</span><h2>{previewChat.title}</h2><p>{new Date(previewChat.createdAt).toLocaleString()} — {new Date(previewChat.archivedAt || previewChat.updatedAt).toLocaleString()}</p></div><button className="icon-button light" onClick={() => setPreview(undefined)} aria-label="Fechar pré-visualização"><Icon name="close" size={14}/></button></header><div className="archived-preview-stream">{previewItems.map((item) => <article key={item.id} className={`archived-preview-message ${item.source || item.role}`}><small>{item.source === 'chatgpt' ? 'ChatGPT' : item.source === 'wharness' ? 'WHX' : 'Você'} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small><MarkdownContent markdown={item.text}/></article>)}</div><footer><span>Envio e processamento permanecem bloqueados até restaurar.</span><button className="apply-button" disabled={busy} onClick={() => void onRestore(previewChat.id)}><Icon name="refresh" size={13}/> Restaurar chat</button></footer></section></div>}
   </section>
 }

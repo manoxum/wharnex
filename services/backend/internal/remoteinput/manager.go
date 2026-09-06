@@ -52,6 +52,9 @@ func (m *Manager) Status() app.RemoteInputStatus {
 		usage := m.usage(instance, state, m.now().UTC())
 		disabledErr := m.disabled[instance.ID]
 		status := app.RemoteInputInstanceStatus{ID: instance.ID, Provider: instance.Provider.Name(), Priority: instance.Priority, Available: disabledErr == nil, Limits: instance.Limits, Usage: usage}
+		if located, ok := instance.Provider.(interface{ PublicURL() string }); ok {
+			status.PublicURL = located.PublicURL()
+		}
 		if disabledErr != nil {
 			status.Error = disabledErr.Error()
 		}

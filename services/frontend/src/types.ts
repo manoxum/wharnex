@@ -239,6 +239,7 @@ export type AppConfig = {
       provider: string
       priority: number
       available: boolean
+      public_url?: string
       error?: string
       limits: { max_requests: number; window_seconds: number; max_files_per_input: number; max_file_bytes: number; max_input_bytes: number; max_stored_objects: number; max_storage_bytes: number }
       usage: { requests_in_window: number; stored_objects: number; storage_bytes: number }
@@ -281,6 +282,7 @@ export type TunnelProvider = { id: TunnelProviderID; name: string; description: 
 export type TunnelProviderInstance = { id: string; provider: TunnelProviderID; priority: number; public_url?: string; credential_ref?: string; local_port?: number }
 export type TunnelProviderDocument = { version: 1; instance_name?: string; instances: TunnelProviderInstance[] }
 export type TunnelProviderConfigResponse = { config: TunnelProviderDocument; restart_required: boolean }
+export type TunnelTestResult = { ok: boolean; instance_id: string; public_url: string; latency_ms: number }
 export type TunnelProviderEnrollment = { provider: TunnelProviderID; credential_ref: string; public_url: string; local_port?: number }
 
 export type FileEntry = {

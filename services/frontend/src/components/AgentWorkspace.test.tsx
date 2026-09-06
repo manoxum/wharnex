@@ -59,12 +59,41 @@ describe('AgentWorkspace', () => {
     expect(chatSwitcher.closest('.agent-commandbar')).toBeNull()
     expect(rendered.container.querySelector('.agent-chat-stage .chat-panel')).toBeTruthy()
     expect(rendered.container.querySelector('.agent-inspector-stage .inspector-panel')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Redimensionar chat e Engine' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Engine' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'ChatGPT' })).toBeTruthy()
     const execute = screen.getByRole('button', { name: 'Executar plano na sandbox' })
     expect(execute.textContent).toBe('')
     fireEvent.click(execute)
     expect(view.onExecute).toHaveBeenCalledWith(false)
     fireEvent.click(screen.getByRole('button', { name: 'Plano' }))
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
+  })
+
+  it('keeps the FIFO discoverable even while it is empty and renders queued work in order', () => {
+    const empty = props()
+    const rendered = render(empty.element)
+    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
+    expect(screen.getByText(/A fila está livre/)).toBeTruthy()
+    rendered.rerender(<AgentWorkspace
+      {...(empty.element.props)}
+      executionFIFO={[
+        { key: 'one', chatId: 'chat-1', chatTitle: 'Principal', planId: 'plan-one', status: 'running', addedAt: 1 },
+        { key: 'two', chatId: 'chat-2', chatTitle: 'Paralelo', planId: 'plan-two', status: 'queued', position: 2, addedAt: 2 },
+      ]}
+    />)
+    expect(screen.getByText('plan-one')).toBeTruthy()
+    expect(screen.getByText('plan-two')).toBeTruthy()
+    expect(screen.getByText('02')).toBeTruthy()
+  })
+
+  it('does not expose Apply or Reject from stale execution success without pending host changes', () => {
+    const stale = session()
+    stale.state = 'verified'
+    stale.last_execution = { plan_id: 'plan-agent', success: true, started_at: '2026-09-05T10:00:00.000Z', completed_at: '2026-09-05T10:00:01.000Z', commands: [] }
+    render(props(stale).element)
+    expect(screen.queryByRole('button', { name: /Aplicar alterações verificadas no host/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Rejeitar alterações verificadas/ })).toBeNull()
   })
 
   it('keeps human ChatGPT intervention visible and opens the ChatGPT inspector on acknowledgement', async () => {
@@ -78,7 +107,7 @@ describe('AgentWorkspace', () => {
     fireEvent.click(action)
     expect(onHumanAction).toHaveBeenCalledTimes(1)
     rerender(props(current, { notice, nonce: 1, onAction: onHumanAction }).element)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'ChatGPT' }).className).toContain('active'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Engine' }).className).toContain('active'))
   })
 
   it('opens archived chats from the left activity drawer', () => {
@@ -86,7 +115,8 @@ describe('AgentWorkspace', () => {
     render(view.element)
     fireEvent.click(screen.getByRole('button', { name: 'Chats arquivados' }))
     expect(screen.getByText('Diagnóstico antigo')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Reabrir Diagnóstico antigo' }))
+    fireEvent.click(screen.getByText('Diagnóstico antigo'))
+    fireEvent.click(screen.getByRole('button', { name: 'Restaurar chat' }))
     expect(view.onRestore).toHaveBeenCalledWith('arch-1')
   })
 
@@ -121,7 +151,7 @@ describe('AgentWorkspace', () => {
     rendered.rerender(props(self).element)
     expect(screen.getByText('WHX · AUTO-EVOLUÇÃO')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Logs de auto-evolução' }))
-    await waitFor(() => expect(screen.getByText(/0 evento\(s\) não tratado\(s\)/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('não tratados')).toBeTruthy())
   })
 
   it('opens project-wide plan and execution drawers with full details', async () => {

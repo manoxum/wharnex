@@ -24,9 +24,9 @@ describe('complete colour themes', () => {
   })
 
   it('keeps the dark palette neutral and overrides status notices with sufficient contrast', () => {
-    expect(theme).toContain('--app-bg: #171717')
-    expect(theme).toContain('--theme-surface: #212121')
-    expect(theme).toContain('--theme-text: #f2f2f2')
+    expect(theme).toContain('--app-bg: #111410')
+    expect(theme).toContain('--theme-surface: #191d18')
+    expect(theme).toContain('--theme-text: #edf1e9')
     expect(theme).toContain("[data-theme='dark'] .chat-notice.notice-status.notice-wharness:has(.message-iteration)")
     expect(theme).toContain('background: #292929;\n  color: #cecece;')
   })

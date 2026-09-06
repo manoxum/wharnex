@@ -70,6 +70,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onArchiveChat: (chatId: string) => Promise<void>
   onRestoreChat: (chatId: string) => Promise<void>
   onDeleteArchivedChat: (chatId: string) => Promise<void>
+  onRenameChat?: (chatId: string, title: string) => Promise<void>
+  onGenerateChatTitle?: (chatId: string) => Promise<void>
 }) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)

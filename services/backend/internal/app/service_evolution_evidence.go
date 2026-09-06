@@ -41,7 +41,15 @@ func (s *Service) EvolutionEvidence(sessionID string) (EvolutionEvidence, error)
 	if !s.isSelfEvolution(current) {
 		return EvolutionEvidence{}, errors.New("operational improvement evidence is available only when WHX opens its own canonical runtime root")
 	}
-	resolved := current.ResolvedEvidenceIDs
+	resolved := make(map[string]time.Time)
+	for _, candidate := range s.store.List() {
+		if !s.isSelfEvolution(candidate) {
+			continue
+		}
+		for id, resolvedAt := range candidate.ResolvedEvidenceIDs {
+			resolved[id] = resolvedAt
+		}
+	}
 	var events []EvolutionEvidenceEvent
 	projects := map[string]struct{}{}
 	categories := map[string]struct{}{}

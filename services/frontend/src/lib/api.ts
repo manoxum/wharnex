@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactRecord, ArtifactSettings, AutomationMode, ChatRequestMode, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactRecord, ArtifactSettings, AutomationMode, ChatRequestMode, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -27,6 +27,7 @@ export const api = {
   tunnelConfig: () => request<TunnelProviderConfigResponse>('/api/tunnel-config'),
   updateTunnelConfig: (config: TunnelProviderDocument) => request<TunnelProviderConfigResponse>('/api/tunnel-config', { method: 'PUT', body: JSON.stringify(config) }),
   tunnelProviders: () => request<{ providers: TunnelProvider[] }>('/api/tunnel/providers'),
+  testTunnel: (instanceID: string) => request<TunnelTestResult>('/api/tunnel/test', { method: 'POST', body: JSON.stringify({ instance_id: instanceID }) }),
   connectTunnelProvider: (instanceID: string, provider: TunnelProviderID, fields: Record<string, string>) => request<TunnelProviderEnrollment>('/api/tunnel/connections', { method: 'POST', body: JSON.stringify({ instance_id: instanceID, provider, fields }) }),
   disconnectTunnelProvider: (credentialRef: string) => request<void>(`/api/tunnel/connections/${encodeURIComponent(credentialRef)}`, { method: 'DELETE' }),
   remoteStorageConfig: () => request<RemoteStorageConfigResponse>('/api/remote-storage-config'),

@@ -54,6 +54,7 @@ type RemoteInputInstanceStatus struct {
 	Provider  string            `json:"provider"`
 	Priority  int               `json:"priority"`
 	Available bool              `json:"available"`
+	PublicURL string            `json:"public_url,omitempty"`
 	Error     string            `json:"error,omitempty"`
 	Limits    RemoteInputLimits `json:"limits"`
 	Usage     RemoteInputUsage  `json:"usage"`

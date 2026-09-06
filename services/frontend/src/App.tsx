@@ -3,7 +3,7 @@ import { api, APIError } from './lib/api'
 import { isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
-import { AgentWorkspace } from './components/AgentWorkspace'
+import { AgentWorkspace, type ExecutionFIFOItem } from './components/AgentWorkspace'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
 import { WorkspaceShell } from './components/WorkspaceShell'
@@ -13,7 +13,7 @@ import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
   loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
-  conflictChatGPTCacheKey, loadTransportOptions, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type TransportOptions, type WorkspaceChat,
+  conflictChatGPTCacheKey, loadTransportOptions, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
@@ -25,7 +25,7 @@ import { projectFileReferenceSuffix } from './lib/projectFileReferences'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
 
-type FrontendExecutionQueueItem = { key: string; chatId: string; chatTitle: string; planId: string; status: 'submitting' | 'queued' | 'running'; position?: number; addedAt: number }
+type FrontendExecutionQueueItem = ExecutionFIFOItem
 
 export default function App() {
   const embeddedProject = embeddedProjectPath()
@@ -442,6 +442,36 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       setArchivedChats(removeStoredArchivedChat(session.project_path, chatId))
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function renameWorkspaceChat(chatId: string, requestedTitle: string) {
+    if (!session) return
+    const title = requestedTitle.replace(/\s+/g, ' ').trim().slice(0, 82)
+    if (!title) return
+    const target = chats.find((chat) => chat.id === chatId) || archivedChats.find((chat) => chat.id === chatId)
+    if (!target) return
+    setBusy(true); setError(undefined)
+    try {
+      if (target.chatgptUrl && isDesktop()) {
+        const renamed = await desktopBridge()?.chatgpt.organizeConversation(target.id, chatGPTProjectName(session.project_path), title, target.chatgptUrl)
+        if (renamed && !renamed.ok) throw new Error(`O nome local não foi alterado porque o ChatGPT não confirmou a renomeação (${renamed.state}).`)
+      }
+      const updatedAt = new Date().toISOString()
+      setChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt } : chat); saveWorkspaceChats(session.project_path, next); return next })
+      setArchivedChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt } : chat); saveArchivedWorkspaceChats(session.project_path, next); return next })
+    } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
+  }
+
+  async function generateWorkspaceChatTitle(chatId: string) {
+    if (!session || !isDesktop()) return
+    const target = chats.find((chat) => chat.id === chatId) || archivedChats.find((chat) => chat.id === chatId)
+    if (!target?.chatgptUrl) { setError('Este chat ainda não possui uma conversa ChatGPT capaz de fornecer o nome contextual.'); return }
+    setBusy(true); setError(undefined)
+    try {
+      const suggestion = await desktopBridge()?.chatgpt.suggestTitle(target.id, target.chatgptUrl)
+      if (!suggestion?.ok || !suggestion.title) throw new Error('O título contextual do ChatGPT ainda não está disponível.')
+      await renameWorkspaceChat(chatId, suggestion.title.replace(/^WHX:\s*/i, ''))
+    } catch (cause) { setError(messageOf(cause)); setBusy(false) }
   }
 
   async function selectChat(chatId: string) {
@@ -1667,12 +1697,24 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function analyzeEvolutionEvidence(evidenceIds: string[]) {
     if (!session?.self_evolution || busy || requestChainActive(session)) return
-    const targetChat = chats.find((chat) => chat.id === activeChatId)
-    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const result = await api.analyzeEvolutionEvidence(session.id, evidenceIds)
-      setSession(result.session); setManualPrompt(result.session.last_manual_prompt || '')
+      let targetChat = chats.find((chat) => chat.purpose === 'self-evolution')
+      let targetSession: Session
+      if (targetChat) {
+        targetSession = await api.getSession(targetChat.sessionId)
+      } else {
+        targetSession = await api.createSession(session.project_path, executionMode, automationMode)
+        targetChat = { ...newWorkspaceChat(targetSession.id, 'Autoevolução · evidência operacional'), purpose: 'self-evolution' }
+        persistChats(session.project_path, [targetChat, ...chats])
+      }
+      const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds)
+      sourceRef.current?.close(); sourceRef.current = null
+      activeChatIdRef.current = targetChat.id; setActiveChatId(targetChat.id); setSession(result.session); setEvents([])
+      const existingItems = loadChat(result.session.project_path, targetChat.id)
+      setItems(existingItems.length ? existingItems : [welcomeItem(result.session)])
+      connectEvents(result.session.id, result.session.project_path, targetChat.id)
+      setManualPrompt(result.session.last_manual_prompt || '')
       const prepared = await transportPlannerContinuation(result.session, targetChat)
       appendChatItem(targetChat, result.session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Foram correlacionados ${result.evidence_total} eventos operacionais. A análise foi aberta como proposta de plano e continuará sujeita a aprovação, Policy e sandbox Protected.`, meta: prepared.submitted ? 'Auto-evolução · análise enviada' : 'Auto-evolução · análise preparada', iteration: result.session.last_request_id ? iterationRef(result.session.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], targetChat.chatgptUrl) : undefined })
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
@@ -1723,7 +1765,6 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
     {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery items={interruptedExecutions} busyChats={busyChats} onDecision={(target, decision) => void resolveInterruptedExecution(target, decision)} />}
-    {executionFIFO.length > 0 && <ExecutionFIFO items={executionFIFO} />}
     <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} onShowInChat={errorChatRef?.message === error ? () => void showErrorInChat() : undefined} />
     <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
       <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
@@ -1732,6 +1773,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
       <AgentWorkspace
         session={session}
         busy={activeBusy}
+        executionFIFO={executionFIFO}
         chatgptHumanAction={chatgptHumanAction}
         chatgptAttentionNonce={chatgptAttentionNonce}
         onChatGPTHumanAction={() => void openChatGPTHumanAction()}
@@ -1749,7 +1791,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
           onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
           onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
           onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed), onRetryTransportFailure: retryTransportFailure, onCancelPendingRequest: cancelPendingRequest,
-          onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat,
+          onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
         }}
         inspectorProps={{
 		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen || interruptedExecutions.length > 0,
@@ -1759,13 +1801,6 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
       />
     </div>
   </main>
-}
-
-function ExecutionFIFO({ items }: { items: FrontendExecutionQueueItem[] }) {
-  return <aside className="execution-fifo" aria-label="Fila FIFO de execução">
-    <div><Icon name="play" size={13}/><strong>Fila de execução</strong><span>{items.length}</span></div>
-    {items.map((item, index) => <div key={item.key} className="execution-fifo-item"><span>{item.status === 'running' || (index === 0 && item.status === 'submitting') ? 'Em execução' : `Em espera · posição ${item.position || index + 1}`}</span><strong>{item.chatTitle}</strong><code>{item.planId}</code></div>)}
-  </aside>
 }
 
 function compareExecutionQueueItems(a: { position?: number; addedAt: number }, b: { position?: number; addedAt: number }) {

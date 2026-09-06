@@ -6,29 +6,29 @@
  */
 :root,
 :root[data-theme='light'] {
-  --app-bg: #eceee8;
+  --app-bg: #f1f3ed;
   --ink: #20241d;
   --muted: #697066;
   --line: #d4d9cf;
-  --paper: #f7f8f4;
-  --paper-2: #eef1ea;
+  --paper: #fafbf7;
+  --paper-2: #edf1e9;
   --dark: #171a15;
   --acid: #a8e557;
   --acid-dark: #557d24;
   --danger: #a54038;
   --warning: #996117;
   --success: #39734b;
-  --theme-bg: #eceee8;
-  --theme-surface: #f7f8f4;
-  --theme-elevated: #fcfdf9;
-  --theme-muted: #eef1ea;
-  --theme-subtle: #e5e9e1;
-  --theme-hover: #e8ece4;
+  --theme-bg: #f1f3ed;
+  --theme-surface: #f8faf5;
+  --theme-elevated: #fdfefb;
+  --theme-muted: #ebefe7;
+  --theme-subtle: #e2e7de;
+  --theme-hover: #e5eadf;
   --theme-text: #20241d;
   --theme-text-soft: #555e52;
   --theme-text-muted: #687166;
-  --theme-border: #cdd3c8;
-  --theme-border-soft: #dde2d9;
+  --theme-border: #c9d0c4;
+  --theme-border-soft: #dce2d8;
   --theme-accent: #557d24;
   --theme-accent-soft: #e3efd7;
   --theme-shadow: rgba(23, 29, 19, .12);
@@ -38,31 +38,31 @@
 }
 
 :root[data-theme='dark'] {
-  --app-bg: #171717;
-  --ink: #f2f2f2;
-  --muted: #c2c2c2;
-  --line: #4d4d4d;
-  --paper: #212121;
-  --paper-2: #292929;
-  --dark: #0d0d0d;
-  --acid: #ececec;
-  --acid-dark: #d1d1d1;
+  --app-bg: #111410;
+  --ink: #edf1e9;
+  --muted: #aeb7aa;
+  --line: #384036;
+  --paper: #191d18;
+  --paper-2: #222820;
+  --dark: #0b0e0b;
+  --acid: #a8d66d;
+  --acid-dark: #b9df88;
   --danger: #ec8176;
   --warning: #e3b35f;
   --success: #7fbe88;
-  --theme-bg: #171717;
-  --theme-surface: #212121;
-  --theme-elevated: #2f2f2f;
-  --theme-muted: #292929;
-  --theme-subtle: #252525;
-  --theme-hover: #303030;
-  --theme-text: #f2f2f2;
-  --theme-text-soft: #cecece;
-  --theme-text-muted: #adadad;
-  --theme-border: #4d4d4d;
-  --theme-border-soft: #383838;
-  --theme-accent: #ececec;
-  --theme-accent-soft: #303030;
+  --theme-bg: #111410;
+  --theme-surface: #191d18;
+  --theme-elevated: #222820;
+  --theme-muted: #1d231c;
+  --theme-subtle: #20251f;
+  --theme-hover: #293027;
+  --theme-text: #edf1e9;
+  --theme-text-soft: #cbd3c6;
+  --theme-text-muted: #99a395;
+  --theme-border: #394137;
+  --theme-border-soft: #2d342c;
+  --theme-accent: #a8d66d;
+  --theme-accent-soft: #293820;
   --theme-shadow: rgba(0, 0, 0, .38);
   --theme-overlay: rgba(3, 5, 3, .7);
   color: var(--theme-text);
@@ -1335,3 +1335,38 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .diff-layout-toggle button { color: #687064; }
 :root[data-theme='light'] .diff-layout-toggle button:hover { color: #30372d; }
 :root[data-theme='light'] .diff-layout-toggle button.active { background: #dce2d7; color: #30372d; }
+
+/* Unified workbench palette: drawers and their detail panes belong to one theme. */
+:root[data-theme='light'] .project-activity-list,
+:root[data-theme='light'] .project-activity-detail { background: var(--theme-surface); color: var(--theme-text); border-color: var(--theme-border); }
+:root[data-theme='light'] .project-activity-list button { border-color: var(--theme-border-soft); color: var(--theme-text-soft); }
+:root[data-theme='light'] .project-activity-list button:hover { background: var(--theme-hover); }
+:root[data-theme='light'] .project-activity-list button.active { background: var(--theme-accent-soft); }
+:root[data-theme='light'] .project-activity-list button > strong { color: var(--theme-text); }
+:root[data-theme='light'] .project-activity-list button > span,
+:root[data-theme='light'] .project-activity-list button > small { color: var(--theme-text-muted); }
+
+:root[data-theme='dark'] .multi-project-bar,
+:root[data-theme='dark'] .agent-commandbar,
+:root[data-theme='dark'] .agent-chat-switcher,
+:root[data-theme='dark'] .agent-drawer-heading,
+:root[data-theme='dark'] .direct-chatgpt-toolbar { background: var(--theme-surface); border-color: var(--theme-border); color: var(--theme-text); }
+:root[data-theme='dark'] .agent-workspace,
+:root[data-theme='dark'] .chat-panel.embedded,
+:root[data-theme='dark'] .inspector-panel.embedded,
+:root[data-theme='dark'] .project-activity-detail { background: var(--theme-bg); color: var(--theme-text); }
+:root[data-theme='dark'] .agent-activity-bar,
+:root[data-theme='dark'] .agent-drawer,
+:root[data-theme='dark'] .project-activity-list { background: var(--theme-surface); border-color: var(--theme-border); color: var(--theme-text-soft); }
+:root[data-theme='dark'] .agent-surface-tabs button.active,
+:root[data-theme='dark'] .project-activity-list button.active { background: var(--theme-accent-soft); color: var(--theme-text); }
+:root[data-theme='dark'] .project-activity-list button,
+:root[data-theme='dark'] .agent-archive-item { border-color: var(--theme-border-soft); }
+:root[data-theme='dark'] .project-activity-list button:hover,
+:root[data-theme='dark'] .agent-archive-item:hover { background: var(--theme-hover); }
+:root[data-theme='dark'] .project-activity-list button > strong,
+:root[data-theme='dark'] .agent-archive-item strong { color: var(--theme-text); }
+:root[data-theme='dark'] .project-activity-list button > span,
+:root[data-theme='dark'] .project-activity-list button > small,
+:root[data-theme='dark'] .agent-archive-item span { color: var(--theme-text-muted); }
+:root[data-theme='dark'] .apply-button { background: var(--theme-accent); color: #17200f; }

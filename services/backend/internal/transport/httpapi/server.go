@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/tunnel-config", a.tunnelConfig)
 	mux.HandleFunc("PUT /api/tunnel-config", a.updateTunnelConfig)
 	mux.HandleFunc("GET /api/tunnel/providers", a.tunnelProviders)
+	mux.HandleFunc("POST /api/tunnel/test", a.testTunnel)
 	mux.HandleFunc("POST /api/tunnel/connections", a.connectTunnelProvider)
 	mux.HandleFunc("DELETE /api/tunnel/connections/{credential_ref}", a.disconnectTunnelProvider)
 	mux.HandleFunc("GET /api/remote-storage-config", a.remoteStorageConfig)
@@ -160,6 +162,47 @@ func (a *API) updateTunnelConfig(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) tunnelProviders(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"providers": a.service.TunnelProviders()})
+}
+
+func (a *API) testTunnel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		InstanceID string `json:"instance_id"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	var target app.RemoteInputInstanceStatus
+	found := false
+	for _, instance := range a.service.RemoteInputStatus().Instances {
+		if instance.ID == body.InstanceID {
+			target = instance
+			found = true
+			break
+		}
+	}
+	if !found || target.PublicURL == "" {
+		writeError(w, http.StatusNotFound, "tunnel_not_ready", "the selected tunnel has no active public URL")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(target.PublicURL, "/")+"/status", nil)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "tunnel_test_failed", err.Error())
+		return
+	}
+	started := time.Now()
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "tunnel_test_failed", err.Error())
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 400 {
+		writeError(w, http.StatusBadGateway, "tunnel_test_failed", fmt.Sprintf("public status returned HTTP %d", response.StatusCode))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "instance_id": target.ID, "public_url": target.PublicURL, "latency_ms": time.Since(started).Milliseconds()})
 }
 
 func (a *API) connectTunnelProvider(w http.ResponseWriter, r *http.Request) {

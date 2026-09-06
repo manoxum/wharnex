@@ -273,12 +273,12 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 		writeErr = writeZipBytes(archive, "prompt/wharness-planner-prompt.md", []byte(request.Prompt))
 	}
 	if writeErr == nil && request.IncludeContext {
-		writeErr = writeZipFile(archive, "context/wharness-context.zip", contextPath)
+		writeErr = writeContextDirectory(archive, contextPath)
 	}
 	if writeErr == nil && len(request.ProjectFiles) > 0 {
 		references, _ := json.MarshalIndent(map[string]any{
 			"paths":       request.ProjectFiles,
-			"instruction": "Treat these paths as explicit user-selected references. Their authoritative contents are inside context/wharness-context.zip.",
+			"instruction": "Treat these paths as explicit user-selected references. Their authoritative contents are directly inside the context/ directory.",
 		}, "", "  ")
 		writeErr = writeZipBytes(archive, "references/project-files.json", references)
 	}
@@ -308,6 +308,41 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 		return "", 0, err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), info.Size(), nil
+}
+
+func writeContextDirectory(target *zip.Writer, contextPath string) error {
+	source, err := zip.OpenReader(filepath.Clean(contextPath))
+	if err != nil {
+		return fmt.Errorf("open context archive: %w", err)
+	}
+	defer source.Close()
+	for _, file := range source.File {
+		clean := filepath.ToSlash(filepath.Clean(file.Name))
+		if clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") || file.FileInfo().Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("invalid context entry %q", file.Name)
+		}
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		input, openErr := file.Open()
+		if openErr != nil {
+			return fmt.Errorf("open context entry %q: %w", clean, openErr)
+		}
+		header := &zip.FileHeader{Name: "context/" + clean, Method: zip.Deflate}
+		header.SetMode(0o600)
+		output, createErr := target.CreateHeader(header)
+		if createErr == nil {
+			_, createErr = io.Copy(output, input)
+		}
+		closeErr := input.Close()
+		if createErr != nil {
+			return fmt.Errorf("copy context entry %q: %w", clean, createErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close context entry %q: %w", clean, closeErr)
+		}
+	}
+	return nil
 }
 
 func writeZipBytes(archive *zip.Writer, name string, raw []byte) error {

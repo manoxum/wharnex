@@ -8,6 +8,7 @@ import { Bootstrap } from './Bootstrap'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
 import { ErrorToast } from './ErrorToast'
+import { TunnelOverviewModal } from './TunnelOverviewModal'
 
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 
@@ -155,6 +156,7 @@ function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, 
   onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onSettings: () => void; onUnbind: () => void; onBind: () => void; onNewWindow: () => void
 }) {
   const [projectActionsOpen, setProjectActionsOpen] = useState(false)
+  const [tunnelsOpen, setTunnelsOpen] = useState(false)
   const projectActionsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -175,6 +177,7 @@ function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, 
       {projects.map((projectPath) => <button key={projectPath} className={projectPath === activeProject ? 'active' : ''} onClick={() => onActivate(projectPath)} title={projectPath}><Icon name="workspace" size={13}/><span>{projectName(projectPath)}</span></button>)}
     </nav>
     <div className="multi-project-actions">
+      <button type="button" onClick={() => setTunnelsOpen(true)} aria-label="Túneis ativos" title="Túneis ativos"><Icon name="network" size={14}/></button>
       <ThemeToggle compact />
       <div ref={projectActionsRef} className="project-actions-menu">
         <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => setProjectActionsOpen((current) => !current)} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
@@ -186,6 +189,7 @@ function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, 
       {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
       {activeProject && <button type="button" disabled={busy} onClick={onUnbind} aria-label="Fechar workspace" title="Fechar workspace"><Icon name="close" size={14}/></button>}
     </div>
+    {tunnelsOpen && <TunnelOverviewModal onClose={() => setTunnelsOpen(false)}/>}
   </header>
 }
 

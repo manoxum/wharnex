@@ -1344,13 +1344,17 @@ async function ensureChatGPTProject(key, entry, projectName) {
   })
 }
 
-async function organizeChatGPTConversation(cacheKey, projectName, title) {
+async function organizeChatGPTConversation(cacheKey, projectName, title, expectedURL = '') {
   const key = sanitizeChatCacheKey(cacheKey)
-  const entry = chatgptViews.get(key)
-  if (!entry) return { ok: false, state: 'view-unavailable' }
+  const { entry } = ensureChatGPTView(key)
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
     try {
+      if (expectedURL) {
+        const target = requireTrustedChatGPTURL(expectedURL)
+        if (!sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'organize-conversation')
+        await waitForChatGPTSurfaceReady(key, entry)
+      }
       const shown = await runChatGPTAccountScript(key, entry, 'show-sidebar', chatGPTShowSidebarScript())
       if (!shown.ok) return shown
       if (shown.state === 'opening') await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
@@ -1372,6 +1376,19 @@ async function organizeChatGPTConversation(cacheKey, projectName, title) {
       await hideChatGPTSidebar(key, entry).catch(() => undefined)
     }
   })
+}
+
+async function suggestChatGPTConversationTitle(cacheKey, expectedURL = '') {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const { entry } = ensureChatGPTView(key)
+  if (expectedURL) {
+    const target = requireTrustedChatGPTURL(expectedURL)
+    if (!sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'read-conversation-title')
+    await waitForChatGPTSurfaceReady(key, entry)
+  }
+  const raw = String(entry.view.webContents.getTitle() || '').replace(/\s*[|·-]\s*ChatGPT\s*$/i, '').trim()
+  const generic = !raw || /^(chatgpt|new chat|novo chat)$/i.test(raw)
+  return { ok: !generic, state: generic ? 'title-not-ready' : 'suggested', title: generic ? '' : normalizeWHXTitle(raw) }
 }
 
 async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
@@ -2275,7 +2292,13 @@ function registerIPC() {
     const windowState = trustedSender(event)
     const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
     requireOwnedChatGPTEntry(key, entry)
-    return organizeChatGPTConversation(key, request?.projectName, request?.title)
+    return organizeChatGPTConversation(key, request?.projectName, request?.title, request?.url || '')
+  })
+  ipcMain.handle('wharness:chatgpt:suggest-title', async (event, request) => {
+    const windowState = trustedSender(event)
+    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
+    requireOwnedChatGPTEntry(key, entry)
+    return suggestChatGPTConversationTitle(key, request?.url || '')
   })
   ipcMain.handle('wharness:chatgpt:hide-sidebar', async (event, request) => {
     const windowState = trustedSender(event)

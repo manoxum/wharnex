@@ -88,6 +88,15 @@ func newTunnelProvider(dir, providerName, listenAddr string, persistentDNS bool,
 
 func (p *TryCloudflareProvider) Name() string { return p.providerName }
 
+func (p *TryCloudflareProvider) PublicURL() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.public == nil {
+		return ""
+	}
+	return p.public.String()
+}
+
 func (p *TryCloudflareProvider) Put(ctx context.Context, objectName, filePath string) (Publication, error) {
 	if err := validateObjectName(objectName); err != nil {
 		return Publication{}, err

@@ -56,7 +56,8 @@ interface WharnessDesktopBridge {
     release(cacheKey: string): Promise<{ ok: boolean; released: boolean }>
     archiveConversation(cacheKey: string, url?: string): Promise<{ ok: boolean; state: string }>
     stopConversation(cacheKey: string): Promise<{ ok: boolean; state: string }>
-    organizeConversation(cacheKey: string, projectName: string, title: string): Promise<{ ok: boolean; state: string; project?: string; title?: string }>
+    organizeConversation(cacheKey: string, projectName: string, title: string, url?: string): Promise<{ ok: boolean; state: string; project?: string; title?: string }>
+    suggestTitle(cacheKey: string, url?: string): Promise<{ ok: boolean; state: string; title: string }>
     hideSidebar(cacheKey: string): Promise<{ ok: boolean; state: string }>
     setAuthMode(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>

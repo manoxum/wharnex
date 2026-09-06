@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import source from './App.tsx?raw'
 import apiSource from './lib/api.ts?raw'
+import workspaceSource from './components/AgentWorkspace.tsx?raw'
 
 describe('interrupted execution recovery', () => {
   it('requires an explicit per-task continue or discard decision after restart', () => {
@@ -17,7 +18,7 @@ describe('interrupted execution recovery', () => {
     expect(source).toMatch(/executionFIFO/)
     expect(source).toMatch(/execution\.queued/)
     expect(source).toMatch(/execution\.dequeued/)
-    expect(source).toMatch(/<ExecutionFIFO items=\{executionFIFO\}/)
-    expect(source).toMatch(/Fila FIFO de execução/)
+    expect(source).toMatch(/executionFIFO=\{executionFIFO\}/)
+    expect(workspaceSource).toMatch(/Fila FIFO de execução/)
   })
 })

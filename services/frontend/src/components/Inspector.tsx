@@ -6,11 +6,12 @@ import { riskLabel } from '../lib/risk'
 import { api } from '../lib/api'
 import { isDesktop } from '../lib/desktop'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import { DirectChatGPTPane } from './DirectChatGPTPane'
 import { MarkdownContent } from './MarkdownContent'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { buildExecutionTimeline } from '../lib/executionTimeline'
 
-export type InspectorTab = 'plan' | 'terminal' | 'chatgpt'
+export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
 export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
   config?: AppConfig
@@ -46,7 +47,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
-  const pendingCount = session.pending_host_changes?.length || (session.last_execution?.success && session.state === 'verified' ? 1 : 0)
+  const pendingCount = session.pending_host_changes?.length || 0
   const pendingResolutionBlocked = Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || ['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state))
   const canApply = Boolean(!direct && pendingCount && !pendingResolutionBlocked && session.last_turn?.kind !== 'workflow')
   const canReject = canApply || Boolean(!direct && pendingCount && session.integration_conflict)
@@ -75,15 +76,17 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
       {!embedded && <nav className="tabs" aria-label="Inspector">
         <button className={selectedTab === 'plan' ? 'active' : ''} onClick={() => selectTab('plan')}><Icon name="plan" size={16}/> Plano</button>
         <button className={selectedTab === 'terminal' ? 'active' : ''} onClick={() => selectTab('terminal')}><Icon name="terminal" size={16}/> Execução <span className="tab-count">{terminalEvents.length}</span></button>
-        <button className={selectedTab === 'chatgpt' ? 'active' : ''} onClick={() => selectTab('chatgpt')}><Icon name="chatgpt" size={16}/> ChatGPT {desktop && <span className="desktop-dot" title="Wharness Desktop"/>}</button>
+        <button className={selectedTab === 'chatgpt' ? 'active' : ''} onClick={() => selectTab('chatgpt')}><Icon name="agent" size={16}/> Engine {desktop && <span className="desktop-dot" title="Wharnex Desktop"/>}</button>
+        <button className={selectedTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => selectTab('direct-chatgpt')}><Icon name="chatgpt" size={16}/> ChatGPT</button>
       </nav>}
 
-      <div className={`inspector-content ${selectedTab === 'chatgpt' && desktop ? 'desktop-content' : ''}`}>
+      <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''}`}>
         {selectedTab === 'plan' && <PlanView session={session} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
         {selectedTab === 'chatgpt' && (desktop
-		  ? <ChatGPTDesktopPane suspended={chatgptSuspended} busy={busy} chatId={chatgptSurface?.cacheKey || chat?.id || ''} chatTitle={chatgptSurface?.title || chat?.title || 'Chat'} chatgptUrl={chatgptSurface?.url || chat?.chatgptUrl} pendingRequestId={session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]} onChatGPTURL={onChatGPTURL} onActivity={onChatGPTActivity} onTransportFailure={onTransportFailure} onCancelPendingRequest={onCancelPendingRequest} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
+		  ? <ChatGPTDesktopPane suspended={chatgptSuspended || selectedTab !== 'chatgpt'} busy={busy} chatId={chatgptSurface?.cacheKey || chat?.id || ''} chatTitle={chatgptSurface?.title || chat?.title || 'Chat'} chatgptUrl={chatgptSurface?.url || chat?.chatgptUrl} pendingRequestId={session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]} onChatGPTURL={onChatGPTURL} onActivity={onChatGPTActivity} onTransportFailure={onTransportFailure} onCancelPendingRequest={onCancelPendingRequest} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
+        {selectedTab === 'direct-chatgpt' && (desktop ? <DirectChatGPTPane projectPath={session.project_path} suspended={chatgptSuspended || selectedTab !== 'direct-chatgpt'}/> : <div className="provider-card warning-card">O ChatGPT livre incorporado requer Wharnex Desktop.</div>)}
       </div>
     </section>
   )

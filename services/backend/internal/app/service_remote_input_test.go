@@ -2,7 +2,6 @@ package app
 
 import (
 	"archive/zip"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -173,7 +172,7 @@ func (s *capturingRemoteStore) Publish(_ context.Context, object RemoteInputObje
 	defer archive.Close()
 	for _, entry := range archive.File {
 		s.entries[entry.Name] = true
-		if entry.Name != "context/wharness-context.zip" {
+		if !strings.HasPrefix(entry.Name, "context/") || entry.FileInfo().IsDir() {
 			continue
 		}
 		input, readErr := entry.Open()
@@ -185,22 +184,7 @@ func (s *capturingRemoteStore) Publish(_ context.Context, object RemoteInputObje
 		if readErr != nil {
 			return RemoteInputPublication{}, readErr
 		}
-		contextArchive, openErr := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
-		if openErr != nil {
-			return RemoteInputPublication{}, openErr
-		}
-		for _, contextEntry := range contextArchive.File {
-			contextInput, contextErr := contextEntry.Open()
-			if contextErr != nil {
-				return RemoteInputPublication{}, contextErr
-			}
-			contextRaw, contextErr := io.ReadAll(contextInput)
-			_ = contextInput.Close()
-			if contextErr != nil {
-				return RemoteInputPublication{}, contextErr
-			}
-			s.context[contextEntry.Name] = string(contextRaw)
-		}
+		s.context[strings.TrimPrefix(entry.Name, "context/")] = string(raw)
 	}
 	return RemoteInputPublication{Provider: "capture", InstanceID: "capture-1", URL: "https://files.example/" + object.ObjectName}, nil
 }
@@ -224,7 +208,18 @@ func (s *capturingRemoteStore) snapshot() (string, map[string]bool, []string) {
 func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T) {
 	root := t.TempDir()
 	contextPath := filepath.Join(root, "context.zip")
-	if err := os.WriteFile(contextPath, []byte("context-zip"), 0o600); err != nil {
+	contextFile, err := os.Create(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextZip := zip.NewWriter(contextFile)
+	if err = writeZipBytes(contextZip, "src/main.txt", []byte("context")); err != nil {
+		t.Fatal(err)
+	}
+	if err = contextZip.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = contextFile.Close(); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(root, "remote.zip")
@@ -249,7 +244,7 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 	for _, entry := range archive.File {
 		names[entry.Name] = true
 	}
-	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "context/wharness-context.zip", "attachments/notes.txt"} {
+	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "context/src/main.txt", "attachments/notes.txt"} {
 		if !names[expected] {
 			t.Errorf("missing %s", expected)
 		}
@@ -286,7 +281,7 @@ func TestPublishRemoteInputRequiresActiveRequestAndReturnsShortBootstrap(t *test
 		t.Fatalf("bootstrap does not identify the ZIP contract: %q", result.BootstrapPrompt)
 	}
 	objectName, entries, _ := remote.snapshot()
-	if !strings.HasPrefix(objectName, "wharness-input-"+prompted.LastRequestID+"-") || !entries["prompt/wharness-planner-prompt.md"] || !entries["context/wharness-context.zip"] {
+	if !strings.HasPrefix(objectName, "wharness-input-"+prompted.LastRequestID+"-") || !entries["prompt/wharness-planner-prompt.md"] || !entries["context/main.txt"] {
 		t.Fatalf("unexpected remote archive: object=%q entries=%#v", objectName, entries)
 	}
 	if _, err := service.PublishRemoteInput(context.Background(), started.ID, RemoteInputRequest{RequestID: "req_wrong", Prompt: "prompt"}); err == nil {
@@ -318,7 +313,7 @@ func TestRemoteInputPublishesFreshRequestArchiveInsteadOfSharedContext(t *testin
 		t.Fatal(err)
 	}
 	objectName, entries, objects := remote.snapshot()
-	if len(objects) != 1 || !strings.HasPrefix(objectName, "wharness-input-"+prompted.LastRequestID+"-") || !entries["context/wharness-context.zip"] || !entries["prompt/wharness-planner-prompt.md"] {
+	if len(objects) != 1 || !strings.HasPrefix(objectName, "wharness-input-"+prompted.LastRequestID+"-") || !entries["context/main.txt"] || !entries["prompt/wharness-planner-prompt.md"] {
 		t.Fatalf("request must publish a fresh archive with context and prompt: objects=%#v entries=%#v", objects, entries)
 	}
 	if !strings.Contains(first.BootstrapPrompt, "WHARNESS INPUT") || strings.Contains(first.BootstrapPrompt, prompted.LastManualPrompt) || !first.IncludedContext {
