@@ -38,29 +38,34 @@
 }
 
 :root[data-theme='dark'] {
-  --app-bg: #111410;
+  /* Structural surfaces (background/border/card) are neutral black/gray by
+   * design: green is reserved for accent and selected-state use only (see
+   * --theme-accent / --theme-accent-soft below). Each value here is a
+   * straight desaturation (equal R=G=B, luminance preserved) of the former
+   * green-tinted tone, so contrast against text tokens is unchanged. */
+  --app-bg: #121212;
   --ink: #edf1e9;
   --muted: #aeb7aa;
-  --line: #384036;
-  --paper: #191d18;
-  --paper-2: #222820;
-  --dark: #0b0e0b;
+  --line: #3a3a3a;
+  --paper: #1a1a1a;
+  --paper-2: #232323;
+  --dark: #0c0c0c;
   --acid: #a8d66d;
   --acid-dark: #b9df88;
   --danger: #ec8176;
   --warning: #e3b35f;
   --success: #7fbe88;
-  --theme-bg: #111410;
-  --theme-surface: #191d18;
-  --theme-elevated: #222820;
-  --theme-muted: #1d231c;
-  --theme-subtle: #20251f;
-  --theme-hover: #293027;
+  --theme-bg: #121212;
+  --theme-surface: #1a1a1a;
+  --theme-elevated: #232323;
+  --theme-muted: #1f1f1f;
+  --theme-subtle: #212121;
+  --theme-hover: #2b2b2b;
   --theme-text: #edf1e9;
   --theme-text-soft: #cbd3c6;
   --theme-text-muted: #99a395;
-  --theme-border: #394137;
-  --theme-border-soft: #2d342c;
+  --theme-border: #3b3b3b;
+  --theme-border-soft: #2f2f2f;
   --theme-accent: #a8d66d;
   --theme-accent-soft: #293820;
   --theme-shadow: rgba(0, 0, 0, .38);
@@ -931,7 +936,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .agent-drawer,
 :root[data-theme='dark'] .agent-project-footer { background: #171717; }
 :root[data-theme='dark'] .agent-drawer-heading { background: #212121; }
-:root[data-theme='dark'] .agent-explorer-search { background: #212121; }
+:root[data-theme='dark'] .agent-explorer-search { border-color: #424242; background: #212121; color: #adadad; }
+:root[data-theme='dark'] .agent-explorer-search input { color: #ececec; }
+:root[data-theme='dark'] .agent-explorer-search input::placeholder { color: #6e6e6e; }
+:root[data-theme='dark'] .agent-explorer-search button { color: #adadad; }
+:root[data-theme='dark'] .agent-drawer-icon,
+:root[data-theme='dark'] .agent-archive-item button { color: #adadad; }
+:root[data-theme='dark'] .agent-drawer-icon:hover:not(:disabled),
+:root[data-theme='dark'] .agent-archive-item button:hover:not(:disabled) { background: #303030; color: #ececec; }
 :root[data-theme='dark'] .agent-tree-row:hover,
 :root[data-theme='dark'] .agent-activity-bar button.active { background: #303030; }
 :root[data-theme='dark'] .agent-command-icon { border-color: #424242; background: #292929; color: #b4b4b4; }

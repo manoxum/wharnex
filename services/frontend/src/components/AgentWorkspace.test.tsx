@@ -4,6 +4,11 @@ import { api } from '../lib/api'
 import type { Session } from '../types'
 import { AgentWorkspace } from './AgentWorkspace'
 
+// Monaco has no usable DOM/worker environment under jsdom; every other test
+// in this file never mounts an editor, so the real CodeEditor is not exercised
+// here — only the read-only preview modal's own wiring is under test.
+vi.mock('./CodeEditor', () => ({ CodeEditor: ({ path }: { path: string }) => <div data-testid="code-editor-stub">{path}</div> }))
+
 function session(): Session {
   return {
     id: 'ses-agent', project_path: '/workspace/wharness', state: 'planned', execution_mode: 'protected', automation_mode: 'auto', created_at: new Date().toISOString(),
@@ -15,11 +20,12 @@ function session(): Session {
 
 function props(current = session(), human: { notice?: DesktopChatGPTHumanAction; nonce?: number; onAction?: () => void } = {}, busy = false) {
   const onExecute = vi.fn(async () => undefined)
+  const onRetryDependencyNetwork = vi.fn(async () => undefined)
   const onRestore = vi.fn(async () => undefined)
   const onDelete = vi.fn(async () => undefined)
   const onOpenFile = vi.fn()
   return {
-    onExecute, onRestore, onDelete, onOpenFile,
+    onExecute, onRetryDependencyNetwork, onRestore, onDelete, onOpenFile,
     element: <AgentWorkspace
       session={current}
       busy={busy}
@@ -35,7 +41,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
       }}
       inspectorProps={{
         config: { planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }, session: current, events: [], manualPrompt: '', busy,
-        onChatGPTURL: () => true, onExecute, onApply: async () => undefined, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
+        onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onApply: async () => undefined, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
       }}
     />,
   }
@@ -96,6 +102,51 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: /Rejeitar alterações verificadas/ })).toBeNull()
   })
 
+  it('makes ordinary and dependency-network approvals prominent', () => {
+    const approval = session()
+    approval.policy = { allowed: true, requires_approval: true, risk: 'high', reasons: ['command requests network access'] }
+    const rendered = render(props(approval).element)
+    expect(screen.getByRole('button', { name: 'Aprovar e executar plano' }).textContent).toContain('Aprovação necessária')
+
+    const blocked = session()
+    blocked.state = 'failed'
+    blocked.failure_kind = 'offline_go_module_cache'
+    blocked.last_repair_error = 'offline sandbox dependencies unavailable: module lookup disabled by GOPROXY=off'
+    const view = props(blocked)
+    rendered.rerender(view.element)
+    const retry = screen.getByRole('button', { name: 'Permitir rede restrita e repetir' })
+    expect(retry.textContent).toContain('Dependências bloqueadas')
+    fireEvent.click(retry)
+    expect(view.onRetryDependencyNetwork).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not surface the dependency-network action from error prose alone', () => {
+    // Guards against reverting to substring classification: this session's
+    // prose contains the legacy sentinel text, but the backend did not set
+    // failure_kind, so no button may render.
+    const proseOnly = session()
+    proseOnly.state = 'failed'
+    proseOnly.last_repair_error = 'offline sandbox dependencies unavailable: module lookup disabled by GOPROXY=off'
+    render(props(proseOnly).element)
+    expect(screen.queryByRole('button', { name: 'Permitir rede restrita e repetir' })).toBeNull()
+  })
+
+  it('surfaces the dependency-network action for a planner-reported infrastructure failure', () => {
+    // This is the scenario that used to be a dead end: the terminal failure
+    // was "Planner reported failed: offline_host_go_module_cache: ...", which
+    // never contained the sandbox sentinel substring. failure_kind is what
+    // makes it recoverable regardless of the prose shape.
+    const plannerReported = session()
+    plannerReported.state = 'failed'
+    plannerReported.failure_kind = 'offline_go_module_cache'
+    plannerReported.last_repair_error = 'Planner reported failed: offline_host_go_module_cache: Os gates Go obrigatórios não puderam iniciar.'
+    const view = props(plannerReported)
+    render(view.element)
+    const retry = screen.getByRole('button', { name: 'Permitir rede restrita e repetir' })
+    fireEvent.click(retry)
+    expect(view.onRetryDependencyNetwork).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps human ChatGPT intervention visible and opens the ChatGPT inspector on acknowledgement', async () => {
     const current = session()
     const onHumanAction = vi.fn()
@@ -126,11 +177,17 @@ describe('AgentWorkspace', () => {
       { path: 'services', name: 'services', kind: 'directory', size: 0 },
       { path: 'services/frontend', name: 'frontend', kind: 'directory', size: 0 },
     ] })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'README.md', content: '# Wharness', sha256: 'abc', size: 100 })
     const view = props()
     render(view.element)
     fireEvent.click(screen.getByRole('button', { name: 'Explorador do projeto' }))
     const readme = await screen.findByRole('button', { name: 'Abrir README.md no Editor' })
     fireEvent.click(readme)
+    // Browsing a file from the agentic-mode explorer must preview it in place,
+    // never redirect out of agent mode into the standalone editor surface.
+    expect(view.onOpenFile).not.toHaveBeenCalled()
+    expect(await screen.findByRole('dialog', { name: 'Pré-visualização de README.md' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir no Editor' }))
     expect(view.onOpenFile).toHaveBeenCalledWith('README.md')
   })
   it('keeps chat navigation available while the active chat is processing', () => {

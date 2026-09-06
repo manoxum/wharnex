@@ -382,7 +382,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		recordRequestContext(current, requestID, item.Context)
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
-		current.LastRepairError = ""
+		clearSessionFailure(current)
 		current.WorkflowRound = 0
 		current.LastRequestMode = planningMode
 		current.LastTurn = result.Turn
@@ -409,14 +409,13 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 			}
 			current.LastExecution = nil
 		} else if result.Turn != nil {
-			current.Plan = nil
-			current.Policy = nil
-			current.LastExecution = nil
 			current.LastBundle = nil
 			if result.Turn.Outcome != nil && result.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
-				current.State = "failed"
-				current.LastRepairError = plannerOutcomeFailureDetail(result.Turn.Outcome)
+				applyPlannerFailure(current, result.Turn.Outcome)
 			} else {
+				current.Plan = nil
+				current.Policy = nil
+				current.LastExecution = nil
 				current.State = turnState(result.Turn.Kind)
 			}
 		}
@@ -434,7 +433,10 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		s.bus.Publish(sessionID, "manual.prompt_ready", map[string]any{"request_id": requestID})
 	} else if result.Turn != nil {
 		if result.Turn.Outcome != nil && result.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
-			s.bus.Publish(sessionID, "turn.failed", map[string]any{"request_id": requestID, "outcome": result.Turn.Outcome.Status, "reason_code": result.Turn.Outcome.ReasonCode, "retryable": result.Turn.Outcome.Retryable, "transport": "provider"})
+			s.bus.Publish(sessionID, "turn.failed", map[string]any{"request_id": requestID, "outcome": result.Turn.Outcome.Status, "reason_code": result.Turn.Outcome.ReasonCode, "retryable": result.Turn.Outcome.Retryable, "transport": "provider", "failure_kind": updated.FailureKind})
+			if updated.FailureKind == domain.FailureKindOfflineGoModuleCache {
+				s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": requestID, "error": updated.LastRepairError, "scope": "go_dependency_commands"})
+			}
 		} else {
 			s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": requestID, "kind": result.Turn.Kind, "transport": "provider"})
 		}
@@ -539,26 +541,33 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	if parsed.Turn.Outcome != nil && parsed.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
 		outcome := parsed.Turn.Outcome
-		detail := plannerOutcomeFailureDetail(outcome)
+		var failureKind string
 		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
 			turn := parsed.Turn
 			item.LastTurn = &turn
-			item.Plan = nil
-			item.Policy = nil
-			item.LastExecution = nil
 			item.LastBundle = &parsed.Info
-			item.State = "failed"
-			item.LastRepairError = detail
+			failureKind = applyPlannerFailure(item, outcome)
 			item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, parsed.Turn.RequestID)
 			return nil
 		})
 		if updateErr != nil {
 			return BundleSubmission{}, updateErr
 		}
+		detail := updated.LastRepairError
 		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
 		s.closeRemoteInputChannel(sessionID, "request.failed")
-		s.bus.Publish(sessionID, "turn.failed", map[string]any{"request_id": parsed.Turn.RequestID, "outcome": outcome.Status, "reason_code": outcome.ReasonCode, "retryable": outcome.Retryable, "transport": "zip_bundle"})
-		if outcome.Retryable && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
+		s.bus.Publish(sessionID, "turn.failed", map[string]any{"request_id": parsed.Turn.RequestID, "outcome": outcome.Status, "reason_code": outcome.ReasonCode, "retryable": outcome.Retryable, "transport": "zip_bundle", "failure_kind": failureKind})
+		// A locally-diagnosed infrastructure fault (e.g. offline_go_module_cache)
+		// is not a planner defect. The failed plan, policy decision and
+		// execution result remain the exact inputs of the human dependency-
+		// network recovery, so automatic fresh-request recovery — which would
+		// fail identically against a missing host module cache — must not
+		// fire, and a repair attempt must not be spent diagnosing it.
+		infrastructure := failureKind != ""
+		if infrastructure {
+			s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": parsed.Turn.RequestID, "error": detail, "scope": "go_dependency_commands"})
+		}
+		if !infrastructure && outcome.Retryable && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
 			if recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true); retryErr == nil {
 				s.bus.Publish(sessionID, "turn.auto_recovery_prepared", map[string]any{"request_id": recovered.LastRequestID, "replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode})
 				return BundleSubmission{Session: recovered, AutoError: detail, RemoteRecoveryPrepared: true}, nil
@@ -745,6 +754,30 @@ func plannerOutcomeFailureDetail(outcome *domain.TurnOutcome) string {
 		detail = code + ": " + detail
 	}
 	return "Planner reported " + outcome.Status + ": " + detail
+}
+
+// applyPlannerFailure records a non-completed planner turn outcome on a
+// session. When the outcome classifies as a locally-diagnosed infrastructure
+// fault (e.g. offline_go_module_cache), the failed plan, its policy decision
+// and its execution result are preserved rather than wiped: they are exactly
+// the inputs the human dependency-network recovery needs, and the spent
+// repair attempt is refunded since it diagnosed a host problem, not a code
+// defect. Every other outcome keeps the existing behavior of clearing the
+// plan. Returns the classified FailureKind (possibly empty).
+func applyPlannerFailure(item *domain.Session, outcome *domain.TurnOutcome) string {
+	kind := classifyPlannerOutcomeFailure(outcome)
+	item.State = "failed"
+	item.FailureKind = kind
+	item.LastRepairError = plannerOutcomeFailureDetail(outcome)
+	if kind == "" {
+		item.Plan = nil
+		item.Policy = nil
+		item.LastExecution = nil
+		return kind
+	}
+	item.RepairAttempt = 0
+	item.RepairParentPlanID = ""
+	return kind
 }
 
 func (s *Service) preparePolicyRepairRequest(ctx context.Context, sessionID, planID string, reasons []string, transport string) (domain.Session, error) {
@@ -1230,7 +1263,7 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 		current.LastExecution = &result
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
-		current.LastRepairError = ""
+		clearSessionFailure(current)
 		for _, requestID := range current.PendingManualRequestIDs {
 			if requestID != item.Plan.RequestID {
 				retiredRequestIDs = append(retiredRequestIDs, requestID)
@@ -1399,8 +1432,23 @@ func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, ru
 	} else {
 		result, err = runner.Run(ctx, workspace, command)
 	}
+	result = normalizePreflightCommandFailure(command, result, err)
 	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "duration_ms": result.DurationMS, "target": target})
 	return result, err
+}
+
+func normalizePreflightCommandFailure(command domain.CommandSpec, result domain.CommandResult, runErr error) domain.CommandResult {
+	if runErr == nil || len(result.Argv) > 0 {
+		return result
+	}
+	result.Argv = append([]string(nil), command.Argv...)
+	result.Cwd = command.Cwd
+	result.ExitCode = -1
+	result.Success = false
+	if strings.TrimSpace(result.Stderr) == "" {
+		result.Stderr = runErr.Error()
+	}
+	return result
 }
 
 func (s *Service) failExecution(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.ExecutionResult, domain.Session, error) {
@@ -1410,10 +1458,17 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	updated, _ := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastExecution = &result
 		current.State = "failed"
+		current.LastRepairError = cause.Error()
+		current.FailureKind = classifyExecutionFailure(cause)
 		return nil
 	})
 	if updated.ExecutionMode == domain.ExecutionModeUnprotected {
 		s.resetDevspace(sessionID)
+	}
+	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
+		s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": result.PlanID, "error": cause.Error(), "scope": "go_dependency_commands"})
+		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "dependency_network_approval": true})
+		return result, updated, cause
 	}
 
 	var replayConflict *pendingChangeSetReplayConflict
@@ -1906,7 +1961,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		current.SelfEvolution = current.SelfEvolution || selfEvolution
 		current.LastAppliedChanges = append([]domain.PendingHostChange(nil), pending...)
 		current.PendingHostChanges = nil
-		current.LastRepairError = ""
+		clearSessionFailure(current)
 		if selfEvolution && current.LastTurn != nil && len(current.LastTurn.ResolvedEvidenceIDs) > 0 {
 			if current.ResolvedEvidenceIDs == nil {
 				current.ResolvedEvidenceIDs = map[string]time.Time{}
@@ -2142,8 +2197,9 @@ func (s *Service) updateSelfEvolutionBatchSessions(transaction selfevolution.Tra
 				current.State = state
 				if detail != "" {
 					current.LastRepairError = detail
+					current.FailureKind = ""
 				} else if state == "applied" || state == "restart_scheduled" || state == "reverted" {
-					current.LastRepairError = ""
+					clearSessionFailure(current)
 				}
 			}
 			return nil
@@ -2204,9 +2260,10 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 		}
 		current.State = state
 		if status.Phase == "restarted" {
-			current.LastRepairError = ""
+			clearSessionFailure(current)
 		} else if status.Detail != "" {
 			current.LastRepairError = status.Detail
+			current.FailureKind = ""
 		}
 		return nil
 	})

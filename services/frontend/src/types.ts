@@ -173,6 +173,11 @@ export type Session = {
   repair_attempt?: number
   repair_parent_plan_id?: string
   last_repair_error?: string
+  /** Wharness's own closed-set classification of the last terminal failure
+   *  (e.g. 'offline_go_module_cache'). Recovery affordances MUST key on this
+   *  field, never on last_repair_error/last_turn text — that prose is free
+   *  form and can be rephrased or come from an external planner. */
+  failure_kind?: string
   workflow_round?: number
   last_request_mode?: ChatRequestMode
   planner_in_flight?: boolean

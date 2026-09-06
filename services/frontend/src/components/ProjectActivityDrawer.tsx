@@ -56,11 +56,14 @@ export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatI
       <div className="project-activity-list" role="list">
         {loading ? <div className="project-activity-status">A carregar restante atividade…</div> : null}
         {error ? <div className="project-activity-status warning">{error}</div> : null}
-        {entries.map((item) => <button key={item.id} type="button" role="listitem" className={item.id === chosen?.id ? 'active' : ''} onClick={() => setSelected(item.id)}>
+        {entries.map((item) => {
+          const statusClass = 'execution' in item ? (item.execution.success ? 'status-success' : 'status-failed') : ''
+          return <button key={item.id} type="button" role="listitem" className={[item.id === chosen?.id ? 'active' : '', statusClass].filter(Boolean).join(' ')} onClick={() => setSelected(item.id)}>
           <span>{item.chatTitle}</span>
           <strong>{'plan' in item ? item.plan.summary : item.execution.plan_id}</strong>
           <small>{'plan' in item ? item.label : (item.execution.success ? 'Concluída' : 'Falhou')} · {formatDate(item.timestamp)}</small>
-        </button>)}
+        </button>
+        })}
       </div>
       <div className="project-activity-detail">
         {chosen && kind === 'plans' && 'plan' in chosen ? <PlanView session={sessionForPlan(chosen)} /> : null}

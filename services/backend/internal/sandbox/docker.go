@@ -90,6 +90,11 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 	exitCode := exitCode(err)
 	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: exitCode, Stdout: limit(stdout.String()), Stderr: limit(stderr.String()), DurationMS: time.Since(started).Milliseconds()}
 	result.Success = containsInt(command.ExpectedExitCodes, exitCode) && runCtx.Err() == nil
+	if result.Success {
+		if markerErr := markNetworkGoDependenciesReady(workspace, command); markerErr != nil {
+			return result, fmt.Errorf("persist network-approved Go dependency cache: %w", markerErr)
+		}
+	}
 	if runCtx.Err() == context.DeadlineExceeded {
 		return result, fmt.Errorf("command timeout after %s", timeout)
 	}

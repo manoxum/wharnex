@@ -181,7 +181,7 @@ function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, 
       <ThemeToggle compact />
       <div ref={projectActionsRef} className="project-actions-menu">
         <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => setProjectActionsOpen((current) => !current)} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
-        {projectActionsOpen && <div className="project-actions-popover" role="menu">
+        {projectActionsOpen && <div className="project-actions-popover" role="menu" data-chatgpt-overlay-blocker="true">
           <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBind() }}><Icon name="workspace" size={14}/><span><strong>Vincular projeto</strong><small>Nesta janela</small></span></button>
           <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="external" size={14}/><span><strong>Nova janela</strong><small>Workspace independente</small></span></button>
         </div>}

@@ -23,6 +23,13 @@ type fakeChannelProvider struct {
 	startErr      error
 }
 
+type fakePublicChannelProvider struct {
+	fakeChannelProvider
+	publicURL string
+}
+
+func (f *fakePublicChannelProvider) PublicURL() string { return f.publicURL }
+
 func (f *fakeChannelProvider) PublishChannel(_ context.Context, channel app.RemoteInputChannel) (Publication, error) {
 	return Publication{Provider: "channel", URL: "https://channel.example/" + channel.ChannelID + "/manifest.json"}, nil
 }
@@ -72,6 +79,15 @@ func TestPoolAdvertisesLiveChannelsOnlyWhenPriorityPoolIsEntirelyCapable(t *test
 	mixed := NewPool([]Instance{{ID: "durable", Priority: 1, Provider: &fakeProvider{}}, {ID: "tunnel", Priority: 2, Provider: channel}}, filepath.Join(t.TempDir(), "state.json"))
 	if mixed.SupportsRemoteInputChannels() {
 		t.Fatal("mixed priority pool must retain ordinary publication semantics")
+	}
+}
+
+func TestManagerStatusPublishesOnlyTheProviderResolvedPublicRoot(t *testing.T) {
+	provider := &fakePublicChannelProvider{publicURL: "https://primary.example"}
+	manager := NewPool([]Instance{{ID: "primary", Priority: 7, Provider: provider}}, filepath.Join(t.TempDir(), "state.json"))
+	status := manager.Status()
+	if len(status.Instances) != 1 || status.Instances[0].PublicURL != provider.publicURL {
+		t.Fatalf("unexpected public tunnel status: %#v", status.Instances)
 	}
 }
 

@@ -12,9 +12,10 @@ type Props = {
   onChange: (value: string) => void
   onSave: () => void
   onCursorChange: (cursor: Cursor) => void
+  readOnly?: boolean
 }
 
-export function CodeEditor({ path, value, onChange, onSave, onCursorChange }: Props) {
+export function CodeEditor({ path, value, onChange, onSave, onCursorChange, readOnly = false }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const activePath = useRef(path)
@@ -70,6 +71,7 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange }: Pr
       lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
       padding: { top: 9, bottom: 12 },
       fixedOverflowWidgets: true,
+      readOnly,
     })
     editor.current = instance
     const contentSubscription = instance.onDidChangeModelContent(() => {

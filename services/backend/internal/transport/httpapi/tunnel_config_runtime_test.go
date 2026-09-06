@@ -27,3 +27,12 @@ func TestTunnelRuntimeDiffersAcceptsOrderedRuntimeMatch(t *testing.T) {
 		t.Fatal("matching runtime must not require a restart")
 	}
 }
+
+func TestConfiguredTunnelRootsFillStatusFromOlderDaemonResponses(t *testing.T) {
+	document := config.TunnelDocument{Instances: []config.TunnelInstanceConfig{{ID: "ngrok", PublicURL: "https://stable.ngrok.app/"}}}
+	status := app.RemoteInputStatus{Instances: []app.RemoteInputInstanceStatus{{ID: "ngrok", Available: true}}}
+	status = mergeConfiguredTunnelURLs(document, status)
+	if status.Instances[0].PublicURL != "https://stable.ngrok.app" {
+		t.Fatalf("configured public root was not restored: %#v", status.Instances[0])
+	}
+}

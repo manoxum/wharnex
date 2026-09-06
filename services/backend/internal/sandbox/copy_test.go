@@ -378,12 +378,23 @@ func TestGoDependencyPreparationFailsOfflineBeforeRunnerExecution(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The missing module must actually be part of the build list — a go.mod
+	// requirement with no importing source file can be silently skipped by
+	// `go mod download` (no `all` pattern), which would make this test pass
+	// for the wrong reason and stay green even if `all` were reintroduced.
+	offlineSource := "package offline\n\nimport _ \"example.invalid/definitely-missing\"\n"
+	if err := os.WriteFile(filepath.Join(source, "offline.go"), []byte(offlineSource), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	err := prepareCommandDependencies(Workspace{Path: target, SourcePath: source}, domain.CommandSpec{Argv: []string{"go", "test", "./..."}, Cwd: "."})
 	if !errors.Is(err, ErrOfflineDependenciesUnavailable) {
 		t.Fatalf("expected an offline dependency preflight error, got %v", err)
 	}
 	if strings.Contains(strings.ToLower(err.Error()), "network is unreachable") {
 		t.Fatalf("dependency preflight attempted network access: %v", err)
+	}
+	if !strings.Contains(err.Error(), "example.invalid/definitely-missing") {
+		t.Fatalf("offline preflight did not name the missing module: %v", err)
 	}
 }
 
@@ -397,6 +408,23 @@ func TestGoDependencyCommandDetectionIsNarrow(t *testing.T) {
 		if requiresLocalGoDependencies(argv) {
 			t.Fatalf("unexpected Go dependency hydration for %v", argv)
 		}
+	}
+}
+
+func TestNetworkGoModDownloadUnlocksFollowingOfflineVerification(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	goMod := "module example.invalid/network-cache\n\ngo 1.23\n\nrequire example.invalid/not-in-host-cache v1.0.0\n"
+	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workspace := Workspace{Path: target, SourcePath: source}
+	download := domain.CommandSpec{Argv: []string{"go", "mod", "download"}, Cwd: ".", Network: true}
+	if err := markNetworkGoDependenciesReady(workspace, download); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCommandDependencies(workspace, domain.CommandSpec{Argv: []string{"go", "test", "./..."}, Cwd: "."}); err != nil {
+		t.Fatalf("following offline verification ignored the hydrated sandbox cache: %v", err)
 	}
 }
 
@@ -435,5 +463,67 @@ func TestPreparedGoDependenciesSupportOfflineVerification(t *testing.T) {
 	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOMODCACHE="+filepath.Join(target, ".kernl", "go-mod"))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("offline verification failed after hydration: %v: %s", err, output)
+	}
+}
+
+func TestGoModuleInventoryUsesBuildListScope(t *testing.T) {
+	cmd := goModuleInventoryCommand(t.TempDir())
+	for _, arg := range cmd.Args {
+		if arg == "all" {
+			t.Fatal("module inventory used the `all` pattern: it walks test dependencies of dependencies, which are absent from the host cache and rewrite the host go.sum")
+		}
+	}
+	found := false
+	for _, env := range cmd.Env {
+		if env == "GOPROXY=off" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("module inventory may reach the network: GOPROXY=off is not set")
+	}
+}
+
+func TestGoDependencyInventoryDoesNotMutateHostGoSum(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go is not installed")
+	}
+	cacheBytes, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Skip("Go module cache is unavailable")
+	}
+	const moduleDir = "github.com/skip2/go-qrcode@v0.0.0-20200617195104-da1b6568686e"
+	if _, err := os.Stat(filepath.Join(strings.TrimSpace(string(cacheBytes)), moduleDir)); err != nil {
+		t.Skip("fixture module is not present in the host cache")
+	}
+	source := t.TempDir()
+	target := t.TempDir()
+	goMod := "module offline.example/gosum\n\ngo 1.23\n\nrequire github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e\n"
+	goSum := "github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e h1:MRM5ITcdelLK2j1vwZ3Je0FKVCfqOLp5zO6trqMLYs0=\n" +
+		"github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e/go.mod h1:XV66xRDqSt+GTGFMVlhk3ULuV0y9ZmzeVGR4mloJI3M=\n"
+	testSource := "package gosum\nimport (\"testing\"; qrcode \"github.com/skip2/go-qrcode\")\nfunc TestCached(t *testing.T) { if _, err := qrcode.Encode(\"ok\", qrcode.Medium, 64); err != nil { t.Fatal(err) } }\n"
+	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "go.sum"), []byte(goSum), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "cache_test.go"), []byte(testSource), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(source, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCommandDependencies(Workspace{Path: target, SourcePath: source}, domain.CommandSpec{Argv: []string{"go", "build", "./..."}, Cwd: "."}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(filepath.Join(source, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("sandbox preparation rewrote the host go.sum:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }

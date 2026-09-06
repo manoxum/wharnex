@@ -21,4 +21,11 @@ describe('interrupted execution recovery', () => {
     expect(source).toMatch(/executionFIFO=\{executionFIFO\}/)
     expect(workspaceSource).toMatch(/Fila FIFO de execução/)
   })
+
+  it('routes evidence analysis through a dedicated self-evolution chat', () => {
+    expect(source).toMatch(/chat\.purpose === 'self-evolution'/)
+    expect(source).toMatch(/purpose: 'self-evolution'/)
+    expect(source).toMatch(/analyzeEvolutionEvidence\(targetSession\.id, evidenceIds\)/)
+    expect(source).toMatch(/setActiveChatId\(targetChat\.id\)/)
+  })
 })

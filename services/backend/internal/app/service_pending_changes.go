@@ -142,7 +142,7 @@ func (s *Service) RejectPendingHostChanges(sessionID string) (domain.Session, er
 		current.LastBundle = nil
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
-		current.LastRepairError = ""
+		clearSessionFailure(current)
 		current.State = "ready"
 		return nil
 	})
@@ -188,7 +188,7 @@ func (s *Service) CancelPendingRequest(sessionID string) (domain.Session, error)
 		}
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
-		current.LastRepairError = ""
+		clearSessionFailure(current)
 		if len(current.PendingHostChanges) > 0 {
 			current.State = "verified"
 		} else {

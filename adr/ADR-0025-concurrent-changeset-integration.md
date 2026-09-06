@@ -143,6 +143,11 @@ events with:
   `conflict`);
 - reason for any user or model intervention.
 
+The Agent projects those lifecycle events into a permanently discoverable FIFO
+drawer. An empty queue is an explicit healthy state; queued and running entries
+show their owning chat, plan and deterministic position. This view is not a
+second scheduler and cannot mutate queue ordering.
+
 An overlapping planning scope remains a warning, not a planning lock. Verified
 tasks touching one file can still complete through three-way merge, but their
 actual execution is deterministically ordered for operational stability.

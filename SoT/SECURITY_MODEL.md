@@ -8,6 +8,7 @@ The security boundary is enforced by:
 - path validation;
 - command allow/deny policy;
 - network approval;
+- narrowly scoped dependency-network recovery after a locally classified offline-cache failure, with a new explicit human approval and Protected-sandbox enforcement;
 - isolated Docker execution;
 - explicit apply;
 - secret-filtered context;

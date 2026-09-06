@@ -366,21 +366,24 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       sourceRef.current?.close(); sourceRef.current = null
       let nextChats = moved.active
       let nextChat = nextChats[0]
+      if (!nextChat) {
+        // Closing the last open chat is a valid end state: the workspace
+        // stays on this project (its session is retained only for
+        // project_path, so "Novo chat" can still create a fresh session) but
+        // shows no active chat, instead of silently recreating one.
+        persistChats(projectPath, [])
+        activeChatIdRef.current = ''; setActiveChatId(''); setEvents([]); setItems([]); setManualPrompt('')
+        return
+      }
       let restored: Session
-      if (nextChat) {
-        try {
-          restored = await api.getSession(nextChat.sessionId)
-          restored = await syncSessionModes(restored, executionMode, automationMode)
-        } catch (error) {
-          if (!(error instanceof APIError) || error.status !== 404) throw error
-          restored = await api.createSession(projectPath, executionMode, automationMode)
-          nextChat = { ...nextChat, sessionId: restored.id, updatedAt: new Date().toISOString() }
-          nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
-        }
-      } else {
+      try {
+        restored = await api.getSession(nextChat.sessionId)
+        restored = await syncSessionModes(restored, executionMode, automationMode)
+      } catch (error) {
+        if (!(error instanceof APIError) || error.status !== 404) throw error
         restored = await api.createSession(projectPath, executionMode, automationMode)
-        nextChat = newWorkspaceChat(restored.id, 'Chat principal')
-        nextChats = [nextChat]
+        nextChat = { ...nextChat, sessionId: restored.id, updatedAt: new Date().toISOString() }
+        nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
       }
 
       persistChats(projectPath, nextChats)
@@ -1475,6 +1478,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	} finally { setBusy(false) }
   }
 
+  async function retryDependencyNetwork() {
+	if (!session || busy || !(await confirmDialog({
+		title: 'Permitir rede temporária na sandbox?',
+		message: 'Somente comandos Go de dependências, build e teste deste plano serão repetidos com rede. A sandbox continua sem Docker socket, sem privilégios e sem acesso ao projeto original.',
+		tone: 'warning',
+		confirmLabel: 'Permitir e repetir',
+	}))) return
+	setBusy(true); setError(undefined)
+	try {
+		setSession(await api.retryDependencyNetwork(session.id))
+	} catch (cause) {
+		setError(messageOf(cause))
+	} finally { setBusy(false) }
+  }
+
   async function rejectPendingChanges() {
     if (!session || !(await confirmDialog({
       title: 'Rejeitar alterações pendentes?',
@@ -1716,6 +1734,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       connectEvents(result.session.id, result.session.project_path, targetChat.id)
       setManualPrompt(result.session.last_manual_prompt || '')
       const prepared = await transportPlannerContinuation(result.session, targetChat)
+      // Reveal the Engine/ChatGPT surface: the workspace may currently be
+      // showing another inspector tab (or the evidence drawer, which just
+      // closed the active chat switch above), so preparing the ChatGPT
+      // window here is otherwise invisible to the user. This reuses the same
+      // signal openChatGPTHumanAction uses to focus that surface.
+      setChatgptAttentionNonce((value) => value + 1)
       appendChatItem(targetChat, result.session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Foram correlacionados ${result.evidence_total} eventos operacionais. A análise foi aberta como proposta de plano e continuará sujeita a aprovação, Policy e sandbox Protected.`, meta: prepared.submitted ? 'Auto-evolução · análise enviada' : 'Auto-evolução · análise preparada', iteration: result.session.last_request_id ? iterationRef(result.session.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], targetChat.chatgptUrl) : undefined })
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
@@ -1770,7 +1794,12 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
       <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
     </div>
     <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
-      <AgentWorkspace
+      {chats.length === 0 ? <div className="agent-empty-workspace">
+        <Icon name="agent" size={30}/>
+        <strong>Nenhum chat aberto</strong>
+        <span>Todos os chats deste projeto foram fechados e arquivados.</span>
+        <button type="button" className="primary-button" disabled={busy} onClick={() => void newChat()}><Icon name="plus" size={14}/> Novo chat</button>
+      </div> : <AgentWorkspace
         session={session}
         busy={activeBusy}
         executionFIFO={executionFIFO}
@@ -1795,10 +1824,10 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
         }}
         inspectorProps={{
 		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen || interruptedExecutions.length > 0,
-          onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
+		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
           onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession,
         }}
-      />
+      />}
     </div>
   </main>
 }

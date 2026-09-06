@@ -6,6 +6,8 @@ Request and execution lifecycle events carry request lineage whenever applicable
 
 Secret values must be redacted before event publication.
 
+A runner pre-flight failure MUST NOT be represented as a successful process exit. If dependency preparation or another prerequisite fails before process creation, the recorded command retains its requested argv/cwd, uses synthetic exit code `-1`, reports `success=false`, and carries the bounded actionable cause in stderr.
+
 ## Durable operational evidence (v1.2.43)
 
 Backend lifecycle events MUST be persisted before they are exposed as history, so a backend/Desktop restart does not erase request, transport, validation, Policy, queue, execution, correction, success or failure evidence. Persisted fields are bounded and redacted; raw credentials, complete environment values and unbounded command output are never operational evidence.
@@ -22,4 +24,4 @@ Desktop liveness diagnostics distinguish renderer/network recovery from human-re
 
 ## Unresolved evidence ledger (v1.3.1)
 
-Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit selection enters an AI analysis request. Resolution is stored by immutable event ID and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time is not a resolution boundary.
+Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit selection enters an AI analysis request. **Analyze with AI** always creates or reuses a dedicated self-evolution Harness chat and never takes over the user's currently active conversation. Resolution is stored by immutable event ID across all canonical self-evolution sessions and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time and the currently selected analysis chat are not resolution boundaries.

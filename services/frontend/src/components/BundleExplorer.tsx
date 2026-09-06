@@ -7,12 +7,13 @@ import { ArtifactPreview } from './ArtifactPreview'
 
 export function BundleExchangeBar({ sessionId, artifacts = [] }: { sessionId: string; artifacts?: ArtifactRecord[] }) {
   const bundles = useMemo(() => artifacts.filter((item) => item.bundle).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
+  const counts = useMemo(() => ({ input: bundles.filter((item) => item.direction === 'input').length, output: bundles.filter((item) => item.direction === 'output').length }), [bundles])
   const [selected, setSelected] = useState<ArtifactRecord>()
   if (!bundles.length) return null
   return <><section className="bundle-exchange-bar" aria-label="Bundles trocados com o ChatGPT">
-    <div className="bundle-exchange-title"><Icon name="folder" size={13}/><strong>Artefactos</strong><span>{bundles.length}</span></div>
-    <div className="bundle-exchange-list">{bundles.slice(0, 6).map((bundle) => <button key={bundle.id} type="button" onClick={() => setSelected(bundle)} title={`Explorar ${bundle.name}`}><span className={`bundle-direction ${bundle.direction}`}>{bundle.direction === 'input' ? '↑' : '↓'}</span><span><b>{bundle.name}</b><small>{bundle.direction === 'input' ? 'Entrada' : 'Saída'} · {formatBytes(bundle.size)} · {formatDateTime(bundle.created_at)} · {bundle.entry_count || 0} itens</small></span><Icon name="chevron" size={11}/></button>)}</div>
-    <button className="bundle-all-button" type="button" onClick={() => setSelected(bundles[0])}>Ver todos</button>
+    <div className="bundle-exchange-summary"><span className="bundle-exchange-icon"><Icon name="folder" size={14}/></span><span><strong>Artefactos</strong><small>{bundles.length} bundles · <i>↑ {counts.input}</i> entradas · <i>↓ {counts.output}</i> saídas</small></span></div>
+    <div className="bundle-exchange-list">{bundles.slice(0, 2).map((bundle) => <button key={bundle.id} type="button" onClick={() => setSelected(bundle)} title={`Explorar ${bundle.name}`}><span className={`bundle-direction ${bundle.direction}`}>{bundle.direction === 'input' ? '↑' : '↓'}</span><span><b>{bundle.name}</b><small>{formatBytes(bundle.size)} · {formatDateTime(bundle.created_at)} · {bundle.entry_count || 0} itens</small></span><Icon name="chevron" size={11}/></button>)}</div>
+    <button className="bundle-all-button" type="button" onClick={() => setSelected(bundles[0])}><span>Ver todos</span><b>{bundles.length}</b><Icon name="chevron" size={11}/></button>
   </section>{selected && <BundleExplorer sessionId={sessionId} bundle={selected} bundles={bundles} onBundle={setSelected} onClose={() => setSelected(undefined)}/>}</>
 }
 

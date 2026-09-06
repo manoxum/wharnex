@@ -68,6 +68,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/failed-request/retry", a.retryFailedRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
+	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/discard", a.discardInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
 	mux.HandleFunc("POST /api/sessions/{id}/pending-changes/reject", a.rejectPendingChanges)
@@ -104,7 +105,29 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.service.RemoteInputStatus()})
+	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.tunnelStatus()})
+}
+
+func (a *API) tunnelStatus() app.RemoteInputStatus {
+	status := a.service.RemoteInputStatus()
+	document, err := config.ReadTunnelDocument(a.cfg.Tunnel)
+	if err != nil {
+		return status
+	}
+	return mergeConfiguredTunnelURLs(document, status)
+}
+
+func mergeConfiguredTunnelURLs(document config.TunnelDocument, status app.RemoteInputStatus) app.RemoteInputStatus {
+	configured := make(map[string]string, len(document.Instances))
+	for _, instance := range document.Instances {
+		configured[instance.ID] = strings.TrimRight(strings.TrimSpace(instance.PublicURL), "/")
+	}
+	for index := range status.Instances {
+		if status.Instances[index].PublicURL == "" {
+			status.Instances[index].PublicURL = configured[status.Instances[index].ID]
+		}
+	}
+	return status
 }
 
 func (a *API) tunnelConfig(w http.ResponseWriter, _ *http.Request) {
@@ -173,7 +196,7 @@ func (a *API) testTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	var target app.RemoteInputInstanceStatus
 	found := false
-	for _, instance := range a.service.RemoteInputStatus().Instances {
+	for _, instance := range a.tunnelStatus().Instances {
 		if instance.ID == body.InstanceID {
 			target = instance
 			found = true
@@ -725,6 +748,23 @@ func (a *API) execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": result, "session": item})
+}
+
+func (a *API) retryDependencyNetwork(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Approved bool `json:"approved"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	item, err := a.service.RetryDependencyNetwork(r.Context(), r.PathValue("id"), body.Approved)
+	if err != nil {
+		status := http.StatusConflict
+		if errors.Is(err, app.ErrApprovalRequired) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": map[string]any{"code": "dependency_network_retry_failed", "message": err.Error()}, "session": item})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (a *API) discardInterruptedExecution(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../lib/desktop'
 import { Icon } from './Icon'
+import { directChatGPTKey } from '../lib/directChatGPT'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 
@@ -48,10 +49,4 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
     </header>
     <div ref={hostRef} className="desktop-chatgpt-host direct-chatgpt-host" aria-label="ChatGPT livre incorporado"><span>A carregar ChatGPT…</span></div>
   </section>
-}
-
-export function directChatGPTKey(projectPath: string) {
-  let hash = 2166136261
-  for (const char of projectPath) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619)
-  return `free_${(hash >>> 0).toString(16)}`
 }

@@ -31,6 +31,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   onCancelPendingRequest?: (requestId: string) => Promise<void>
   onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean) => Promise<void>
+  onRetryDependencyNetwork?: () => Promise<void>
   onApply: () => Promise<void>
   onRejectPendingChanges?: () => Promise<void>
   onManualPlan: (json: string) => Promise<void>

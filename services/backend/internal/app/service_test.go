@@ -1532,6 +1532,214 @@ func makeFailedBundle(t *testing.T, requestID string) []byte {
 	return out.Bytes()
 }
 
+func makeFailedBundleWithReason(t *testing.T, requestID, reasonCode string, retryable bool) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := zip.NewWriter(&out)
+	retryableJSON := "false"
+	if retryable {
+		retryableJSON = "true"
+	}
+	entries := map[string]string{
+		"README.md": "# Not completed\nA local infrastructure fault prevented verification.\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"` + requestID + `","kind":"blocked","message":"Não consegui concluir a verificação.","outcome":{"status":"failed","reason_code":"` + reasonCode + `","message":"Os gates Go obrigatórios não puderam iniciar.","retryable":` + retryableJSON + `}}`,
+	}
+	for name, value := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+func seedFailedPlanForRepair(t *testing.T, service *Service, sessionID, requestID string) {
+	t.Helper()
+	plan := &domain.ExecutionPlan{
+		Protocol:  domain.ProtocolV1,
+		PlanID:    "plan_repair_seed",
+		RequestID: requestID,
+		Status:    "ready",
+		Risk:      "low",
+		Operations: []domain.Operation{
+			{Type: "command", Command: domain.CommandSpec{Argv: []string{"go", "test", "./..."}, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}}},
+		},
+	}
+	if _, err := service.store.Update(sessionID, func(item *domain.Session) error {
+		decision := service.policy.Evaluate(*plan)
+		item.Plan = plan
+		item.Policy = &decision
+		item.LastExecution = &domain.ExecutionResult{PlanID: plan.PlanID, Success: false, Error: "offline sandbox dependencies unavailable: github.com/jackc/pgpassfile"}
+		item.State = "failed"
+		item.RepairAttempt = 2
+		item.PendingManualRequestIDs = []string{requestID}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlannerInfrastructureOutcomePreservesFailedPlan(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "fix feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	seedFailedPlanForRepair(t, service, started.ID, requestID)
+
+	bundle := makeFailedBundleWithReason(t, requestID, "offline_host_go_module_cache", true)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Session.Plan == nil || result.Session.Policy == nil || result.Session.LastExecution == nil {
+		t.Fatalf("infrastructure-classified planner failure must preserve the failed plan/policy/execution: %#v", result.Session)
+	}
+	if result.Session.State != "failed" {
+		t.Fatalf("session state = %q, want failed", result.Session.State)
+	}
+	if result.Session.FailureKind != domain.FailureKindOfflineGoModuleCache {
+		t.Fatalf("failure_kind = %q, want %q", result.Session.FailureKind, domain.FailureKindOfflineGoModuleCache)
+	}
+	if result.Session.RepairAttempt != 0 {
+		t.Fatalf("repair attempt was consumed diagnosing infrastructure: %d", result.Session.RepairAttempt)
+	}
+	// Auto mode + retryable:true would normally fire a fresh-request
+	// recovery; an infrastructure-classified outcome must suppress it, since
+	// a new ChatGPT request would fail identically against the same missing
+	// host module cache.
+	if result.RemoteRecoveryPrepared || result.Session.RemoteRecoveryAttempt != 0 {
+		t.Fatalf("infrastructure failure must not trigger automatic fresh-request recovery: %#v", result)
+	}
+}
+
+func TestPlannerCodeDefectOutcomeStillClearsPlan(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "fix feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	seedFailedPlanForRepair(t, service, started.ID, requestID)
+
+	bundle := makeFailedBundleWithReason(t, requestID, "invalid_patch", true)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Session.Plan != nil || result.Session.Policy != nil || result.Session.LastExecution != nil {
+		t.Fatalf("a genuine code-defect outcome must still clear the plan: %#v", result.Session)
+	}
+	if result.Session.FailureKind != "" {
+		t.Fatalf("failure_kind must stay empty for a non-infrastructure outcome, got %q", result.Session.FailureKind)
+	}
+}
+
+func TestRetryDependencyNetworkRecoversFromPlannerReportedInfrastructureFailure(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "fix feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	seedFailedPlanForRepair(t, service, started.ID, requestID)
+
+	bundle := makeFailedBundleWithReason(t, requestID, "offline_host_go_module_cache", false)
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", bundle); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.RetryDependencyNetwork(context.Background(), started.ID, true)
+	if err != nil {
+		t.Fatalf("RetryDependencyNetwork should recover from a planner-reported infrastructure failure: %v", err)
+	}
+	if updated.Plan == nil {
+		t.Fatal("recovered session lost its plan")
+	}
+	foundHydration := false
+	for _, op := range updated.Plan.Operations {
+		if op.Type == "command" && isGoDependencyHydration(op.Command) {
+			foundHydration = true
+		}
+	}
+	if !foundHydration {
+		t.Fatal("recovered plan did not gain a go mod download hydration operation")
+	}
+}
+
+func TestFailExecutionClassifiesOfflineGoModuleCache(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.failExecution(context.Background(), started.ID, domain.ExecutionResult{PlanID: "p"}, fmt.Errorf("%w: x", sandbox.ErrOfflineDependenciesUnavailable))
+	if err == nil {
+		t.Fatal("expected failExecution to propagate the cause")
+	}
+	current, getErr := service.store.Get(started.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if current.FailureKind != domain.FailureKindOfflineGoModuleCache {
+		t.Fatalf("failure_kind = %q, want %q", current.FailureKind, domain.FailureKindOfflineGoModuleCache)
+	}
+
+	_, _, err = service.failExecution(context.Background(), started.ID, domain.ExecutionResult{PlanID: "p"}, errors.New("generic failure"))
+	if err == nil {
+		t.Fatal("expected failExecution to propagate the cause")
+	}
+	current, getErr = service.store.Get(started.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if current.FailureKind != "" {
+		t.Fatalf("failure_kind should be empty for a generic failure, got %q", current.FailureKind)
+	}
+}
+
+func TestSessionFailureKindFallsBackToLegacyProse(t *testing.T) {
+	legacy := domain.Session{LastRepairError: "offline sandbox dependencies unavailable: github.com/jackc/pgpassfile"}
+	if got := sessionFailureKind(legacy); got != domain.FailureKindOfflineGoModuleCache {
+		t.Fatalf("legacy prose was not classified: %q", got)
+	}
+	clean := domain.Session{LastRepairError: "some other failure"}
+	if got := sessionFailureKind(clean); got != "" {
+		t.Fatalf("unrelated prose was misclassified: %q", got)
+	}
+}
+
+func TestClearSessionFailureResetsFailureKind(t *testing.T) {
+	current := &domain.Session{LastRepairError: "boom", FailureKind: domain.FailureKindOfflineGoModuleCache}
+	clearSessionFailure(current)
+	if current.LastRepairError != "" || current.FailureKind != "" {
+		t.Fatalf("clearSessionFailure left residue: %#v", current)
+	}
+}
+
 func makeWorkflowBundle(t *testing.T, requestID string) []byte {
 	t.Helper()
 	var out bytes.Buffer

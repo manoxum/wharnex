@@ -52,6 +52,21 @@ const (
 	TurnOutcomePartial   = "partial"
 )
 
+// FailureKind is Wharness's own closed-set classification of a terminal
+// session failure. It is always derived by Wharness itself — from a sandbox
+// error via errors.Is, or from a planner turn outcome's reason code — and
+// never copied verbatim from planner-supplied text. Consumers (including the
+// frontend) MUST key recovery affordances on this field, never on error
+// message substrings: message text is free-form prose that can be rephrased
+// or translated, but this field is a value Wharness itself commits to.
+const (
+	// FailureKindOfflineGoModuleCache marks a failure caused by the host Go
+	// module cache being unable to satisfy the project's build list while
+	// GOPROXY=off. It is recoverable via a human-approved, narrowly scoped
+	// network grant (see RetryDependencyNetwork).
+	FailureKindOfflineGoModuleCache = "offline_go_module_cache"
+)
+
 type ExecutionMode string
 
 const (
@@ -318,6 +333,7 @@ type Session struct {
 	RepairAttempt           int                          `json:"repair_attempt,omitempty"`
 	RepairParentPlanID      string                       `json:"repair_parent_plan_id,omitempty"`
 	LastRepairError         string                       `json:"last_repair_error,omitempty"`
+	FailureKind             string                       `json:"failure_kind,omitempty"`
 	WorkflowRound           int                          `json:"workflow_round,omitempty"`
 	LastRequestMode         string                       `json:"last_request_mode,omitempty"`
 	PlannerInFlight         bool                         `json:"planner_in_flight,omitempty"`

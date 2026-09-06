@@ -70,6 +70,7 @@ export const api = {
     request<{ session: Session; result: ExecutionResult }>(`/api/sessions/${id}/execute`, {
       method: 'POST', body: JSON.stringify({ approved }),
     }),
+  retryDependencyNetwork: (id: string) => request<Session>(`/api/sessions/${id}/dependency-network-retry`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   discardInterruptedExecution: (id: string) => request<Session>(`/api/sessions/${id}/interrupted-execution/discard`, { method: 'POST', body: '{}' }),
   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
   rejectPendingChanges: (id: string) => request<Session>(`/api/sessions/${id}/pending-changes/reject`, { method: 'POST', body: '{}' }),

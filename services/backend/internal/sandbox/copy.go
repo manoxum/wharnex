@@ -295,7 +295,37 @@ type goModuleDownload struct {
 	Error string
 }
 
+// goModuleInventoryCommand inventories the main module's *build list* — the
+// exact modules needed to build and verify this project. The `all` pattern is
+// deliberately absent: it walks test dependencies of dependencies, which are
+// neither required to build or verify the project nor present in the host
+// cache, and (since Go 1.18) writing that scope with `-mod=mod` semantics
+// rewrites the host go.sum. This inventory is strictly read-only with respect
+// to the host: GOFLAGS=-mod=readonly turns any attempt to update go.mod into
+// a hard error instead of a silent host mutation.
+func goModuleInventoryCommand(moduleRoot string) *exec.Cmd {
+	cmd := exec.Command("go", "mod", "download", "-json")
+	cmd.Dir = moduleRoot
+	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=readonly")
+	return cmd
+}
+
+// truncateForError bounds a diagnostic snippet (e.g. captured stderr) so a
+// single failing command cannot blow out an error message.
+func truncateForError(s string, limit int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "…"
+}
+
 func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) error {
+	if command.Network {
+		// A network-approved command resolves modules inside the isolated runner.
+		// Do not require the host's offline cache before that container can start.
+		return os.MkdirAll(filepath.Join(workspace.Path, ".kernl", "go-mod"), 0o755)
+	}
 	sourceCwd, err := safeRelativePath(workspace.SourcePath, command.Cwd)
 	if err != nil {
 		return err
@@ -317,9 +347,7 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 	if hostCache == "" || !filepath.IsAbs(hostCache) {
 		return fmt.Errorf("%w: host GOMODCACHE is unavailable", ErrOfflineDependenciesUnavailable)
 	}
-	cmd := exec.Command("go", "mod", "download", "-json", "all")
-	cmd.Dir = moduleRoot
-	cmd.Env = append(os.Environ(), "GOPROXY=off")
+	cmd := goModuleInventoryCommand(moduleRoot)
 	output, downloadErr := cmd.Output()
 	decoder := json.NewDecoder(strings.NewReader(string(output)))
 	modules := make([]goModuleDownload, 0)
@@ -331,14 +359,21 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 			return fmt.Errorf("%w: decode cached Go module inventory: %v", ErrOfflineDependenciesUnavailable, err)
 		}
 		if module.Error != "" {
-			return fmt.Errorf("%w: %s: %s; run `go mod download` for this project while the host has network access", ErrOfflineDependenciesUnavailable, module.Path, module.Error)
+			return fmt.Errorf("%w: %s: %s; this module is in the project's build list but missing from the host Go module cache — run `go mod download` in %s while the host has network access", ErrOfflineDependenciesUnavailable, module.Path, module.Error, moduleRoot)
 		}
 		if module.Dir != "" {
 			modules = append(modules, module)
 		}
 	}
 	if downloadErr != nil {
-		return fmt.Errorf("%w: required Go modules are not present in the host cache; run `go mod download` for this project while the host has network access", ErrOfflineDependenciesUnavailable)
+		detail := ""
+		var exitErr *exec.ExitError
+		if errors.As(downloadErr, &exitErr) && len(exitErr.Stderr) > 0 {
+			detail = fmt.Sprintf(": %s", truncateForError(string(exitErr.Stderr), 2000))
+		} else {
+			detail = fmt.Sprintf(": %v", downloadErr)
+		}
+		return fmt.Errorf("%w: the project's Go build list could not be resolved from the host module cache (GOPROXY=off)%s; run `go mod download` in %s while the host has network access", ErrOfflineDependenciesUnavailable, detail, moduleRoot)
 	}
 	for _, module := range modules {
 		rel, err := filepath.Rel(hostCache, module.Dir)
@@ -371,6 +406,17 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 	return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
 }
 
+func markNetworkGoDependenciesReady(workspace Workspace, command domain.CommandSpec) error {
+	if !command.Network || !hydratesGoDependencies(command.Argv) {
+		return nil
+	}
+	targetCache := filepath.Join(workspace.Path, ".kernl", "go-mod")
+	if err := os.MkdirAll(targetCache, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(targetCache, ".wharness-ready"), []byte("network-approved module cache ready\n"), 0o600)
+}
+
 func nearestGoModuleRoot(sourceRoot, start string) (string, bool) {
 	root := filepath.Clean(sourceRoot)
 	current := filepath.Clean(start)
@@ -399,6 +445,13 @@ func requiresLocalGoDependencies(argv []string) bool {
 	default:
 		return false
 	}
+}
+
+func hydratesGoDependencies(argv []string) bool {
+	if requiresLocalGoDependencies(argv) {
+		return true
+	}
+	return len(argv) >= 3 && filepath.Base(argv[0]) == "go" && argv[1] == "mod" && argv[2] == "download"
 }
 
 func requiresLocalNodeDependencies(argv []string) bool {
