@@ -303,6 +303,15 @@ func overlapPaths(changed, forecast []string) []string {
 	return out
 }
 
+// baselineEdge is one observed hop in a project's baseline history: a change
+// from one context SHA256 to another, with the set of files that changed
+// between them (when the full delta is known).
+type baselineEdge struct {
+	from, to     string
+	changedFiles []string
+	complete     bool
+}
+
 func canFastForwardBaseline(item domain.Session, fromSHA, toSHA string, impact []string) bool {
 	fromSHA = strings.TrimSpace(fromSHA)
 	toSHA = strings.TrimSpace(toSHA)
@@ -310,6 +319,48 @@ func canFastForwardBaseline(item domain.Session, fromSHA, toSHA string, impact [
 	if fromSHA == "" || toSHA == "" || fromSHA == toSHA || len(impact) == 0 {
 		return fromSHA != "" && fromSHA == toSHA
 	}
+	// BaselineNotices only records a hop when ANOTHER Wharness session on the
+	// same project applied a plan through the tracked Host Apply pipeline.
+	// ProjectRevisions records a hop on every context refresh that observes a
+	// new SHA256, regardless of what caused it — a peer session's apply, a
+	// manual git operation, or an external edit made outside Wharness
+	// entirely (a co-editing tool, another IDE, a background script). A plan
+	// pending against a project actively developed alongside Wharness must be
+	// reconcilable against that second, always-populated source too, or every
+	// external edit permanently strands it behind a "stale baseline" block
+	// that neither ChatGPT nor a human can retry their way out of. Trying
+	// both sources independently cannot make a genuine conflict look safe:
+	// each source only ever asserts real observed changed-files, so an
+	// overlap detected by either one still blocks.
+	if walkBaselineChain(baselineNoticeEdges(item.BaselineNotices), fromSHA, toSHA, impact) {
+		return true
+	}
+	return walkBaselineChain(projectRevisionEdges(item.ProjectRevisions), fromSHA, toSHA, impact)
+}
+
+func baselineNoticeEdges(notices []domain.BaselineNotice) []baselineEdge {
+	edges := make([]baselineEdge, 0, len(notices))
+	for _, notice := range notices {
+		edges = append(edges, baselineEdge{
+			from: strings.TrimSpace(notice.PreviousSHA256), to: strings.TrimSpace(notice.NewSHA256),
+			changedFiles: notice.ChangedFiles, complete: notice.CompleteDelta,
+		})
+	}
+	return edges
+}
+
+func projectRevisionEdges(revisions []domain.ProjectRevision) []baselineEdge {
+	edges := make([]baselineEdge, 0, len(revisions))
+	for _, revision := range revisions {
+		edges = append(edges, baselineEdge{
+			from: strings.TrimSpace(revision.ParentSHA256), to: strings.TrimSpace(revision.SHA256),
+			changedFiles: revision.ChangedFiles, complete: revision.Complete,
+		})
+	}
+	return edges
+}
+
+func walkBaselineChain(edges []baselineEdge, fromSHA, toSHA string, impact []string) bool {
 	cursor := fromSHA
 	visited := map[string]bool{}
 	for cursor != toSHA {
@@ -318,15 +369,15 @@ func canFastForwardBaseline(item domain.Session, fromSHA, toSHA string, impact [
 		}
 		visited[cursor] = true
 		advanced := false
-		for _, notice := range item.BaselineNotices {
-			if strings.TrimSpace(notice.PreviousSHA256) != cursor || !notice.CompleteDelta {
+		for _, edge := range edges {
+			if edge.from != cursor || !edge.complete {
 				continue
 			}
-			changed := normalizedPaths(notice.ChangedFiles)
+			changed := normalizedPaths(edge.changedFiles)
 			if len(changed) == 0 || len(overlapPaths(changed, impact)) > 0 {
 				return false
 			}
-			cursor = strings.TrimSpace(notice.NewSHA256)
+			cursor = edge.to
 			advanced = cursor != ""
 			break
 		}

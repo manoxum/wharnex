@@ -151,6 +151,55 @@ func TestCanFastForwardBaselineAcrossDisjointCompleteTransitions(t *testing.T) {
 	}
 }
 
+// A project actively developed alongside Wharness (e.g. Wharness's own
+// self-evolution against its own source, edited concurrently by a human or
+// another tool) drifts its baseline through edits that never go through
+// Wharness's own Host Apply pipeline, so BaselineNotices — populated only by
+// a peer session's tracked apply — never records them. ProjectRevisions is
+// populated on every context refresh regardless of what caused the SHA to
+// change, so it must be able to reconcile on its own when BaselineNotices is
+// empty or incomplete.
+func TestCanFastForwardBaselineAcrossExternalEditsViaProjectRevisions(t *testing.T) {
+	const h0 = "0000000000000000000000000000000000000000000000000000000000000000"
+	const h1 = "1111111111111111111111111111111111111111111111111111111111111111"
+	const h2 = "2222222222222222222222222222222222222222222222222222222222222222"
+	item := domain.Session{ProjectRevisions: []domain.ProjectRevision{
+		{ParentSHA256: h0, SHA256: h1, ChangedFiles: []string{"a.go"}, Complete: true},
+		{ParentSHA256: h1, SHA256: h2, ChangedFiles: []string{"b.go"}, Complete: true},
+	}}
+	if !canFastForwardBaseline(item, h0, h2, []string{"ui.tsx"}) {
+		t.Fatal("expected external, disjoint project-revision chain to fast-forward with no BaselineNotices at all")
+	}
+	if canFastForwardBaseline(item, h0, h2, []string{"b.go"}) {
+		t.Fatal("overlapping project-revision chain must still block, even without BaselineNotices")
+	}
+	item.ProjectRevisions[1].Complete = false
+	if canFastForwardBaseline(item, h0, h2, []string{"ui.tsx"}) {
+		t.Fatal("incomplete project-revision chain must not fast-forward")
+	}
+}
+
+// The two histories are independent sources of the same objective reality:
+// a plan must fast-forward if EITHER source can walk the full chain without
+// an overlap, since neither source can make a genuine conflict look safe —
+// each only ever asserts changed-files it actually observed.
+func TestCanFastForwardBaselinePrefersEitherCompleteSource(t *testing.T) {
+	const h0 = "0000000000000000000000000000000000000000000000000000000000000000"
+	const h1 = "1111111111111111111111111111111111111111111111111111111111111111"
+	item := domain.Session{
+		// BaselineNotices alone cannot reconcile this hop (marked incomplete).
+		BaselineNotices: []domain.BaselineNotice{{PreviousSHA256: h0, NewSHA256: h1, ChangedFiles: []string{"a.go"}, CompleteDelta: false}},
+		// ProjectRevisions independently observed the same hop, completely.
+		ProjectRevisions: []domain.ProjectRevision{{ParentSHA256: h0, SHA256: h1, ChangedFiles: []string{"a.go"}, Complete: true}},
+	}
+	if !canFastForwardBaseline(item, h0, h1, []string{"ui.tsx"}) {
+		t.Fatal("expected the complete ProjectRevisions source to rescue a fast-forward the incomplete BaselineNotices source could not")
+	}
+	if canFastForwardBaseline(item, h0, h1, []string{"a.go"}) {
+		t.Fatal("an overlap detected via ProjectRevisions must still block even though BaselineNotices had no complete opinion")
+	}
+}
+
 func TestRequestSupersededByBaselineContinuation(t *testing.T) {
 	item := domain.Session{State: "baseline_update_pending", LastRequestID: "req-new"}
 	if !requestSupersededByBaselineContinuation(item, "req-old") {

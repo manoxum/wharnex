@@ -77,9 +77,6 @@ func autoExclude(rel string, isDir bool) (string, bool) {
 	parts := strings.Split(strings.ToLower(rel), "/")
 	base := parts[len(parts)-1]
 	if isDir {
-		if strings.HasPrefix(base, "kernl-context-") || strings.HasPrefix(base, "wharness-context-") {
-			return "generated context snapshot", true
-		}
 		if reason := automaticDirectoryReasons[base]; reason != "" {
 			return reason, true
 		}
@@ -112,7 +109,9 @@ var automaticDirectoryReasons = map[string]string{
 
 var automaticMetadataNames = []string{".ds_store", "thumbs.db", "desktop.ini"}
 var automaticGeneratedSuffixes = []string{".log", ".tmp", ".temp", ".swp", ".swo", ".orig", ".rej", "~", ".pyc", ".pyo", ".class", ".o", ".obj", ".a", ".so", ".dylib", ".dll", ".exe", ".bin", ".tsbuildinfo"}
-var automaticAssetSuffixes = []string{".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".mp3", ".mp4", ".mov", ".avi", ".woff", ".woff2", ".ttf", ".otf"}
+// Archive extensions are not repeated here: they are mandatorily blocked in
+// ShouldIgnore (builder.go) and must never depend on auto_exclude/include.
+var automaticAssetSuffixes = []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".mp3", ".mp4", ".mov", ".avi", ".woff", ".woff2", ".ttf", ".otf"}
 
 func matchAny(rel string, patterns []string) bool {
 	rel = strings.TrimPrefix(filepathSlash(rel), "./")

@@ -58,6 +58,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
@@ -522,6 +523,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 		ProjectPath    string                `json:"project_path"`
 		ExecutionMode  domain.ExecutionMode  `json:"execution_mode"`
 		AutomationMode domain.AutomationMode `json:"automation_mode"`
+		ChatID         string                `json:"chat_id"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -534,6 +536,11 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "session_create_failed", err.Error())
 		return
+	}
+	if strings.TrimSpace(body.ChatID) != "" {
+		if withChat, chatErr := a.service.SetChatID(item.ID, body.ChatID); chatErr == nil {
+			item = withChat
+		}
 	}
 	writeJSON(w, http.StatusCreated, item)
 }
@@ -569,6 +576,29 @@ func (a *API) executionMode(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetExecutionMode(r.PathValue("id"), body.ExecutionMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "execution_mode_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+// chatID backfills Session.ChatID for a session that predates chat-id
+// propagation (or otherwise never received one at creation): the frontend
+// always knows its own real chat id, so it can call this once it notices
+// session.chat_id is empty. Without a real chat id, every derived-request
+// bundle filename falls back to the "system" placeholder, which will never
+// match the frontend's actual active chat and permanently fails bundle
+// validation for that session (a session created before this endpoint
+// existed would otherwise never recover).
+func (a *API) chatID(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ChatID string `json:"chat_id"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetChatID(r.PathValue("id"), body.ChatID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "chat_id_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -788,6 +818,9 @@ func (a *API) cancelPendingRequest(w http.ResponseWriter, r *http.Request) {
 func (a *API) apply(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.ApplyToHost(r.Context(), r.PathValue("id"))
 	if err != nil {
+		if !errors.Is(err, app.ErrIntegrationConflict) {
+			_, _ = a.service.TriggerApplyFailureRepair(r.Context(), r.PathValue("id"), err)
+		}
 		writeError(w, 409, "apply_failed", err.Error())
 		return
 	}

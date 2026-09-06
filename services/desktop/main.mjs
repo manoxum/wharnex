@@ -12,6 +12,7 @@ import { chatGPTChooseConversationActionScript, chatGPTCommitConversationTitleSc
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { buildBundleName, safeChatId } from './bundlename.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
 import { chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress } from './chatgpt-recovery.mjs'
@@ -194,16 +195,16 @@ function consumeRestartIntent() {
   } catch { return undefined }
 }
 
-function canonicalBundleFilename(requestId) {
+function canonicalBundleFilename(chatId, requestId) {
   const id = String(requestId || '').trim()
-  const filename = `wharness-bundle-${id}.zip`
+  const filename = buildBundleName('res', safeChatId(chatId), id)
   if (wharnessBundleRequestIdFromFilename(filename) !== id) throw new Error('Invalid Wharness request id for bundle transport')
   return filename
 }
 
 function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, recoveryBootstrap = '') {
   const key = sanitizeChatCacheKey(cacheKey)
-  const filename = canonicalBundleFilename(requestId)
+  const filename = canonicalBundleFilename(key, requestId)
   const prior = expectedChatGPTBundles.get(key)
   const sameRequest = prior?.requestId === String(requestId)
   expectedChatGPTBundles.set(key, {
@@ -638,7 +639,7 @@ function registerChatGPTPlanDownloads(chatSession) {
     const sourceCacheKey = expectedBundle?.key || chatGPTKeyForWebContents(sourceWebContents)
     let bundleCandidate
     try {
-      bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '')
+      bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '', sourceCacheKey || '')
     } catch (error) {
       item.cancel()
       publishBundleDownloadError(error instanceof Error ? error.message : String(error), sourceFilename, sourceCacheKey)
@@ -694,9 +695,9 @@ function registerChatGPTPlanDownloads(chatSession) {
       })
       return
     }
-    if (sourceFilename.startsWith('wharness-bundle-')) {
+    if (sourceFilename.startsWith('whx_bundle_res_')) {
       item.cancel()
-      publishBundleDownloadError('Nome do bundle inválido; esperado wharness-bundle-<request_id>.zip.', sourceFilename, sourceCacheKey)
+      publishBundleDownloadError('Nome do bundle inválido; esperado whx_bundle_res_<chat_id>_<request_id>.zip.', sourceFilename, sourceCacheKey)
       return
     }
 
@@ -1246,7 +1247,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const context = includeContext ? await fetchContextZip(sessionId) : undefined
-  const archiveName = chatInputArchiveFilename(requestId)
+  const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
   const archive = await writeChatInputArchive(archivePath, {
     requestId,
@@ -1509,7 +1510,7 @@ async function preparePromptForChatGPT(request) {
   if (text.length > 1024 * 1024) throw new Error('Prepared prompt exceeds 1 MiB limit')
   const key = sanitizeChatCacheKey(request?.cacheKey)
   const requestId = String(request?.requestId || '').trim()
-  const expectedFilename = canonicalBundleFilename(requestId)
+  const expectedFilename = canonicalBundleFilename(key, requestId)
   const autoSubmit = request?.autoSubmit === true
   if (autoSubmit) await requireAutoSession(request?.sessionId)
   // Preserve this already-authorized delivery only in Desktop memory so a
@@ -1663,7 +1664,7 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   if (text.length > 1024 * 1024) throw new Error('Repair prompt exceeds 1 MiB limit')
 
   const key = sanitizeChatCacheKey(cacheKey)
-  const expectedFilename = canonicalBundleFilename(requestId)
+  const expectedFilename = canonicalBundleFilename(key, requestId)
   const target = await targetChatGPTComposer(key, expectedURL)
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(text), true)
@@ -1689,7 +1690,7 @@ async function queueChatGPTComment(request) {
   const comment = String(request?.text || '').trim()
   if (!comment) throw new Error('Task comment is empty')
   if (comment.length > 16_000) throw new Error('Task comment exceeds 16 KiB limit')
-  const expectedFilename = canonicalBundleFilename(requestId)
+  const expectedFilename = canonicalBundleFilename(key, requestId)
   const text = `USER COMMENT FOR THE ACTIVE WHARNESS TASK:
 ${comment}
 
@@ -2383,7 +2384,7 @@ function registerIPC() {
       expected.recovery = createChatGPTRecoveryState(Date.now())
     }
     void pollExpectedChatGPTDownloadKey(key)
-    return { ok: true, cacheKey: key, requestId, expectedFilename: canonicalBundleFilename(requestId) }
+    return { ok: true, cacheKey: key, requestId, expectedFilename: canonicalBundleFilename(key, requestId) }
   })
   ipcMain.handle('wharness:chatgpt:continue-expected-bundle', async (event, request) => {
     const windowState = trustedSender(event)
@@ -2417,7 +2418,8 @@ function registerIPC() {
   ipcMain.handle('wharness:chatgpt:pick-bundle', async (event, request) => {
     const windowState = trustedSender(event)
     const requestId = String(request?.requestId || '').trim()
-    const expectedFilename = canonicalBundleFilename(requestId)
+    const chatId = request?.cacheKey ? sanitizeChatCacheKey(request.cacheKey) : ''
+    const expectedFilename = canonicalBundleFilename(chatId || 'chat', requestId)
     const result = await dialog.showOpenDialog(windowState.window, {
       title: `Selecionar ${expectedFilename}`,
       defaultPath: app.getPath('downloads'),

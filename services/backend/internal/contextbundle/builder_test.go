@@ -2,6 +2,7 @@ package contextbundle
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"kernl.local/harness/backend/internal/domain"
 )
 
 func TestBuildExcludesSecrets(t *testing.T) {
@@ -95,6 +98,80 @@ context:
 	}
 	if len(zr.File) != 2 || !names["EXPORTS.md"] || !names["src/main.go"] {
 		t.Fatalf("unexpected configured context files: %#v", names)
+	}
+}
+
+func TestArchiveFilesAreExcludedEvenWithPermissiveConfig(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
+	mustWrite(t, filepath.Join(root, "patches", "wharness-bundle-req_20260904T072258_5f91019618e713ac.zip"), "not a real zip, content is irrelevant")
+	mustWrite(t, filepath.Join(root, "whaness.yml"), `version: 1
+project:
+  name: "permissive"
+context:
+  auto_exclude: false
+  max_file_bytes: 2097152
+  include:
+    - "*"
+    - "patches/**"
+`)
+	bundle, err := NewBuilder(1024*1024, 1024*1024).Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(bundle.ZipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	for _, file := range zr.File {
+		if strings.HasSuffix(strings.ToLower(file.Name), ".zip") {
+			t.Fatalf("archive entry %q reached the context bundle despite auto_exclude=false and a matching include pattern", file.Name)
+		}
+	}
+}
+
+func TestExtractedBundleDirectoriesAreExcludedEvenWithPermissiveConfig(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
+	mustWrite(t, filepath.Join(root, "patches", "wharness-bundle-req_20260904T072258_5f91019618e713ac(1)", "plan.json"), "{}")
+	mustWrite(t, filepath.Join(root, "kernl-context-ses_20260902T193605_0584cbf8ce231c03", "notes.txt"), "leftover snapshot")
+	mustWrite(t, filepath.Join(root, "whaness.yml"), `version: 1
+project:
+  name: "permissive"
+context:
+  auto_exclude: false
+  max_file_bytes: 2097152
+  include:
+    - "*"
+    - "patches/**"
+`)
+	bundle, err := NewBuilder(1024*1024, 1024*1024).Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(bundle.ZipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	for _, file := range zr.File {
+		if strings.Contains(file.Name, "wharness-bundle-") || strings.Contains(file.Name, "kernl-context-") {
+			t.Fatalf("expanded prior-bundle content %q reached the new context bundle despite auto_exclude=false and a matching include pattern", file.Name)
+		}
+	}
+}
+
+func TestAddContextFileRefusesArchiveEntries(t *testing.T) {
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	var textBuf bytes.Buffer
+	textWriter := bufio.NewWriter(&textBuf)
+	manifest := &domain.ContextManifest{}
+	var bundleBytes, contextBytes int64
+	err := addContextFile(zw, textWriter, manifest, io.Discard, "patches/whx_bundle_res_abc_req_1.zip", []byte("PK\x03\x04"), 0o644, 1024, &bundleBytes, &contextBytes)
+	if err == nil {
+		t.Fatal("expected addContextFile to refuse an archive entry, got nil error")
 	}
 }
 

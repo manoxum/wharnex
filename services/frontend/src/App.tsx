@@ -71,6 +71,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const activeChatIdRef = useRef(activeChatId)
   const baselineSeenRef = useRef(new Set<string>())
   const repairDispatchRef = useRef(new Set<string>())
+  const chatIdBackfillRef = useRef(new Set<string>())
   const resumedBundleKeysRef = useRef(new Set<string>())
   const submitBundleFileRef = useRef<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => '')
   const dismissedRestartKeysRef = useRef(new Set<string>())
@@ -240,6 +241,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [session, activeChatId, items])
 
   useEffect(() => {
+    // A session created before chat-id propagation existed (or one whose
+    // creation call failed to attach it) permanently generates
+    // "system"-scoped bundle filenames for every derived request, which can
+    // never match this chat's real id and deterministically fails bundle
+    // validation forever. Backfill it once the mismatch is noticed instead
+    // of leaving that session stuck in an unrecoverable repair loop.
+    if (!session || !activeChatId || session.chat_id === activeChatId) return
+    if (chatIdBackfillRef.current.has(session.id)) return
+    chatIdBackfillRef.current.add(session.id)
+    void api.setChatId(session.id, activeChatId).then((updated) => {
+      if (activeChatIdRef.current === activeChatId) setSession(updated)
+    }).catch(() => { chatIdBackfillRef.current.delete(session.id) })
+  }, [session, activeChatId])
+
+  useEffect(() => {
 	if (!session || !['repair_pending', 'conflict_resolution_pending', 'baseline_update_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
@@ -330,8 +346,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!session || busy) return
     setBusy(true); setError(undefined)
     try {
-      const created = await api.createSession(session.project_path, executionMode, automationMode)
-      const chat = newWorkspaceChat(created.id)
+      const chatId = crypto.randomUUID()
+      const created = await api.createSession(session.project_path, executionMode, automationMode, chatId)
+      const chat = newWorkspaceChat(created.id, 'Novo chat', chatId)
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
@@ -1103,6 +1120,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
       const submission = await api.executionBundle(targetSession.id, filename, contentBase64)
       const updated = submission.session
+      // A pending-approval pause (network access, high-risk command, an
+      // offline Go module cache that needs a restricted-network retry) is not
+      // a failure: the commandbar already shows the exact action to take.
+      // Keying off structured session state (never auto_error prose) is what
+      // tells this apart from a genuine automation failure below.
+      const pendingApproval = Boolean(submission.auto_error && ((updated.policy?.allowed && updated.policy?.requires_approval) || updated.failure_kind === 'offline_go_module_cache'))
       const plannerFailed = updated.last_turn?.outcome?.status === 'failed' || updated.last_turn?.outcome?.status === 'partial'
       const policyReason = (submission.policy_reasons || updated.policy?.reasons || []).join('; ')
       const workflowRound = submission.workflow_round || updated.workflow_round || 0
@@ -1118,13 +1141,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             ? `Passo local ${workflowRound}/6 executado na sandbox Protected. Nenhuma alteração deste passo foi aplicada ao host.`
             : submission.auto_applied
               ? (submission.restart_required ? 'Bundle validado. O plano foi verificado na sandbox, aplicado ao próprio Wharness e reconstruído no host. O reinício aguarda confirmação.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
-              : submission.auto_executed
-                ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
-                : 'Bundle ZIP importado e plano validado.'
+              : pendingApproval
+                ? (updated.failure_kind === 'offline_go_module_cache'
+                  ? 'Bundle validado. A execução automática pausou porque a verificação Go precisa do cache de módulos, que ainda não está hidratado offline. Use "Dependências bloqueadas" acima para permitir rede restrita e repetir.'
+                  : `Bundle validado. A execução automática pausou porque este plano precisa da sua aprovação explícita${policyReason ? ` (${policyReason})` : ''}. Use "Aprovação necessária" acima para continuar.`)
+                : submission.auto_executed
+                  ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
+                  : 'Bundle ZIP importado e plano validado.'
       const conversational = updated.last_turn && updated.last_turn.kind !== 'change' && updated.last_turn.kind !== 'workflow'
       const isPlanProposal = Boolean(conversational && targetChat.pendingPlan?.requestId === updated.last_turn?.request_id)
       const bundleItem: ChatItem = {
-        id: crypto.randomUUID(), role: 'harness', source: plannerFailed || submission.policy_blocked || submission.workflow_executed ? 'wharness' : 'chatgpt', presentation: plannerFailed ? 'notice' : (isPlanProposal ? 'plan' : (submission.policy_blocked || submission.workflow_executed ? 'notice' : 'message')), createdAt: new Date().toISOString(), text: plannerFailed ? `${updated.last_turn?.message || 'O ChatGPT não concluiu o pedido.'}\n\n${updated.last_turn?.outcome?.message || updated.last_repair_error || ''}\n\nPode corrigir o prompt, acrescentar contexto/anexos, ativar outro transporte ou repetir o pedido.` : (submission.policy_blocked ? autoText : (submission.workflow_executed ? `${autoText}${updated.last_turn?.message ? `\n\n${updated.last_turn.message}` : ''}` : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText)))),
+        id: crypto.randomUUID(), role: 'harness', source: plannerFailed || submission.policy_blocked || submission.workflow_executed || pendingApproval ? 'wharness' : 'chatgpt', presentation: plannerFailed ? 'notice' : (isPlanProposal ? 'plan' : (submission.policy_blocked || submission.workflow_executed || pendingApproval ? 'notice' : 'message')), createdAt: new Date().toISOString(), text: plannerFailed ? `${updated.last_turn?.message || 'O ChatGPT não concluiu o pedido.'}\n\n${updated.last_turn?.outcome?.message || updated.last_repair_error || ''}\n\nPode corrigir o prompt, acrescentar contexto/anexos, ativar outro transporte ou repetir o pedido.` : (submission.policy_blocked || pendingApproval ? autoText : (submission.workflow_executed ? `${autoText}${updated.last_turn?.message ? `\n\n${updated.last_turn.message}` : ''}` : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText)))),
         approval: isPlanProposal && targetChat.pendingPlan ? { status: 'pending', requestId: targetChat.pendingPlan.requestId, originalMessage: targetChat.pendingPlan.originalMessage } : undefined,
         meta: plannerFailed
           ? `Pedido não concluído · ${updated.last_turn?.outcome?.retryable ? 'pode ser repetido' : 'requer intervenção'}`
@@ -1136,7 +1163,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		  ? 'Conflito real · GPT dedicado'
           : submission.workflow_prepared || submission.workflow_executed
             ? `Workflow ${workflowRound}/6 · sandbox Protected`
-            : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? (submission.restart_required ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'AUTO · Host aplicado') : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
+            : pendingApproval
+              ? (updated.failure_kind === 'offline_go_module_cache' ? 'Aguarda aprovação · rede restrita' : 'Aguarda aprovação · Policy')
+              : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? (submission.restart_required ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'AUTO · Host aplicado') : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
         turnKind: updated.last_turn?.kind,
         iteration: updated.last_turn?.request_id ? iterationRef(updated.last_turn.request_id, plannerFailed ? 'failed' : 'result', plannerFailed || updated.last_execution?.success === false ? ['error', 'result'] : ['result'], targetChat.chatgptUrl) : undefined,
       }
@@ -1148,7 +1177,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const change = buildChangeSummary(appliedSummaryPlan(updated))
         if (change) appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'change', createdAt: change.appliedAt, text: 'Resumo das alterações aplicadas ao host.', change })
       }
-      if (submission.auto_error) reportChatError(`A execução automática do bundle falhou:\n\n${submission.auto_error}`, 'Execução do bundle falhou', targetChat, updated.project_path)
+      if (submission.auto_error && !pendingApproval) reportChatError(`A execução automática do bundle falhou:\n\n${submission.auto_error}`, 'Execução do bundle falhou', targetChat, updated.project_path)
       if (submission.auto_executed && updated.last_execution) updateWorkspaceChat(targetChat.id, updated.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: updated.last_execution.success === false } })
       if (submission.auto_applied) {
         markContextDirtyForOtherChats(updated.project_path, targetChat.id)
@@ -1288,12 +1317,31 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         text: decision === 'continue' ? `Execução recuperada após interrupção: ${intent.plan_id}.` : `Execução pendente descartada: ${intent.plan_id}.`,
       })
     } catch (resolveError) {
+      // A session the backend no longer has (e.g. cleared/reset data) can
+      // never be recovered or discarded through the normal API calls above —
+      // both keep failing identically. Silently retaining the card in that
+      // case left it permanently stuck with no way to dismiss it. Only a
+      // transient failure (backend unreachable, anything but 404) should
+      // retain the card for a later retry.
+      if (resolveError instanceof APIError && resolveError.status === 404) {
+        setInterruptedExecutions((current) => current.filter((candidate) => candidate.session.id !== target.session.id))
+        appendChatItem(target.chat, target.session.project_path, {
+          id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: `Esta execução pendente (${intent.plan_id}) já não existe no backend e foi removida da recuperação.`,
+        })
+        return
+      }
       setError(messageOf(resolveError))
       try {
         const refreshed = await api.getSession(target.session.id)
         setInterruptedExecutions((current) => current.map((candidate) => candidate.session.id === refreshed.id ? { ...candidate, session: refreshed } : candidate).filter((candidate) => Boolean(candidate.session.interrupted_execution)))
         if (activeChatIdRef.current === target.chat.id) setSession(refreshed)
-      } catch { /* retain the recovery choice until the backend is reachable */ }
+      } catch (refreshError) {
+        if (refreshError instanceof APIError && refreshError.status === 404) {
+          setInterruptedExecutions((current) => current.filter((candidate) => candidate.session.id !== target.session.id))
+        }
+        /* otherwise retain the recovery choice until the backend is reachable */
+      }
     } finally { setChatBusy(target.chat.id, false) }
   }
 
@@ -1407,9 +1455,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (force) repairDispatchRef.current.delete(dispatchKey)
     if (repairDispatchRef.current.has(dispatchKey)) return
     repairDispatchRef.current.add(dispatchKey)
+    const cause = truncateRepairCause(failedSession.last_repair_error || failedSession.last_execution?.error)
     appendChatItem(targetChat, failedSession.project_path, {
       id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-      text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.`,
+      text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
       iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'repair', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined,
     })
@@ -1722,8 +1771,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (targetChat) {
         targetSession = await api.getSession(targetChat.sessionId)
       } else {
-        targetSession = await api.createSession(session.project_path, executionMode, automationMode)
-        targetChat = { ...newWorkspaceChat(targetSession.id, 'Autoevolução · evidência operacional'), purpose: 'self-evolution' }
+        const chatId = crypto.randomUUID()
+        targetSession = await api.createSession(session.project_path, executionMode, automationMode, chatId)
+        targetChat = { ...newWorkspaceChat(targetSession.id, 'Autoevolução · evidência operacional', chatId), purpose: 'self-evolution' }
         persistChats(session.project_path, [targetChat, ...chats])
       }
       const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds)
@@ -1935,6 +1985,12 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
 
 function welcomeItem(session: Session): ChatItem {
   return { id: 'welcome', role: 'harness', source: 'wharness', presentation: 'notice', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharness. Mudanças permanecem Protected e, após Apply + build do host, o Wharness pede confirmação antes de reiniciar; o rollback continua disponível até a nova versão ficar saudável.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+}
+
+function truncateRepairCause(cause?: string, limit = 800) {
+  const text = (cause || '').trim()
+  if (!text) return ''
+  return text.length > limit ? `${text.slice(0, limit)}…` : text
 }
 
 function messageOf(error: unknown) {

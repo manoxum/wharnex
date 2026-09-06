@@ -173,7 +173,7 @@ test('Desktop direct transport collapses prompt, context and attachments into on
   const materializeStart = source.indexOf('async function materializeChatInput')
   const materializeEnd = source.indexOf('\n\nasync function materializeCommentAttachments', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
-  assert.match(materialize, /chatInputArchiveFilename\(requestId\)/)
+  assert.match(materialize, /chatInputArchiveFilename\(cacheKey, requestId\)/)
   assert.match(materialize, /writeChatInputArchive\(archivePath/)
   assert.doesNotMatch(materialize, /paths\.push/)
 

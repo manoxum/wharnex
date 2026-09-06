@@ -147,6 +147,19 @@ describe('AgentWorkspace', () => {
     expect(view.onRetryDependencyNetwork).toHaveBeenCalledTimes(1)
   })
 
+  it('shows an informative, non-actionable notice for a host toolchain mismatch instead of a retry button', () => {
+    // Unlike the offline Go module cache case, there is no Wharness-grantable
+    // recovery here (the host's own Node.js is too old for a pinned
+    // dependency's postinstall) — no button should render, only a notice.
+    const blocked = session()
+    blocked.state = 'failed'
+    blocked.failure_kind = 'host_build_toolchain_mismatch'
+    blocked.last_repair_error = 'self-evolution host build failed: Electron failed to install correctly.'
+    render(props(blocked).element)
+    expect(screen.getByRole('status', { name: 'Build do host bloqueado por incompatibilidade de toolchain' }).textContent).toContain('Node do host incompatível')
+    expect(screen.queryByRole('button', { name: 'Permitir rede restrita e repetir' })).toBeNull()
+  })
+
   it('keeps human ChatGPT intervention visible and opens the ChatGPT inspector on acknowledgement', async () => {
     const current = session()
     const onHumanAction = vi.fn()

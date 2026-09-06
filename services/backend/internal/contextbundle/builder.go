@@ -162,7 +162,19 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 	return manifest, nil
 }
 
+// archiveExtensions is the invariant backing mandatoryBlockedExtensions: even
+// if a future exclusion rule regresses, no archive entry ever reaches the
+// context ZIP. This is the last line of defense against zip-in-zip, checked
+// at the point of writing rather than only during the tree walk.
+var archiveExtensions = []string{".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar"}
+
 func addContextFile(zw *zip.Writer, textWriter *bufio.Writer, manifest *domain.ContextManifest, projectHash io.Writer, rel string, data []byte, mode fs.FileMode, maxContextBytes int64, bundleBytes, contextBytes *int64) error {
+	lowerRel := strings.ToLower(rel)
+	for _, ext := range archiveExtensions {
+		if strings.HasSuffix(lowerRel, ext) {
+			return fmt.Errorf("refusing to nest archive entry %q into the context bundle", rel)
+		}
+	}
 	h := sha256.Sum256(data)
 	sha := hex.EncodeToString(h[:])
 	contentType := "application/octet-stream"
@@ -249,8 +261,15 @@ func ShouldIgnore(rel string, isDir bool) bool {
 	rel = strings.TrimPrefix(filepath.ToSlash(rel), "./")
 	parts := strings.Split(strings.ToLower(rel), "/")
 	base := parts[len(parts)-1]
-	if isDir && stringIn(base, mandatoryBlockedDirs) {
-		return true
+	if isDir {
+		if stringIn(base, mandatoryBlockedDirs) {
+			return true
+		}
+		for _, prefix := range mandatoryBlockedDirPrefixes {
+			if strings.HasPrefix(base, prefix) {
+				return true
+			}
+		}
 	}
 	safeEnvTemplate := base == ".env.example" || base == ".env.sample" || base == ".env.template"
 	if stringIn(base, mandatoryBlockedNames) || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) {
@@ -269,11 +288,28 @@ var mandatoryBlockedDirs = []string{
 	"vendor", "secrets", ".ssh", ".aws", ".gnupg",
 }
 
+// mandatoryBlockedDirPrefixes catches directories a prior bundle round-trip
+// left behind (an extracted response, an exported request/context archive).
+// Re-admitting their expanded contents into a new context bundle is how the
+// system silently produced a bundle inside a bundle; this check runs before
+// any project config and cannot be reopened by auto_exclude=false or an
+// include pattern.
+var mandatoryBlockedDirPrefixes = []string{
+	"kernl-context-", "wharness-context-", "wharness-bundle-", "wharness-input-", "whx_bundle_",
+}
+
 var mandatoryBlockedNames = []string{
 	".env", "credentials.json", "id_rsa", "id_ed25519", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "auth.json",
 }
 
-var mandatoryBlockedExtensions = []string{".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".dump"}
+// mandatoryBlockedExtensions includes archive formats deliberately: the
+// context/request/response protocol promises at most one ZIP per exchange,
+// and a pre-existing archive anywhere in the project tree must never become
+// a nested entry of a new one, regardless of project configuration.
+var mandatoryBlockedExtensions = []string{
+	".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".dump",
+	".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar",
+}
 
 func stringIn(value string, values []string) bool {
 	for _, candidate := range values {

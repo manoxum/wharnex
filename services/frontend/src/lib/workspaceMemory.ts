@@ -150,9 +150,9 @@ export function saveArchivedWorkspaceChats(projectPath: string, chats: Workspace
   try { localStorage.setItem(ARCHIVED_CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
 }
 
-export function newWorkspaceChat(sessionId: string, title = 'Novo chat'): WorkspaceChat {
+export function newWorkspaceChat(sessionId: string, title = 'Novo chat', id = crypto.randomUUID()): WorkspaceChat {
   const now = new Date().toISOString()
-  return { id: crypto.randomUUID(), title, sessionId, createdAt: now, updatedAt: now }
+  return { id, title, sessionId, createdAt: now, updatedAt: now }
 }
 
 export function loadChat(projectPath: string, chatId: string): ChatItem[] {

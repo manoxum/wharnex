@@ -65,6 +65,15 @@ const (
 	// GOPROXY=off. It is recoverable via a human-approved, narrowly scoped
 	// network grant (see RetryDependencyNetwork).
 	FailureKindOfflineGoModuleCache = "offline_go_module_cache"
+
+	// FailureKindHostBuildToolchain marks a self-evolution host build that
+	// failed because the host's own toolchain (e.g. the Node.js runtime
+	// running `make build-stage`) cannot satisfy a pinned dependency's
+	// engine requirement (e.g. Electron requiring a newer Node than the
+	// host has installed). Unlike FailureKindOfflineGoModuleCache, there is
+	// no Wharness-grantable recovery: no source patch can change the host's
+	// installed runtime, so this must never consume a ChatGPT repair round.
+	FailureKindHostBuildToolchain = "host_build_toolchain_mismatch"
 )
 
 type ExecutionMode string
@@ -309,6 +318,7 @@ type ContextBundle struct {
 
 type Session struct {
 	ID                      string                       `json:"id"`
+	ChatID                  string                       `json:"chat_id,omitempty"`
 	ProjectPath             string                       `json:"project_path"`
 	ExecutionMode           ExecutionMode                `json:"execution_mode"`
 	AutomationMode          AutomationMode               `json:"automation_mode"`

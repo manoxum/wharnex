@@ -180,14 +180,15 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	message := buildWorkflowObservationMessage(execution, round)
 	s.bus.Publish(sessionID, "workflow.continuation_started", map[string]any{"request_id": requestID, "round": round, "plan_id": execution.PlanID})
 	planned, err := s.planner.Plan(ctx, planner.Request{
-		SessionID:          sessionID,
-		RequestID:          requestID,
-		Message:            message,
-		ContextTextPath:    refreshed.Context.TextPath,
-		ContextManifest:    refreshed.Context.Manifest,
-		PreviousResponseID: refreshed.LastProviderResponseID,
-		AutomationMode:     refreshed.AutomationMode,
-		SelfEvolution:      s.isSelfEvolution(refreshed),
+		SessionID:              sessionID,
+		RequestID:              requestID,
+		Message:                message,
+		ContextTextPath:        refreshed.Context.TextPath,
+		ContextManifest:        refreshed.Context.Manifest,
+		PreviousResponseID:     refreshed.LastProviderResponseID,
+		AutomationMode:         refreshed.AutomationMode,
+		SelfEvolution:          s.isSelfEvolution(refreshed),
+		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
 	})
 	if err != nil {
 		return fmt.Errorf("prepare workflow continuation: %w", err)

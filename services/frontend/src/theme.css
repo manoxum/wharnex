@@ -856,6 +856,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .restart-confirmation-dialog { border-color: var(--theme-border); background: #1b1f19; box-shadow: 0 28px 90px rgba(0,0,0,.5); }
 :root[data-theme='dark'] .restart-confirmation-dialog h2 { color: var(--theme-text); }
 :root[data-theme='dark'] .restart-confirmation-dialog p { color: var(--theme-text-soft); }
+:root[data-theme='dark'] .execution-recovery-item { border-color: var(--theme-border-soft); background: var(--theme-muted); }
+:root[data-theme='dark'] .execution-recovery-item span { color: var(--theme-text); }
+:root[data-theme='dark'] .execution-recovery-item small { color: var(--theme-text-muted); }
 
 /* Light mode also brightens deliberately technical overlays and auth chrome. */
 :root[data-theme='light'] .chatgpt-auth-mode-bar { border-color: var(--theme-border); background: #edf0e9; color: var(--theme-text-soft); }

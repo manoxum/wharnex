@@ -47,6 +47,11 @@ describe('complete colour themes', () => {
     expect(theme).toMatch(/\[data-theme='light'\] \.remote-instance-grid input,[\s\S]*?background: #fff;/)
   })
 
+  it('themes the interrupted-execution recovery cards for dark mode instead of leaving them light-only', () => {
+    expect(theme).toMatch(/\[data-theme='dark'\] \.execution-recovery-item \{[^}]*background: var\(--theme-muted\);/)
+    expect(theme).toContain("[data-theme='dark'] .execution-recovery-item span")
+  })
+
   it('keeps every dark settings control and active state monochrome', () => {
     expect(theme).toMatch(/\[data-theme='dark'\] \.context-settings-dialog \.primary-button \{[^}]*background: #ececec;/)
     expect(theme).toContain("[data-theme='dark'] .context-settings-dialog input[type='checkbox']")

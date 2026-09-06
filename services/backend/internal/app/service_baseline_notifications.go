@@ -78,8 +78,8 @@ func (s *Service) publishBaselineUpdate(ctx context.Context, source domain.Sessi
 		notice := domain.BaselineNotice{ID: ids.New("base"), SourceSessionID: source.ID, SourcePlanID: planID, PreviousSHA256: peerBaseline, NewSHA256: peerCurrentSHA, ChangedFiles: deltaFiles, OverlapFiles: overlap, Relevant: relevant, CompleteDelta: completeDelta, CreatedAt: time.Now().UTC()}
 		_, _ = s.store.Update(peer.ID, func(item *domain.Session) error {
 			item.BaselineNotices = append(item.BaselineNotices, notice)
-			if len(item.BaselineNotices) > 20 {
-				item.BaselineNotices = append([]domain.BaselineNotice(nil), item.BaselineNotices[len(item.BaselineNotices)-20:]...)
+			if len(item.BaselineNotices) > maxRetainedBaselineNotices {
+				item.BaselineNotices = append([]domain.BaselineNotice(nil), item.BaselineNotices[len(item.BaselineNotices)-maxRetainedBaselineNotices:]...)
 			}
 			return nil
 		})

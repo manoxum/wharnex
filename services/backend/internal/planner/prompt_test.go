@@ -12,7 +12,7 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: requestID, Message: "update UI"})
 
 	for _, want := range []string{
-		"wharness-bundle-" + requestID + ".zip",
+		"whx_bundle_res_system_" + requestID + ".zip",
 		"FILE-FIRST CONTRACT — ABSOLUTE",
 		"FIRST-PASS BUNDLE GATE",
 		"plan.json",

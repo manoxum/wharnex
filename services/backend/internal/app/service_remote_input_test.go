@@ -281,7 +281,7 @@ func TestPublishRemoteInputRequiresActiveRequestAndReturnsShortBootstrap(t *test
 		t.Fatalf("bootstrap does not identify the ZIP contract: %q", result.BootstrapPrompt)
 	}
 	objectName, entries, _ := remote.snapshot()
-	if !strings.HasPrefix(objectName, "wharness-input-"+prompted.LastRequestID+"-") || !entries["prompt/wharness-planner-prompt.md"] || !entries["context/main.txt"] {
+	if !strings.HasPrefix(objectName, "whx_bundle_req_system_"+prompted.LastRequestID+"-") || !entries["prompt/wharness-planner-prompt.md"] || !entries["context/main.txt"] {
 		t.Fatalf("unexpected remote archive: object=%q entries=%#v", objectName, entries)
 	}
 	if _, err := service.PublishRemoteInput(context.Background(), started.ID, RemoteInputRequest{RequestID: "req_wrong", Prompt: "prompt"}); err == nil {
@@ -313,7 +313,7 @@ func TestRemoteInputPublishesFreshRequestArchiveInsteadOfSharedContext(t *testin
 		t.Fatal(err)
 	}
 	objectName, entries, objects := remote.snapshot()
-	if len(objects) != 1 || !strings.HasPrefix(objectName, "wharness-input-"+prompted.LastRequestID+"-") || !entries["context/main.txt"] || !entries["prompt/wharness-planner-prompt.md"] {
+	if len(objects) != 1 || !strings.HasPrefix(objectName, "whx_bundle_req_system_"+prompted.LastRequestID+"-") || !entries["context/main.txt"] || !entries["prompt/wharness-planner-prompt.md"] {
 		t.Fatalf("request must publish a fresh archive with context and prompt: objects=%#v entries=%#v", objects, entries)
 	}
 	if !strings.Contains(first.BootstrapPrompt, "WHARNESS INPUT") || strings.Contains(first.BootstrapPrompt, prompted.LastManualPrompt) || !first.IncludedContext {
@@ -349,7 +349,7 @@ func TestRemoteInputLeaseIsReleasedOnlyAfterTerminalBundle(t *testing.T) {
 	if len(retained) != 1 || len(released) != 0 {
 		t.Fatalf("lease must remain active before bundle completion: retained=%#v released=%#v", retained, released)
 	}
-	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID)); err != nil {
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID)); err != nil {
 		t.Fatal(err)
 	}
 	remote.mu.Lock()
@@ -507,7 +507,7 @@ func TestRemoteInputChannelReusesMainRequestNamespaceAndRefreshesContext(t *test
 	if containsString(contextChanged.paths, stableResourcePath) {
 		t.Fatalf("context.changed recopied an unchanged content-addressed resource %q: %#v", stableResourcePath, contextChanged.paths)
 	}
-	childRequest := "req_child_1234"
+	childRequest := "req_20260906T200000_aaaaaaaaaaaaaaaa"
 	if _, err := store.Update(started.ID, func(item *domain.Session) error {
 		item.LastRequestID = childRequest
 		item.LastManualPrompt = "continue with refreshed context"
@@ -536,7 +536,7 @@ func TestRemoteInputChannelReusesMainRequestNamespaceAndRefreshesContext(t *test
 	if channels != 1 || root != initialRoot || !containsString(events, "context.changed") || !containsString(events, "prompt.changed") || !containsString(events, "comment.added") {
 		t.Fatalf("main channel was not reused: channels=%d root=%q events=%#v", channels, root, events)
 	}
-	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+childRequest+".zip", makeAnswerBundle(t, childRequest)); err != nil {
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+childRequest+".zip", makeAnswerBundle(t, childRequest)); err != nil {
 		t.Fatal(err)
 	}
 	remote.mu.Lock()
@@ -568,7 +568,7 @@ func TestProjectFileReferenceForcesRequestArchiveAndMustBeEligible(t *testing.T)
 		t.Fatal(err)
 	}
 	objectName, entries, objects := remote.snapshot()
-	if len(objects) != 1 || !strings.HasPrefix(objectName, "wharness-input-") || !entries["references/project-files.json"] {
+	if len(objects) != 1 || !strings.HasPrefix(objectName, "whx_bundle_req_system_") || !entries["references/project-files.json"] {
 		t.Fatalf("reference did not produce an enriched request archive: objects=%#v entries=%#v result=%#v", objects, entries, result)
 	}
 	if _, err := service.PublishRemoteInput(context.Background(), started.ID, RemoteInputRequest{RequestID: prompted.LastRequestID, Prompt: prompted.LastManualPrompt, ProjectFiles: []string{".git/config"}}); err == nil {

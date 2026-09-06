@@ -21,6 +21,7 @@ import (
 	"kernl.local/harness/backend/internal/policy"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/sandbox"
+	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
 )
 
@@ -1272,7 +1273,7 @@ func TestStaleBundleWithDisjointLocalChangeContinuesOnCurrentBaseline(t *testing
 		t.Fatal("fixture did not change the context baseline")
 	}
 
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+staleRequestID+".zip", makeExecutionBundleWithBaseline(t, staleRequestID, staleBaseline))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+staleRequestID+".zip", makeExecutionBundleWithBaseline(t, staleRequestID, staleBaseline))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1311,7 +1312,7 @@ func TestStaleBundleWithOverlappingLocalChangePreparesDedicatedConflictResolutio
 		t.Fatal(err)
 	}
 
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+staleRequestID+".zip", makeExecutionBundleWithBaseline(t, staleRequestID, staleBaseline))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+staleRequestID+".zip", makeExecutionBundleWithBaseline(t, staleRequestID, staleBaseline))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1348,7 +1349,7 @@ func TestStaleBundleWithoutRetainedArchiveNeverCreatesBaselineContinuation(t *te
 	if _, err := service.RefreshContext(started.ID); err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", makeExecutionBundleWithBaseline(t, requestID, baseline))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", makeExecutionBundleWithBaseline(t, requestID, baseline))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1477,7 +1478,7 @@ func TestCompatibleLateBundleRetiresPrematureBaselineContinuation(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+originalRequest+".zip", makeExecutionBundleWithBaseline(t, originalRequest, originalBaseline))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+originalRequest+".zip", makeExecutionBundleWithBaseline(t, originalRequest, originalBaseline))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1600,7 +1601,7 @@ func TestPlannerInfrastructureOutcomePreservesFailedPlan(t *testing.T) {
 	seedFailedPlanForRepair(t, service, started.ID, requestID)
 
 	bundle := makeFailedBundleWithReason(t, requestID, "offline_host_go_module_cache", true)
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", bundle)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1640,7 +1641,7 @@ func TestPlannerCodeDefectOutcomeStillClearsPlan(t *testing.T) {
 	seedFailedPlanForRepair(t, service, started.ID, requestID)
 
 	bundle := makeFailedBundleWithReason(t, requestID, "invalid_patch", true)
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", bundle)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1667,7 +1668,7 @@ func TestRetryDependencyNetworkRecoversFromPlannerReportedInfrastructureFailure(
 	seedFailedPlanForRepair(t, service, started.ID, requestID)
 
 	bundle := makeFailedBundleWithReason(t, requestID, "offline_host_go_module_cache", false)
-	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", bundle); err != nil {
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1721,6 +1722,56 @@ func TestFailExecutionClassifiesOfflineGoModuleCache(t *testing.T) {
 	}
 }
 
+func TestPrepareRepairRequestBlocksHostToolchainMismatchInsteadOfConsumingAnAttempt(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reproduces the real production case: a self-evolution host build (not
+	// a sandbox execution) failed because the host's Node.js is older than
+	// what the pinned Electron dependency's postinstall requires. No patch
+	// to project source can fix this, so it must never be dispatched to
+	// ChatGPT as a repair request.
+	cause := fmt.Errorf("self-evolution host build failed: %w", selfevolution.ErrHostBuildToolchainMismatch)
+	updated, err := service.prepareRepairRequest(context.Background(), started.ID, domain.ExecutionResult{PlanID: "p"}, cause)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State == "repair_pending" {
+		t.Fatal("a host toolchain mismatch must never be routed into the repair loop")
+	}
+	if updated.FailureKind != domain.FailureKindHostBuildToolchain {
+		t.Fatalf("failure_kind = %q, want %q", updated.FailureKind, domain.FailureKindHostBuildToolchain)
+	}
+	if updated.RepairAttempt != 0 {
+		t.Fatalf("repair attempt should not be consumed, got %d", updated.RepairAttempt)
+	}
+}
+
+func TestSetChatIDBackfillsALegacySessionMissingOne(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.ChatID != "" {
+		t.Fatalf("expected a freshly started session to have no chat id, got %q", started.ChatID)
+	}
+	updated, err := service.SetChatID(started.ID, "569f235d-6552-464d-ae2a-60ebeb0501f2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ChatID != "569f235d-6552-464d-ae2a-60ebeb0501f2" {
+		t.Fatalf("chat id was not backfilled, got %q", updated.ChatID)
+	}
+	if _, err := service.SetChatID(started.ID, "has_underscore"); err == nil {
+		t.Fatal("expected a chat id containing '_' to be rejected: it would make whx_bundle_* names ambiguous to parse")
+	}
+}
+
 func TestSessionFailureKindFallsBackToLegacyProse(t *testing.T) {
 	legacy := domain.Session{LastRepairError: "offline sandbox dependencies unavailable: github.com/jackc/pgpassfile"}
 	if got := sessionFailureKind(legacy); got != domain.FailureKindOfflineGoModuleCache {
@@ -1729,6 +1780,10 @@ func TestSessionFailureKindFallsBackToLegacyProse(t *testing.T) {
 	clean := domain.Session{LastRepairError: "some other failure"}
 	if got := sessionFailureKind(clean); got != "" {
 		t.Fatalf("unrelated prose was misclassified: %q", got)
+	}
+	legacyToolchain := domain.Session{LastRepairError: "self-evolution host build failed: exit status 2\nError: Electron failed to install correctly."}
+	if got := sessionFailureKind(legacyToolchain); got != domain.FailureKindHostBuildToolchain {
+		t.Fatalf("legacy toolchain-mismatch prose was not classified: %q", got)
 	}
 }
 
@@ -1776,7 +1831,7 @@ func TestAutoWorkflowBundleExecutesSandboxAndPreparesSameConversationContinuatio
 		t.Fatal(err)
 	}
 	firstRequest := prompted.LastRequestID
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+firstRequest+".zip", makeWorkflowBundle(t, firstRequest))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+firstRequest+".zip", makeWorkflowBundle(t, firstRequest))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1811,10 +1866,10 @@ func TestPlanFirstRejectsImplementationBundleUntilUserApproval(t *testing.T) {
 	if prompted.LastRequestMode != "plan_first" {
 		t.Fatalf("planning mode not persisted: %#v", prompted)
 	}
-	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makeExecutionBundle(t, prompted.LastRequestID)); err == nil || !strings.Contains(err.Error(), "plan-first") {
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makeExecutionBundle(t, prompted.LastRequestID)); err == nil || !strings.Contains(err.Error(), "plan-first") {
 		t.Fatalf("expected plan-first implementation rejection, got %v", err)
 	}
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1834,7 +1889,7 @@ func TestAutoAnswerBundleDoesNotExecuteOrApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1857,7 +1912,7 @@ func TestRetryableFailedPlannerOutcomePreparesOneFreshAutoRequestWithoutExecutio
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makeFailedBundle(t, prompted.LastRequestID))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makeFailedBundle(t, prompted.LastRequestID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1884,7 +1939,7 @@ func TestAutoBundleExecutesSandboxAndAppliesHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundle := makeExecutionBundle(t, prompted.LastRequestID)
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", bundle)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1994,7 +2049,7 @@ func TestAutoPolicyBlockedBundleExplainsAndPreparesRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makePolicyBlockedBundle(t, prompted.LastRequestID))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makePolicyBlockedBundle(t, prompted.LastRequestID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2032,7 +2087,7 @@ func TestRetryPolicyRepairPreparesPromptForPreviouslyBlockedManualBundle(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocked, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+prompted.LastRequestID+".zip", makePolicyBlockedBundle(t, prompted.LastRequestID))
+	blocked, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makePolicyBlockedBundle(t, prompted.LastRequestID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2145,7 +2200,7 @@ func TestWorkflowRoundLimitKeepsTerminalRequestPending(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "wharness-bundle-"+requestID+".zip", makeWorkflowBundle(t, requestID)); err == nil || !strings.Contains(err.Error(), "workflow round limit reached") {
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", makeWorkflowBundle(t, requestID)); err == nil || !strings.Contains(err.Error(), "workflow round limit reached") {
 		t.Fatalf("expected workflow round limit rejection, got %v", err)
 	}
 	current, err := service.store.Get(started.ID)

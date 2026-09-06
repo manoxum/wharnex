@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/audit"
+	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/changeset"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
@@ -58,6 +59,21 @@ type BundleSubmission struct {
 }
 
 const maxAutoRepairAttempts = 3
+
+// maxRetainedProjectRevisions bounds the self-observed baseline history a
+// session keeps (domain.Session.ProjectRevisions). canFastForwardBaseline
+// walks this history to reconcile a pending plan against external filesystem
+// changes it never saw applied through Wharness's own Host Apply pipeline —
+// a co-editing tool, a manual git operation, another IDE. A long-pending plan
+// under active concurrent development needs a window wide enough to still
+// find an unbroken chain back to the SHA it was verified against; 64 was
+// observed to be exhausted within a single active editing session.
+const maxRetainedProjectRevisions = 512
+
+// maxRetainedBaselineNotices bounds the peer-apply-notified baseline history
+// a session keeps (domain.Session.BaselineNotices) — the other of the two
+// sources canFastForwardBaseline walks. See maxRetainedProjectRevisions.
+const maxRetainedBaselineNotices = 200
 
 type Service struct {
 	store                   *session.Store
@@ -241,6 +257,31 @@ func (s *Service) GetSession(sessionID string) (domain.Session, error) {
 	return item, err
 }
 
+// chatIDPattern is deliberately stricter than the desktop's own cacheKey
+// pattern (which allows '_'): '_' is the field separator in the
+// whx_bundle_<req|res>_<chatid>_<request_id>[_<subrequest_id>].zip naming
+// scheme, so a chat id containing one would make the name ambiguous to
+// parse. Every real chat id is a crypto.randomUUID() (hex and hyphens only),
+// so this never rejects an actual chat in practice.
+var chatIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
+
+// SetChatID records the frontend's chat identifier against a session so
+// bundle filenames can be scoped to it. It is validated, not trusted: a
+// value containing '_' would make whx_bundle_* names ambiguous to parse.
+func (s *Service) SetChatID(sessionID, chatID string) (domain.Session, error) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return s.store.Get(sessionID)
+	}
+	if !chatIDPattern.MatchString(chatID) {
+		return domain.Session{}, fmt.Errorf("invalid chat_id %q", chatID)
+	}
+	return s.store.Update(sessionID, func(item *domain.Session) error {
+		item.ChatID = chatID
+		return nil
+	})
+}
+
 func (s *Service) DeleteSession(sessionID string) error {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -347,7 +388,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		return planner.Result{}, item, err
 	}
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA})
-	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode})
+	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)})
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -361,7 +402,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	if result.ManualPrompt != "" {
 		if latest, latestErr := s.store.Get(sessionID); latestErr == nil && latest.Context.Manifest.SHA256 != requestBaselineSHA {
 			requestBaselineSHA = latest.Context.Manifest.SHA256
-			result.ManualPrompt = planner.BuildManualPrompt(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode})
+			result.ManualPrompt = planner.BuildManualPrompt(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)})
 		}
 	}
 	enrichPlanConcurrency(result.Plan, requestBaselineSHA)
@@ -950,11 +991,11 @@ func normalizePlanCollections(plan *domain.ExecutionPlan) {
 
 func bundleFilenameRequestID(filename string) string {
 	base := filepath.Base(strings.TrimSpace(filename))
-	match := regexp.MustCompile(`^wharness-bundle-(req_[A-Za-z0-9_-]{8,180})\.zip$`).FindStringSubmatch(base)
-	if len(match) != 2 {
+	parsed, ok := bundlename.Parse(base)
+	if !ok || parsed.Kind != bundlename.KindResponse {
 		return ""
 	}
-	return match[1]
+	return bundlename.RequestIDFromFilename(base)
 }
 
 func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) (result domain.ExecutionResult, item domain.Session, err error) {
@@ -1520,10 +1561,43 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	return result, updated, cause
 }
 
+func (s *Service) TriggerApplyFailureRepair(ctx context.Context, sessionID string, cause error) (domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return item, err
+	}
+	if item.LastExecution != nil {
+		repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, *item.LastExecution, cause)
+		if repairErr == nil {
+			return repaired, nil
+		}
+		s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error()})
+	}
+	return item, nil
+}
+
 func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.Session, error) {
 	current, err := s.store.Get(sessionID)
 	if err != nil {
 		return current, err
+	}
+	// An infrastructure failure (host toolchain mismatch, offline Go module
+	// cache, ...) is never fixable by a source patch, so routing it into the
+	// ChatGPT repair loop only spends a bounded repair attempt on a request
+	// the model cannot satisfy. Classify first and short-circuit before any
+	// attempt-count bookkeeping: this must block the very first repair
+	// round, not just the ones after RepairAttempt is exhausted.
+	if kind := classifyExecutionFailure(cause); kind != "" {
+		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+			item.FailureKind = kind
+			item.LastRepairError = cause.Error()
+			return nil
+		})
+		if updateErr != nil {
+			return current, updateErr
+		}
+		s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "plan_id": result.PlanID})
+		return updated, nil
 	}
 	if current.RepairAttempt >= maxAutoRepairAttempts {
 		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": current.RepairAttempt, "plan_id": result.PlanID})
@@ -1540,14 +1614,15 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
 
 	planned, err := s.planner.Plan(ctx, planner.Request{
-		SessionID:          sessionID,
-		RequestID:          requestID,
-		Message:            repairMessage,
-		ContextTextPath:    refreshed.Context.TextPath,
-		ContextManifest:    refreshed.Context.Manifest,
-		PreviousResponseID: refreshed.LastProviderResponseID,
-		AutomationMode:     refreshed.AutomationMode,
-		SelfEvolution:      s.isSelfEvolution(refreshed),
+		SessionID:              sessionID,
+		RequestID:              requestID,
+		Message:                repairMessage,
+		ContextTextPath:        refreshed.Context.TextPath,
+		ContextManifest:        refreshed.Context.Manifest,
+		PreviousResponseID:     refreshed.LastProviderResponseID,
+		AutomationMode:         refreshed.AutomationMode,
+		SelfEvolution:          s.isSelfEvolution(refreshed),
+		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
 	})
 	if err != nil {
 		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
@@ -2508,8 +2583,8 @@ func (s *Service) refreshContext(sessionID string) (domain.Session, error) {
 				ParentSHA256: current.Context.Manifest.SHA256, SHA256: bundle.Manifest.SHA256,
 				ChangedFiles: changedFiles, Source: "observed", Complete: true, ObservedAt: time.Now().UTC(),
 			})
-			if len(current.ProjectRevisions) > 64 {
-				current.ProjectRevisions = append([]domain.ProjectRevision(nil), current.ProjectRevisions[len(current.ProjectRevisions)-64:]...)
+			if len(current.ProjectRevisions) > maxRetainedProjectRevisions {
+				current.ProjectRevisions = append([]domain.ProjectRevision(nil), current.ProjectRevisions[len(current.ProjectRevisions)-maxRetainedProjectRevisions:]...)
 			}
 		}
 		current.Context = bundle

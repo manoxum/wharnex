@@ -19,7 +19,45 @@ import (
 	"time"
 )
 
-var ErrBusy = errors.New("another Wharness self-evolution transaction is already active")
+var (
+	ErrBusy                    = errors.New("another Wharness self-evolution transaction is already active")
+	ErrSelfEvolutionInProgress = errors.New("a Wharness self-evolution restart is already in progress")
+	// ErrHostBuildToolchainMismatch marks a BuildHost failure that no source
+	// patch can fix: the host's installed toolchain (observed: Node.js) is
+	// older than a pinned dependency's engine requirement (observed:
+	// Electron requiring a newer Node than `make build-stage` found on the
+	// host). Callers must never route a cause matching this sentinel into
+	// the ChatGPT repair loop.
+	ErrHostBuildToolchainMismatch = errors.New("self-evolution host build failed due to a host toolchain mismatch, not a source defect")
+	runtimeInstanceID             = makeInstanceID()
+)
+
+// hostToolchainMismatchMarkers are literal substrings observed in real
+// `make build-stage` output when a pinned dependency's install/postinstall
+// step fails because the host's own runtime is too old to run it — not
+// because of anything in the patched source. Kept narrow and literal
+// (rather than a broad EBADENGINE match, which is only ever a warning and
+// fires on every build): a false positive here would silently swallow a
+// genuine, repairable source defect.
+var hostToolchainMismatchMarkers = []string{
+	"ERR_REQUIRE_ESM",
+	"Electron failed to install correctly",
+}
+
+func IsHostToolchainMismatch(output string) bool {
+	for _, marker := range hostToolchainMismatchMarkers {
+		if strings.Contains(output, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func makeInstanceID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 type Manager struct {
 	root string
@@ -403,6 +441,9 @@ func (m *Manager) BuildHost(ctx context.Context, tx Transaction) (string, error)
 	err = cmd.Run()
 	text := strings.TrimSpace(output.String())
 	if err != nil {
+		if IsHostToolchainMismatch(text) {
+			return text, fmt.Errorf("%w: self-evolution host build failed: %w", ErrHostBuildToolchainMismatch, err)
+		}
 		return text, fmt.Errorf("self-evolution host build failed: %w", err)
 	}
 	after, guardErr := buildGuardSnapshot(m.root)
@@ -600,7 +641,7 @@ func looksLikeWharness(root string) bool {
 func acquireActiveLock(path string) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err == nil {
-		_, _ = fmt.Fprintf(file, "pid=%d\ncreated=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+		_, _ = fmt.Fprintf(file, "pid=%d\nrun_id=%s\ncreated=%s\n", os.Getpid(), runtimeInstanceID, time.Now().UTC().Format(time.RFC3339Nano))
 		return file.Close()
 	}
 	if errors.Is(err, os.ErrExist) {
@@ -614,19 +655,30 @@ func activeLockOwnerAlive(path string) bool {
 	if err != nil {
 		return false
 	}
+	hasRunID := false
+	isAlive := false
 	for _, line := range strings.Split(string(data), "\n") {
 		key, value, ok := strings.Cut(line, "=")
-		if !ok || strings.TrimSpace(key) != "pid" {
+		if !ok {
 			continue
 		}
-		pid, parseErr := strconv.Atoi(strings.TrimSpace(value))
-		if parseErr != nil || pid <= 0 {
-			return false
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "run_id" {
+			hasRunID = true
+			if value != runtimeInstanceID {
+				return false
+			}
+			isAlive = true
+		} else if key == "pid" && !hasRunID {
+			pid, parseErr := strconv.Atoi(value)
+			if parseErr == nil && pid > 0 {
+				err := syscall.Kill(pid, 0)
+				isAlive = err == nil || errors.Is(err, syscall.EPERM)
+			}
 		}
-		err := syscall.Kill(pid, 0)
-		return err == nil || errors.Is(err, syscall.EPERM)
 	}
-	return false
+	return hasRunID || isAlive
 }
 
 func extendablePendingPhase(phase string) bool {
@@ -635,7 +687,7 @@ func extendablePendingPhase(phase string) bool {
 
 func persistentSelfEvolutionPhase(phase string) bool {
 	switch phase {
-	case "preparing", "prepared", "building", "restart_pending", "restart_failed", "restart_scheduled", "restarting", "rollback_runtime", "rollback_restored", "rollback_deps", "rollback_failed":
+	case "restart_pending", "restart_failed", "restart_scheduled", "restarting", "rollback_runtime", "rollback_restored", "rollback_deps", "rollback_failed":
 		return true
 	default:
 		return false

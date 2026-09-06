@@ -1,5 +1,6 @@
 import { open, rm } from 'node:fs/promises'
 import { inflateRawSync } from 'node:zlib'
+import { buildBundleName, safeChatId } from './bundlename.mjs'
 
 const UTF8_FLAG = 0x0800
 const STORE_METHOD = 0
@@ -175,10 +176,10 @@ async function writeStoredZip(targetPath, entries) {
   }
 }
 
-export function chatInputArchiveFilename(requestId) {
+export function chatInputArchiveFilename(chatId, requestId) {
   const id = String(requestId || '').trim()
   if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(id)) throw new Error('Invalid Wharness request id for input transport')
-  return `wharness-input-${id}.zip`
+  return buildBundleName('req', safeChatId(chatId), id)
 }
 
 export function localChatInputBootstrap(requestId, archiveName, expectedFilename) {

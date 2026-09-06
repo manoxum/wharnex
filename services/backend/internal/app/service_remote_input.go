@@ -98,8 +98,8 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
-	objectName := fmt.Sprintf("wharness-input-%s-%s.zip", request.RequestID, token)
-	temporary, err := os.CreateTemp("", "wharness-remote-input-*.zip")
+	objectName := strings.TrimSuffix(requestBundleFilename(item, request.RequestID), ".zip") + "-" + token + ".zip"
+	temporary, err := os.CreateTemp("", "whx-remote-input-*.zip")
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -115,7 +115,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 		return RemoteInputResult{}, err
 	}
 	if s.artifactStore != nil {
-		if _, err := s.PersistArtifact(ctx, sessionID, request.RequestID, "input", "bundle", "wharness-input-"+request.RequestID+".zip", "application/zip", rawArchive); err != nil {
+		if _, err := s.PersistArtifact(ctx, sessionID, request.RequestID, "input", "bundle", requestBundleFilename(item, request.RequestID), "application/zip", rawArchive); err != nil {
 			return RemoteInputResult{}, fmt.Errorf("persist remote input bundle: %w", err)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/sandbox"
+	"kernl.local/harness/backend/internal/selfevolution"
 )
 
 // goDependencyHydrationTimeoutSeconds bounds the single network-approved
@@ -34,6 +35,9 @@ var offlineGoModuleCacheReasonCodes = map[string]bool{
 func classifyExecutionFailure(cause error) string {
 	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
 		return domain.FailureKindOfflineGoModuleCache
+	}
+	if errors.Is(cause, selfevolution.ErrHostBuildToolchainMismatch) {
+		return domain.FailureKindHostBuildToolchain
 	}
 	return ""
 }
@@ -73,6 +77,12 @@ func sessionFailureKind(item domain.Session) string {
 	}
 	if item.LastExecution != nil && strings.Contains(item.LastExecution.Error, sentinel) {
 		return domain.FailureKindOfflineGoModuleCache
+	}
+	if selfevolution.IsHostToolchainMismatch(item.LastRepairError) {
+		return domain.FailureKindHostBuildToolchain
+	}
+	if item.LastExecution != nil && selfevolution.IsHostToolchainMismatch(item.LastExecution.Error) {
+		return domain.FailureKindHostBuildToolchain
 	}
 	return ""
 }

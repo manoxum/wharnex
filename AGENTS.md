@@ -164,4 +164,24 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - Every opened/created/cloned project MUST contain `whaness.yml`. When absent, Wharness creates a safe default before context capture.
 - `whaness.yml` context include/exclude settings affect AI context assembly only. They MUST NOT weaken secret/path/symlink protections or silently expand Agent/terminal privileges.
 - Automatic context pruning SHOULD remove dependencies, VCS/IDE metadata, caches, generated build/test output, temporary files, archives, binary/media assets, and generated Wharness context snapshots while retaining source/configuration files by default.
+
+## 11. Host-independence / containerized tooling invariant (v1.2.44)
+
+- Lifecycle, build, maintenance, and cleanup tasks (including `make build`,
+  `make clean`, and any in-app administrative/cleanup feature) MUST run their
+  actual work inside a container rather than depend on a tool being installed
+  on the operator's host, even when that tool happens to be present.
+- When a task genuinely needs a client/CLI that has no containerized
+  equivalent already in the stack, add it to a project-owned tools image
+  (or reuse an already-running service's own embedded binary, e.g. invoking
+  `mc` inside the `minio` container itself) rather than shelling out to a
+  host-installed binary. Creating a dedicated tools image is an acceptable
+  and preferred cost for this.
+- This exists to maximize portability across developer machines and CI: a
+  host-dependent script silently breaks on any machine missing that
+  particular tool version, while a containerized one behaves identically
+  everywhere Docker runs.
+- This does not apply to `docker`/`docker compose` themselves, or to
+  editing files directly on the host filesystem — only to auxiliary CLIs a
+  task would otherwise assume are present on `$PATH`.
 - Context inspection MUST derive final inclusion from the current manifest/ZIP snapshot, expose structured exclusion reasons and effective rules, and never claim a file is included merely because its parent directory is eligible.

@@ -194,6 +194,56 @@ func TestBuildHostRejectsDependencyMetadataMutation(t *testing.T) {
 	}
 }
 
+func TestBuildHostClassifiesHostToolchainMismatchAsUnrepairable(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	// Reproduces the real failure observed in production: a pinned Electron
+	// version whose postinstall requires a newer Node than the host has,
+	// surfacing as ERR_REQUIRE_ESM. No patch to project source can fix this,
+	// so BuildHost must mark it distinctly from an ordinary build failure.
+	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
+		"\t@printf 'Error [ERR_REQUIRE_ESM]: require() of ES Module not supported\\n' >&2\n"+
+		"\t@printf 'Error: Electron failed to install correctly.\\n' >&2\n"+
+		"\t@exit 2\n", 0o644)
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-toolchain-guard", "plan-toolchain-guard", []string{patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	_, err = manager.BuildHost(context.Background(), tx)
+	if err == nil {
+		t.Fatal("expected BuildHost to fail")
+	}
+	if !errors.Is(err, ErrHostBuildToolchainMismatch) {
+		t.Fatalf("expected ErrHostBuildToolchainMismatch, got %v", err)
+	}
+}
+
+func TestIsHostToolchainMismatchIsNarrow(t *testing.T) {
+	positive := []string{
+		"Error [ERR_REQUIRE_ESM]: require() of ES Module ... not supported",
+		"Error: Electron failed to install correctly. Please delete `node_modules/electron`",
+	}
+	for _, output := range positive {
+		if !IsHostToolchainMismatch(output) {
+			t.Fatalf("expected match for output: %s", output)
+		}
+	}
+	negative := []string{
+		"",
+		"npm warn EBADENGINE Unsupported engine { package: 'eslint-visitor-keys@5.0.1' }",
+		"FAIL services/frontend/src/App.test.ts\nExpected 2 but received 3",
+		"go build failed: undefined: foo",
+	}
+	for _, output := range negative {
+		if IsHostToolchainMismatch(output) {
+			t.Fatalf("expected no match for output: %s", output)
+		}
+	}
+}
+
 func TestTransactionRejectsHarnessRuntimePaths(t *testing.T) {
 	root := fakeRoot(t)
 	manager := New(root)

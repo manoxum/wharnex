@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
 )
@@ -133,7 +134,7 @@ func (s *Service) openRemoteInputChannel(ctx context.Context, store RemoteInputC
 	s.remoteChannels[item.ID] = state
 	s.remoteLeaseMu.Unlock()
 	go s.monitorRemoteInputChannel(monitorContext, item.ID, channelID)
-	return s.remoteChannelResult(request.RequestID, publications, state, total, filepath.Join(dir, "manifest.json")), nil
+	return s.remoteChannelResult(sessionChatID(item), request.RequestID, publications, state, total, filepath.Join(dir, "manifest.json")), nil
 }
 
 func (s *Service) updateRemoteInputChannel(ctx context.Context, store RemoteInputChannelStore, dir string, item domain.Session, request RemoteInputRequest, attachments, artifacts []decodedRemoteFile, current *remoteInputChannelState) (RemoteInputResult, error) {
@@ -158,7 +159,7 @@ func (s *Service) updateRemoteInputChannel(ctx context.Context, store RemoteInpu
 		active.fileMapEntries = next.fileMapEntries
 	}
 	s.remoteLeaseMu.Unlock()
-	return s.remoteChannelResult(request.RequestID, current.publications, &next, total, filepath.Join(dir, "manifest.json")), nil
+	return s.remoteChannelResult(sessionChatID(item), request.RequestID, current.publications, &next, total, filepath.Join(dir, "manifest.json")), nil
 }
 
 func updateRemoteChannelResources(ctx context.Context, store RemoteInputChannelStore, publications []RemoteInputPublication, dir string, item domain.Session, request RemoteInputRequest, attachments, artifacts []decodedRemoteFile, state *remoteInputChannelState, includeManifest bool, event string) (int64, error) {
@@ -239,6 +240,11 @@ func publicationIDs(publications []RemoteInputPublication) []string {
 }
 
 func buildRemoteChannelResources(dir string, item domain.Session, request RemoteInputRequest, attachments, artifacts []decodedRemoteFile, state *remoteInputChannelState, includeManifest bool) ([]RemoteInputChannelResource, int64, int64, error) {
+	channelSubID := ""
+	if request.RequestID != state.rootRequestID {
+		channelSubID = request.RequestID
+	}
+	expectedFilename := bundlename.Build(bundlename.KindResponse, sessionChatID(item), state.rootRequestID, channelSubID)
 	state.promptResource = "prompts/" + request.RequestID + ".md"
 	resourceURL := func(path string) string {
 		if state.baseURL == "" {
@@ -295,7 +301,7 @@ func buildRemoteChannelResources(dir string, item domain.Session, request Remote
 		return nil, 0, 0, err
 	}
 	if includeManifest {
-		manifest := map[string]any{"protocol": "wharness.remote-channel/v2", "root_request_id": state.rootRequestID, "state": resourceURL("state.json"), "prompt": resourceURL("prompt.md"), "file_map": resourceURL("file-map.json"), "diff_check": resourceURL("diff-check.json"), "hash": resourceURL("hash.txt"), "events": resourceURL("events"), "bundle_contract": resourceURL("bundle-contract.json"), "instructions": []string{"Use only the absolute endpoint URLs supplied in this bootstrap, manifest, state, diff check, and file map; do not construct sibling URLs.", "Read state.json, prompt.md, then file-map.json. The map is the complete allowlist of individual context, attachment, and artifact file URLs.", "Fetch only the individual files required to answer the request. Verify their SHA-256 values against the map when your runtime can do so.", "Retry transient connection, DNS, or 5xx retrieval failures with bounded backoff; this tunnel remains available for the Wharness session.", remoteFinalDiffCheckInstruction, "Return only the canonical wharness-bundle-<active_request_id>.zip."}}
+		manifest := map[string]any{"protocol": "wharness.remote-channel/v2", "root_request_id": state.rootRequestID, "state": resourceURL("state.json"), "prompt": resourceURL("prompt.md"), "file_map": resourceURL("file-map.json"), "diff_check": resourceURL("diff-check.json"), "hash": resourceURL("hash.txt"), "events": resourceURL("events"), "bundle_contract": resourceURL("bundle-contract.json"), "instructions": []string{"Use only the absolute endpoint URLs supplied in this bootstrap, manifest, state, diff check, and file map; do not construct sibling URLs.", "Read state.json, prompt.md, then file-map.json. The map is the complete allowlist of individual context, attachment, and artifact file URLs.", "Fetch only the individual files required to answer the request. Verify their SHA-256 values against the map when your runtime can do so.", "Retry transient connection, DNS, or 5xx retrieval failures with bounded backoff; this tunnel remains available for the Wharness session.", remoteFinalDiffCheckInstruction, "Return only the canonical " + expectedFilename + "."}}
 		manifestRaw, err := marshalRemoteChannelJSON(manifest)
 		if err != nil {
 			return nil, 0, 0, err
@@ -303,7 +309,7 @@ func buildRemoteChannelResources(dir string, item domain.Session, request Remote
 		if err := write("manifest.json", "application/json", manifestRaw); err != nil {
 			return nil, 0, 0, err
 		}
-		contract := map[string]any{"protocol": "wharness.execution-bundle/v1", "filename": "wharness-bundle-<active_request_id>.zip", "required_context_field": "base_context_sha256", "outcome_status_values": []string{"completed", "failed", "partial"}, "outcome_rule": "Use completed only when the request was actually completed; otherwise use failed or partial and explain the truthful result.", "events_optional": true, "final_diff_check": resourceURL("diff-check.json"), "patch_delivery": "patch_file", "patch_file_rule": "Raw UTF-8 unified diff only; never Markdown or fenced text. Each diff --git header is exactly: diff --git a/relative/path b/relative/path — exactly two unquoted paths, no backslash or extra text.", "patch_self_check": []string{"every patch_file resolves under patches/*.patch", "no patch file contains ```", "every diff --git header has exactly two paths", "fetch diff-check.json immediately before delivery", "git apply --check accepts every patch against the current context"}}
+		contract := map[string]any{"protocol": "wharness.execution-bundle/v1", "filename": expectedFilename, "required_context_field": "base_context_sha256", "outcome_status_values": []string{"completed", "failed", "partial"}, "outcome_rule": "Use completed only when the request was actually completed; otherwise use failed or partial and explain the truthful result.", "events_optional": true, "final_diff_check": resourceURL("diff-check.json"), "patch_delivery": "patch_file", "patch_file_rule": "Raw UTF-8 unified diff only; never Markdown or fenced text. Each diff --git header is exactly: diff --git a/relative/path b/relative/path — exactly two unquoted paths, no backslash or extra text.", "patch_self_check": []string{"every patch_file resolves under patches/*.patch", "no patch file contains ```", "every diff --git header has exactly two paths", "fetch diff-check.json immediately before delivery", "git apply --check accepts every patch against the current context"}}
 		contractRaw, err := marshalRemoteChannelJSON(contract)
 		if err != nil {
 			return nil, 0, 0, err
@@ -320,7 +326,7 @@ func buildRemoteChannelResources(dir string, item domain.Session, request Remote
 	return resources, total, largest, nil
 }
 
-func (s *Service) remoteChannelResult(requestID string, publications []RemoteInputPublication, state *remoteInputChannelState, size int64, manifestPath string) RemoteInputResult {
+func (s *Service) remoteChannelResult(chatID, requestID string, publications []RemoteInputPublication, state *remoteInputChannelState, size int64, manifestPath string) RemoteInputResult {
 	if len(publications) == 0 {
 		return RemoteInputResult{}
 	}
@@ -339,7 +345,12 @@ func (s *Service) remoteChannelResult(requestID string, publications []RemoteInp
 	for _, item := range publications {
 		tunnels = append(tunnels, RemoteInputTunnel{Provider: item.Provider, InstanceID: item.InstanceID, Manifest: item.URL, Status: tunnelStatusURL(item.URL)})
 	}
-	bootstrap := fmt.Sprintf("WHARNESS LIVE INPUT %s\nUse these exact pre-authorized absolute URLs; do not construct sibling URLs. Do not download ZIP context or attachment archives: this channel uses a file map with one authorized route per file.\nPRIMARY STATUS: %s\nPRIMARY MANIFEST: %s\nPRIMARY STATE: %s/state.json\nPRIMARY PROMPT: %s/prompt.md\nPRIMARY FILE MAP: %s/file-map.json\nPRIMARY HASH: %s/hash.txt\nPRIMARY DIFF CHECK: %s/diff-check.json\nPRIMARY BUNDLE CONTRACT: %s/bundle-contract.json\nOPTIONAL EVENTS: %s/events\nMANIFEST SHA-256: %s\nSSE/events are optional telemetry: never wait, block, fail, or report sse_transport_unsupported when streaming is unavailable. Ordinary HTTPS GET requests are sufficient. First fetch STATUS for each tunnel attempted. Try the tunnel endpoints below in listed priority order and use one only when protocol is wharness.tunnel-status/v1 and status is ok. On DNS, connection, timeout, invalid-status, or 5xx failure, continue with the next tunnel. After one succeeds, read its manifest, state, prompt and file map; fetch only needed individual files from the absolute URLs in that file map. Immediately before delivery, perform the DIFF CHECK using the freshest reachable tunnel; if that tunnel fails, try the next tunnel in priority order. Revalidate every actual patch against current touched files. The only valid outcome.status values are completed, failed, or partial. Return only wharness-bundle-%s.zip.\n%s", requestID, statusURL, url, base, base, base, base, base, base, base, digestText, requestID, remoteTunnelList(tunnels))
+	subID := ""
+	if requestID != state.rootRequestID {
+		subID = requestID
+	}
+	expectedFilename := bundlename.Build(bundlename.KindResponse, chatID, state.rootRequestID, subID)
+	bootstrap := fmt.Sprintf("WHARNESS LIVE INPUT %s\nUse these exact pre-authorized absolute URLs; do not construct sibling URLs. Do not download ZIP context or attachment archives: this channel uses a file map with one authorized route per file.\nPRIMARY STATUS: %s\nPRIMARY MANIFEST: %s\nPRIMARY STATE: %s/state.json\nPRIMARY PROMPT: %s/prompt.md\nPRIMARY FILE MAP: %s/file-map.json\nPRIMARY HASH: %s/hash.txt\nPRIMARY DIFF CHECK: %s/diff-check.json\nPRIMARY BUNDLE CONTRACT: %s/bundle-contract.json\nOPTIONAL EVENTS: %s/events\nMANIFEST SHA-256: %s\nSSE/events are optional telemetry: never wait, block, fail, or report sse_transport_unsupported when streaming is unavailable. Ordinary HTTPS GET requests are sufficient. First fetch STATUS for each tunnel attempted. Try the tunnel endpoints below in listed priority order and use one only when protocol is wharness.tunnel-status/v1 and status is ok. On DNS, connection, timeout, invalid-status, or 5xx failure, continue with the next tunnel. After one succeeds, read its manifest, state, prompt and file map; fetch only needed individual files from the absolute URLs in that file map. Immediately before delivery, perform the DIFF CHECK using the freshest reachable tunnel; if that tunnel fails, try the next tunnel in priority order. Revalidate every actual patch against current touched files. The only valid outcome.status values are completed, failed, or partial. Return only %s.\n%s", requestID, statusURL, url, base, base, base, base, base, base, base, digestText, expectedFilename, remoteTunnelList(tunnels))
 	return RemoteInputResult{Mode: "tunnel", Provider: publication.Provider, InstanceID: state.instanceID, BootstrapPrompt: bootstrap, FallbackPrompt: remoteFallbackPrompt(requestID, tunnels), Tunnels: tunnels, SHA256: digestText, Bytes: size, ExpiresAt: time.Now().UTC().Add(RemoteInputRetention), IncludedContext: true}
 }
 

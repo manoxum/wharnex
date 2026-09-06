@@ -3,6 +3,8 @@ package planner
 import (
 	"encoding/json"
 	"fmt"
+
+	"kernl.local/harness/backend/internal/bundlename"
 )
 
 const SystemProtocol = `You are the project copilot inside Wharness, a local AI harness. You are NOT primarily a coding agent: your first job is to understand the user's intent and produce the most useful project-aware outcome with the least unnecessary execution.
@@ -125,15 +127,23 @@ Return one harness.turn/v1 JSON object with: protocol, request_id, kind, message
 - plan is the complete harness.execution/v1 object for workflow or change.`
 
 func BuildManualPrompt(req Request) string {
+	expectedFilename := req.ExpectedBundleFilename
+	if expectedFilename == "" {
+		// Defensive fallback only: every manual/ZIP-transport caller sets
+		// ExpectedBundleFilename explicitly (service.go computes the real
+		// chat id and request lineage). "system" covers a request with no
+		// associated frontend chat, e.g. a backend-internal continuation.
+		expectedFilename = bundlename.Build(bundlename.KindResponse, "system", req.RequestID, "")
+	}
 	header := fmt.Sprintf(`WHARNESS OUTPUT MODE: FILE_ONLY
-EXPECTED_FILE: wharness-bundle-%s.zip
+EXPECTED_FILE: %s
 Do not answer this request with normal chat prose. Build the required ZIP, self-check it, attach exactly that file, and finish.
 
 FIRST-PASS BUNDLE GATE — REQUIRED BEFORE THE FIRST AND ONLY DELIVERY:
 Treat protocol correctness as part of the requested work, not as a later repair.
 Before attaching the initial bundle, programmatically re-open the ZIP and verify: canonical filename; root turn.json and README.md; exact request_id; plan.json only when its turn kind permits it; every patch_file exists; every patch is raw unified diff; every diff --git line has exactly two unquoted paths; and git apply --check succeeds for every change patch. Do not attach any bundle until this gate passes. If it cannot pass, create one valid terminal blocked bundle with no plan.json or patches, rather than an invalid change bundle.
 
-`, req.RequestID)
+`, expectedFilename)
 	planningMode := req.PlanningMode
 	if planningMode == "" {
 		planningMode = "direct"
@@ -182,7 +192,7 @@ Use the Wharness context if it is not already represented in this project conver
 For AUTOMATIC REPAIR or WORKFLOW CONTINUATION requests sent by Wharness into the same linked ChatGPT conversation, reuse the project context already attached or mapped when the snapshot is unchanged and do not wait for a duplicate archive.
 
 MANUAL DESKTOP DELIVERY — FILE-FIRST CONTRACT — ABSOLUTE:
-EXPECTED OUTPUT FILE: wharness-bundle-%s.zip
+EXPECTED OUTPUT FILE: %s
 
 You MUST use ChatGPT's file-generation capability to create exactly that ZIP file. The user must receive the file itself, not a prose substitute.
 
@@ -190,10 +200,10 @@ VISIBLE RESPONSE CONTRACT:
 - The final visible answer contains the downloadable ZIP attachment only.
 - Do NOT write “Pronto”, “preparei”, summaries, bullet lists, explanations, filenames, JSON, patches, or any other prose in the chat.
 - Do NOT call the attachment “Wharness.zip”, “bundle.zip”, “Baixar o bundle Wharness.zip”, a UUID/hash, a translated label, or any other name.
-- The generated file basename and downloadable filename metadata MUST both be exactly: wharness-bundle-%s.zip
+- The generated file basename and downloadable filename metadata MUST both be exactly: %s
 - Use ChatGPT's generated-file attachment/download mechanism. Do NOT replace the file with an icon-only Markdown link, a bare download emoji, or a prose link whose accessible label hides the canonical filename.
 - If a visible attachment/link label is rendered, include the exact canonical filename in that label as well as in the generated file basename.
-- If using Python/file tools to create the archive, write the final archive directly with basename wharness-bundle-%s.zip; do not create a differently named archive and merely describe it as canonical afterward.
+- If using Python/file tools to create the archive, write the final archive directly with basename %s; do not create a differently named archive and merely describe it as canonical afterward.
 - If file generation is unavailable, output exactly BUNDLE_GENERATION_UNAVAILABLE and nothing else.
 
 ZIP ROOT CONTRACT:
@@ -231,7 +241,7 @@ WORKFLOW PLAN CONTRACT:
 MANDATORY SELF-CHECK BEFORE ATTACHING:
 1. Build the ZIP programmatically, not by returning separate files.
 2. Re-open the generated ZIP.
-3. Verify its basename equals wharness-bundle-%s.zip.
+3. Verify its basename equals %s.
 4. Verify README.md exists and strip(README.md) is non-empty.
 5. Verify turn.json exists and request_id is %q.
 6. If kind=change or kind=workflow, verify plan.json exists and its request_id is %q.
@@ -241,7 +251,7 @@ MANDATORY SELF-CHECK BEFORE ATTACHING:
 10. Only after every check passes, attach that exact ZIP as the final answer.
 
 Canonical change bundle:
-wharness-bundle-%s.zip
+%s
 ├── turn.json
 ├── plan.json
 ├── README.md
@@ -250,10 +260,10 @@ wharness-bundle-%s.zip
     └── ...
 
 Canonical workflow bundle:
-wharness-bundle-%s.zip
+%s
 ├── turn.json
 ├── plan.json
 └── README.md
 
-Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.ContextManifest.SHA256, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
+Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, expectedFilename, expectedFilename, expectedFilename, req.RequestID, req.ContextManifest.SHA256, req.RequestID, expectedFilename, req.RequestID, req.RequestID, expectedFilename, expectedFilename)
 }

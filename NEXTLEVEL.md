@@ -294,3 +294,438 @@ por último a execução fora do sandbox — por ser a superfície de maior risc
   - Preservação do plano: [`services/backend/internal/app/service.go`](services/backend/internal/app/service.go)
   - Modal de pré-visualização de ficheiro: [`services/frontend/src/components/FilePreviewModal.tsx`](services/frontend/src/components/FilePreviewModal.tsx)
   - Tema: [`services/frontend/src/theme.css`](services/frontend/src/theme.css)
+
+---
+
+## 7. Continuação — segunda ronda de pedidos
+
+### Novas solicitações
+
+26. Continuar a implementação dos próximos pontos planificados (Fase B).
+27. Quando um bloqueio precisa de intervenção do utilizador (aprovação, permissão),
+    deve aparecer também no próprio chat — hoje só aparecia no banner do topo, e
+    quando aparecia no chat surgia estilizado como "erro", quando era apenas uma
+    permissão a conceder.
+28. Renomear toda a nomenclatura legado do projeto (Harness → Wharness) para o
+    nome definitivo: **Wharnex**.
+29. A mensagem "O Wharness criou automaticamente a requisição de correção 1/3…"
+    tem pouca informação — deve mostrar o que aconteceu e porque foi precisa a
+    correção. "O chat precisa de ser mais hidratado."
+30. Nova funcionalidade: **exportar chat** — gerar um ficheiro ZIP com tudo o que
+    aconteceu nesse chat: pedidos enviados, respostas recebidas, bundles
+    trocados, comandos executados, logs, estado de cada execução, casos de
+    sucesso e de falha. Deve permitir exportar tudo para análise externa.
+
+### Entregue nesta ronda
+
+| Item | O quê |
+|---|---|
+| Fase B.1 — invariante zip-in-zip | `mandatoryBlockedDirPrefixes` (novo) e extensões de arquivo movidas para as listas **mandatory** (não contornáveis por `auto_exclude`/`include`) em `contextbundle/builder.go`; assert defensivo em `addContextFile` que recusa qualquer entrada com extensão de arquivo; 4 testes novos provando o invariante mesmo com config permissiva |
+| Aprovação vs. erro no chat | `pendingApproval` computado a partir de estado estruturado da sessão (`policy.requires_approval`/`failure_kind`, nunca prosa); a pausa de aprovação passa a aparecer como notice do Wharness, com o texto e o botão certo a apontar, e deixa de duplicar como "Execução do bundle falhou" |
+| Notice de correção automática mais hidratado | Inclui agora `last_repair_error`/`last_execution.error` (truncado) na própria mensagem, explicando o que falhou |
+
+### Fase B.2/B.3 concluída (ChatID + renomeação `whx_bundle_*`)
+
+Novo esquema de ponta a ponta: `whx_bundle_<req|res>_<chat_id>_<request_id>[_<subrequest_id>].zip`.
+Corte limpo — formato antigo (`wharness-bundle-*`, `wharness-input-*`) removido do
+código e dos testes, não apenas do texto do prompt.
+
+- **Backend**: `Session.ChatID` (novo campo) + `Service.SetChatID` (validado,
+  sem `_`, já que é o separador do esquema); `internal/bundlename` como fonte
+  única de verdade (construir/parsear); `planner.Request.ExpectedBundleFilename`
+  computado a partir do `ChatID` da sessão e do `RequestLineage` (raiz vs.
+  subpedido) em todos os 5 sítios que constroem um `planner.Request` (mensagem
+  normal, correção automática, resolução de conflito, continuação de
+  workflow); `bundleFilenameRequestID` (validação de bundles recebidos) e o
+  transporte tunnel/remote-channel (`service_remote_channel.go`) atualizados
+  para o mesmo esquema. `internal/contextbundle` já bloqueava (Fase B.1) os
+  prefixos antigos e o novo `whx_bundle_` na lista mandatória de exclusão.
+- **Desktop (Electron)**: novo `bundlename.mjs` (espelha o pacote Go);
+  `security.mjs` reescrito — `canonicalWharnessBundleDownload` passa a validar
+  também o `chat_id`, mantendo a normalização de sufixos duplicados do browser
+  (`(1)`/`(2)`) com a semântica original (erro específico "pertence a outro
+  pedido" antes de cair no erro genérico); `chatInputArchiveFilename` e
+  `canonicalBundleFilename` (main.mjs) passam a exigir o `chatId`/`cacheKey`,
+  já disponível em todos os chamadores.
+- **Frontend**: `api.createSession` aceita `chat_id`; `newWorkspaceChat` aceita
+  um id pré-gerado; `newChat()` e `analyzeEvolutionEvidence` geram o
+  `crypto.randomUUID()` **antes** de criar a sessão e propagam o mesmo id para
+  o backend e para o `WorkspaceChat` local (para que sejam sempre o mesmo
+  identificador).
+- Testes: 3 novos no pacote Go `bundlename`, 6 novos no `bundlename.mjs`
+  (Node), mais todos os testes existentes (Go, Node, Vitest) corrigidos para o
+  novo formato. **176 testes Go, 127 testes Node, 181 testes Vitest — todos a
+  passar.**
+- **Por decisão explícita**: caminhos de recriação de sessão em caso de falha
+  (fallback ao restaurar um chat arquivado cujo `sessionId` já não existe,
+  fallback ao arquivar o último chat) continuam sem propagar `chat_id` — o
+  backend usa "system" como chatId nesses casos, seguro mas menos específico.
+  Não é uma regressão: são casos de recuperação, não o fluxo principal.
+- **Ainda não implantado** (`make build` não foi corrido depois desta ronda de
+  alterações) — precisa de rebuild antes de qualquer chat novo começar a usar
+  o novo formato.
+
+### Ainda por fazer / a confirmar
+
+| Item | Nota |
+|---|---|
+| Fase C (evolução do protocolo) | Por implementar |
+| **Renomeação Wharness → Wharnex** | **Precisa de âmbito confirmado antes de começar** — toca o módulo Go (`kernl.local/harness/...`, provavelmente centenas de ficheiros), nomes de volumes/imagens Docker já em produção nesta máquina (`wharness-minio-*`, `wharness-postgres-*`, `wharness-tunnel-*`), variáveis de ambiente (`WHARNESS_*`), o ficheiro `whaness.yml`/`.harnessignore`, e toda a UI. Um rename cego arrisca órfãos de volumes Docker existentes e quebrar o stack a correr |
+| Exportar chat para ZIP de análise | Nova funcionalidade, ainda por desenhar e implementar |
+| Editor: 3 modos, split genérico, terminal agêntico | Por fazer |
+| Cores de mensagem por remetente | Baixa prioridade, por fazer |
+
+---
+
+## 8. Destravamento de chats presos — diagnóstico e correção (prioridade máxima)
+
+### O pedido
+
+Três chats de auto-evolução não conseguiam terminar a aplicação ao host — o
+utilizador identificou-os por fragmentos de hash vistos no chat
+(`9e866daf06e4`, `db1db75165d8`, e um terceiro sem ID capturado) e pediu uma
+análise profunda de tudo o que aconteceu (bundles, pedidos, respostas, logs,
+comandos, eventos, retentativas) para encontrar a causa raiz e melhorar o
+protocolo, o motor de aplicação de patches, o report de erro, os recursos do
+sandbox e a estratégia de merge — para reduzir o "ping-pong" com o ChatGPT.
+
+### Investigação (dados reais, Postgres `harness_sessions`/`harness_events`)
+
+Os dois hashes fornecidos **não eram IDs de sessão** — eram fragmentos de
+SHA256 vistos no texto do erro (um baseline de contexto, um hash de ficheiro).
+Isso levou às sessões reais:
+
+- `ses_20260906T153603_f8883ed677e4a4a9` — `stale_pending_baseline_requires_rebase`
+- `ses_20260906T163618_1f1248d42792d0c3` — `host apply blocked by stale baseline: ... verified on 298d7324... but current baseline is db1db75165d8...`
+- `ses_20260906T161152_532feebc54a62a87` — `self_evolution_transaction_active` (terceira, provável candidata)
+
+Todas as três são sessões de **auto-evolução sobre o próprio repositório
+Wharness** — ou seja, o mesmo projeto que esta própria sessão de trabalho
+(Claude Code) esteve a editar em paralelo, durante horas.
+
+**Causa raiz confirmada por leitura de código** (`service_baseline_concurrency.go`,
+`service_baseline_notifications.go`, `service.go`):
+
+`canFastForwardBaseline` — a função que decide se um plano pendente pode ser
+aplicado apesar do baseline do projeto ter mudado entretanto — só conseguia
+reconciliar mudanças através de `Session.BaselineNotices`. Esse histórico
+**só é escrito quando OUTRA sessão Wharness aplica um plano através do
+próprio pipeline de Host Apply** do Wharness. Qualquer edição externa ao
+projeto — um `git` manual, outro editor, ou (exatamente o que aconteceu aqui)
+o Claude Code a editar o repositório diretamente durante esta sessão — nunca
+gera essa notificação. Resultado: a cadeia de reconciliação fica quebrada
+logo no primeiro passo, `canFastForwardBaseline` devolve sempre `false`,
+mesmo quando os ficheiros realmente alterados nunca colidiram com o plano —
+e o Host Apply é bloqueado como "stale baseline" indefinidamente, gerando
+pedidos de correção sucessivos ao ChatGPT que nunca resolvem o problema (cada
+correção nova fica igualmente stale antes de voltar).
+
+Fator agravante: `Session.ProjectRevisions` (o histórico que **é** sempre
+escrito, em cada `refreshContext`, independentemente de quem causou a
+mudança) já continha exatamente a informação em falta — mas
+`canFastForwardBaseline` nunca o consultava. Além disso, os limites de
+retenção (`BaselineNotices` a 20 entradas, `ProjectRevisions` a 64) eram
+demasiado pequenos face ao volume real observado: **5121 eventos
+`context.refreshed`** numa única sessão, **905** noutra.
+
+### Correção aplicada
+
+- `canFastForwardBaseline` (`service_baseline_concurrency.go`) passa a
+  tentar reconciliar por **duas fontes independentes**: `BaselineNotices`
+  (como antes) **e** `ProjectRevisions` (novo). Basta uma das duas conseguir
+  percorrer a cadeia completa sem sobreposição de ficheiros para autorizar o
+  fast-forward — nenhuma das fontes pode tornar um conflito real invisível,
+  porque cada uma só afirma ficheiros realmente observados como alterados.
+- Limites de retenção aumentados: `ProjectRevisions` 64→512
+  (`maxRetainedProjectRevisions`), `BaselineNotices` 20→200
+  (`maxRetainedBaselineNotices`), ambas em `service.go`.
+- 3 testes novos em `service_baseline_concurrency_test.go` provando: (a) a
+  reconciliação funciona só com `ProjectRevisions`, sem nenhuma
+  `BaselineNotice`; (b) uma sobreposição continua corretamente bloqueada
+  mesmo vindo só de `ProjectRevisions`; (c) quando uma fonte está incompleta
+  mas a outra tem a mesma transição completa, a reconciliação é resgatada.
+- Toda a suite do backend (`go test ./...`) passa.
+
+### Implantação
+
+✅ Feito — `make build` reconstruiu e reconciliou backend/frontend (Postgres,
+MinIO e tunnel preservados, sem interrupção), confirmado saudável via
+`make status`. Não foi preciso `make stop`/`make start`: o `make build`
+já recria e reinicia backend/frontend sozinho. As duas sessões já falhadas
+não se destravam sozinhas retroativamente (ficaram gravadas em `failed`
+com o erro antigo); reenviar/repetir o pedido nesses chats deve agora
+conseguir reconciliar corretamente, desde que os ficheiros do plano não
+colidam mesmo com o que mudou entretanto.
+
+### Achados secundários, ainda por resolver
+
+| Achado | Nota |
+|---|---|
+| Sessão 3 (`532feebc...`) | Não há lock `active.lock`/`stage.lock` presente agora — não está permanentemente presa por um lock órfão. A falha `self_evolution_transaction_active` foi provavelmente uma colisão real e transitória com outra transação a decorrer (`txn-20260906T163355-...`). Mas registou **2872 eventos `command.output`** — a UI pode estar a "travar" ao renderizar um volume tão grande de output, não por bloqueio de backend. Vale investigar a performance de render do painel de execução com históricos muito grandes |
+| Cadência de `context.refreshed` | 2s de ticker + 30s de full-refresh (`remoteChannelRefreshInterval`/`remoteChannelFullRefreshInterval`, `service_remote_channel.go`) é razoável isoladamente, mas combinado com um projeto ativamente editado em paralelo (este caso: auto-evolução sobre o próprio Wharness, editado ao mesmo tempo por este Claude Code) gera uma janela de baseline que um round-trip ao ChatGPT de vários minutos dificilmente alcança. A correção acima resolve a *reconciliação*; não reduz a *causa* da cadência alta quando o projeto é mesmo editado continuamente |
+| Report de erro no chat | Ainda não instrumentado para este caso específico: quando um Host Apply falha por stale baseline, a mensagem no chat deveria dizer explicitamente quais ficheiros mudaram e porque a reconciliação falhou, não só "stale baseline blocks apply" |
+
+---
+
+## 9. Descoberta importante — `AGENTS.md` já resolve a questão Wharnex
+
+Ao adicionar a nova norma de containerização (abaixo), reparei que
+`AGENTS.md:1,3` **já declara**:
+
+> `# AGENTS.md — Wharnex (WHX) normative root`
+> `Existing Wharness, wharness-*, WHARNESS_* and kernl.* identifiers are
+> retained where required for protocol, persisted-data and runtime
+> compatibility.`
+
+Ou seja: o documento autoritativo do projeto **já decidiu** que o nome é
+Wharnex, mas os identificadores técnicos antigos (`wharness-*`, `WHARNESS_*`,
+`kernl.*`) ficam **deliberadamente** como estão — não por receio de quebrar o
+stack, mas como política permanente de compatibilidade de protocolo/dados
+persistidos. O `CHANGELOG.md` também já tem `## Unreleased — Wharnex / WHX
+identity, concurrency and account lifecycle` como cabeçalho atual.
+
+Isto **contradiz** o âmbito "tudo, com migração de infraestrutura" que
+escolheu anteriormente para o rename (que assumia mudar módulo Go, volumes
+Docker, env vars). Segundo a própria regra de autoridade do `AGENTS.md`
+("quando a implementação conflita com uma Source of Truth, a implementação
+está errada, a menos que a SoT seja explicitamente alterada na mesma
+mudança") — para fazer o rename completo que escolheu, seria preciso primeiro
+**alterar esta linha do `AGENTS.md`** explicitamente, já que hoje ela proíbe
+exatamente isso. Precisa de decidir: manter a política atual (só o nome
+visível/novo código passa a Wharnex, técnico fica) ou alterar o `AGENTS.md`
+para autorizar a migração completa.
+
+## 10. Limpeza completa de dados (Postgres/MinIO/estado local)
+
+### O pedido
+Limpar todos os registos (Postgres, MinIO, chats, bundles, todos os
+artefatos criados), mantendo apenas o projeto e a sessão do navegador
+(login do ChatGPT).
+
+### Executado
+1. Levantamento prévio + confirmação exata do âmbito com o utilizador antes
+   de apagar (229 sessões/14274 eventos no Postgres, 272MB no MinIO, 2.4GB em
+   `.harness/`, ZIPs soltos não rastreados).
+2. Parados `backend`/`frontend` (containers), mantidos `database`/`minio`/
+   `tunnel` a correr para as operações de limpeza.
+3. Postgres: `TRUNCATE harness_sessions, harness_events,
+   legacy_session_migrations`.
+4. MinIO: bucket `wharness-artifacts` esvaziado usando o `mc` **embutido no
+   próprio container do MinIO** (`docker exec ... mc rm --recursive`), nunca
+   uma ferramenta do host — por pedido explícito do utilizador durante esta
+   limpeza, agora também formalizado como norma (ver secção 11).
+5. Electron: `Local Storage`/`Session Storage`/`chat-attachments-v1` da
+   janela principal apagados; `~/.config/wharness-desktop/Partitions/
+   wharness-chatgpt` (sessão do ChatGPT) **intocado** (verificado antes e
+   depois: 268MB inalterado).
+6. `.harness/` apagado por inteiro (transações de auto-evolução, estado de
+   remote-input, logs, cache).
+7. ZIPs/diretórios soltos não rastreados na raiz e em `patches/` apagados;
+   o único ZIP **commitado no git** (`patches/wharness-input-req_...zip`)
+   foi deixado como está, por decisão explícita.
+8. `make build && make start` para repor a stack.
+
+### Incidente causado e corrigido durante a limpeza
+Apagar `.harness/state/` por inteiro removeu também os ficheiros de
+**credenciais** (`postgres.env`, `stack.env`) que não são artefactos de
+sessão — são o segredo partilhado entre o backend e os volumes Docker **já
+existentes e preservados** (Postgres/MinIO/tunnel). O `stack.sh` gerou
+credenciais novas (aleatórias) para preencher o ficheiro em falta, mas os
+volumes existentes continuavam à espera das credenciais **antigas**,
+causando falha de autenticação no arranque do backend
+(`database is unavailable or rejected the credentials`).
+Corrigido lendo a password/token reais diretamente do ambiente dos
+containers já em execução (`docker exec ... printenv`) e reescrevendo
+`postgres.env`/`stack.env` com os valores corretos. **Nenhum dado foi
+perdido**, mas ficou confirmado: `.harness/state/*.env` guarda credenciais
+de infraestrutura, não histórico de sessões — uma limpeza seletiva futura
+(itens 12/13 abaixo) tem de os poupar sempre.
+
+Também foi descoberta uma migração legada (`legacy_session_migrations`) que
+reimportou 113 sessões antigas a partir de um `sessions.json` que ainda
+existia no momento da primeira truncagem; só ficou definitivo depois de
+`.harness/state/sessions.json` deixar de existir e de truncar outra vez
+(confirmado por reinício do backend sem repetir a migração).
+
+### Estado final (verificado)
+Postgres 0/0/0 linhas · MinIO 0 objetos · `.harness/` vazio (6.2MB só de
+estado novo pós-arranque) · sessão do ChatGPT intacta (268MB) · stack
+`healthy` em todos os serviços.
+
+### Efeito colateral transitório (resolvido)
+Logo a seguir à correção das credenciais, o utilizador criou um novo
+projeto e recebeu `Falha no planeamento: session not found` ao enviar uma
+mensagem, apesar do Postgres já estar vazio/estável e o backend a
+responder normalmente. Um novo `make build && make stop && make start`
+resolveu — o mais provável é a janela do Electron ter ficado com uma
+ligação/estado em cache do exato momento em que o backend ainda estava a
+ciclar pelas credenciais erradas antes da correção. Não recorrente depois
+do restart completo.
+
+### Nota — outro armazenamento de artefactos ainda não limpo
+`GET /api/config` mostra `remote_input.instances[].usage.stored_objects`
+com valores não-nulos (9/40/31) — este é um armazenamento **separado** do
+bucket MinIO `wharness-artifacts` que limpei (parece ser o armazenamento
+remoto usado pelos túneis trycloudflare/ngrok para inputs, possivelmente
+`HARNESS_REMOTE_STORAGE_*`/rclone). Não foi tocado nesta limpeza. Fica
+para a funcionalidade de limpeza seletiva (secção 12) incluir esta fonte
+também.
+
+## 11. Nova norma de projeto — sempre container, nunca dependência do host
+
+Adicionado `AGENTS.md` secção 11 ("Host-independence / containerized
+tooling invariant", v1.2.44) — **não** ao `CLAUDE.md`, que proíbe registar
+regras de projeto. Resumo: qualquer tarefa de lifecycle/build/manutenção/
+limpeza (incluindo `make build`, o futuro `make clean`, e qualquer
+funcionalidade de limpeza na app) deve correr o trabalho real dentro de um
+container, nunca depender de uma ferramenta instalada no host — mesmo que
+essa ferramenta esteja presente. Quando for preciso um CLI sem equivalente
+containerizado, a resposta é criar uma imagem de ferramentas dedicada ou
+reutilizar o binário já embutido num serviço a correr (como fiz com o `mc`
+do MinIO), nunca recorrer ao binário do host.
+
+## 12. Por fazer — funcionalidade de limpeza seletiva na app
+
+Pedido: uma nova funcionalidade de limpeza nas Definições, com âmbito
+selecionável:
+- **Global** (todos os projetos) vs **Projetos** (selecionar quais).
+- **Chats** — todos ou selecionados.
+- **Logs de execução** — todos ou selecionados.
+- Outros artefactos criados (bundles, contexto, etc.).
+- Por padrão deve **sempre tentar manter sessões, projetos e configurações**
+  — o resto (chat, bundles, logs) é para matar.
+
+Ainda por desenhar e implementar. Tem de:
+- Correr sempre via container (norma da secção 11) — nunca assumir `mc`,
+  `psql`, etc. no host da máquina onde o backend corre.
+- Poupar sempre as credenciais de infraestrutura (`.harness/state/*.env`) —
+  lição direta do incidente da secção 10.
+- Ter uma contraparte em CLI: `make clean` (limpeza total ou seletiva),
+  mesma regra de "sempre container".
+
+## 13. Novo dead-end descoberto e corrigido — incompatibilidade de toolchain do host no build de auto-evolução
+
+Terceiro caso do mesmo padrão da secção 2 (Go module cache) e distinto dele:
+o build real do Wharness no host (`make build-stage`, disparado por
+`selfevolution.BuildHost` durante `ApplyToHost`) falhava com
+`Error [ERR_REQUIRE_ESM]` / `Electron failed to install correctly` porque o
+Node do host (`v20.15.1`) é mais antigo do que o exigido pelo Electron fixado
+em `services/desktop/package.json` (`>=22.12`). Nenhum patch de código pode
+corrigir isto — é uma propriedade do host, não do projeto — mas o caminho de
+falha de `ApplyToHost` (tanto o automático em `runAutomaticPlan` como o
+manual via `TriggerApplyFailureRepair`) não tinha qualquer classificação para
+este caso e despachava sempre um pedido de reparação ao ChatGPT, gastando uma
+tentativa (`RepairAttempt`) num pedido que o modelo estruturalmente não pode
+satisfazer. Confirmado ao vivo na sessão `ses_20260906T205749_3cbb4c18308fcf61`.
+
+Corrigido:
+- `domain.FailureKindHostBuildToolchain` — nova classificação, paralela a
+  `FailureKindOfflineGoModuleCache`.
+- `selfevolution.ErrHostBuildToolchainMismatch` + `IsHostToolchainMismatch`
+  — reconhece os marcadores `ERR_REQUIRE_ESM` e
+  `Electron failed to install correctly` na saída capturada de
+  `BuildHost`, deliberadamente estreito (não usa `EBADENGINE`, que é apenas
+  aviso e aparece em builds bem-sucedidos).
+- `classifyExecutionFailure` estendido para reconhecer o novo sentinel.
+- Guarda central em `prepareRepairRequest` (único ponto, cobre os dois
+  chamadores — automático e manual): qualquer causa classificada como
+  infraestrutura publica `automation.infrastructure_blocked`, marca
+  `FailureKind` e **nunca** consome uma tentativa de reparação nem cria
+  pedido ao ChatGPT.
+- `sessionFailureKind` ganhou o mesmo fallback de prosa legado que o caso Go
+  já tinha, para que a sessão já presa nesse estado seja reclassificada
+  assim que este código for implantado.
+- Frontend: `AgentWorkspace.tsx` mostra um aviso informativo, não-acionável
+  ("Build do host bloqueado — Node do host incompatível — sem correção via
+  ChatGPT") em vez de expor um botão de retry que não existe para este caso
+  (ao contrário do caso Go, aqui não há ação que o Wharness possa conceder).
+
+Testado: `internal/selfevolution` (2 testes novos), `internal/app` (2 testes
+novos/estendidos), `AgentWorkspace.test.tsx` (1 teste novo) — suite completa
+Go e Vitest verde.
+
+**Por fazer, arquitetural** (não implementado ainda, alinhado com a norma da
+secção 11): `make build-stage` corre `npm ci`/`npm run build` para
+frontend/desktop diretamente com o Node do host (`scripts/build-cache.sh`,
+`scripts/deps-cache.sh`) — nada aqui está containerizado. A correção acima
+apenas classifica e para de desperdiçar pedidos ao ChatGPT quando isto
+acontece; a correção estrutural que elimina esta classe de erro por completo
+é mover esses passos para um container com Node fixado, tal como já é a
+norma para o resto do projeto. Ainda por desenhar.
+
+## 14. Segundo dead-end descoberto e corrigido — sessões antigas presas em nome de bundle "system"
+
+Analisando o mesmo chat em ping-pong (`5f300daff16c`), duas rondas de
+reparação seguidas falharam com `Falha de protocolo/comunicação: Bundle
+pertence ao chat system, mas o chat ativo é 569f235d-...`. Causa raiz: a
+sessão em causa (`ses_20260906T205749_3cbb4c18308fcf61`) foi criada **antes**
+da propagação de `chat_id` (secção B2 do plano original) ficar em produção,
+por isso `Session.ChatID` ficou vazio para sempre — nada no código voltava a
+preenchê-lo depois. Toda a nomeação de bundle de pedidos derivados (reparação)
+cai então no placeholder `"system"`, que nunca pode coincidir com o chat real
+do Desktop — um impasse permanente e determinístico para qualquer sessão
+criada antes dessa migração, gastando tentativas de reparação (e pedidos
+reais ao ChatGPT) sem nenhuma hipótese de sucesso.
+
+Corrigido:
+- Novo endpoint `PUT /api/sessions/{id}/chat-id` (handler `chatID` em
+  `server.go`, delega no `SetChatID` já existente, que já validava o
+  formato) — permite re-preencher o `chat_id` de uma sessão já existente.
+- Frontend: novo `useEffect` em `App.tsx` (par do de despacho de
+  reparação/conflito) que detecta `session.chat_id !== activeChatId` e
+  chama `api.setChatId` uma única vez por sessão (deduplicado por
+  `chatIdBackfillRef`), sem tocar em mais nenhum estado.
+- `types.ts` ganhou o campo `chat_id` que já vinha do backend mas nunca
+  tinha sido declarado no tipo `Session`.
+
+Testado: `internal/app` (1 teste novo), Vitest (1 teste estrutural novo);
+`go build`/`tsc --noEmit`/suites completas verdes.
+
+**Ainda por investigar/resolver** (mesmo chat, mesma transcrição): depois de
+corrigidos os dois problemas acima, a 3ª tentativa de reparação expôs um
+terceiro problema, mais profundo — `host apply failed: host apply blocked by
+stale baseline: plan plan_req_20260906T210037_agent_commandbar_layout was
+verified on adc93027bf2b... but current baseline is 5f300daff16c...`
+(`reason_code: stale_pending_baseline`). Ao contrário dos dois casos acima,
+este não é uma falha de classificação nem de nomenclatura: há uma fila de
+alterações Protected pendentes (`PendingHostChanges`) e a **primeira** da
+fila tem um baseline que já não pode ser avançado por
+`canFastForwardPlanBaseline`/`canFastForwardBaseline` (nem pela via de
+patch-only `requestSnapshotDelta`), o que bloqueia o Apply de toda a fila
+atrás dela. O próprio ChatGPT, na 3ª resposta, diagnosticou correctamente
+que o protocolo de reparação actual não tem **nenhuma operação** para
+retirar/rebasear esse candidato pendente obsoleto — só sabe propor planos
+novos. Isto é uma lacuna estrutural genuína (não uma correcção pequena) e
+fica registada aqui para decisão de prioridade, em vez de ser tentada às
+pressas por baixo de outro trabalho já aprovado (a fonte de conhecimento
+incremental, secção 15).
+
+**Decisão do utilizador**: não implementar nenhum dos dois agora (sessão com
+tokens quase esgotados) — ambos ficam registados aqui para retomar depois.
+
+## 15. Por fazer — fonte de aprendizado incremental por projecto (plano aprovado, não implementado)
+
+Pedido do utilizador: cada projecto acumula uma fonte de conhecimento
+persistente, escrita pelo próprio ChatGPT, com este ciclo de vida: nada muda
+durante o trabalho normal; só depois de um Apply bem-sucedido o WHX manda
+UMA ronda extra com o histórico completo do pedido (requests/responses,
+planos, comandos+exit codes, correcções, bloqueios, permissões) + o
+conhecimento actual, perguntando se há algo a reter (ChatGPT não é
+obrigado a responder); pode incrementar, corrigir, consolidar ou reescrever
+por completo; o resultado é enviado na primeira requisição de cada chat
+novo desse projecto.
+
+Plano completo já desenhado e **aprovado** pelo utilizador em modo de
+planeamento — ver
+`/home/zootakuxy/.claude/plans/elabore-o-plano-minuncioso-glittery-plum.md`
+para o desenho detalhado (armazenamento Postgres por projecto via extensão
+do `session.Store` existente; documento viaja como ficheiro opcional
+`knowledge.md` na raiz do bundle de resposta, nunca como campo JSON; só é
+lido pelo serviço dentro de um branch dedicado activado por
+`RequestLineage.Kind == "knowledge_review"`, nunca por uma resposta normal;
+estado da sessão nunca é tocado pela ronda de revisão — usa um campo novo
+`pending_knowledge_review_request_id` independente de `state`; 3 pontos de
+disparo, todos já marcados no código por
+`closeRemoteInputChannel(sessionID, "request.completed")`). **Nenhum código
+foi escrito ainda para esta funcionalidade** — só o plano existe. Retomar a
+partir desse ficheiro de plano quando houver disponibilidade.

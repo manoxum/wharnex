@@ -153,6 +153,13 @@ export type AgentTurn = {
 export type Session = {
   id: string
   project_path: string
+  /** The frontend chat id this session is scoped to, propagated at session
+   *  creation. Empty for a session created before chat-id propagation
+   *  existed — the frontend MUST backfill it (api.setChatId) once it
+   *  notices the mismatch, or every derived-request bundle filename falls
+   *  back to a "system" placeholder that can never match the real active
+   *  chat and permanently fails bundle validation for that session. */
+  chat_id?: string
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
   self_evolution?: boolean

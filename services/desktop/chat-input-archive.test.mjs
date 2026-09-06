@@ -29,7 +29,7 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
   const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-input-'))
   try {
     const requestId = 'req_20260905T083123_example123'
-    const filename = chatInputArchiveFilename(requestId)
+    const filename = chatInputArchiveFilename('chat-1', requestId)
     const target = path.join(root, filename)
     const result = await writeChatInputArchive(target, {
       requestId,
@@ -69,15 +69,15 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
 
 test('local bootstrap points the model at the prompt inside the single archive', () => {
   const requestId = 'req_20260905T083123_example123'
-  const archive = chatInputArchiveFilename(requestId)
-  const bootstrap = localChatInputBootstrap(requestId, archive, `wharness-bundle-${requestId}.zip`)
+  const archive = chatInputArchiveFilename('chat-1', requestId)
+  const bootstrap = localChatInputBootstrap(requestId, archive, `whx_bundle_res_chat-1_${requestId}.zip`)
   assert.match(bootstrap, new RegExp(archive.replaceAll('.', '\\.')))
   assert.match(bootstrap, /prompt\/wharness-planner-prompt\.md/)
-  assert.match(bootstrap, new RegExp(`wharness-bundle-${requestId}\\.zip`))
+  assert.match(bootstrap, new RegExp(`whx_bundle_res_chat-1_${requestId}\\.zip`))
   assert.doesNotMatch(bootstrap, /Return the bundle|USER REQUEST|PROJECT MANIFEST/)
   assert.equal(bootstrap.split('\n').length, 2)
 })
 
 test('input archive filename rejects non-canonical request ids', () => {
-  assert.throws(() => chatInputArchiveFilename('request-1'), /Invalid Wharness request id/)
+  assert.throws(() => chatInputArchiveFilename('chat-1', 'request-1'), /Invalid Wharness request id/)
 })

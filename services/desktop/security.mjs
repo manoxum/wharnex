@@ -1,3 +1,5 @@
+import { buildBundleName, parseBundleName, parseBundleNameWithDuplicateSuffix, requestIdFromBundleName, safeChatId } from './bundlename.mjs'
+
 export function sanitizeSessionId(value) {
   const id = String(value || '')
   if (!/^[a-zA-Z0-9_-]{3,160}$/.test(id)) throw new Error('Invalid Wharness session id')
@@ -132,48 +134,58 @@ export function chatGPTNavigationDisposition(value) {
 
 
 export function wharnessBundleRequestIdFromFilename(value) {
-  const name = String(value || '')
-  const match = /^wharness-bundle-(req_[A-Za-z0-9_-]{8,180})\.zip$/.exec(name)
-  return match ? match[1] : ''
+  return requestIdFromBundleName(value)
 }
 
-
-export function canonicalWharnessBundleDownload(value, expectedRequestId = '', mimeType = '') {
+// canonicalWharnessBundleDownload accepts either the exact canonical name, or
+// a browser-mangled duplicate-suffix variant "<canonical name minus .zip> (2).zip",
+// and normalizes the latter back to canonical form. expectedChatId/expectedRequestId
+// pin what this specific pending request is allowed to resolve to; a name
+// naming a different chat or request is a hard error, never silently accepted.
+export function canonicalWharnessBundleDownload(value, expectedRequestId = '', mimeType = '', expectedChatId = '') {
   const filename = String(value || '').trim()
-  const strictRequestId = wharnessBundleRequestIdFromFilename(filename)
-  if (strictRequestId) {
-    if (expectedRequestId && strictRequestId !== expectedRequestId) {
-      throw new Error(`Bundle pertence ao pedido ${strictRequestId}, mas o pedido ativo é ${expectedRequestId}.`)
+  const parsed = parseBundleName(filename)
+  if (parsed) {
+    if (parsed.kind !== 'res') return undefined
+    const effectiveRequestId = parsed.subrequestId || parsed.requestId
+    if (expectedRequestId && effectiveRequestId !== expectedRequestId) {
+      throw new Error(`Bundle pertence ao pedido ${effectiveRequestId}, mas o pedido ativo é ${expectedRequestId}.`)
     }
-    return { requestId: strictRequestId, filename, normalized: false }
+    if (expectedChatId && parsed.chatId !== expectedChatId) {
+      throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o chat ativo é ${expectedChatId}.`)
+    }
+    return { requestId: effectiveRequestId, filename, normalized: false }
   }
 
   const expected = String(expectedRequestId || '').trim()
   if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(expected)) return undefined
-  const duplicate = /^wharness-bundle-(req_[A-Za-z0-9_-]{8,180}) ?\([1-9][0-9]{0,3}\)\.zip$/.exec(filename)
+  const chatId = safeChatId(expectedChatId)
+  const canonical = buildBundleName('res', chatId, expected)
+  const duplicate = parseBundleNameWithDuplicateSuffix(filename)
   if (duplicate) {
-    const duplicateRequestId = duplicate[1]
+    if (duplicate.kind !== 'res') {
+      throw new Error('Nome do bundle Wharness contém um request_id ou chat_id inválido e não pode ser normalizado.')
+    }
+    const duplicateRequestId = duplicate.subrequestId || duplicate.requestId
     if (duplicateRequestId !== expected) {
       throw new Error(`Bundle pertence ao pedido ${duplicateRequestId}, mas o pedido ativo é ${expected}.`)
     }
-    return {
-      requestId: expected,
-      filename: `wharness-bundle-${expected}.zip`,
-      normalized: true,
-      sourceFilename: filename,
+    if (expectedChatId && duplicate.chatId !== safeChatId(expectedChatId)) {
+      throw new Error(`Bundle pertence ao chat ${duplicate.chatId}, mas o chat ativo é ${chatId}.`)
     }
+    return { requestId: expected, filename: canonical, normalized: true, sourceFilename: filename }
   }
-  if (/^wharness-bundle-/i.test(filename)) {
-    throw new Error('Nome do bundle Wharness contém um request_id inválido e não pode ser normalizado.')
+  if (/^whx_bundle_(req|res)_/i.test(filename) || /^wharness-bundle-/i.test(filename)) {
+    throw new Error('Nome do bundle Wharness contém um request_id ou chat_id inválido e não pode ser normalizado.')
   }
   const mime = String(mimeType || '').toLowerCase()
   const zipLike = /\.zip$/i.test(filename) || mime === 'application/zip' || mime === 'application/x-zip-compressed'
   if (!zipLike) return undefined
-  return { requestId: expected, filename: `wharness-bundle-${expected}.zip`, normalized: true, sourceFilename: filename }
+  return { requestId: expected, filename: canonical, normalized: true, sourceFilename: filename }
 }
 
 export function validateWharnessBundleDownload(filename, bytes) {
-  const requestId = wharnessBundleRequestIdFromFilename(filename)
+  const requestId = requestIdFromBundleName(filename)
   if (!requestId) throw new Error('Nome de ficheiro de bundle inválido.')
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || [])
   if (data.byteLength < 4 || data[0] !== 0x50 || data[1] !== 0x4b) throw new Error('O bundle Wharness não é um ficheiro ZIP válido.')

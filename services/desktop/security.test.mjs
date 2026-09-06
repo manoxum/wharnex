@@ -138,7 +138,7 @@ test('automatic ChatGPT submission waits longer for larger attachment sets and r
 
 
 test('Wharness execution bundle filenames are strict and ZIP bytes are checked', () => {
-  const name = 'wharness-bundle-req_20260903T005500_abcdef1234567890.zip'
+  const name = 'whx_bundle_res_chat_req_20260903T005500_abcdef1234567890.zip'
   assert.equal(wharnessBundleRequestIdFromFilename(name), 'req_20260903T005500_abcdef1234567890')
   assert.equal(validateWharnessBundleDownload(name, Uint8Array.from([0x50, 0x4b, 0x03, 0x04])).requestId, 'req_20260903T005500_abcdef1234567890')
   assert.throws(() => validateWharnessBundleDownload(name, Uint8Array.from([1, 2, 3, 4])))
@@ -150,30 +150,30 @@ test('generic ChatGPT ZIP names normalize only against the active expected reque
   const requestId = 'req_20260903T112307_7f79e5fe040d3e2d'
   assert.deepEqual(canonicalWharnessBundleDownload('Baixar o bundle Wharness.zip', requestId, 'application/zip'), {
     requestId,
-    filename: `wharness-bundle-${requestId}.zip`,
+    filename: `whx_bundle_res_chat_${requestId}.zip`,
     normalized: true,
     sourceFilename: 'Baixar o bundle Wharness.zip',
   })
   assert.equal(canonicalWharnessBundleDownload('notes.pdf', requestId, 'application/pdf'), undefined)
-  assert.throws(() => canonicalWharnessBundleDownload('wharness-bundle-req_20260903T112307_otherrequest.zip', requestId, 'application/zip'), /pedido ativo/)
+  assert.throws(() => canonicalWharnessBundleDownload('whx_bundle_res_chat_req_20260903T112307_a1a1a1a1a1a1a1a1.zip', requestId, 'application/zip'), /pedido ativo/)
   assert.throws(() => canonicalWharnessBundleDownload('wharness-bundle-wrong.zip', requestId, 'application/zip'), /não pode ser normalizado/)
 })
 
 test('Chromium duplicate suffix normalizes only when the embedded bundle request is active', () => {
   const requestId = 'req_20260905T225921_c0e570d71b7c6819'
   for (const sourceFilename of [
-    `wharness-bundle-${requestId}(1).zip`,
-    `wharness-bundle-${requestId} (2).zip`,
+    `whx_bundle_res_chat_${requestId}(1).zip`,
+    `whx_bundle_res_chat_${requestId} (2).zip`,
   ]) {
     assert.deepEqual(canonicalWharnessBundleDownload(sourceFilename, requestId, 'application/zip'), {
       requestId,
-      filename: `wharness-bundle-${requestId}.zip`,
+      filename: `whx_bundle_res_chat_${requestId}.zip`,
       normalized: true,
       sourceFilename,
     })
   }
   assert.throws(
-    () => canonicalWharnessBundleDownload('wharness-bundle-req_20260905T225921_otherrequest(1).zip', requestId, 'application/zip'),
+    () => canonicalWharnessBundleDownload('whx_bundle_res_chat_req_20260905T225921_b2b2b2b2b2b2b2b2(1).zip', requestId, 'application/zip'),
     /pedido ativo/,
   )
 })
