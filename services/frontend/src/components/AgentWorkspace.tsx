@@ -15,7 +15,7 @@ type Drawer = 'archive' | 'project' | 'fifo' | 'evolution' | ProjectActivityKind
 
 export type ExecutionFIFOItem = { key: string; chatId: string; chatTitle: string; planId: string; status: 'submitting' | 'queued' | 'running'; position?: number; addedAt: number }
 
-export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHumanAction, chatgptAttentionNonce = 0, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution }: {
+export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHumanAction, chatgptAttentionNonce = 0, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat }: {
   session: Session
   busy: boolean
   executionFIFO?: ExecutionFIFOItem[]
@@ -27,6 +27,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
   onOpenFile: (path: string) => void
   onError: (message: string) => void
   onAnalyzeEvolution?: (ids: string[]) => Promise<void>
+  onExportChat?: () => Promise<void>
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [drawer, setDrawer] = useState<Drawer>('')
@@ -112,6 +113,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
     </nav>
 
     <aside className="agent-activity-bar" aria-label="Ferramentas do Agent">
+      <button type="button" disabled={busy || !onExportChat} onClick={() => void onExportChat?.()} aria-label="Exportar chat" title="Exportar chat completo em ZIP"><Icon name="download" size={18}/></button>
       <button type="button" className={drawer === 'archive' ? 'active' : ''} onClick={() => toggleDrawer('archive')} aria-label="Chats arquivados" title="Chats arquivados"><Icon name="folder" size={18}/>{archived.length > 0 && <b>{archived.length}</b>}</button>
       <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggleDrawer('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
       <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggleDrawer('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>

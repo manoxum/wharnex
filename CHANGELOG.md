@@ -1,5 +1,6 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 
+- Add a fail-closed **Exportar chat** audit ZIP for the active Harness chat. The archive groups exact persisted main/correction request and response bundles, backend/frontend event history, execution command logs and exit/success/error fields, Policy/approval/block events, request lineage, session snapshots and GPT transcript responses correlated to request ids where available.
 - Route conflicts discovered while replaying a retained Protected ChangeSet into the dedicated `harness.conflict/v1` resolution path instead of starting an impossible generic repair loop.
 - Persist Main Request lineage and classify iterations as standard, repair, evidence extraction, or conflict resolution; group the Execution timeline by that lineage.
 - Timestamp WHX transcript notices, link them to their triggering request, and add separate **Retomar pedido** and **Cancelar pedido** actions. Cancellation releases the conversation while preserving verified Protected candidates.

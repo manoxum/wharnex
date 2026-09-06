@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactRecord, ArtifactSettings, AutomationMode, ChatRequestMode, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactRecord, ArtifactSettings, AutomationMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -21,6 +21,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
+export type ChatExportRequest = {
+  chat_id: string
+  title: string
+  chatgpt_url?: string
+  chat_items: ChatItem[]
+  frontend_events: HarnessEvent[]
+}
+
+async function requestDownload(path: string, body: unknown): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    const message = data?.error?.message || `HTTP ${response.status}`
+    throw new APIError(message, response.status, data)
+  }
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+  const filename = encoded ? decodeURIComponent(encoded) : plain || 'wharness-chat-export.zip'
+  return { blob: await response.blob(), filename }
+}
+
 export const api = {
   url: API_URL,
   config: () => request<AppConfig>('/api/config'),
@@ -38,6 +64,7 @@ export const api = {
   artifactSettings: () => request<ArtifactSettings>('/api/artifact-settings'),
   updateArtifactSettings: (retentionDays: number) => request<ArtifactSettings>('/api/artifact-settings', { method: 'PUT', body: JSON.stringify({ retention_days: retentionDays }) }),
   artifacts: (id: string) => request<{ artifacts: ArtifactRecord[] }>(`/api/sessions/${id}/artifacts`),
+  exportChat: (id: string, input: ChatExportRequest) => requestDownload(`/api/sessions/${id}/chat-export`, input),
   artifactEntries: (id: string, artifactId: string) => request<{ entries: ArtifactEntry[] }>(`/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}/entries`),
   persistArtifact: (id: string, input: { request_id: string; direction: 'input' | 'output'; kind: string; filename: string; content_type: string; content_base64: string }) => request<ArtifactRecord>(`/api/sessions/${id}/artifacts`, { method: 'POST', body: JSON.stringify(input) }),
   artifactURL: (id: string, artifactId: string) => `${API_URL}/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}`,

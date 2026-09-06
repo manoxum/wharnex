@@ -109,6 +109,7 @@ var automaticDirectoryReasons = map[string]string{
 
 var automaticMetadataNames = []string{".ds_store", "thumbs.db", "desktop.ini"}
 var automaticGeneratedSuffixes = []string{".log", ".tmp", ".temp", ".swp", ".swo", ".orig", ".rej", "~", ".pyc", ".pyo", ".class", ".o", ".obj", ".a", ".so", ".dylib", ".dll", ".exe", ".bin", ".tsbuildinfo"}
+
 // Archive extensions are not repeated here: they are mandatorily blocked in
 // ShouldIgnore (builder.go) and must never depend on auto_exclude/include.
 var automaticAssetSuffixes = []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".mp3", ".mp4", ".mov", ".avi", ".woff", ".woff2", ".ttf", ".otf"}

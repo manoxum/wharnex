@@ -79,6 +79,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/analyze", a.selfEvolutionAnalyze)
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/evidence/resolve", a.selfEvolutionResolveEvidence)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
+	mux.HandleFunc("POST /api/sessions/{id}/chat-export", a.chatExport)
 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts", a.artifacts)
 	mux.HandleFunc("POST /api/sessions/{id}/artifacts", a.persistArtifact)
@@ -378,6 +379,47 @@ func (a *API) artifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"artifacts": items})
+}
+
+func (a *API) chatExport(w http.ResponseWriter, r *http.Request) {
+	var input app.ChatExportInput
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_chat_export", err.Error())
+		return
+	}
+	tmp, err := os.CreateTemp("", "wharness-chat-export-*.zip")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "chat_export_failed", err.Error())
+		return
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+	summary, err := a.service.WriteChatExport(r.Context(), r.PathValue("id"), input, tmp)
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "chat_export_failed", err.Error())
+		return
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		writeError(w, http.StatusInternalServerError, "chat_export_failed", err.Error())
+		return
+	}
+	stat, err := tmp.Stat()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "chat_export_failed", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(summary.Filename, `"`, "")+`"`)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, tmp)
 }
 
 func (a *API) persistArtifact(w http.ResponseWriter, r *http.Request) {
@@ -1177,6 +1219,7 @@ func cors(next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

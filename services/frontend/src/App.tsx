@@ -356,6 +356,27 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
+  async function exportActiveChat() {
+    if (!session || !activeChatId || activeBusy) return
+    const target = chats.find((chat) => chat.id === activeChatId)
+    if (!target || target.sessionId !== session.id) return
+    setChatBusy(target.id, true); setError(undefined)
+    try {
+      const exported = await api.exportChat(session.id, {
+        chat_id: target.id,
+        title: target.title,
+        chatgpt_url: target.chatgptUrl,
+        chat_items: items,
+        frontend_events: events,
+      })
+      const url = URL.createObjectURL(exported.blob)
+      const link = document.createElement('a')
+      link.href = url; link.download = exported.filename; link.style.display = 'none'
+      document.body.appendChild(link); link.click(); link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    } catch (e) { setError(messageOf(e)) } finally { setChatBusy(target.id, false) }
+  }
+
   async function archiveChat(chatId: string) {
     if (!session || busy) return
     const target = chats.find((chat) => chat.id === chatId)
@@ -1859,6 +1880,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
         onOpenFile={openFileFromChat}
         onError={setError}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
+        onExportChat={exportActiveChat}
         chatProps={{
           session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode,
           attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],

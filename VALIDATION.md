@@ -1,3 +1,10 @@
+## v1.2.45 chat audit export
+
+- `services/backend/internal/app/chat_export_test.go` verifies that the audit ZIP preserves the exact original bytes for main request/response and correction request/response bundles, exports execution and approval events, and correlates ChatGPT transcript responses to their request ids.
+- `services/frontend/src/components/AgentWorkspace.test.tsx` verifies the Agent activity rail exposes the **Exportar chat** action and dispatches the export callback.
+- The HTTP export endpoint is bounded to a 32 MiB JSON description, writes the potentially large ZIP through a temporary file instead of buffering the whole archive in the HTTP handler, and fails the export when a persisted artifact listed by the session cannot be read.
+- In this source-only validation environment the Go gate cannot start because `github.com/jackc/pgx/v5` is absent from the module cache and outbound access to `proxy.golang.org` is blocked. The operator apply batch therefore runs the canonical backend/frontend gates after `git apply --check` in the real workspace.
+
 ## v1.2.43.2.5 retained-patches export rebase regression
 
 - Reproduced from the operator run: v1.2.43.2.4 fails at `git apply --check` on `scripts/export.sh:21`, so none of that patch is applied and the checkout remains on the working v1.2.43.2.3 exporter.

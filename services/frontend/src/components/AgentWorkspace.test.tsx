@@ -24,8 +24,9 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
   const onRestore = vi.fn(async () => undefined)
   const onDelete = vi.fn(async () => undefined)
   const onOpenFile = vi.fn()
+  const onExportChat = vi.fn(async () => undefined)
   return {
-    onExecute, onRetryDependencyNetwork, onRestore, onDelete, onOpenFile,
+    onExecute, onRetryDependencyNetwork, onRestore, onDelete, onOpenFile, onExportChat,
     element: <AgentWorkspace
       session={current}
       busy={busy}
@@ -34,6 +35,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
       onChatGPTHumanAction={human.onAction}
       onOpenFile={onOpenFile}
       onError={vi.fn()}
+      onExportChat={onExportChat}
       chatProps={{
         session: current, items: [], chats: [{ id: 'chat-1', title: 'Principal', sessionId: current.id, createdAt: '2026-09-04T10:00:00.000Z', updatedAt: '2026-09-04T10:00:00.000Z' }, { id: 'chat-2', title: 'Paralelo', sessionId: 'ses-parallel', createdAt: '2026-09-04T09:00:00.000Z', updatedAt: '2026-09-04T09:00:00.000Z' }],
         archivedChats: [{ id: 'arch-1', title: 'Diagnóstico antigo', sessionId: 'ses-old', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' }], activeChatId: 'chat-1', busy,
@@ -172,6 +174,15 @@ describe('AgentWorkspace', () => {
     expect(onHumanAction).toHaveBeenCalledTimes(1)
     rerender(props(current, { notice, nonce: 1, onAction: onHumanAction }).element)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Engine' }).className).toContain('active'))
+  })
+
+  it('exports the active chat from the activity bar', () => {
+    const view = props()
+    render(view.element)
+    const exportButton = screen.getByRole('button', { name: 'Exportar chat' })
+    expect((exportButton as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(exportButton)
+    expect(view.onExportChat).toHaveBeenCalledTimes(1)
   })
 
   it('opens archived chats from the left activity drawer', () => {
