@@ -138,13 +138,19 @@ func (tx Transaction) captureRuntime() error {
 }
 
 func (tx Transaction) captureLifecycleScripts() error {
-	for _, name := range []string{"self-restart.sh", "start.sh", "stop.sh"} {
+	destinations := map[string]string{
+		"self-restart.sh": "worker.sh",
+		"start.sh":        "start-known-good.sh",
+		"stop.sh":         "stop-known-good.sh",
+		"stack.sh":        "stack-known-good.sh",
+	}
+	for _, name := range []string{"self-restart.sh", "start.sh", "stop.sh", "stack.sh"} {
 		source := filepath.Join(tx.Root, "scripts", name)
 		_, err := os.Stat(source)
 		if err != nil {
 			return fmt.Errorf("self-evolution lifecycle script %s unavailable: %w", name, err)
 		}
-		destination := filepath.Join(tx.Dir, map[string]string{"self-restart.sh": "worker.sh", "start.sh": "start-known-good.sh", "stop.sh": "stop-known-good.sh"}[name])
+		destination := filepath.Join(tx.Dir, destinations[name])
 		if err := copyFile(source, destination, 0o700); err != nil {
 			return err
 		}

@@ -2,9 +2,12 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 
 	"kernl.local/harness/backend/internal/domain"
 )
+
+var ErrOfflineDependenciesUnavailable = errors.New("offline sandbox dependencies unavailable")
 
 type Workspace struct {
 	Path       string

@@ -9,8 +9,9 @@ import { loadUIPreferences, saveUIPreferences, subscribeUIPreferences, type UIPr
 import { confirmDialog, noticeDialog } from '../lib/appDialog'
 import { ThemePreferenceControl } from './ThemeToggle'
 import { RemoteStorageSettings } from './RemoteStorageSettings'
+import { TunnelProviderSettings } from './TunnelProviderSettings'
 
-type SettingsSection = 'appearance' | 'context' | 'remote-storage' | 'data'
+type SettingsSection = 'appearance' | 'context' | 'tunnel-provider' | 'remote-storage' | 'data'
 
 export function ProjectSettings({ session, onClose, onSession, onError }: {
   session: Session
@@ -32,6 +33,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
   const [desktopStorage, setDesktopStorage] = useState<DesktopStorageUsage>()
   const [storageBusy, setStorageBusy] = useState(false)
   const [resetConfirm, setResetConfirm] = useState('')
+  const [artifactRetentionDays, setArtifactRetentionDays] = useState(30)
   const [uiPreferences, setUIPreferences] = useState<UIPreferences>(() => loadUIPreferences())
   const [activeSection, setActiveSection] = useState<SettingsSection>('context')
 
@@ -56,6 +58,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
       setInspectionError(messageOf(error, 'Não foi possível inspecionar o contexto'))
     })
     api.storage().then((value) => { if (alive) setBackendStorage(value) }).catch(() => {})
+    api.artifactSettings().then((value) => { if (alive) setArtifactRetentionDays(value.retention_days) }).catch(() => {})
     const bridge = desktopBridge()
     if (bridge) bridge.data.storage().then((value) => { if (alive) setDesktopStorage(value) }).catch(() => {})
     return () => { alive = false }
@@ -170,6 +173,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
         <nav className="settings-navigation" aria-label="Secções das configurações">
           <SettingsNavButton active={activeSection === 'appearance'} icon="monitor" label="Aparência" detail="Tema e tipografia" onClick={() => setActiveSection('appearance')}/>
           <SettingsNavButton active={activeSection === 'context'} icon="file" label="Contexto" detail="Recorte do projeto" onClick={() => setActiveSection('context')}/>
+          <SettingsNavButton active={activeSection === 'tunnel-provider'} icon="network" label="Tunnel Provider" detail="Transporte ChatGPT" onClick={() => setActiveSection('tunnel-provider')}/>
           <SettingsNavButton active={activeSection === 'remote-storage'} icon="network" label="Storage remoto" detail="Contas e limites" onClick={() => setActiveSection('remote-storage')}/>
           <SettingsNavButton active={activeSection === 'data'} icon="shield" label="Dados locais" detail="Uso e limpeza" onClick={() => setActiveSection('data')}/>
         </nav>
@@ -181,7 +185,8 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
             <label><span>Fonte da interface</span><select value={uiPreferences.uiFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, uiFont: event.target.value as UIPreferences['uiFont'] }); setUIPreferences(next) }}><option value="elegant">Elegante · Inter / Manrope</option><option value="system">Sistema · Segoe / nativa</option><option value="humanist">Humanista · Aptos / Calibri</option></select></label>
             <label><span>Fonte monoespaçada</span><select value={uiPreferences.monoFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, monoFont: event.target.value as UIPreferences['monoFont'] }); setUIPreferences(next) }}><option value="jetbrains">JetBrains Mono</option><option value="system">Sistema Mono</option><option value="fira">Fira Code</option></select></label>
           </div>
-          <label className="font-scale-setting"><span><strong>Tamanho da interface</strong><small>100% usa a nova base legível; reduza até 80% ou amplie até 160%.</small></span><input type="range" min="0.8" max="1.6" step="0.05" value={uiPreferences.scale} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, scale: Number(event.target.value) }); setUIPreferences(next) }}/><output>{Math.round(uiPreferences.scale * 100)}%</output></label>
+          <label className="font-scale-setting"><span><strong>Tamanho da interface</strong><small>100% é o centro da escala e usa uma base maior; reduza até 40% ou amplie até 160%.</small></span><input type="range" min="0.4" max="1.6" step="0.05" value={uiPreferences.scale} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, scale: Number(event.target.value) }); setUIPreferences(next) }}/><output>{Math.round(uiPreferences.scale * 100)}%</output></label>
+          <label className="settings-toggle"><input type="checkbox" checked={uiPreferences.errorPopups} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, errorPopups: event.target.checked }); setUIPreferences(next) }}/><span><strong>Popups de erro</strong><small>Mostra apenas um aviso compacto e não bloqueante. Os detalhes completos continuam no chat e o aviso pode ser desativado.</small></span></label>
         </section> : null}
         {activeSection === 'context' ? (!config ? (loadingError
           ? <div className="settings-load-error"><Icon name="shield" size={22}/><div><strong>Não foi possível carregar a configuração</strong><p>{loadingError}</p><span>O backend tenta recriar automaticamente <code>whaness.yml</code> quando ele não existe. Pode tentar novamente sem fechar o projeto.</span><button className="secondary-button" onClick={() => setReloadNonce((value) => value + 1)}><Icon name="refresh" size={14}/> Tentar novamente</button></div></div>
@@ -199,6 +204,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
         <section className="context-explorer-section">
           {inspection ? <ContextInspector inspection={inspection} refreshing={refreshing} onRefresh={() => void refresh()} /> : inspectionError ? <div className="context-inspection-error"><Icon name="shield" size={16}/><span>{inspectionError}</span><button onClick={() => setReloadNonce((value) => value + 1)}>Tentar novamente</button></div> : <div className="settings-loading compact"><span className="settings-spinner"/>A inspecionar o snapshot final…</div>}
         </section></>) : null}
+        {activeSection === 'tunnel-provider' ? <TunnelProviderSettings onError={onError}/> : null}
         {activeSection === 'remote-storage' ? <RemoteStorageSettings onError={onError}/> : null}
         {activeSection === 'data' ? <section className="wharness-data-section">
           <div className="context-section-title"><div><strong>Dados e armazenamento</strong><span>Sessão do navegador, métricas de disco e operações de limpeza do Wharness.</span></div><button className="icon-button" disabled={storageBusy} onClick={() => void refreshStorage()} title="Atualizar métricas"><Icon name="refresh" size={15}/></button></div>
@@ -206,12 +212,17 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
             <StorageMetric label="Wharness total" bytes={(backendStorage?.total_bytes || 0) + (desktopStorage?.total_bytes || 0)} />
             <StorageMetric label="Navegador interno" bytes={desktopStorage?.browser_bytes || 0} />
             <StorageMetric label="Anexos de chats" bytes={desktopStorage?.attachment_bytes || 0} />
+            <StorageMetric label="Artefactos MinIO" bytes={backendStorage?.artifact_bytes || 0} />
             <StorageMetric label="Contextos/sandboxes" bytes={(backendStorage?.context_bytes || 0) + (backendStorage?.sandbox_bytes || 0)} />
             <StorageMetric label="Temporários/órfãos" bytes={(backendStorage?.orphan_bytes || 0) + (desktopStorage?.temp_bytes || 0)} />
           </div>
           <div className="project-storage-list">
             {(backendStorage?.projects || []).map((project) => <div key={project.project_path} className={project.project_path === session.project_path ? 'project-storage-row active' : 'project-storage-row'}><div><strong>{project.project_path === session.project_path ? 'Projeto atual' : project.project_path.split('/').filter(Boolean).pop()}</strong><span title={project.project_path}>{project.project_path}</span></div><code>{formatBytes(project.total_bytes)}</code></div>)}
             {!backendStorage?.projects?.length && <span className="muted-copy">Sem métricas de projeto disponíveis.</span>}
+          </div>
+          <div className="browser-session-actions">
+            <div><strong>Retenção de artefactos no MinIO</strong><span>Bundles e ficheiros trocados são removidos automaticamente depois deste período. O padrão é 30 dias.</span></div>
+            <div><input type="number" min={1} max={3650} value={artifactRetentionDays} onChange={(event) => setArtifactRetentionDays(Math.max(1, Math.min(3650, Number(event.target.value) || 30)))} style={{ width: 92 }}/><span> dias </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays).then((value) => setArtifactRetentionDays(value.retention_days)).catch((error) => onError(messageOf(error, 'Falha ao guardar retenção')))}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
             <div><strong>Sessão do navegador interno</strong><span>O ficheiro exportado pode conter uma sessão autenticada. Trate-o como segredo.</span></div>

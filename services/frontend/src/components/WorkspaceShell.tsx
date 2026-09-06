@@ -7,6 +7,7 @@ import type { AppConfig, WorkspaceMode } from '../types'
 import { Bootstrap } from './Bootstrap'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
+import { ErrorToast } from './ErrorToast'
 
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 
@@ -19,6 +20,7 @@ export function WorkspaceShell() {
   const [projectModes, setProjectModes] = useState<Record<string, WorkspaceMode>>({})
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [busy, setBusy] = useState(true)
+  const [initialized, setInitialized] = useState(false)
   const [error, setError] = useState<string>()
   const frames = useRef(new Map<string, HTMLIFrameElement>())
 
@@ -40,21 +42,27 @@ export function WorkspaceShell() {
       if (!alive) return
       const preferred = loadBoundActiveProject()
       const active = acquired.includes(preferred) ? preferred : acquired[0] || ''
-      setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active); setBusy(false)
+      setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active); setBusy(false); setInitialized(true)
     }
     void initialize()
     return () => { alive = false }
   }, [])
 
   useEffect(() => {
+    if (!initialized) return
     saveBoundProjects(projects)
     saveBoundActiveProject(activeProject)
     for (const [projectPath, frame] of frames.current) publishActivation(frame, projectPath === activeProject)
-  }, [projects, activeProject])
+  }, [projects, activeProject, initialized])
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
+      if (event.data?.type === 'wharness:project-ready') {
+        const projectPath = String(event.data.projectPath || '')
+        const frame = frames.current.get(projectPath)
+        if (frame?.contentWindow === event.source) publishActivation(frame, projectPath === activeProject)
+      }
       if (event.data?.type === 'wharness:unbind-project') {
         const projectPath = String(event.data.projectPath || '')
         if (projectPath) void unbindProject(projectPath)
@@ -127,13 +135,13 @@ export function WorkspaceShell() {
 
   return <main className="desktop-shell-root">
     <ShellChrome projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => void chooseAndBind()} onNewWindow={() => void desktopBridge()?.windows.open()} />
-    {error && <div className="toast-error shell-toast" role="alert">{error}<button onClick={() => setError(undefined)}>×</button></div>}
+    <ErrorToast open={Boolean(error)} message={error} shell onDismiss={() => setError(undefined)} />
     <section className="bound-project-stage">
       {projects.map((projectPath) => <iframe
         key={projectPath}
         ref={(node) => { if (node) frames.current.set(projectPath, node); else frames.current.delete(projectPath) }}
         className={`bound-project-frame ${projectPath === activeProject ? 'active' : ''}`}
-        title={`Wharness · ${projectName(projectPath)}`}
+        title={`Wharnex · ${projectName(projectPath)}`}
         src={frameSources.get(projectPath)}
         onLoad={(event) => publishActivation(event.currentTarget, projectPath === activeProject)}
       />)}
@@ -161,7 +169,7 @@ function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, 
   }, [projectActionsOpen])
 
   return <header className="multi-project-bar">
-    <div className="multi-project-brand"><div className="brand-mark">K</div><strong>Wharness</strong></div>
+    <div className="multi-project-brand"><div className="brand-mark">WHX</div><strong>Wharnex</strong></div>
     {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button></div>}
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {projects.map((projectPath) => <button key={projectPath} className={projectPath === activeProject ? 'active' : ''} onClick={() => onActivate(projectPath)} title={projectPath}><Icon name="workspace" size={13}/><span>{projectName(projectPath)}</span></button>)}

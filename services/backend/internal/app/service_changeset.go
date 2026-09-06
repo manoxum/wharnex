@@ -1,0 +1,443 @@
+package app
+
+import (
+	"archive/zip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"kernl.local/harness/backend/internal/changeset"
+	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/ids"
+	"kernl.local/harness/backend/internal/planner"
+	"kernl.local/harness/backend/internal/protocol"
+	"kernl.local/harness/backend/internal/sandbox"
+)
+
+func canReconcilePlanFromArchive(item domain.Session, plan *domain.ExecutionPlan) bool {
+	if plan == nil || len(actualPatchFiles(plan)) == 0 {
+		return false
+	}
+	archive := requestContextArchive(item, plan.RequestID)
+	if archive == "" {
+		return false
+	}
+	info, err := os.Stat(archive)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	reader, err := zip.OpenReader(archive)
+	if err != nil {
+		return false
+	}
+	defer reader.Close()
+	entries := make(map[string]bool, len(reader.File))
+	for _, entry := range reader.File {
+		if !entry.FileInfo().IsDir() {
+			entries[filepath.ToSlash(strings.TrimPrefix(entry.Name, "./"))] = true
+		}
+	}
+	required := append(actualPatchFiles(plan), plan.ReadFiles...)
+	required = append(required, plan.BarrierFiles...)
+	for _, path := range normalizedPaths(required) {
+		if !entries[path] {
+			return false
+		}
+	}
+	return true
+}
+
+func executionBase(item domain.Session, plan *domain.ExecutionPlan, stale bool) (string, func(), error) {
+	if !stale {
+		return item.ProjectPath, func() {}, nil
+	}
+	archive := requestContextArchive(item, plan.RequestID)
+	if archive == "" {
+		return "", func() {}, errors.New("immutable request base is unavailable")
+	}
+	root, cleanup, err := changeset.ExtractArchive(archive)
+	if err != nil {
+		return "", func() {}, err
+	}
+	if err := sandbox.HydrateMissingProjectFiles(root, item.ProjectPath); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("hydrate immutable request base: %w", err)
+	}
+	return root, cleanup, nil
+}
+
+func bindExecutionDependencySource(workspace *sandbox.Workspace, item domain.Session, restoredBase bool) {
+	if restoredBase && workspace != nil {
+		workspace.SourcePath = item.ProjectPath
+	}
+}
+
+type pendingChangeSetReplayConflict struct {
+	changeSetID string
+	conflicts   []domain.IntegrationConflictDetail
+}
+
+func (e *pendingChangeSetReplayConflict) Error() string {
+	return fmt.Sprintf("replay pending ChangeSet %s conflicts at %s", e.changeSetID, strings.Join(conflictPaths(e.conflicts), ", "))
+}
+
+func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, pending []domain.PendingHostChange, skipPlanID string, result *domain.ExecutionResult) error {
+	for index := range pending {
+		change := pending[index]
+		if change.Plan.PlanID == skipPlanID {
+			continue
+		}
+		if change.ChangeSet != nil {
+			prepared, err := changeset.Prepare(workspace.Path, []domain.ChangeSet{*change.ChangeSet})
+			if err != nil {
+				return fmt.Errorf("replay pending ChangeSet %s: %w", change.ChangeSet.ID, err)
+			}
+			if prepared.Outcome == domain.IntegrationConflict {
+				return &pendingChangeSetReplayConflict{changeSetID: change.ChangeSet.ID, conflicts: append([]domain.IntegrationConflictDetail(nil), prepared.Conflicts...)}
+			}
+			if err := changeset.ApplyToWorkspace(workspace.Path, prepared); err != nil {
+				return fmt.Errorf("replay pending ChangeSet %s: %w", change.ChangeSet.ID, err)
+			}
+			s.bus.Publish(sessionID, "changeset.replayed", map[string]any{"changeset_id": change.ChangeSet.ID, "target": "sandbox-pending", "files": changeSetPaths(*change.ChangeSet)})
+			continue
+		}
+		for _, patch := range planPatches(&change.Plan) {
+			if err := protocol.ValidatePatchPaths(patch); err != nil {
+				return fmt.Errorf("replay pending plan %s: %w", change.Plan.PlanID, err)
+			}
+			commandResult, runErr := runner.ApplyPatch(ctx, workspace, patch)
+			result.Commands = append(result.Commands, commandResult)
+			if runErr != nil || !commandResult.Success {
+				if runErr == nil {
+					runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
+				}
+				return fmt.Errorf("replay pending plan %s: %w", change.Plan.PlanID, runErr)
+			}
+		}
+	}
+	return nil
+}
+
+func materializePlanChangeSet(plan domain.ExecutionPlan, baseRoot, resultRoot string) (*domain.ChangeSet, error) {
+	paths := actualPatchFiles(&plan)
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	set, err := changeset.Materialize(ids.New("chg"), plan.BaseContextSHA256, baseRoot, resultRoot, paths)
+	if err != nil {
+		return nil, err
+	}
+	// Compatibility runners used by embedders may verify a patch without
+	// exposing a mutated filesystem. Retain the legacy patch path in that case.
+	if len(set.Mutations) == 0 {
+		return nil, nil
+	}
+	set.ReadFiles = append([]string(nil), plan.ReadFiles...)
+	set.BarrierFiles = append([]string(nil), plan.BarrierFiles...)
+	set.ReadHashes, err = changeset.FileHashes(baseRoot, plan.ReadFiles)
+	if err != nil {
+		return nil, err
+	}
+	set.BarrierHashes, err = changeset.FileHashes(baseRoot, plan.BarrierFiles)
+	if err != nil {
+		return nil, err
+	}
+	set.State = domain.IntegrationVerified
+	set.CreatedAt = time.Now().UTC()
+	return &set, nil
+}
+
+type stagedHostIntegration struct {
+	workspace sandbox.Workspace
+	prepared  changeset.Prepared
+}
+
+func (s *Service) stageHostIntegration(ctx context.Context, sessionID string, item domain.Session, pending []domain.PendingHostChange) (stagedHostIntegration, error) {
+	sets := make([]domain.ChangeSet, 0, len(pending))
+	for index := range pending {
+		if pending[index].ChangeSet == nil {
+			return stagedHostIntegration{}, errors.New("legacy pending candidate requires patch compatibility path")
+		}
+		sets = append(sets, *pending[index].ChangeSet)
+	}
+	workspace, err := s.runner.Prepare(ctx, item.ProjectPath)
+	if err != nil {
+		return stagedHostIntegration{}, err
+	}
+	prepared, err := changeset.Prepare(workspace.Path, sets)
+	if err != nil {
+		_ = s.runner.Cleanup(workspace)
+		return stagedHostIntegration{}, err
+	}
+	if prepared.Outcome == domain.IntegrationConflict {
+		_ = s.runner.Cleanup(workspace)
+		return stagedHostIntegration{prepared: prepared}, nil
+	}
+	if err := changeset.ApplyToWorkspace(workspace.Path, prepared); err != nil {
+		_ = s.runner.Cleanup(workspace)
+		return stagedHostIntegration{}, err
+	}
+	if len(prepared.SemanticFiles) > 0 || len(prepared.BarrierFiles) > 0 {
+		s.bus.Publish(sessionID, "integration.semantic_recheck", map[string]any{"read_files": prepared.SemanticFiles, "barrier_files": prepared.BarrierFiles})
+	}
+	for index := range pending {
+		for _, command := range pending[index].Plan.Verification {
+			s.bus.Publish(sessionID, "integration.verification_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "argv": command.Argv})
+			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "integration-sandbox")
+			if runErr != nil || !result.Success {
+				_ = s.runner.Cleanup(workspace)
+				if runErr != nil {
+					return stagedHostIntegration{}, runErr
+				}
+				return stagedHostIntegration{}, fmt.Errorf("integration verification failed for plan %s: %s", pending[index].Plan.PlanID, commandResultDiagnostic(result))
+			}
+		}
+	}
+	return stagedHostIntegration{workspace: workspace, prepared: prepared}, nil
+}
+
+func allPendingHaveChangeSets(pending []domain.PendingHostChange) bool {
+	if len(pending) == 0 {
+		return false
+	}
+	for index := range pending {
+		if pending[index].ChangeSet == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func conflictPaths(conflicts []domain.IntegrationConflictDetail) []string {
+	paths := make([]string, 0, len(conflicts))
+	for _, conflict := range conflicts {
+		paths = append(paths, conflict.Path)
+	}
+	return normalizedPaths(paths)
+}
+
+func changeSetPaths(set domain.ChangeSet) []string {
+	paths := make([]string, 0, len(set.Mutations))
+	for _, mutation := range set.Mutations {
+		paths = append(paths, mutation.Path)
+	}
+	return normalizedPaths(paths)
+}
+
+type conflictCapsule struct {
+	Protocol        string                `json:"protocol"`
+	ConflictID      string                `json:"conflict_id"`
+	CurrentRevision string                `json:"current_revision"`
+	OriginalPlanIDs []string              `json:"original_plan_ids"`
+	Files           []conflictCapsuleFile `json:"files"`
+}
+
+type conflictCapsuleFile struct {
+	Path          string `json:"path"`
+	Reason        string `json:"reason"`
+	BaseExists    bool   `json:"base_exists"`
+	CurrentExists bool   `json:"current_exists"`
+	ResultExists  bool   `json:"result_exists"`
+	BaseSHA256    string `json:"base_sha256"`
+	CurrentSHA256 string `json:"current_sha256"`
+	ResultSHA256  string `json:"result_sha256"`
+	Base          string `json:"base"`
+	Current       string `json:"current"`
+	Result        string `json:"result"`
+}
+
+func (s *Service) prepareConflictResolution(sessionID string, item domain.Session, pending []domain.PendingHostChange, conflicts []domain.IntegrationConflictDetail) (domain.Session, error) {
+	requestID := ids.New("req")
+	conflictID := ids.New("conflict")
+	if item.IntegrationConflict != nil && strings.TrimSpace(item.IntegrationConflict.ID) != "" {
+		conflictID = item.IntegrationConflict.ID
+	}
+	paths := conflictPaths(conflicts)
+	planIDs := make([]string, 0)
+	files := make([]conflictCapsuleFile, 0, len(conflicts))
+	for _, conflict := range conflicts {
+		planIDs = append(planIDs, planIDForChangeSet(pending, conflict.ChangeSetID))
+		mutation, ok := mutationForConflict(pending, conflict.ChangeSetID, conflict.Path)
+		if !ok {
+			continue
+		}
+		current, readErr := os.ReadFile(filepath.Join(item.ProjectPath, filepath.FromSlash(conflict.Path)))
+		currentExists := readErr == nil
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return item, fmt.Errorf("read current conflict path %s: %w", conflict.Path, readErr)
+		}
+		files = append(files, conflictCapsuleFile{
+			Path: conflict.Path, Reason: conflict.Reason, BaseExists: mutation.BaseExists, CurrentExists: currentExists, ResultExists: mutation.ResultExists,
+			BaseSHA256: mutation.BaseSHA256, CurrentSHA256: hashBytes(current), ResultSHA256: mutation.ResultSHA256,
+			Base: truncateRepairText(mutation.BaseContent, 24000), Current: truncateRepairText(string(current), 24000), Result: truncateRepairText(mutation.ResultContent, 24000),
+		})
+	}
+	planIDs = normalizedStrings(planIDs)
+	capsule := conflictCapsule{Protocol: "harness.conflict/v1", ConflictID: conflictID, CurrentRevision: item.Context.Manifest.SHA256, OriginalPlanIDs: planIDs, Files: files}
+	capsuleJSON, err := json.MarshalIndent(capsule, "", "  ")
+	if err != nil {
+		return item, err
+	}
+	message := buildConflictResolutionMessage(capsuleJSON, paths)
+	prompt := planner.BuildManualPrompt(planner.Request{
+		SessionID: sessionID, RequestID: requestID, Message: message,
+		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
+		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
+		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
+	})
+	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: planIDs, Paths: paths, Details: append([]domain.IntegrationConflictDetail(nil), conflicts...), CreatedAt: time.Now().UTC()}
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
+		if current.IntegrationConflict == nil {
+			current.RepairAttempt = 0
+			current.RepairParentPlanID = ""
+		}
+		current.IntegrationConflict = &resolution
+		current.LastRequestID = requestID
+		current.LastManualPrompt = prompt
+		current.PendingManualRequestIDs = appendUnique(current.PendingManualRequestIDs, requestID)
+		current.State = "conflict_resolution_pending"
+		current.LastRepairError = "host apply failed safely; focused conflict resolution required: " + strings.Join(paths, ", ")
+		recordRequestBaseline(current, requestID, item.Context.Manifest.SHA256)
+		recordRequestContext(current, requestID, item.Context)
+		return nil
+	})
+	if err == nil {
+		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths, "surface_key": conflictSurfaceKey(sessionID, conflictID)})
+	}
+	return updated, err
+}
+
+func buildConflictResolutionMessage(capsule []byte, paths []string) string {
+	return fmt.Sprintf(`WHARNESS CONFLICT RESOLUTION PROTOCOL — harness.conflict/v1
+
+This is a focused support turn for a real integration conflict. Preserve the original task intent while reconciling CURRENT with RESULT using BASE as the common ancestor.
+
+Return one normal canonical Wharness change bundle for this request. The plan base_context_sha256 must equal CURRENT REVISION. Its patches may modify ONLY these conflict paths:
+- %s
+
+Do not repeat unrelated project work, do not modify non-conflict paths, and do not return a workflow. Resolve every listed conflict in one deliberate bundle. The dedicated conflict surface is independent from the main planning conversation.
+
+CONFLICT CAPSULE:
+%s`, strings.Join(paths, "\n- "), string(capsule))
+}
+
+func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPlan) error {
+	if item.IntegrationConflict == nil || plan == nil || plan.RequestID != item.IntegrationConflict.RequestID {
+		return nil
+	}
+	paths := actualPatchFiles(plan)
+	if len(paths) == 0 {
+		return errors.New("conflict resolution requires a patch for every conflict path")
+	}
+	allowed := make(map[string]bool, len(item.IntegrationConflict.Paths))
+	for _, path := range item.IntegrationConflict.Paths {
+		allowed[path] = true
+	}
+	for _, path := range paths {
+		if !allowed[path] {
+			return fmt.Errorf("conflict resolution path is outside the capsule: %s", path)
+		}
+	}
+	for path := range allowed {
+		found := false
+		for _, candidate := range paths {
+			if candidate == path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("conflict resolution omitted path: %s", path)
+		}
+	}
+	return nil
+}
+
+func retireConflictingMutations(changes []domain.PendingHostChange, conflict *domain.ConflictResolution) []domain.PendingHostChange {
+	if conflict == nil {
+		return changes
+	}
+	blocked := make(map[string]bool, len(conflict.Paths))
+	for _, path := range conflict.Paths {
+		blocked[path] = true
+	}
+	result := make([]domain.PendingHostChange, 0, len(changes))
+	for _, change := range changes {
+		if change.ChangeSet == nil {
+			continue
+		}
+		mutations := change.ChangeSet.Mutations[:0]
+		for _, mutation := range change.ChangeSet.Mutations {
+			if !blocked[mutation.Path] {
+				mutations = append(mutations, mutation)
+			}
+		}
+		change.ChangeSet.Mutations = mutations
+		if len(mutations) > 0 {
+			result = append(result, change)
+		}
+	}
+	return result
+}
+
+func mutationForConflict(pending []domain.PendingHostChange, changeSetID, path string) (domain.FileMutation, bool) {
+	for _, change := range pending {
+		if change.ChangeSet == nil || change.ChangeSet.ID != changeSetID {
+			continue
+		}
+		for _, mutation := range change.ChangeSet.Mutations {
+			if mutation.Path == path {
+				return mutation, true
+			}
+		}
+	}
+	return domain.FileMutation{}, false
+}
+
+func planIDForChangeSet(pending []domain.PendingHostChange, id string) string {
+	for _, change := range pending {
+		if change.ChangeSet != nil && change.ChangeSet.ID == id {
+			return change.Plan.PlanID
+		}
+	}
+	return ""
+}
+
+func normalizedStrings(values []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func hashBytes(value []byte) string {
+	if value == nil {
+		return ""
+	}
+	sum := sha256.Sum256(value)
+	return hex.EncodeToString(sum[:])
+}
+
+func conflictSurfaceKey(sessionID, conflictID string) string {
+	value := sessionID + "_cf_" + conflictID
+	if len(value) > 128 {
+		value = value[:128]
+	}
+	return value
+}

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
 
 class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
-const state = { url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'external' as const, authWindowOpen: false, authenticated: false }
+const state = { url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'embedded' as const, authWindowOpen: false, authenticated: false }
 
 function bridge() {
   const noopSubscription = () => () => undefined
@@ -11,7 +11,7 @@ function bridge() {
     platform: 'linux', projects: { pickDirectory: vi.fn() },
     chatgpt: {
       show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
-      navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(),
+      navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn().mockResolvedValue({ ok: true }), stopConversation: vi.fn().mockResolvedValue({ ok: true, state: 'stopped' }),
       state: vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1' }), release: vi.fn().mockResolvedValue({ ok: true, released: true }), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
       onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
       onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
@@ -27,6 +27,15 @@ describe('ChatGPTDesktopPane', () => {
   beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); window.localStorage.clear() })
   afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
 
+  it('offers stopping the supervised request and reports its immutable id', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    const onCancel = vi.fn().mockResolvedValue(undefined)
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" onCancelPendingRequest={onCancel} />)
+    screen.getByRole('button', { name: 'Parar pedido' }).click()
+    await waitFor(() => expect(desktop.chatgpt.stopConversation).toHaveBeenCalledWith('chat-1'))
+    await waitFor(() => expect(onCancel).toHaveBeenCalledWith('req_pending123'))
+  })
+
   it('hides the native remote view while a trusted overlay is active and restores it afterwards', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     const view = render(<ChatGPTDesktopPane {...props} suspended />)
@@ -34,6 +43,13 @@ describe('ChatGPTDesktopPane', () => {
     expect(desktop.chatgpt.show).not.toHaveBeenCalled()
     view.rerender(<ChatGPTDesktopPane {...props} suspended={false} />)
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
+  })
+
+  it('does not navigate a remote view while the pane is suspended', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} suspended />)
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+    expect(desktop.chatgpt.navigate).not.toHaveBeenCalled()
   })
 
   it('automatically hides the native WebContentsView behind any modal dialog', async () => {
@@ -49,6 +65,12 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(vi.mocked(desktop.chatgpt.show).mock.calls.length).toBeGreaterThan(before))
   })
 
+  it('synchronizes the native view bounds immediately after mounting', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} />)
+    await waitFor(() => expect(desktop.chatgpt.setBounds).toHaveBeenCalled())
+  })
+
   it('represents an authenticated embedded session with one compact icon and no manual artifact controls', async () => {
     const desktop = bridge(); const authenticatedState = { ...state, authenticated: true }
     desktop.chatgpt.state = vi.fn().mockResolvedValue(authenticatedState); desktop.chatgpt.navigate = vi.fn().mockResolvedValue(authenticatedState); window.wharnessDesktop = desktop
@@ -60,6 +82,17 @@ describe('ChatGPTDesktopPane', () => {
     expect(await screen.findByRole('button', { name: 'Incorporado' })).toBeTruthy()
   })
 
+
+  it('surfaces same-origin ChatGPT authentication instead of an endless loading notice', async () => {
+    const desktop = bridge()
+    const authState = { ...state, url: 'https://chatgpt.com/auth/login', loading: false, authenticated: false }
+    desktop.chatgpt.state = vi.fn().mockResolvedValue(authState)
+    desktop.chatgpt.navigate = vi.fn().mockResolvedValue(authState)
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/example" />)
+    expect(await screen.findByText('Autenticação necessária. Conclua o login incorporado ou escolha Externo.')).toBeTruthy()
+  })
+
   it('opens compact embedded and external authentication actions', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} />)
@@ -67,6 +100,36 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'embedded'))
     screen.getByRole('button', { name: /Externo/ }).click()
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'external'))
+  })
+
+  it('clears the recovery notice after a linked ChatGPT conversation finishes navigation', async () => {
+    let resolveNavigation: ((value: DesktopChatGPTState) => void) | undefined
+    const desktop = bridge()
+    desktop.chatgpt.navigate = vi.fn(() => new Promise<DesktopChatGPTState>((resolve) => { resolveNavigation = resolve }))
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+
+    expect(await screen.findByText('A recuperar a conversa ChatGPT…')).toBeTruthy()
+    act(() => resolveNavigation?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/right' }))
+
+    await waitFor(() => expect(screen.queryByText('A recuperar a conversa ChatGPT…')).toBeNull())
+  })
+
+  it('does not erase a newer notice when linked navigation settles', async () => {
+    let resolveNavigation: ((value: DesktopChatGPTState) => void) | undefined
+    let authHandler: ((value: DesktopExternalAuthState) => void) | undefined
+    const desktop = bridge()
+    desktop.chatgpt.navigate = vi.fn(() => new Promise<DesktopChatGPTState>((resolve) => { resolveNavigation = resolve }))
+    desktop.chatgpt.onExternalAuth = vi.fn((callback) => { authHandler = callback; return () => undefined })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+
+    expect(await screen.findByText('A recuperar a conversa ChatGPT…')).toBeTruthy()
+    act(() => authHandler?.({ cacheKey: 'chat-1', provider: 'Google', url: 'https://accounts.google.com/', authMode: 'external', managedWindow: false, managedBrowser: true }))
+    expect(await screen.findByText('Google: conclua a autenticação no navegador seguro aberto pelo Wharness.')).toBeTruthy()
+    act(() => resolveNavigation?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/right' }))
+
+    await waitFor(() => expect(screen.getByText('Google: conclua a autenticação no navegador seguro aberto pelo Wharness.')).toBeTruthy())
   })
 
   it('ignores ChatGPT state events owned by another Harness chat', async () => {
@@ -107,11 +170,12 @@ describe('ChatGPTDesktopPane', () => {
 })
 
 
-describe('ChatGPTDesktopPane affinity events', () => {
+
+describe('ChatGPTDesktopPane affinity ownership', () => {
   beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); window.localStorage.clear() })
   afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
 
-  it('ignores delayed state from another Harness chat and accepts the desktop-owned candidate for the active chat', async () => {
+  it('leaves definitive candidate persistence to the application controller', async () => {
     let stateHandler: ((value: DesktopChatGPTState) => void) | undefined
     const desktop = bridge()
     desktop.chatgpt.onState = vi.fn((callback) => { stateHandler = callback; return () => undefined })
@@ -120,27 +184,46 @@ describe('ChatGPTDesktopPane affinity events', () => {
     render(<ChatGPTDesktopPane {...props} onChatGPTURL={onChatGPTURL} />)
     await waitFor(() => expect(stateHandler).toBeTypeOf('function'))
 
-    act(() => stateHandler?.({ ...state, cacheKey: 'chat-old', url: 'https://chatgpt.com/c/wrong', bindingCandidate: 'https://chatgpt.com/c/wrong' }))
-    expect(onChatGPTURL).not.toHaveBeenCalled()
-
     act(() => stateHandler?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/right', bindingCandidate: 'https://chatgpt.com/c/right', affinityPhase: 'candidate' }))
-    expect(onChatGPTURL).toHaveBeenCalledTimes(1)
-    expect(onChatGPTURL).toHaveBeenCalledWith('https://chatgpt.com/c/right')
+    expect(onChatGPTURL).not.toHaveBeenCalled()
     expect(desktop.chatgpt.confirmAffinity).not.toHaveBeenCalled()
     expect(desktop.chatgpt.rejectAffinity).not.toHaveBeenCalled()
   })
 
-  it('rejects a desktop-owned candidate when the frontend one-to-one validator reports a conflict', async () => {
-    let stateHandler: ((value: DesktopChatGPTState) => void) | undefined
-    const desktop = bridge()
-    desktop.chatgpt.onState = vi.fn((callback) => { stateHandler = callback; return () => undefined })
-    const onChatGPTURL = vi.fn(() => false)
-    window.wharnessDesktop = desktop
-    render(<ChatGPTDesktopPane {...props} onChatGPTURL={onChatGPTURL} />)
-    await waitFor(() => expect(stateHandler).toBeTypeOf('function'))
+  it('does not navigate the remote renderer again when only the local chat title changes', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    const view = render(<ChatGPTDesktopPane {...props} chatTitle="Primeiro título" />)
+    await waitFor(() => expect(desktop.chatgpt.navigate).toHaveBeenCalledTimes(1))
+    view.rerender(<ChatGPTDesktopPane {...props} chatTitle="Título atualizado" />)
+    await waitFor(() => expect(desktop.chatgpt.navigate).toHaveBeenCalledTimes(1))
+  })
 
-    act(() => stateHandler?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/conflict', bindingCandidate: 'https://chatgpt.com/c/conflict', affinityPhase: 'candidate' }))
-    expect(desktop.chatgpt.confirmAffinity).not.toHaveBeenCalled()
-    expect(desktop.chatgpt.rejectAffinity).not.toHaveBeenCalled()
+  it('can restore the conversation already linked to the Harness chat', async () => {
+    const desktop = bridge()
+    const wrong = { ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/wrong' }
+    desktop.chatgpt.state = vi.fn().mockResolvedValue(wrong)
+    desktop.chatgpt.navigate = vi.fn().mockResolvedValueOnce(wrong).mockResolvedValue({ ...wrong, url: 'https://chatgpt.com/c/right' })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+
+    ;(await screen.findByRole('button', { name: 'Repor vinculada' })).click()
+    await waitFor(() => expect(desktop.chatgpt.navigate).toHaveBeenLastCalledWith('https://chatgpt.com/c/right', 'chat-1'))
+  })
+
+  it('offers a manual request-scoped continuation fallback', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" />)
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+    await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledWith('chat-1', 'req_pending123'))
+  })
+
+  it('requires explicit confirmation before overriding an ambiguous processing control', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValueOnce({ ok: false, confirmationRequired: true }).mockResolvedValue({ ok: true })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" />)
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+    ;(await screen.findByRole('button', { name: 'Continuar mesmo assim' })).click()
+    await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenLastCalledWith('chat-1', 'req_pending123', { force: true }))
   })
 })

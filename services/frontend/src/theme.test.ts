@@ -38,6 +38,15 @@ describe('complete colour themes', () => {
     expect(theme).toMatch(/\[data-theme='dark'\] \.desktop-chatgpt-notice \{[^}]*background: #252525;/)
   })
 
+  it('keeps the full settings experience light when the light theme is active', () => {
+    expect(theme).toMatch(/\[data-theme='light'\] \.settings-navigation \{[^}]*background: #eef1ea;/)
+    expect(theme).toMatch(/\[data-theme='light'\] \.settings-content,[\s\S]*?\.remote-storage-settings \{[^}]*background: #f7f8f4;/)
+    expect(theme).toMatch(/\[data-theme='light'\] \.remote-instance-card \{[^}]*background: #f8f9f5;/)
+    expect(theme).toMatch(/\[data-theme='light'\] \.provider-connection-panel \{[^}]*background: #f2f4ee;/)
+    expect(theme).toMatch(/\[data-theme='light'\] \.remote-storage-actions \{[^}]*background: rgba\(247,248,244,.96\);/)
+    expect(theme).toMatch(/\[data-theme='light'\] \.remote-instance-grid input,[\s\S]*?background: #fff;/)
+  })
+
   it('keeps every dark settings control and active state monochrome', () => {
     expect(theme).toMatch(/\[data-theme='dark'\] \.context-settings-dialog \.primary-button \{[^}]*background: #ececec;/)
     expect(theme).toContain("[data-theme='dark'] .context-settings-dialog input[type='checkbox']")

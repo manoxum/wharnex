@@ -8,7 +8,8 @@
     "protocol",
     "request_id",
     "kind",
-    "message"
+    "message",
+    "outcome"
   ],
   "properties": {
     "protocol": {
@@ -32,6 +33,43 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 262144
+    },
+    "resolved_evidence_ids": {
+      "type": "array",
+      "maxItems": 500,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^evt_" }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "retryable"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["completed", "failed", "partial"]
+        },
+        "reason_code": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "enum": ["failed", "partial"] } } },
+          "then": {
+            "required": ["message"],
+            "properties": { "message": { "minLength": 1 } }
+          }
+        }
+      ]
     }
   }
 }

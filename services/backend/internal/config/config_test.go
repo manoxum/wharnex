@@ -82,3 +82,12 @@ func TestSaveRemoteStorageDocumentRejectsInsecurePublicURL(t *testing.T) {
 		t.Fatal("expected insecure public URL to be rejected")
 	}
 }
+
+func TestSaveRemoteStorageDocumentAcceptsTryCloudflareWithoutRemoteCredentials(t *testing.T) {
+	document := RemoteStorageDocument{Version: 1, Instances: []RemoteStorageInstanceConfig{{
+		ID: "tunnel", Provider: "trycloudflare", Priority: 10,
+	}}}
+	if err := SaveRemoteStorageDocument(RemoteStorageConfig{ConfigFile: filepath.Join(t.TempDir(), "remote-storage.json")}, document); err != nil {
+		t.Fatalf("TryCloudflare should not require a remote or credentials: %v", err)
+	}
+}

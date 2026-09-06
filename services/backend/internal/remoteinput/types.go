@@ -5,6 +5,8 @@ import (
 	"errors"
 	"regexp"
 	"time"
+
+	"kernl.local/harness/backend/internal/app"
 )
 
 type Publication struct {
@@ -27,4 +29,28 @@ type Provider interface {
 	Name() string
 	Put(ctx context.Context, objectName, filePath string) (Publication, error)
 	Delete(ctx context.Context, objectName string) error
+}
+
+// RequestLeaseProvider keeps a transient transport endpoint alive while a
+// published Wharness request is awaiting its terminal bundle. Providers that
+// do not own a transient endpoint simply do not implement this optional port.
+type RequestLeaseProvider interface {
+	Retain(objectName string) error
+	Release(objectName string) error
+}
+
+// ChannelProvider exposes a request-scoped collection through one transient
+// endpoint. Resource paths are adapter-owned, read-only and strictly validated.
+type ChannelProvider interface {
+	PublishChannel(context.Context, app.RemoteInputChannel) (Publication, error)
+	UpdateChannel(context.Context, app.RemoteInputChannelUpdate) error
+	CloseChannel(context.Context, string) error
+}
+
+// SessionProvider owns transport infrastructure shared across request
+// channels and releases it only when the Wharness runtime session ends.
+type SessionProvider interface {
+	StartSession(context.Context) error
+	StopSession(context.Context) error
+	ClearSession(context.Context) error
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppConfig, ChatGPTActivity, HarnessEvent, Session } from '../types'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
@@ -12,19 +12,22 @@ import { buildExecutionTimeline } from '../lib/executionTimeline'
 
 export type InspectorTab = 'plan' | 'terminal' | 'chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
   manualPrompt: string
   busy: boolean
   chat?: WorkspaceChat
+  chatgptSurface?: { cacheKey: string; title: string; url?: string; conflictId?: string }
   chatgptSuspended?: boolean
   activeTab?: InspectorTab
   onTabChange?: (tab: InspectorTab) => void
   embedded?: boolean
   onChatGPTURL: (url: string) => boolean
   onChatGPTActivity?: (activity: ChatGPTActivity) => void
+	 onTransportFailure?: (requestId: string, reason: string) => void
+  onCancelPendingRequest?: (requestId: string) => Promise<void>
   onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean) => Promise<void>
   onApply: () => Promise<void>
@@ -39,13 +42,14 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const selectTab = (next: InspectorTab) => { if (activeTab === undefined) setTab(next); onTabChange?.(next) }
   const [manualJSON, setManualJSON] = useState('')
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => ['execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'automation.execution_failed', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'self_evolution.host_build_started', 'self_evolution.host_build_completed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed'].includes(e.type)), [events])
+  const terminalEvents = useMemo(() => events.filter((e) => ['execution.queued', 'execution.dequeued', 'execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'execution.recovery_discarded', 'execution.recovery_reconciled', 'automation.execution_failed', 'automation.infrastructure_blocked', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'self_evolution.host_build_started', 'self_evolution.host_build_completed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed', 'changeset.base_restored', 'changeset.verified', 'changeset.replayed', 'changeset.integrated', 'integration.verification_started', 'integration.race', 'conflict.prompt_ready'].includes(e.type)), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
   const pendingCount = session.pending_host_changes?.length || (session.last_execution?.success && session.state === 'verified' ? 1 : 0)
-  const pendingResolutionBlocked = Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || ['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending'].includes(session.state))
+  const pendingResolutionBlocked = Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || ['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state))
   const canApply = Boolean(!direct && pendingCount && !pendingResolutionBlocked && session.last_turn?.kind !== 'workflow')
+  const canReject = canApply || Boolean(!direct && pendingCount && session.integration_conflict)
   const desktop = isDesktop()
 
   async function copy(text: string) { await navigator.clipboard.writeText(text) }
@@ -63,7 +67,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
           {direct && <StatusPill tone="warning">Unprotected</StatusPill>}
           {session.automation_mode === 'auto' && <StatusPill tone="success">Auto</StatusPill>}
           {canExecute && <button className={direct ? 'danger-button' : 'secondary-button'} disabled={busy} onClick={() => onExecute(needsApproval || direct)}><Icon name="play" size={15}/> {direct ? 'Executar no host' : (needsApproval ? 'Aprovar e executar' : 'Executar')}</button>}
-          {canApply && <button className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={14}/> Rejeitar</button>}
+          {canReject && <button className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={14}/> {session.integration_conflict ? 'Cancelar conflito' : 'Rejeitar'}</button>}
           {canApply && <button className="apply-button" disabled={busy} onClick={onApply}><Icon name="apply" size={16}/> Aplicar no host{pendingCount > 1 ? ` (${pendingCount})` : ''}</button>}
         </div>
       </header>}
@@ -78,7 +82,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         {selectedTab === 'plan' && <PlanView session={session} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
         {selectedTab === 'chatgpt' && (desktop
-          ? <ChatGPTDesktopPane suspended={chatgptSuspended} busy={busy} chatId={chat?.id || ''} chatTitle={chat?.title || 'Chat'} chatgptUrl={chat?.chatgptUrl} onChatGPTURL={onChatGPTURL} onActivity={onChatGPTActivity} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
+		  ? <ChatGPTDesktopPane suspended={chatgptSuspended} busy={busy} chatId={chatgptSurface?.cacheKey || chat?.id || ''} chatTitle={chatgptSurface?.title || chat?.title || 'Chat'} chatgptUrl={chatgptSurface?.url || chat?.chatgptUrl} pendingRequestId={session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]} onChatGPTURL={onChatGPTURL} onActivity={onChatGPTActivity} onTransportFailure={onTransportFailure} onCancelPendingRequest={onCancelPendingRequest} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
           : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
       </div>
     </section>
@@ -112,14 +116,18 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
   </div>
 }
 
-function PlanView({ session }: { session: Session }) {
-  if (!session.plan) return <Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." />
+export function PlanView({ session }: { session: Session }) {
+	const integration = <IntegrationQueue session={session} />
+	if (!session.plan) return <>{integration}<Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." /></>
   const plan = session.plan
   const workflow = session.last_turn?.kind === 'workflow'
   const operations = plan.operations || []
   const verification = plan.verification || []
-  return <div className="plan-view">
-    <div className="section-heading plan-heading"><div><span className="panel-kicker">{workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={session.policy?.allowed ? 'success' : 'danger'}>{session.policy?.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado'}</StatusPill></div>
+  const policyStatus = session.policy ? (session.policy.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado') : 'Histórico'
+  const policyTone = session.policy ? (session.policy.allowed ? 'success' : 'danger') : 'neutral'
+	return <div className="plan-view">
+	{integration}
+    <div className="section-heading plan-heading"><div><span className="panel-kicker">{workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
     <div className="metric-row"><Metric label={workflow ? 'Comandos locais' : 'Operações'} value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
     {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><MarkdownContent markdown={session.last_bundle.readme} /></div></details>}
@@ -130,7 +138,17 @@ function PlanView({ session }: { session: Session }) {
   </div>
 }
 
-function TerminalView({ events }: { events: HarnessEvent[] }) {
+function IntegrationQueue({ session }: { session: Session }) {
+	const pending = session.pending_host_changes || []
+	if (!pending.length && !session.integration_conflict) return null
+	return <section className="integration-queue" aria-label="Fila de integração">
+		<div className="section-heading"><div><span className="panel-kicker">Concorrência</span><h3>Fila de integração</h3></div><StatusPill tone={session.integration_conflict ? 'danger' : 'success'}>{session.integration_conflict ? 'Conflito' : `${pending.length} verificado(s)`}</StatusPill></div>
+		{pending.map((change) => <div className="operation" key={change.plan.plan_id}><div className="operation-index"><Icon name="apply" size={14}/></div><div className="operation-body"><strong>{change.plan.summary}</strong><span>{change.change_set ? `${change.change_set.state} · ${change.change_set.mutations.map((mutation) => mutation.path).join(', ')}` : 'Compatibilidade v1 · patch pendente'}</span></div></div>)}
+		{session.integration_conflict && <div className="policy-box"><Icon name="chatgpt" size={17}/><div><strong>Janela GPT dedicada</strong><span>{session.integration_conflict.paths.join(', ')}</span><span>Pedido {session.integration_conflict.request_id}</span></div></div>}
+	</section>
+}
+
+export function TerminalView({ events }: { events: HarnessEvent[] }) {
   const entries = useMemo(() => buildExecutionTimeline(events), [events])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const endRef = useRef<HTMLDivElement>(null)
@@ -153,21 +171,27 @@ function TerminalView({ events }: { events: HarnessEvent[] }) {
       <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : 'Atualizada'}</StatusPill>
     </div>
     <div className="execution-timeline">
-      {entries.map((entry) => {
+      {entries.map((entry, index) => {
         const canExpand = Boolean(entry.output)
         const isExpanded = expanded.has(entry.id)
-        return <div className={`execution-command-card ${entry.running ? 'running' : ''}`} key={entry.id}>
+		const previous = index > 0 ? entries[index - 1] : undefined
+		const showGroup = !previous || previous.rootRequestId !== entry.rootRequestId || previous.iterationKind !== entry.iterationKind
+        return <Fragment key={entry.id}>{showGroup && <div className={`execution-group-header kind-${entry.iterationKind}`}><strong>{executionKindLabel(entry.iterationKind)}</strong><a href={`#request-${entry.rootRequestId}`} title={entry.rootRequestId}>{entry.rootRequestId ? entry.rootRequestId.replace(/^req_/, '').slice(0, 22) : 'atividade da sessão'}</a></div>}<div className={`execution-command-card ${entry.running ? 'running' : ''}`}>
           <div className="execution-event">
             <span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} />
             <div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatExecutionDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatDuration(entry.durationMs)}` : ''}</span></div>
             <div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={isExpanded ? 'execution-expand open' : 'execution-expand'} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id); return next })} title={isExpanded ? 'Ocultar output' : 'Mostrar output'} aria-label={isExpanded ? 'Ocultar output' : 'Mostrar output'}>⌄</button>}</div>
           </div>
           {canExpand && isExpanded && <pre className="execution-command-output">{entry.output}</pre>}
-        </div>
+        </div></Fragment>
       })}
       <div ref={endRef}/>
     </div>
   </div>
+}
+
+function executionKindLabel(kind: 'standard' | 'repair' | 'evidence' | 'conflict') {
+	return kind === 'repair' ? 'Resolução de erro' : kind === 'evidence' ? 'Extração de informações' : kind === 'conflict' ? 'Resolução de conflito' : 'Execução principal'
 }
 
 function formatExecutionDate(value: string) {

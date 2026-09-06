@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,12 +21,11 @@ func copyProject(source string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, err
 	}
-	patterns := contextbundle.LoadIgnorePatterns(root)
 	tmp, err := os.MkdirTemp("", "kernl-workspace-*")
 	if err != nil {
 		return Workspace{}, err
 	}
-	tracked, err := isGitWorkTree(root)
+	tracked, err := isGitRepositoryRoot(root)
 	if err != nil {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("inspect source git repository: %w", err)
@@ -40,7 +40,44 @@ func copyProject(source string) (Workspace, error) {
 			return Workspace{}, fmt.Errorf("clear sandbox worktree: %w", err)
 		}
 	}
-	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	if err := copyEligibleProjectFiles(root, tmp, false); err != nil {
+		_ = os.RemoveAll(tmp)
+		return Workspace{}, fmt.Errorf("copy project: %w", err)
+	}
+	if tracked {
+		if err := configureSandboxGitRemotes(root, tmp); err != nil {
+			_ = os.RemoveAll(tmp)
+			return Workspace{}, fmt.Errorf("configure sandbox git remotes: %w", err)
+		}
+	} else if err := initializeWorkspaceGit(tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
+	}
+	return Workspace{Path: tmp, SourcePath: root}, nil
+}
+
+// HydrateMissingProjectFiles completes a private partial request base with
+// safe files from the current project without replacing any historical file
+// already present in that base. Patch/read/barrier paths must be proven present
+// separately before this compatibility operation is selected.
+func HydrateMissingProjectFiles(target, source string) error {
+	root, err := filepath.Abs(source)
+	if err != nil {
+		return err
+	}
+	destination, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(root) == filepath.Clean(destination) {
+		return errors.New("partial base target must differ from project source")
+	}
+	return copyEligibleProjectFiles(root, destination, true)
+}
+
+func copyEligibleProjectFiles(root, target string, onlyMissing bool) error {
+	patterns := contextbundle.LoadIgnorePatterns(root)
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -58,9 +95,16 @@ func copyProject(source string) (Workspace, error) {
 		if entry.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		dst := filepath.Join(tmp, rel)
+		dst := filepath.Join(target, rel)
 		if entry.IsDir() {
 			return os.MkdirAll(dst, 0o755)
+		}
+		if onlyMissing {
+			if _, statErr := os.Lstat(dst); statErr == nil {
+				return nil
+			} else if !errors.Is(statErr, os.ErrNotExist) {
+				return statErr
+			}
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -70,27 +114,14 @@ func copyProject(source string) (Workspace, error) {
 			return nil
 		}
 		return copyFile(path, dst, info.Mode().Perm())
-	}); err != nil {
-		_ = os.RemoveAll(tmp)
-		return Workspace{}, fmt.Errorf("copy project: %w", err)
-	}
-	if tracked {
-		if err := configureSandboxGitRemotes(root, tmp); err != nil {
-			_ = os.RemoveAll(tmp)
-			return Workspace{}, fmt.Errorf("configure sandbox git remotes: %w", err)
-		}
-	} else if err := initializeWorkspaceGit(tmp); err != nil {
-		_ = os.RemoveAll(tmp)
-		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
-	}
-	return Workspace{Path: tmp, SourcePath: root}, nil
+	})
 }
 
-func isGitWorkTree(root string) (bool, error) {
+func isGitRepositoryRoot(root string) (bool, error) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return false, errors.New("git executable not found")
 	}
-	cmd := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree")
+	cmd := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel")
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	output, err := cmd.Output()
 	if err != nil {
@@ -100,7 +131,11 @@ func isGitWorkTree(root string) (bool, error) {
 		}
 		return false, err
 	}
-	return strings.TrimSpace(string(output)) == "true", nil
+	topLevel, err := filepath.Abs(strings.TrimSpace(string(output)))
+	if err != nil {
+		return false, err
+	}
+	return filepath.Clean(topLevel) == filepath.Clean(root), nil
 }
 
 func cloneGitBaseline(source, dest string) error {
@@ -195,7 +230,15 @@ func safeSandboxRemoteURL(raw string) (string, bool) {
 }
 
 func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec) error {
-	if !requiresLocalNodeDependencies(command.Argv) || workspace.SourcePath == "" {
+	if workspace.SourcePath == "" {
+		return nil
+	}
+	if requiresLocalGoDependencies(command.Argv) {
+		if err := prepareGoDependencies(workspace, command); err != nil {
+			return err
+		}
+	}
+	if !requiresLocalNodeDependencies(command.Argv) {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(workspace.Path, ".pnp.cjs")); err == nil {
@@ -241,6 +284,121 @@ func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec)
 		return nil
 	}
 	return errors.New("sandbox node dependencies unavailable: node_modules was not found in the project; install dependencies on the host before Protected execution")
+}
+
+type goModuleDownload struct {
+	Path  string
+	Dir   string
+	Info  string
+	GoMod string
+	Zip   string
+	Error string
+}
+
+func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) error {
+	sourceCwd, err := safeRelativePath(workspace.SourcePath, command.Cwd)
+	if err != nil {
+		return err
+	}
+	moduleRoot, ok := nearestGoModuleRoot(workspace.SourcePath, sourceCwd)
+	if !ok {
+		return nil
+	}
+	targetCache := filepath.Join(workspace.Path, ".kernl", "go-mod")
+	marker := filepath.Join(targetCache, ".wharness-ready")
+	if _, err := os.Stat(marker); err == nil {
+		return nil
+	}
+	cacheOutput, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		return fmt.Errorf("%w: resolve host Go module cache: %v", ErrOfflineDependenciesUnavailable, err)
+	}
+	hostCache := strings.TrimSpace(string(cacheOutput))
+	if hostCache == "" || !filepath.IsAbs(hostCache) {
+		return fmt.Errorf("%w: host GOMODCACHE is unavailable", ErrOfflineDependenciesUnavailable)
+	}
+	cmd := exec.Command("go", "mod", "download", "-json", "all")
+	cmd.Dir = moduleRoot
+	cmd.Env = append(os.Environ(), "GOPROXY=off")
+	output, downloadErr := cmd.Output()
+	decoder := json.NewDecoder(strings.NewReader(string(output)))
+	modules := make([]goModuleDownload, 0)
+	for {
+		var module goModuleDownload
+		if err := decoder.Decode(&module); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return fmt.Errorf("%w: decode cached Go module inventory: %v", ErrOfflineDependenciesUnavailable, err)
+		}
+		if module.Error != "" {
+			return fmt.Errorf("%w: %s: %s; run `go mod download` for this project while the host has network access", ErrOfflineDependenciesUnavailable, module.Path, module.Error)
+		}
+		if module.Dir != "" {
+			modules = append(modules, module)
+		}
+	}
+	if downloadErr != nil {
+		return fmt.Errorf("%w: required Go modules are not present in the host cache; run `go mod download` for this project while the host has network access", ErrOfflineDependenciesUnavailable)
+	}
+	for _, module := range modules {
+		rel, err := filepath.Rel(hostCache, module.Dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("%w: cached module %s escaped GOMODCACHE", ErrOfflineDependenciesUnavailable, module.Path)
+		}
+		if err := copyDependencyTree(module.Dir, filepath.Join(targetCache, rel), hostCache, targetCache); err != nil {
+			return fmt.Errorf("%w: copy cached Go module %s: %v", ErrOfflineDependenciesUnavailable, module.Path, err)
+		}
+		for _, cachedFile := range []string{module.Info, module.GoMod, module.Zip, module.Zip + "hash"} {
+			if cachedFile == "" {
+				continue
+			}
+			fileRel, err := filepath.Rel(hostCache, cachedFile)
+			if err != nil || fileRel == ".." || strings.HasPrefix(fileRel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("%w: cached metadata for %s escaped GOMODCACHE", ErrOfflineDependenciesUnavailable, module.Path)
+			}
+			info, err := os.Stat(cachedFile)
+			if err != nil {
+				return fmt.Errorf("%w: cached metadata for %s is incomplete: %s", ErrOfflineDependenciesUnavailable, module.Path, filepath.Base(cachedFile))
+			}
+			if err := copyFile(cachedFile, filepath.Join(targetCache, fileRel), info.Mode().Perm()); err != nil {
+				return fmt.Errorf("%w: copy cached metadata for %s: %v", ErrOfflineDependenciesUnavailable, module.Path, err)
+			}
+		}
+	}
+	if err := os.MkdirAll(targetCache, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
+}
+
+func nearestGoModuleRoot(sourceRoot, start string) (string, bool) {
+	root := filepath.Clean(sourceRoot)
+	current := filepath.Clean(start)
+	for {
+		if _, err := os.Stat(filepath.Join(current, "go.mod")); err == nil {
+			return current, true
+		}
+		if current == root {
+			return "", false
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", false
+		}
+		current = parent
+	}
+}
+
+func requiresLocalGoDependencies(argv []string) bool {
+	if len(argv) < 2 || filepath.Base(argv[0]) != "go" {
+		return false
+	}
+	switch argv[1] {
+	case "build", "install", "list", "run", "test", "vet":
+		return true
+	default:
+		return false
+	}
 }
 
 func requiresLocalNodeDependencies(argv []string) bool {

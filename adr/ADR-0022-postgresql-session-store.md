@@ -1,0 +1,5 @@
+# PostgreSQL session records replace the monolithic snapshot
+
+Wharness stores each Harness Session as an independent PostgreSQL record in a Docker-managed local database. The previous `sessions.json` is imported transactionally and idempotently as a Legacy Session Snapshot, then retained only as a recovery copy; PostgreSQL is authoritative and updates no longer serialize unrelated sessions. We chose one JSONB aggregate payload per session plus indexed identity/lifecycle columns because it preserves the existing domain aggregate and compatibility while eliminating whole-store write amplification; decomposing every nested plan, context, and execution value into relational tables would couple persistence to protocol internals without a current query need.
+
+The canonical local lifecycle owns a project-labelled PostgreSQL container, persistent Wharness-local data, loopback-only dynamic host-port publication, and private generated credentials. It never mounts the Docker socket into the backend or runner. Startup fails closed when Docker/database initialization or legacy migration fails; it never silently falls back to writing the legacy snapshot.

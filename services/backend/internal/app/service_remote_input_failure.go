@@ -1,0 +1,60 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"kernl.local/harness/backend/internal/domain"
+)
+
+// FailRemoteInputRequest ends a request that cannot obtain its required remote
+// input. It is terminal by design: leaving it pending would make the chat look
+// as though ChatGPT were still working and would prevent a fresh publication.
+func (s *Service) FailRemoteInputRequest(ctx context.Context, sessionID, requestID, reason string) (domain.Session, error) {
+	return s.FailRemoteInputRequestWithKind(ctx, sessionID, requestID, reason, "transport")
+}
+
+func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID, requestID, reason, kind string) (domain.Session, error) {
+	requestID = strings.TrimSpace(requestID)
+	reason = strings.TrimSpace(reason)
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = "transport"
+	}
+	if kind != "transport" && kind != "bundle_validation" {
+		return domain.Session{}, errors.New("unsupported remote input failure kind")
+	}
+	if requestID == "" || reason == "" || len(reason) > 512 {
+		return domain.Session{}, errors.New("remote input failure requires a request id and bounded reason")
+	}
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		// A durable session restored after a Desktop/backend restart can retain
+		// the active request id while the transient pending-id slice is absent.
+		// Permit only that exact current id; never let an older request close a
+		// newer session.
+		if !containsString(current.PendingManualRequestIDs, requestID) && current.LastRequestID != requestID {
+			return errors.New("remote input request is not pending")
+		}
+		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, requestID)
+		current.PlannerInFlight = false
+		current.State = "failed"
+		current.LastRepairError = "Remote input communication failed: " + reason
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.closeRemoteInputChannel(sessionID, "transport_failed")
+	s.bus.Publish(sessionID, "remote_input.failed", map[string]any{"request_id": requestID, "reason": reason, "kind": kind})
+	if kind == "bundle_validation" && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
+		recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true)
+		if retryErr != nil {
+			s.bus.Publish(sessionID, "request.auto_recovery_failed", map[string]any{"replaces_request_id": requestID, "error": retryErr.Error()})
+			return updated, nil
+		}
+		s.bus.Publish(sessionID, "request.auto_recovery_prepared", map[string]any{"request_id": recovered.LastRequestID, "replaces_request_id": requestID, "attempt": recovered.RemoteRecoveryAttempt})
+		return recovered, nil
+	}
+	return updated, nil
+}

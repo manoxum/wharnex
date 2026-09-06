@@ -45,8 +45,24 @@ func Validate(plan domain.ExecutionPlan) error {
 		return errors.New("impact_files exceeds 256 paths")
 	}
 	for i, path := range plan.ImpactFiles {
-		if err := validateImpactPath(path); err != nil {
+		if err := validateDeclaredPath(path); err != nil {
 			return fmt.Errorf("impact_files %d: %w", i, err)
+		}
+	}
+	if len(plan.ReadFiles) > 256 {
+		return errors.New("read_files exceeds 256 paths")
+	}
+	for i, path := range plan.ReadFiles {
+		if err := validateDeclaredPath(path); err != nil {
+			return fmt.Errorf("read_files %d: %w", i, err)
+		}
+	}
+	if len(plan.BarrierFiles) > 64 {
+		return errors.New("barrier_files exceeds 64 paths")
+	}
+	for i, path := range plan.BarrierFiles {
+		if err := validateDeclaredPath(path); err != nil {
+			return fmt.Errorf("barrier_files %d: %w", i, err)
 		}
 	}
 	for i, op := range plan.Operations {
@@ -96,6 +112,13 @@ func validateImpactPath(value string) error {
 		return errors.New("path escapes project root")
 	}
 	return nil
+}
+
+func validateDeclaredPath(value string) error {
+	if err := validateImpactPath(value); err != nil {
+		return err
+	}
+	return validatePatchPath(value)
 }
 
 func ValidateCommand(command domain.CommandSpec) error {
@@ -203,7 +226,9 @@ func validatePatchPath(value string) error {
 		return fmt.Errorf("patch path escapes project: %s", path)
 	}
 	lower := strings.ToLower(filepath.ToSlash(clean))
-	blocked := lower == ".env" || strings.HasPrefix(lower, ".env.") || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
+	base := filepath.Base(lower)
+	safeEnvTemplate := base == ".env.example" || base == ".env.sample" || base == ".env.template"
+	blocked := lower == ".env" || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
 	if blocked {
 		return fmt.Errorf("sensitive patch path denied: %s", path)
 	}

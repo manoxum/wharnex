@@ -150,6 +150,19 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
 
   const expected = String(expectedRequestId || '').trim()
   if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(expected)) return undefined
+  const duplicate = /^wharness-bundle-(req_[A-Za-z0-9_-]{8,180}) ?\([1-9][0-9]{0,3}\)\.zip$/.exec(filename)
+  if (duplicate) {
+    const duplicateRequestId = duplicate[1]
+    if (duplicateRequestId !== expected) {
+      throw new Error(`Bundle pertence ao pedido ${duplicateRequestId}, mas o pedido ativo é ${expected}.`)
+    }
+    return {
+      requestId: expected,
+      filename: `wharness-bundle-${expected}.zip`,
+      normalized: true,
+      sourceFilename: filename,
+    }
+  }
   if (/^wharness-bundle-/i.test(filename)) {
     throw new Error('Nome do bundle Wharness contém um request_id inválido e não pode ser normalizado.')
   }

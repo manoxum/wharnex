@@ -394,7 +394,7 @@ func (m *Manager) BuildHost(ctx context.Context, tx Transaction) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("capture pre-build source guard: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, "make", "build")
+	cmd := exec.CommandContext(ctx, "make", "build-stage")
 	cmd.Dir = m.root
 	cmd.Env = append(os.Environ(), "WHARNESS_SELF_EVOLUTION=1")
 	var output limitedBuffer
@@ -447,6 +447,9 @@ func (m *Manager) ScheduleRestart(tx Transaction, sessionID, planID string) erro
 	if tx.Root != m.root || tx.Worker == "" {
 		return errors.New("invalid self-evolution transaction")
 	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("WHARNESS_SERVICES_MODE")), "stack") {
+		return m.scheduleStackRestart(tx, sessionID, planID)
+	}
 	logPath := filepath.Join(m.root, ".harness", "logs", "self-evolution.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return err
@@ -467,6 +470,37 @@ func (m *Manager) ScheduleRestart(tx Transaction, sessionID, planID string) erro
 		return fmt.Errorf("start detached self-restart worker: %w", err)
 	}
 	return cmd.Process.Release()
+}
+
+func (m *Manager) scheduleStackRestart(tx Transaction, sessionID, planID string) error {
+	image := strings.TrimSpace(os.Getenv("WHARNESS_BACKEND_IMAGE"))
+	dockerGID := strings.TrimSpace(os.Getenv("WHARNESS_DOCKER_GID"))
+	home := strings.TrimSpace(os.Getenv("HOME"))
+	if image == "" || dockerGID == "" || home == "" {
+		return errors.New("stack self-restart environment is incomplete")
+	}
+	name := "wharness-self-restart-" + sanitizeLabel(tx.ID)
+	args := []string{
+		"run", "-d", "--rm", "--name", name,
+		"--network", "host",
+		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		"--group-add", dockerGID,
+		"-e", "HOME=" + home,
+		"-e", "WHARNESS_ROOT=" + m.root,
+		"-e", "WHARNESS_SERVICES_MODE=stack",
+		"-e", "WHARNESS_BACKEND_IMAGE=" + image,
+		"-e", "WHARNESS_DOCKER_GID=" + dockerGID,
+		"-v", home + ":" + home,
+		"-v", "/var/run/docker.sock:/var/run/docker.sock",
+		"--entrypoint", tx.Worker,
+		image,
+		m.root, tx.Dir, sanitizeLabel(sessionID), sanitizeLabel(planID),
+	}
+	output, err := exec.Command("docker", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("start stack self-restart supervisor: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func (tx Transaction) Rollback() error {

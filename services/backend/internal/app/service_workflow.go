@@ -201,9 +201,11 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 		decision = s.policy.Evaluate(*planned.Plan)
 	}
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
+		recordRequestLineage(item, requestID, refreshed.LastRequestID, requestKindEvidence)
 		item.WorkflowRound = round
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
+		recordRequestContext(item, requestID, refreshed.Context)
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastTurn = planned.Turn
 		if planned.ProviderResponseID != "" {

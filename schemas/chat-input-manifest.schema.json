@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/chat-input-manifest.schema.json",
+  "title": "Wharness direct ChatGPT input archive manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "request_id", "prompt", "context_included", "project_files", "live_tunnels"],
+  "properties": {
+    "protocol": { "const": "wharness.chat-input/v1" },
+    "request_id": { "type": "string", "minLength": 12, "maxLength": 184, "pattern": "^req_[A-Za-z0-9_-]{8,180}$" },
+    "prompt": { "const": "prompt/wharness-planner-prompt.md" },
+    "context_included": { "type": "boolean" },
+    "project_files": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "live_tunnels": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "instance_id", "status", "manifest"],
+        "properties": {
+          "provider": { "type": "string", "minLength": 1 },
+          "instance_id": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "pattern": "^https://" },
+          "manifest": { "type": "string", "pattern": "^https://" }
+        }
+      }
+    }
+  }
+}

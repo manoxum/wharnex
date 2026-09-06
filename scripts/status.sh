@@ -21,9 +21,14 @@ pid_status() {
 
 printf 'Wharness status\n'
 pid_status coordinator "$RUN_DIR/coordinator.pid"
-pid_status backend "$RUN_DIR/backend.pid"
-pid_status frontend "$RUN_DIR/frontend.pid"
 pid_status electron "$RUN_DIR/electron.pid"
+
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  printf 'Compose stack\n'
+  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" status || true
+else
+  echo 'Compose stack: Docker unavailable'
+fi
 
 if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
   echo '  backend HTTP  healthy'

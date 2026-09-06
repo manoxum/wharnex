@@ -12,7 +12,13 @@ const frontendDir = path.resolve(here, '../frontend')
 const runtimeDir = path.resolve(process.env.WHARNESS_RUNTIME_DIR || path.join(projectRoot, '.harness/run'))
 const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
 const children = new Map()
+const servicesMode = process.env.WHARNESS_SERVICES_MODE || 'local'
 let shuttingDown = false
+// A detached Electron child does not reliably keep Node's event loop alive on
+// every Linux launcher/runtime combination. The coordinator must remain the
+// tracked owner so `make status` and `make stop` do not degrade into orphan
+// recovery while Electron is healthy.
+const coordinatorKeepAlive = setInterval(() => {}, 60_000)
 
 function desktopRuntimeEnvironment() {
   const env = { ...process.env }
@@ -56,10 +62,13 @@ function run(label, command, args, cwd, env = {}) {
   })
   children.set(label, child)
   writePid(label, child.pid)
+  child.on('error', (error) => {
+    console.error(`${label} failed to start:`, error)
+  })
   child.on('exit', (code, signal) => {
     children.delete(label)
     clearPid(label)
-    if (!shuttingDown && code && code !== 0) console.error(`${label} exited with ${code}${signal ? ` (${signal})` : ''}`)
+    if (!shuttingDown && (code !== 0 || signal)) console.error(`${label} exited with ${code ?? 'no code'}${signal ? ` (${signal})` : ''}`)
   })
   return child
 }
@@ -99,26 +108,27 @@ function frontendCommand() {
 }
 
 async function main() {
-  if (!await ready('http://127.0.0.1:8080/api/health')) {
+  if (servicesMode === 'stack') {
+    await Promise.all([
+      waitFor('http://127.0.0.1:8080/api/health', 'stack backend'),
+      waitFor('http://127.0.0.1:5173', 'stack frontend'),
+    ])
+  } else {
+    if (await ready('http://127.0.0.1:8080/api/health')) throw new Error('An untracked process already owns Wharness backend port 8080. Stop that verified Wharness process before starting.')
+    if (await ready('http://127.0.0.1:5173')) throw new Error('An untracked process already owns Wharness frontend port 5173. Stop that verified Wharness process before starting.')
+
     const backend = backendCommand()
     run('backend', backend.command, backend.args, backendDir, {
       HARNESS_RUNNER_IMAGE: process.env.WHARNESS_RUNNER_IMAGE || process.env.HARNESS_RUNNER_IMAGE || 'kernl-runner:local',
     })
-  } else {
-    console.log('Reusing existing backend on 127.0.0.1:8080')
-  }
-
-  if (!await ready('http://127.0.0.1:5173')) {
     const frontend = frontendCommand()
     run('frontend', frontend.command, frontend.args, frontendDir)
-  } else {
-    console.log('Reusing existing frontend on 127.0.0.1:5173')
-  }
 
-  await Promise.all([
-    waitFor('http://127.0.0.1:8080/api/health', 'backend'),
-    waitFor('http://127.0.0.1:5173', 'frontend'),
-  ])
+    await Promise.all([
+      waitFor('http://127.0.0.1:8080/api/health', 'backend'),
+      waitFor('http://127.0.0.1:5173', 'frontend'),
+    ])
+  }
 
   const desktopEnv = desktopRuntimeEnvironment()
   const launch = electronLaunchArguments(process.platform, desktopEnv)
@@ -144,6 +154,7 @@ function cleanupPidFiles() {
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
+  clearInterval(coordinatorKeepAlive)
   for (const child of children.values()) terminateChild(child, 'SIGTERM')
   setTimeout(() => {
     for (const child of children.values()) terminateChild(child, 'SIGKILL')

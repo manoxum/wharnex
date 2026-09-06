@@ -17,6 +17,26 @@ type fakeProvider struct {
 	putErr  error
 }
 
+type fakeChannelProvider struct {
+	fakeProvider
+	sessionCloses int
+	startErr      error
+}
+
+func (f *fakeChannelProvider) PublishChannel(_ context.Context, channel app.RemoteInputChannel) (Publication, error) {
+	return Publication{Provider: "channel", URL: "https://channel.example/" + channel.ChannelID + "/manifest.json"}, nil
+}
+func (f *fakeChannelProvider) UpdateChannel(_ context.Context, _ app.RemoteInputChannelUpdate) error {
+	return nil
+}
+func (f *fakeChannelProvider) CloseChannel(_ context.Context, _ string) error { return nil }
+func (f *fakeChannelProvider) StartSession(_ context.Context) error           { return f.startErr }
+func (f *fakeChannelProvider) StopSession(_ context.Context) error {
+	f.sessionCloses++
+	return nil
+}
+func (f *fakeChannelProvider) ClearSession(_ context.Context) error { return nil }
+
 func (f *fakeProvider) Name() string { return "fake" }
 func (f *fakeProvider) Put(_ context.Context, name, _ string) (Publication, error) {
 	f.put = append(f.put, name)
@@ -43,6 +63,70 @@ func TestPoolFailsOverWhenPreferredAccountPublicationFails(t *testing.T) {
 		t.Fatalf("unexpected failover: publication=%#v primary=%#v secondary=%#v", publication, primary.put, secondary.put)
 	}
 }
+
+func TestPoolAdvertisesLiveChannelsOnlyWhenPriorityPoolIsEntirelyCapable(t *testing.T) {
+	channel := &fakeChannelProvider{}
+	if !NewPool([]Instance{{ID: "tunnel", Provider: channel}}, filepath.Join(t.TempDir(), "state.json")).SupportsRemoteInputChannels() {
+		t.Fatal("TryCloudflare-only pool should advertise live request channels")
+	}
+	mixed := NewPool([]Instance{{ID: "durable", Priority: 1, Provider: &fakeProvider{}}, {ID: "tunnel", Priority: 2, Provider: channel}}, filepath.Join(t.TempDir(), "state.json"))
+	if mixed.SupportsRemoteInputChannels() {
+		t.Fatal("mixed priority pool must retain ordinary publication semantics")
+	}
+}
+
+func TestManagerClosesSharedProviderSessionOnce(t *testing.T) {
+	channel := &fakeChannelProvider{}
+	manager := NewPool([]Instance{{ID: "tunnel", Provider: channel}}, filepath.Join(t.TempDir(), "state.json"))
+	if err := manager.StopRemoteInputSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if channel.sessionCloses != 1 {
+		t.Fatalf("shared provider session close count = %d", channel.sessionCloses)
+	}
+}
+
+func TestManagerSkipsFailedPermanentProviderAndKeepsFallback(t *testing.T) {
+	failed := &fakeChannelProvider{startErr: errors.New("account rejected")}
+	fallback := &fakeChannelProvider{}
+	manager := NewPool([]Instance{{ID: "permanent", Priority: 1, Provider: failed}, {ID: "fallback", Priority: 2, Provider: fallback}}, filepath.Join(t.TempDir(), "state.json"))
+	if err := manager.StartRemoteInputSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	publication, err := manager.PublishRemoteInputChannel(context.Background(), app.RemoteInputChannel{ChannelID: "abcdef0123456789abcdef0123456789", Resources: []app.RemoteInputChannelResource{{Path: "manifest.json"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publication.InstanceID != "fallback" {
+		t.Fatalf("failed provider was not skipped: %#v", publication)
+	}
+}
+
+func TestManagerPublishesChannelSetInConfiguredPriorityOrder(t *testing.T) {
+	primary := &fakeChannelProvider{}
+	secondary := &fakeChannelProvider{}
+	limits := app.RemoteInputLimits{MaxRequests: 10, WindowSeconds: 3600}
+	manager := NewPool([]Instance{
+		{ID: "secondary", Priority: 20, Limits: limits, Provider: secondary},
+		{ID: "primary", Priority: 10, Limits: limits, Provider: primary},
+	}, filepath.Join(t.TempDir(), "state.json"))
+	publications, err := manager.PublishRemoteInputChannelSet(context.Background(), app.RemoteInputChannel{
+		ChannelID: "abcdef0123456789abcdef0123456789",
+		Resources: []app.RemoteInputChannelResource{{Path: "manifest.json"}},
+		Bytes:     10, FileCount: 1, MaxFileSize: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(publications) != 2 || publications[0].InstanceID != "primary" || publications[1].InstanceID != "secondary" {
+		t.Fatalf("unexpected publication order: %#v", publications)
+	}
+	status := manager.Status()
+	if status.Instances[0].Usage.RequestsInWindow != 1 || status.Instances[1].Usage.RequestsInWindow != 1 {
+		t.Fatalf("channel publications were not counted per instance: %#v", status.Instances)
+	}
+}
+
 func (f *fakeProvider) Delete(_ context.Context, name string) error {
 	f.deleted = append(f.deleted, name)
 	return nil
@@ -67,6 +151,33 @@ func TestManagerDeletesPublicationsOlderThanSevenDays(t *testing.T) {
 	}
 	if len(provider.deleted) != 1 || provider.deleted[0] != "old.zip" {
 		t.Fatalf("unexpected deletions: %#v", provider.deleted)
+	}
+}
+
+func TestManagerReplacesUsageForTheSameStableObject(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "input.zip")
+	if err := os.WriteFile(input, []byte("zip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider := &fakeProvider{}
+	statePath := filepath.Join(root, "state.json")
+	instances := []Instance{{
+		ID: "account", Priority: 1,
+		Limits: app.RemoteInputLimits{MaxStoredObjects: 1, MaxStorageBytes: 4}, Provider: provider,
+	}}
+	manager := NewPool(instances, statePath)
+	object := app.RemoteInputObject{ObjectName: "stable.zip", FilePath: input, Bytes: 3, FileCount: 1, MaxFileSize: 3}
+	if _, err := manager.Publish(context.Background(), object); err != nil {
+		t.Fatal(err)
+	}
+	manager = NewPool(instances, statePath)
+	if _, err := manager.Publish(context.Background(), object); err != nil {
+		t.Fatalf("stable object should be replaceable after restart: %v", err)
+	}
+	status := manager.Status()
+	if len(provider.put) != 2 || status.Instances[0].Usage.StoredObjects != 1 || status.Instances[0].Usage.StorageBytes != 3 {
+		t.Fatalf("replacement was counted as a new object: calls=%#v status=%#v", provider.put, status)
 	}
 }
 

@@ -1,19 +1,23 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/app"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/config"
+	"kernl.local/harness/backend/internal/documentpreview"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
@@ -31,11 +35,18 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
+	mux.HandleFunc("GET /api/tunnel-config", a.tunnelConfig)
+	mux.HandleFunc("PUT /api/tunnel-config", a.updateTunnelConfig)
+	mux.HandleFunc("GET /api/tunnel/providers", a.tunnelProviders)
+	mux.HandleFunc("POST /api/tunnel/connections", a.connectTunnelProvider)
+	mux.HandleFunc("DELETE /api/tunnel/connections/{credential_ref}", a.disconnectTunnelProvider)
 	mux.HandleFunc("GET /api/remote-storage-config", a.remoteStorageConfig)
 	mux.HandleFunc("PUT /api/remote-storage-config", a.updateRemoteStorageConfig)
 	mux.HandleFunc("GET /api/remote-storage/providers", a.remoteStorageProviders)
 	mux.HandleFunc("POST /api/remote-storage/connections", a.connectRemoteStorage)
 	mux.HandleFunc("POST /api/remote-storage/connections/check", a.checkRemoteStorage)
+	mux.HandleFunc("GET /api/artifact-settings", a.artifactSettings)
+	mux.HandleFunc("PUT /api/artifact-settings", a.updateArtifactSettings)
 	mux.HandleFunc("GET /api/storage", a.storage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
 	mux.HandleFunc("POST /api/projects/create", a.createProject)
@@ -47,15 +58,29 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
+	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
+	mux.HandleFunc("POST /api/sessions/{id}/remote-input/failures", a.remoteInputFailure)
 	mux.HandleFunc("POST /api/sessions/{id}/manual-plan", a.manualPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-bundle", a.executionBundle)
+	mux.HandleFunc("POST /api/sessions/{id}/policy-repair", a.retryPolicyRepair)
+	mux.HandleFunc("POST /api/sessions/{id}/failed-request/retry", a.retryFailedRequest)
+	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
+	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/discard", a.discardInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
 	mux.HandleFunc("POST /api/sessions/{id}/pending-changes/reject", a.rejectPendingChanges)
 	mux.HandleFunc("POST /api/sessions/{id}/revert", a.revert)
 	mux.HandleFunc("POST /api/sessions/{id}/self-restart", a.selfRestart)
+	mux.HandleFunc("GET /api/sessions/{id}/self-evolution/evidence", a.selfEvolutionEvidence)
+	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/analyze", a.selfEvolutionAnalyze)
+	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/evidence/resolve", a.selfEvolutionResolveEvidence)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
+	mux.HandleFunc("GET /api/sessions/{id}/artifacts", a.artifacts)
+	mux.HandleFunc("POST /api/sessions/{id}/artifacts", a.persistArtifact)
+	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}", a.artifactDownload)
+	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entries", a.artifactEntries)
+	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entry", a.artifactEntry)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
@@ -66,6 +91,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PATCH /api/sessions/{id}/files", a.renameWorkspacePath)
 	mux.HandleFunc("DELETE /api/sessions/{id}/files", a.deleteWorkspacePath)
 	mux.HandleFunc("GET /api/sessions/{id}/file", a.readFile)
+	mux.HandleFunc("GET /api/sessions/{id}/file/preview", a.previewFile)
 	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", a.terminal)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
@@ -77,6 +103,84 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.service.RemoteInputStatus()})
+}
+
+func (a *API) tunnelConfig(w http.ResponseWriter, _ *http.Request) {
+	document, err := config.ReadTunnelDocument(a.cfg.Tunnel)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "tunnel_config_read_failed", err.Error())
+		return
+	}
+	restartRequired := false
+	if a.service != nil {
+		restartRequired = tunnelRuntimeDiffers(document, a.service.RemoteInputStatus())
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"config": document, "restart_required": restartRequired})
+}
+
+func tunnelRuntimeDiffers(document config.TunnelDocument, status app.RemoteInputStatus) bool {
+	if len(document.Instances) != len(status.Instances) {
+		return true
+	}
+	runtimeByID := make(map[string]app.RemoteInputInstanceStatus, len(status.Instances))
+	for _, runtime := range status.Instances {
+		runtimeByID[runtime.ID] = runtime
+	}
+	for _, configured := range document.Instances {
+		runtime, exists := runtimeByID[configured.ID]
+		if !exists || !strings.EqualFold(configured.Provider, runtime.Provider) || configured.Priority != runtime.Priority {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *API) updateTunnelConfig(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, (256<<10)+1))
+	if err != nil || len(raw) > 256<<10 {
+		writeError(w, http.StatusBadRequest, "invalid_json", "tunnel config exceeds the 256 KiB limit")
+		return
+	}
+	document, err := config.DecodeTunnelDocument(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "tunnel_config_invalid", err.Error())
+		return
+	}
+	if err := config.SaveTunnelDocument(a.cfg.Tunnel, document); err != nil {
+		writeError(w, http.StatusBadRequest, "tunnel_config_invalid", err.Error())
+		return
+	}
+	saved, err := config.ReadTunnelDocument(a.cfg.Tunnel)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "tunnel_config_read_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"config": saved, "restart_required": true})
+}
+
+func (a *API) tunnelProviders(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"providers": a.service.TunnelProviders()})
+}
+
+func (a *API) connectTunnelProvider(w http.ResponseWriter, r *http.Request) {
+	var request app.TunnelProviderEnrollmentRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	enrollment, err := a.service.EnrollTunnelProvider(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "tunnel_provider_connection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, enrollment)
+}
+
+func (a *API) disconnectTunnelProvider(w http.ResponseWriter, r *http.Request) {
+	if err := a.service.DisconnectTunnelProvider(r.Context(), r.PathValue("credential_ref")); err != nil {
+		writeError(w, http.StatusBadRequest, "tunnel_provider_disconnect_failed", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) remoteStorageConfig(w http.ResponseWriter, _ *http.Request) {
@@ -99,6 +203,23 @@ func (a *API) updateRemoteStorageConfig(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "remote_storage_config_invalid", err.Error())
 		return
+	}
+	// Until the dedicated tunnel document is first saved, keep the legacy
+	// TryCloudflare entry invisible but intact so editing storage drivers cannot
+	// accidentally disable the migrated tunnel transport.
+	if _, statErr := os.Stat(a.cfg.Tunnel.ConfigFile); errors.Is(statErr, os.ErrNotExist) {
+		known := make(map[string]struct{}, len(document.Instances))
+		for _, instance := range document.Instances {
+			known[instance.ID] = struct{}{}
+		}
+		for _, instance := range previous.Instances {
+			if !strings.EqualFold(instance.Provider, "trycloudflare") {
+				continue
+			}
+			if _, exists := known[instance.ID]; !exists {
+				document.Instances = append(document.Instances, instance)
+			}
+		}
 	}
 	if err := config.SaveRemoteStorageDocument(a.cfg.RemoteStorage, document); err != nil {
 		writeError(w, http.StatusBadRequest, "remote_storage_config_invalid", err.Error())
@@ -156,6 +277,123 @@ func (a *API) checkRemoteStorage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"connected": true})
+}
+
+func (a *API) artifactSettings(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, a.service.ArtifactSettings())
+}
+
+func (a *API) updateArtifactSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RetentionDays int `json:"retention_days"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	document := config.ArtifactSettingsDocument{Version: 1, RetentionDays: body.RetentionDays}
+	if err := config.SaveArtifactSettings(a.cfg.Artifacts, document); err != nil {
+		writeError(w, http.StatusBadRequest, "artifact_settings_invalid", err.Error())
+		return
+	}
+	a.service.SetArtifactRetentionDays(body.RetentionDays)
+	before := time.Now().UTC().Add(-time.Duration(body.RetentionDays) * 24 * time.Hour)
+	if err := a.service.CleanupArtifacts(r.Context(), before); err != nil {
+		writeError(w, http.StatusInternalServerError, "artifact_cleanup_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a.service.ArtifactSettings())
+}
+
+func (a *API) artifacts(w http.ResponseWriter, r *http.Request) {
+	items, err := a.service.ListArtifacts(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artifacts": items})
+}
+
+func (a *API) persistArtifact(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RequestID     string `json:"request_id"`
+		Direction     string `json:"direction"`
+		Kind          string `json:"kind"`
+		Filename      string `json:"filename"`
+		ContentType   string `json:"content_type"`
+		ContentBase64 string `json:"content_base64"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, (350<<20)+1))
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_artifact", err.Error())
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(body.ContentBase64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_artifact_base64", "content_base64 is invalid")
+		return
+	}
+	record, err := a.service.PersistArtifact(r.Context(), r.PathValue("id"), body.RequestID, body.Direction, body.Kind, body.Filename, body.ContentType, raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "artifact_persist_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, record)
+}
+
+func (a *API) artifactDownload(w http.ResponseWriter, r *http.Request) {
+	record, raw, err := a.service.ReadArtifact(r.Context(), r.PathValue("id"), r.PathValue("artifact_id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "artifact_missing", err.Error())
+		return
+	}
+	contentType := record.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(record.Name, `"`, "")+`"`)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(raw)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(raw)
+}
+
+func (a *API) artifactEntries(w http.ResponseWriter, r *http.Request) {
+	entries, err := a.service.ArtifactEntries(r.Context(), r.PathValue("id"), r.PathValue("artifact_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "artifact_not_explorable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+func (a *API) artifactEntry(w http.ResponseWriter, r *http.Request) {
+	data, name, err := a.service.ReadArtifactEntry(r.Context(), r.PathValue("id"), r.PathValue("artifact_id"), r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "artifact_entry_missing", err.Error())
+		return
+	}
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(name, `"`, "")+`"`)
+	}
+	if r.URL.Query().Get("preview") == "office" {
+		preview, previewErr := documentpreview.OfficeText(name, data)
+		if previewErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, "office_preview_unavailable", previewErr.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "private, no-store")
+		_, _ = io.WriteString(w, preview)
+		return
+	}
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(data))
 }
 
 func (a *API) storage(w http.ResponseWriter, _ *http.Request) {
@@ -328,6 +566,40 @@ func (a *API) remoteInput(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, result)
 }
 
+func (a *API) remoteInputEvent(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RequestID string `json:"request_id"`
+		Comment   string `json:"comment"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, (20<<10)+1))
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_remote_input_event", err.Error())
+		return
+	}
+	if err := a.service.NotifyRemoteInputChannel(r.PathValue("id"), body.RequestID, body.Comment); err != nil {
+		writeError(w, http.StatusConflict, "remote_input_event_rejected", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true})
+}
+
+func (a *API) remoteInputFailure(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RequestID string `json:"request_id"`
+		Reason    string `json:"reason"`
+		Kind      string `json:"kind"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.FailRemoteInputRequestWithKind(r.Context(), r.PathValue("id"), body.RequestID, body.Reason, body.Kind)
+	if err != nil {
+		writeError(w, http.StatusConflict, "remote_input_failure_rejected", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (a *API) manualPlan(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
 	if err != nil {
@@ -363,10 +635,36 @@ func (a *API) executionBundle(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := a.service.SubmitExecutionBundle(r.Context(), r.PathValue("id"), body.Filename, raw)
 	if err != nil {
+		if errors.Is(err, app.ErrExecutionBundleRequestMismatch) {
+			writeError(w, http.StatusConflict, "execution_bundle_request_mismatch", err.Error())
+			return
+		}
+		if errors.Is(err, app.ErrExecutionBundleNotPending) {
+			writeError(w, http.StatusConflict, "execution_bundle_not_pending", err.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid_execution_bundle", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) retryPolicyRepair(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RetryPolicyRepair(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "policy_repair_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) retryFailedRequest(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RetryFailedRequest(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "failed_request_retry_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (a *API) execute(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +682,24 @@ func (a *API) execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": result, "session": item})
+}
+
+func (a *API) discardInterruptedExecution(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.DiscardInterruptedExecution(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "execution_recovery_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) cancelPendingRequest(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.CancelPendingRequest(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "request_cancel_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (a *API) apply(w http.ResponseWriter, r *http.Request) {
@@ -420,6 +736,45 @@ func (a *API) selfRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) selfEvolutionEvidence(w http.ResponseWriter, r *http.Request) {
+	evidence, err := a.service.EvolutionEvidence(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusForbidden, "self_evolution_evidence_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, evidence)
+}
+
+func (a *API) selfEvolutionAnalyze(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		EvidenceIDs []string `json:"evidence_ids"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, evidence, err := a.service.PrepareEvolutionAnalysis(r.Context(), r.PathValue("id"), body.EvidenceIDs...)
+	if err != nil {
+		writeError(w, http.StatusConflict, "self_evolution_analysis_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"session": item, "evidence_total": evidence.Total})
+}
+
+func (a *API) selfEvolutionResolveEvidence(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		EvidenceIDs []string `json:"evidence_ids"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	evidence, err := a.service.ResolveEvolutionEvidence(r.PathValue("id"), body.EvidenceIDs)
+	if err != nil {
+		writeError(w, http.StatusConflict, "self_evolution_evidence_resolve_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, evidence)
 }
 
 func (a *API) events(w http.ResponseWriter, r *http.Request) {
@@ -546,6 +901,43 @@ func (a *API) readFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, file)
 }
 
+func (a *API) previewFile(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	handle, info, err := a.service.OpenFilePreview(r.PathValue("id"), path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "file_preview_failed", err.Error())
+		return
+	}
+	defer handle.Close()
+	if r.URL.Query().Get("preview") == "office" {
+		if info.Size() > 64<<20 {
+			writeError(w, http.StatusRequestEntityTooLarge, "office_preview_too_large", "office document exceeds 64 MiB preview limit")
+			return
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(handle, (64<<20)+1))
+		if readErr != nil {
+			writeError(w, http.StatusInternalServerError, "office_preview_read_failed", readErr.Error())
+			return
+		}
+		preview, previewErr := documentpreview.OfficeText(info.Name(), raw)
+		if previewErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, "office_preview_unavailable", previewErr.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "private, no-store")
+		_, _ = io.WriteString(w, preview)
+		return
+	}
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(info.Name())))
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), handle)
+}
+
 func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Path           string `json:"path"`
@@ -597,9 +989,13 @@ func (a *API) resetTerminal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) bundle(w http.ResponseWriter, r *http.Request) {
-	item, err := a.store.Get(r.PathValue("id"))
+	item, err := a.service.EnsureContextArtifacts(r.PathValue("id"))
 	if err != nil {
-		writeError(w, 404, "session_not_found", "session not found")
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, 404, "session_not_found", "session not found")
+		} else {
+			writeError(w, 500, "context_rebuild_failed", err.Error())
+		}
 		return
 	}
 	serveDownload(w, r, item.Context.ZipPath, "wharness-context-"+item.ID+".zip", "application/zip")
@@ -614,9 +1010,13 @@ func (a *API) contextInspection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) contextFile(w http.ResponseWriter, r *http.Request) {
-	item, err := a.store.Get(r.PathValue("id"))
+	item, err := a.service.EnsureContextArtifacts(r.PathValue("id"))
 	if err != nil {
-		writeError(w, 404, "session_not_found", "session not found")
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, 404, "session_not_found", "session not found")
+		} else {
+			writeError(w, 500, "context_rebuild_failed", err.Error())
+		}
 		return
 	}
 	serveDownload(w, r, item.Context.TextPath, "wharness-context-"+item.ID+".txt", "text/plain; charset=utf-8")

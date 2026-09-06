@@ -1,14 +1,14 @@
 const UI_PREFERENCES_KEY = 'kernl.ui.preferences.v1'
-const UI_FONT_BASELINE = 1.12
+const UI_FONT_BASELINE = 1.25
 export const UI_PREFERENCES_EVENT = 'wharness:ui-preferences'
 
 export type UIFontChoice = 'elegant' | 'system' | 'humanist'
 export type MonoFontChoice = 'jetbrains' | 'system' | 'fira'
 export type ThemePreference = 'system' | 'light' | 'dark'
 export type ResolvedTheme = Exclude<ThemePreference, 'system'>
-export type UIPreferences = { uiFont: UIFontChoice; monoFont: MonoFontChoice; scale: number; theme: ThemePreference }
+export type UIPreferences = { uiFont: UIFontChoice; monoFont: MonoFontChoice; scale: number; theme: ThemePreference; errorPopups: boolean }
 
-export const DEFAULT_UI_PREFERENCES: UIPreferences = { uiFont: 'elegant', monoFont: 'jetbrains', scale: 1, theme: 'system' }
+export const DEFAULT_UI_PREFERENCES: UIPreferences = { uiFont: 'elegant', monoFont: 'jetbrains', scale: 1, theme: 'system', errorPopups: true }
 
 const UI_FONTS: Record<UIFontChoice, string> = {
   elegant: "Inter, Manrope, 'Segoe UI Variable', 'Segoe UI', ui-sans-serif, system-ui, sans-serif",
@@ -79,6 +79,7 @@ function normalizeUIPreferences(value: Partial<UIPreferences>): UIPreferences {
   const monoFont: MonoFontChoice = value.monoFont === 'system' || value.monoFont === 'fira' ? value.monoFont : 'jetbrains'
   const theme: ThemePreference = value.theme === 'light' || value.theme === 'dark' ? value.theme : 'system'
   const numeric = Number(value.scale)
-  const scale = Number.isFinite(numeric) ? Math.min(1.6, Math.max(0.8, Math.round(numeric * 20) / 20)) : DEFAULT_UI_PREFERENCES.scale
-  return { uiFont, monoFont, scale, theme }
+  const scale = Number.isFinite(numeric) ? Math.min(1.6, Math.max(0.4, Math.round(numeric * 20) / 20)) : DEFAULT_UI_PREFERENCES.scale
+  const errorPopups = value.errorPopups !== false
+  return { uiFont, monoFont, scale, theme, errorPopups }
 }

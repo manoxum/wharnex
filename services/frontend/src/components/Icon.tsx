@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor'
+type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor'
 
 export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
   const paths: Record<Name, ReactNode> = {
@@ -30,6 +30,7 @@ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
     chatgpt: <><circle cx="12" cy="12" r="8"/><path d="M12 6v12M6 12h12M8 8l8 8M16 8l-8 8"/></>,
     reset: <><path d="M4 4v6h6"/><path d="M5.5 16a8 8 0 1 0 1-9L4 10"/></>,
     chevron: <path d="m9 6 6 6-6 6"/>,
+    'chevron-right': <path d="m9 6 6 6-6 6"/>,
     network: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></>,
     workspace: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M8 9h13"/></>,
     plus: <path d="M12 5v14M5 12h14" />,

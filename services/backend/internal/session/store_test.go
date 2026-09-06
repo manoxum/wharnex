@@ -1,8 +1,10 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -27,6 +29,39 @@ func TestStoreDeleteRemovesOnlyRequestedSession(t *testing.T) {
 	}
 	if err := store.Delete("missing"); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestRequestContextArchivesPersistButAreNotPublicSessionJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	store, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := domain.Session{
+		ID: "ses_private", ProjectPath: "/tmp/project",
+		RequestContextArchives: map[string]string{"req_1": "/private/context.zip"},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	public, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(public), "context.zip") || strings.Contains(string(public), "request_context_archives") {
+		t.Fatalf("server-only archive path leaked through session JSON: %s", public)
+	}
+	reloaded, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reloaded.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestContextArchives["req_1"] != "/private/context.zip" {
+		t.Fatalf("archive location was not restored: %#v", got.RequestContextArchives)
 	}
 }
 
@@ -77,5 +112,35 @@ func TestPersistentStoreDefaultsAutomationModeForLegacyState(t *testing.T) {
 	}
 	if got.AutomationMode != domain.AutomationModeManual {
 		t.Fatalf("expected manual default, got %q", got.AutomationMode)
+	}
+}
+
+func TestArtifactObjectKeysPersistButRemainServerOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	store, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := domain.Session{ID: "ses_artifact", ProjectPath: "/tmp/artifact-project", Artifacts: []domain.ArtifactRecord{{ID: "artifact_1", Name: "input.zip", ObjectKey: "sessions/ses_artifact/artifact_1"}}}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	public, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(public), "sessions/ses_artifact/artifact_1") {
+		t.Fatalf("MinIO object key leaked through public session JSON: %s", public)
+	}
+	reloaded, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reloaded.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Artifacts) != 1 || got.Artifacts[0].ObjectKey != "sessions/ses_artifact/artifact_1" {
+		t.Fatalf("artifact object key was not restored: %#v", got.Artifacts)
 	}
 }

@@ -1,3 +1,151 @@
+## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+
+- Route conflicts discovered while replaying a retained Protected ChangeSet into the dedicated `harness.conflict/v1` resolution path instead of starting an impossible generic repair loop.
+- Persist Main Request lineage and classify iterations as standard, repair, evidence extraction, or conflict resolution; group the Execution timeline by that lineage.
+- Timestamp WHX transcript notices, link them to their triggering request, and add separate **Retomar pedido** and **Cancelar pedido** actions. Cancellation releases the conversation while preserving verified Protected candidates.
+- Make the local-evidence `workflow` contract explicit: ChatGPT may return a command-only bundle describing the missing information, and WHX returns its bounded local observations to the same Main Request.
+- Persist bounded/redacted operational events in PostgreSQL and expose an evidence explorer plus guarded AI plan analysis only when WHX has opened its exact canonical runtime root.
+- Recover one time automatically from strict bundle-validation failures and retryable terminal planner outcomes using a fresh request id, current immutable base and owning ChatGPT surface; older retry controls stay disabled while the replacement is active.
+- Restore a visible `WHX · AUTO-EVOLUÇÃO` badge in both standalone and embedded project layouts.
+- Renamed the visible product identity to Wharnex with code name WHX while retaining `wharness-*` protocol and runtime identifiers for compatibility.
+- Added a typed API-first ChatGPT account provider with a bounded browser fallback for project creation/reuse, conversation move/rename/archive/stop and sidebar collapse; private session cookies and undocumented endpoints remain forbidden.
+
+- Rehydrate every pending ChatGPT bundle supervisor on startup, keep inactive chat views alive and hidden, and route downloaded bundles through the workspace controller so Auto import/execution no longer depends on the selected Inspector pane; historical turns remain recovery-ineligible until a fresh baseline and stabilization grace are established.
+- Make bundle polling single-flight per chat and parallel across chats; distinguish structural processing/error/terminal states, bound automatic continuation to one request-scoped attempt, and add a guarded manual `Retomar pedido` fallback.
+- Serialize all Agent executions through a cancellation-safe FIFO queue per project while preserving parallel planning and execution across different projects.
+- Persist execution intentions across backend/frontend/Desktop interruption and present a startup recovery modal that requires an explicit Continue or Discard decision.
+- Project the backend's per-project FIFO in the frontend with chat, plan, position and waiting/running state, including queue lifecycle events in execution history.
+- Treat ChatGPT stream-resume failures as language-neutral transport faults eligible for bounded reload, while ambiguous silence can only escalate to the user and can no longer inject an automatic `WHARNESS PROCESSING RECOVERY` prompt.
+- Hydrate exact cached Go modules and authenticated download metadata into each private Protected sandbox with `GOPROXY=off`; missing modules now fail as infrastructure prerequisites and no longer generate misleading ChangeSet-repair turns.
+- Recreate terminal protocol-failure retries in the backend with a fresh request id, current context and immutable base instead of reconstructing them from local transcript items; surface the exact 409 domain reason when retry is unavailable.
+- Add explicit restore-linked-conversation and send-time rebind authorization controls; archiving now releases local remote-view supervision.
+- Replace proactive global-baseline supersession with immutable request bases and canonical verified ChangeSets, allowing independent concurrent work to continue across edits from other chats, humans, Codex, or Claude.
+- Three-way merge BASE/CURRENT/RESULT in a fresh integration sandbox, rerun verification, and protect host commit/rollback with per-file compare-and-swap and bounded race restaging.
+- Add `read_files`/`barrier_files`, a bounded revision journal, a visible integration queue, and the focused `harness.conflict/v1` protocol.
+- Give every real conflict its own persisted ChatGPT `WebContentsView`/conversation affinity, separate from the main Harness chat, with explicit cancellation and strict conflict-path validation.
+- Allow safe documentation templates such as `.env.example` while continuing to deny real secret-like environment paths.
+- Recover missing disposable context ZIP/text artifacts on demand after restart, and automatically resume a persisted legacy baseline prompt instead of leaving ChatGPT prompt preparation in an HTTP 404 loop.
+- Reconcile pre-v1.3 patch-only requests once against a fresh Protected sandbox when their immutable request archive is unavailable; never create another baseline-supersession ping-pong.
+- Require an exact Git top-level match when preparing sandbox copies, preventing immutable bases under `.harness/bridge/tmp` from being mistaken for the ancestor Wharness repository; a successful retained-plan retry also retires its obsolete automatic-repair request.
+- Hydrate missing safe verification dependencies into partial immutable context bases without overwriting archived patch/read/barrier files; if an authoritative path is absent, conservatively verify the patch on the current full Protected sandbox instead of executing an incomplete project tree.
+- Keep the original project as the dependency-hydration source for restored historical sandboxes, so excluded `node_modules` is copied lazily from the host project rather than incorrectly searched inside the partial request archive.
+- Start a newly-created dedicated conflict ChatGPT surface from the new-chat route instead of inheriting the main chat's conversation URL; only an already-persisted conflict affinity may be reused.
+- Correlate a failed strict bundle download to the request id encoded in its own filename before consulting the surface's newer expectation, preventing a late repair bundle from terminating an active focused-conflict request.
+- Restore a persisted focused-conflict prompt on backend startup when a previous transport failure cleared its pending marker, preserving the verified ChangeSet instead of stranding the session as failed.
+
+## v1.2.43.2.5 - Retain patches in export (rebased)
+
+- Rebase the patch-retention export change onto the exact post-v1.2.43.2.3/2.2 checkout exported at 2026-09-05 18:59, avoiding the stale `scripts/export.sh` hunk that prevented v1.2.43.2.4 from applying.
+- Keep repository `patches/` content in `make export` as useful distribution/debugging context while continuing to exclude `.harness`, `.idea`, `.orig/.rej`, generated `kernl-context-*`, `wharness-input-*`, `wharness-bundle-*`, caches, builds and secret-like material.
+- Make `export-check` require every top-level `patches/*.patch` present in the repository to also exist in the archive, and report the retained patch-file count in the normal `make export` log.
+
+## v1.2.43.2.3 - Clean export patches exclusion hotfix
+
+- Fix the clean exporter so the documented `patches/` exclusion is actually passed to `zip`; previous v1.2.43.2.x exports could still include the historical patch archive even though `EXPORT_INDEX.md` claimed it was omitted.
+- Make `make export` itself fail closed when any forbidden runtime/generated entry survives filtering, printing up to 20 offending paths instead of relying only on the later `export-check` gate.
+- Preserve the v1.2.43.2.1 EOF-consuming pipeline behavior, size/entry/SHA-256 logging and the v1.2.43.2.2 deterministic project-explorer test.
+
+## v1.2.43.2.2 - Project explorer async test stabilization
+
+- Fix the AgentWorkspace project-explorer regression to wait for the asynchronously loaded `README.md` tree item itself instead of waiting on the always-present refresh control.
+- Remove a timing race that could fail `make check` under CPU/IO load even though `api.listFiles()` and the production explorer were behaving correctly.
+- Keep the v1.2.43.2 embedded-auth behavior and the v1.2.43.2.1 clean-export SIGPIPE fix unchanged.
+
+## v1.2.43.2.1 - Clean export SIGPIPE hotfix
+
+- Fix `make export` under `set -o pipefail`: the largest-files inventory no longer uses `head`, so upstream `sort` cannot be terminated by `SIGPIPE` and return exit 141 after an otherwise valid archive was built.
+- Make `export-check` consume `unzip` streams to EOF instead of using early-exit `grep -q`, preventing the same pipefail/SIGPIPE class from producing false failures or masking forbidden entries.
+- Keep the v1.2.43.2 clean-export contract unchanged: compact archive, `EXPORTS.md` + `EXPORT_INDEX.md`, explicit size/entry/SHA-256 logging and fail-closed artifact validation.
+
+## v1.2.43.2 - Embedded ChatGPT auth recovery + clean export
+
+- Keep same-origin `chatgpt.com/auth/*` redirects inside the owned embedded `WebContentsView` instead of automatically converting them into the managed external-browser flow; explicit External mode remains available, while Google OAuth still leaves Embedded mode through the managed browser boundary.
+- Default newly-created ChatGPT views to Embedded authentication and serialize explicit `loadURL` operations per owned view. Benign Chromium `ERR_ABORTED` redirect completions no longer strand navigation IPC or accumulate competing load listeners.
+- Surface an actionable embedded-auth notice when a linked conversation lands on the ChatGPT login surface instead of leaving the pane indefinitely on “A carregar ChatGPT…”.
+- Replace the repository export body with a dedicated clean exporter: exclude historical `patches/`, nested `.harness`, IDE metadata, `.orig/.rej` residues and generated Wharness context/input/bundle payloads; add `EXPORT_INDEX.md` with exclusion policy, top-level inventory and largest included files.
+- Make `make export` report archive path, human/byte size, entry count and SHA-256, and strengthen `export-check` so noisy/private artifact classes cannot silently return to the exported project context.
+
+## v1.2.43.1 - Stack session recovery + ChatGPT restore
+
+- Repair Compose PostgreSQL migrations whose old v1 marker was written while the target database lacked legacy sessions: a separate v2 logical reconciliation imports the legacy PostgreSQL 17 data idempotently, preserves newer target rows, verifies session counts, and only then records completion.
+- Stop a newly-created ChatGPT WebContentsView from eagerly loading `chatgpt.com/` before the bound conversation restore. The first explicit per-chat navigation now owns the initial load, eliminating the home-vs-conversation `ERR_ABORTED` race that could leave the pane stuck on “A carregar ChatGPT…”.
+- Add lifecycle/Desktop regressions for the PostgreSQL reconciliation fence and single-owner initial ChatGPT navigation.
+
+## v1.2.43 - Persistent Docker service stack and tunnel daemon
+
+- Move backend, frontend, PostgreSQL and every tunnel-provider client into one project-owned Docker Compose stack; Electron/Desktop remains the only host service.
+- Add a dedicated Go `wharness-tunnel` daemon that owns tunnel processes, persisted request-channel resources and provider credentials independently from backend lifetime. Backend stack mode talks to it only over a bearer-authenticated private HTTP API; backend shutdown intentionally does not stop tunnel sessions.
+- Preserve temporary public tunnel URLs across normal `make stop`, backend/frontend replacement and self-evolution activation. Normal stack reconciliation uses `--no-recreate database tunnel` and rolls only backend/frontend with `--no-deps`.
+- Add first-run PostgreSQL 17 migration from the previous checkout-owned bind-mounted PGDATA into the Compose named volume, with ownership validation, offline physical copy and a durable one-time marker. Incompatible major versions fail closed instead of copying unsafe bytes. Existing tunnel credentials/state are migrated into the tunnel volume once.
+- Change lifecycle semantics: `make build` stages images then reconciles the application stack; `make build-stage` is the self-evolution-safe build that never replaces running services; `make start` reconciles the stack and starts Desktop; `make stop` stops Desktop only; `make stack-stop` and `make stack-down` explicitly control the persistent stack.
+- Keep transactional self-evolution viable after backend containerization: the backend image carries the build/control toolchain, activation is handed to a detached one-shot supervisor container that survives backend replacement, and backend/frontend rollout has an image-level rollback path while tunnel/database remain untouched.
+- Keep Protected execution isolated even though the backend is containerized: only the backend receives the host Docker socket; runner containers still receive no socket, and host-visible sandbox/context temporary paths live below `.harness/bridge`.
+- Preserve the already-applied v1.2.42.5/v1.2.42.5.1 live-context fast-path and completeness correction as the baseline for this rebased distribution, avoiding duplicate `SourceProbe`/lazy-archive hunks.
+- Fix daemon-client response decoding so provider/publication/enrollment results are returned only after the authenticated HTTP response is decoded.
+
+## v1.2.42.5.1 - Live context fast-path completeness hotfix
+
+- Restore the three source files accidentally omitted from the rebased v1.2.42.5 distribution patch: the lightweight `contextbundle.SourceProbe` implementation/regression and the TryCloudflare archive-backed lazy route implementation.
+- Keep the v1.2.42.5 runtime design unchanged; this hotfix only completes the code already referenced by the applied fast-path changes so the full backend compiles and the live snapshot routes remain lazy/on-demand.
+- Add focused coverage for the source-probe dirty detector while existing TryCloudflare route tests exercise archive-backed resources.
+
+## v1.2.42.5 - Live context fast-path
+
+- Make live HTTPS file-map transport the default (`request archive ZIP=false`, `live tunnels=true`) and bump the persisted global transport preference key so installations carrying the former both-on default stop uploading a duplicate request ZIP automatically.
+- Warm the configured TryCloudflare Quick Tunnel at backend-session startup instead of creating and probing it inside the first composer preparation.
+- Keep context file routes lazy over the authoritative local snapshot: publish one private snapshot per context generation and resolve `files/context/<sha256>` entries from that ZIP only when fetched, instead of eagerly decompressing, writing and copying every context file during `A preparar rotas remotas`.
+- Use a lightweight context source probe on the 2-second live monitor and retain a bounded 30-second authoritative refresh, eliminating repeated full project read/hash/ZIP rebuilds while nothing changed.
+- Store local context snapshot ZIP entries without Deflate recompression. The snapshot remains a standards-compliant ZIP with identical content hashes, but generation is CPU-light for the route-first transport.
+- Keep ZIP request transport available as an explicit compatibility/fallback switch, and update the progress copy to describe route publication rather than obsolete cloud/archive upload semantics.
+
+## v1.2.42.4 - Protected host-apply correction context hotfix
+
+- Preserve a stale-baseline Protected Apply rejection in `LastRepairError` instead of returning it only to the immediate caller, so the next planner turn receives the actionable host-apply failure together with the cumulative pending candidate.
+- Keep the existing optimistic-concurrency safety boundary intact: overlapping host edits still block before any patch mutation, and no stale verified candidate is force-applied.
+- Publish the same `host.apply_failed` audit event for this pre-mutation failure path with a zero rollback count, making the failure observable without pretending that host files were mutated.
+- Use the existing cumulative-host-apply regression as the gate for retained correction context.
+
+## v1.2.42.3 - Recovery liveness no-interrupt hotfix
+
+- Stop the pre-DOM recovery probe from treating an empty liveness snapshot as a silent/dead ChatGPT request; that probe now evaluates recorded transport/renderer faults only.
+- Track owned in-flight ChatGPT conversation requests and suppress heuristic silent/surface recovery while the generation transport is still active, so long reasoning is not interrupted by transient DOM detector gaps.
+- Arm expected-bundle recovery before automatic submission so immediate conversation transport failures cannot race ahead of request supervision.
+- Treat generic Chromium `ERR_FAILED` as recoverable only for the narrow allowlisted ChatGPT conversation transport, preserving fail-closed handling for unrelated requests.
+- Add focused regressions for empty-snapshot false recovery, active-transport liveness and scoped `ERR_FAILED` handling.
+
+## v1.2.42.2 - Background ChatGPT liveness and human verification gate
+
+- Disable Chromium background throttling for each owned ChatGPT `WebContentsView` so hidden/inactive inspector panes keep timers and transport supervision alive without stealing focus.
+- Detect narrow structural anti-bot/auth/access gates, persistent missing-composer states, stuck page loads, repeated DOM-probe failures, broader DNS/proxy/TLS/HTTP2/QUIC transport failures and HTTP 5xx; keep every automated recovery bounded.
+- Back off ChatGPT HTTP 429 responses for 60 seconds, escalate exhausted transport/surface/stalled recovery to explicit human intervention, and pause automation while a human gate is active instead of reloading through it.
+- Raise OS notification/window attention plus a persistent Agent command-bar action that opens the affected ChatGPT surface; preserve the no-cookie/no-arbitrary-response-scraping boundary and per-chat renderer ownership.
+- Add Desktop recovery/DOM/static regressions and frontend intervention affordance coverage.
+
+## v1.2.42.1 - Definitive background ChatGPT affinity
+
+- Publish ChatGPT state and definitive affinity candidates to the renderer owner window independently of which ChatGPT chat is visually active, preserving background/new-chat binding.
+- Separate raw navigation observation from affinity promotion so only a stable, fully loaded concrete conversation URL becomes the binding candidate; keep a late settlement observer active after the initial waiter.
+- Make the 30-second conversation waiter fail closed and hold silent/completion recovery reloads during the initial affinity grace window while still allowing concrete transport-fault recovery.
+- Keep application state as the single owner of automatic candidate persistence/confirmation and stop local chat-title changes from retriggering remote ChatGPT navigation.
+- Add focused Desktop/frontend regressions for inactive-chat publication, transient URL settlement, late affinity capture, recovery isolation and pane ownership.
+
+## v1.2.42 - Composable ChatGPT transports and truthful outcomes
+
+- Replace the exclusive Desktop attachment/tunnel choice with independent global and per-chat ZIP and live-tunnel switches; both-on is the default, either-only is supported, and both-off is prevented.
+- Keep ZIP-enabled requests in exactly one inbound archive containing every prompt, context file, `@file` reference, artifact and attachment. ZIP+tunnels also records every live endpoint in priority order inside `transport.json`; composer text remains protocol-bootstrap-only.
+- Mirror each live request namespace to every eligible Tunnel Provider in configured priority order and instruct ChatGPT to advance after DNS, connection, timeout, invalid-status or 5xx failure. When a ZIP exists, exhaustion always continues from that archive.
+- Publish a versioned `diff-check.json` on every live tunnel and require a fresh ordered-tunnel compatibility pass immediately before bundle delivery, including rechecking actual patch paths against current files.
+- Retain a bounded per-request file-hash snapshot so stale patch bundles fast-forward across genuinely disjoint local edits, while overlapping, command-based or unverifiable changes still trigger baseline reprocessing; compatible late bundles retire redundant continuations.
+- Require an explicit `outcome` in every new `harness.turn/v1`. Failed/partial planner outcomes are persisted as request failures, never reach Policy/execution, and expose recovery through prompt edits, more context/channels or a fresh retry.
+- Remove the legacy `desktop_direct` pseudo-provider from tunnel configuration while migrating existing documents without affecting real tunnel instances.
+
+## v1.2.41 - Single-archive ChatGPT input transport
+
+- Collapse Desktop direct planner input into one request-scoped `wharness-input-<request_id>.zip` containing the transport manifest, authoritative planner prompt, context when required, system artifacts, explicit project-file references and user attachments.
+- Send only a bounded composer bootstrap that points ChatGPT to the inner planner prompt, preserving the no-full-prompt-in-DOM boundary while reducing direct transport to one ChatGPT file upload per turn.
+- Preserve context hash/conversation refresh behavior, upload confirmation/retry, Manual confirmation and Auto submit gating against the single archive.
+- Add the `wharness.chat-input/v1` transport-manifest schema plus Desktop archive/regression coverage and update the transport/security Sources of Truth.
+
 ## v1.2.40 - Concurrent context-baseline coordination
 
 - Add deterministic managed-context SHA-256 concurrency tokens to planner requests and execution plans, plus conservative `impact_files` forecasts for change routing.
@@ -212,6 +360,8 @@
 - Preserve the secure user-namespace fallback and continue to forbid `--no-sandbox`.
 
 # Changelog
+
+- Fixed ChatGPT bundle interception when Chromium adds a duplicate-download suffix such as `(1)` to an otherwise canonical bundle filename; normalization remains restricted to the exact active request id.
 
 ## v1.2.23.1 — Secure Linux Electron sandbox startup hotfix
 

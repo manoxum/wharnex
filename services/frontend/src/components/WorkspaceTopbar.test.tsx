@@ -31,7 +31,7 @@ describe('WorkspaceTopbar self-evolution', () => {
     expect(screen.getByRole('img', { name: 'Auto-evolução ativa' })).toBeTruthy()
     expect(screen.getByRole('img', { name: 'Automação automática' })).toBeTruthy()
     expect(screen.getByRole('img', { name: 'AI manual' })).toBeTruthy()
-    expect(screen.queryByText('AUTO-EVOLUÇÃO')).toBeNull()
+    expect(screen.getByText('WHX · AUTO-EVOLUÇÃO')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Protected' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Unprotected' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Manual' })).toBeNull()

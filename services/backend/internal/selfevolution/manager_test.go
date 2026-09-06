@@ -147,6 +147,7 @@ func fakeRoot(t *testing.T) string {
 	mustWrite(t, filepath.Join(root, "scripts", "self-restart.sh"), "#!/usr/bin/env sh\nexit 0\n", 0o755)
 	mustWrite(t, filepath.Join(root, "scripts", "start.sh"), "#!/usr/bin/env sh\nexit 0\n", 0o755)
 	mustWrite(t, filepath.Join(root, "scripts", "stop.sh"), "#!/usr/bin/env sh\nexit 0\n", 0o755)
+	mustWrite(t, filepath.Join(root, "scripts", "stack.sh"), "#!/usr/bin/env sh\nexit 0\n", 0o755)
 	return root
 }
 
@@ -174,7 +175,7 @@ func assertFile(t *testing.T, path, expected string) {
 func TestBuildHostRejectsDependencyMetadataMutation(t *testing.T) {
 	root := fakeRoot(t)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
-	mustWrite(t, filepath.Join(root, "Makefile"), "build:\n\t@mkdir -p services/frontend\n\t@printf 'unexpected\\n' > services/frontend/package-lock.json\n", 0o644)
+	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n\t@mkdir -p services/frontend\n\t@printf 'unexpected\\n' > services/frontend/package-lock.json\n", 0o644)
 	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
 	manager := New(root)
 	tx, err := manager.Prepare("ses-build-guard", "plan-build-guard", []string{patch})
@@ -282,5 +283,38 @@ func TestPendingTransactionRecoversRestartConfirmationHandoff(t *testing.T) {
 	}
 	if _, err := manager.PendingTransaction("ses-other", "plan-confirm"); err == nil {
 		t.Fatal("pending transaction must be scoped to the originating session")
+	}
+}
+
+func TestScheduleRestartStackUsesDetachedSupervisorContainer(t *testing.T) {
+	root := fakeRoot(t)
+	worker := filepath.Join(root, ".harness", "self-evolution", "txn-stack", "worker.sh")
+	mustWrite(t, worker, "#!/bin/sh\nexit 0\n", 0o700)
+	argsFile := filepath.Join(t.TempDir(), "docker-args.txt")
+	binDir := t.TempDir()
+	fakeDocker := filepath.Join(binDir, "docker")
+	mustWrite(t, fakeDocker, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_ARGS_FILE\"\n", 0o700)
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_ARGS_FILE", argsFile)
+	t.Setenv("WHARNESS_SERVICES_MODE", "stack")
+	t.Setenv("WHARNESS_BACKEND_IMAGE", "wharness-backend:test")
+	t.Setenv("WHARNESS_DOCKER_GID", "998")
+	t.Setenv("HOME", root)
+
+	manager := New(root)
+	tx := Transaction{ID: "stack", Root: root, Dir: filepath.Dir(worker), Worker: worker}
+	if err := manager.ScheduleRestart(tx, "ses-stack", "plan-stack"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := string(raw)
+	for _, expected := range []string{"run\n-d\n--rm\n", "--network\nhost\n", "--entrypoint\n" + worker + "\n", "wharness-backend:test\n", "ses-stack\nplan-stack\n"} {
+		if !strings.Contains(args, expected) {
+			t.Fatalf("missing stack supervisor args %q in:\n%s", expected, args)
+		}
 	}
 }

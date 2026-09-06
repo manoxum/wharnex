@@ -30,7 +30,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       </div>
     </div>
     <div className="workspace-status">
-      {session.self_evolution && <TopbarIndicator tone="warning" label="Auto-evolução ativa" icon="refresh" />}
+      {session.self_evolution && <TopbarIndicator tone="warning" label="Auto-evolução ativa" visibleLabel="WHX · AUTO-EVOLUÇÃO" icon="refresh" />}
       {restartPending && <button className="topbar-indicator warning actionable restart" type="button" disabled={busy || restartBlocked} title={restartBlocked ? 'Conclua a tarefa ativa antes de reiniciar o Wharness' : 'Alterações prontas · reinício pendente'} aria-label="Reinício pendente" onClick={onRestartPending}><Icon name="refresh" size={14}/><span className="indicator-dot"/></button>}
       {executionMode === 'unprotected' && <TopbarIndicator tone="danger" label="Host direto · Unprotected" icon="terminal" />}
       {automationMode === 'auto' && <TopbarIndicator tone="success" label="Automação automática" icon="play" />}
@@ -42,6 +42,6 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
   </header>
 }
 
-function TopbarIndicator({ tone, label, icon }: { tone: 'neutral' | 'success' | 'warning' | 'danger'; label: string; icon: 'refresh' | 'terminal' | 'play' | 'chatgpt' | 'agent' }) {
-  return <span className={`topbar-indicator ${tone}`} role="img" aria-label={label} title={label}><Icon name={icon} size={14}/></span>
+function TopbarIndicator({ tone, label, visibleLabel, icon }: { tone: 'neutral' | 'success' | 'warning' | 'danger'; label: string; visibleLabel?: string; icon: 'refresh' | 'terminal' | 'play' | 'chatgpt' | 'agent' }) {
+  return <span className={`topbar-indicator ${tone}${visibleLabel ? ' labelled' : ''}`} role="img" aria-label={label} title={label}><Icon name={icon} size={14}/>{visibleLabel && <b>{visibleLabel}</b>}</span>
 }

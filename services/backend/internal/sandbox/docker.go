@@ -70,11 +70,14 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 		"--pids-limit", "256", "--memory", "2g", "--cpus", "2",
 		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=512m",
 		"--env", "HOME=/tmp/kernl-home", "--env", "XDG_CACHE_HOME=/tmp/cache",
-		"--env", "GOCACHE=/tmp/go-build", "--env", "GOMODCACHE=/tmp/go-mod", "--env", "npm_config_cache=/tmp/npm",
+		"--env", "GOCACHE=/tmp/go-build", "--env", "GOMODCACHE=/workspace/.kernl/go-mod", "--env", "npm_config_cache=/tmp/npm",
 		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--volume", workspace.Path + ":/workspace:rw",
 		"--workdir", containerCwd,
 		r.image,
+	}
+	if !command.Network {
+		args = append(args[:len(args)-1], "--env", "GOPROXY=off", args[len(args)-1])
 	}
 	args = append(args, command.Argv...)
 	started := time.Now()

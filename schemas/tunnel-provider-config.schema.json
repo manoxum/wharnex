@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/tunnel-provider-config.schema.json",
+  "title": "Wharness tunnel provider configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "instances"],
+  "properties": {
+    "version": { "const": 1 },
+    "instances": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "provider", "priority"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+          "provider": { "enum": ["trycloudflare", "cloudflare_named", "ngrok", "zrok", "tailscale_funnel", "localxpose", "localhost_run", "pinggy", "serveo"] },
+          "priority": { "type": "integer", "minimum": 0 },
+          "public_url": { "type": "string", "pattern": "^https://[^/?#]+$" },
+          "credential_ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+          "local_port": { "type": "integer", "minimum": 1024, "maximum": 65535 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "provider": { "enum": ["cloudflare_named", "ngrok"] } } },
+            "then": { "required": ["public_url", "credential_ref"] }
+          },
+          {
+            "if": { "properties": { "provider": { "const": "tailscale_funnel" } } },
+            "then": { "required": ["public_url", "local_port"] }
+          },
+          {
+            "if": { "properties": { "provider": { "const": "cloudflare_named" } } },
+            "then": { "required": ["local_port"] }
+          }
+        ]
+      }
+    }
+  }
+}

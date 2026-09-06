@@ -1,6 +1,6 @@
 # Development
 
-Backend uses only the Go standard library in V1. Frontend uses React/Vite/TypeScript. Docker is optional for compilation but required for the default execution path.
+Backend is Go with `database/sql` and the pgx PostgreSQL driver. Frontend uses React/Vite/TypeScript. Docker is optional for compilation and required for the PostgreSQL Session Store and the default execution path.
 
 ## Linux Electron sandbox
 

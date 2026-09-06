@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; amended for v1.2.21, v1.2.26, v1.2.31 and v1.2.38.1.
+Accepted; amended for v1.2.21, v1.2.26, v1.2.31, v1.2.38.1 and v1.2.42.3.
 
 ## Context
 
@@ -56,6 +56,12 @@ Electron `WebContentsView` is a native sibling surface that can paint above rend
 Task-comment delivery is single-flight per ChatGPT cache key. The queue owns one in-flight head item; periodic retry cannot submit that same head concurrently. A bounded recent identifier cache protects IPC retries, and a short content/attachment fingerprint window protects accidental duplicate renderer dispatches with different transient identifiers. Both are transport idempotency mechanisms only and do not inspect ChatGPT response prose.
 ## v1.2.38.1 bounded request re-hydration
 
-For an active expected Wharness bundle, Desktop maintains per-request liveness state using only transport errors, renderer health, assistant-turn counts, stop/processing state, and the already-allowlisted visible activity fingerprint. Recoverable connection/socket/main-frame failures reload the same owned `WebContentsView`. A structurally silent or stalled request reloads once and, if it remains interrupted after a settling window, receives at most one generated same-request recovery prompt. A response that appears complete without the canonical bundle is reloaded once before the existing delivery-continuation path.
+For an active expected Wharnex bundle, Desktop maintains per-request liveness state using only transport errors, renderer health, assistant-turn counts and structural processing state. Recoverable connection/socket/main-frame failures reload the same owned `WebContentsView`. Mere silence or an ambiguous stale processing control never injects a recovery prompt; it escalates for human attention. A positively completed response without the canonical bundle may use the single bounded delivery-continuation path.
+
+Named account-management commands are a separate allowlist: exact project lookup/creation, move of the owned conversation, `WHX:` rename, stop/archive and sidebar collapse. They inspect only controls and the exact requested project/title values. There is no generic selector or arbitrary-script IPC, and any unsupported surface fails closed.
 
 This recovery is intentionally bounded. It does not inspect arbitrary assistant prose to make decisions, does not change the original request or scope, does not access another chat's renderer, and does not create an unbounded retry loop.
+
+### v1.2.42.3 liveness qualification
+
+Recovery fault probing and liveness classification are separate concerns. A probe that has no current structural snapshot may act only on an already-recorded transport/renderer fault; missing fields are never negative evidence that ChatGPT stopped. Desktop also tracks the lifecycle of allowlisted ChatGPT conversation requests. While one of those requests is in flight, heuristic silent/surface recovery is suppressed even if a transient DOM probe does not see the processing control. Automatic expected-bundle supervision is armed before submission so immediate request failures are correlated to the correct Harness request. Generic Chromium `ERR_FAILED` is considered recoverable only on that allowlisted conversation transport, not on arbitrary ChatGPT resources.

@@ -23,11 +23,19 @@ func (s *Service) projectApplyLock(projectPath string) *sync.Mutex {
 
 func (s *Service) normalizeBaselineConcurrencySessions() {
 	for _, item := range s.store.List() {
-		if !item.PlannerInFlight {
+		strandedConflict := item.IntegrationConflict != nil &&
+			item.IntegrationConflict.RequestID == item.LastRequestID &&
+			strings.TrimSpace(item.LastManualPrompt) != "" &&
+			!containsString(item.PendingManualRequestIDs, item.LastRequestID)
+		if !item.PlannerInFlight && !strandedConflict {
 			continue
 		}
 		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
 			current.PlannerInFlight = false
+			if strandedConflict {
+				current.State = "conflict_resolution_pending"
+				current.PendingManualRequestIDs = appendUnique(current.PendingManualRequestIDs, current.LastRequestID)
+			}
 			return nil
 		})
 	}
@@ -44,6 +52,39 @@ func enrichPlanConcurrency(plan *domain.ExecutionPlan, baseline string) {
 		plan.ImpactFiles = planTouchedFiles(plan)
 	}
 	plan.ImpactFiles = normalizedPaths(plan.ImpactFiles)
+	plan.ReadFiles = normalizedPaths(plan.ReadFiles)
+	plan.BarrierFiles = normalizedPaths(plan.BarrierFiles)
+}
+
+func recordRequestContext(item *domain.Session, requestID string, bundle domain.ContextBundle) {
+	requestID = strings.TrimSpace(requestID)
+	archive := strings.TrimSpace(bundle.ZipPath)
+	if requestID == "" || archive == "" {
+		return
+	}
+	if item.RequestContextArchives == nil {
+		item.RequestContextArchives = make(map[string]string)
+	}
+	item.RequestContextArchives[requestID] = archive
+	if len(item.RequestContextArchives) <= 24 {
+		return
+	}
+	keep := map[string]bool{item.LastRequestID: true}
+	for _, id := range item.PendingManualRequestIDs {
+		keep[id] = true
+	}
+	for id := range item.RequestContextArchives {
+		if !keep[id] {
+			delete(item.RequestContextArchives, id)
+			if len(item.RequestContextArchives) <= 24 {
+				break
+			}
+		}
+	}
+}
+
+func requestContextArchive(item domain.Session, requestID string) string {
+	return strings.TrimSpace(item.RequestContextArchives[strings.TrimSpace(requestID)])
 }
 
 func planBaseline(item domain.Session, plan *domain.ExecutionPlan) string {
@@ -66,11 +107,19 @@ func requestBaseline(item domain.Session, requestID string) string {
 }
 
 func recordRequestBaseline(item *domain.Session, requestID, sha string) {
+	requestID = strings.TrimSpace(requestID)
+	sha = strings.TrimSpace(sha)
 	if item.RequestBaselines == nil {
 		item.RequestBaselines = make(map[string]string)
 	}
-	if strings.TrimSpace(requestID) != "" && strings.TrimSpace(sha) != "" {
+	if requestID != "" && sha != "" {
 		item.RequestBaselines[requestID] = sha
+		if strings.TrimSpace(item.Context.Manifest.SHA256) == sha {
+			if item.BaselineFileSnapshots == nil {
+				item.BaselineFileSnapshots = make(map[string]map[string]string)
+			}
+			item.BaselineFileSnapshots[sha] = contextFileHashes(item.Context.Manifest.Files)
+		}
 	}
 	if len(item.RequestBaselines) > 24 {
 		keep := map[string]bool{item.LastRequestID: true}
@@ -86,6 +135,80 @@ func recordRequestBaseline(item *domain.Session, requestID, sha string) {
 			}
 		}
 	}
+	usedSnapshots := make(map[string]bool, len(item.RequestBaselines))
+	for _, baseline := range item.RequestBaselines {
+		usedSnapshots[strings.TrimSpace(baseline)] = true
+	}
+	for baseline := range item.BaselineFileSnapshots {
+		if !usedSnapshots[baseline] {
+			delete(item.BaselineFileSnapshots, baseline)
+		}
+	}
+}
+
+func contextFileHashes(files []domain.ContextFile) map[string]string {
+	hashes := make(map[string]string, len(files))
+	for _, file := range files {
+		path := filepath.ToSlash(filepath.Clean(strings.TrimSpace(file.Path)))
+		sha := strings.TrimSpace(file.SHA256)
+		if path != "" && path != "." && sha != "" {
+			hashes[path] = sha
+		}
+	}
+	return hashes
+}
+
+func requestSnapshotDelta(item domain.Session, requestID, fromSHA, toSHA string) ([]string, bool) {
+	requestID = strings.TrimSpace(requestID)
+	fromSHA = strings.TrimSpace(fromSHA)
+	toSHA = strings.TrimSpace(toSHA)
+	if requestID == "" || fromSHA == "" || toSHA == "" || strings.TrimSpace(item.Context.Manifest.SHA256) != toSHA {
+		return nil, false
+	}
+	if strings.TrimSpace(item.RequestBaselines[requestID]) != fromSHA {
+		return nil, false
+	}
+	previous, ok := item.BaselineFileSnapshots[fromSHA]
+	if !ok {
+		return nil, false
+	}
+	current := contextFileHashes(item.Context.Manifest.Files)
+	changed := make([]string, 0)
+	for path, sha := range previous {
+		if current[path] != sha {
+			changed = append(changed, path)
+		}
+	}
+	for path := range current {
+		if _, existed := previous[path]; !existed {
+			changed = append(changed, path)
+		}
+	}
+	return normalizedPaths(changed), true
+}
+
+func canFastForwardPlanBaseline(item domain.Session, plan *domain.ExecutionPlan, fromSHA, toSHA string) bool {
+	if plan == nil {
+		return false
+	}
+	impact := planTouchedFiles(plan)
+	patchFiles := actualPatchFiles(plan)
+	patchOnly := len(patchFiles) > 0 && !planHasCommandOperation(plan)
+	if patchOnly {
+		impact = patchFiles
+	}
+	if canFastForwardBaseline(item, fromSHA, toSHA, impact) {
+		return true
+	}
+	if !patchOnly {
+		return false
+	}
+	changed, complete := requestSnapshotDelta(item, plan.RequestID, fromSHA, toSHA)
+	return complete && len(overlapPaths(changed, patchFiles)) == 0
+}
+
+func canLegacyRebasePlan(item domain.Session, plan *domain.ExecutionPlan) bool {
+	return item.ExecutionMode == domain.ExecutionModeProtected && plan != nil && len(actualPatchFiles(plan)) > 0 && !planHasCommandOperation(plan)
 }
 
 func requestSupersededByBaselineContinuation(item domain.Session, requestID string) bool {

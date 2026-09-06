@@ -1,6 +1,7 @@
 package session
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,14 +18,42 @@ var ErrNotFound = errors.New("session not found")
 const persistenceVersion = 1
 
 type persistenceEnvelope struct {
-	Version  int              `json:"version"`
-	Sessions []domain.Session `json:"sessions"`
+	Version  int                `json:"version"`
+	Sessions []persistedSession `json:"sessions"`
+}
+
+// persistedSession keeps server-only artifact locations durable without ever
+// exposing them through the public domain.Session JSON representation.
+type persistedSession struct {
+	domain.Session
+	RequestContextArchives map[string]string `json:"_request_context_archives,omitempty"`
+	ArtifactObjectKeys     map[string]string `json:"_artifact_object_keys,omitempty"`
+}
+
+func persistSession(item domain.Session) persistedSession {
+	keys := make(map[string]string, len(item.Artifacts))
+	for _, artifact := range item.Artifacts {
+		if artifact.ID != "" && artifact.ObjectKey != "" {
+			keys[artifact.ID] = artifact.ObjectKey
+		}
+	}
+	return persistedSession{Session: item, RequestContextArchives: item.RequestContextArchives, ArtifactObjectKeys: keys}
+}
+
+func restoreSession(item persistedSession) domain.Session {
+	result := item.Session
+	result.RequestContextArchives = item.RequestContextArchives
+	for index := range result.Artifacts {
+		result.Artifacts[index].ObjectKey = item.ArtifactObjectKeys[result.Artifacts[index].ID]
+	}
+	return result
 }
 
 type Store struct {
 	mu    sync.RWMutex
 	items map[string]domain.Session
 	path  string
+	db    *sql.DB
 }
 
 func NewStore() *Store { return &Store{items: make(map[string]domain.Session)} }
@@ -44,6 +73,13 @@ func NewPersistentStore(path string) (*Store, error) {
 func (s *Store) Put(item domain.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db != nil {
+		if err := s.postgresPut(item); err != nil {
+			return err
+		}
+		s.items[item.ID] = item
+		return nil
+	}
 	s.items[item.ID] = item
 	if err := s.persistLocked(); err != nil {
 		delete(s.items, item.ID)
@@ -69,6 +105,13 @@ func (s *Store) Delete(id string) error {
 	if !ok {
 		return ErrNotFound
 	}
+	if s.db != nil {
+		if err := s.postgresDelete(id); err != nil {
+			return err
+		}
+		delete(s.items, id)
+		return nil
+	}
 	delete(s.items, id)
 	if err := s.persistLocked(); err != nil {
 		s.items[id] = item
@@ -87,6 +130,13 @@ func (s *Store) Update(id string, fn func(*domain.Session) error) (domain.Sessio
 	original := item
 	if err := fn(&item); err != nil {
 		return domain.Session{}, err
+	}
+	if s.db != nil {
+		if err := s.postgresPut(item); err != nil {
+			return domain.Session{}, err
+		}
+		s.items[id] = item
+		return item, nil
 	}
 	s.items[id] = item
 	if err := s.persistLocked(); err != nil {
@@ -113,9 +163,34 @@ func (s *Store) Path() string {
 	return s.path
 }
 
+func (s *Store) StateBytes() int64 {
+	if s == nil {
+		return 0
+	}
+	if s.db != nil {
+		var bytes int64
+		if err := s.db.QueryRow(`SELECT pg_total_relation_size('harness_sessions') + pg_total_relation_size('legacy_session_migrations') + pg_total_relation_size('harness_events')`).Scan(&bytes); err == nil {
+			return bytes
+		}
+		return 0
+	}
+	info, err := os.Stat(s.Path())
+	if err != nil || !info.Mode().IsRegular() {
+		return 0
+	}
+	return info.Size()
+}
+
 func (s *Store) Clear() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db != nil {
+		if err := s.postgresClear(); err != nil {
+			return err
+		}
+		s.items = make(map[string]domain.Session)
+		return nil
+	}
 	original := s.items
 	s.items = make(map[string]domain.Session)
 	if err := s.persistLocked(); err != nil {
@@ -123,6 +198,13 @@ func (s *Store) Clear() error {
 		return err
 	}
 	return nil
+}
+
+func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
 }
 
 func (s *Store) load() error {
@@ -143,16 +225,12 @@ func (s *Store) load() error {
 	if envelope.Version != persistenceVersion {
 		return fmt.Errorf("unsupported session state version %d", envelope.Version)
 	}
-	for _, item := range envelope.Sessions {
+	for _, stored := range envelope.Sessions {
+		item := restoreSession(stored)
 		if item.ID == "" || item.ProjectPath == "" {
 			continue
 		}
-		if item.ExecutionMode == "" {
-			item.ExecutionMode = domain.ExecutionModeProtected
-		}
-		if item.AutomationMode == "" {
-			item.AutomationMode = domain.AutomationModeManual
-		}
+		normalizeRestoredSession(&item)
 		s.items[item.ID] = item
 	}
 	return nil
@@ -162,11 +240,11 @@ func (s *Store) persistLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	items := make([]domain.Session, 0, len(s.items))
+	items := make([]persistedSession, 0, len(s.items))
 	for _, item := range s.items {
-		items = append(items, item)
+		items = append(items, persistSession(item))
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
+	sort.Slice(items, func(i, j int) bool { return items[i].Session.CreatedAt.Before(items[j].Session.CreatedAt) })
 	data, err := json.MarshalIndent(persistenceEnvelope{Version: persistenceVersion, Sessions: items}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode session state: %w", err)

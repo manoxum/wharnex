@@ -9,9 +9,11 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"kernl.local/harness/backend/internal/audit"
+	"kernl.local/harness/backend/internal/changeset"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
@@ -28,44 +30,58 @@ import (
 )
 
 var (
-	ErrApprovalRequired                  = errors.New("explicit approval required")
-	ErrExecutionRequired                 = errors.New("successful sandbox execution required before host apply")
-	ErrRemoteStorageConnectorUnavailable = errors.New("remote storage connector is unavailable")
+	ErrApprovalRequired                   = errors.New("explicit approval required")
+	ErrExecutionRequired                  = errors.New("successful sandbox execution required before host apply")
+	ErrRemoteStorageConnectorUnavailable  = errors.New("remote storage connector is unavailable")
+	ErrTunnelProviderConnectorUnavailable = errors.New("tunnel provider connector is unavailable")
+	ErrExecutionBundleRequestMismatch     = errors.New("execution bundle filename/request_id mismatch")
+	ErrExecutionBundleNotPending          = errors.New("execution bundle request_id is not pending for this chat/session")
+	ErrIntegrationConflict                = errors.New("verified changes require focused conflict resolution")
 )
 
 type BundleSubmission struct {
-	Session          domain.Session          `json:"session"`
-	AutoExecuted     bool                    `json:"auto_executed"`
-	AutoApplied      bool                    `json:"auto_applied"`
-	AutoError        string                  `json:"auto_error,omitempty"`
-	Execution        *domain.ExecutionResult `json:"execution,omitempty"`
-	PolicyBlocked    bool                    `json:"policy_blocked,omitempty"`
-	PolicyReasons    []string                `json:"policy_reasons,omitempty"`
-	RepairPrepared   bool                    `json:"repair_prepared,omitempty"`
-	WorkflowExecuted bool                    `json:"workflow_executed,omitempty"`
-	WorkflowPrepared bool                    `json:"workflow_prepared,omitempty"`
-	WorkflowRound    int                     `json:"workflow_round,omitempty"`
-	RestartScheduled bool                    `json:"restart_scheduled,omitempty"`
-	RestartRequired  bool                    `json:"restart_required,omitempty"`
+	Session                domain.Session          `json:"session"`
+	AutoExecuted           bool                    `json:"auto_executed"`
+	AutoApplied            bool                    `json:"auto_applied"`
+	AutoError              string                  `json:"auto_error,omitempty"`
+	Execution              *domain.ExecutionResult `json:"execution,omitempty"`
+	PolicyBlocked          bool                    `json:"policy_blocked,omitempty"`
+	PolicyReasons          []string                `json:"policy_reasons,omitempty"`
+	RepairPrepared         bool                    `json:"repair_prepared,omitempty"`
+	ConflictPrepared       bool                    `json:"conflict_prepared,omitempty"`
+	WorkflowExecuted       bool                    `json:"workflow_executed,omitempty"`
+	WorkflowPrepared       bool                    `json:"workflow_prepared,omitempty"`
+	WorkflowRound          int                     `json:"workflow_round,omitempty"`
+	RestartScheduled       bool                    `json:"restart_scheduled,omitempty"`
+	RestartRequired        bool                    `json:"restart_required,omitempty"`
+	RemoteRecoveryPrepared bool                    `json:"remote_recovery_prepared,omitempty"`
 }
 
 const maxAutoRepairAttempts = 3
 
 type Service struct {
-	store                  *session.Store
-	bus                    *audit.Bus
-	context                *contextbundle.Builder
-	planner                planner.Planner
-	policy                 *policy.Engine
-	runner                 sandbox.Runner
-	hostRunner             sandbox.Runner
-	selfEvolution          *selfevolution.Manager
-	remoteInputs           RemoteInputStore
-	remoteStorageConnector RemoteStorageConnector
-	devMu                  sync.Mutex
-	devspaces              map[string]sandbox.Workspace
-	applyMu                sync.Mutex
-	projectApplyLocks      map[string]*sync.Mutex
+	store                   *session.Store
+	bus                     *audit.Bus
+	context                 *contextbundle.Builder
+	planner                 planner.Planner
+	policy                  *policy.Engine
+	runner                  sandbox.Runner
+	hostRunner              sandbox.Runner
+	selfEvolution           *selfevolution.Manager
+	remoteInputs            RemoteInputStore
+	remoteStorageConnector  RemoteStorageConnector
+	tunnelProviders         []TunnelProviderDescriptor
+	tunnelProviderConnector TunnelProviderConnector
+	remoteLeaseMu           sync.Mutex
+	remoteLeases            map[string]map[string]remoteInputLease
+	remoteChannels          map[string]*remoteInputChannelState
+	devMu                   sync.Mutex
+	devspaces               map[string]sandbox.Workspace
+	applyMu                 sync.Mutex
+	projectApplyLocks       map[string]*sync.Mutex
+	executionQueue          *projectExecutionQueue
+	artifactStore           ArtifactObjectStore
+	artifactRetentionDays   atomic.Int64
 }
 
 func (s *Service) SetRemoteInputStore(store RemoteInputStore) {
@@ -79,9 +95,17 @@ func (s *Service) RemoteInputStatus() RemoteInputStatus {
 	return s.remoteInputs.Status()
 }
 
+func (s *Service) SetTunnelProviders(providers []TunnelProviderDescriptor) {
+	s.tunnelProviders = append([]TunnelProviderDescriptor(nil), providers...)
+}
+
+func (s *Service) TunnelProviders() []TunnelProviderDescriptor {
+	return append([]TunnelProviderDescriptor(nil), s.tunnelProviders...)
+}
+
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
 	manager := selfevolution.New(selfevolution.DiscoverRoot())
-	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex)}
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.reconcileSelfEvolutionStatus()
@@ -213,7 +237,8 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 
 func (s *Service) GetSession(sessionID string) (domain.Session, error) {
 	s.reconcileSelfEvolutionStatus()
-	return s.store.Get(sessionID)
+	item, err := s.store.Get(sessionID)
+	return item, err
 }
 
 func (s *Service) DeleteSession(sessionID string) error {
@@ -222,9 +247,24 @@ func (s *Service) DeleteSession(sessionID string) error {
 		return err
 	}
 	s.resetDevspace(sessionID)
+	if s.artifactStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		for _, artifact := range item.Artifacts {
+			if artifact.ObjectKey != "" {
+				if err := s.artifactStore.Delete(ctx, artifact.ObjectKey); err != nil {
+					return fmt.Errorf("delete artifact %s: %w", artifact.ID, err)
+				}
+			}
+		}
+	}
 	if err := s.store.Delete(sessionID); err != nil {
 		return err
 	}
+	// Deleting a chat explicitly cancels any pending remote request, so it is a
+	// terminal lifecycle event for its transient tunnel leases.
+	s.releaseSupersededRemoteInputLeases(sessionID, nil)
+	s.closeRemoteInputChannel(sessionID, "request.cancelled")
 	if dir := filepath.Dir(item.Context.ZipPath); dir != "" && dir != "." && strings.HasPrefix(filepath.Base(dir), "wharness-context-") {
 		_ = os.RemoveAll(dir)
 	}
@@ -298,7 +338,10 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
 		current.PlannerInFlight = true
+		current.RemoteRecoveryAttempt = 0
+		recordRequestLineage(current, requestID, "", requestKindStandard)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
+		recordRequestContext(current, requestID, item.Context)
 		return nil
 	}); err != nil {
 		return planner.Result{}, item, err
@@ -336,6 +379,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		current.LastRequestID = requestID
 		current.PlannerInFlight = false
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
+		recordRequestContext(current, requestID, item.Context)
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
 		current.LastRepairError = ""
@@ -369,7 +413,12 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 			current.Policy = nil
 			current.LastExecution = nil
 			current.LastBundle = nil
-			current.State = turnState(result.Turn.Kind)
+			if result.Turn.Outcome != nil && result.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
+				current.State = "failed"
+				current.LastRepairError = plannerOutcomeFailureDetail(result.Turn.Outcome)
+			} else {
+				current.State = turnState(result.Turn.Kind)
+			}
 		}
 		return nil
 	})
@@ -377,12 +426,18 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		s.bus.Publish(sessionID, "plan.rejected", map[string]any{"error": err.Error()})
 		return planner.Result{}, item, err
 	}
+	s.releaseSupersededRemoteInputLeases(sessionID, updated.PendingManualRequestIDs)
+	s.closeSupersededRemoteInputChannel(sessionID, requestID)
 	if result.Plan != nil {
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": result.Plan.PlanID, "allowed": updated.Policy.Allowed, "requires_approval": updated.Policy.RequiresApproval, "risk": updated.Policy.Risk})
 	} else if result.ManualPrompt != "" {
 		s.bus.Publish(sessionID, "manual.prompt_ready", map[string]any{"request_id": requestID})
 	} else if result.Turn != nil {
-		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": requestID, "kind": result.Turn.Kind, "transport": "provider"})
+		if result.Turn.Outcome != nil && result.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
+			s.bus.Publish(sessionID, "turn.failed", map[string]any{"request_id": requestID, "outcome": result.Turn.Outcome.Status, "reason_code": result.Turn.Outcome.ReasonCode, "retryable": result.Turn.Outcome.Retryable, "transport": "provider"})
+		} else {
+			s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": requestID, "kind": result.Turn.Kind, "transport": "provider"})
+		}
 	}
 	if result.Plan != nil && result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
 		if updated.AutomationMode != domain.AutomationModeAuto {
@@ -422,7 +477,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 	enrichPlanConcurrency(&plan, requestBaseline(current, plan.RequestID))
 	currentSHA := strings.TrimSpace(current.Context.Manifest.SHA256)
 	if plan.BaseContextSHA256 != "" && currentSHA != "" && plan.BaseContextSHA256 != currentSHA {
-		if canFastForwardBaseline(current, plan.BaseContextSHA256, currentSHA, planTouchedFiles(&plan)) {
+		if canFastForwardPlanBaseline(current, &plan, plan.BaseContextSHA256, currentSHA) {
 			s.bus.Publish(sessionID, "baseline.plan_fast_forwarded", map[string]any{"request_id": plan.RequestID, "from_sha256": plan.BaseContextSHA256, "to_sha256": currentSHA})
 			plan.BaseContextSHA256 = currentSHA
 		} else {
@@ -446,6 +501,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 		return nil
 	})
 	if err == nil {
+		s.releaseRemoteInputLease(sessionID, plan.RequestID)
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk})
 	}
 	return updated, err
@@ -466,12 +522,64 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	filenameRequestID := bundleFilenameRequestID(filename)
 	if filenameRequestID == "" || filenameRequestID != parsed.Turn.RequestID {
-		return BundleSubmission{}, errors.New("execution bundle filename/request_id mismatch")
+		return BundleSubmission{}, ErrExecutionBundleRequestMismatch
 	}
 	if !containsString(current.PendingManualRequestIDs, parsed.Turn.RequestID) {
-		return BundleSubmission{}, fmt.Errorf("bundle request_id %q is not pending for this chat/session", parsed.Turn.RequestID)
+		return BundleSubmission{}, fmt.Errorf("%w: %q", ErrExecutionBundleNotPending, parsed.Turn.RequestID)
 	}
-	if requestSupersededByBaselineContinuation(current, parsed.Turn.RequestID) {
+	for _, evidenceID := range parsed.Turn.ResolvedEvidenceIDs {
+		if !containsString(current.EvidenceReviewIDs, evidenceID) {
+			return BundleSubmission{}, fmt.Errorf("resolved evidence %q was not part of the active self-evolution review", evidenceID)
+		}
+	}
+	if s.artifactStore != nil {
+		if _, err := s.PersistArtifact(ctx, sessionID, parsed.Turn.RequestID, "output", "bundle", filename, "application/zip", raw); err != nil {
+			return BundleSubmission{}, fmt.Errorf("persist execution bundle: %w", err)
+		}
+	}
+	if parsed.Turn.Outcome != nil && parsed.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
+		outcome := parsed.Turn.Outcome
+		detail := plannerOutcomeFailureDetail(outcome)
+		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+			turn := parsed.Turn
+			item.LastTurn = &turn
+			item.Plan = nil
+			item.Policy = nil
+			item.LastExecution = nil
+			item.LastBundle = &parsed.Info
+			item.State = "failed"
+			item.LastRepairError = detail
+			item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, parsed.Turn.RequestID)
+			return nil
+		})
+		if updateErr != nil {
+			return BundleSubmission{}, updateErr
+		}
+		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
+		s.closeRemoteInputChannel(sessionID, "request.failed")
+		s.bus.Publish(sessionID, "turn.failed", map[string]any{"request_id": parsed.Turn.RequestID, "outcome": outcome.Status, "reason_code": outcome.ReasonCode, "retryable": outcome.Retryable, "transport": "zip_bundle"})
+		if outcome.Retryable && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
+			if recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true); retryErr == nil {
+				s.bus.Publish(sessionID, "turn.auto_recovery_prepared", map[string]any{"request_id": recovered.LastRequestID, "replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode})
+				return BundleSubmission{Session: recovered, AutoError: detail, RemoteRecoveryPrepared: true}, nil
+			} else {
+				s.bus.Publish(sessionID, "turn.auto_recovery_failed", map[string]any{"replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode, "error": retryErr.Error()})
+			}
+		}
+		return BundleSubmission{Session: updated, AutoError: updated.LastRepairError}, nil
+	}
+	supersededByContinuation := requestSupersededByBaselineContinuation(current, parsed.Turn.RequestID)
+	baselineCompatible := false
+	archiveReconcilable := false
+	legacyPatchRebase := false
+	if parsed.Plan != nil {
+		expected := strings.TrimSpace(parsed.Plan.BaseContextSHA256)
+		currentSHA := strings.TrimSpace(current.Context.Manifest.SHA256)
+		baselineCompatible = expected != "" && currentSHA != "" && expected != currentSHA && canFastForwardPlanBaseline(current, parsed.Plan, expected, currentSHA)
+		archiveReconcilable = expected != "" && currentSHA != "" && expected != currentSHA && canReconcilePlanFromArchive(current, parsed.Plan)
+		legacyPatchRebase = expected != "" && currentSHA != "" && expected != currentSHA && canLegacyRebasePlan(current, parsed.Plan)
+	}
+	if supersededByContinuation && !baselineCompatible && !archiveReconcilable && !legacyPatchRebase {
 		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
 			item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, parsed.Turn.RequestID)
 			return nil
@@ -479,6 +587,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if updateErr != nil {
 			return BundleSubmission{}, updateErr
 		}
+		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
 		s.bus.Publish(sessionID, "baseline.bundle_superseded", map[string]any{"request_id": parsed.Turn.RequestID, "replacement_request_id": current.LastRequestID, "current_sha256": current.Context.Manifest.SHA256})
 		return BundleSubmission{Session: updated, AutoError: fmt.Sprintf("ignored superseded bundle for request %s; concurrent baseline adaptation continues as request %s", parsed.Turn.RequestID, current.LastRequestID)}, nil
 	}
@@ -486,19 +595,34 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		expected := strings.TrimSpace(parsed.Plan.BaseContextSHA256)
 		currentSHA := strings.TrimSpace(current.Context.Manifest.SHA256)
 		if expected != "" && currentSHA != "" && expected != currentSHA {
-			if canFastForwardBaseline(current, expected, currentSHA, planTouchedFiles(parsed.Plan)) {
+			if baselineCompatible {
 				parsed.Plan.BaseContextSHA256 = currentSHA
-				s.bus.Publish(sessionID, "baseline.bundle_fast_forwarded", map[string]any{"request_id": parsed.Turn.RequestID, "from_sha256": expected, "to_sha256": currentSHA})
-			} else {
-				updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
-					item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, parsed.Turn.RequestID)
-					return nil
-				})
-				if updateErr != nil {
-					return BundleSubmission{}, updateErr
+				if supersededByContinuation {
+					replacementRequestID := current.LastRequestID
+					current, err = s.store.Update(sessionID, func(item *domain.Session) error {
+						item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, replacementRequestID)
+						item.LastRequestID = parsed.Turn.RequestID
+						return nil
+					})
+					if err != nil {
+						return BundleSubmission{}, err
+					}
+					s.releaseRemoteInputLease(sessionID, replacementRequestID)
+					s.bus.Publish(sessionID, "baseline.continuation_retired", map[string]any{"request_id": parsed.Turn.RequestID, "replacement_request_id": replacementRequestID, "current_sha256": currentSHA})
 				}
-				s.bus.Publish(sessionID, "baseline.bundle_superseded", map[string]any{"request_id": parsed.Turn.RequestID, "expected_sha256": expected, "current_sha256": currentSHA})
-				return BundleSubmission{Session: updated, AutoError: fmt.Sprintf("ignored superseded bundle for baseline %s; current baseline is %s", expected, currentSHA)}, nil
+				s.bus.Publish(sessionID, "baseline.bundle_fast_forwarded", map[string]any{"request_id": parsed.Turn.RequestID, "from_sha256": expected, "to_sha256": currentSHA})
+			} else if archiveReconcilable {
+				s.bus.Publish(sessionID, "changeset.bundle_accepted_on_immutable_base", map[string]any{"request_id": parsed.Turn.RequestID, "from_sha256": expected, "current_sha256": currentSHA})
+			} else if legacyPatchRebase {
+				// Sessions created before immutable request archives existed cannot
+				// reconstruct their historical tree. A validated patch-only plan can
+				// still be conservatively reapplied and verified on the current copied
+				// sandbox. This is a one-pass compatibility adapter, never a reason to
+				// create another baseline request.
+				parsed.Plan.BaseContextSHA256 = currentSHA
+				s.bus.Publish(sessionID, "changeset.legacy_rebase", map[string]any{"request_id": parsed.Turn.RequestID, "from_sha256": expected, "to_sha256": currentSHA})
+			} else {
+				return BundleSubmission{}, fmt.Errorf("stale command plan cannot be reconciled without its immutable request base; submit one fresh request")
 			}
 		}
 	}
@@ -538,6 +662,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if updateErr != nil {
 			return BundleSubmission{}, updateErr
 		}
+		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
 		s.bus.Publish(sessionID, "workflow.received", map[string]any{"plan_id": parsed.Plan.PlanID, "request_id": parsed.Turn.RequestID, "allowed": decision.Allowed, "transport": "zip_bundle"})
 		return s.runWorkflowLoop(ctx, sessionID, "zip_bundle")
 	}
@@ -556,11 +681,16 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if updateErr != nil {
 			return BundleSubmission{}, updateErr
 		}
+		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
+		s.closeRemoteInputChannel(sessionID, "request.terminal")
 		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": parsed.Turn.RequestID, "kind": parsed.Turn.Kind, "transport": "zip_bundle"})
 		return BundleSubmission{Session: updated}, nil
 	}
 	if err := protocol.Validate(*parsed.Plan); err != nil {
 		return BundleSubmission{}, err
+	}
+	if err := validateConflictResolutionPlan(current, parsed.Plan); err != nil {
+		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
 	}
 	decision := s.policy.Evaluate(*parsed.Plan)
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
@@ -577,6 +707,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if err != nil {
 		return BundleSubmission{}, err
 	}
+	s.releaseRemoteInputLease(sessionID, parsed.Plan.RequestID)
 	s.bus.Publish(sessionID, "bundle.received", map[string]any{"filename": parsed.Info.Filename, "files": len(parsed.Info.Files), "patches": len(parsed.Info.Patches), "sha256": parsed.Info.SHA256})
 	s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": parsed.Plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk, "transport": "zip_bundle"})
 
@@ -605,6 +736,17 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	return s.runAutomaticPlan(ctx, sessionID, "zip_bundle"), nil
 }
 
+func plannerOutcomeFailureDetail(outcome *domain.TurnOutcome) string {
+	detail := strings.TrimSpace(outcome.Message)
+	if detail == "" {
+		detail = "the planner did not complete the request"
+	}
+	if code := strings.TrimSpace(outcome.ReasonCode); code != "" {
+		detail = code + ": " + detail
+	}
+	return "Planner reported " + outcome.Status + ": " + detail
+}
+
 func (s *Service) preparePolicyRepairRequest(ctx context.Context, sessionID, planID string, reasons []string, transport string) (domain.Session, error) {
 	detail := strings.Join(reasons, "; ")
 	if strings.TrimSpace(detail) == "" {
@@ -615,6 +757,66 @@ func (s *Service) preparePolicyRepairRequest(ctx context.Context, sessionID, pla
 	})
 	result := domain.ExecutionResult{PlanID: planID, Success: false, Error: "policy denied plan: " + detail, StartedAt: time.Now().UTC(), CompletedAt: time.Now().UTC(), Commands: []domain.CommandResult{}}
 	return s.prepareRepairRequest(ctx, sessionID, result, errors.New(result.Error))
+}
+
+// RetryPolicyRepair recreates (or returns) the correction prompt for a plan
+// previously rejected by Policy. It also recovers a pending manual request
+// whose downloaded bundle did not reach the backend. It never executes the
+// rejected plan.
+func (s *Service) RetryPolicyRepair(ctx context.Context, sessionID string) (domain.Session, error) {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	if current.State == "repair_pending" && strings.TrimSpace(current.LastManualPrompt) != "" {
+		return current, nil
+	}
+	if current.State == "awaiting_plan" && strings.TrimSpace(current.LastManualPrompt) != "" && strings.TrimSpace(current.LastRequestID) != "" {
+		s.bus.Publish(sessionID, "manual.prompt_reprocess_ready", map[string]any{"request_id": current.LastRequestID, "reason": "bundle_not_persisted"})
+		return current, nil
+	}
+	if current.Plan == nil || current.Policy == nil || current.Policy.Allowed {
+		return domain.Session{}, errors.New("no policy-blocked plan is available to reprocess")
+	}
+	return s.preparePolicyRepairRequest(ctx, sessionID, current.Plan.PlanID, current.Policy.Reasons, "user_retry")
+}
+
+// RetryFailedRequest starts a genuinely new request from current context after
+// a terminal transport/protocol failure. It does not reuse the stale plan or
+// require the frontend transcript to reconstruct durable recovery state.
+func (s *Service) RetryFailedRequest(ctx context.Context, sessionID string) (domain.Session, error) {
+	return s.retryFailedRequest(ctx, sessionID, false)
+}
+
+func (s *Service) retryFailedRequest(ctx context.Context, sessionID string, automatic bool) (domain.Session, error) {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	if current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "" {
+		return domain.Session{}, errors.New("no terminal failed request is available to retry")
+	}
+	if len(current.PendingManualRequestIDs) > 0 || current.PlannerInFlight {
+		return domain.Session{}, errors.New("another request is already pending")
+	}
+	message := "FRESH REQUEST RECOVERY\n\nRetry the most recent failed task from the current project context. Treat the previous plan as diagnostic history only: do not reuse its stale baseline or request id. Preserve the original user goal and produce a new protocol-valid result."
+	_, updated, err := s.SubmitMessageWithMode(ctx, sessionID, message, current.LastRequestMode)
+	if err != nil {
+		return updated, err
+	}
+	updated, err = s.store.Update(sessionID, func(item *domain.Session) error {
+		if automatic {
+			item.RemoteRecoveryAttempt = current.RemoteRecoveryAttempt + 1
+		} else {
+			item.RemoteRecoveryAttempt = 0
+		}
+		return nil
+	})
+	if err != nil {
+		return updated, err
+	}
+	s.bus.Publish(sessionID, "request.failure_retried", map[string]any{"request_id": updated.LastRequestID, "replaces_request_id": current.LastRequestID, "automatic": automatic})
+	return updated, nil
 }
 
 func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport string) BundleSubmission {
@@ -657,6 +859,17 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			result.AutoError = applyErr.Error()
 			result.Session = executed
 			s.bus.Publish(sessionID, "automation.apply_failed", map[string]any{"error": applyErr.Error()})
+			if errors.Is(applyErr, ErrIntegrationConflict) {
+				if conflicted, getErr := s.store.Get(sessionID); getErr == nil {
+					result.Session = conflicted
+					result.ConflictPrepared = conflicted.State == "conflict_resolution_pending" && conflicted.LastManualPrompt != ""
+				}
+				return result
+			}
+			if errors.Is(applyErr, sandbox.ErrOfflineDependenciesUnavailable) {
+				s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": applyErr.Error(), "kind": "offline_dependencies"})
+				return result
+			}
 			if repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, execution, applyErr); repairErr == nil {
 				result.Session = repaired
 				result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
@@ -711,13 +924,113 @@ func bundleFilenameRequestID(filename string) string {
 	return match[1]
 }
 
-func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) (domain.ExecutionResult, domain.Session, error) {
+func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) (result domain.ExecutionResult, item domain.Session, err error) {
+	item, err = s.store.Get(sessionID)
+	if err != nil {
+		return result, item, err
+	}
+	if item.Plan == nil || item.Policy == nil {
+		return result, item, errors.New("no plan available")
+	}
+	if planExecutionAlreadyCompleted(item, item.Plan.PlanID) {
+		if item.InterruptedExecution != nil && item.InterruptedExecution.PlanID == item.Plan.PlanID && item.LastExecution != nil {
+			cleared, clearErr := s.clearInterruptedExecution(sessionID, item.Plan.PlanID)
+			if clearErr != nil {
+				return result, item, clearErr
+			}
+			s.bus.Publish(sessionID, "execution.recovery_reconciled", map[string]any{"plan_id": item.Plan.PlanID})
+			return *item.LastExecution, cleared, nil
+		}
+		return result, item, fmt.Errorf("plan %s already executed successfully; submit a new change request instead of executing it again", item.Plan.PlanID)
+	}
+	if !item.Policy.Allowed {
+		return result, item, errors.New("policy denied plan")
+	}
+	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
+	if unprotected && s.isSelfEvolution(item) {
+		return result, item, errors.New("Wharness self-evolution cannot execute in Unprotected mode")
+	}
+	if (item.Policy.RequiresApproval || unprotected) && !approved {
+		return result, item, ErrApprovalRequired
+	}
+	planID := item.Plan.PlanID
+	item, err = s.store.Update(sessionID, func(current *domain.Session) error {
+		if current.Plan == nil || current.Plan.PlanID != planID {
+			return errors.New("plan changed before execution intent could be recorded")
+		}
+		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: planID, RequestedAt: time.Now().UTC(), Approved: approved}
+		return nil
+	})
+	if err != nil {
+		return result, item, err
+	}
+
+	result, item, err = s.executeRecorded(ctx, sessionID, approved)
+	// Cancellation is ambiguous: the frontend, Desktop, backend, or runner may
+	// have disappeared mid-flight. Keep the durable intent for startup recovery.
+	if ctx.Err() != nil {
+		return result, item, err
+	}
+	cleared, clearErr := s.clearInterruptedExecution(sessionID, planID)
+	if clearErr != nil {
+		if err == nil {
+			err = fmt.Errorf("clear completed execution recovery intent: %w", clearErr)
+		}
+		return result, item, err
+	}
+	return result, cleared, err
+}
+
+func (s *Service) clearInterruptedExecution(sessionID, planID string) (domain.Session, error) {
+	return s.store.Update(sessionID, func(current *domain.Session) error {
+		if current.InterruptedExecution != nil && current.InterruptedExecution.PlanID == planID {
+			current.InterruptedExecution = nil
+		}
+		return nil
+	})
+}
+
+func (s *Service) DiscardInterruptedExecution(sessionID string) (domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return item, err
+	}
+	if item.InterruptedExecution == nil {
+		return item, errors.New("no interrupted execution is pending")
+	}
+	planID := item.InterruptedExecution.PlanID
+	updated, err := s.clearInterruptedExecution(sessionID, planID)
+	if err == nil {
+		s.bus.Publish(sessionID, "execution.recovery_discarded", map[string]any{"plan_id": planID})
+	}
+	return updated, err
+}
+
+func (s *Service) executeRecorded(ctx context.Context, sessionID string, approved bool) (domain.ExecutionResult, domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.ExecutionResult{}, item, err
 	}
 	if item.Plan == nil || item.Policy == nil {
 		return domain.ExecutionResult{}, item, errors.New("no plan available")
+	}
+	queuedPlanID := item.Plan.PlanID
+	ticket, err := s.executionQueue.acquire(ctx, item.ProjectPath, sessionID, func(position int) {
+		s.bus.Publish(sessionID, "execution.queued", map[string]any{"plan_id": queuedPlanID, "position": position})
+	})
+	if err != nil {
+		return domain.ExecutionResult{}, item, fmt.Errorf("wait for project execution queue: %w", err)
+	}
+	if ticket.queued {
+		s.bus.Publish(sessionID, "execution.dequeued", map[string]any{"plan_id": queuedPlanID, "position": ticket.position})
+	}
+	defer ticket.release()
+	item, err = s.store.Get(sessionID)
+	if err != nil {
+		return domain.ExecutionResult{}, item, err
+	}
+	if item.Plan == nil || item.Policy == nil {
+		return domain.ExecutionResult{}, item, errors.New("no plan available after leaving project execution queue")
 	}
 	if planExecutionAlreadyCompleted(item, item.Plan.PlanID) {
 		s.bus.Publish(sessionID, "execution.duplicate_blocked", map[string]any{"plan_id": item.Plan.PlanID, "state": item.State})
@@ -747,8 +1060,9 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	}
 	item = refreshed
 	currentBaseline := strings.TrimSpace(item.Context.Manifest.SHA256)
+	reconcileFromArchive := false
 	if expected != "" && currentBaseline != expected {
-		if canFastForwardBaseline(item, expected, currentBaseline, planTouchedFiles(item.Plan)) {
+		if canFastForwardPlanBaseline(item, item.Plan, expected, currentBaseline) {
 			advanced, updateErr := s.store.Update(sessionID, func(current *domain.Session) error {
 				if current.Plan != nil && current.Plan.PlanID == item.Plan.PlanID {
 					current.Plan.BaseContextSHA256 = currentBaseline
@@ -760,6 +1074,21 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 			}
 			item = advanced
 			s.bus.Publish(sessionID, "baseline.execution_fast_forwarded", map[string]any{"plan_id": item.Plan.PlanID, "from_sha256": expected, "to_sha256": currentBaseline})
+		} else if !unprotected && canReconcilePlanFromArchive(item, item.Plan) {
+			reconcileFromArchive = true
+			s.bus.Publish(sessionID, "changeset.base_restored", map[string]any{"plan_id": item.Plan.PlanID, "base_context_sha256": expected, "current_context_sha256": currentBaseline})
+		} else if !unprotected && canLegacyRebasePlan(item, item.Plan) {
+			advanced, updateErr := s.store.Update(sessionID, func(current *domain.Session) error {
+				if current.Plan != nil && current.Plan.PlanID == item.Plan.PlanID {
+					current.Plan.BaseContextSHA256 = currentBaseline
+				}
+				return nil
+			})
+			if updateErr != nil {
+				return domain.ExecutionResult{}, item, updateErr
+			}
+			item = advanced
+			s.bus.Publish(sessionID, "changeset.execution_legacy_rebase", map[string]any{"plan_id": item.Plan.PlanID, "from_sha256": expected, "to_sha256": currentBaseline, "reason": "immutable context archive is not execution-complete"})
 		} else {
 			cause := fmt.Errorf("stale context baseline: plan %s was prepared on %s but the current project baseline is %s", item.Plan.PlanID, expected, currentBaseline)
 			s.bus.Publish(sessionID, "baseline.stale", map[string]any{"plan_id": item.Plan.PlanID, "expected_sha256": expected, "current_sha256": currentBaseline, "impact_files": item.Plan.ImpactFiles})
@@ -779,33 +1108,41 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	}
 
 	result := domain.ExecutionResult{PlanID: item.Plan.PlanID, StartedAt: time.Now().UTC(), Commands: []domain.CommandResult{}}
-	s.bus.Publish(sessionID, "execution.started", map[string]any{"plan_id": item.Plan.PlanID, "execution_mode": item.ExecutionMode, "target": executionTarget})
-	workspace, err := runner.Prepare(ctx, item.ProjectPath)
+	executionStartedData := requestEventLineage(item, item.Plan.RequestID)
+	executionStartedData["plan_id"] = item.Plan.PlanID
+	executionStartedData["execution_mode"] = item.ExecutionMode
+	executionStartedData["target"] = executionTarget
+	s.bus.Publish(sessionID, "execution.started", executionStartedData)
+	executionRoot, cleanupExecutionBase, err := executionBase(item, item.Plan, reconcileFromArchive)
+	if err != nil {
+		return s.failExecution(ctx, sessionID, result, fmt.Errorf("prepare immutable task base: %w", err))
+	}
+	defer cleanupExecutionBase()
+	workspace, err := runner.Prepare(ctx, executionRoot)
 	if err != nil {
 		return s.failExecution(ctx, sessionID, result, err)
 	}
+	bindExecutionDependencySource(&workspace, item, reconcileFromArchive)
 	defer runner.Cleanup(workspace)
+	pendingForExecution := item.PendingHostChanges
+	if item.IntegrationConflict != nil && item.IntegrationConflict.RequestID == item.Plan.RequestID {
+		// Preserve the original conflicted mutations durably until the focused
+		// replacement has itself passed sandbox verification. Only the private
+		// execution candidate omits those superseded paths.
+		pendingForExecution = retireConflictingMutations(pendingForExecution, item.IntegrationConflict)
+	}
 	if !unprotected {
-		for _, pending := range item.PendingHostChanges {
-			if pending.Plan.PlanID == item.Plan.PlanID {
-				continue
-			}
-			for _, patch := range planPatches(&pending.Plan) {
-				if err := protocol.ValidatePatchPaths(patch); err != nil {
-					return s.failExecution(ctx, sessionID, result, fmt.Errorf("replay pending plan %s: %w", pending.Plan.PlanID, err))
-				}
-				commandResult, runErr := runner.ApplyPatch(ctx, workspace, patch)
-				result.Commands = append(result.Commands, commandResult)
-				if runErr != nil || !commandResult.Success {
-					if runErr == nil {
-						runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
-					}
-					return s.failExecution(ctx, sessionID, result, fmt.Errorf("replay pending plan %s: %w", pending.Plan.PlanID, runErr))
-				}
-				s.bus.Publish(sessionID, "patch.applied", map[string]any{"target": "sandbox-pending", "plan_id": pending.Plan.PlanID, "files": patchPaths(patch), "duration_ms": commandResult.DurationMS})
-			}
+		if replayErr := s.replayPendingChangeSets(ctx, sessionID, runner, workspace, pendingForExecution, item.Plan.PlanID, &result); replayErr != nil {
+			return s.failExecution(ctx, sessionID, result, replayErr)
 		}
 	}
+	changeBasePaths := append(actualPatchFiles(item.Plan), item.Plan.ReadFiles...)
+	changeBasePaths = append(changeBasePaths, item.Plan.BarrierFiles...)
+	changeBaseRoot, cleanupChangeBase, err := changeset.SnapshotPaths(workspace.Path, changeBasePaths)
+	if err != nil {
+		return s.failExecution(ctx, sessionID, result, fmt.Errorf("snapshot plan write set: %w", err))
+	}
+	defer cleanupChangeBase()
 
 	for _, op := range item.Plan.Operations {
 		if op.Type == "apply_patch" {
@@ -848,7 +1185,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv, "target": executionTarget})
 		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
 		if runErr == nil && !commandResult.Success && !unprotected {
-			baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, runner, &baselineWorkspace, item.ProjectPath, item.PendingHostChanges, command, commandResult)
+			baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, runner, &baselineWorkspace, item.ProjectPath, pendingForExecution, command, commandResult)
 			if baselineErr == nil && unchanged {
 				commandResult.BaselineFailure = true
 				commandResult.BaselineExitCode = baselineResult.ExitCode
@@ -878,16 +1215,40 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
+	var canonicalChangeSet *domain.ChangeSet
+	if !unprotected {
+		canonicalChangeSet, err = materializePlanChangeSet(*item.Plan, changeBaseRoot, workspace.Path)
+		if err != nil {
+			return s.failExecution(ctx, sessionID, result, fmt.Errorf("materialize verified ChangeSet: %w", err))
+		}
+		if canonicalChangeSet != nil {
+			s.bus.Publish(sessionID, "changeset.verified", map[string]any{"changeset_id": canonicalChangeSet.ID, "plan_id": item.Plan.PlanID, "files": changeSetPaths(*canonicalChangeSet)})
+		}
+	}
+	retiredRequestIDs := make([]string, 0)
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastExecution = &result
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
 		current.LastRepairError = ""
+		for _, requestID := range current.PendingManualRequestIDs {
+			if requestID != item.Plan.RequestID {
+				retiredRequestIDs = append(retiredRequestIDs, requestID)
+			}
+		}
+		current.PendingManualRequestIDs = nil
+		current.LastRequestID = item.Plan.RequestID
+		current.LastManualPrompt = ""
 		if unprotected {
 			current.State = "applied"
 		} else {
-			current.PendingHostChanges = upsertPendingHostChange(current.PendingHostChanges, domain.PendingHostChange{
-				Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt,
+			pendingBase := current.PendingHostChanges
+			if current.IntegrationConflict != nil && current.IntegrationConflict.RequestID == item.Plan.RequestID {
+				pendingBase = retireConflictingMutations(pendingBase, current.IntegrationConflict)
+				current.IntegrationConflict = nil
+			}
+			current.PendingHostChanges = upsertPendingHostChange(pendingBase, domain.PendingHostChange{
+				Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt, ChangeSet: canonicalChangeSet,
 			})
 			current.State = "verified"
 		}
@@ -895,6 +1256,9 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	})
 	if err != nil {
 		return result, item, err
+	}
+	for _, requestID := range retiredRequestIDs {
+		s.releaseRemoteInputLease(sessionID, requestID)
 	}
 	if unprotected {
 		s.resetDevspace(sessionID)
@@ -908,6 +1272,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		} else {
 			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 		}
+		s.closeRemoteInputChannel(sessionID, "request.completed")
 	}
 	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	return result, updated, nil
@@ -1051,6 +1416,41 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 		s.resetDevspace(sessionID)
 	}
 
+	var replayConflict *pendingChangeSetReplayConflict
+	if errors.As(cause, &replayConflict) {
+		conflicted, conflictErr := s.prepareConflictResolution(sessionID, updated, updated.PendingHostChanges, replayConflict.conflicts)
+		if conflictErr != nil {
+			s.bus.Publish(sessionID, "conflict.prepare_failed", map[string]any{"error": conflictErr.Error(), "source": "pending_changeset_replay"})
+		} else {
+			updated = conflicted
+		}
+		s.bus.Publish(sessionID, "execution.failed", map[string]any{
+			"error": cause.Error(), "execution_mode": updated.ExecutionMode,
+			"conflict_resolution_pending": updated.State == "conflict_resolution_pending",
+			"conflict_source":             "pending_changeset_replay", "changeset_id": replayConflict.changeSetID,
+		})
+		return result, updated, cause
+	}
+
+	if updated.IntegrationConflict != nil && updated.Plan != nil && updated.IntegrationConflict.RequestID == updated.Plan.RequestID {
+		if updated.RepairAttempt < maxAutoRepairAttempts {
+			conflict := updated.IntegrationConflict
+			if retried, retryErr := s.prepareConflictResolution(sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
+				updated = retried
+				updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+					current.RepairAttempt++
+					current.RepairParentPlanID = result.PlanID
+					current.LastRepairError = cause.Error()
+					return nil
+				})
+			} else {
+				s.bus.Publish(sessionID, "conflict.retry_prepare_failed", map[string]any{"error": retryErr.Error()})
+			}
+		}
+		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "conflict_resolution_pending": updated.State == "conflict_resolution_pending", "repair_attempt": updated.RepairAttempt})
+		return result, updated, cause
+	}
+
 	// A failed plan becomes the input of a bounded repair loop. The planner
 	// creates a fresh request_id and file-first delivery prompt; Desktop is
 	// responsible only for submitting that prompt to the already-linked ChatGPT
@@ -1106,8 +1506,10 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 	}
 
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
+		recordRequestLineage(item, requestID, refreshed.LastRequestID, requestKindRepair)
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
+		recordRequestContext(item, requestID, refreshed.Context)
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastRepairError = cause.Error()
 		item.RepairAttempt = attempt
@@ -1272,18 +1674,52 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	item = refreshedBeforeApply
 	currentBaseline := strings.TrimSpace(item.Context.Manifest.SHA256)
+	useChangeSets := allPendingHaveChangeSets(pending)
+	var stagedIntegration stagedHostIntegration
+	stagedIntegrationCleaned := true
+	if useChangeSets {
+		stagedIntegration, err = s.stageHostIntegration(ctx, sessionID, item, pending)
+		if err != nil {
+			return item, fmt.Errorf("stage ChangeSet integration: %w", err)
+		}
+		if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
+			updated, prepareErr := s.prepareConflictResolution(sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+			if prepareErr != nil {
+				return item, fmt.Errorf("prepare focused conflict resolution: %w", prepareErr)
+			}
+			return updated, fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflictPaths(stagedIntegration.prepared.Conflicts), ", "))
+		}
+		stagedIntegrationCleaned = false
+		defer func() {
+			if !stagedIntegrationCleaned {
+				_ = s.runner.Cleanup(stagedIntegration.workspace)
+			}
+		}()
+	}
 	reverify := false
 	for index := range pending {
+		if useChangeSets {
+			break
+		}
 		expected := strings.TrimSpace(expectedBaselines[index])
 		if expected == "" || expected == currentBaseline {
 			continue
 		}
-		if canFastForwardBaseline(item, expected, currentBaseline, planTouchedFiles(&pending[index].Plan)) {
+		if canFastForwardPlanBaseline(item, &pending[index].Plan, expected, currentBaseline) {
 			reverify = true
 			continue
 		}
 		s.bus.Publish(sessionID, "baseline.apply_blocked", map[string]any{"plan_id": pending[index].Plan.PlanID, "expected_sha256": expected, "current_sha256": currentBaseline, "impact_files": pending[index].Plan.ImpactFiles})
-		return item, fmt.Errorf("host apply blocked by stale baseline: plan %s was verified on %s but current baseline is %s", pending[index].Plan.PlanID, expected, currentBaseline)
+		failure := fmt.Errorf("host apply failed: host apply blocked by stale baseline: plan %s was verified on %s but current baseline is %s", pending[index].Plan.PlanID, expected, currentBaseline)
+		updated, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
+			current.LastRepairError = failure.Error()
+			return nil
+		})
+		if persistErr != nil {
+			return item, fmt.Errorf("%w; retain host apply failure for correction: %v", failure, persistErr)
+		}
+		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": pending[index].Plan.PlanID, "error": failure.Error(), "rolled_back_patch_count": 0})
+		return updated, failure
 	}
 	if reverify {
 		reverified, reverifyErr := s.reverifyPendingCandidate(ctx, sessionID, item, pending, currentBaseline)
@@ -1344,10 +1780,17 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	defer s.hostRunner.Cleanup(workspace)
 	appliedPatches := make([]string, 0, len(patches))
+	var integrationJournal *changeset.Journal
 	failApply := func(cause error) error {
 		var failure error
 		if selfEvolution {
 			failure = rollback(cause)
+		} else if integrationJournal != nil {
+			if rollbackErr := integrationJournal.Rollback(item.ProjectPath); rollbackErr != nil {
+				failure = fmt.Errorf("%w; ChangeSet rollback failed: %v", cause, rollbackErr)
+			} else {
+				failure = cause
+			}
 		} else {
 			failure = s.rollbackHostPatches(ctx, item.ProjectPath, appliedPatches, cause)
 		}
@@ -1358,9 +1801,57 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": latestPlanID, "error": failure.Error(), "rolled_back_patch_count": len(appliedPatches)})
 		return failure
 	}
+	if useChangeSets {
+		var journal changeset.Journal
+		var commitErr error
+		for attempt := 1; attempt <= 3; attempt++ {
+			journal, commitErr = changeset.Commit(item.ProjectPath, stagedIntegration.prepared)
+			_ = s.runner.Cleanup(stagedIntegration.workspace)
+			stagedIntegrationCleaned = true
+			if commitErr == nil {
+				break
+			}
+			s.bus.Publish(sessionID, "integration.race", map[string]any{"plan_id": latestPlanID, "outcome": journal.Outcome, "attempt": attempt, "error": commitErr.Error()})
+			if journal.Outcome != domain.IntegrationRetryableRace || attempt == 3 {
+				break
+			}
+			item, err = s.refreshContext(sessionID)
+			if err != nil {
+				commitErr = fmt.Errorf("refresh after integration race: %w", err)
+				break
+			}
+			stagedIntegration, err = s.stageHostIntegration(ctx, sessionID, item, pending)
+			if err != nil {
+				commitErr = fmt.Errorf("restage after integration race: %w", err)
+				break
+			}
+			if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
+				updated, prepareErr := s.prepareConflictResolution(sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+				if prepareErr != nil {
+					return item, fmt.Errorf("prepare focused conflict resolution after integration race: %w", prepareErr)
+				}
+				return updated, fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflictPaths(stagedIntegration.prepared.Conflicts), ", "))
+			}
+			stagedIntegrationCleaned = false
+		}
+		if commitErr != nil {
+			_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+				current.LastRepairError = commitErr.Error()
+				return nil
+			})
+			return item, commitErr
+		}
+		integrationJournal = &journal
+		for _, write := range stagedIntegration.prepared.Writes {
+			s.bus.Publish(sessionID, "changeset.integrated", map[string]any{"plan_id": latestPlanID, "path": write.Path, "deleted": !write.ResultExists})
+		}
+	}
 	for _, change := range pending {
 		for _, op := range change.Plan.Operations {
 			if op.Type == "apply_patch" {
+				if useChangeSets {
+					continue
+				}
 				if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
 					return item, failApply(err)
 				}
@@ -1416,6 +1907,16 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		current.LastAppliedChanges = append([]domain.PendingHostChange(nil), pending...)
 		current.PendingHostChanges = nil
 		current.LastRepairError = ""
+		if selfEvolution && current.LastTurn != nil && len(current.LastTurn.ResolvedEvidenceIDs) > 0 {
+			if current.ResolvedEvidenceIDs == nil {
+				current.ResolvedEvidenceIDs = map[string]time.Time{}
+			}
+			resolvedAt := time.Now().UTC()
+			for _, evidenceID := range current.LastTurn.ResolvedEvidenceIDs {
+				current.ResolvedEvidenceIDs[evidenceID] = resolvedAt
+			}
+			current.EvidenceReviewIDs = nil
+		}
 		return nil
 	})
 	if err != nil {
@@ -1433,6 +1934,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		} else {
 			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 		}
+		s.closeRemoteInputChannel(sessionID, "request.completed")
 		return updated, nil
 	}
 
@@ -1444,6 +1946,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	} else {
 		s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 	}
+	s.closeRemoteInputChannel(sessionID, "request.completed")
 	return updated, nil
 }
 
@@ -1590,20 +2093,18 @@ func (s *Service) RestartSelfEvolution(sessionID string) (domain.Session, error)
 }
 
 func (s *Service) isSelfEvolution(item domain.Session) bool {
-	return item.SelfEvolution || (s.selfEvolution != nil && s.selfEvolution.IsProject(item.ProjectPath))
+	return s.selfEvolution != nil && s.selfEvolution.IsProject(item.ProjectPath)
 }
 
 func (s *Service) normalizeSelfEvolutionSessions() {
-	if s.selfEvolution == nil || !s.selfEvolution.Enabled() {
-		return
-	}
 	for _, item := range s.store.List() {
-		if !s.selfEvolution.IsProject(item.ProjectPath) {
+		canonical := s.selfEvolution != nil && s.selfEvolution.IsProject(item.ProjectPath)
+		if item.SelfEvolution == canonical && (!canonical || item.ExecutionMode != domain.ExecutionModeUnprotected) {
 			continue
 		}
 		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
-			current.SelfEvolution = true
-			if current.ExecutionMode == domain.ExecutionModeUnprotected {
+			current.SelfEvolution = canonical
+			if canonical && current.ExecutionMode == domain.ExecutionModeUnprotected {
 				current.ExecutionMode = domain.ExecutionModeProtected
 			}
 			return nil
@@ -1765,6 +2266,14 @@ func (s *Service) ReadFile(sessionID, path string) (workspacefs.File, error) {
 	return workspacefs.Read(item.ProjectPath, path)
 }
 
+func (s *Service) OpenFilePreview(sessionID, path string) (*os.File, os.FileInfo, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return workspacefs.OpenPreview(item.ProjectPath, path)
+}
+
 func (s *Service) WriteFile(sessionID, path, content, expectedSHA string) (workspacefs.File, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -1906,6 +2415,21 @@ func (s *Service) ContextInspection(sessionID string) (contextbundle.ContextInsp
 	return s.context.Inspect(item.ProjectPath, item.Context.Manifest)
 }
 
+// EnsureContextArtifacts reconstructs expired/missing temporary context files
+// from the authoritative project without changing the session workflow state.
+func (s *Service) EnsureContextArtifacts(sessionID string) (domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return item, err
+	}
+	zipInfo, zipErr := os.Stat(item.Context.ZipPath)
+	textInfo, textErr := os.Stat(item.Context.TextPath)
+	if zipErr == nil && textErr == nil && zipInfo.Mode().IsRegular() && textInfo.Mode().IsRegular() {
+		return item, nil
+	}
+	return s.refreshContext(sessionID)
+}
+
 func (s *Service) RefreshContext(sessionID string) (domain.Session, error) {
 	return s.refreshContext(sessionID)
 }
@@ -1920,15 +2444,54 @@ func (s *Service) refreshContext(sessionID string) (domain.Session, error) {
 		return domain.Session{}, fmt.Errorf("refresh project context: %w", err)
 	}
 	oldDir := filepath.Dir(item.Context.ZipPath)
-	updated, err := s.store.Update(sessionID, func(current *domain.Session) error { current.Context = bundle; return nil })
+	changedFiles := manifestChangedFiles(item.Context.Manifest, bundle.Manifest)
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		if current.Context.Manifest.SHA256 != "" && current.Context.Manifest.SHA256 != bundle.Manifest.SHA256 {
+			current.ProjectRevisions = append(current.ProjectRevisions, domain.ProjectRevision{
+				ParentSHA256: current.Context.Manifest.SHA256, SHA256: bundle.Manifest.SHA256,
+				ChangedFiles: changedFiles, Source: "observed", Complete: true, ObservedAt: time.Now().UTC(),
+			})
+			if len(current.ProjectRevisions) > 64 {
+				current.ProjectRevisions = append([]domain.ProjectRevision(nil), current.ProjectRevisions[len(current.ProjectRevisions)-64:]...)
+			}
+		}
+		current.Context = bundle
+		return nil
+	})
 	if err != nil {
 		return domain.Session{}, err
 	}
-	if oldDir != "" && oldDir != "." && oldDir != filepath.Dir(bundle.ZipPath) {
+	if oldDir != "" && oldDir != "." && oldDir != filepath.Dir(bundle.ZipPath) && !contextDirectoryReferenced(updated, oldDir) {
 		_ = os.RemoveAll(oldDir)
 	}
 	s.bus.Publish(sessionID, "context.refreshed", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256})
 	return updated, nil
+}
+
+func manifestChangedFiles(before, after domain.ContextManifest) []string {
+	old := contextFileHashes(before.Files)
+	current := contextFileHashes(after.Files)
+	changed := make([]string, 0)
+	for path, sha := range old {
+		if current[path] != sha {
+			changed = append(changed, path)
+		}
+	}
+	for path := range current {
+		if _, ok := old[path]; !ok {
+			changed = append(changed, path)
+		}
+	}
+	return normalizedPaths(changed)
+}
+
+func contextDirectoryReferenced(item domain.Session, directory string) bool {
+	for _, archive := range item.RequestContextArchives {
+		if filepath.Clean(filepath.Dir(archive)) == filepath.Clean(directory) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) ensureDevspace(ctx context.Context, sessionID, projectPath string) (sandbox.Workspace, error) {

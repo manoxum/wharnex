@@ -1,10 +1,10 @@
-# Wharness Desktop v1.2.8
+# Wharnex (WHX) Desktop
 
-Wharness is a local coding-agent harness and lightweight IDE. It combines a React workspace, a Go orchestration backend, isolated Docker execution and—when launched through **Wharness Desktop**—a real ChatGPT web surface in the same native window.
+Wharnex is a local coding-agent harness and lightweight IDE. **WHX** is its short code. Existing `wharness-*` bundle names, environment variables, storage keys and executable paths remain compatibility identifiers for protocol v1.
 
 ### Estado durável e cache de chats
 
-O backend persiste o estado operacional das sessões em `.harness/state/sessions.json`; planos, request ids pendentes e resultados deixam de desaparecer quando a stack é reiniciada. Em Protected Mode, verificações que já falhavam na baseline podem ser classificadas como dívida preexistente somente quando o resultado pós-patch é idêntico.
+O backend persiste cada sessão como um registo independente no PostgreSQL local gerido pelo lifecycle Docker. O antigo `.harness/state/sessions.json` é migrado automaticamente e mantido apenas como backup legado; planos, request ids pendentes e resultados não desaparecem quando a stack é reiniciada. Em Protected Mode, verificações que já falhavam na baseline podem ser classificadas como dívida preexistente somente quando o resultado pós-patch é idêntico.
 
 No Desktop, cada Harness Chat pode manter um `WebContentsView` próprio em memória. Até 20 chats recentes permanecem vivos em cache LRU, permitindo alternância instantânea sem recarregar a conversa do ChatGPT. O cache de DOM é deliberadamente somente em memória; após encerrar o Electron, as URLs persistidas continuam sendo a fonte para reabrir as conversas.
 
@@ -75,7 +75,11 @@ For Node.js projects, `node_modules` stays out of model context and the initial 
 
 ## Recommended lifecycle — Desktop
 
-Prerequisites for the desktop lifecycle: Go, Node.js 20+, npm and `curl`. Docker is required only for the explicit Protected runner build/execution path. Run lifecycle commands from the repository root.
+Prerequisites for the desktop lifecycle: Go, Node.js 20+, npm, `curl`, Docker Engine and Docker Compose v2. Desktop runs on the host; backend, frontend, PostgreSQL and all tunnel clients run in the project-owned Compose stack.
+
+`make build` builds/stages application artifacts and Compose images, then reconciles backend/frontend without recreating the persistent tunnel/database services. `make start` ensures that stack and launches Desktop. `make stop` stops Desktop only. Use `make stack-stop` or `make stack-down` only when you intentionally want to interrupt the persistent service stack and any ephemeral tunnel URLs. Transactional self-evolution uses `make build-stage`, which never activates replacement containers; restart activation is handed to a detached supervisor container so replacing backend/frontend cannot kill the restart worker, and a failed rollout restores the previous application images without restarting tunnel/database.
+
+On first stack initialization, Wharness reuses the existing PostgreSQL credentials and migrates a compatible PostgreSQL 17 `.harness/postgres/data` directory into the Compose named volume before starting the new database.
 
 ### Build the desktop lifecycle
 
@@ -93,7 +97,7 @@ make build-status    # show backend/frontend/desktop artifact-cache state
 make build-refresh   # force recompilation, preserving dependency caches
 ```
 
-`make build` performs the complete desktop/application build path **without invoking Docker**. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
+`make build` performs the complete desktop/application build path, builds the Compose service images, and reconciles backend/frontend while preserving the running tunnel/database containers. `make build-stage` performs the same staging without activating replacement containers. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
 
 Compiled artifacts are fingerprinted independently as well. If a component's source/configuration/runtime fingerprint is unchanged and its expected output is present, `make build` skips that component's compilation. Backend-only or no-change rebuilds therefore leave the frontend untouched. When a real frontend change does require Vite, the official versioned precompiled Monaco runtime is copied into the production output instead of making Rollup transform and minify Monaco's full source module graph again.
 
@@ -104,7 +108,7 @@ Compiled artifacts are fingerprinted independently as well. If a component's sou
 - builds the React frontend into `services/frontend/dist` only when frontend inputs change;
 - validates the Electron main/preload/dev code and installed Electron binary only when desktop inputs change.
 
-The Protected runner image is intentionally decoupled so `make build && make start` cannot wake a socket-activated Docker daemon and recreate host bridges/veth interfaces while Electron/ChatGPT is online. Build the runner only when required:
+The Protected runner image remains decoupled from application/service-image builds. Docker must already be explicitly running; normal lifecycle commands refuse unsafe socket activation. Build the runner only when required:
 
 ```bash
 # Docker must already be running; Wharness will not auto-start it.
@@ -114,7 +118,7 @@ make build-runner
 make build-all
 ```
 
-On Linux/systemd, both runner construction and Protected execution refuse to invoke Docker when `docker.socket` is active but `docker.service` is stopped. Start Docker yourself only when you intentionally want to use the Protected Docker runner.
+On Linux/systemd, database startup, runner construction and Protected execution refuse to invoke Docker when `docker.socket` is active but `docker.service` is stopped. Start Docker explicitly before `make start`.
 
 ### Start all services + Electron
 
@@ -123,8 +127,9 @@ cd ~/workspace/wharness
 make start
 ```
 
-`make start` starts a lifecycle coordinator in the background. It starts/reuses:
+`make start` first reconciles the persistent Compose services and then starts the host Desktop lifecycle coordinator. The Compose services are:
 
+- project-owned PostgreSQL on a dynamically allocated loopback port;
 - backend: `127.0.0.1:8080`;
 - built frontend through Vite preview: `127.0.0.1:5173`;
 - Wharness Electron desktop shell.
@@ -136,9 +141,18 @@ Useful lifecycle commands:
 ```bash
 make status
 make logs
+make logs SOURCE=frontend
+make logs SOURCE=electron FILTER=error
+make logs SOURCE=chatgpt FOLLOW=1 TAIL=200
 make stop
 make restart
 ```
+
+`make logs` prints a categorized snapshot from the frontend container, Electron,
+ChatGPT transport and self-evolution. Select one with `SOURCE=frontend|electron|chatgpt|self`,
+filter case-insensitively with `FILTER=...`, and use `FOLLOW=1` for a continuous stream.
+The underlying `scripts/logs.sh` also accepts conventional CLI flags such as
+`-f`, `-s chatgpt`, `-g error`, and `-n 200`.
 
 ### Export project context
 
@@ -147,7 +161,7 @@ make export
 make export-check
 ```
 
-`make export` writes the project archive to `../project-context/wharness/wharness.zip` by default. The archive includes a generated root `EXPORTS.md` with export provenance, the current Git branch/HEAD, concise status (including untracked files), `git worktree list --porcelain`, the current Wharness service/HTTP status, and a bounded recent tail of the Wharness desktop log. Runtime log values that look like credentials are redacted. `.git`, raw `.harness` runtime data and Git remote URLs remain excluded. The same synthetic metadata file is also added to context ZIPs generated for projects managed by Wharness, but those managed-project contexts contain project/Git provenance only and do not inherit Wharness host logs/status.
+`make export` writes the project archive to `../project-context/wharness/wharness.zip` by default. The export is intentionally a compact source/diagnostic snapshot rather than a backup: repository `patches/` are retained as useful distribution/debugging history, while IDE metadata, nested `.harness` state, `.orig/.rej` residues, dependency/build trees and generated Wharness context/input/bundle payloads are omitted. The archive includes generated root `EXPORTS.md` provenance with Git/runtime diagnostics plus `EXPORT_INDEX.md` with the exclusion policy, top-level inventory and largest included entries. Runtime log values that look like credentials are redacted. `.git`, raw runtime data and Git remote URLs remain excluded. The command prints the final path, human/byte size, entry count, retained patch-file count and SHA-256. The same synthetic `EXPORTS.md` provenance is also added to contexts generated for projects managed by Wharness, but those managed-project contexts contain project/Git provenance only and do not inherit Wharness host logs/status.
 
 ### Linux / Wayland
 
@@ -178,18 +192,17 @@ make start
 
 The default remains `HARNESS_PLANNER=manual`.
 
-With the supported provider, every request returns a structured `harness.turn/v1` result. Questions and investigations are rendered directly in Harness without execution. In project Auto mode, only an explicit `change` result continues through Policy, Protected sandbox, verification, and host Apply; no browser download is involved.
+With the supported provider, every request returns a structured `harness.turn/v1` result with an explicit planner outcome. Questions and investigations are rendered directly in Harness without execution. Failed or partial planner outcomes are surfaced as request failures and never execute. In project Auto mode, only a completed explicit `change` result continues through Policy, Protected sandbox, verification, and host Apply; no browser download is involved.
 
 ## Manual ChatGPT workflow inside one window
 
 1. Open a project and switch to **Agent**.
 2. Send the request to the Harness. It prepares the agent-turn prompt and project context.
 3. Open the **ChatGPT** tab. The actual ChatGPT site is displayed inside Wharness Desktop.
-4. Click **Copiar contexto ZIP**. Wharness refreshes the project snapshot and places the ZIP on the native system clipboard.
-5. Click the ChatGPT composer and press `Ctrl+V` to attach the ZIP.
-6. Click **Copiar prompt**, then paste the prompt into ChatGPT.
-7. Wait for ChatGPT to return `wharness-bundle-<request_id>.zip`, then initiate its download in the ChatGPT surface.
-8. Wharness imports the bundle automatically after the download starts. Answers appear in chat; only `change` bundles expose and execute a plan.
+4. In the composer transport menu, enable the request ZIP, live verification tunnels, or both. The global default can be overridden per chat.
+5. Send the request. With ZIP enabled, Wharness uploads exactly one `wharness-input-<request_id>.zip` containing the prompt, refreshed context, `@file` selections and attachments. With tunnels enabled, it also publishes every configured tunnel in priority order.
+6. Wait for ChatGPT to return `wharness-bundle-<request_id>.zip`, then initiate its download in the ChatGPT surface.
+7. Wharness imports the bundle automatically after the download starts. Answers appear in chat; only completed `change` bundles expose and execute a plan.
 
 Manual import is transport-resilient: Wharness accepts fenced JSON and can repair the narrow case where a unified-diff `patch` contains unescaped source-code quotes (for example CSS `content: "";`). The repaired plan is still subjected to the same strict protocol/path/policy validation before execution.
 9. For a change in **Protected**, execute in the sandbox and Apply only after verification. In **Unprotected**, the execution button requires confirmation and runs the validated plan directly on the project; there is no separate Apply step.
@@ -211,6 +224,8 @@ The preference is stored by project path and restored when that workspace is reo
 The active project path, current mode, recent workspaces, active Harness chat, per-chat transcript, per-chat backend session ID, and per-chat ChatGPT conversation URL are stored locally. After `F5` or reopening Wharness Desktop, the active workspace and chat are restored. Selecting another Harness chat restores its own transcript and activates that chat's dedicated embedded ChatGPT renderer, navigating only that renderer to the linked conversation URL. Remote renderers are never reassigned between Harness chats; the common persistent browser partition is used only to share the authenticated ChatGPT browser session. If the Go backend has restarted and a remembered in-memory session no longer exists, Wharness creates a fresh backend session for that chat while preserving the local transcript and ChatGPT URL.
 
 The ChatGPT login/session is persisted by Electron's dedicated browser partition. **Login incorporado** keeps compatible authentication in that view. **Login externo (callback)** launches a real Chrome/Chromium/Brave with a persistent Wharness-owned profile under Electron `userData`, detects the authenticated ChatGPT callback over loopback DevTools, relays only ChatGPT cookies into the dedicated Electron partition, then closes the browser while preserving that profile so future Google/ChatGPT logins can reuse the account/session. **Chrome pessoal** opens the normal system browser with its current profile/session, but remains intentionally isolated and has no cookie relay/callback. Explicit browser-session/full-data clearing removes the dedicated Wharness browser profile. Google OAuth selected from Embedded mode is promoted automatically because Google disallows embedded OAuth user-agents. Set `WHARNESS_BROWSER_EXECUTABLE` when Chrome/Chromium/Brave is installed outside the normal platform paths.
+
+Background ChatGPT views run with Chromium background throttling disabled, so changing Wharness tab/window focus does not intentionally suspend liveness supervision. Active Auto requests recover bounded renderer/network/DNS/proxy/TLS/HTTP failures, back off rate limits, detect a missing compositor/stuck page, and escalate after the recovery budget instead of waiting silently. Structural CAPTCHA/Turnstile, authentication or access gates pause automation and raise a native **Ação necessária no ChatGPT** notification plus a persistent command-bar action; the user can open the affected chat to complete the required step. This detection stays structural and does not read generated ChatGPT prose, cookies, storage or challenge tokens.
 
 Harness chat attachments are also durable in Desktop mode. Wharness stores private copies under Electron application data rather than inside the target project; the transcript keeps opaque references plus filename/size/MIME metadata. Reopening a chat restores its attachment cards, including image thumbnails when available and native file icons as fallback. Clicking a persisted attachment opens the stored local copy. Attachments from older transcripts created before this storage model remain metadata-only because their original bytes cannot be reconstructed.
 

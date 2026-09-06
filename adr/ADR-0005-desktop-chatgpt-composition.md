@@ -10,7 +10,7 @@ A normal browser iframe is not a dependable way to embed the ChatGPT web applica
 
 Wharness Desktop uses Electron `WebContentsView` to render `https://chatgpt.com/` as a separate remote renderer beside the local Wharness frontend.
 
-The remote view has no preload and no Node integration, with sandbox, context isolation and web security enabled. It uses a dedicated persistent partition so normal ChatGPT login state survives restarts. Wharness never reads remote DOM/cookies/output.
+The remote view has no preload and no Node integration, with sandbox, context isolation and web security enabled. It uses a dedicated persistent partition so normal ChatGPT login state survives restarts. Wharnex never reads cookies or generated output; DOM access is restricted to named transport and owned account-management controls.
 
 A narrow local preload lets the trusted Wharness frontend show/hide/resize the native view, request browser navigation controls, copy the current context ZIP as a native clipboard file, and read clipboard text for explicit JSON import.
 

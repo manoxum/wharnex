@@ -17,6 +17,7 @@ export function stateLabel(state?: string) {
     blocked: 'Bloqueado',
     repair_pending: 'Correção em curso',
     baseline_update_pending: 'A adaptar ao novo baseline',
+	conflict_resolution_pending: 'Conflito em resolução dedicada',
     verified: 'Verificado',
     failed: 'Falhou',
     applied: 'Aplicado',

@@ -34,6 +34,8 @@ type planWire struct {
 	Protocol          string               `json:"protocol"`
 	BaseContextSHA256 string               `json:"base_context_sha256,omitempty"`
 	ImpactFiles       []string             `json:"impact_files,omitempty"`
+	ReadFiles         []string             `json:"read_files,omitempty"`
+	BarrierFiles      []string             `json:"barrier_files,omitempty"`
 	PlanID            string               `json:"plan_id"`
 	RequestID         string               `json:"request_id"`
 	Status            string               `json:"status"`
@@ -51,10 +53,12 @@ type Parsed struct {
 }
 
 type turnWire struct {
-	Protocol  string          `json:"protocol"`
-	RequestID string          `json:"request_id"`
-	Kind      domain.TurnKind `json:"kind"`
-	Message   string          `json:"message"`
+	Protocol            string              `json:"protocol"`
+	RequestID           string              `json:"request_id"`
+	Kind                domain.TurnKind     `json:"kind"`
+	Message             string              `json:"message"`
+	Outcome             *domain.TurnOutcome `json:"outcome"`
+	ResolvedEvidenceIDs []string            `json:"resolved_evidence_ids,omitempty"`
 }
 
 func Parse(filename string, raw []byte) (Parsed, error) {
@@ -122,7 +126,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 	if !hasTurn && !hasPlan {
 		return Parsed{}, errors.New("execution bundle requires turn.json or plan.json")
 	}
-	if hasTurn && turnCarriesPlan(turn.Kind) && !hasPlan {
+	if hasTurn && turn.Outcome.Status == domain.TurnOutcomeCompleted && turnCarriesPlan(turn.Kind) && !hasPlan {
 		return Parsed{}, fmt.Errorf("%s turn requires plan.json", turn.Kind)
 	}
 	if hasTurn && !turnCarriesPlan(turn.Kind) && hasPlan {
@@ -141,7 +145,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 			return Parsed{}, fmt.Errorf("decode plan.json: %w", err)
 		}
 		resolvedPlan := domain.ExecutionPlan{
-			Protocol: wire.Protocol, BaseContextSHA256: wire.BaseContextSHA256, ImpactFiles: wire.ImpactFiles, PlanID: wire.PlanID, RequestID: wire.RequestID,
+			Protocol: wire.Protocol, BaseContextSHA256: wire.BaseContextSHA256, ImpactFiles: wire.ImpactFiles, ReadFiles: wire.ReadFiles, BarrierFiles: wire.BarrierFiles, PlanID: wire.PlanID, RequestID: wire.RequestID,
 			Status: wire.Status, Summary: wire.Summary, Risk: wire.Risk,
 			RequiresApproval: wire.RequiresApproval, Operations: make([]domain.Operation, 0), Verification: wire.Verification,
 		}
@@ -177,11 +181,14 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		}
 		plan = &resolvedPlan
 		if !hasTurn {
-			turn = domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: plan.RequestID, Kind: domain.TurnKindChange, Message: plan.Summary}
+			turn = domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: plan.RequestID, Kind: domain.TurnKindChange, Message: plan.Summary, Outcome: completedTurnOutcome()}
 		}
 		if turn.RequestID != plan.RequestID {
 			return Parsed{}, errors.New("turn.json/plan.json request_id mismatch")
 		}
+	}
+	if hasTurn && turn.Outcome.Status != domain.TurnOutcomeCompleted && plan != nil {
+		return Parsed{}, errors.New("non-completed turn outcome must not contain plan.json")
 	}
 
 	if len(bytes.TrimSpace(readmeBytes)) == 0 {
@@ -203,6 +210,10 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		Filename: path.Base(filename), README: string(readmeBytes), Files: listed,
 		Patches: patches, SHA256: hex.EncodeToString(digest[:]),
 	}, Turn: turn}, nil
+}
+
+func completedTurnOutcome() *domain.TurnOutcome {
+	return &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}
 }
 
 func turnCarriesPlan(kind domain.TurnKind) bool {
@@ -274,7 +285,7 @@ func parseTurn(raw []byte) (domain.AgentTurn, bool, error) {
 	if err := decoder.Decode(&wire); err != nil {
 		return domain.AgentTurn{}, false, fmt.Errorf("decode turn.json: %w", err)
 	}
-	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, Message: wire.Message}
+	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, Message: wire.Message, Outcome: wire.Outcome, ResolvedEvidenceIDs: wire.ResolvedEvidenceIDs}
 	if err := protocol.ValidateTurn(turn); err != nil {
 		return domain.AgentTurn{}, false, err
 	}

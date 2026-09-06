@@ -41,7 +41,7 @@ export function chatGPTSubmitScript() {
   return `(() => {
     const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
     const root = composer?.closest('form') || composer?.parentElement?.parentElement || document;
-    const selectors = ['button[data-testid="send-button"]','button[aria-label*="Send"]','button[aria-label*="Enviar"]','button[type="submit"]'];
+    const selectors = ['button[data-testid="send-button"]','button[type="submit"]'];
     const button = selectors.map((s) => root.querySelector?.(s) || document.querySelector(s)).find((candidate) => candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true');
     if (!button) return false;
     button.click();
@@ -122,26 +122,55 @@ export function chatGPTComposerReadyScript() {
   })()`
 }
 
+export function chatGPTHumanActionScript() {
+  return `(() => {
+    try {
+    const path = String(location.pathname || '');
+    const href = String(location.href || '');
+    const title = String(document.title || '').trim().toLowerCase();
+    const visible = (node) => { const rect = node?.getBoundingClientRect?.(); return Boolean(rect && rect.width > 0 && rect.height > 0); };
+    const firstVisible = (selector) => [...document.querySelectorAll(selector)].find(visible);
+    const challenge = Boolean(
+      firstVisible('iframe[src*="challenges.cloudflare.com"],iframe[src*="/cdn-cgi/challenge-platform/"],iframe[src*="captcha" i],iframe[src*="arkoselabs" i],iframe[src*="funcaptcha" i],iframe[src*="hcaptcha.com" i],iframe[src*="recaptcha" i],input[name="cf-turnstile-response"],.cf-turnstile,.h-captcha,.g-recaptcha,#arkose,[data-testid*="captcha" i],[data-testid*="challenge" i]')
+      || /\\/cdn-cgi\\/challenge-platform\\//i.test(href)
+      || title === 'just a moment...'
+      || title === 'security verification'
+      || title === 'verify you are human'
+      || title.startsWith('attention required')
+    );
+    const authentication = /^\\/auth(?:\\/|$)/i.test(path);
+    const access = Boolean(firstVisible('[data-testid*="access-denied" i],[data-testid*="blocked" i],[data-testid*="unsupported-browser" i]'));
+    const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
+    const kind = challenge ? 'verification' : authentication ? 'authentication' : access ? 'access' : '';
+    return {
+      required: Boolean(kind),
+      kind,
+      composerReady: Boolean(composer && !composer.disabled && composer.getAttribute?.('aria-disabled') !== 'true'),
+      pageVisible: document.visibilityState !== 'hidden',
+      capturedAt: new Date().toISOString(),
+    };
+    } catch (_error) {
+      return { required: false, kind: '', composerReady: false, pageVisible: false, capturedAt: new Date().toISOString() };
+    }
+  })()`
+}
+
 export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
   const baseline = Math.max(0, Number(assistantBaseline) || 0)
   return `(() => {
     const baseline = ${baseline};
     const assistantCount = document.querySelectorAll('[data-message-author-role="assistant"]').length;
-    const stop = document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"]');
+    const stop = document.querySelector('button[data-testid="stop-button"]');
+    const failed = document.querySelector('[data-testid="conversation-turn-error"] button,button[data-testid="retry-button"],[data-testid="message-error"] button');
     const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
-    return { assistantCount, thinking: Boolean(stop), complete: Boolean(assistantCount > baseline && !stop && composer) };
+    const composerReady = Boolean(composer && !composer.disabled && composer.getAttribute?.('aria-disabled') !== 'true');
+    return { assistantCount, thinking: Boolean(stop), failed: Boolean(failed), composerReady, complete: Boolean(assistantCount > baseline && !stop && !failed && composerReady) };
   })()`
 }
 
 export function chatGPTVisibleActivityScript() {
   return `(() => {
-    const visible = (node) => { const r = node?.getBoundingClientRect?.(); return Boolean(r && r.width > 0 && r.height > 0); };
-    const stop = document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"]');
-    const candidates = [...document.querySelectorAll('[data-testid*="reason"],[data-testid*="think"],details,[aria-label*="thinking" i],[aria-label*="reason" i],[aria-label*="racioc" i]')]
-      .filter(visible)
-      .map((node) => String(node.innerText || node.textContent || node.getAttribute?.('aria-label') || '').trim())
-      .filter((text) => text && text.length < 5000 && /(think|reason|racioc|pens|analis|consider)/i.test(text));
-    const text = candidates[candidates.length - 1] || '';
-    return { state: stop ? 'thinking' : 'idle', text: text.slice(0, 4000), capturedAt: new Date().toISOString() };
+    const stop = document.querySelector('button[data-testid="stop-button"]');
+    return { state: stop ? 'thinking' : 'idle', text: '', capturedAt: new Date().toISOString() };
   })()`
 }

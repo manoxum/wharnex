@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -36,6 +37,27 @@ func TestValidateRejectsRenameTraversalAndSensitivePaths(t *testing.T) {
 		if err := ValidatePatchPaths(patch); err == nil {
 			t.Fatalf("expected patch rejection: %q", patch)
 		}
+	}
+}
+
+func TestValidatePatchPathsAllowsDocumentedEnvironmentTemplates(t *testing.T) {
+	for _, name := range []string{".env.example", ".env.sample", ".env.template", "config/.env.example"} {
+		patch := "--- /dev/null\n+++ b/" + name + "\n@@ -0,0 +1 @@\n+KEY=replace-me\n"
+		if err := ValidatePatchPaths(patch); err != nil {
+			t.Fatalf("safe environment template %q was denied: %v", name, err)
+		}
+	}
+}
+
+func TestValidateRejectsSecretLikeConcurrencyDependencies(t *testing.T) {
+	plan := validPlan()
+	plan.ReadFiles = []string{".env.production"}
+	if err := Validate(plan); err == nil || !strings.Contains(err.Error(), "sensitive patch path denied") {
+		t.Fatalf("secret-like read dependency was not denied: %v", err)
+	}
+	plan.ReadFiles = []string{".env.example"}
+	if err := Validate(plan); err != nil {
+		t.Fatalf("documented environment template should remain allowed: %v", err)
 	}
 }
 

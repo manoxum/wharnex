@@ -41,6 +41,24 @@ func TestTraversalAndSecretsDenied(t *testing.T) {
 	}
 }
 
+func TestOpenPreviewStreamsBinaryAndKeepsContainment(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sample.pdf"), []byte("%PDF-binary\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handle, info, err := OpenPreview(root, "sample.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	if info.Size() != 12 {
+		t.Fatalf("size=%d", info.Size())
+	}
+	if _, _, err := OpenPreview(root, "../sample.pdf"); err == nil {
+		t.Fatal("expected traversal rejection")
+	}
+}
+
 func TestListOmitsIgnored(t *testing.T) {
 	root := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(root, "node_modules", "x"), 0o755)

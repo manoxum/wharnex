@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/remote-input-channel-manifest.schema.json",
+  "title": "Wharness Remote Input Channel Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "root_request_id", "state", "prompt", "file_map", "diff_check", "hash", "events", "bundle_contract", "instructions"],
+  "properties": {
+    "protocol": { "const": "wharness.remote-channel/v2" },
+    "root_request_id": { "type": "string", "pattern": "^req_[A-Za-z0-9._-]+$" },
+    "state": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "prompt": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "file_map": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "diff_check": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "hash": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "events": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "bundle_contract": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "instructions": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 6,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    }
+  }
+}

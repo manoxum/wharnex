@@ -46,7 +46,7 @@ func (s *Service) SetRemoteStorageConnector(connector RemoteStorageConnector) {
 
 func (s *Service) RemoteStorageProviders(ctx context.Context) []RemoteStorageProvider {
 	if s.remoteStorageConnector == nil {
-		return nil
+		return []RemoteStorageProvider{}
 	}
 	return s.remoteStorageConnector.Providers(ctx)
 }

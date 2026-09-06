@@ -2,6 +2,7 @@ package contextbundle
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -263,5 +264,52 @@ func TestContextFingerprintChangesWhenGitWorktreeTopologyChanges(t *testing.T) {
 	}
 	if before.Manifest.SHA256 == after.Manifest.SHA256 {
 		t.Fatal("context fingerprint must change when git worktree topology changes")
+	}
+}
+
+func TestContextFingerprintIsStableWithoutProjectChanges(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
+	builder := NewBuilder(1024*1024, 1024*1024)
+	first, err := builder.Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := builder.Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Manifest.SHA256 != second.Manifest.SHA256 {
+		t.Fatalf("unchanged project baseline is unstable: %s != %s", first.Manifest.SHA256, second.Manifest.SHA256)
+	}
+}
+
+func TestContextSnapshotStoresEntriesWithoutRecompression(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), bytes.Repeat([]byte("context-line\n"), 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := NewBuilder(1<<20, 2<<20).Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Dir(bundle.ZipPath))
+	archive, err := zip.OpenReader(bundle.ZipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	found := false
+	for _, entry := range archive.File {
+		if entry.Name != "large.txt" {
+			continue
+		}
+		found = true
+		if entry.Method != zip.Store {
+			t.Fatalf("context snapshot recompressed %s with ZIP method %d", entry.Name, entry.Method)
+		}
+	}
+	if !found {
+		t.Fatal("context snapshot did not contain large.txt")
 	}
 }

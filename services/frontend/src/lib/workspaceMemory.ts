@@ -1,4 +1,5 @@
 import type { AutomationMode, ChatArtifactSelection, ChatItem, ChatRequestMode, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
+import { chatgptConversationURL } from './desktop'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
 const RECENT_KEY = 'kernl.workspace.recent.v1'
@@ -9,6 +10,10 @@ const ARCHIVED_CHAT_INDEX_PREFIX = 'kernl.workspace.chats.archived.v1:'
 const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
 const AUTOMATION_MODE_PREFIX = 'kernl.workspace.automation-mode.v1:'
 const EXECUTION_HISTORY_PREFIX = 'kernl.workspace.execution-history.v1:'
+export const TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v2'
+
+export type TransportOptions = { requestArchive: boolean; liveTunnels: boolean }
+export const DEFAULT_TRANSPORT_OPTIONS: TransportOptions = { requestArchive: false, liveTunnels: true }
 
 export type ActiveWorkspace = {
   sessionId: string
@@ -28,9 +33,16 @@ export type WorkspaceChat = {
   lastContextChatgptUrl?: string
   artifactSelection?: Partial<ChatArtifactSelection>
   requestMode?: ChatRequestMode
+  transport?: TransportOptions
   pendingPlan?: { requestId: string; originalMessage: string }
+  conflictSurfaces?: Record<string, { cacheKey: string; url?: string; resolvedAt?: string }>
   createdAt: string
   updatedAt: string
+}
+
+export function conflictChatGPTCacheKey(chatId: string, conflictId: string) {
+  const clean = `${chatId}_cf_${conflictId}`.replace(/[^A-Za-z0-9_-]/g, '_')
+  return clean.slice(0, 128)
 }
 
 export function loadActiveWorkspace(): ActiveWorkspace | undefined {
@@ -82,6 +94,27 @@ export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
   try { localStorage.setItem(AUTOMATION_MODE_PREFIX + projectPath, mode) } catch { /* storage unavailable/full */ }
 }
 
+export function loadTransportOptions(): TransportOptions {
+  try {
+    const raw = localStorage.getItem(TRANSPORT_OPTIONS_STORAGE_KEY)
+    const value = raw ? JSON.parse(raw) as Partial<TransportOptions> : {}
+    return normalizeTransportOptions(value)
+  } catch { return { ...DEFAULT_TRANSPORT_OPTIONS } }
+}
+
+export function saveTransportOptions(value: TransportOptions) {
+  const normalized = normalizeTransportOptions(value)
+  try { localStorage.setItem(TRANSPORT_OPTIONS_STORAGE_KEY, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
+}
+
+export function normalizeTransportOptions(value?: Partial<TransportOptions>): TransportOptions {
+  const normalized = {
+    requestArchive: value?.requestArchive === true,
+    liveTunnels: value?.liveTunnels !== false,
+  }
+  return normalized.requestArchive || normalized.liveTunnels ? normalized : { ...DEFAULT_TRANSPORT_OPTIONS }
+}
+
 export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {
   try {
     const raw = localStorage.getItem(CHAT_INDEX_PREFIX + projectPath)
@@ -89,13 +122,14 @@ export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter(validChat)
+      .map(normalizeWorkspaceChatAffinity)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 30)
   } catch { return [] }
 }
 
 export function saveWorkspaceChats(projectPath: string, chats: WorkspaceChat[]) {
-  const normalized = chats.filter(validChat).slice(0, 30)
+  const normalized = chats.filter(validChat).map(normalizeWorkspaceChatAffinity).slice(0, 30)
   try { localStorage.setItem(CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
 }
 
@@ -105,12 +139,12 @@ export function loadArchivedWorkspaceChats(projectPath: string): WorkspaceChat[]
     const raw = localStorage.getItem(ARCHIVED_CHAT_INDEX_PREFIX + projectPath)
     const parsed = raw ? JSON.parse(raw) as WorkspaceChat[] : []
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(validChat).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30)
+    return parsed.filter(validChat).map(normalizeWorkspaceChatAffinity).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30)
   } catch { return [] }
 }
 
 export function saveArchivedWorkspaceChats(projectPath: string, chats: WorkspaceChat[]) {
-  const normalized = chats.filter(validChat).slice(0, 30)
+  const normalized = chats.filter(validChat).map(normalizeWorkspaceChatAffinity).slice(0, 30)
   try { localStorage.setItem(ARCHIVED_CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
 }
 
@@ -199,6 +233,26 @@ export function deriveChatTitle(message: string) {
 
 function validChat(value: WorkspaceChat) {
   return Boolean(value && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.sessionId === 'string' && typeof value.createdAt === 'string' && typeof value.updatedAt === 'string')
+}
+
+function normalizeWorkspaceChatAffinity(chat: WorkspaceChat): WorkspaceChat {
+  const normalized = { ...chat }
+  const chatgptUrl = chatgptConversationURL(chat.chatgptUrl || '')
+  const lastContextChatgptUrl = chatgptConversationURL(chat.lastContextChatgptUrl || '')
+  if (chatgptUrl) normalized.chatgptUrl = chatgptUrl
+  else delete normalized.chatgptUrl
+  if (lastContextChatgptUrl) normalized.lastContextChatgptUrl = lastContextChatgptUrl
+  else delete normalized.lastContextChatgptUrl
+	if (chat.conflictSurfaces && typeof chat.conflictSurfaces === 'object') {
+		const surfaces: NonNullable<WorkspaceChat['conflictSurfaces']> = {}
+		for (const [id, surface] of Object.entries(chat.conflictSurfaces)) {
+			if (!id || !surface || typeof surface.cacheKey !== 'string') continue
+			const url = chatgptConversationURL(surface.url || '')
+			surfaces[id] = { cacheKey: conflictChatGPTCacheKey(chat.id, id), ...(url ? { url } : {}), ...(surface.resolvedAt ? { resolvedAt: surface.resolvedAt } : {}) }
+		}
+		normalized.conflictSurfaces = surfaces
+	} else delete normalized.conflictSurfaces
+  return normalized
 }
 
 function validEvent(value: HarnessEvent) {

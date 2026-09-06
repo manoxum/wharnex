@@ -11,7 +11,7 @@ describe('theme controls', () => {
   })
 
   it('switches to the opposite resolved theme and persists the explicit choice', () => {
-    saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 1, theme: 'light' })
+    saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 1, theme: 'light', errorPopups: true })
     render(<ThemeToggle compact />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Ativar tema escuro' }))

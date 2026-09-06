@@ -1,0 +1,36 @@
+import { useEffect, useMemo, useState } from 'react'
+import type { ArtifactEntry, ArtifactRecord } from '../types'
+import { api } from '../lib/api'
+import { formatBytes } from '../lib/desktop'
+import { Icon } from './Icon'
+import { ArtifactPreview } from './ArtifactPreview'
+
+export function BundleExchangeBar({ sessionId, artifacts = [] }: { sessionId: string; artifacts?: ArtifactRecord[] }) {
+  const bundles = useMemo(() => artifacts.filter((item) => item.bundle).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
+  const [selected, setSelected] = useState<ArtifactRecord>()
+  if (!bundles.length) return null
+  return <><section className="bundle-exchange-bar" aria-label="Bundles trocados com o ChatGPT">
+    <div className="bundle-exchange-title"><Icon name="folder" size={13}/><strong>Artefactos</strong><span>{bundles.length}</span></div>
+    <div className="bundle-exchange-list">{bundles.slice(0, 6).map((bundle) => <button key={bundle.id} type="button" onClick={() => setSelected(bundle)} title={`Explorar ${bundle.name}`}><span className={`bundle-direction ${bundle.direction}`}>{bundle.direction === 'input' ? '↑' : '↓'}</span><span><b>{bundle.name}</b><small>{bundle.direction === 'input' ? 'Entrada' : 'Saída'} · {formatBytes(bundle.size)} · {formatDateTime(bundle.created_at)} · {bundle.entry_count || 0} itens</small></span><Icon name="chevron" size={11}/></button>)}</div>
+    <button className="bundle-all-button" type="button" onClick={() => setSelected(bundles[0])}>Ver todos</button>
+  </section>{selected && <BundleExplorer sessionId={sessionId} bundle={selected} bundles={bundles} onBundle={setSelected} onClose={() => setSelected(undefined)}/>}</>
+}
+
+function BundleExplorer({ sessionId, bundle, bundles, onBundle, onClose }: { sessionId: string; bundle: ArtifactRecord; bundles: ArtifactRecord[]; onBundle: (bundle: ArtifactRecord) => void; onClose: () => void }) {
+  const [entries, setEntries] = useState<ArtifactEntry[]>([]); const [currentDir, setCurrentDir] = useState(''); const [path, setPath] = useState(''); const [loading, setLoading] = useState(false); const [error, setError] = useState('')
+  useEffect(() => { let alive = true; setLoading(true); setError(''); setCurrentDir(''); setPath(''); void api.artifactEntries(sessionId, bundle.id).then((result) => { if (alive) setEntries(result.entries) }).catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível abrir o bundle.') }).finally(() => { if (alive) setLoading(false) }); return () => { alive = false } }, [bundle.id, sessionId])
+  const tree = useMemo(() => directoryEntries(entries, currentDir), [entries, currentDir]); const breadcrumbs = useMemo(() => directoryBreadcrumbs(currentDir), [currentDir]); const selectedEntry = entries.find((entry) => entry.path === path)
+  function openEntry(entry: ArtifactEntry) { if (entry.dir) { setCurrentDir(entry.path.replace(/\/$/, '')); setPath(''); setError(''); return }; setPath(entry.path); setError('') }
+  return <div className="bundle-explorer-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="bundle-explorer" role="dialog" aria-modal="true" aria-label={`Explorar ${bundle.name}`}>
+    <header><div><span className={`bundle-direction ${bundle.direction}`}>{bundle.direction === 'input' ? '↑' : '↓'}</span><div><strong>{bundle.name}</strong><small>{formatBytes(bundle.size)} · {formatDateTime(bundle.created_at)} · SHA-256 {bundle.sha256.slice(0, 12)}…</small></div></div><div><a className="secondary-button" href={api.artifactURL(sessionId, bundle.id)} download={bundle.name}><Icon name="download" size={13}/> Bundle inteiro</a><button className="icon-button light" onClick={onClose} aria-label="Fechar explorador"><Icon name="close" size={13}/></button></div></header>
+    <div className="bundle-explorer-layout"><aside><div className="bundle-selector">{bundles.map((item) => <button key={item.id} className={item.id === bundle.id ? 'active' : ''} onClick={() => onBundle(item)}><span>{item.direction === 'input' ? '↑' : '↓'}</span><b>{item.name}</b><small>{formatBytes(item.size)} · {formatDateTime(item.created_at)}</small></button>)}</div></aside>
+      <main><div className="bundle-file-list"><div className="bundle-list-heading"><div className="bundle-breadcrumbs">{breadcrumbs.map((crumb, index) => <button key={crumb.path || '/'} type="button" onClick={() => { setCurrentDir(crumb.path); setPath('') }}>{index ? '› ' : ''}{crumb.label}</button>)}</div><span>{tree.length} itens</span></div>{loading ? <p className="muted-copy">A carregar…</p> : error && !entries.length ? <p className="composer-error">{error}</p> : tree.map((entry) => <div key={entry.path} className={`bundle-file-row ${entry.path === path ? 'active' : ''}`}><button type="button" onClick={() => openEntry(entry)}><Icon name={entry.dir ? 'folder' : 'file'} size={12}/><span>{baseName(entry.path)}</span><small>{entry.dir ? 'pasta' : formatBytes(entry.size)}</small></button>{!entry.dir && <a href={api.artifactEntryURL(sessionId, bundle.id, entry.path, true)} download title="Descarregar ficheiro" aria-label={`Descarregar ${entry.path}`}><Icon name="download" size={11}/></a>}</div>)}</div>
+        <section className="bundle-preview"><div><strong>{path || 'Pré-visualização'}</strong>{path && <a href={api.artifactEntryURL(sessionId, bundle.id, path, true)} download>Descarregar</a>}</div>{path ? <ArtifactPreview path={path} size={selectedEntry?.size || 0} url={api.artifactEntryURL(sessionId, bundle.id, path)}/> : <p>Selecione um ficheiro para pré-visualizar ou descarregar.</p>}{error && entries.length ? <span className="composer-error">{error}</span> : null}</section></main>
+    </div>
+  </section></div>
+}
+
+function directoryEntries(entries: ArtifactEntry[], currentDir: string) { const prefix = currentDir ? `${currentDir.replace(/\/$/, '')}/` : ''; const visible = new Map<string, ArtifactEntry>(); for (const entry of entries) { const clean = entry.path.replace(/^\/+/, ''); if (!clean.startsWith(prefix)) continue; const rest = clean.slice(prefix.length); if (!rest) continue; const parts = rest.split('/').filter(Boolean); if (!parts.length) continue; if (parts.length > 1 || entry.dir) { const folderPath = `${prefix}${parts[0]}`; if (!visible.has(folderPath)) visible.set(folderPath, { path: folderPath, size: 0, dir: true }); continue }; visible.set(clean, { ...entry, path: clean }) }; return [...visible.values()].sort((a, b) => Number(b.dir) - Number(a.dir) || a.path.localeCompare(b.path)) }
+function directoryBreadcrumbs(currentDir: string) { const result = [{ label: '/', path: '' }]; const parts = currentDir.split('/').filter(Boolean); for (let index = 0; index < parts.length; index += 1) result.push({ label: parts[index], path: parts.slice(0, index + 1).join('/') }); return result }
+function baseName(path: string) { return path.replace(/\/$/, '').split('/').pop() || path }
+function formatDateTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'medium' }).format(date) }

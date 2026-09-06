@@ -12,6 +12,8 @@ describe('desktop helpers', () => {
     expect(chatgptConversationURL('https://chatgpt.com/c/abc?x=1#frag')).toBe('https://chatgpt.com/c/abc')
     expect(chatgptConversationURL('https://chatgpt.com/c/abc/')).toBe('https://chatgpt.com/c/abc')
     expect(chatgptConversationURL('https://foo.chatgpt.com/c/abc/extra?x=1')).toBe('https://chatgpt.com/c/abc')
+    expect(chatgptConversationURL('https://chatgpt.com/c/WEB:temporary-id')).toBe('')
+    expect(chatgptConversationURL('https://chatgpt.com/c/WEB%3Atemporary-id')).toBe('')
     expect(chatgptConversationURL('https://chatgpt.com/library')).toBe('')
     expect(chatgptConversationURL('https://chatgpt.com.evil.example/c/abc')).toBe('')
   })

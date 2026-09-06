@@ -1,12 +1,34 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  archiveChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  loadWorkspaceChats, loadExecutionHistory, newWorkspaceChat, rememberRecent, removeArchivedChat, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats,
+	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
+  loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
 
 describe('workspace memory', () => {
+	it('creates stable isolated cache keys for dedicated conflict surfaces', () => {
+		const key = conflictChatGPTCacheKey('chat-123', 'conflict-456')
+		expect(key).toBe('chat-123_cf_conflict-456')
+		expect(key).toMatch(/^[A-Za-z0-9_-]+$/)
+		expect(key.length).toBeLessThanOrEqual(128)
+	})
+	it('persists conflict affinity separately from the primary ChatGPT conversation', () => {
+		const base = newWorkspaceChat('ses-conflict', 'Principal')
+		const cacheKey = conflictChatGPTCacheKey(base.id, 'conflict-1')
+		const chat = {
+			...base,
+			chatgptUrl: 'https://chatgpt.com/c/main',
+			conflictSurfaces: {
+				'conflict-1': { cacheKey, url: 'https://chatgpt.com/c/conflict' },
+			},
+		}
+		saveWorkspaceChats('/tmp/project', [chat])
+		const restored = loadWorkspaceChats('/tmp/project')[0]
+		expect(restored.chatgptUrl).toBe('https://chatgpt.com/c/main')
+		expect(restored.conflictSurfaces?.['conflict-1']).toEqual({ cacheKey, url: 'https://chatgpt.com/c/conflict' })
+		expect(restored.conflictSurfaces?.['conflict-1'].cacheKey).not.toBe(restored.id)
+	})
   it('persists active workspace, active chat and recent paths', () => {
     saveActiveWorkspace({ sessionId: 's1', projectPath: '/tmp/project', mode: 'agent', chatId: 'chat-1' })
     expect(loadActiveWorkspace()).toEqual({ sessionId: 's1', projectPath: '/tmp/project', mode: 'agent', chatId: 'chat-1' })
@@ -33,13 +55,20 @@ describe('workspace memory', () => {
     expect(loadAutomationMode('/tmp/project')).toBe('auto')
   })
 
+  it('persists independent project transport switches and prevents disabling both', () => {
+    expect(loadTransportOptions()).toEqual({ requestArchive: false, liveTunnels: true })
+    saveTransportOptions({ requestArchive: true, liveTunnels: false })
+    expect(loadTransportOptions()).toEqual({ requestArchive: true, liveTunnels: false })
+    expect(normalizeTransportOptions({ requestArchive: false, liveTunnels: false })).toEqual({ requestArchive: false, liveTunnels: true })
+  })
+
   it('deduplicates recent workspaces', () => {
     rememberRecent('/tmp/a'); rememberRecent('/tmp/b'); rememberRecent('/tmp/a')
     expect(loadRecentWorkspaces()).toEqual(['/tmp/a', '/tmp/b'])
   })
 
   it('persists multiple Harness chats with independent ChatGPT URLs and histories', () => {
-    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa', requestMode: 'plan_first' as const, pendingPlan: { requestId: 'req-1', originalMessage: 'alterar UI' } }
+    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa', requestMode: 'plan_first' as const, transport: { requestArchive: false, liveTunnels: true }, pendingPlan: { requestId: 'req-1', originalMessage: 'alterar UI' } }
     const second = { ...newWorkspaceChat('ses-2', 'Segundo'), chatgptUrl: 'https://chatgpt.com/c/bbb' }
     saveWorkspaceChats('/tmp/project', [first, second])
     saveChat('/tmp/project', first.id, [{ id: 'm1', role: 'user', text: 'A' }])
@@ -49,8 +78,21 @@ describe('workspace memory', () => {
     expect(loaded).toHaveLength(2)
     expect(loaded.map((item) => item.chatgptUrl).sort()).toEqual(['https://chatgpt.com/c/aaa', 'https://chatgpt.com/c/bbb'])
     expect(loaded.find((item) => item.id === first.id)?.pendingPlan?.requestId).toBe('req-1')
+    expect(loaded.find((item) => item.id === first.id)?.transport).toEqual({ requestArchive: false, liveTunnels: true })
     expect(loadChat('/tmp/project', first.id)[0].text).toBe('A')
     expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
+  })
+
+  it('removes transient ChatGPT WEB URLs from persisted chat affinity', () => {
+    const chat = {
+      ...newWorkspaceChat('ses-transient', 'Em criação'),
+      chatgptUrl: 'https://chatgpt.com/c/WEB:temporary-id',
+      lastContextChatgptUrl: 'https://chatgpt.com/c/WEB:temporary-id',
+    }
+    saveWorkspaceChats('/tmp/project', [chat])
+    expect(loadWorkspaceChats('/tmp/project')[0]).toMatchObject({ id: chat.id })
+    expect(loadWorkspaceChats('/tmp/project')[0].chatgptUrl).toBeUndefined()
+    expect(loadWorkspaceChats('/tmp/project')[0].lastContextChatgptUrl).toBeUndefined()
   })
 
   it('persists attachment metadata and durable storage references with chat history', () => {

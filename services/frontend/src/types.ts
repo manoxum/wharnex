@@ -16,6 +16,8 @@ export type ExecutionPlan = {
   protocol: 'harness.execution/v1'
   base_context_sha256?: string
   impact_files?: string[]
+  read_files?: string[]
+  barrier_files?: string[]
   plan_id: string
   request_id: string
   status: 'ready' | 'blocked'
@@ -73,7 +75,13 @@ export type PendingHostChange = {
   plan: ExecutionPlan
   execution: ExecutionResult
   verified_at: string
+  change_set?: ChangeSet
 }
+
+export type IntegrationOutcome = 'planning' | 'verified' | 'merging' | 'checking' | 'ready' | 'integrated' | 'conflict' | 'semantic_recheck' | 'retryable_race'
+export type FileMutation = { path: string; base_sha256?: string; result_sha256?: string; base_exists: boolean; result_exists: boolean; base_mode?: number; result_mode?: number }
+export type ChangeSet = { id: string; base_revision: string; mutations: FileMutation[]; read_files?: string[]; barrier_files?: string[]; state: IntegrationOutcome; created_at: string }
+export type IntegrationConflict = { id: string; request_id: string; original_plan_ids: string[]; paths: string[]; details: Array<{ change_set_id: string; path: string; reason: string }>; created_at: string }
 
 export type ContextExclusion = { path: string; kind: string; reason: string; rule: string }
 
@@ -139,6 +147,7 @@ export type AgentTurn = {
   request_id: string
   kind: TurnKind
   message: string
+  outcome?: { status: 'completed' | 'failed' | 'partial'; reason_code?: string; message?: string; retryable: boolean }
 }
 
 export type Session = {
@@ -169,7 +178,31 @@ export type Session = {
   planner_in_flight?: boolean
   request_baselines?: Record<string, string>
   baseline_notices?: BaselineNotice[]
+  integration_conflict?: IntegrationConflict
+  artifacts?: ArtifactRecord[]
+  interrupted_execution?: { plan_id: string; requested_at: string; approved: boolean }
+  remote_recovery_attempt?: number
+	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'evidence' | 'conflict'; created_at: string }>
 }
+
+
+export type ArtifactRecord = {
+  id: string
+  request_id?: string
+  direction: 'input' | 'output'
+  kind: string
+  name: string
+  content_type?: string
+  size: number
+  sha256: string
+  created_at: string
+  expires_at: string
+  bundle: boolean
+  entry_count?: number
+}
+
+export type ArtifactEntry = { path: string; size: number; dir: boolean }
+export type ArtifactSettings = { retention_days: number }
 
 export type HarnessEvent = {
   id: string
@@ -177,6 +210,18 @@ export type HarnessEvent = {
   type: string
   timestamp: string
   data: Record<string, unknown>
+  project_path?: string
+  project_name?: string
+  category?: string
+}
+
+export type EvolutionEvidence = {
+  events: HarnessEvent[]
+  counts: Record<string, number>
+  projects: string[]
+  categories: string[]
+  total: number
+  truncated: boolean
 }
 
 export type AppConfig = {
@@ -188,11 +233,13 @@ export type AppConfig = {
   remote_input?: {
     enabled: boolean
     provider?: string
-    mode: 'local_attachments' | 'remote_url'
+    mode: 'local_attachments' | 'remote_url' | 'tunnel'
     instances?: Array<{
       id: string
       provider: string
       priority: number
+      available: boolean
+      error?: string
       limits: { max_requests: number; window_seconds: number; max_files_per_input: number; max_file_bytes: number; max_input_bytes: number; max_stored_objects: number; max_storage_bytes: number }
       usage: { requests_in_window: number; stored_objects: number; storage_bytes: number }
     }>
@@ -221,13 +268,20 @@ export type RemoteStorageInstance = {
   rclone_prefix?: string
 }
 
-export type RemoteStorageProviderID = 'http' | 'rclone' | 'drive' | 'dropbox' | 'onedrive' | 's3' | 'webdav' | 'nextcloud' | 'box' | 'pcloud'
+export type RemoteStorageProviderID = 'http' | 'rclone' | 'drive' | 'dropbox' | 'onedrive' | 's3' | 'webdav' | 'nextcloud' | 'box' | 'pcloud' | 'trycloudflare'
 export type RemoteStorageProviderField = { id: string; label: string; placeholder?: string; secret?: boolean; required?: boolean; advanced?: boolean }
-export type RemoteStorageProvider = { id: RemoteStorageProviderID; name: string; description: string; auth_mode: 'oauth_browser' | 'credentials'; available: boolean; fields: RemoteStorageProviderField[] }
+export type RemoteStorageProvider = { id: RemoteStorageProviderID; name: string; description: string; auth_mode: 'oauth_browser' | 'credentials' | 'local_tunnel'; available: boolean; fields: RemoteStorageProviderField[] }
 export type RemoteStorageConnection = { provider: RemoteStorageProviderID; remote: string; connected: boolean; display_name?: string }
 
 export type RemoteStorageDocument = { version: 1; instances: RemoteStorageInstance[] }
 export type RemoteStorageConfigResponse = { config: RemoteStorageDocument; restart_required: boolean; credential_cleanup_warning?: boolean }
+
+export type TunnelProviderID = 'cloudflare_named' | 'ngrok' | 'trycloudflare' | 'zrok' | 'tailscale_funnel' | 'localxpose' | 'localhost_run' | 'pinggy' | 'serveo'
+export type TunnelProvider = { id: TunnelProviderID; name: string; description: string; auth_mode: 'token' | 'none' | 'local'; auth_url?: string; permanent_dns: boolean; available: boolean; fields: RemoteStorageProviderField[] }
+export type TunnelProviderInstance = { id: string; provider: TunnelProviderID; priority: number; public_url?: string; credential_ref?: string; local_port?: number }
+export type TunnelProviderDocument = { version: 1; instance_name?: string; instances: TunnelProviderInstance[] }
+export type TunnelProviderConfigResponse = { config: TunnelProviderDocument; restart_required: boolean }
+export type TunnelProviderEnrollment = { provider: TunnelProviderID; credential_ref: string; public_url: string; local_port?: number }
 
 export type FileEntry = {
   path: string
@@ -270,6 +324,7 @@ export type QueuedChatRequest = {
   id: string
   message: string
   attachments: File[]
+  projectFiles: string[]
   artifacts: ChatArtifactSelection
   requestMode: ChatRequestMode
   createdAt: string
@@ -298,7 +353,7 @@ export type ChatAttachmentInfo = {
 
 export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef; source?: ChatItemSource; presentation?: ChatItemPresentation; approval?: ChatPlanApproval; change?: ChatChangeSummary }
 
-export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number; restart_scheduled?: boolean; restart_required?: boolean }
+export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; remote_recovery_prepared?: boolean; conflict_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number; restart_scheduled?: boolean; restart_required?: boolean }
 
-export type ProjectStorageUsage = { project_path: string; session_count: number; context_bytes: number; sandbox_bytes: number; total_bytes: number }
-export type BackendStorageUsage = { total_bytes: number; state_bytes: number; context_bytes: number; sandbox_bytes: number; orphan_bytes: number; projects: ProjectStorageUsage[] }
+export type ProjectStorageUsage = { project_path: string; session_count: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; total_bytes: number }
+export type BackendStorageUsage = { total_bytes: number; state_bytes: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; orphan_bytes: number; projects: ProjectStorageUsage[] }

@@ -174,13 +174,13 @@ func providerCatalog() []app.RemoteStorageProvider {
 		return app.RemoteStorageField{ID: id, Label: label, Secret: true, Required: true}
 	}
 	return []app.RemoteStorageProvider{
-		{ID: "drive", Name: "Google Drive", Description: "Autenticação Google numa janela do navegador.", AuthMode: "oauth_browser", Fields: nil},
-		{ID: "dropbox", Name: "Dropbox", Description: "Liga uma conta Dropbox pelo navegador.", AuthMode: "oauth_browser", Fields: nil},
-		{ID: "onedrive", Name: "Microsoft OneDrive", Description: "Conta pessoal ou empresarial Microsoft.", AuthMode: "oauth_browser", Fields: nil},
+		{ID: "drive", Name: "Google Drive", Description: "Autenticação Google numa janela do navegador.", AuthMode: "oauth_browser", Fields: []app.RemoteStorageField{}},
+		{ID: "dropbox", Name: "Dropbox", Description: "Liga uma conta Dropbox pelo navegador.", AuthMode: "oauth_browser", Fields: []app.RemoteStorageField{}},
+		{ID: "onedrive", Name: "Microsoft OneDrive", Description: "Conta pessoal ou empresarial Microsoft.", AuthMode: "oauth_browser", Fields: []app.RemoteStorageField{}},
 		{ID: "s3", Name: "Amazon S3 / compatível", Description: "AWS, MinIO, Cloudflare R2 e endpoints compatíveis.", AuthMode: "credentials", Fields: []app.RemoteStorageField{text("s3_provider", "Implementação S3", "AWS", false), text("region", "Região", "eu-west-1", false), text("endpoint", "Endpoint personalizado", "https://…", false), text("access_key_id", "Access key", "", true), secret("secret_access_key", "Secret key")}},
 		{ID: "nextcloud", Name: "Nextcloud", Description: "Servidor próprio através de WebDAV.", AuthMode: "credentials", Fields: []app.RemoteStorageField{text("url", "URL WebDAV", "https://cloud.example/remote.php/dav/files/user", true), text("user", "Utilizador", "", true), secret("pass", "Password de aplicação")}},
 		{ID: "webdav", Name: "WebDAV", Description: "Qualquer servidor WebDAV público ou privado.", AuthMode: "credentials", Fields: []app.RemoteStorageField{text("url", "URL WebDAV", "https://storage.example/dav", true), text("user", "Utilizador", "", true), secret("pass", "Password")}},
-		{ID: "box", Name: "Box", Description: "Liga uma conta Box pelo navegador.", AuthMode: "oauth_browser", Fields: nil},
-		{ID: "pcloud", Name: "pCloud", Description: "Liga uma conta pCloud pelo navegador.", AuthMode: "oauth_browser", Fields: nil},
+		{ID: "box", Name: "Box", Description: "Liga uma conta Box pelo navegador.", AuthMode: "oauth_browser", Fields: []app.RemoteStorageField{}},
+		{ID: "pcloud", Name: "pCloud", Description: "Liga uma conta pCloud pelo navegador.", AuthMode: "oauth_browser", Fields: []app.RemoteStorageField{}},
 	}
 }

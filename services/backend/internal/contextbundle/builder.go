@@ -165,10 +165,14 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 func addContextFile(zw *zip.Writer, textWriter *bufio.Writer, manifest *domain.ContextManifest, projectHash io.Writer, rel string, data []byte, mode fs.FileMode, maxContextBytes int64, bundleBytes, contextBytes *int64) error {
 	h := sha256.Sum256(data)
 	sha := hex.EncodeToString(h[:])
-	manifest.Files = append(manifest.Files, domain.ContextFile{Path: rel, Size: int64(len(data)), SHA256: sha})
+	contentType := "application/octet-stream"
+	if looksText(data) {
+		contentType = "text/plain; charset=utf-8"
+	}
+	manifest.Files = append(manifest.Files, domain.ContextFile{Path: rel, Size: int64(len(data)), SHA256: sha, ContentType: contentType})
 	_, _ = io.WriteString(projectHash, rel+":"+sha+"\n")
 
-	header := &zip.FileHeader{Name: rel, Method: zip.Deflate}
+	header := &zip.FileHeader{Name: rel, Method: zip.Store}
 	header.SetMode(mode)
 	writer, err := zw.CreateHeader(header)
 	if err != nil {
@@ -179,7 +183,7 @@ func addContextFile(zw *zip.Writer, textWriter *bufio.Writer, manifest *domain.C
 	}
 	*bundleBytes += int64(len(data))
 
-	if looksText(data) && *contextBytes < maxContextBytes {
+	if contentType == "text/plain; charset=utf-8" && *contextBytes < maxContextBytes {
 		prefix := []byte("\n===== FILE: " + rel + " =====\n")
 		remaining := maxContextBytes - *contextBytes
 		chunk := append(prefix, data...)

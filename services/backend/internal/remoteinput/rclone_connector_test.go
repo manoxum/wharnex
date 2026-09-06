@@ -34,6 +34,15 @@ func TestRcloneConnectorStartsBrowserOAuthForDrive(t *testing.T) {
 	}
 }
 
+func TestRcloneConnectorOAuthCatalogUsesEmptyFieldArrays(t *testing.T) {
+	connector := &RcloneConnector{available: true}
+	for _, provider := range connector.Providers(context.Background()) {
+		if provider.AuthMode == "oauth_browser" && provider.Fields == nil {
+			t.Fatalf("OAuth provider %s emitted null fields", provider.ID)
+		}
+	}
+}
+
 func TestRcloneConnectorMapsNextcloudCredentials(t *testing.T) {
 	runner := &connectorRunnerCapture{}
 	connector := &RcloneConnector{runner: runner, available: true}

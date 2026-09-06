@@ -158,3 +158,22 @@ test('generic ChatGPT ZIP names normalize only against the active expected reque
   assert.throws(() => canonicalWharnessBundleDownload('wharness-bundle-req_20260903T112307_otherrequest.zip', requestId, 'application/zip'), /pedido ativo/)
   assert.throws(() => canonicalWharnessBundleDownload('wharness-bundle-wrong.zip', requestId, 'application/zip'), /não pode ser normalizado/)
 })
+
+test('Chromium duplicate suffix normalizes only when the embedded bundle request is active', () => {
+  const requestId = 'req_20260905T225921_c0e570d71b7c6819'
+  for (const sourceFilename of [
+    `wharness-bundle-${requestId}(1).zip`,
+    `wharness-bundle-${requestId} (2).zip`,
+  ]) {
+    assert.deepEqual(canonicalWharnessBundleDownload(sourceFilename, requestId, 'application/zip'), {
+      requestId,
+      filename: `wharness-bundle-${requestId}.zip`,
+      normalized: true,
+      sourceFilename,
+    })
+  }
+  assert.throws(
+    () => canonicalWharnessBundleDownload('wharness-bundle-req_20260905T225921_otherrequest(1).zip', requestId, 'application/zip'),
+    /pedido ativo/,
+  )
+})

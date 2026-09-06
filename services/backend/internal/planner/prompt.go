@@ -26,6 +26,7 @@ TERMINAL RESPONSE QUALITY — IMPORTANT:
 
 ITERATIVE WORKFLOW RULES:
 - workflow is a non-terminal evidence-gathering turn. Use it only when local commands can materially improve the answer or make a later change safer.
+- You MAY return a workflow bundle to ask the local agent for missing project information. turn.message must state what information is needed; the command-only plan must contain the complete, targeted extraction instructions.
 - A workflow turn carries a harness.execution/v1 plan, but that plan is NOT a project-change plan: it may contain command operations only, runs only in the Protected sandbox, is never applied to the host, and must request network=false.
 - Workflow plans MUST NOT contain apply_patch operations. Prefer small, targeted commands such as git status/diff/grep, file listing/search, existing test commands, compiler/type checks, or other policy-allowed project-local probes.
 - Do not use workflow merely because tools exist. If the project context already answers the question, answer immediately.
@@ -62,7 +63,7 @@ EXECUTION RULES FOR CHANGE:
 - cwd is relative to the project root. Use "." for project root.
 - Network must be false unless absolutely necessary for a CHANGE; setting it true causes explicit policy handling. Workflow network is always false.
 - Verification must include the smallest relevant tests and, when practical, broader quality gates.
-- Every change plan MUST set base_context_sha256 to the exact PROJECT MANIFEST sha256 supplied for that request. Before constructing patches, identify the likely affected project files and put their relative paths in impact_files; keep this forecast conservative and update it after any concurrent baseline notification.
+- Every change plan MUST set base_context_sha256 to the exact PROJECT MANIFEST sha256 supplied for that request. Before constructing patches, identify the likely affected project files and put their relative paths in impact_files. Put files whose contents informed the change but will not be written in read_files. Put dependency metadata, schemas, protocol/SoT files, or build configuration whose change requires broad revalidation in barrier_files. These are scheduling and semantic-verification hints; Wharness derives the authoritative write set itself and reconciles a concurrent baseline at integration time.
 - A BASELINE UPDATE continuation never changes the user goal. Reassess the forecast and patches against the new context hash, then continue the same task.
 - Do not place secrets in patches, commands, summaries, messages, or logs.
 - Git requests are valid CHANGE requests. Use argv-only git commands. Read-only git inspection may run normally; git mutations such as add, commit, branch, switch, merge, rebase, revert, restore, tag and stash require explicit user approval. Remote fetch/pull/push MUST set network=true. Never request git clean, reset --hard, force push, credential/config manipulation, or destructive flags.
@@ -85,6 +86,8 @@ Exact change-plan shape:
   "protocol": "harness.execution/v1",
   "base_context_sha256": "<PROJECT MANIFEST SHA256>",
   "impact_files": ["relative/path.ext"],
+  "read_files": ["relative/dependency.ext"],
+  "barrier_files": ["package-lock.json"],
   "plan_id": "plan_<unique>",
   "request_id": "<REQUEST ID FROM WHARNESS>",
   "status": "ready",
@@ -112,11 +115,12 @@ For workflow, use the same shape but EVERY operation.type MUST be command, EVERY
 const ProviderTurnContract = `
 
 PROVIDER TURN OUTPUT — MANDATORY:
-Return one harness.turn/v1 JSON object with exactly: protocol, request_id, kind, message, plan.
+Return one harness.turn/v1 JSON object with: protocol, request_id, kind, message, outcome, plan, plus optional resolved_evidence_ids only for a WHX self-evolution review.
 - protocol is harness.turn/v1.
 - request_id exactly matches the request.
 - kind is answer, clarification, investigation, workflow, change, or blocked.
 - message is the complete user-facing Markdown response for terminal turns; for workflow/change it briefly explains the next step.
+- outcome is required: status is completed, failed, or partial; include a short message, optional machine-readable reason_code, and retryable. This reports planner completion only, never host execution.
 - plan is null for answer, clarification, investigation and blocked.
 - plan is the complete harness.execution/v1 object for workflow or change.`
 
@@ -124,6 +128,10 @@ func BuildManualPrompt(req Request) string {
 	header := fmt.Sprintf(`WHARNESS OUTPUT MODE: FILE_ONLY
 EXPECTED_FILE: wharness-bundle-%s.zip
 Do not answer this request with normal chat prose. Build the required ZIP, self-check it, attach exactly that file, and finish.
+
+FIRST-PASS BUNDLE GATE — REQUIRED BEFORE THE FIRST AND ONLY DELIVERY:
+Treat protocol correctness as part of the requested work, not as a later repair.
+Before attaching the initial bundle, programmatically re-open the ZIP and verify: canonical filename; root turn.json and README.md; exact request_id; plan.json only when its turn kind permits it; every patch_file exists; every patch is raw unified diff; every diff --git line has exactly two unquoted paths; and git apply --check succeeds for every change patch. Do not attach any bundle until this gate passes. If it cannot pass, create one valid terminal blocked bundle with no plan.json or patches, rather than an invalid change bundle.
 
 `, req.RequestID)
 	planningMode := req.PlanningMode
@@ -170,8 +178,8 @@ INTENT REMINDER:
 - If AUTOMATION MODE is manual, do not emit workflow; answer/investigate from current context or ask the user for the needed information.
 - Only explicit mutation intent may end in kind=change.
 
-Use the Wharness context ZIP if it is not already represented in this project conversation or if Wharness supplied a newer snapshot. In local transport it is a ChatGPT attachment; in remote transport it is 'context/wharness-context.zip' inside the downloaded input archive.
-For AUTOMATIC REPAIR or WORKFLOW CONTINUATION requests sent by Wharness into the same linked ChatGPT conversation, reuse the project context already attached when the snapshot is unchanged and do not wait for a duplicate ZIP.
+Use the Wharness context if it is not already represented in this project conversation or if Wharness supplied a newer snapshot. In local transport it is a ChatGPT attachment; in remote transport read the authorized individual files from file-map.json rather than downloading a ZIP. Fetch only the files needed for the task and use the map's SHA-256 values to verify them when possible.
+For AUTOMATIC REPAIR or WORKFLOW CONTINUATION requests sent by Wharness into the same linked ChatGPT conversation, reuse the project context already attached or mapped when the snapshot is unchanged and do not wait for a duplicate archive.
 
 MANUAL DESKTOP DELIVERY — FILE-FIRST CONTRACT — ABSOLUTE:
 EXPECTED OUTPUT FILE: wharness-bundle-%s.zip
@@ -191,7 +199,9 @@ VISIBLE RESPONSE CONTRACT:
 ZIP ROOT CONTRACT:
 - Do NOT wrap the required files inside another top-level directory.
 - README.md MUST exist at ZIP root and MUST contain non-whitespace UTF-8 Markdown.
-- turn.json MUST exist at ZIP root and MUST be UTF-8 harness.turn/v1 with exactly protocol, request_id, kind, message.
+- turn.json MUST exist at ZIP root and MUST be UTF-8 harness.turn/v1 with protocol, request_id, kind, message, outcome, plus optional resolved_evidence_ids only when the active WHX review supplied those event IDs.
+- resolved_evidence_ids MUST contain only reviewed events actually fixed by this change. Wharness validates the selection and records resolution only after successful host Apply.
+- outcome MUST truthfully report whether you completed this request: {"status":"completed","reason_code":"","message":"","retryable":false}, or status=failed/partial with a concrete message and accurate retryable flag. It reports planner completion, never host execution. A failed/partial outcome MUST NOT include plan.json or patches.
 - For kind=change OR kind=workflow, plan.json MUST exist at ZIP root.
 - For kind=change, patches referenced by patch_file MUST exist under patches/*.patch.
 - For kind=workflow, patches/ MUST NOT exist and plan operations MUST be command-only, network=false.
@@ -202,9 +212,12 @@ ZIP ROOT CONTRACT:
 CHANGE PLAN CONTRACT:
 - request_id in turn.json and plan.json MUST be exactly %q.
 - base_context_sha256 in plan.json MUST be exactly %q.
-- impact_files MUST list the relative project files/areas you expect this change can touch; identify this forecast before patch construction and keep it updated if Wharness sends a concurrent baseline continuation.
+- impact_files MUST list the relative project files/areas you expect this change can touch. read_files lists concrete files relied upon but not written. barrier_files lists dependency/build/schema/protocol inputs that require broad verification if concurrently changed. Wharness uses the actual patch result as the authoritative write set.
 - plan.json uses harness.execution/v1. apply_patch operations SHOULD use patch_file=patches/NNN-description.patch and an empty patch string.
 - patch files are raw UTF-8 standard unified diffs accepted by git apply; never use proprietary *** Begin Patch syntax.
+- PATCH FILE BYTE RULE (mandatory): every patches/*.patch file is raw diff bytes, never Markdown and never fenced with three-backtick diff. Every diff --git header has exactly this shape: diff --git a/relative/path b/relative/path. It has exactly two unquoted, space-free paths, no trailing backslash, and no extra words. Follow it with matching --- a/... and +++ b/... lines (or /dev/null for create/delete). Do not place source-code examples containing diff --git outside a real patch header.
+- Before zipping, parse every patch file line by line: reject it yourself if a diff --git header has anything other than exactly two paths after the header, or if it contains quotes, a backslash, or Markdown fence markers.
+- ANTI PING-PONG RULE: do one deliberate build and self-check before attaching. Never attach a speculative, partial, or knowingly invalid executable bundle just to continue the conversation. If you cannot make every patch and plan conform after that self-check, create a valid terminal blocked bundle (turn.json plus README.md, with no plan.json or patches/) that names the concrete blocker. Wharness will not execute malformed bundles and will not accept ordinary prose as a substitute.
 - command operations remain argv arrays and never use shell strings.
 
 WORKFLOW PLAN CONTRACT:
@@ -242,5 +255,5 @@ wharness-bundle-%s.zip
 ├── plan.json
 └── README.md
 
-Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.ContextManifest.SHA256, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
+Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.ContextManifest.SHA256, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID, req.RequestID)
 }

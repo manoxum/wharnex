@@ -1,0 +1,283 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ed2283a..7cc1f21 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,9 @@
++## v1.2.43.1 - Stack session recovery + ChatGPT restore
++
++- Repair Compose PostgreSQL migrations whose old v1 marker was written while the target database lacked legacy sessions: a separate v2 logical reconciliation imports the legacy PostgreSQL 17 data idempotently, preserves newer target rows, verifies session counts, and only then records completion.
++- Stop a newly-created ChatGPT WebContentsView from eagerly loading `chatgpt.com/` before the bound conversation restore. The first explicit per-chat navigation now owns the initial load, eliminating the home-vs-conversation `ERR_ABORTED` race that could leave the pane stuck on “A carregar ChatGPT…”.
++- Add lifecycle/Desktop regressions for the PostgreSQL reconciliation fence and single-owner initial ChatGPT navigation.
++
+ ## v1.2.43 - Persistent Docker service stack and tunnel daemon
+ 
+ - Move backend, frontend, PostgreSQL and every tunnel-provider client into one project-owned Docker Compose stack; Electron/Desktop remains the only host service.
+diff --git a/SoT/ARCHITECTURE.md b/SoT/ARCHITECTURE.md
+index 2c1ef56..3436c69 100644
+--- a/SoT/ARCHITECTURE.md
++++ b/SoT/ARCHITECTURE.md
+@@ -62,7 +62,7 @@ columns and one JSONB aggregate payload. Updating one session MUST NOT rewrite
+ unrelated sessions. The backend MUST fail closed if its configured database is
+ unavailable; a file fallback is forbidden in production.
+ 
+-The canonical local lifecycle owns PostgreSQL as a persistent Compose service backed by a project-specific named volume; the database is not published publicly. On the first stack migration, compatible PostgreSQL 17 data from the former `.harness/postgres/data` PGDATA is copied offline into that named volume exactly once. The previous `sessions.json` remains a Legacy Session Snapshot: it is imported transactionally and idempotently, retained for recovery, and never written after PostgreSQL becomes authoritative.
++The canonical local lifecycle owns PostgreSQL as a persistent Compose service backed by a project-specific named volume; the database is not published publicly. On the first stack migration, compatible PostgreSQL 17 data from the former `.harness/postgres/data` PGDATA is copied offline into that named volume when it is pristine. Because an older migration marker may outlive an incomplete/empty Compose initialization, startup also performs a separate one-time logical reconciliation fence: it reads the legacy PostgreSQL 17 source, merges its rows into the Compose database without overwriting existing primary keys, verifies that the target contains at least the legacy session count, and only then records reconciliation success. The previous `sessions.json` remains a Legacy Session Snapshot: it is imported transactionally and idempotently, retained for recovery, and never written after PostgreSQL becomes authoritative.
+ 
+ ### Tunnel daemon boundary
+ 
+diff --git a/SoT/QUALITY_GATES.md b/SoT/QUALITY_GATES.md
+index 17fd7e9..274f3e5 100644
+--- a/SoT/QUALITY_GATES.md
++++ b/SoT/QUALITY_GATES.md
+@@ -66,7 +66,7 @@ The canonical Desktop lifecycle is rooted at the repository Makefile:
+ - `make stack-down`: remove Compose containers/network while retaining named data volumes.
+ - `make status`: report Desktop plus Compose health.
+ 
+-Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tunnel containers. Backend/frontend may roll independently with `--no-deps`; this preserves active temporary tunnel base URLs across application restart/self-evolution. First stack initialization migrates compatible PostgreSQL 17 data from the former checkout-owned PGDATA into the named volume before the new database starts.
++Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tunnel containers. Backend/frontend may roll independently with `--no-deps`; this preserves active temporary tunnel base URLs across application restart/self-evolution. First stack initialization migrates compatible PostgreSQL 17 data from the former checkout-owned PGDATA into the named volume before the new database starts. A distinct logical reconciliation marker MUST repair skipped/partial first migrations by idempotently merging the legacy PostgreSQL rows after the Compose database becomes healthy and verifying session counts before backend activation.
+ Stack self-evolution MUST NOT execute its restart worker inside the backend container that will be replaced. The backend image MUST contain the local build/control toolchain required by `make build-stage`, and activation MUST be delegated to a detached supervisor container. Application rollout MUST retain the previous backend/frontend image IDs long enough to restore them on failed health checks; tunnel/database containers remain excluded from that rollback boundary.
+ 
+ Runtime state belongs under `.harness/` and must never be committed.
+diff --git a/VALIDATION.md b/VALIDATION.md
+index b52da90..d4d1a04 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -157,3 +157,8 @@ Focused validation for this update:
+ - Regression: a live allowlisted ChatGPT conversation request suppresses heuristic silent recovery even when a DOM sample briefly reports idle — PASS.
+ - Regression: `net::ERR_FAILED` remains ignored for unrelated resources but is recoverable for the narrow ChatGPT conversation transport — PASS.
+ - Static regression: expected-bundle polling uses `faultOnly: true`, tracks per-view conversation request start/end, and passes `transportActive` into the full recovery snapshot — PASS.
++## v1.2.43.1 stack session/ChatGPT restore regression
++
++- `scripts/lifecycle-check.sh` requires a v2 PostgreSQL reconciliation fence with conflict-safe logical import.
++- Desktop regression coverage forbids eager `CHATGPT_URL` navigation from `createChatGPTView` and requires `show` to tolerate the initial `about:blank` surface while the explicit conversation navigation starts.
++- Apply/runtime validation must confirm old session ids remain loadable after `make build`/`make start` and the bound ChatGPT conversation is restored without an initial home-navigation race.
+diff --git a/scripts/lifecycle-check.sh b/scripts/lifecycle-check.sh
+index a19cb6f..c14780a 100755
+--- a/scripts/lifecycle-check.sh
++++ b/scripts/lifecycle-check.sh
+@@ -83,6 +83,10 @@ if ! grep -Fq 'stack-postgres-migrated-v1' "$STACK" || ! grep -Fq 'PG_VERSION' "
+   echo 'lifecycle regression: first-run PostgreSQL stack migration is missing or no longer fail-closed' >&2
+   exit 1
+ fi
++if ! grep -Fq 'stack-postgres-reconciled-v2' "$STACK" || ! grep -Fq -- '--on-conflict-do-nothing' "$STACK" || ! grep -Fq 'reconcile_legacy_postgres_if_needed' "$STACK"; then
++  echo 'lifecycle regression: PostgreSQL logical reconciliation fence is missing' >&2
++  exit 1
++fi
+ for service in database tunnel backend frontend; do
+   grep -Eq "^[[:space:]]{2}${service}:" "$COMPOSE" || { echo "lifecycle regression: Compose service $service is missing" >&2; exit 1; }
+ done
+diff --git a/scripts/stack.sh b/scripts/stack.sh
+index 91eb920..c4bfd64 100755
+--- a/scripts/stack.sh
++++ b/scripts/stack.sh
+@@ -14,6 +14,8 @@ POSTGRES_VOLUME="wharness-postgres-$ROOT_ID"
+ TUNNEL_VOLUME="wharness-tunnel-$ROOT_ID"
+ LEGACY_CONTAINER="wharness-postgres-$ROOT_ID"
+ MIGRATION_MARKER="$STATE_DIR/stack-postgres-migrated-v1"
++POSTGRES_RECONCILE_MARKER="$STATE_DIR/stack-postgres-reconciled-v2"
++LEGACY_RECOVERY_CONTAINER="wharness-postgres-recovery-$ROOT_ID"
+ TUNNEL_MIGRATION_MARKER="$STATE_DIR/stack-tunnel-state-migrated-v1"
+ BACKEND_IMAGE="wharness-backend:$ROOT_ID"
+ FRONTEND_IMAGE="wharness-frontend:$ROOT_ID"
+@@ -151,6 +153,133 @@ migrate_legacy_postgres_if_needed() {
+     '
+ }
+ 
++legacy_source_start() {
++  LEGACY_SOURCE_CONTAINER=''
++  LEGACY_SOURCE_TEMP=0
++  [ -f "$LEGACY_DATA/PG_VERSION" ] || return 1
++
++  version=$(tr -d '[:space:]' <"$LEGACY_DATA/PG_VERSION")
++  [ "$version" = 17 ] || {
++    printf 'Legacy PostgreSQL PGDATA uses major version %s; refusing logical reconciliation with PostgreSQL 17.\n' "$version" >&2
++    return 1
++  }
++
++  if docker inspect "$LEGACY_CONTAINER" >/dev/null 2>&1; then
++    owner=$(docker inspect -f '{{ index .Config.Labels "wharness.root" }}' "$LEGACY_CONTAINER" 2>/dev/null || true)
++    [ "$owner" = "$ROOT" ] || { echo "Refusing unowned legacy PostgreSQL container: $LEGACY_CONTAINER" >&2; return 1; }
++    docker start "$LEGACY_CONTAINER" >/dev/null
++    LEGACY_SOURCE_CONTAINER=$LEGACY_CONTAINER
++  else
++    docker rm -f "$LEGACY_RECOVERY_CONTAINER" >/dev/null 2>&1 || true
++    docker run -d --name "$LEGACY_RECOVERY_CONTAINER" \
++      --label "wharness.root=$ROOT" \
++      --label 'wharness.role=legacy-postgres-recovery' \
++      --env-file "$POSTGRES_ENV" \
++      -v "$LEGACY_DATA:/var/lib/postgresql/data" \
++      "$POSTGRES_IMAGE" >/dev/null
++    LEGACY_SOURCE_CONTAINER=$LEGACY_RECOVERY_CONTAINER
++    LEGACY_SOURCE_TEMP=1
++  fi
++
++  attempts=0
++  while [ "$attempts" -lt 60 ]; do
++    if docker exec "$LEGACY_SOURCE_CONTAINER" pg_isready -U wharness -d wharness >/dev/null 2>&1; then
++      return 0
++    fi
++    attempts=$((attempts + 1))
++    sleep 1
++  done
++  echo 'Legacy PostgreSQL did not become ready for reconciliation.' >&2
++  return 1
++}
++
++legacy_source_stop() {
++  [ -n "${LEGACY_SOURCE_CONTAINER:-}" ] || return 0
++  docker stop --time 30 "$LEGACY_SOURCE_CONTAINER" >/dev/null 2>&1 || true
++  if [ "${LEGACY_SOURCE_TEMP:-0}" = 1 ]; then
++    docker rm -f "$LEGACY_SOURCE_CONTAINER" >/dev/null 2>&1 || true
++  fi
++  LEGACY_SOURCE_CONTAINER=''
++  LEGACY_SOURCE_TEMP=0
++}
++
++postgres_table_exists() {
++  container=$1
++  docker exec "$container" psql -Atq -U wharness -d wharness \
++    -c "SELECT to_regclass('public.harness_sessions') IS NOT NULL" 2>/dev/null | grep -qx t
++}
++
++compose_session_count() {
++  compose exec -T database psql -Atq -U wharness -d wharness -c 'SELECT count(*) FROM harness_sessions' 2>/dev/null
++}
++
++reconcile_legacy_postgres_if_needed() {
++  [ -f "$POSTGRES_RECONCILE_MARKER" ] && return 0
++  [ -f "$LEGACY_DATA/PG_VERSION" ] || return 0
++
++  dump="$BRIDGE_DIR/tmp/legacy-postgres-reconcile-$ROOT_ID-$$.sql"
++  rm -f "$dump"
++  if ! legacy_source_start; then
++    legacy_source_stop
++    return 1
++  fi
++
++  if ! postgres_table_exists "$LEGACY_SOURCE_CONTAINER"; then
++    printf 'Legacy PostgreSQL has no harness_sessions table; no session data to reconcile.\n'
++    legacy_source_stop
++    umask 077
++    printf 'postgres17-reconciled-v2-empty-source\n' >"$POSTGRES_RECONCILE_MARKER"
++    return 0
++  fi
++
++  source_count=$(docker exec "$LEGACY_SOURCE_CONTAINER" psql -Atq -U wharness -d wharness -c 'SELECT count(*) FROM harness_sessions')
++  target_container=$(compose ps -q database)
++  target_has_schema=0
++  postgres_table_exists "$target_container" && target_has_schema=1
++
++  printf 'Reconciling legacy PostgreSQL data into the Compose database (%s legacy sessions)...\n' "$source_count"
++  if [ "$target_has_schema" = 1 ]; then
++    if ! docker exec "$LEGACY_SOURCE_CONTAINER" pg_dump -U wharness -d wharness \
++      --data-only --inserts --on-conflict-do-nothing --no-owner --no-privileges >"$dump"; then
++      legacy_source_stop
++      rm -f "$dump"
++      echo 'Failed to dump legacy PostgreSQL data for reconciliation.' >&2
++      return 1
++    fi
++  else
++    if ! docker exec "$LEGACY_SOURCE_CONTAINER" pg_dump -U wharness -d wharness \
++      --no-owner --no-privileges >"$dump"; then
++      legacy_source_stop
++      rm -f "$dump"
++      echo 'Failed to dump legacy PostgreSQL database for recovery.' >&2
++      return 1
++    fi
++  fi
++  legacy_source_stop
++  test -s "$dump" || { echo 'Legacy PostgreSQL reconciliation dump is empty.' >&2; rm -f "$dump"; return 1; }
++
++  if ! compose exec -T database psql -v ON_ERROR_STOP=1 -U wharness -d wharness <"$dump" >/dev/null; then
++    rm -f "$dump"
++    echo 'Failed to import legacy PostgreSQL data into the Compose database.' >&2
++    return 1
++  fi
++  rm -f "$dump"
++
++  target_count=$(compose_session_count || true)
++  if ! printf '%s\n' "$source_count" | grep -Eq '^[0-9]+$' || ! printf '%s\n' "$target_count" | grep -Eq '^[0-9]+$'; then
++    echo 'Could not verify PostgreSQL session counts after reconciliation.' >&2
++    return 1
++  fi
++  [ "$target_count" -ge "$source_count" ] || {
++    printf 'PostgreSQL reconciliation verification failed: source=%s target=%s.\n' "$source_count" "$target_count" >&2
++    return 1
++  }
++
++  umask 077
++  printf 'postgres17-reconciled-v2 source_sessions=%s target_sessions=%s\n' "$source_count" "$target_count" >"$POSTGRES_RECONCILE_MARKER"
++  printf 'PostgreSQL reconciliation complete: source=%s target=%s sessions.\n' "$source_count" "$target_count"
++}
++
+ service_ready() {
+   service=$1
+   limit=${2:-120}
+@@ -201,6 +330,7 @@ ensure_durable_services() {
+   # This is the URL-stability boundary: normal build/start may never recreate it.
+   compose up -d --no-recreate database tunnel
+   wait_service database 120
++  reconcile_legacy_postgres_if_needed
+   wait_service tunnel 180
+   [ -f "$MIGRATION_MARKER" ] || { umask 077; printf 'postgres17-stack-v1\n' >"$MIGRATION_MARKER"; }
+ }
+diff --git a/services/desktop/main-regression.test.mjs b/services/desktop/main-regression.test.mjs
+index 4b3aca0..65261d6 100644
+--- a/services/desktop/main-regression.test.mjs
++++ b/services/desktop/main-regression.test.mjs
+@@ -220,6 +220,23 @@ test('ChatGPT affinity state is published to the owner window even when another
+   assert.doesNotMatch(publish, /state\.activeChatGPTKey !== key/)
+ })
+ 
++
++test('new ChatGPT views wait for the requested conversation before navigating', async () => {
++  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
++  const createStart = source.indexOf('function createChatGPTView(cacheKey, windowState)')
++  const createEnd = source.indexOf('\nfunction ensureChatGPTView', createStart)
++  const create = source.slice(createStart, createEnd)
++  assert.match(create, /loading: false/)
++  assert.match(create, /loadingSince: 0/)
++  assert.doesNotMatch(create, /loadURL\(CHATGPT_URL/)
++
++  const showStart = source.indexOf("ipcMain.handle('wharness:chatgpt:show'")
++  const showEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:hide'", showStart)
++  const show = source.slice(showStart, showEnd)
++  assert.match(show, /isTrustedChatGPTOrigin\(entry\.view\.webContents\.getURL\(\)\)/)
++  assert.match(show, /waitForChatGPTSurfaceReady/)
++})
++
+ test('navigation only observes affinity and a stable late observer performs definitive settlement', async () => {
+   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+   const createStart = source.indexOf('function createChatGPTView(cacheKey, windowState)')
+diff --git a/services/desktop/main.mjs b/services/desktop/main.mjs
+index ff1e594..1bd2855 100644
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -939,7 +939,7 @@ function createChatGPTView(cacheKey, windowState) {
+   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
+   view.setBackgroundColor('#ffffff')
+   view.setVisible(false)
+-  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: true, lastUsed: Date.now(), lastNetworkActivity: Date.now(), activeConversationRequests: new Set(), healthProbeFailures: 0, loadingSince: Date.now(), loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'external', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, affinity: createChatGPTAffinityTracker() }
++  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), activeConversationRequests: new Set(), healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'external', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, affinity: createChatGPTAffinityTracker() }
+   chatgptViews.set(cacheKey, entry)
+   windowState.window.contentView.addChildView(view)
+ 
+@@ -979,7 +979,6 @@ function createChatGPTView(cacheKey, windowState) {
+     if (expected?.recovery) noteChatGPTRecoveryProgress(expected.recovery, 'renderer:responsive', Date.now())
+     if (entry.humanAction?.kind === 'transport') clearChatGPTHumanAction(cacheKey, 'renderer responsive')
+   })
+-  void wc.loadURL(CHATGPT_URL, { userAgent: CHATGPT_USER_AGENT })
+   console.log(`[chatgpt-instance] created key=${cacheKey} wc=${wc.id}`)
+   return entry
+ }
+@@ -1873,7 +1872,9 @@ function registerIPC() {
+     const windowState = trustedSender(event)
+     windowState.chatgptVisible = true
+     const entry = activateChatGPTView(request?.cacheKey, request?.bounds, windowState)
+-    await waitForChatGPTSurfaceReady(request?.cacheKey, entry)
++    if (isTrustedChatGPTOrigin(entry.view.webContents.getURL())) {
++      await waitForChatGPTSurfaceReady(request?.cacheKey, entry)
++    }
+     return { ok: true }
+   })
+   ipcMain.handle('wharness:chatgpt:hide', (event, request) => {

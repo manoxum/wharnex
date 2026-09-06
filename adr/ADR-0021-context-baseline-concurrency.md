@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Superseded by ADR-0025 on 2026-09-05. Its project-scoped serialization and provenance fields remain, but global baseline rejection and proactive continuation are replaced by immutable-base ChangeSet integration.
 
 ## Context
 

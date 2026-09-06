@@ -19,21 +19,29 @@ No credentials, generated context bundles, or temporary workspaces committed.
 
 - `go test ./...`
 - frontend tests
+- PostgreSQL Session Store migration and CRUD integration tests when the
+  Docker-managed test database is available.
 
 ## G4 Concurrency
 
 - `go test -race ./...`
+- Four disjoint candidates from one revision integrate without replanning.
+- Disjoint hunks in one file merge; the same hunk creates one focused conflict request.
+- A human/external edit does not supersede an in-flight planner request.
+- CAS races and conditional rollback preserve the external writer's value.
+- Read/barrier changes select integration re-verification without global baseline repair.
+- Frontend tests prove that a conflict uses a persisted cache key distinct from its owning chat's primary ChatGPT view.
 
 ## G5 Build
 
-Canonical local build command: `make build`. It must:
+Canonical operator build command: `make build`. It must:
 
-- resolve/install service dependencies;
-- build the Go backend binary under `dist/bin`;
-- build the React production bundle and copy the versioned precompiled local Monaco runtime without rebundling Monaco's dependency source graph;
-- validate the Electron desktop runtime and installed Electron binary;
+- resolve/install development dependencies needed by quality gates/Desktop;
+- build the compatibility Go/frontend artifacts and validate the Electron desktop runtime;
+- build backend, frontend and tunnel Compose images;
+- reconcile backend/frontend containers while preserving existing PostgreSQL/tunnel containers.
 
-The Docker runner is deliberately excluded from normal `make build`; `make build-runner` builds it explicitly from the repository root context.
+`make build-stage` performs the same artifact/image staging but MUST NOT replace running services and is the only build target used by transactional self-evolution. The Protected Docker runner is deliberately excluded from both targets; `make build-runner` remains explicit.
 
 ## G6 Security
 
@@ -56,9 +64,15 @@ Playwright session/bootstrap/manual-plan workflow plus Docker executor tests whe
 
 The canonical Desktop lifecycle is rooted at the repository Makefile:
 
-- `make start`: start the tracked coordinator, backend/frontend as needed, and Electron.
-- `make stop`: stop only processes owned by that coordinator.
-- `make status`: report tracked PIDs plus backend/frontend health.
-- `make logs`: follow the combined Desktop lifecycle log.
+- `make build-stage`: stage artifacts and service images without replacing running services.
+- `make build`: stage then reconcile backend/frontend while preserving PostgreSQL/tunnel identity.
+- `make start`: ensure the persistent Compose stack is healthy and start only the host Electron/Desktop coordinator.
+- `make stop`: stop Desktop only; it MUST NOT stop/recreate backend, frontend, PostgreSQL or tunnel services.
+- `make stack-stop`: explicitly stop every Compose service while retaining containers and named volumes.
+- `make stack-down`: remove Compose containers/network while retaining named data volumes.
+- `make status`: report Desktop plus Compose health.
+
+Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tunnel containers. Backend/frontend may roll independently with `--no-deps`; this preserves active temporary tunnel base URLs across application restart/self-evolution. First stack initialization migrates compatible PostgreSQL 17 data from the former checkout-owned PGDATA into the named volume before the new database starts. A distinct logical reconciliation marker MUST repair skipped/partial first migrations by idempotently merging the legacy PostgreSQL rows after the Compose database becomes healthy and verifying session counts before backend activation.
+Stack self-evolution MUST NOT execute its restart worker inside the backend container that will be replaced. The backend image MUST contain the local build/control toolchain required by `make build-stage`, and activation MUST be delegated to a detached supervisor container. Application rollout MUST retain the previous backend/frontend image IDs long enough to restore them on failed health checks; tunnel/database containers remain excluded from that rollback boundary.
 
 Runtime state belongs under `.harness/` and must never be committed.

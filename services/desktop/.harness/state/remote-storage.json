@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "instances": [
+    {
+      "id": "trycloudflare-1",
+      "provider": "trycloudflare",
+      "priority": 10,
+      "limits": {
+        "max_requests": 0,
+        "window_seconds": 0,
+        "max_files_per_input": 0,
+        "max_file_bytes": 0,
+        "max_input_bytes": 0,
+        "max_stored_objects": 0,
+        "max_storage_bytes": 0
+      },
+      "rclone_prefix": "wharness-inputs"
+    }
+  ]
+}

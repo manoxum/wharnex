@@ -25,3 +25,16 @@ it('renders duplicate execution protection as a warning status', () => {
   expect(entries[0]).toMatchObject({ title: 'Reexecução bloqueada', badge: 'DONE', tone: 'warning' })
   expect(entries[0].detail).toContain('plan-done')
 })
+
+it('groups standard, repair, and evidence iterations under their main request', () => {
+  const event = (id: string, type: string, data: Record<string, unknown>): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-04T06:00:00Z', data })
+  const entries = buildExecutionTimeline([
+    event('1', 'execution.started', { request_id: 'req-main', root_request_id: 'req-main', iteration_kind: 'standard', plan_id: 'p1' }),
+    event('2', 'execution.failed', { request_id: 'req-main', root_request_id: 'req-main', iteration_kind: 'standard', error: 'failed' }),
+    event('3', 'repair.started', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair' }),
+    event('4', 'workflow.started', { request_id: 'req-evidence', root_request_id: 'req-main', iteration_kind: 'evidence' }),
+  ])
+  expect(entries.map((entry) => [entry.rootRequestId, entry.iterationKind])).toEqual([
+    ['req-main', 'standard'], ['req-main', 'standard'], ['req-main', 'repair'], ['req-main', 'evidence'],
+  ])
+})

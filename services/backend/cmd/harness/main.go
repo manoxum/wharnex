@@ -3,16 +3,15 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"kernl.local/harness/backend/internal/app"
+	"kernl.local/harness/backend/internal/artifactstore"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/config"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
@@ -24,15 +23,22 @@ import (
 	"kernl.local/harness/backend/internal/sandbox"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/transport/httpapi"
+	"kernl.local/harness/backend/internal/tunneldaemon"
 )
 
 func main() {
 	cfg := config.Load()
-	bus := audit.NewBus()
-	store, err := session.NewPersistentStore(cfg.StateFile)
+	if cfg.DatabaseURL == "" {
+		log.Fatal("HARNESS_DATABASE_URL is required; start Wharness with the canonical Docker-backed lifecycle")
+	}
+	storeCtx, storeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	store, err := session.NewPostgresStore(storeCtx, cfg.DatabaseURL, cfg.StateFile)
+	storeCancel()
 	if err != nil {
 		log.Fatalf("session store: %v", err)
 	}
+	defer store.Close()
+	bus := audit.NewPersistentBus(store)
 	builder := contextbundle.NewBuilder(cfg.MaxContextBytes, cfg.MaxBundleBytes)
 	policies := policy.NewEngine()
 
@@ -58,19 +64,13 @@ func main() {
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
+	stopArtifacts := configureArtifactStore(cfg, service)
+	defer stopArtifacts()
 	service.SetRemoteStorageConnector(remoteinput.NewRcloneConnector())
-	remoteManager, err := remoteInputManager(cfg.RemoteStorage)
-	if err != nil {
-		log.Fatalf("remote storage configuration: %v", err)
-	}
-	service.SetRemoteInputStore(remoteManager)
-	if remoteManager.Status().Enabled {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		if err := remoteManager.Cleanup(cleanupCtx, time.Now().UTC().Add(-app.RemoteInputRetention)); err != nil {
-			log.Printf("remote storage retention cleanup failed: %v", err)
-		}
-		cancel()
-	}
+	remoteStore, cleanupRemote, stopRemote := configureRemoteInputs(cfg, service)
+	service.SetRemoteInputStore(remoteStore)
+	defer stopRemote()
+	cleanupRemote()
 	handler := httpapi.New(service, store, bus, cfg)
 	server := &http.Server{
 		Addr:              cfg.Addr,
@@ -99,34 +99,103 @@ func main() {
 	}
 }
 
-func remoteInputManager(cfg config.RemoteStorageConfig) (*remoteinput.Manager, error) {
-	configs, err := config.LoadRemoteStorageInstances(cfg)
-	if err != nil {
-		return nil, err
-	}
-	instances := make([]remoteinput.Instance, 0, len(configs))
-	for _, instanceConfig := range configs {
-		provider, err := remoteInputProvider(instanceConfig)
+func configureRemoteInputs(cfg config.Config, service *app.Service) (app.RemoteInputStore, func(), func()) {
+	var store app.RemoteInputStore
+	var session app.RemoteInputSessionStore
+	var cleanup func(context.Context, time.Time) error
+	if cfg.Tunnel.DaemonURL != "" {
+		client, err := tunneldaemon.NewClient(cfg.Tunnel.DaemonURL, cfg.Tunnel.DaemonToken)
 		if err != nil {
-			return nil, fmt.Errorf("remote storage instance %s: %w", instanceConfig.ID, err)
+			log.Fatalf("tunnel daemon client: %v", err)
 		}
-		instances = append(instances, remoteinput.Instance{ID: instanceConfig.ID, Priority: instanceConfig.Priority, Limits: instanceConfig.Limits, Provider: provider})
+		probeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		providers, err := client.Providers(probeCtx)
+		cancel()
+		if err != nil {
+			log.Fatalf("tunnel daemon providers: %v", err)
+		}
+		service.SetTunnelProviders(providers)
+		service.SetTunnelProviderConnector(client)
+		store, session, cleanup = client, client, client.Cleanup
+	} else {
+		manager, err := remoteinput.NewTunnelManager(cfg.Tunnel)
+		if err != nil {
+			log.Fatalf("remote storage configuration: %v", err)
+		}
+		service.SetTunnelProviders(remoteinput.TunnelProviders())
+		service.SetTunnelProviderConnector(remoteinput.NewTunnelConnector(cfg.Tunnel.SecretsDir))
+		store, session, cleanup = manager, manager, manager.Cleanup
 	}
-	return remoteinput.NewPool(instances, cfg.IndexFile), nil
+	startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	if err := session.StartRemoteInputSession(startCtx); err != nil {
+		startCancel()
+		log.Fatalf("tunnel session start: %v", err)
+	}
+	startCancel()
+	cleanupRemote := func() {
+		if !store.Status().Enabled {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := cleanup(ctx, time.Now().UTC().Add(-app.RemoteInputRetention)); err != nil {
+			log.Printf("remote storage retention cleanup failed: %v", err)
+		}
+	}
+	stopRemote := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := session.StopRemoteInputSession(ctx); err != nil {
+			log.Printf("remote input session close failed: %v", err)
+		}
+	}
+	return store, cleanupRemote, stopRemote
 }
 
-func remoteInputProvider(cfg config.RemoteStorageInstanceConfig) (remoteinput.Provider, error) {
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
-	case "http":
-		return remoteinput.NewHTTPProvider(remoteinput.HTTPConfig{UploadBaseURL: cfg.UploadURL, PublicBaseURL: cfg.PublicURL, Authorization: cfg.Authorization})
-	case "webdav":
-		if strings.TrimSpace(cfg.RcloneRemote) == "" {
-			return remoteinput.NewHTTPProvider(remoteinput.HTTPConfig{UploadBaseURL: cfg.UploadURL, PublicBaseURL: cfg.PublicURL, Authorization: cfg.Authorization})
-		}
-		return remoteinput.NewRcloneProvider(remoteinput.RcloneConfig{Remote: cfg.RcloneRemote, Prefix: cfg.RclonePrefix, PublicBaseURL: cfg.PublicURL, Provider: cfg.Provider})
-	case "rclone", "drive", "dropbox", "onedrive", "s3", "nextcloud", "box", "pcloud":
-		return remoteinput.NewRcloneProvider(remoteinput.RcloneConfig{Remote: cfg.RcloneRemote, Prefix: cfg.RclonePrefix, PublicBaseURL: cfg.PublicURL, Provider: cfg.Provider})
-	default:
-		return nil, errors.New("unsupported remote storage provider")
+// tunnelInputManager remains a narrow compatibility helper for package-level
+// tests and non-daemon development paths. Production stack mode uses the
+// tunnel daemon client above.
+func tunnelInputManager(cfg config.TunnelConfig) (*remoteinput.Manager, error) {
+	return remoteinput.NewTunnelManager(cfg)
+}
+
+func configureArtifactStore(cfg config.Config, service *app.Service) func() {
+	settings, err := config.ReadArtifactSettings(cfg.Artifacts)
+	if err != nil {
+		log.Fatalf("artifact settings: %v", err)
 	}
+	store, err := artifactstore.NewMinIO(artifactstore.Config{Endpoint: cfg.Artifacts.Endpoint, AccessKey: cfg.Artifacts.AccessKey, SecretKey: cfg.Artifacts.SecretKey, Bucket: cfg.Artifacts.Bucket, Region: cfg.Artifacts.Region})
+	if err != nil {
+		log.Fatalf("artifact store: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	if err := store.EnsureBucket(ctx); err != nil {
+		cancel()
+		log.Fatalf("artifact bucket: %v", err)
+	}
+	cancel()
+	service.SetArtifactStore(store, settings.RetentionDays)
+	cleanup := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		before := time.Now().UTC().Add(-time.Duration(service.ArtifactSettings().RetentionDays) * 24 * time.Hour)
+		if err := service.CleanupArtifacts(ctx, before); err != nil {
+			log.Printf("artifact retention cleanup failed: %v", err)
+		}
+	}
+	cleanup()
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(12 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				cleanup()
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() { close(stop) }
 }

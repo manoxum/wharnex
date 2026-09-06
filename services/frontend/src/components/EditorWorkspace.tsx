@@ -8,6 +8,7 @@ import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
 import { InteractiveTerminal } from './InteractiveTerminal'
 import { WorkspaceExplorer } from './WorkspaceExplorer'
+import { ArtifactPreview } from './ArtifactPreview'
 
 type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
@@ -22,6 +23,7 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
   const [terminalHeight, setTerminalHeight] = useState(245)
   const [cursor, setCursor] = useState<Cursor>({ line: 1, column: 1 })
   const [revealNonce, setRevealNonce] = useState(0)
+  const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set())
   const selected = documents.find((item) => item.path === activePath)
   const dirtyCount = documents.filter((item) => item.draft !== item.content).length
 
@@ -39,6 +41,7 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
     setDocuments([])
     setActivePath(undefined)
     setCursor({ line: 1, column: 1 })
+    setPreviewPaths(new Set())
     return () => {
       for (const document of documentsRef.current) disposeEditorModel(document.path)
     }
@@ -53,8 +56,11 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
   async function openFile(path: string) {
     if (documents.some((item) => item.path === path)) { setActivePath(path); return }
     try {
-      const file = await api.readFile(session.id, path)
+      const file = isBinaryPreview(path)
+        ? { path, content: '', sha256: '', size: files.find((entry) => entry.path === path)?.size || 0 }
+        : await api.readFile(session.id, path)
       setDocuments((items) => [...items, { ...file, draft: file.content }])
+      if (isRichPreview(path)) setPreviewPaths((items) => new Set(items).add(path))
       setActivePath(path)
       setCursor({ line: 1, column: 1 })
     } catch (error) { onError(messageOf(error)) }
@@ -140,6 +146,7 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
     const index = documents.findIndex((item) => item.path === path)
     const remaining = documents.filter((item) => item.path !== path)
     setDocuments(remaining)
+    setPreviewPaths((items) => { const next = new Set(items); next.delete(path); return next })
     if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path)
   }
 
@@ -151,9 +158,9 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
         {selected ? <>
           <div className="editor-contextbar">
             <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
-            <div className="editor-shortcuts"><button title="Localizar este ficheiro no Explorer" onClick={() => setRevealNonce((value) => value + 1)}><Icon name="locate" size={12}/> Explorer</button><span>Ctrl+F localizar</span><span>Ctrl+G linha</span><span>F1 comandos</span><span>Alt+Z wrap</span></div>
+            <div className="editor-shortcuts"><button title="Localizar este ficheiro no Explorer" onClick={() => setRevealNonce((value) => value + 1)}><Icon name="locate" size={12}/> Explorer</button>{isRichPreview(selected.path) && !isBinaryPreview(selected.path) && <button title="Alternar editor e pré-visualização" onClick={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}><Icon name={previewPaths.has(selected.path) ? 'code' : 'external'} size={12}/>{previewPaths.has(selected.path) ? 'Editar' : 'Pré-visualizar'}</button>} {!previewPaths.has(selected.path) && <><span>Ctrl+F localizar</span><span>Ctrl+G linha</span><span>F1 comandos</span><span>Alt+Z wrap</span></>}</div>
           </div>
-          <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} />
+          {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} />}
           <div className="editor-statusbar">
             <span>{selected.path}</span>
             <div><span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
@@ -185,3 +192,5 @@ function EditorTabs({ documents, activePath, savingPath, onSelect, onClose, onSa
 
 
 function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
+function isRichPreview(path: string) { return /\.(md|mdx|markdown|html?|pdf|png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|mp4|webm|ogv|mov|m4v|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(path) }
+function isBinaryPreview(path: string) { return /\.(pdf|png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|mp4|webm|ogv|mov|m4v|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(path) }

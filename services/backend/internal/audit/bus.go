@@ -1,6 +1,8 @@
 package audit
 
 import (
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -8,10 +10,16 @@ import (
 	"kernl.local/harness/backend/internal/ids"
 )
 
+type EventStore interface {
+	AppendEvent(domain.Event) error
+	EventHistory(string) ([]domain.Event, error)
+}
+
 type Bus struct {
 	mu          sync.RWMutex
 	history     map[string][]domain.Event
 	subscribers map[string]map[chan domain.Event]struct{}
+	store       EventStore
 }
 
 func NewBus() *Bus {
@@ -21,8 +29,17 @@ func NewBus() *Bus {
 	}
 }
 
+func NewPersistentBus(store EventStore) *Bus {
+	bus := NewBus()
+	bus.store = store
+	return bus
+}
+
 func (b *Bus) Publish(sessionID, eventType string, data map[string]any) domain.Event {
-	event := domain.Event{ID: ids.New("evt"), SessionID: sessionID, Type: eventType, Timestamp: time.Now().UTC(), Data: data}
+	event := domain.Event{ID: ids.New("evt"), SessionID: sessionID, Type: eventType, Timestamp: time.Now().UTC(), Data: sanitizeData(data)}
+	if b.store != nil {
+		_ = b.store.AppendEvent(event)
+	}
 	b.mu.Lock()
 	b.history[sessionID] = append(b.history[sessionID], event)
 	for ch := range b.subscribers[sessionID] {
@@ -36,12 +53,53 @@ func (b *Bus) Publish(sessionID, eventType string, data map[string]any) domain.E
 }
 
 func (b *Bus) History(sessionID string) []domain.Event {
+	if b.store != nil {
+		if items, err := b.store.EventHistory(sessionID); err == nil {
+			return items
+		}
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	items := b.history[sessionID]
 	out := make([]domain.Event, len(items))
 	copy(out, items)
 	return out
+}
+
+var secretAssignment = regexp.MustCompile(`(?i)(api[_-]?key|token|password|secret)\s*[:=]\s*[^\s]+`)
+
+func sanitizeData(data map[string]any) map[string]any {
+	result := make(map[string]any, len(data))
+	for key, value := range data {
+		lower := strings.ToLower(key)
+		if strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "credential") || strings.Contains(lower, "api_key") {
+			result[key] = "[REDACTED]"
+			continue
+		}
+		result[key] = sanitizeValue(value)
+	}
+	return result
+}
+
+func sanitizeValue(value any) any {
+	switch typed := value.(type) {
+	case string:
+		clean := secretAssignment.ReplaceAllString(typed, "$1=[REDACTED]")
+		if len(clean) > 8192 {
+			clean = clean[:8192] + "…[truncated]"
+		}
+		return clean
+	case []string:
+		out := make([]string, len(typed))
+		for i, item := range typed {
+			out[i] = sanitizeValue(item).(string)
+		}
+		return out
+	case map[string]any:
+		return sanitizeData(typed)
+	default:
+		return value
+	}
 }
 
 func (b *Bus) ClearAll() {

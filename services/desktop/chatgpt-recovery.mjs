@@ -1,4 +1,3 @@
-const DEFAULT_STALL_MS = 90_000
 const DEFAULT_SILENT_MS = 30_000
 const DEFAULT_RELOAD_SETTLE_MS = 15_000
 const DEFAULT_ACTION_COOLDOWN_MS = 5_000
@@ -17,9 +16,13 @@ export function createChatGPTRecoveryState(now = Date.now()) {
     reloadCount: 0,
     transportReloadCount: 0,
     completionReloaded: false,
+    errorReloaded: false,
     stallReloaded: false,
     silentReloaded: false,
+    surfaceReloaded: false,
     stalledPromptCount: 0,
+    lastPromptAt: 0,
+    humanEscalated: false,
   }
 }
 
@@ -60,15 +63,35 @@ export function chooseChatGPTRecoveryAction(state, snapshot = {}, now = Date.now
   if (!state) return undefined
   const current = finiteTime(now)
   const cooldownMs = boundedDuration(options.actionCooldownMs, DEFAULT_ACTION_COOLDOWN_MS)
-  const stallMs = boundedDuration(options.stallMs, DEFAULT_STALL_MS)
   const silentMs = boundedDuration(options.silentMs, DEFAULT_SILENT_MS)
   const reloadSettleMs = boundedDuration(options.reloadSettleMs, DEFAULT_RELOAD_SETTLE_MS)
   if (state.lastActionAt && current - state.lastActionAt < cooldownMs) return undefined
 
+  if (snapshot.humanActionRequired === true) return undefined
+
   if (state.pendingFault) {
     const maxTransportReloads = Math.max(1, Number(options.maxTransportReloads) || 3)
-    if (Number(state.transportReloadCount || 0) >= maxTransportReloads) return undefined
+    if (Number(state.transportReloadCount || 0) >= maxTransportReloads) {
+      if (state.humanEscalated) return undefined
+      return { type: 'human', reason: 'transport-exhausted', detail: state.pendingFault }
+    }
     return { type: 'reload', reason: 'transport', detail: state.pendingFault }
+  }
+
+  // Some callers probe only for already-recorded transport/renderer faults
+  // before the DOM liveness snapshot is available. An empty/partial snapshot
+  // must never be interpreted as evidence that generation is idle.
+  const hasLivenessSnapshot = ['complete', 'thinking', 'failed', 'responseStarted', 'surfaceReady', 'awaitingConversationAffinity', 'transportActive']
+    .some((key) => Object.hasOwn(snapshot || {}, key))
+  if (options.faultOnly === true || !hasLivenessSnapshot) return undefined
+
+  if (snapshot.awaitingConversationAffinity === true) return undefined
+  if (snapshot.transportActive === true) return undefined
+
+  if (snapshot.failed === true) {
+    if (!state.errorReloaded) return { type: 'reload', reason: 'response-error', detail: 'ChatGPT exposed a structural response error control' }
+    if (!state.humanEscalated && state.lastReloadAt && current - state.lastReloadAt >= reloadSettleMs) return { type: 'human', reason: 'response-error', detail: 'ChatGPT still reports a response error after recovery reload' }
+    return undefined
   }
 
   if (snapshot.complete === true && !state.completionReloaded) {
@@ -77,20 +100,31 @@ export function chooseChatGPTRecoveryAction(state, snapshot = {}, now = Date.now
 
   const thinking = snapshot.thinking === true
   const responseStarted = snapshot.responseStarted === true
+  const surfaceUnavailable = snapshot.surfaceReady === false
   const lastProgressAt = Math.max(Number(state.lastProgressAt || 0), Number(state.startedAt || 0))
+  if (state.surfaceReloaded && surfaceUnavailable) {
+    if (state.humanEscalated || !state.lastReloadAt || current - state.lastReloadAt < reloadSettleMs) return undefined
+    return { type: 'human', reason: 'surface-unavailable', detail: 'ChatGPT composer remained unavailable after the recovery reload' }
+  }
+  if (surfaceUnavailable && !thinking && current - lastProgressAt >= silentMs) {
+    return { type: 'reload', reason: 'surface', detail: 'ChatGPT composer is unavailable on the trusted conversation surface' }
+  }
   if (state.stallReloaded || state.silentReloaded) {
-    if (state.stalledPromptCount > 0 || !state.lastReloadAt || current - state.lastReloadAt < reloadSettleMs) return undefined
+    if (!state.lastReloadAt || current - state.lastReloadAt < reloadSettleMs) return undefined
     const progressedAfterReload = lastProgressAt > state.lastReloadAt
-    if (progressedAfterReload && current - lastProgressAt < (thinking ? stallMs : silentMs)) return undefined
-    const reason = state.stallReloaded ? 'stalled-after-reload' : 'silent-after-reload'
-    return { type: 'prompt', reason, detail: 'ChatGPT remained interrupted after the recovery reload' }
+    if (progressedAfterReload && (thinking || current - lastProgressAt < silentMs)) return undefined
+    if (state.humanEscalated) return undefined
+    return { type: 'human', reason: 'recovery-ambiguous', detail: 'ChatGPT remained structurally ambiguous after the recovery reload; automatic prompting is unsafe' }
   }
   if (thinking) {
-    if (current - lastProgressAt < stallMs) return undefined
-    return { type: 'reload', reason: 'stalled', detail: 'ChatGPT processing made no observable progress before the stall threshold' }
+    // A static processing indicator is not evidence that a long model task has
+    // stalled. Reload only on a concrete transport fault or terminal response;
+    // otherwise multi-hour requests must be allowed to keep running.
+    return undefined
   }
   if (!responseStarted && current - lastProgressAt >= silentMs) {
-    return { type: 'reload', reason: 'silent', detail: 'ChatGPT stopped without producing a new assistant turn or processing indicator' }
+    if (state.humanEscalated) return undefined
+    return { type: 'human', reason: 'silent-ambiguous', detail: 'No positive completion or processing evidence is available; automatic prompting is unsafe' }
   }
   return undefined
 }
@@ -104,19 +138,27 @@ export function commitChatGPTRecoveryAction(state, action, now = Date.now()) {
     state.reloadCount = Number(state.reloadCount || 0) + 1
     if (action.reason === 'transport') state.transportReloadCount = Number(state.transportReloadCount || 0) + 1
     if (action.reason === 'completed-without-bundle') state.completionReloaded = true
+    if (action.reason === 'response-error') state.errorReloaded = true
     if (action.reason === 'stalled') state.stallReloaded = true
     if (action.reason === 'silent') state.silentReloaded = true
+    if (action.reason === 'surface') state.surfaceReloaded = true
     clearChatGPTRecoveryFault(state)
     noteChatGPTRecoveryProgress(state, `reload:${action.reason}:${state.reloadCount}`, current)
   } else if (action.type === 'prompt') {
     state.stalledPromptCount = Number(state.stalledPromptCount || 0) + 1
+    state.lastPromptAt = current
     noteChatGPTRecoveryProgress(state, `prompt:${action.reason}:${state.stalledPromptCount}`, current)
+  } else if (action.type === 'human') {
+    state.humanEscalated = true
+    clearChatGPTRecoveryFault(state)
+    noteChatGPTRecoveryProgress(state, `human:${action.reason}`, current)
   }
   return state
 }
 
-export function isRecoverableChatGPTNetworkError(value) {
+export function isRecoverableChatGPTNetworkError(value, options = {}) {
   const text = String(value || '').toUpperCase()
+  if (options.conversationTransport === true && text.includes('ERR_FAILED')) return true
   return [
     'ERR_INTERNET_DISCONNECTED',
     'ERR_NETWORK_CHANGED',
@@ -129,6 +171,14 @@ export function isRecoverableChatGPTNetworkError(value) {
     'ERR_NAME_NOT_RESOLVED',
     'ERR_ADDRESS_UNREACHABLE',
     'ERR_SOCKET_NOT_CONNECTED',
+    'ERR_PROXY_CONNECTION_FAILED',
+    'ERR_TUNNEL_CONNECTION_FAILED',
+    'ERR_HTTP2_PROTOCOL_ERROR',
+    'ERR_QUIC_PROTOCOL_ERROR',
+    'ERR_SSL_PROTOCOL_ERROR',
+    'ERR_CERT_AUTHORITY_INVALID',
+    'ERR_CERT_DATE_INVALID',
+    'ERR_CERT_COMMON_NAME_INVALID',
   ].some((token) => text.includes(token))
 }
 
@@ -139,13 +189,18 @@ export function isChatGPTConversationTransportURL(value) {
     return url.pathname === '/backend-api/conversation'
       || url.pathname === '/backend-api/f/conversation'
       || url.pathname === '/backend-api/f/conversation/prepare'
+      || url.pathname === '/backend-api/f/conversation/resume'
   } catch { return false }
 }
 
-export function chatGPTStalledRecoveryPrompt(requestId, filename) {
+export function chatGPTStalledRecoveryPrompt(requestId, filename, remoteInputBootstrap = '') {
   const id = String(requestId || '').trim()
   const expected = String(filename || '').trim()
-  return `WHARNESS PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request from the existing context without restarting or changing scope. Focus on finishing the requested work and deliver exactly ${expected} according to the existing Wharness file-first contract. Finish with the file attachment only.`
+  const bootstrap = String(remoteInputBootstrap || '').trim()
+  const retry = bootstrap
+    ? `\n\nThe original request used remote input. First repeat the remote-input download from this original bootstrap, fetching its raw binary response rather than treating it as a source page:\n\n${bootstrap}`
+    : ''
+  return `WHARNESS PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request from the existing context without restarting or changing scope.${retry}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharness file-first contract. Finish with the file attachment only.`
 }
 
 function finiteTime(value) {

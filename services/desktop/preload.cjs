@@ -16,10 +16,10 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     prepareRestart: (scope) => invoke('wharness:windows:prepare-restart', { scope }),
   }),
   chatgpt: Object.freeze({
-    show: (bounds, cacheKey) => invoke('wharness:chatgpt:show', { bounds, cacheKey }),
+    show: (bounds, cacheKey, url) => invoke('wharness:chatgpt:show', { bounds, cacheKey, url: String(url || '') }),
     hide: (cacheKey) => invoke('wharness:chatgpt:hide', { cacheKey }),
     setBounds: (bounds, cacheKey) => invoke('wharness:chatgpt:set-bounds', { bounds, cacheKey }),
-    navigate: (url, cacheKey, options = {}) => invoke('wharness:chatgpt:navigate', { url: String(url), cacheKey, resetToHomeIfConversation: Boolean(options?.resetToHomeIfConversation) }),
+    navigate: (url, cacheKey, options = {}) => invoke('wharness:chatgpt:navigate', { url: String(url), cacheKey, resetToHomeIfConversation: Boolean(options?.resetToHomeIfConversation), bounds: options?.bounds }),
     confirmAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:confirm-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
     rejectAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:reject-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
     reload: (cacheKey) => invoke('wharness:chatgpt:reload', { cacheKey }),
@@ -29,16 +29,23 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     paste: (cacheKey) => invoke('wharness:chatgpt:paste', { cacheKey }),
     submitPrompt: (request) => invoke('wharness:chatgpt:submit-prompt', request),
     preparePrompt: (request) => invoke('wharness:chatgpt:prepare-prompt', request),
+    retryPreparedPrompt: (request) => invoke('wharness:chatgpt:retry-prepared-prompt', request),
     attachContext: (request) => invoke('wharness:chatgpt:attach-context', request),
     attachPrompt: (request) => invoke('wharness:chatgpt:attach-prompt', request),
     submitPrepared: (request) => invoke('wharness:chatgpt:submit-prepared', request),
     queueComment: (request) => invoke('wharness:chatgpt:queue-comment', request),
     state: (cacheKey) => invoke('wharness:chatgpt:state', { cacheKey }),
     release: (cacheKey) => invoke('wharness:chatgpt:release', { cacheKey }),
+    archiveConversation: (cacheKey, url = '') => invoke('wharness:chatgpt:archive-conversation', { cacheKey, url: String(url || '') }),
+    stopConversation: (cacheKey) => invoke('wharness:chatgpt:stop-conversation', { cacheKey }),
+    organizeConversation: (cacheKey, projectName, title) => invoke('wharness:chatgpt:organize-conversation', { cacheKey, projectName: String(projectName || ''), title: String(title || '') }),
+    hideSidebar: (cacheKey) => invoke('wharness:chatgpt:hide-sidebar', { cacheKey }),
     setAuthMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-auth-mode', { cacheKey, mode }),
     startAuth: (cacheKey, mode) => invoke('wharness:chatgpt:start-auth', { cacheKey, mode }),
     openExternal: (url = '') => invoke('wharness:chatgpt:open-external', { url: String(url || '') }),
     resumeEmbedded: (cacheKey) => invoke('wharness:chatgpt:resume-embedded', { cacheKey }),
+    resumeExpectedBundle: (request) => invoke('wharness:chatgpt:resume-expected-bundle', request),
+    continueExpectedBundle: (cacheKey, requestId, options = {}) => invoke('wharness:chatgpt:continue-expected-bundle', { cacheKey, requestId, force: Boolean(options?.force) }),
     pickBundle: (request) => invoke('wharness:chatgpt:pick-bundle', request),
     onState: (callback) => {
       if (typeof callback !== 'function') return () => {}
@@ -93,6 +100,18 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('wharness:chatgpt:activity', handler)
       return () => ipcRenderer.removeListener('wharness:chatgpt:activity', handler)
+    },
+    onHumanAction: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:chatgpt:human-action', handler)
+      return () => ipcRenderer.removeListener('wharness:chatgpt:human-action', handler)
+    },
+    onAccountAction: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:chatgpt:account-action', handler)
+      return () => ipcRenderer.removeListener('wharness:chatgpt:account-action', handler)
     },
     onCommentSent: (callback) => {
       if (typeof callback !== 'function') return () => {}

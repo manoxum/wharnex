@@ -14,10 +14,14 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
 	for _, want := range []string{
 		"wharness-bundle-" + requestID + ".zip",
 		"FILE-FIRST CONTRACT — ABSOLUTE",
+		"FIRST-PASS BUNDLE GATE",
 		"plan.json",
 		"README.md",
 		"patches/",
 		"patch_file",
+		"PATCH FILE BYTE RULE",
+		"exactly two unquoted, space-free paths",
+		"ANTI PING-PONG RULE",
 		"BUNDLE_GENERATION_UNAVAILABLE",
 		"final visible answer contains the downloadable ZIP attachment only",
 		"Do NOT call the attachment",
@@ -27,6 +31,8 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
 		"Do NOT wrap the required files inside another top-level directory",
 		requestID,
 		"harness.turn/v1",
+		"outcome MUST truthfully report",
+		"status=failed/partial",
 		"answer",
 		"clarification",
 		"investigation",
@@ -133,5 +139,11 @@ func TestBuildManualPromptPinsContextBaselineAndImpactForecast(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("baseline concurrency prompt missing %q", want)
 		}
+	}
+	if !strings.Contains(prompt, `request_id in turn.json and plan.json MUST be exactly "req-baseline"`) {
+		t.Fatal("change contract does not pin the request id")
+	}
+	if !strings.Contains(prompt, `base_context_sha256 in plan.json MUST be exactly "`+baseline+`"`) {
+		t.Fatal("change contract does not pin the context baseline")
 	}
 }

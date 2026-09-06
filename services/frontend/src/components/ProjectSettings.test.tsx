@@ -12,11 +12,18 @@ vi.mock('../lib/api', () => ({
     updateProjectConfig: vi.fn(),
     storage: vi.fn(),
     clearStorage: vi.fn(),
+    artifactSettings: vi.fn().mockResolvedValue({ retention_days: 30 }),
+    updateArtifactSettings: vi.fn(),
     remoteStorageConfig: vi.fn(),
     updateRemoteStorageConfig: vi.fn(),
     remoteStorageProviders: vi.fn(),
     connectRemoteStorage: vi.fn(),
     checkRemoteStorage: vi.fn(),
+    tunnelConfig: vi.fn(),
+    updateTunnelConfig: vi.fn(),
+    tunnelProviders: vi.fn(),
+    connectTunnelProvider: vi.fn(),
+    disconnectTunnelProvider: vi.fn(),
   },
 }))
 
@@ -33,11 +40,12 @@ const session: Session = {
 describe('ProjectSettings loading', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     vi.mocked(api.contextInspection).mockResolvedValue({
       snapshot_id: 'ctx', sha256: 'abc', project_root: '/tmp/demo', included_files: 0, excluded_items: 0, included_bytes: 0, roots: [], entries: [], rules: [],
     })
     vi.mocked(api.storage).mockResolvedValue({
-      total_bytes: 0, state_bytes: 0, context_bytes: 0, sandbox_bytes: 0, orphan_bytes: 0, projects: [],
+      total_bytes: 0, state_bytes: 0, context_bytes: 0, sandbox_bytes: 0, orphan_bytes: 0, artifact_bytes: 0, projects: [],
     })
   })
 
@@ -57,4 +65,21 @@ describe('ProjectSettings loading', () => {
     await waitFor(() => expect(screen.getByText('Reconhecimento automático')).toBeTruthy())
     expect(api.projectConfig).toHaveBeenCalledTimes(2)
   })
+
+  it('uses 100% as the midpoint of a 40%-160% interface scale', async () => {
+    vi.mocked(api.projectConfig).mockResolvedValue({
+      version: 1,
+      project: { name: 'demo' },
+      context: { auto_exclude: true, max_file_bytes: 2097152, include: [], exclude: [] },
+    })
+    render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Aparência/i }))
+    const slider = screen.getByRole('slider', { name: /Tamanho da interface/i })
+    expect(slider.getAttribute('min')).toBe('0.4')
+    expect(slider.getAttribute('max')).toBe('1.6')
+    expect(slider.getAttribute('value')).toBe('1')
+    expect(screen.getByText(/reduza até 40% ou amplie até 160%/i)).toBeTruthy()
+  })
+
 })

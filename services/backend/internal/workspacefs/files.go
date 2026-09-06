@@ -107,6 +107,25 @@ func Read(root, rel string) (File, error) {
 	return File{Path: filepath.ToSlash(filepath.Clean(rel)), Content: string(data), SHA256: hash(data), Size: int64(len(data))}, nil
 }
 
+// OpenPreview applies the same containment, exclusion and symlink boundary as
+// the editor, but leaves content streaming to the HTTP layer.
+func OpenPreview(root, rel string) (*os.File, os.FileInfo, error) {
+	path, err := safeExistingFile(root, rel)
+	if err != nil {
+		return nil, nil, err
+	}
+	handle, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := handle.Stat()
+	if err != nil {
+		handle.Close()
+		return nil, nil, err
+	}
+	return handle, info, nil
+}
+
 func Write(root, rel, content, expectedSHA string) (File, error) {
 	if int64(len(content)) > MaxEditableBytes {
 		return File{}, fmt.Errorf("file exceeds %d byte editor limit", MaxEditableBytes)

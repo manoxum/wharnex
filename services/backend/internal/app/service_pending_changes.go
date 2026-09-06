@@ -78,7 +78,7 @@ func pendingHostResolutionBlocked(item domain.Session) bool {
 		return true
 	}
 	switch item.State {
-	case "awaiting_plan", "workflow_pending", "workflow_planned", "workflow_observed", "repair_pending", "planned", "baseline_update_pending":
+	case "awaiting_plan", "workflow_pending", "workflow_planned", "workflow_observed", "repair_pending", "planned", "baseline_update_pending", "conflict_resolution_pending":
 		return true
 	default:
 		return false
@@ -122,13 +122,19 @@ func (s *Service) RejectPendingHostChanges(sessionID string) (domain.Session, er
 	if len(pending) == 0 {
 		return item, errors.New("there are no pending host changes to reject")
 	}
-	if pendingHostResolutionBlocked(item) {
+	conflictPending := item.State == "conflict_resolution_pending" && item.IntegrationConflict != nil
+	if pendingHostResolutionBlocked(item) && !conflictPending {
 		return item, errors.New("finish the active planner/repair turn before rejecting pending host changes")
 	}
 	if item.State == "restart_pending" || item.SelfEvolutionActivation == "restart_pending" {
 		return item, errors.New("the self-evolution batch is already applied; use the rollback action before restart")
 	}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		if conflictPending {
+			current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, current.IntegrationConflict.RequestID)
+			current.LastManualPrompt = ""
+			current.IntegrationConflict = nil
+		}
 		current.PendingHostChanges = nil
 		current.Plan = nil
 		current.Policy = nil
@@ -145,10 +151,56 @@ func (s *Service) RejectPendingHostChanges(sessionID string) (domain.Session, er
 	}
 	s.resetDevspace(sessionID)
 	s.bus.Publish(sessionID, "host.pending_rejected", map[string]any{"plan_count": len(pending), "patch_count": pendingPatchCount(pending)})
+	if conflictPending {
+		s.bus.Publish(sessionID, "conflict.cancelled", map[string]any{"reason": "pending candidate rejected by user"})
+	}
 	if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
 		updated = refreshed
 	} else {
 		s.bus.Publish(sessionID, "context.refresh_after_reject_failed", map[string]any{"error": refreshErr.Error()})
 	}
+	return updated, nil
+}
+
+// CancelPendingRequest terminates the active remote/planner request while
+// preserving durable history and any already verified Protected candidate.
+// It makes the conversation available for a new main request.
+func (s *Service) CancelPendingRequest(sessionID string) (domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return item, err
+	}
+	requestID := item.LastRequestID
+	if requestID == "" || (len(item.PendingManualRequestIDs) == 0 && !item.PlannerInFlight && item.State != "failed" && item.State != "repair_pending" && item.State != "conflict_resolution_pending") {
+		return item, errors.New("there is no active request to cancel")
+	}
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.PendingManualRequestIDs = nil
+		current.LastManualPrompt = ""
+		current.PlannerInFlight = false
+		current.InterruptedExecution = nil
+		if current.Plan != nil && current.Plan.RequestID == requestID {
+			current.Plan = nil
+			current.Policy = nil
+		}
+		if current.IntegrationConflict != nil && current.IntegrationConflict.RequestID == requestID {
+			current.IntegrationConflict = nil
+		}
+		current.RepairAttempt = 0
+		current.RepairParentPlanID = ""
+		current.LastRepairError = ""
+		if len(current.PendingHostChanges) > 0 {
+			current.State = "verified"
+		} else {
+			current.State = "ready"
+		}
+		return nil
+	})
+	if err != nil {
+		return item, err
+	}
+	s.releaseSupersededRemoteInputLeases(sessionID, nil)
+	s.closeRemoteInputChannel(sessionID, "request.cancelled")
+	s.bus.Publish(sessionID, "request.cancelled", map[string]any{"request_id": requestID, "pending_changes_preserved": len(updated.PendingHostChanges)})
 	return updated, nil
 }

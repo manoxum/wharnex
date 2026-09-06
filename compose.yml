@@ -1,26 +1,163 @@
 services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wharness
+      POSTGRES_DB: wharness
+      POSTGRES_PASSWORD: "${WHARNESS_DATABASE_PASSWORD:?stack credentials are missing}"
+    volumes:
+      - wharness-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U wharness -d wharness"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 3s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "database"
+
+  minio:
+    image: "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
+    restart: unless-stopped
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: "${WHARNESS_MINIO_ROOT_USER:?stack credentials are missing}"
+      MINIO_ROOT_PASSWORD: "${WHARNESS_MINIO_ROOT_PASSWORD:?stack credentials are missing}"
+    volumes:
+      - wharness-minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 3s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "artifact-storage"
+
+  tunnel:
+    image: "wharness-tunnel:${WHARNESS_STACK_ID}"
+    build:
+      context: .
+      dockerfile: services/tunnel/Dockerfile
+      args:
+        WHARNESS_UID: "${WHARNESS_UID}"
+        WHARNESS_GID: "${WHARNESS_GID}"
+    restart: unless-stopped
+    user: "${WHARNESS_UID}:${WHARNESS_GID}"
+    environment:
+      WHARNESS_TUNNEL_ADDR: ":8090"
+      WHARNESS_TUNNEL_STATE_DIR: "/var/lib/wharness-tunnel"
+      WHARNESS_BRIDGE_DIR: "${WHARNESS_BRIDGE_DIR}"
+      WHARNESS_TUNNEL_API_TOKEN: "${WHARNESS_TUNNEL_API_TOKEN:?stack token is missing}"
+      HARNESS_TUNNEL_CONFIG_FILE: "/control/tunnel-providers.json"
+      HARNESS_REMOTE_STORAGE_CONFIG_FILE: "/control/remote-storage.json"
+      HARNESS_REMOTE_STORAGE_PROVIDER: "${HARNESS_REMOTE_STORAGE_PROVIDER:-}"
+    volumes:
+      - wharness-tunnel:/var/lib/wharness-tunnel
+      - "${WHARNESS_STATE_DIR}:/control:ro"
+      - "${WHARNESS_BRIDGE_DIR}:${WHARNESS_BRIDGE_DIR}:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H \"Authorization: Bearer $$WHARNESS_TUNNEL_API_TOKEN\" http://127.0.0.1:8090/health >/dev/null"]
+      interval: 2s
+      timeout: 5s
+      retries: 90
+      start_period: 3s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "tunnel"
+
   backend:
+    image: "wharness-backend:${WHARNESS_STACK_ID}"
     build:
       context: ./services/backend
+      args:
+        WHARNESS_UID: "${WHARNESS_UID}"
+        WHARNESS_GID: "${WHARNESS_GID}"
+    restart: unless-stopped
+    user: "${WHARNESS_UID}:${WHARNESS_GID}"
+    group_add:
+      - "${WHARNESS_DOCKER_GID}"
     environment:
+      HOME: "${WHARNESS_HOME}"
+      TMPDIR: "${WHARNESS_BRIDGE_DIR}/tmp"
       HARNESS_ADDR: ":8080"
       HARNESS_PLANNER: "${HARNESS_PLANNER:-manual}"
       HARNESS_SANDBOX: "docker"
-      HARNESS_RUNNER_IMAGE: "kernl-runner:local"
+      HARNESS_RUNNER_IMAGE: "${HARNESS_RUNNER_IMAGE:-kernl-runner:local}"
+      HARNESS_DATABASE_URL: "postgres://wharness:${WHARNESS_DATABASE_PASSWORD}@database:5432/wharness?sslmode=disable"
+      HARNESS_STATE_FILE: "${WHARNESS_STATE_DIR}/sessions.json"
+      HARNESS_TUNNEL_DAEMON_URL: "http://tunnel:8090"
+      HARNESS_TUNNEL_DAEMON_TOKEN: "${WHARNESS_TUNNEL_API_TOKEN}"
+      WHARNESS_SERVICES_MODE: "stack"
+      WHARNESS_ROOT: "${WHARNESS_ROOT}"
+      WHARNESS_STACK_ID: "${WHARNESS_STACK_ID}"
+      WHARNESS_BACKEND_IMAGE: "wharness-backend:${WHARNESS_STACK_ID}"
+      WHARNESS_DOCKER_GID: "${WHARNESS_DOCKER_GID}"
+      HARNESS_TUNNEL_CONFIG_FILE: "${WHARNESS_STATE_DIR}/tunnel-providers.json"
+      HARNESS_REMOTE_STORAGE_CONFIG_FILE: "${WHARNESS_STATE_DIR}/remote-storage.json"
+      HARNESS_REMOTE_STORAGE_PROVIDER: "${HARNESS_REMOTE_STORAGE_PROVIDER:-}"
+      HARNESS_MAX_CONTEXT_BYTES: "${HARNESS_MAX_CONTEXT_BYTES:-4194304}"
+      HARNESS_MAX_BUNDLE_BYTES: "${HARNESS_MAX_BUNDLE_BYTES:-134217728}"
+      HARNESS_ARTIFACT_ENDPOINT: "http://minio:9000"
+      HARNESS_ARTIFACT_ACCESS_KEY: "${WHARNESS_MINIO_ROOT_USER}"
+      HARNESS_ARTIFACT_SECRET_KEY: "${WHARNESS_MINIO_ROOT_PASSWORD}"
+      HARNESS_ARTIFACT_BUCKET: "wharness-artifacts"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.6-sol}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
     ports:
-      - "8080:8080"
-    # Docker CLI orchestration requires access to a Docker daemon.
-    # Prefer a dedicated/rootless daemon in production. This development
-    # compose example intentionally does NOT mount the host docker socket.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - "${WHARNESS_HOME}:${WHARNESS_HOME}"
+      - "${WHARNESS_STATE_DIR}:${WHARNESS_STATE_DIR}"
+      - "${WHARNESS_BRIDGE_DIR}:${WHARNESS_BRIDGE_DIR}"
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      database:
+        condition: service_healthy
+      tunnel:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 3s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "backend"
 
   frontend:
+    image: "wharness-frontend:${WHARNESS_STACK_ID}"
     build:
       context: ./services/frontend
-    environment:
-      VITE_API_URL: "http://localhost:8080"
+      args:
+        VITE_API_URL: "http://127.0.0.1:8080"
+    restart: unless-stopped
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 3s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "frontend"
+
+volumes:
+  wharness-postgres:
+    name: "${WHARNESS_POSTGRES_VOLUME}"
+  wharness-tunnel:
+    name: "${WHARNESS_TUNNEL_VOLUME}"
+  wharness-minio:
+    name: "${WHARNESS_MINIO_VOLUME}"

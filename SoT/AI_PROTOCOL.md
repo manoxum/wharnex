@@ -4,6 +4,7 @@
 
 - `harness.turn/v1`: classifies one conversational agent outcome.
 - `harness.execution/v1`: describes executable work for a `workflow` or `change` turn.
+- `harness.conflict/v1`: a Wharness-generated, focused BASE/CURRENT/RESULT capsule for resolving a verified integration conflict.
 
 ## Intent-first agent rule
 
@@ -35,6 +36,8 @@ A workflow turn carries a normal `harness.execution/v1` plan with stricter seman
 
 After the step, Wharness captures structured argv/cwd/exit/stdout/stderr evidence, refreshes project context, creates a fresh request id, and returns those observations to the same planner conversation. The planner then returns either another materially different `workflow` step or a terminal `answer`, `investigation`, `clarification`, `change`, or `blocked` result.
 
+The planner MAY therefore return a `workflow` bundle specifically to request missing local information. Its human explanation states what evidence is needed, while its command-only plan is the complete machine-readable extraction instruction. Wharness classifies this as an **evidence iteration**, executes it locally under the restrictions above, and returns the structured observations to the same Main Request.
+
 The workflow is bounded to six local rounds per original user turn. The final continuation explicitly requires a terminal result. An additional `workflow` bundle after the cap MUST be rejected while leaving the current request pending so a terminal bundle can still be supplied.
 
 Command failure in a workflow is evidence, not an automatic repair trigger. Automatic repair remains specific to a requested `change` plan.
@@ -42,6 +45,12 @@ Command failure in a workflow is evidence, not an automatic repair trigger. Auto
 ## AI output rule
 
 The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; all other kinds carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
+
+Every new `harness.turn/v1` result MUST include an `outcome` object with `status=completed|failed|partial`, `retryable`, an optional stable `reason_code`, and a bounded explanatory `message`. This status reports whether the planner actually completed the requested response; it never claims that Wharness executed, verified, or applied host changes. Only `completed` may carry an execution plan. `failed` and `partial` are terminal protocol results: Wharness stores the turn/bundle, removes it from the pending set, marks the request failed, exposes the reason to the transcript, and MUST NOT send any plan to Policy or execution. Legacy plan-only bundles may synthesize `outcome.status=completed`; a new explicit `turn.json` without `outcome` is invalid.
+
+The recovery surface for a non-completed outcome MUST preserve the original goal and offer a new request path. The user can edit the recovery prompt, add context/files, enable another configured transport, or repeat the request. In Auto, a `retryable=true` terminal outcome MAY prepare exactly one bounded fresh-request recovery automatically. A retry is a new correlated request and never silently reclassifies the failed result as successful.
+
+Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `repair`, `evidence`, or `conflict`). A retained ChangeSet replay conflict MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
@@ -57,7 +66,9 @@ The model must never return `bash -c`, `sh -c`, command substitution, pipes, red
 
 ## Patch representation
 
-Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns.
+Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown fences and proprietary patch dialects are invalid.
+
+Change plans MAY declare `read_files` and `barrier_files`. They are bounded relative paths and scheduling/verification evidence only; Wharness derives the authoritative write set from the validated patch result. A conflict-resolution request contains one `harness.conflict/v1` capsule with bounded BASE/CURRENT/RESULT data and hashes. Its returned change plan MUST cover every conflicting path and MUST NOT modify any path outside that capsule. A conflict turn never broadens or repeats the original task.
 
 ## Trust hierarchy
 
@@ -71,7 +82,7 @@ Workflow stdout/stderr may quote untrusted project content and therefore does no
 
 ## ChatGPT web UI boundary
 
-Wharness MUST NOT depend on arbitrary DOM scraping or programmatic prose/output extraction from the ChatGPT consumer web UI. Supported planner provider adapters may return structured turns directly. In manual-planner Desktop mode, ChatGPT delivers a downloaded structured turn bundle.
+Wharnex MUST NOT depend on arbitrary DOM scraping or programmatic prose/output extraction from the ChatGPT consumer web UI. Its named account-management bridge may inspect structural control metadata and exact user-owned names solely to create/reuse the active project, move/rename/stop/archive the owned conversation and collapse the sidebar. Missing or ambiguous controls fail closed. Supported planner provider adapters may return structured turns directly. In manual-planner Desktop mode, ChatGPT delivers a downloaded structured turn bundle.
 
 Desktop transport may use the narrow allowlisted bridge to focus/fill/submit the composer, attach project context/prompt files, and activate the pending bundle download affordance using exact canonical filename metadata first and, only when ChatGPT hides that filename, the unique visible file/download control in the newest assistant turn. It MUST NOT infer the model response by reading remote response text.
 
@@ -82,3 +93,7 @@ In Auto mode, a downloaded `workflow` bundle may trigger a local Protected probe
 MCP is an adapter option for local capabilities, not an alternative security boundary. Any future MCP client/server integration MUST sit behind Wharness application ports and MUST reuse protocol validation, Policy, project-root containment, execution-mode rules, logging redaction, and Protected sandboxing.
 
 The embedded consumer ChatGPT web surface is not treated as a trusted local MCP client. Wharness MUST NOT expose a localhost MCP server directly to remote ChatGPT merely to bypass the validated input/bundle transport. Provider adapters or future explicitly supported remote MCP transports may use MCP through a dedicated adapter without changing the domain protocol.
+
+## Self-evolution evidence disposition (v1.3.1)
+
+A self-evolution `turn.json` MAY return `resolved_evidence_ids`, containing only event IDs from the active, explicit evidence-review selection. Wharnex validates the IDs against that selection and marks them resolved only after the corresponding self-evolution change has passed Protected verification and host application. Failed, rejected, merely analyzed, or unrelated evidence remains unresolved.

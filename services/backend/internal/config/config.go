@@ -18,6 +18,7 @@ import (
 
 type Config struct {
 	Addr              string
+	DatabaseURL       string
 	Planner           string
 	Sandbox           string
 	RunnerImage       string
@@ -29,6 +30,22 @@ type Config struct {
 	AllowLocalSandbox bool
 	StateFile         string
 	RemoteStorage     RemoteStorageConfig
+	Tunnel            TunnelConfig
+	Artifacts         ArtifactStorageConfig
+}
+
+type ArtifactStorageConfig struct {
+	Endpoint     string
+	AccessKey    string
+	SecretKey    string
+	Bucket       string
+	Region       string
+	SettingsFile string
+}
+
+type ArtifactSettingsDocument struct {
+	Version       int `json:"version"`
+	RetentionDays int `json:"retention_days"`
 }
 
 type RemoteStorageConfig struct {
@@ -67,8 +84,19 @@ var (
 
 func Load() Config {
 	stateFile := env("HARNESS_STATE_FILE", defaultStateFile())
+	remoteStorage := RemoteStorageConfig{
+		ConfigFile:    env("HARNESS_REMOTE_STORAGE_CONFIG_FILE", remoteConfigFile(stateFile)),
+		Provider:      env("HARNESS_REMOTE_STORAGE_PROVIDER", ""),
+		UploadURL:     env("HARNESS_REMOTE_STORAGE_UPLOAD_URL", ""),
+		PublicURL:     env("HARNESS_REMOTE_STORAGE_PUBLIC_URL", ""),
+		Authorization: os.Getenv("HARNESS_REMOTE_STORAGE_AUTHORIZATION"),
+		RcloneRemote:  env("HARNESS_REMOTE_STORAGE_RCLONE_REMOTE", ""),
+		RclonePrefix:  env("HARNESS_REMOTE_STORAGE_RCLONE_PREFIX", "wharness-inputs"),
+		IndexFile:     remoteIndexFile(stateFile),
+	}
 	return Config{
 		Addr:              env("HARNESS_ADDR", "127.0.0.1:8080"),
+		DatabaseURL:       strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),
 		Planner:           env("HARNESS_PLANNER", "manual"),
 		Sandbox:           env("HARNESS_SANDBOX", "docker"),
 		RunnerImage:       env("HARNESS_RUNNER_IMAGE", "kernl-runner:local"),
@@ -79,15 +107,23 @@ func Load() Config {
 		MaxBundleBytes:    envInt64("HARNESS_MAX_BUNDLE_BYTES", 128*1024*1024),
 		AllowLocalSandbox: envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
 		StateFile:         stateFile,
-		RemoteStorage: RemoteStorageConfig{
-			ConfigFile:    env("HARNESS_REMOTE_STORAGE_CONFIG_FILE", remoteConfigFile(stateFile)),
-			Provider:      env("HARNESS_REMOTE_STORAGE_PROVIDER", ""),
-			UploadURL:     env("HARNESS_REMOTE_STORAGE_UPLOAD_URL", ""),
-			PublicURL:     env("HARNESS_REMOTE_STORAGE_PUBLIC_URL", ""),
-			Authorization: os.Getenv("HARNESS_REMOTE_STORAGE_AUTHORIZATION"),
-			RcloneRemote:  env("HARNESS_REMOTE_STORAGE_RCLONE_REMOTE", ""),
-			RclonePrefix:  env("HARNESS_REMOTE_STORAGE_RCLONE_PREFIX", "wharness-inputs"),
-			IndexFile:     remoteIndexFile(stateFile),
+		Artifacts: ArtifactStorageConfig{
+			Endpoint:     env("HARNESS_ARTIFACT_ENDPOINT", "http://minio:9000"),
+			AccessKey:    env("HARNESS_ARTIFACT_ACCESS_KEY", "wharness"),
+			SecretKey:    os.Getenv("HARNESS_ARTIFACT_SECRET_KEY"),
+			Bucket:       env("HARNESS_ARTIFACT_BUCKET", "wharness-artifacts"),
+			Region:       env("HARNESS_ARTIFACT_REGION", "us-east-1"),
+			SettingsFile: filepath.Join(filepath.Dir(stateFile), "artifact-storage.json"),
+		},
+		RemoteStorage: remoteStorage,
+		Tunnel: TunnelConfig{
+			DaemonURL:         env("HARNESS_TUNNEL_DAEMON_URL", ""),
+			DaemonToken:       os.Getenv("HARNESS_TUNNEL_DAEMON_TOKEN"),
+			ConfigFile:        env("HARNESS_TUNNEL_CONFIG_FILE", tunnelConfigFile(stateFile)),
+			IndexFile:         tunnelIndexFile(stateFile),
+			SecretsDir:        filepath.Join(filepath.Dir(stateFile), "tunnel-credentials"),
+			LegacyStorageFile: remoteStorage.ConfigFile,
+			LegacyProvider:    remoteStorage.Provider,
 		},
 	}
 }
@@ -247,6 +283,9 @@ func validateRemoteInstances(instances []RemoteStorageInstanceConfig) error {
 		if instance.AuthorizationEnv != "" && !envNamePattern.MatchString(instance.AuthorizationEnv) {
 			return fmt.Errorf("remote storage instance %q has invalid authorization_env", instance.ID)
 		}
+		if provider == "trycloudflare" {
+			continue
+		}
 		legacyHTTP := provider == "http" || (provider == "webdav" && strings.TrimSpace(instance.RcloneRemote) == "")
 		if legacyHTTP {
 			if err := validateStorageURL(instance.UploadURL, false); err != nil {
@@ -276,7 +315,7 @@ func validateRemoteInstances(instances []RemoteStorageInstanceConfig) error {
 
 func supportedRemoteStorageProvider(provider string) bool {
 	switch provider {
-	case "http", "rclone", "drive", "dropbox", "onedrive", "s3", "webdav", "nextcloud", "box", "pcloud":
+	case "http", "rclone", "drive", "dropbox", "onedrive", "s3", "webdav", "nextcloud", "box", "pcloud", "trycloudflare":
 		return true
 	default:
 		return false
@@ -284,7 +323,7 @@ func supportedRemoteStorageProvider(provider string) bool {
 }
 
 func providerUsesRclone(provider string) bool {
-	return provider != "http" && supportedRemoteStorageProvider(provider)
+	return provider != "http" && provider != "trycloudflare" && supportedRemoteStorageProvider(provider)
 }
 
 func validateStorageURL(raw string, public bool) error {
@@ -329,6 +368,20 @@ func remoteIndexFile(stateFile string) string {
 	return filepath.Join(filepath.Dir(stateFile), "remote-inputs.json")
 }
 
+func tunnelConfigFile(stateFile string) string {
+	if stateFile == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(stateFile), "tunnel-providers.json")
+}
+
+func tunnelIndexFile(stateFile string) string {
+	if stateFile == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(stateFile), "tunnel-inputs.json")
+}
+
 func defaultStateFile() string {
 	dir, err := os.UserConfigDir()
 	if err != nil || dir == "" {
@@ -366,4 +419,54 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func ReadArtifactSettings(cfg ArtifactStorageConfig) (ArtifactSettingsDocument, error) {
+	defaults := ArtifactSettingsDocument{Version: 1, RetentionDays: 30}
+	raw, err := os.ReadFile(cfg.SettingsFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return defaults, nil
+	}
+	if err != nil {
+		return ArtifactSettingsDocument{}, fmt.Errorf("read artifact settings: %w", err)
+	}
+	var document ArtifactSettingsDocument
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return ArtifactSettingsDocument{}, fmt.Errorf("decode artifact settings: %w", err)
+	}
+	if document.Version != 1 || document.RetentionDays < 1 || document.RetentionDays > 3650 {
+		return ArtifactSettingsDocument{}, errors.New("artifact settings require version 1 and retention_days between 1 and 3650")
+	}
+	return document, nil
+}
+
+func SaveArtifactSettings(cfg ArtifactStorageConfig, document ArtifactSettingsDocument) error {
+	if document.Version != 1 || document.RetentionDays < 1 || document.RetentionDays > 3650 {
+		return errors.New("artifact settings require version 1 and retention_days between 1 and 3650")
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.SettingsFile), 0o700); err != nil {
+		return fmt.Errorf("create artifact settings directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(cfg.SettingsFile), ".artifact-storage-*.json")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	encoder := json.NewEncoder(tmp)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(document); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, cfg.SettingsFile)
 }

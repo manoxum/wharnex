@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chooseChatGPTDownloadCandidate } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTHumanActionScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chooseChatGPTDownloadCandidate } from './chatgpt-dom.mjs'
 
 test('DOM automation scripts stay narrow and escape user text', () => {
   const fill = chatGPTFillComposerScript('hello ` ${world} </script>')
@@ -12,11 +12,35 @@ test('DOM automation scripts stay narrow and escape user text', () => {
   assert.match(chatGPTSubmitScript(), /send-button/)
   assert.match(chatGPTComposerReadyScript(), /aria-disabled/)
   assert.doesNotMatch(chatGPTComposerReadyScript(), /stop-button/)
-  assert.match(chatGPTResponseCompletionScript(4), /assistantCount > baseline/)
+  const completion = chatGPTResponseCompletionScript(4)
+  assert.match(completion, /assistantCount > baseline/)
+  assert.match(completion, /composerReady/)
+  const gate = chatGPTHumanActionScript()
+  assert.match(gate, /challenges\.cloudflare\.com/)
+  assert.match(gate, /cf-turnstile-response/)
+  assert.match(gate, /arkoselabs|funcaptcha/)
+  assert.match(gate, /hcaptcha|recaptcha/)
+  assert.match(gate, /visibilityState/)
+  assert.doesNotMatch(gate, /innerText|textContent|document\.cookie|localStorage|sessionStorage|fetch\(/)
   const activity = chatGPTVisibleActivityScript()
-  assert.match(activity, /data-testid.*reason|reason/)
+  assert.match(activity, /data-testid="stop-button"/)
   assert.match(activity, /thinking/)
-  assert.doesNotMatch(activity, /document\.cookie|localStorage|sessionStorage|fetch\(/)
+  assert.doesNotMatch(activity, /innerText|textContent|aria-label|document\.cookie|localStorage|sessionStorage|fetch\(/)
+})
+
+test('every generated ChatGPT DOM bridge is valid JavaScript before renderer injection', () => {
+  const scripts = [
+    chatGPTFocusComposerScript(),
+    chatGPTFillComposerScript('prompt'),
+    chatGPTSubmitScript(),
+    chatGPTAssistantTurnCountScript(),
+    chatGPTComposerReadyScript(),
+    chatGPTHumanActionScript(),
+    chatGPTResponseCompletionScript(2),
+    chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip', 1),
+    chatGPTVisibleActivityScript(),
+  ]
+  for (const script of scripts) assert.doesNotThrow(() => new Function(script))
 })
 
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {

@@ -93,6 +93,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 		RequestID string                `json:"request_id"`
 		Kind      domain.TurnKind       `json:"kind"`
 		Message   string                `json:"message"`
+		Outcome   *domain.TurnOutcome   `json:"outcome"`
 		Plan      *domain.ExecutionPlan `json:"plan"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(text))
@@ -100,7 +101,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	if err := decoder.Decode(&wire); err != nil {
 		return planner.Result{}, fmt.Errorf("decode agent turn: %w", err)
 	}
-	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, Message: wire.Message}
+	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, Message: wire.Message, Outcome: wire.Outcome}
 	return planner.Result{Plan: wire.Plan, Turn: &turn, ProviderResponseID: decoded.ID}, nil
 }
 
@@ -196,13 +197,23 @@ func executionFormat(requestID, baselineSHA256 string) map[string]any {
 	plan := executionPlanSchema(requestID, baselineSHA256)
 	schema := map[string]any{
 		"type": "object", "additionalProperties": false,
-		"required": []string{"protocol", "request_id", "kind", "message", "plan"},
+		"required": []string{"protocol", "request_id", "kind", "message", "outcome", "plan"},
 		"properties": map[string]any{
 			"protocol":   map[string]any{"type": "string", "const": domain.TurnProtocolV1},
 			"request_id": map[string]any{"type": "string", "const": requestID},
 			"kind":       map[string]any{"type": "string", "enum": []string{"answer", "clarification", "investigation", "workflow", "change", "blocked"}},
 			"message":    map[string]any{"type": "string"},
-			"plan":       map[string]any{"anyOf": []any{plan, map[string]any{"type": "null"}}},
+			"outcome": map[string]any{
+				"type": "object", "additionalProperties": false,
+				"required": []string{"status", "reason_code", "message", "retryable"},
+				"properties": map[string]any{
+					"status":      map[string]any{"type": "string", "enum": []string{domain.TurnOutcomeCompleted, domain.TurnOutcomeFailed, domain.TurnOutcomePartial}},
+					"reason_code": map[string]any{"type": "string"},
+					"message":     map[string]any{"type": "string"},
+					"retryable":   map[string]any{"type": "boolean"},
+				},
+			},
+			"plan": map[string]any{"anyOf": []any{plan, map[string]any{"type": "null"}}},
 		},
 	}
 	return map[string]any{"type": "json_schema", "name": "wharness_agent_turn", "strict": true, "schema": schema}
@@ -231,11 +242,13 @@ func executionPlanSchema(requestID, baselineSHA256 string) map[string]any {
 	}
 	schema := map[string]any{
 		"type": "object", "additionalProperties": false,
-		"required": []string{"protocol", "base_context_sha256", "impact_files", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"},
+		"required": []string{"protocol", "base_context_sha256", "impact_files", "read_files", "barrier_files", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"},
 		"properties": map[string]any{
 			"protocol":            map[string]any{"type": "string", "const": domain.ProtocolV1},
 			"base_context_sha256": map[string]any{"type": "string", "const": baselineSHA256},
 			"impact_files":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 256},
+			"read_files":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 256},
+			"barrier_files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 64},
 			"plan_id":             map[string]any{"type": "string"},
 			"request_id":          map[string]any{"type": "string", "const": requestID},
 			"status":              map[string]any{"type": "string", "enum": []string{"ready", "blocked"}},

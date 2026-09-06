@@ -2,30 +2,34 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../lib/desktop'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
+import { confirmDialog } from '../lib/appDialog'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
 
-export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile, onActivity }: {
+export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
   suspended?: boolean
   busy: boolean
   chatId: string
   chatTitle: string
   chatgptUrl?: string
+  pendingRequestId?: string
   onChatGPTURL: (url: string) => boolean
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
   onActivity?: (activity: DesktopChatGPTActivity) => void
+	 onTransportFailure?: (requestId: string, reason: string) => void
+  onCancelPendingRequest?: (requestId: string) => Promise<void>
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const linkedURLRef = useRef(chatgptUrl)
-  const affinityCandidateRef = useRef('')
   const chatIdRef = useRef(chatId)
   const onURLRef = useRef(onChatGPTURL)
   const onPlanFileRef = useRef(onPlanFile)
   const onBundleFileRef = useRef(onBundleFile)
   const onActivityRef = useRef(onActivity)
-  const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false, authMode: 'external', authWindowOpen: false })
+	const onTransportFailureRef = useRef(onTransportFailure)
+  const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false, authMode: 'embedded', authWindowOpen: false })
   const [notice, setNotice] = useState('')
   const [linkReady, setLinkReady] = useState(false)
   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
@@ -38,20 +42,14 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const applyDesktopState = useCallback((next: DesktopChatGPTState) => {
     if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
     setState(next)
-    if (next.externalAuthProvider) setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
-    const candidate = chatgptConversationURL(next.bindingCandidate || '')
-    if (!candidate) {
-      affinityCandidateRef.current = ''
+    if (next.externalAuthProvider) {
+      setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
       return
     }
-    if (affinityCandidateRef.current === candidate) return
-    affinityCandidateRef.current = candidate
-    if (onURLRef.current(candidate)) {
-      linkedURLRef.current = candidate
-      setNotice('Conversa ChatGPT vinculada automaticamente a este chat.')
-      return
+    if (!next.loading && isChatGPTAuthSurface(next.url)) {
+      setControlsExpanded(true)
+      setNotice('Autenticação necessária. Conclua o login incorporado ou escolha Externo.')
     }
-    setNotice('Esta conversa já pertence a outro chat do Wharness.')
   }, [])
 
 
@@ -62,7 +60,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     onPlanFileRef.current = onPlanFile
     onBundleFileRef.current = onBundleFile
     onActivityRef.current = onActivity
-  }, [chatId, chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile, onActivity])
+		onTransportFailureRef.current = onTransportFailure
+	}, [chatId, chatgptUrl, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure])
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return
@@ -73,6 +72,11 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     }
     const observer = new ResizeObserver(sync)
     observer.observe(hostRef.current)
+    // `show` can run while this flex host still measures at its 1×1 minimum.
+    // ResizeObserver is not guaranteed to publish a later notification when
+    // that first layout is coalesced, leaving the native WebContentsView loaded
+    // but effectively invisible. Always send the post-layout bounds once.
+    sync()
     window.addEventListener('resize', sync)
     void bridge.chatgpt.state(chatIdRef.current).then(applyDesktopState)
     const unsubscribe = bridge.chatgpt.onState(applyDesktopState)
@@ -97,16 +101,20 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       void onPlanFileRef.current(text, requestId).then(setNotice).catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o plano.'))
     })
     const unsubscribePlanError = bridge.chatgpt.onPlanDownloadError(({ cacheKey, message }) => { if (cacheKey === chatIdRef.current) setNotice(message) })
-    const unsubscribeBundle = bridge.chatgpt.onBundleDownloaded(({ cacheKey, filename, requestId, contentBase64, bytes }) => {
-      if (!cacheKey || cacheKey !== chatIdRef.current) return
-      setNotice(`Bundle ${filename} recebido (${formatBytes(bytes)}). A importar…`)
-      void onBundleFileRef.current(contentBase64, requestId, filename).then(setNotice).catch((error) => setNotice(error instanceof Error ? error.message : 'Falha ao importar o bundle.'))
-    })
-    const unsubscribeBundleError = bridge.chatgpt.onBundleDownloadError(({ cacheKey, message, error }) => { if (cacheKey === chatIdRef.current) setNotice(message || error || 'Falha ao receber o bundle.') })
+    const unsubscribeBundleError = bridge.chatgpt.onBundleDownloadError(({ cacheKey, requestId, message, error }) => {
+		if (cacheKey !== chatIdRef.current) return
+		const reason = message || error || 'Falha ao receber o bundle.'
+		setNotice(`Falha de comunicação: ${reason}`)
+		if (requestId) onTransportFailureRef.current?.(requestId, reason)
+	})
     const unsubscribeActivity = bridge.chatgpt.onActivity((activity) => { if (!activity.cacheKey || activity.cacheKey === chatIdRef.current) onActivityRef.current?.(activity) })
+    const unsubscribeAccount = bridge.chatgpt.onAccountAction?.((result) => {
+      if (result.cacheKey !== chatIdRef.current) return
+      if (result.action === 'organize') setNotice(result.ok ? `Conversa organizada no projeto via ${result.provider}.` : `A conversa continua vinculada, mas a organização remota requer atenção (${result.state}).`)
+    }) || (() => {})
     return () => {
       cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync)
-      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundle(); unsubscribeBundleError(); unsubscribeActivity(); void bridge.chatgpt.hide(chatIdRef.current)
+      unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundleError(); unsubscribeActivity(); unsubscribeAccount(); void bridge.chatgpt.hide(chatIdRef.current)
     }
   }, [bridge, applyDesktopState])
 
@@ -122,26 +130,28 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   useEffect(() => {
     if (!bridge || !hostRef.current) return
     if (suspended || overlayBlocked || externalAuth) { void bridge.chatgpt.hide(chatIdRef.current); return }
-    void bridge.chatgpt.show(elementBounds(hostRef.current), chatId)
+    void bridge.chatgpt.show(elementBounds(hostRef.current), chatId, chatgptUrl || CHATGPT_HOME)
   }, [bridge, chatId, suspended, overlayBlocked, externalAuth])
 
   useEffect(() => {
     if (!bridge || !chatId) return
+    if (suspended || overlayBlocked || externalAuth || !hostRef.current) return
     let alive = true
     linkedURLRef.current = chatgptUrl
-    affinityCandidateRef.current = ''
     setLinkReady(false)
     const target = chatgptUrl || CHATGPT_HOME
-    setNotice(chatgptUrl ? `A recuperar “${chatTitle}”…` : `Novo chat “${chatTitle}”: aguardando URL definitiva do ChatGPT.`)
-    void bridge.chatgpt.navigate(target, chatId, { resetToHomeIfConversation: !chatgptUrl }).then((next) => {
+    const recoveryNotice = chatgptUrl ? 'A recuperar a conversa ChatGPT…' : ''
+    setNotice(recoveryNotice || 'Novo chat: aguardando URL definitiva do ChatGPT.')
+    void bridge.chatgpt.navigate(target, chatId, { resetToHomeIfConversation: !chatgptUrl, bounds: elementBounds(hostRef.current) }).then((next) => {
       if (!alive) return
       applyDesktopState(next)
       setLinkReady(true)
+      if (recoveryNotice) setNotice((current) => current === recoveryNotice ? '' : current)
       const linkedConversation = chatgptConversationURL(linkedURLRef.current || '')
       if (linkedConversation && linkedURLRef.current !== linkedConversation && onURLRef.current(linkedConversation)) linkedURLRef.current = linkedConversation
     }).catch((error) => { if (alive) setNotice(error instanceof Error ? error.message : 'Não foi possível abrir a conversa ChatGPT.') })
-    return () => { alive = false; affinityCandidateRef.current = ''; setLinkReady(false) }
-  }, [bridge, chatId, chatTitle, chatgptUrl, applyDesktopState])
+    return () => { alive = false; setLinkReady(false) }
+  }, [bridge, chatId, chatgptUrl, suspended, overlayBlocked, externalAuth, applyDesktopState])
 
   async function startAuthentication(mode: DesktopChatGPTAuthMode) {
     if (!bridge) return
@@ -169,6 +179,46 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     }
     linkedURLRef.current = conversation
     setNotice('Conversa vinculada ao chat atual.')
+  }
+
+  async function restoreLinkedConversation() {
+    const conversation = chatgptConversationURL(chatgptUrl || '')
+    if (!bridge || !conversation) return
+    try {
+      const next = await bridge.chatgpt.navigate(conversation, chatId)
+      applyDesktopState(next)
+      setNotice('Conversa vinculada reposta.')
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Não foi possível repor a conversa vinculada.') }
+  }
+
+  async function continuePendingRequest() {
+    if (!bridge || !pendingRequestId) return
+    try {
+      const result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
+      if (result.confirmationRequired) {
+        const confirmed = await confirmDialog({
+          title: 'O estado de processamento é ambíguo',
+          message: 'O ChatGPT ainda mostra um controlo de processamento, mas esse sinal pode estar desatualizado. Confirme apenas se verificou que a tarefa realmente parou.',
+          tone: 'warning', confirmLabel: 'Continuar mesmo assim', cancelLabel: 'Aguardar',
+        })
+        if (!confirmed) return
+        await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId, { force: true })
+      }
+      setNotice(`Continuação manual enviada para ${pendingRequestId}.`)
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Não foi possível retomar o pedido.') }
+  }
+
+  async function stopPendingRequest() {
+    if (!pendingRequestId || !onCancelPendingRequest) return
+    try {
+      const remote = await bridge?.chatgpt.stopConversation(chatId)
+      await onCancelPendingRequest(pendingRequestId)
+      setNotice(remote && !remote.ok
+        ? `Pedido ${pendingRequestId} cancelado localmente; confirme a paragem no ChatGPT (${remote.state}).`
+        : `Pedido ${pendingRequestId} parado.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Não foi possível parar o pedido.')
+    }
   }
 
   const currentConversation = chatgptConversationURL(state.url)
@@ -202,10 +252,12 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       </div>
     </div>}
 
-    {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
+    {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
+    {pendingRequestId && <div className="chatgpt-link-warning"><span>Pedido {pendingRequestId} sob supervisão.</span><button className="text-button" disabled={busy} onClick={() => void continuePendingRequest()}>Retomar pedido</button>{onCancelPendingRequest && <button className="text-button danger" disabled={busy} onClick={() => void stopPendingRequest()}>Parar pedido</button>}</div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
     <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharness retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
   </div>
 }
 
 function safeHost(value: string) { try { return new URL(value).host } catch { return 'chatgpt.com' } }
+function isChatGPTAuthSurface(value: string) { try { const path = new URL(value).pathname; return path === '/auth' || path.startsWith('/auth/') } catch { return false } }

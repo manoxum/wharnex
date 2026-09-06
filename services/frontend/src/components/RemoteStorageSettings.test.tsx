@@ -27,7 +27,7 @@ describe('RemoteStorageSettings', () => {
     const onError = vi.fn()
     render(<RemoteStorageSettings onError={onError}/>)
 
-    expect(await screen.findByText('Os anexos locais continuam ativos')).toBeTruthy()
+    expect(await screen.findByText('Sem storage remoto configurado')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Escolher provider/i }))
     fireEvent.click(screen.getByRole('button', { name: /Google Drive Conta Google/i }))
     fireEvent.click(screen.getByRole('button', { name: /Ligar Google Drive/i }))
@@ -72,5 +72,17 @@ describe('RemoteStorageSettings', () => {
     const persisted = vi.mocked(api.updateRemoteStorageConfig).mock.calls[0][0] as unknown as Record<string, unknown>
     expect(JSON.stringify(persisted)).not.toContain('secret-value')
     expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('accepts the null fields emitted for OAuth providers by the backend', async () => {
+    vi.mocked(api.remoteStorageProviders).mockResolvedValue({ providers: [{
+      id: 'drive', name: 'Google Drive', description: 'Conta Google', auth_mode: 'oauth_browser', available: true, fields: null,
+    }] as never })
+    render(<RemoteStorageSettings onError={() => undefined}/>)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Escolher provider/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Google Drive Conta Google/i }))
+
+    expect(screen.getByRole('button', { name: /Ligar Google Drive/i })).toBeTruthy()
   })
 })

@@ -51,6 +51,16 @@ describe('ChatPanel', () => {
   })
 
 
+  it('renders the new-chat control as an icon-only plus button', () => {
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const button = screen.getByRole('button', { name: 'Novo chat' })
+    expect(button.textContent).toBe('')
+    expect(button.querySelector('svg')).toBeTruthy()
+  })
+
+
   it('renders Harness responses as sanitized Markdown instead of raw markdown text', () => {
     render(
       <ChatPanel session={session} items={[{ id: 'md-1', role: 'harness', text: '## Prioridade\n\nA funcionalidade **Perfil Inteligente** é a primeira recomendação.' }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
@@ -58,6 +68,50 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Prioridade' })).toBeTruthy()
     expect(screen.getByText('Perfil Inteligente').tagName).toBe('STRONG')
     expect(screen.queryByText('**Perfil Inteligente**')).toBeNull()
+  })
+
+  it('offers reprocessing for a persisted policy-blocked notice', async () => {
+    const onReprocessPolicyBlock = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={session} items={[{ id: 'policy-1', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Bundle bloqueado pela Policy antes da execução.', meta: 'Policy bloqueada' }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reprocessar' }))
+    await waitFor(() => expect(onReprocessPolicyBlock).toHaveBeenCalledOnce())
+  })
+
+  it('offers a fresh request after a terminal remote protocol failure', async () => {
+    const onRetryTransportFailure = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={session} items={[{ id: 'protocol-1', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Bundle recusado pela validação.', meta: 'Falha de protocolo · pedido pode ser repetido', iteration: { id: 'iteration-1', requestId: 'req-123', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onRetryTransportFailure={onRetryTransportFailure} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar pedido' }))
+    await waitFor(() => expect(onRetryTransportFailure).toHaveBeenCalledWith('req-123'))
+  })
+
+	it('timestamps WHX notices, links their request, and allows cancelling the active request', async () => {
+		const onCancelPendingRequest = vi.fn(async () => undefined)
+		render(<ChatPanel session={{ ...session, state: 'failed', last_request_id: 'req-123' }} items={[{ id: 'failure', role: 'harness', source: 'wharness', presentation: 'notice', createdAt: '2026-09-06T11:00:00Z', text: 'Falhou.', iteration: { id: 'iteration-1', requestId: 'req-123', phase: 'failed', artifacts: [] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCancelPendingRequest={onCancelPendingRequest} {...chatActions}/>)
+		expect(screen.getByText('WHX')).toBeTruthy()
+		expect(document.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-06T11:00:00Z')
+		expect(screen.getByRole('link', { name: 'Pedido req-123' }).getAttribute('href')).toBe('#request-req-123')
+		fireEvent.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
+		await waitFor(() => expect(onCancelPendingRequest).toHaveBeenCalledWith('req-123'))
+	})
+
+  it('does not allow an old failed request to be repeated while another request is active', () => {
+    render(
+      <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-new'], state: 'awaiting_plan' }} items={[{ id: 'protocol-1', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Bundle recusado pela validação.', meta: 'Falha de protocolo · pedido pode ser repetido', iteration: { id: 'iteration-1', requestId: 'req-old', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} taskInFlight onSend={async () => undefined} onRetryTransportFailure={async () => undefined} {...chatActions} />,
+    )
+    expect((screen.getByRole('button', { name: 'Retomar pedido' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('offers reprocessing in the message footer used by older imported bundles', async () => {
+    const onReprocessPolicyBlock = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={session} items={[{ id: 'policy-footer', role: 'harness', source: 'chatgpt', text: 'Bundle ZIP importado e plano validado.', meta: 'Bundle wharness-bundle.zip · Policy bloqueada' }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reprocessar' }))
+    await waitFor(() => expect(onReprocessPolicyBlock).toHaveBeenCalledOnce())
   })
 
   it('shows message date/time and copies any previous message', async () => {
@@ -82,7 +136,23 @@ describe('ChatPanel', () => {
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.change(screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…'), { target: { value: 'implementar' } })
     fireEvent.submit(view.container.querySelector('form')!)
-    expect(onSend).toHaveBeenCalledWith('implementar', [file], { context: false, prompt: true, result: false, error: false }, 'direct')
+    expect(onSend).toHaveBeenCalledWith('implementar', [file], [], { context: false, prompt: true, result: false, error: false }, 'direct')
+  })
+
+  it('finds eligible project files from @file and turns the selection into a chip', () => {
+    const referencedSession = {
+      ...session,
+      context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
+    }
+    const view = render(
+      <ChatPanel session={referencedSession} items={[]} chats={[]} activeChatId="file-ref-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'Revê @file:App', selectionStart: 15 } })
+    fireEvent.click(screen.getByRole('option', { name: /src\/App\.tsx/ }))
+    expect(view.container.querySelector('.composer-file-reference-chip')?.textContent).toContain('src/App.tsx')
+    expect(composer.value).toBe('Revê ')
+    view.unmount()
   })
 
   it('adds files pasted from the operating-system clipboard', () => {
@@ -103,6 +173,33 @@ describe('ChatPanel', () => {
     )
     expect(screen.getByText('Preparação enviada ao ChatGPT')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Confirmar e enviar/ })).toBeTruthy()
+  })
+
+  it('offers a retry when ChatGPT could not receive a prepared prompt', async () => {
+    const onRetryPreparedDelivery = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery="retry" onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar entregar novamente' }))
+    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledOnce())
+  })
+
+  it('labels the retry as a post-attention retry when the ChatGPT composer needs human attention', async () => {
+    const onRetryPreparedDelivery = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery="attention" onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
+    )
+    expect(screen.getByText('Ação necessária no ChatGPT')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar depois de resolver' }))
+    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledOnce())
+  })
+
+  it('shows remote context generation progress while an enriched ZIP is being published', () => {
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="progress-test" busy={true} transportProgress="A gerar o ZIP enriquecido e a publicá-lo no provider…" onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(screen.getByRole('status').textContent).toContain('A preparar rotas remotas')
+    expect(screen.getByRole('status').textContent).toContain('provider')
   })
 
   it('keeps system artifact selectors inside the Wharness composer and marks automatic payloads', () => {
@@ -133,6 +230,23 @@ describe('ChatPanel', () => {
     expect(onAutomationMode).toHaveBeenCalledWith('auto')
   })
 
+  it('configures ZIP and tunnel transports independently at project and chat scope', () => {
+    const onGlobalTransport = vi.fn()
+    const onChatTransport = vi.fn()
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} globalTransport={{ requestArchive: true, liveTunnels: true }} chatTransport={{ requestArchive: true, liveTunnels: true }} onGlobalTransport={onGlobalTransport} onChatTransport={onChatTransport} onSend={async () => undefined} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Transportes do ChatGPT' }))
+    const choices = screen.getAllByRole('menuitemcheckbox')
+    expect(choices).toHaveLength(4)
+    fireEvent.click(choices[1])
+    expect(onGlobalTransport).toHaveBeenCalledWith({ requestArchive: true, liveTunnels: false })
+    fireEvent.click(choices[2])
+    expect(onChatTransport).toHaveBeenCalledWith({ requestArchive: false, liveTunnels: true })
+    fireEvent.click(screen.getByRole('button', { name: /Usar padrão global/ }))
+    expect(onChatTransport).toHaveBeenLastCalledWith(undefined)
+  })
+
   it('keeps Unprotected disabled in the composer during self-evolution', () => {
     render(
       <ChatPanel session={{ ...session, self_evolution: true }} items={[]} chats={[]} activeChatId="chat-1" busy={false} executionMode="protected" automationMode="auto" onExecutionMode={vi.fn()} onAutomationMode={vi.fn()} onSend={async () => undefined} {...chatActions} />,
@@ -152,6 +266,29 @@ describe('ChatPanel', () => {
 
     expect(scrollArea.contains(footer)).toBe(false)
     expect(footer.contains(send)).toBe(true)
+  })
+
+  it('resizes the composer from its top border instead of the native bottom-right handle', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-resize" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = view.container.querySelector('.composer') as HTMLFormElement
+    const handle = screen.getByRole('separator', { name: 'Redimensionar altura do chat composer' })
+    vi.spyOn(composer, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, right: 600, bottom: 156, left: 0, width: 600, height: 156, toJSON: () => ({}) })
+
+    const pointerEvent = (type: string, clientY: number) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY })
+      Object.defineProperty(event, 'pointerId', { configurable: true, value: 7 })
+      return event
+    }
+
+    fireEvent(handle, pointerEvent('pointerdown', 500))
+    fireEvent(handle, pointerEvent('pointermove', 420))
+    expect(composer.style.height).toBe('236px')
+
+    fireEvent(handle, pointerEvent('pointermove', 900))
+    expect(composer.style.height).toBe('118px')
+    fireEvent(handle, pointerEvent('pointerup', 900))
   })
 
   it('grows the composer as multiline content expands, bounded by the configured maximum', async () => {
@@ -198,7 +335,7 @@ it('queues Enter and reserves Ctrl+Enter for an immediate comment while a task i
 
   fireEvent.change(textarea, { target: { value: 'fica para a próxima request principal' } })
   fireEvent.keyDown(textarea, { key: 'Enter' })
-  expect(onSend).toHaveBeenCalledWith('fica para a próxima request principal', [], { context: false, prompt: true, result: false, error: false }, 'plan_first')
+  expect(onSend).toHaveBeenCalledWith('fica para a próxima request principal', [], [], { context: false, prompt: true, result: false, error: false }, 'plan_first')
   expect(textarea.value).toBe('')
 
   fireEvent.change(textarea, { target: { value: 'mantenha também o teste de regressão' } })
@@ -212,8 +349,8 @@ it('renders and operates the waiting queue without placing it in the message str
   const onQueueRemove = vi.fn()
   const onQueueMerge = vi.fn()
   render(<ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} queuedRequests={[
-    { id: 'q1', message: 'primeira alteração', attachments: [], artifacts: { context: false, prompt: true, result: false, error: false }, requestMode: 'direct', createdAt: new Date().toISOString() },
-    { id: 'q2', message: 'segunda alteração', attachments: [], artifacts: { context: false, prompt: true, result: false, error: false }, requestMode: 'direct', createdAt: new Date().toISOString() },
+    { id: 'q1', message: 'primeira alteração', attachments: [], projectFiles: [], artifacts: { context: false, prompt: true, result: false, error: false }, requestMode: 'direct', createdAt: new Date().toISOString() },
+    { id: 'q2', message: 'segunda alteração', attachments: [], projectFiles: [], artifacts: { context: false, prompt: true, result: false, error: false }, requestMode: 'direct', createdAt: new Date().toISOString() },
   ]} onQueueMove={onQueueMove} onQueueRemove={onQueueRemove} onQueueMerge={onQueueMerge} onSend={async () => undefined} {...chatActions} />)
   expect(screen.getByText('primeira alteração')).toBeTruthy()
   fireEvent.click(screen.getAllByRole('button', { name: 'Descer request' })[0])

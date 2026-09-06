@@ -17,6 +17,20 @@ function firstRule(selector: string) {
 }
 
 describe('composer layout CSS', () => {
+  it('uses the whole top composer edge as the vertical resize handle', () => {
+    const composer = lastRule('.composer')
+    const handle = lastRule('.composer-resize-handle')
+
+    expect(composer).toContain('position: relative')
+    expect(composer).toContain('resize: none')
+    expect(handle).toContain('top: -6px')
+    expect(handle).toContain('left: 0')
+    expect(handle).toContain('right: 0')
+    expect(handle).toContain('height: 12px')
+    expect(handle).toContain('cursor: ns-resize')
+    expect(handle).toContain('touch-action: none')
+  })
+
   it('anchors send to the far-right composer edge independently of toolbar intrinsic width', () => {
     const footer = lastRule('.composer-footer')
     const toolbar = lastRule('.composer-toolbar-row')
@@ -77,14 +91,13 @@ describe('composer layout CSS', () => {
 describe('split Agent layout CSS', () => {
   it('uses equal persistent chat and inspector columns with a shared chat strip', () => {
     const splitLayout = css.slice(css.lastIndexOf('/* v1.2.42'))
-    expect(splitLayout).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(splitLayout).toContain('grid-template-columns: 42px repeat(2, minmax(0, 1fr))')
     expect(splitLayout).toContain('grid-template-rows: 42px 42px minmax(0, 1fr)')
     expect(splitLayout).toContain('grid-template-columns: 1fr minmax(0, 1fr) auto')
     expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / -1')
-    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1')
-    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; padding-left: 42px')
-    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 2')
-    expect(splitLayout).toContain('.agent-drawer { position: absolute')
+    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 2; padding-left: 0')
+    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 3')
+    expect(splitLayout).toContain('.agent-drawer { grid-column: 2; grid-row: 3; position: relative')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')
   })
 })

@@ -11,17 +11,22 @@ export type ExecutionTimelineEntry = {
   durationMs?: number
   running: boolean
   output: string
+	requestId: string
+	rootRequestId: string
+	iterationKind: 'standard' | 'repair' | 'evidence' | 'conflict'
 }
 
 export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelineEntry[] {
   const entries: ExecutionTimelineEntry[] = []
   const grouped = new Map<string, ExecutionTimelineEntry>()
+	let active = { requestId: '', rootRequestId: '', iterationKind: 'standard' as ExecutionTimelineEntry['iterationKind'] }
   for (const event of events) {
+		active = eventLineage(event, active)
     if (event.type === 'command.started' || event.type === 'command.output' || event.type === 'command.completed') {
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '' }
+        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'command.started') {
@@ -44,7 +49,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'patch', title: patchTitle(event), detail: patchDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '' }
+        entry = { id: runID, kind: 'patch', title: patchTitle(event), detail: patchDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'patch.applied') {
@@ -53,9 +58,18 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       continue
     }
     const meta = statusMeta(event)
-    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: joinedFallback(event), ...meta })
+    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: joinedFallback(event), ...active, ...meta })
   }
   return entries
+}
+
+function eventLineage(event: HarnessEvent, fallback: Pick<ExecutionTimelineEntry, 'requestId' | 'rootRequestId' | 'iterationKind'>) {
+	const requestId = String(event.data.request_id || fallback.requestId)
+	const rootRequestId = String(event.data.root_request_id || fallback.rootRequestId || requestId)
+	const explicit = String(event.data.iteration_kind || '')
+	const inferred = event.type.startsWith('workflow.') ? 'evidence' : event.type.startsWith('repair.') ? 'repair' : event.type.startsWith('conflict.') ? 'conflict' : fallback.iterationKind
+	const iterationKind = (['standard', 'repair', 'evidence', 'conflict'].includes(explicit) ? explicit : inferred) as ExecutionTimelineEntry['iterationKind']
+	return { requestId, rootRequestId, iterationKind }
 }
 
 function commandTitle(event: HarnessEvent) {

@@ -13,6 +13,8 @@ The security boundary is enforced by:
 - secret-filtered context;
 - audit events.
 
+Concurrent host integration additionally enforces relative-path containment, parent-symlink denial, per-file expected SHA-256 compare-and-swap, temporary-file replacement, and conditional rollback. An externally changed value MUST NOT be overwritten by commit or rollback. Immutable request archive paths are backend-private state. Conflict capsules contain only validated conflict paths and bounded BASE/CURRENT/RESULT content; secret-like paths remain denied before a ChangeSet or capsule can be created.
+
 ## IDE surfaces
 
 The Explorer only exposes files allowed by the context security policy. Text editing rejects traversal, symlink escapes, excluded/secret paths, non-UTF8/binary files, files over the editor limit, and stale writes via expected SHA-256. Explorer create/rename/delete revalidate root containment, exclusions and every parent symlink boundary in the backend; recursive delete is available only as an explicit human action. The interactive terminal defaults to the isolated sandbox workspace. A separate human-only Host target may execute directly in the project root only after explicit confirmation; it remains argv-only, Policy Engine constrained, and visibly marked as host-direct. Human terminal input is evaluated by an interactive policy profile that permits ordinary development commands while blocking shell interpreters, privilege escalation, container/host administration and inline-code evaluator flags. Host selection is never inherited from Agent mode or automation.
@@ -20,7 +22,7 @@ The Explorer only exposes files allowed by the context security policy. Text edi
 
 ## Desktop remote-content boundary (v1.2)
 
-The ChatGPT surface is untrusted remote web content. Each live Harness chat is isolated in its own dedicated `WebContentsView` with sandboxing, context isolation, Node integration disabled and no preload. A view has one Harness-chat owner id for its lifetime and is never reassigned to another chat. All allowlisted DOM/input/navigation operations must resolve and validate that owner before touching the remote renderer. The views share one persistent ChatGPT browser partition only for authenticated browser-session state; sharing that partition does not authorize DOM or renderer reuse across chats.
+The ChatGPT surface is untrusted remote web content. Each live Harness chat is isolated in its own dedicated `WebContentsView` with sandboxing, context isolation, Node integration disabled and no preload. A true integration conflict additionally owns a distinct auxiliary conflict `WebContentsView`, keyed by the owning Harness chat plus conflict id; it MUST NOT reuse the chat's primary renderer or affinity. A view has one immutable surface owner id for its lifetime and is never reassigned. All allowlisted DOM/input/navigation/account operations must resolve and validate that owner before touching the remote renderer. The views share one persistent ChatGPT browser partition only for authenticated browser-session state; sharing that partition does not authorize DOM, affinity, request, or renderer reuse across surfaces.
 
 On Linux, the Electron/Chromium process MUST retain a usable layer-1 sandbox. The SUID path is valid only when the `chrome-sandbox` shipped beside the Electron executable is root-owned, root-grouped, and mode `4755`; a persistent root-owned copy may be kept only for recovery and MUST NOT be treated as proof that packaged Electron will execute it. When the packaged helper is not privileged, Wharness may disable only the SUID helper with `--disable-setuid-sandbox` after an actual unprivileged user-namespace probe succeeds; Chromium sandboxing itself remains enabled. `--no-sandbox` is forbidden. If neither the packaged SUID helper nor user namespaces are available, desktop startup MUST fail closed with actionable diagnostics.
 
@@ -34,7 +36,9 @@ When **External browser** authentication is entered, the affected ChatGPT view i
 
 Context ZIP copying is privileged main-process work. The renderer passes only a validated Wharness session identifier; the main process derives the exact local backend endpoint, limits bundle size, verifies ZIP signature, writes a private temporary file, and places that file reference on the native OS clipboard.
 
-User-selected chat attachments cross a narrow trusted-renderer IPC seam as bounded base64 payloads. The main process MUST validate count, decoded size, filename, and MIME metadata. In local-attachment mode it materializes temporary private copies below the Wharness temporary directory and exposes them only as native clipboard file references. The generated planner prompt MUST likewise be materialized as a private temporary Markdown file and exposed only as a native clipboard file reference. In remote-input mode the same bounded payloads are sent only to the allowlisted local backend endpoint; the backend packages them with the filtered context and publishes through its configured storage adapter, while the Desktop writes only the bounded bootstrap into the ChatGPT composer. For Harness transcript durability the Desktop MAY additionally persist private copies below Electron `userData`, keyed only by validated local chat/message identifiers; the renderer receives opaque storage references rather than arbitrary filesystem paths. Thumbnail/icon reads and open actions MUST resolve only those references. Input automation may focus the remote view and paste local-mode references. Before preparing either transport it MUST await bounded page-load and network-stability gates. It may track request identifiers, WebContents ownership, status codes, and network errors only for the exact trusted ChatGPT upload endpoint so that each local file can be retried and confirmed. It may also observe only the start of a POST to the exact trusted ChatGPT conversation endpoint to confirm that a submit command was accepted. In addition, a tightly allowlisted DOM bridge MAY execute JavaScript solely to (1) locate/focus the composer, (2) write the already-prepared bounded bootstrap/continuation into that composer, (3) activate the submit control, and (4) activate the pending result download affordance, including while the corresponding ChatGPT view is hidden in Auto mode. Download selection MUST prefer exact canonical filename metadata. Because ChatGPT may render generated files without exposing their filename, the bridge MAY use a fallback only when exactly one visible enabled file/download affordance exists inside the newest assistant turn; it may inspect only narrow control attributes, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry for that decision. Zero or multiple candidates fail closed. The bridge MUST NOT enumerate arbitrary DOM for semantic analysis, read generated response prose, inspect cookies/local storage, read request/response bodies or headers, or infer model-completion state from response content. Downloaded bytes remain untrusted and MUST still pass canonical request-id, filename, ZIP and bundle validation before execution. Submission may occur after either a separate trusted-renderer confirmation or a backend-verified explicit project Auto preference, but never after an unconfirmed/exhausted local upload or failed remote publication. Project open/restore MAY initialize Agent + Protected + Auto as the safe default, but Auto MUST never coexist with Unprotected execution. An explicit trusted-renderer action MAY send the freshly rebuilt project context ZIP or prepared prompt to the currently visible trusted ChatGPT conversation; this does not authorize reading remote content and does not weaken bundle validation.
+Named account operations are limited to exact project lookup/creation, moving the owned conversation, setting its bounded `WHX:` title, stopping/archiving it, and collapsing the sidebar. They may inspect stable control metadata and compare an exact trusted-renderer supplied project/title value; they may not enumerate unrelated account data or expose any observed label to the local renderer. Operations are serialized, owner-checked and fail closed when the expected control is absent or ambiguous. This account-operation allowlist is additional to the four transport operations described below.
+
+User-selected chat attachments cross a narrow trusted-renderer IPC seam as bounded base64 payloads. The main process MUST validate count, decoded size, filename, and MIME metadata before transport. In local-attachment mode it packages the validated logical inputs, generated planner prompt, and eligible context into one private request-scoped `wharness-input-<request_id>.zip` below the Wharness temporary directory and exposes only that archive as a native clipboard file reference. Individual user/system files MUST NOT be exposed as separate ChatGPT upload references for the planner turn. The composer receives only a bounded bootstrap that names the archive and its inner planner-prompt path. In remote-input mode the same bounded payloads are sent only to the allowlisted local backend endpoint; the backend packages or maps them with the filtered context through the configured transport adapter, while the Desktop writes only the bounded bootstrap into the ChatGPT composer. For Harness transcript durability the Desktop MAY additionally persist private copies below Electron `userData`, keyed only by validated local chat/message identifiers; the renderer receives opaque storage references rather than arbitrary filesystem paths. Thumbnail/icon reads and open actions MUST resolve only those references. Input automation may focus the remote view and paste the single local archive reference. Before preparing either transport it MUST await bounded page-load and network-stability gates. It may track request identifiers, WebContents ownership, status codes, and network errors only for the exact trusted ChatGPT upload endpoint so that the local archive can be retried and confirmed. It may also observe only the start of a POST to the exact trusted ChatGPT conversation endpoint to confirm that a submit command was accepted. In addition, a tightly allowlisted DOM bridge MAY execute JavaScript solely to (1) locate/focus the composer, (2) write the already-prepared bounded bootstrap/continuation into that composer, (3) activate the submit control, and (4) activate the pending result download affordance, including while the corresponding ChatGPT view is hidden in Auto mode. Download selection MUST prefer exact canonical filename metadata. Because ChatGPT may render generated files without exposing their filename, the bridge MAY use a fallback only when exactly one visible enabled file/download affordance exists inside the newest assistant turn; it may inspect only narrow control attributes, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry for that decision. Zero or multiple candidates fail closed. The bridge MUST NOT enumerate arbitrary DOM for semantic analysis, read generated response prose, inspect cookies/local storage, read request/response bodies or headers, or infer model-completion state from response content. Downloaded bytes remain untrusted and MUST still pass canonical request-id, filename, ZIP and bundle validation before execution. Submission may occur after either a separate trusted-renderer confirmation or a backend-verified explicit project Auto preference, but never after an unconfirmed/exhausted local archive upload or failed remote publication. Project open/restore MAY initialize Agent + Protected + Auto as the safe default, but Auto MUST never coexist with Unprotected execution. An explicit trusted-renderer action MAY send a freshly rebuilt single Wharness input archive to the currently visible trusted ChatGPT conversation; this does not authorize reading remote content and does not weaken bundle validation.
 
 ## Project bootstrap boundary (v1.2.17)
 
@@ -59,10 +63,45 @@ frontend persistence.
 
 Upload endpoints are fixed by trusted application configuration. HTTP redirects
 are rejected while credentials are attached. The public download URL MUST be
-HTTPS, contain no userinfo, and never include a long-lived provider credential;
-provider-generated short-lived signed URLs and unguessable public object URLs
-are allowed. Logs and audit events identify only provider, request id, byte count,
-digest, and expiry/cleanup result, never the complete download URL or auth data.
+HTTPS, contain no userinfo, resolve directly to the published object bytes
+rather than a viewer/HTML page, and never include a long-lived provider
+credential. A provider adapter MAY narrowly rewrite a provider-owned viewer URL
+to that provider's recognized raw-download origin and shape; it MUST validate
+the extracted opaque object identifier and MUST NOT generalize this into an
+arbitrary redirect/proxy facility. Provider-generated short-lived signed URLs
+and unguessable public object URLs are allowed. Logs and audit events identify
+only provider, request id, byte count, digest, and expiry/cleanup result, never
+the complete download URL or auth data.
+
+Before exposing a normalized Google Drive URL, its adapter performs an
+anonymous bounded range request and requires an HTTP success plus the ZIP magic
+bytes. Redirects remain HTTPS-only and bounded. This verifies transport shape,
+not archive trust; downloaded model input/output still follows its normal
+validation. Composer `@file` references are structured hints only and may name
+only files already present in the current eligible context manifest.
+
+Every tunnel adapter MUST bind only to loopback and expose a dedicated
+object server, never the main backend listener. Its routes accept only GET/HEAD
+for exact validated Wharness objects or resources below an unguessable
+request-channel namespace. Resources are privately copied snapshots with fixed
+allowlisted content types; prompt, state, hash, context, attachments, bundle
+contract and read-only SSE are the only channel resource classes. Traversal,
+unknown namespaces/resources, writes and all other methods are denied. The
+namespace secret is a bearer capability and MUST NOT enter logs, audit events,
+project context, or provider config. Permanent provider account tokens MUST live
+only in private application credential files addressed by opaque references.
+One origin MAY be shared by all chats for the running backend session,
+but every main request MUST retain an independent unguessable namespace and no
+route may enumerate channels. Normal backend shutdown MUST preserve active
+channel resources for permanent-DNS rehydration; explicitly clearing remote
+input MUST stop the connector and erase those resources. SSE data may contain only bounded
+local comments and non-secret request, generation and context-hash metadata.
+The origin root MAY return only a non-sensitive landing page, containing at
+most a user-chosen instance name and configured permanent HTTPS origins. A QR
+on that page is discovery-only and MUST NOT contain credentials, namespaces,
+request/resource URLs, sessions, or authorization. `/status`
+MAY return a fixed protocol identifier plus operational status; neither route
+MUST disclose provider, account, chat, request, or channel data.
 
 Remote input archives remain untrusted project data from the model's
 perspective and cannot weaken the embedded planner protocol. Publication does
@@ -78,3 +117,27 @@ authorization value by environment-variable name. Priority and failover may sele
 instances and URLs. Public status may expose instance id, provider, priority,
 limits, and aggregate usage, but never credentials, signed object URLs, or
 individual object names.
+
+## Durable artifact object-store boundary (v1.3)
+
+The canonical stack persists ChatGPT exchange artifacts in an internal MinIO
+service. MinIO is not published as a browser-facing port. Stack startup
+generates/reuses its credentials in private stack state and passes them only to
+the backend container. Credentials, bucket names and object keys MUST NOT enter
+project context, model prompts, transcripts, renderer storage, public Session
+JSON, or audit payloads.
+
+The backend addresses objects only through server-owned opaque artifact records
+bound to a Harness session. Renderer requests name the session and artifact id,
+never a MinIO object key. Artifact upload remains a trusted local Desktop/UI to
+loopback-backend seam with bounded decoded size and validated filename;
+server-side metadata records SHA-256 before object persistence. Object download
+returns only the bytes owned by the matching session record.
+
+ZIP exploration is non-executing and non-extracting. Entry paths are treated as
+archive-relative names, traversal is rejected, directories are metadata only,
+and per-entry read size is bounded before decompression. ZIP contents remain
+untrusted and never become project files merely because they can be previewed
+or downloaded. Retention cleanup and explicit data/session deletion may delete
+only non-empty server-owned object keys; missing private object locations fail
+closed rather than issuing bucket-level operations.

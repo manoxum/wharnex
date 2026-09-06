@@ -29,9 +29,23 @@ export function observeChatGPTAffinity(tracker, observation = {}) {
   if (observation.home === true && tracker.phase === 'armed') tracker.homeSeen = true
   const conversationURL = normalizeConversationURL(observation.conversationUrl)
   if (!conversationURL || tracker.phase !== 'armed' || !tracker.homeSeen || !tracker.submitted) return ''
-  tracker.candidateURL = conversationURL
-  tracker.phase = 'candidate'
   return conversationURL
+}
+
+export function settleChatGPTAffinity(tracker, conversationURL) {
+  const candidateURL = normalizeConversationURL(conversationURL)
+  if (!candidateURL || tracker?.phase !== 'armed' || !tracker.homeSeen || !tracker.submitted) return ''
+  tracker.candidateURL = candidateURL
+  tracker.phase = 'candidate'
+  return candidateURL
+}
+
+export function isChatGPTAffinityAwaitingSettlement(tracker) {
+  return Boolean(tracker && tracker.phase === 'armed' && !tracker.boundURL && tracker.homeSeen && tracker.submitted)
+}
+
+export function shouldPreserveChatGPTAffinityNavigation(tracker) {
+  return Boolean(tracker && !tracker.boundURL && tracker.submitted && (tracker.phase === 'armed' || tracker.phase === 'candidate'))
 }
 
 export function proposeChatGPTAffinity(tracker, conversationURL) {
@@ -92,6 +106,7 @@ function normalizeConversationURL(value) {
     const host = url.hostname.toLowerCase()
     if (url.protocol !== 'https:' || (host !== 'chatgpt.com' && !host.endsWith('.chatgpt.com'))) return ''
     const match = /^\/c\/([^/]+)(?:\/.*)?$/.exec(url.pathname)
-    return match?.[1] ? `https://chatgpt.com/c/${match[1]}` : ''
+    const id = match?.[1] || ''
+    return id && !/^WEB(?::|%3A)/i.test(id) ? `https://chatgpt.com/c/${id}` : ''
   } catch { return '' }
 }

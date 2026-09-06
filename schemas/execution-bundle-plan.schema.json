@@ -7,6 +7,8 @@
     "protocol": {"const": "harness.execution/v1"},
     "base_context_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "impact_files": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "read_files": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "barrier_files": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
     "plan_id": {"type": "string", "minLength": 1},
     "request_id": {"type": "string", "minLength": 1},
     "status": {"enum": ["ready", "blocked"]},

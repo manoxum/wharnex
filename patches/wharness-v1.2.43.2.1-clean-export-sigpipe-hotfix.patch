@@ -1,0 +1,65 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 5644f78..54b1a5c 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,9 @@
++## v1.2.43.2.1 - Clean export SIGPIPE hotfix
++
++- Fix `make export` under `set -o pipefail`: the largest-files inventory no longer uses `head`, so upstream `sort` cannot be terminated by `SIGPIPE` and return exit 141 after an otherwise valid archive was built.
++- Make `export-check` consume `unzip` streams to EOF instead of using early-exit `grep -q`, preventing the same pipefail/SIGPIPE class from producing false failures or masking forbidden entries.
++- Keep the v1.2.43.2 clean-export contract unchanged: compact archive, `EXPORTS.md` + `EXPORT_INDEX.md`, explicit size/entry/SHA-256 logging and fail-closed artifact validation.
++
+ ## v1.2.43.2 - Embedded ChatGPT auth recovery + clean export
+ 
+ - Keep same-origin `chatgpt.com/auth/*` redirects inside the owned embedded `WebContentsView` instead of automatically converting them into the managed external-browser flow; explicit External mode remains available, while Google OAuth still leaves Embedded mode through the managed browser boundary.
+diff --git a/Makefile b/Makefile
+index 9606e79..2c35372 100644
+--- a/Makefile
++++ b/Makefile
+@@ -223,10 +223,13 @@ export-check:
+ 		$(MAKE) --no-print-directory export EXPORT_ARCHIVE="$$tmp_dir/wharness.zip"; \
+ 		test -s "$$tmp_dir/wharness.zip"; \
+ 		unzip -tqq "$$tmp_dir/wharness.zip"; \
+-		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq 'Schema: `wharness.exports/v1`'; \
+-		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Wharness recent logs'; \
+-		unzip -p "$$tmp_dir/wharness.zip" EXPORT_INDEX.md | grep -Fq 'Schema: `wharness.export-index/v1`'; \
+-		! unzip -Z1 "$$tmp_dir/wharness.zip" | grep -Eq '(^|/)\.harness/|(^|/)\.idea/|^patches/|\.(orig|rej)$$|(^|/)(kernl-context-|wharness-input-|wharness-bundle-)'; \
++		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -F 'Schema: `wharness.exports/v1`' >/dev/null; \
++		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -F '## Wharness recent logs' >/dev/null; \
++		unzip -p "$$tmp_dir/wharness.zip" EXPORT_INDEX.md | grep -F 'Schema: `wharness.export-index/v1`' >/dev/null; \
++		if unzip -Z1 "$$tmp_dir/wharness.zip" | grep -E '(^|/)\.harness/|(^|/)\.idea/|^patches/|\.(orig|rej)$$|(^|/)(kernl-context-|wharness-input-|wharness-bundle-)' >/dev/null; then \
++			echo 'export contains a forbidden runtime/generated entry' >&2; \
++			exit 1; \
++		fi; \
+ 		mkdir "$$tmp_dir/not-an-archive"; \
+ 		if $(MAKE) --no-print-directory export EXPORT_ARCHIVE="$$tmp_dir/not-an-archive" >/dev/null 2>&1; then \
+ 			echo 'export unexpectedly accepted a directory as its archive path' >&2; \
+diff --git a/VALIDATION.md b/VALIDATION.md
+index d20e07d..bb99488 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -1,3 +1,11 @@
++## v1.2.43.2.1 clean export SIGPIPE hotfix regression
++
++- Reproduced from the operator run: all backend/frontend/Desktop gates passed, then `make export` terminated with status 141 before printing export metadata.
++- Root cause: `unzip -l | awk | sort -nr | head -15` runs under `set -o pipefail`; `head` closes early after 15 lines and the upstream `sort` receives `SIGPIPE`, making the otherwise successful exporter fail with 141.
++- The inventory now uses an EOF-consuming final `awk` instead of `head`; `export-check` likewise replaces early-exit `grep -q` consumers so `unzip` cannot be spuriously SIGPIPE'd.
++- `make export` — PASS on the patched post-v1.2.43.2 tree: 788K / 805984 bytes, 401 entries, archive integrity valid, size/entry/SHA-256 metadata printed.
++- `make export-check` — PASS, including forbidden-entry policy and invalid destination-path regression.
++
+ ## v1.2.43.2 embedded ChatGPT auth + clean export regression
+ 
+ - Reproduced from the supplied 2026-09-05 18:10 export: `EXPORTS.md` records `ERR_ABORTED (-3)` while loading `https://chatgpt.com/auth/login`, an automatic managed-browser start, another aborted embedded load, and external-auth cancellation. This explains why the native view was hidden while the local pane remained on “A carregar ChatGPT…”.
+diff --git a/scripts/export.sh b/scripts/export.sh
+index ed94833..14efc32 100755
+--- a/scripts/export.sh
++++ b/scripts/export.sh
+@@ -56,7 +56,7 @@ source_bytes="$(unzip -l "$archive" | awk 'END {print $1+0}')"
+   printf '## Top-level inventory\n\n```text\n'
+   unzip -Z1 "$archive" | awk -F/ 'NF {count[$1]++} END {for (name in count) printf "%6d %s\n", count[name], name}' | sort -nr
+   printf '```\n\n## Largest included entries\n\n```text\n'
+-  unzip -l "$archive" | awk 'NR>3 && $1 ~ /^[0-9]+$/ {size=$1; $1=$2=$3=""; sub(/^ +/, ""); if ($0 != "") printf "%12d  %s\n", size, $0}' | sort -nr | head -15
++  unzip -l "$archive" | awk 'NR>3 && $1 ~ /^[0-9]+$/ {size=$1; $1=$2=$3=""; sub(/^ +/, ""); if ($0 != "") printf "%12d  %s\n", size, $0}' | sort -nr | awk 'NR <= 15'
+   printf '```\n'
+ } > "$tmp_dir/EXPORT_INDEX.md"
+ 

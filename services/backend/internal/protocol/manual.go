@@ -13,16 +13,20 @@ import (
 )
 
 type manualPlanEnvelope struct {
-	Protocol         string            `json:"protocol"`
-	Schema           string            `json:"schema"`
-	PlanID           string            `json:"plan_id"`
-	RequestID        string            `json:"request_id"`
-	Status           string            `json:"status"`
-	Summary          string            `json:"summary"`
-	Risk             string            `json:"risk"`
-	RequiresApproval bool              `json:"requires_approval"`
-	Operations       []manualOperation `json:"operations"`
-	Verification     []json.RawMessage `json:"verification"`
+	Protocol          string            `json:"protocol"`
+	Schema            string            `json:"schema"`
+	BaseContextSHA256 string            `json:"base_context_sha256"`
+	ImpactFiles       []string          `json:"impact_files"`
+	ReadFiles         []string          `json:"read_files"`
+	BarrierFiles      []string          `json:"barrier_files"`
+	PlanID            string            `json:"plan_id"`
+	RequestID         string            `json:"request_id"`
+	Status            string            `json:"status"`
+	Summary           string            `json:"summary"`
+	Risk              string            `json:"risk"`
+	RequiresApproval  bool              `json:"requires_approval"`
+	Operations        []manualOperation `json:"operations"`
+	Verification      []json.RawMessage `json:"verification"`
 }
 
 type manualOperation struct {
@@ -78,15 +82,19 @@ func NormalizeManualPlan(raw []byte, activeRequestID string) (domain.ExecutionPl
 	}
 
 	plan := domain.ExecutionPlan{
-		Protocol:         protocol,
-		PlanID:           planID,
-		RequestID:        requestID,
-		Status:           status,
-		Summary:          input.Summary,
-		Risk:             risk,
-		RequiresApproval: input.RequiresApproval,
-		Operations:       make([]domain.Operation, 0, len(input.Operations)),
-		Verification:     make([]domain.CommandSpec, 0, len(input.Verification)),
+		Protocol:          protocol,
+		BaseContextSHA256: strings.TrimSpace(input.BaseContextSHA256),
+		ImpactFiles:       append([]string(nil), input.ImpactFiles...),
+		ReadFiles:         append([]string(nil), input.ReadFiles...),
+		BarrierFiles:      append([]string(nil), input.BarrierFiles...),
+		PlanID:            planID,
+		RequestID:         requestID,
+		Status:            status,
+		Summary:           input.Summary,
+		Risk:              risk,
+		RequiresApproval:  input.RequiresApproval,
+		Operations:        make([]domain.Operation, 0, len(input.Operations)),
+		Verification:      make([]domain.CommandSpec, 0, len(input.Verification)),
 	}
 	for i, op := range input.Operations {
 		normalized := domain.Operation{Type: op.Type, Patch: op.Patch, Command: normalizeCommand(op.Command, op.Cwd)}

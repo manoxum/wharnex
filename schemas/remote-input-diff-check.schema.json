@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/remote-input-diff-check.schema.json",
+  "title": "Wharness Remote Input Final Diff Check",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "active_request_id", "generation", "context_sha256", "state", "file_map", "rules"],
+  "properties": {
+    "protocol": { "const": "wharness.remote-diff-check/v1" },
+    "active_request_id": { "type": "string", "pattern": "^req_[A-Za-z0-9._-]+$" },
+    "generation": { "type": "integer", "minimum": 1 },
+    "context_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "state": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "file_map": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "rules": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    }
+  }
+}

@@ -1,0 +1,503 @@
+diff --git a/.harnessignore b/.harnessignore
+index 218f001..b7374e0 100644
+--- a/.harnessignore
++++ b/.harnessignore
+@@ -28,3 +28,6 @@ secrets
+ *.sqlite3
+ *.dump
+ *.sql.gz
++
++patches
++wharness-input-*
+diff --git a/AGENTS.md b/AGENTS.md
+index d3449b2..d9a65cb 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -89,7 +89,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
+ - Consumer ChatGPT response scraping, login-cookie inspection, arbitrary DOM extraction, or automatic prose/output scraping MUST NOT be introduced. The Desktop MAY use a tightly allowlisted DOM bridge only to locate/focus the composer, write a prepared Wharness prompt, click submit, click the download control for the exact expected `wharness-bundle-<request_id>.zip`, and inspect categorical structural health/human-gate signals (composer presence, processing control presence, page visibility, trusted URL/title, and allowlisted CAPTCHA/access selectors). Structural health checks MUST NOT read generated assistant prose, cookies, storage, or arbitrary page text; downloaded bytes still pass the normal strict bundle validator. Automatic planning otherwise uses supported provider adapters.
+ - ASK/advice is a first-class Agent outcome and MUST NOT be converted to a coding/change task merely because project context exists or Auto is enabled. A non-terminal `workflow` MAY gather missing local evidence, but it MUST be command-only, network-disabled, Protected-sandbox-only, never host-applied, and bounded to six rounds before a terminal result.
+ - Future MCP integration MUST be implemented as an adapter behind Wharness application/security ports. Remote consumer ChatGPT MUST NOT receive direct localhost MCP access that bypasses protocol validation, Policy, path containment, or Protected execution.
+-- Project/context exports MUST include synthetic `EXPORTS.md` provenance with safe Git status/worktree state; `.git` internals and remote URLs remain excluded, and managed-context metadata must not introduce volatile timestamp churn into the context fingerprint. The Wharness repository `make export` additionally MUST include bounded/redacted Wharness runtime status and recent desktop logs in `EXPORTS.md`; managed-project context bundles MUST NOT inherit those host-runtime diagnostics.
++- Project/context exports MUST include synthetic `EXPORTS.md` provenance with safe Git status/worktree state; `.git` internals and remote URLs remain excluded, and managed-context metadata must not introduce volatile timestamp churn into the context fingerprint. The Wharness repository `make export` additionally MUST include bounded/redacted Wharness runtime status and recent desktop logs in `EXPORTS.md`, MUST omit historical patch/runtime/IDE/generated transport payloads that add noise or private state, and MUST include a synthetic `EXPORT_INDEX.md` describing its content policy/inventory; managed-project context bundles MUST NOT inherit those host-runtime diagnostics.
+ 
+ 
+ ## 8. Desktop composition invariants (v1.2)
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 7cc1f21..5644f78 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,11 @@
++## v1.2.43.2 - Embedded ChatGPT auth recovery + clean export
++
++- Keep same-origin `chatgpt.com/auth/*` redirects inside the owned embedded `WebContentsView` instead of automatically converting them into the managed external-browser flow; explicit External mode remains available, while Google OAuth still leaves Embedded mode through the managed browser boundary.
++- Default newly-created ChatGPT views to Embedded authentication and serialize explicit `loadURL` operations per owned view. Benign Chromium `ERR_ABORTED` redirect completions no longer strand navigation IPC or accumulate competing load listeners.
++- Surface an actionable embedded-auth notice when a linked conversation lands on the ChatGPT login surface instead of leaving the pane indefinitely on “A carregar ChatGPT…”.
++- Replace the repository export body with a dedicated clean exporter: exclude historical `patches/`, nested `.harness`, IDE metadata, `.orig/.rej` residues and generated Wharness context/input/bundle payloads; add `EXPORT_INDEX.md` with exclusion policy, top-level inventory and largest included files.
++- Make `make export` report archive path, human/byte size, entry count and SHA-256, and strengthen `export-check` so noisy/private artifact classes cannot silently return to the exported project context.
++
+ ## v1.2.43.1 - Stack session recovery + ChatGPT restore
+ 
+ - Repair Compose PostgreSQL migrations whose old v1 marker was written while the target database lacked legacy sessions: a separate v2 logical reconciliation imports the legacy PostgreSQL 17 data idempotently, preserves newer target rows, verifies session counts, and only then records completion.
+diff --git a/Makefile b/Makefile
+index 6274831..9606e79 100644
+--- a/Makefile
++++ b/Makefile
+@@ -163,6 +163,7 @@ check:
+ 	@$(MAKE) --no-print-directory frontend-check
+ 	@$(MAKE) --no-print-directory desktop-check
+ 	@$(MAKE) --no-print-directory lifecycle-check
++	@$(MAKE) --no-print-directory export-check
+ 
+ test: check
+ 
+@@ -213,34 +214,7 @@ clean:
+ EXPORT_DIR ?= $(abspath $(ROOT_DIR)/../project-context/wharness)
+ EXPORT_ARCHIVE ?= $(EXPORT_DIR)/wharness.zip
+ export:
+-	@mkdir -p "$(dir $(EXPORT_ARCHIVE))"
+-	@set -eu; \
+-		tmp_dir=$$(mktemp -d); \
+-		trap 'rm -rf "$$tmp_dir"' EXIT; \
+-		cd "$(ROOT_DIR)/services/backend"; \
+-		go run ./cmd/exportmeta -root "$(ROOT_DIR)" -kind make-export -output "$$tmp_dir/EXPORTS.md"; \
+-		cd "$(ROOT_DIR)"; \
+-		zip -q -y -r "$$tmp_dir/wharness.zip" . \
+-			-x '.git/*' '.env' '.harness/*' 'EXPORTS.md' \
+-			'node_modules/*' '*/node_modules/*' 'dist/*' '*/dist/*' \
+-			'build/*' '*/build/*' 'coverage/*' '*/coverage/*' \
+-			'.next/*' '*/.next/*' '.vite/*' '*/.vite/*' \
+-			'vendor/*' '*/vendor/*' 'playwright-report/*' '*/playwright-report/*' \
+-			'test-results/*' '*/test-results/*' '.cache/*' '*/.cache/*' \
+-			'__pycache__/*' '*/__pycache__/*' '*.tsbuildinfo' '*.pyc' '*.log' '.DS_Store' \
+-			'*.pem' '*.key' '*.p12' '*.pfx' 'id_rsa' '*/id_rsa' 'id_ed25519' '*/id_ed25519' \
+-			'credentials.json' '*/credentials.json' 'secrets/*' '*/secrets/*' \
+-			'*.db' '*.sqlite' '*.sqlite3' '*.dump' '*.sql.gz'; \
+-		(cd "$$tmp_dir" && zip -q "wharness.zip" EXPORTS.md); \
+-		mv -f "$$tmp_dir/wharness.zip" "$(EXPORT_ARCHIVE)"; \
+-		test -f "$(EXPORT_ARCHIVE)"; \
+-		test -s "$(EXPORT_ARCHIVE)"; \
+-		unzip -tqq "$(EXPORT_ARCHIVE)"; \
+-		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Git status'; \
+-		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Git worktrees'; \
+-		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Wharness status'; \
+-		unzip -p "$(EXPORT_ARCHIVE)" EXPORTS.md | grep -Fq '## Wharness recent logs'; \
+-		printf 'Project exported to %s\n' "$(EXPORT_ARCHIVE)"
++	@"$(ROOT_DIR)/scripts/export.sh" "$(ROOT_DIR)" "$(EXPORT_ARCHIVE)"
+ 
+ export-check:
+ 	@set -eu; \
+@@ -250,10 +224,9 @@ export-check:
+ 		test -s "$$tmp_dir/wharness.zip"; \
+ 		unzip -tqq "$$tmp_dir/wharness.zip"; \
+ 		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq 'Schema: `wharness.exports/v1`'; \
+-		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Git status'; \
+-		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Git worktrees'; \
+-		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Wharness status'; \
+ 		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -Fq '## Wharness recent logs'; \
++		unzip -p "$$tmp_dir/wharness.zip" EXPORT_INDEX.md | grep -Fq 'Schema: `wharness.export-index/v1`'; \
++		! unzip -Z1 "$$tmp_dir/wharness.zip" | grep -Eq '(^|/)\.harness/|(^|/)\.idea/|^patches/|\.(orig|rej)$$|(^|/)(kernl-context-|wharness-input-|wharness-bundle-)'; \
+ 		mkdir "$$tmp_dir/not-an-archive"; \
+ 		if $(MAKE) --no-print-directory export EXPORT_ARCHIVE="$$tmp_dir/not-an-archive" >/dev/null 2>&1; then \
+ 			echo 'export unexpectedly accepted a directory as its archive path' >&2; \
+diff --git a/README.md b/README.md
+index 4164c5a..2635610 100644
+--- a/README.md
++++ b/README.md
+@@ -152,7 +152,7 @@ make export
+ make export-check
+ ```
+ 
+-`make export` writes the project archive to `../project-context/wharness/wharness.zip` by default. The archive includes a generated root `EXPORTS.md` with export provenance, the current Git branch/HEAD, concise status (including untracked files), `git worktree list --porcelain`, the current Wharness service/HTTP status, and a bounded recent tail of the Wharness desktop log. Runtime log values that look like credentials are redacted. `.git`, raw `.harness` runtime data and Git remote URLs remain excluded. The same synthetic metadata file is also added to context ZIPs generated for projects managed by Wharness, but those managed-project contexts contain project/Git provenance only and do not inherit Wharness host logs/status.
++`make export` writes the project archive to `../project-context/wharness/wharness.zip` by default. The export is intentionally a compact source/diagnostic snapshot rather than a backup: historical `patches/`, IDE metadata, nested `.harness` state, `.orig/.rej` residues, dependency/build trees and generated Wharness context/input/bundle payloads are omitted. The archive includes generated root `EXPORTS.md` provenance with Git/runtime diagnostics plus `EXPORT_INDEX.md` with the exclusion policy, top-level inventory and largest included entries. Runtime log values that look like credentials are redacted. `.git`, raw runtime data and Git remote URLs remain excluded. The command prints the final path, human/byte size, entry count and SHA-256. The same synthetic `EXPORTS.md` provenance is also added to contexts generated for projects managed by Wharness, but those managed-project contexts contain project/Git provenance only and do not inherit Wharness host logs/status.
+ 
+ ### Linux / Wayland
+ 
+diff --git a/SoT/CONTEXT_PROTOCOL.md b/SoT/CONTEXT_PROTOCOL.md
+index 03dc89e..a749d33 100644
+--- a/SoT/CONTEXT_PROTOCOL.md
++++ b/SoT/CONTEXT_PROTOCOL.md
+@@ -235,6 +235,8 @@ Every repository export produced by `make export` and every Wharness-managed con
+ 
+ For the Wharness repository itself, `make export` MUST additionally capture the current output of `scripts/status.sh` plus a bounded recent tail of `.harness/logs/desktop.log` inside `EXPORTS.md`. Raw `.harness` state/log directories remain excluded. Runtime collection is best-effort and secret-like values MUST be redacted before inclusion. Missing logs, unavailable services, or status-collection failures MUST be represented as diagnostics/warnings rather than failing the export. Host runtime diagnostics are specific to `make export` and MUST NOT be injected into context bundles for unrelated managed projects.
+ 
++The Wharness repository export is a compact analysis snapshot, not an installation backup. `make export` MUST exclude historical `patches/`, every nested `.harness` directory, IDE metadata, `.orig/.rej` residues, dependency/build/test caches, and generated `kernl-context-*`, `wharness-input-*`, and `wharness-bundle-*` payloads. It MUST add synthetic root `EXPORT_INDEX.md` describing the exclusion policy plus a bounded inventory of included content, and the command MUST report final archive path, byte/human size, entry count, and SHA-256. `export-check` MUST fail if excluded runtime/transport/history classes reappear.
++
+ Managed-context metadata is deterministic and participates in the context fingerprint. A branch/index/status/worktree change therefore invalidates context affinity even if eligible project file bytes alone would otherwise hash identically. Volatile wall-clock generation time and Wharness host-runtime diagnostics MUST NOT affect managed-context fingerprinting. `make export` MAY include its UTC generation timestamp because it is an archival artifact rather than a planner cache key.
+ 
+ ## Concurrent baseline fingerprinting
+diff --git a/SoT/UI_UX.md b/SoT/UI_UX.md
+index 82cf3c1..af1e4dc 100644
+--- a/SoT/UI_UX.md
++++ b/SoT/UI_UX.md
+@@ -51,6 +51,8 @@ User-selected Harness chat attachments are durable conversation artifacts. Befor
+ 
+ The Agent surface supports multiple Harness chats within the same workspace. A compact chat switcher must expose the active chat, create a new chat, and indicate whether each Harness chat already has a linked ChatGPT conversation. Closing a chat moves it to a recoverable archived area; that area can reopen the chat or explicitly delete it permanently with confirmation. Each chat keeps its own Harness transcript and orchestration session. Preparing a prompt, waiting on ChatGPT or executing a plan in one chat MUST NOT disable navigation to another chat or make that parallel chat unusable; asynchronous completion must remain attributed to the owning chat instead of overwriting whichever chat is currently visible.
+ 
++Same-origin ChatGPT authentication redirects (`https://chatgpt.com/auth/...`) MUST remain visible in the owned embedded surface and MUST NOT automatically hide that surface by starting External mode. New views default to Embedded authentication; the user may explicitly choose External mode, and third-party OAuth that is incompatible with embedded user-agents (notably Google) still crosses the managed-browser boundary. Explicit ChatGPT `loadURL` operations MUST be serialized per owned view so redirects/reloads cannot leave competing unresolved navigations or strand the local loading fallback.
++
+ The ChatGPT panel has one-to-one conversation affinity with the active Harness chat. Selecting a linked Harness chat automatically restores its `chatgpt.com/c/...` conversation. An unlinked chat opens the ChatGPT new-chat surface, arms affinity as soon as that trusted surface is observed (even during loading), and binds the first concrete conversation URL created for it after navigation. A concrete conversation already linked to another Harness chat MUST NOT be duplicated. Existing bindings are not silently replaced merely because the user browses another ChatGPT conversation; the UI exposes an explicit rebind action. Pressing **Send** in the Harness while a different concrete ChatGPT conversation is currently open is itself explicit user intent: that send may target/rebind to the visible conversation only when it is not already owned by another Harness chat, and MUST attach fresh project context before the prompt.
+ 
+ For a new unbound chat, the post-submit transport waits until the concrete `/c/...` URL is stable and the owned page has finished loading before announcing the definitive binding candidate. The application controller listens for that candidate independently of the Inspector tab, persists it to the owning Harness chat, and confirms it with Desktop; hiding or never opening the ChatGPT pane therefore MUST NOT prevent automatic binding.
+diff --git a/VALIDATION.md b/VALIDATION.md
+index d4d1a04..d20e07d 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -1,3 +1,11 @@
++## v1.2.43.2 embedded ChatGPT auth + clean export regression
++
++- Reproduced from the supplied 2026-09-05 18:10 export: `EXPORTS.md` records `ERR_ABORTED (-3)` while loading `https://chatgpt.com/auth/login`, an automatic managed-browser start, another aborted embedded load, and external-auth cancellation. This explains why the native view was hidden while the local pane remained on “A carregar ChatGPT…”.
++- Same-origin `/auth/*` redirects now stay embedded, newly-created views default to Embedded mode, and explicit renderer loads use one per-view serialization helper that treats redirect `ERR_ABORTED` as benign while preserving other failures.
++- Frontend regression verifies an unauthenticated `/auth/login` state becomes an actionable login notice; Desktop static regression verifies the embedded auth boundary and serialized load path.
++- Repository export now excludes `patches/`, nested `.harness`, `.idea`, `.orig/.rej`, and generated Wharness transport/context payloads; `EXPORT_INDEX.md` records inventory/policy and `make export` prints size, entries and SHA-256.
++- Required gates: Desktop checks, frontend checks, `make export-check`, full `make check`, build/start/status, then final `make export`.
++
+ ## v1.2.43 persistent Compose stack / tunnel daemon validation
+ 
+ - Rebased against the supplied post-hotfix export where v1.2.42.5.1 already exists; the distribution therefore does not recreate `SourceProbe`, its regression, or `trycloudflare_archive.go`.
+diff --git a/scripts/export.sh b/scripts/export.sh
+new file mode 100755
+index 0000000..ed94833
+--- /dev/null
++++ b/scripts/export.sh
+@@ -0,0 +1,81 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++ROOT_DIR="${1:?project root is required}"
++EXPORT_ARCHIVE="${2:?export archive path is required}"
++
++if [[ -d "$EXPORT_ARCHIVE" ]]; then
++  echo "export archive path is a directory: $EXPORT_ARCHIVE" >&2
++  exit 1
++fi
++
++mkdir -p "$(dirname "$EXPORT_ARCHIVE")"
++tmp_dir="$(mktemp -d)"
++trap 'rm -rf "$tmp_dir"' EXIT
++archive="$tmp_dir/wharness.zip"
++
++(
++  cd "$ROOT_DIR/services/backend"
++  go run ./cmd/exportmeta -root "$ROOT_DIR" -kind make-export -output "$tmp_dir/EXPORTS.md"
++)
++
++excludes=(
++  '.git/*' '.env' 'EXPORTS.md' 'EXPORT_INDEX.md'
++  '.harness/*' '*/.harness/*' '.idea/*' '*/.idea/*' 'patches/*'
++  'node_modules/*' '*/node_modules/*' 'dist/*' '*/dist/*'
++  'build/*' '*/build/*' 'coverage/*' '*/coverage/*'
++  '.next/*' '*/.next/*' '.vite/*' '*/.vite/*' 'vendor/*' '*/vendor/*'
++  'playwright-report/*' '*/playwright-report/*' 'test-results/*' '*/test-results/*'
++  '.cache/*' '*/.cache/*' '__pycache__/*' '*/__pycache__/*'
++  '*.tsbuildinfo' '*.pyc' '*.log' '.DS_Store' '*.orig' '*/.orig' '*.rej' '*/.rej'
++  '*.pem' '*.key' '*.p12' '*.pfx' 'id_rsa' '*/id_rsa' 'id_ed25519' '*/id_ed25519'
++  'credentials.json' '*/credentials.json' 'secrets/*' '*/secrets/*'
++  '*.db' '*.sqlite' '*.sqlite3' '*.dump' '*.sql.gz'
++  'kernl-context-*' '*/kernl-context-*' 'wharness-input-*' '*/wharness-input-*'
++  'wharness-bundle-*' '*/wharness-bundle-*'
++)
++
++(
++  cd "$ROOT_DIR"
++  zip -q -y -r "$archive" . -x "${excludes[@]}"
++)
++
++source_entries="$(unzip -Z1 "$archive" | awk 'NF {count++} END {print count+0}')"
++source_bytes="$(unzip -l "$archive" | awk 'END {print $1+0}')"
++{
++  printf '# Wharness Export Index\n\n'
++  printf -- '- Schema: `wharness.export-index/v1`\n'
++  printf -- '- Source entries before synthetic metadata: `%s`\n' "$source_entries"
++  printf -- '- Source bytes before ZIP compression: `%s`\n' "$source_bytes"
++  printf -- '- Purpose: compact source/diagnostic snapshot for offline analysis; build caches, runtime state, secrets and historical patch payloads are intentionally omitted.\n\n'
++  printf '## Exclusion policy\n\n'
++  printf -- '- VCS/IDE/runtime internals: `.git`, `.idea`, every `.harness` directory, logs and caches.\n'
++  printf -- '- Generated/dependency trees: `node_modules`, `dist`, `build`, coverage, Vite/Next/test output and Python caches.\n'
++  printf -- '- Historical transport/distribution payloads: `patches/`, `kernl-context-*`, `wharness-input-*`, `wharness-bundle-*`, `*.orig`, `*.rej`.\n'
++  printf -- '- Secret-like/private database material: `.env`, private keys, credentials/secrets, DB/dump files.\n\n'
++  printf '## Top-level inventory\n\n```text\n'
++  unzip -Z1 "$archive" | awk -F/ 'NF {count[$1]++} END {for (name in count) printf "%6d %s\n", count[name], name}' | sort -nr
++  printf '```\n\n## Largest included entries\n\n```text\n'
++  unzip -l "$archive" | awk 'NR>3 && $1 ~ /^[0-9]+$/ {size=$1; $1=$2=$3=""; sub(/^ +/, ""); if ($0 != "") printf "%12d  %s\n", size, $0}' | sort -nr | head -15
++  printf '```\n'
++} > "$tmp_dir/EXPORT_INDEX.md"
++
++(
++  cd "$tmp_dir"
++  zip -q wharness.zip EXPORTS.md EXPORT_INDEX.md
++)
++
++mv -f "$archive" "$EXPORT_ARCHIVE"
++test -s "$EXPORT_ARCHIVE"
++unzip -tqq "$EXPORT_ARCHIVE"
++
++archive_bytes="$(wc -c < "$EXPORT_ARCHIVE" | tr -d ' ')"
++archive_human="$(du -h "$EXPORT_ARCHIVE" | awk '{print $1}')"
++archive_entries="$(unzip -Z1 "$EXPORT_ARCHIVE" | awk 'NF {count++} END {print count+0}')"
++archive_sha256="$(sha256sum "$EXPORT_ARCHIVE" | awk '{print $1}')"
++
++printf 'Project exported to %s\n' "$EXPORT_ARCHIVE"
++printf '  size: %s (%s bytes)\n' "$archive_human" "$archive_bytes"
++printf '  entries: %s\n' "$archive_entries"
++printf '  sha256: %s\n' "$archive_sha256"
++printf '  metadata: EXPORTS.md, EXPORT_INDEX.md\n'
+diff --git a/services/desktop/main-regression.test.mjs b/services/desktop/main-regression.test.mjs
+index 65261d6..91cfc37 100644
+--- a/services/desktop/main-regression.test.mjs
++++ b/services/desktop/main-regression.test.mjs
+@@ -237,6 +237,30 @@ test('new ChatGPT views wait for the requested conversation before navigating',
+   assert.match(show, /waitForChatGPTSurfaceReady/)
+ })
+ 
++test('same-origin ChatGPT auth redirects stay embedded and explicit loads are serialized', async () => {
++  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
++  const routeStart = source.indexOf('function routeChatGPTNavigation')
++  const routeEnd = source.indexOf('\nfunction observeEmbeddedAuthURL', routeStart)
++  const route = source.slice(routeStart, routeEnd)
++  assert.match(route, /disposition\.kind === 'chatgpt-auth'/)
++  const authStart = route.indexOf("disposition.kind === 'chatgpt-auth'")
++  const externalStart = route.indexOf("disposition.kind === 'external-auth'", authStart)
++  const authBlock = route.slice(authStart, externalStart)
++  assert.match(authBlock, /entry\.embeddedAuthActive = true/)
++  assert.doesNotMatch(authBlock, /startExternalAuthentication/)
++
++  const loadStart = source.indexOf('async function loadOwnedChatGPTURL')
++  const loadEnd = source.indexOf('\nfunction createChatGPTView', loadStart)
++  const load = source.slice(loadStart, loadEnd)
++  assert.match(load, /entry\.navigationPromise/)
++  assert.match(load, /isBenignChatGPTLoadAbort/)
++  assert.match(load, /await wc\.loadURL\(target/)
++
++  const createStart = source.indexOf('function createChatGPTView(cacheKey, windowState)')
++  const createEnd = source.indexOf('\nfunction ensureChatGPTView', createStart)
++  assert.match(source.slice(createStart, createEnd), /authMode: 'embedded'/)
++})
++
+ test('navigation only observes affinity and a stable late observer performs definitive settlement', async () => {
+   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+   const createStart = source.indexOf('function createChatGPTView(cacheKey, windowState)')
+diff --git a/services/desktop/main.mjs b/services/desktop/main.mjs
+index 1bd2855..536d928 100644
+--- a/services/desktop/main.mjs
++++ b/services/desktop/main.mjs
+@@ -356,7 +356,7 @@ function currentChatGPTState(cacheKey = '', windowState) {
+     canGoBack: Boolean(wc?.navigationHistory.canGoBack()),
+     canGoForward: Boolean(wc?.navigationHistory.canGoForward()),
+     externalAuthProvider: entry?.externalAuthProvider || '',
+-    authMode: entry?.authMode || 'external',
++    authMode: entry?.authMode || 'embedded',
+     authWindowOpen: Boolean(key && chatGPTAuthBrowsers.has(key)),
+     authenticated: Boolean(entry?.authenticated),
+     humanAction: entry?.humanAction?.active ? { cacheKey: key, ...entry.humanAction } : undefined,
+@@ -811,7 +811,7 @@ async function completeExternalAuthentication(cacheKey, entry, record, result) {
+     if (!embedded.isDestroyed()) {
+       const current = embedded.getURL()
+       const target = isTrustedChatGPTOrigin(current) && !isChatGPTAuthURL(current) ? current : CHATGPT_URL
+-      await embedded.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
++      await loadOwnedChatGPTURL(cacheKey, entry, target, 'external-auth-complete')
+     }
+     await cleanupManagedAuthentication(cacheKey, record)
+     const ownerState = windowStateForEntry(entry)
+@@ -892,9 +892,17 @@ function startExternalAuthentication(entry, provider = 'OpenAI') {
+ function routeChatGPTNavigation(entry, event, url) {
+   const disposition = chatGPTNavigationDisposition(url)
+   if (disposition.kind === 'trusted') return false
+-  if (disposition.kind === 'chatgpt-auth' || disposition.kind === 'external-auth') {
++  // Same-origin ChatGPT auth redirects must remain renderable in the owned view.
++  // Automatically converting /auth/* into a managed-browser flow hides the view
++  // before the redirect settles and can strand the pane on the local loading fallback.
++  if (disposition.kind === 'chatgpt-auth') {
++    entry.externalAuthProvider = ''
++    entry.embeddedAuthActive = true
++    return false
++  }
++  if (disposition.kind === 'external-auth') {
+     if (entry.authMode === 'embedded') {
+-      if (disposition.kind === 'external-auth' && disposition.provider === 'Google') {
++      if (disposition.provider === 'Google') {
+         event?.preventDefault?.()
+         entry.embeddedAuthActive = false
+         entry.embeddedAuthCrossedBoundary = false
+@@ -903,7 +911,7 @@ function routeChatGPTNavigation(entry, event, url) {
+       }
+       entry.externalAuthProvider = ''
+       entry.embeddedAuthActive = true
+-      if (disposition.kind === 'external-auth') entry.embeddedAuthCrossedBoundary = true
++      entry.embeddedAuthCrossedBoundary = true
+       return false
+     }
+     event?.preventDefault?.()
+@@ -934,12 +942,53 @@ function observeEmbeddedAuthURL(cacheKey, entry, url) {
+   }
+ }
+ 
++function isBenignChatGPTLoadAbort(error) {
++  return error?.code === 'ERR_ABORTED' || Number(error?.errno) === -3
++}
++
++async function waitForChatGPTNavigationSettle(wc, timeoutMs = 5_000) {
++  const deadline = Date.now() + timeoutMs
++  while (!wc.isDestroyed() && wc.isLoading() && Date.now() < deadline) await wait(50)
++}
++
++async function loadOwnedChatGPTURL(cacheKey, entry, value, reason = 'navigate') {
++  const key = sanitizeChatCacheKey(cacheKey)
++  const target = requireTrustedChatGPTURL(value)
++  const { wc } = requireOwnedChatGPTEntry(key, entry)
++  const previous = entry.navigationPromise
++  if (previous) {
++    if (entry.navigationTarget === target) return previous
++    try { await previous } catch { /* the next explicit navigation owns recovery */ }
++  }
++  if (wc.isDestroyed()) throw new Error('ChatGPT renderer is unavailable')
++  if (wc.getURL() === target || sameConversationURL(wc.getURL(), target)) return currentChatGPTState(key, windowStateForEntry(entry))
++  let operation
++  operation = (async () => {
++    entry.navigationTarget = target
++    try {
++      await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
++    } catch (error) {
++      if (!isBenignChatGPTLoadAbort(error)) throw error
++      await waitForChatGPTNavigationSettle(wc)
++      console.log(`[chatgpt-load] benign-abort key=${key} reason=${reason} target=${sanitizeDiagnosticURL(target)} current=${sanitizeDiagnosticURL(wc.getURL())}`)
++    } finally {
++      if (entry.navigationPromise === operation) {
++        entry.navigationPromise = undefined
++        entry.navigationTarget = ''
++      }
++    }
++    return currentChatGPTState(key, windowStateForEntry(entry))
++  })()
++  entry.navigationPromise = operation
++  return operation
++}
++
+ function createChatGPTView(cacheKey, windowState) {
+   if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT view without an owning Wharness window')
+   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
+   view.setBackgroundColor('#ffffff')
+   view.setVisible(false)
+-  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), activeConversationRequests: new Set(), healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'external', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, affinity: createChatGPTAffinityTracker() }
++  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), activeConversationRequests: new Set(), healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', affinity: createChatGPTAffinityTracker() }
+   chatgptViews.set(cacheKey, entry)
+   windowState.window.contentView.addChildView(view)
+ 
+@@ -949,7 +998,7 @@ function createChatGPTView(cacheKey, windowState) {
+     const disposition = chatGPTNavigationDisposition(url)
+     const embeddedProviderAllowed = entry.authMode === 'embedded' && disposition.kind === 'external-auth' && disposition.provider !== 'Google'
+     if (entry.authMode === 'embedded' && (disposition.kind === 'chatgpt-auth' || embeddedProviderAllowed)) {
+-      void wc.loadURL(url, { userAgent: CHATGPT_USER_AGENT })
++      void loadOwnedChatGPTURL(cacheKey, entry, url, 'window-open')
+       return { action: 'deny' }
+     }
+     routeChatGPTNavigation(entry, undefined, url)
+@@ -1189,7 +1238,7 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentCo
+     if (linkedConversation && entry.affinity.boundURL !== linkedConversation && entry.affinity.phase !== 'candidate') syncChatGPTAffinityURL(key, entry, linkedConversation)
+     const currentConversation = canonicalChatGPTConversationURL(wc.getURL())
+     const keepCurrent = preferCurrentConversation && Boolean(currentConversation)
+-    if (!sameConversationURL(wc.getURL(), target) && !keepCurrent) await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
++    if (!sameConversationURL(wc.getURL(), target) && !keepCurrent) await loadOwnedChatGPTURL(key, entry, target, 'composer-target')
+     else if (keepCurrent) proposeCurrentChatGPTAffinity(key, entry, linkedConversation, currentConversation)
+   }
+   await waitForChatGPTSurfaceReady(key, entry)
+@@ -1905,7 +1954,7 @@ function registerIPC() {
+     const resetToHome = Boolean(unboundHomeIntent && chatGPTConversationID(current))
+     const keepCachedDOM = !resetToHome && targetIsHome && isTrustedChatGPTOrigin(current) && current !== 'about:blank'
+     if (resetToHome || (!keepCachedDOM && current !== target && !sameConversationURL(current, target))) {
+-      await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
++      await loadOwnedChatGPTURL(key, entry, target, 'renderer-navigate')
+     }
+     if (!linkedConversation) observeChatGPTAffinityURL(key, entry, wc.getURL())
+     return currentChatGPTState(key, windowState)
+@@ -1929,7 +1978,7 @@ function registerIPC() {
+     rejectChatGPTAffinity(entry.affinity, rejectedURL)
+     const fallbackURL = entry.affinity.boundURL || CHATGPT_URL
+     if (rejectedURL && sameConversationURL(wc.getURL(), rejectedURL) && !sameConversationURL(wc.getURL(), fallbackURL)) {
+-      await wc.loadURL(fallbackURL, { userAgent: CHATGPT_USER_AGENT })
++      await loadOwnedChatGPTURL(key, entry, fallbackURL, 'affinity-reject')
+     }
+     if (!entry.affinity.boundURL) observeChatGPTAffinityURL(key, entry, wc.getURL())
+     console.log(`[chatgpt-affinity] rejected key=${key} url=${sanitizeDiagnosticURL(rejectedURL)}`)
+@@ -1983,7 +2032,7 @@ function registerIPC() {
+       return currentChatGPTState(key, windowState)
+     }
+     cancelExternalAuthentication(key)
+-    await entry.view.webContents.loadURL(CHATGPT_LOGIN_URL, { userAgent: CHATGPT_USER_AGENT })
++    await loadOwnedChatGPTURL(key, entry, CHATGPT_LOGIN_URL, 'embedded-auth')
+     requireOwnedChatGPTEntry(key, entry)
+     if (windowState.activeChatGPTKey === key) entry.view.setVisible(windowState.chatgptVisible)
+     publishChatGPTState(key)
+@@ -2002,7 +2051,7 @@ function registerIPC() {
+     entry.externalAuthProvider = ''
+     entry.authMode = 'embedded'
+     cancelExternalAuthentication(key)
+-    if (!isTrustedChatGPTOrigin(wc.getURL())) await wc.loadURL(CHATGPT_URL, { userAgent: CHATGPT_USER_AGENT })
++    if (!isTrustedChatGPTOrigin(wc.getURL())) await loadOwnedChatGPTURL(key, entry, CHATGPT_URL, 'resume-embedded')
+     requireOwnedChatGPTEntry(key, entry)
+     if (windowState.activeChatGPTKey === key) entry.view.setVisible(windowState.chatgptVisible)
+     publishChatGPTState(key)
+diff --git a/services/frontend/src/components/ChatGPTDesktopPane.test.tsx b/services/frontend/src/components/ChatGPTDesktopPane.test.tsx
+index a106ad6..4bca74e 100644
+--- a/services/frontend/src/components/ChatGPTDesktopPane.test.tsx
++++ b/services/frontend/src/components/ChatGPTDesktopPane.test.tsx
+@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+ 
+ class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
+-const state = { url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'external' as const, authWindowOpen: false, authenticated: false }
++const state = { url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'embedded' as const, authWindowOpen: false, authenticated: false }
+ 
+ function bridge() {
+   const noopSubscription = () => () => undefined
+@@ -60,6 +60,17 @@ describe('ChatGPTDesktopPane', () => {
+     expect(await screen.findByRole('button', { name: 'Incorporado' })).toBeTruthy()
+   })
+ 
++
++  it('surfaces same-origin ChatGPT authentication instead of an endless loading notice', async () => {
++    const desktop = bridge()
++    const authState = { ...state, url: 'https://chatgpt.com/auth/login', loading: false, authenticated: false }
++    desktop.chatgpt.state = vi.fn().mockResolvedValue(authState)
++    desktop.chatgpt.navigate = vi.fn().mockResolvedValue(authState)
++    window.wharnessDesktop = desktop
++    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/example" />)
++    expect(await screen.findByText('Autenticação necessária. Conclua o login incorporado ou escolha Externo.')).toBeTruthy()
++  })
++
+   it('opens compact embedded and external authentication actions', async () => {
+     const desktop = bridge(); window.wharnessDesktop = desktop
+     render(<ChatGPTDesktopPane {...props} />)
+diff --git a/services/frontend/src/components/ChatGPTDesktopPane.tsx b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+index 8e5cbff..e81d66d 100644
+--- a/services/frontend/src/components/ChatGPTDesktopPane.tsx
++++ b/services/frontend/src/components/ChatGPTDesktopPane.tsx
+@@ -26,7 +26,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
+   const onBundleFileRef = useRef(onBundleFile)
+   const onActivityRef = useRef(onActivity)
+ 	const onTransportFailureRef = useRef(onTransportFailure)
+-  const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false, authMode: 'external', authWindowOpen: false })
++  const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false, authMode: 'embedded', authWindowOpen: false })
+   const [notice, setNotice] = useState('')
+   const [linkReady, setLinkReady] = useState(false)
+   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
+@@ -39,7 +39,14 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
+   const applyDesktopState = useCallback((next: DesktopChatGPTState) => {
+     if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
+     setState(next)
+-    if (next.externalAuthProvider) setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
++    if (next.externalAuthProvider) {
++      setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
++      return
++    }
++    if (!next.loading && isChatGPTAuthSurface(next.url)) {
++      setControlsExpanded(true)
++      setNotice('Autenticação necessária. Conclua o login incorporado ou escolha Externo.')
++    }
+   }, [])
+ 
+ 
+@@ -202,3 +209,4 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
+ }
+ 
+ function safeHost(value: string) { try { return new URL(value).host } catch { return 'chatgpt.com' } }
++function isChatGPTAuthSurface(value: string) { try { const path = new URL(value).pathname; return path === '/auth' || path.startsWith('/auth/') } catch { return false } }

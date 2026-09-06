@@ -16,7 +16,7 @@ func turnCarriesExecutionPlan(kind domain.TurnKind) bool {
 func normalizePlannerResult(requestID string, result *planner.Result) error {
 	normalizePlanCollections(result.Plan)
 	if result.Turn == nil && result.Plan != nil {
-		result.Turn = &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindChange, Message: result.Plan.Summary}
+		result.Turn = &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindChange, Message: result.Plan.Summary, Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}}
 	}
 	if result.Turn == nil {
 		return nil
@@ -26,6 +26,12 @@ func normalizePlannerResult(requestID string, result *planner.Result) error {
 	}
 	if err := protocol.ValidateTurn(*result.Turn); err != nil {
 		return err
+	}
+	if result.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
+		if result.Plan != nil {
+			return fmt.Errorf("non-completed turn outcome cannot contain an execution plan")
+		}
+		return nil
 	}
 	if turnCarriesExecutionPlan(result.Turn.Kind) && result.Plan == nil {
 		return fmt.Errorf("%s turn requires an execution plan", result.Turn.Kind)

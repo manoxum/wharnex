@@ -4,9 +4,11 @@ See the root README for quick start. Start in `manual` planner mode first, verif
 
 ## Optional remote context transport
 
-Without configuration, consumer ChatGPT keeps using the native Wharness file
-upload flow. Remote mode publishes one temporary input ZIP and sends ChatGPT a
-short HTTPS bootstrap URL instead.
+Without a tunnel transport, consumer ChatGPT uses one native Wharness upload per
+planner turn: `wharness-input-<request_id>.zip` contains the planner prompt,
+context when needed, system artifacts and user files. This avoids consuming one
+ChatGPT file slot for every logical artifact. Remote mode sends no Wharness input
+attachment and uses a short HTTPS bootstrap instead.
 
 ### Configure a provider-instance pool
 
@@ -15,9 +17,10 @@ Dropbox, OneDrive, Box or pCloud and select **Ligar** to authenticate in the
 browser. S3-compatible storage, WebDAV and Nextcloud use guided forms in the
 same screen. No terminal or JSON editing is required for normal setup.
 
-For advanced or automated installations, create `remote-storage.json` beside
-the Wharness session state file. With the canonical
-repository lifecycle this is `.harness/state/remote-storage.json`. Changes made
+For advanced or automated installations, create `.harness/state/remote-storage.json`.
+Session persistence is separate: on first startup, the canonical lifecycle
+starts a project-owned PostgreSQL Docker container and imports the legacy
+`.harness/state/sessions.json` transactionally. Changes made
 through the UI become active after restarting Wharness.
 Use `HARNESS_REMOTE_STORAGE_CONFIG_FILE` to select another path. The file follows
 `schemas/remote-storage-config.schema.json` and may contain several accounts of
@@ -82,6 +85,11 @@ The runtime reports per-instance limits and current usage in
 Wharness uses rclone behind its provider catalogue. The selected provider must
 support `rclone link`, or you must expose the configured prefix through a public
 HTTPS base URL.
+
+The published URL must return the file bytes directly, not a preview, sharing,
+login, or HTML landing page. Wharness automatically converts the viewer link
+returned by `rclone link` for Google Drive into Google's `/uc` file-download
+URL and verifies its ZIP signature before making it available to ChatGPT.
 
 Set `public_url` on an rclone instance when its provider does not implement
 `rclone link`.

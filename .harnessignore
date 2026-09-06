@@ -28,3 +28,6 @@ secrets
 *.sqlite3
 *.dump
 *.sql.gz
+
+patches
+wharness-input-*

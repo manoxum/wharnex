@@ -8,14 +8,14 @@ import (
 	"kernl.local/harness/backend/internal/config"
 )
 
-func TestRemoteInputManagerBuildsSeveralInstancesInPriorityOrder(t *testing.T) {
+func TestTunnelInputManagerBuildsSeveralInstancesInPriorityOrder(t *testing.T) {
 	root := t.TempDir()
-	configFile := filepath.Join(root, "remote-storage.json")
-	raw := []byte(`{"version":1,"instances":[{"id":"backup","provider":"http","priority":20,"upload_url":"https://upload-two.example/","public_url":"https://files-two.example/"},{"id":"primary","provider":"http","priority":10,"upload_url":"https://upload-one.example/","public_url":"https://files-one.example/"}]}`)
+	configFile := filepath.Join(root, "tunnel-providers.json")
+	raw := []byte(`{"version":1,"instances":[{"id":"backup","provider":"tailscale_funnel","priority":20,"public_url":"https://backup.example.ts.net","local_port":8443},{"id":"primary","provider":"tailscale_funnel","priority":10,"public_url":"https://primary.example.ts.net","local_port":10000}]}`)
 	if err := os.WriteFile(configFile, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manager, err := remoteInputManager(config.RemoteStorageConfig{ConfigFile: configFile, IndexFile: filepath.Join(root, "state.json")})
+	manager, err := tunnelInputManager(config.TunnelConfig{ConfigFile: configFile, IndexFile: filepath.Join(root, "state.json")})
 	if err != nil {
 		t.Fatal(err)
 	}

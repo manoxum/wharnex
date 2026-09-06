@@ -48,7 +48,7 @@ func TestParseResolvesPatchFile(t *testing.T) {
 func TestParsePreservesBaselineConcurrencyMetadata(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md": "# Fix\n",
-		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Atualizar."}`,
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Atualizar.","outcome":{"status":"completed","retryable":false}}`,
 		"plan.json": `{"protocol":"harness.execution/v1","base_context_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","impact_files":["services/backend/a.go"],"plan_id":"p1","request_id":"req_12345678","status":"ready","summary":"fix","risk":"low","requires_approval":false,"operations":[],"verification":[]}`,
 	})
 	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
@@ -74,7 +74,7 @@ func TestParseRejectsTraversalAndMissingStructuredContent(t *testing.T) {
 func TestParseAnswerTurnWithoutExecutionPlan(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md": "# Answer\n",
-		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"A série limita a consulta aos últimos 12 registos mensais."}`,
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"A série limita a consulta aos últimos 12 registos mensais.","outcome":{"status":"completed","retryable":false}}`,
 	})
 	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
 	if err != nil {
@@ -88,10 +88,42 @@ func TestParseAnswerTurnWithoutExecutionPlan(t *testing.T) {
 	}
 }
 
+func TestParseRejectsMissingOutcomeAndPlanOnFailedOutcome(t *testing.T) {
+	missing := zipBytes(t, map[string]string{
+		"README.md": "# Answer\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Resposta útil."}`,
+	})
+	if _, err := Parse("wharness-bundle-req_12345678.zip", missing); err == nil || !strings.Contains(err.Error(), "outcome is required") {
+		t.Fatalf("expected missing outcome rejection, got %v", err)
+	}
+	failedWithPlan := zipBytes(t, map[string]string{
+		"README.md": "# Failed\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Não concluído.","outcome":{"status":"failed","message":"A ferramenta falhou.","retryable":true}}`,
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"p1","request_id":"req_12345678","status":"ready","summary":"fix","risk":"low","requires_approval":false,"operations":[],"verification":[]}`,
+	})
+	if _, err := Parse("wharness-bundle-req_12345678.zip", failedWithPlan); err == nil || !strings.Contains(err.Error(), "must not contain plan.json") {
+		t.Fatalf("expected failed outcome plan rejection, got %v", err)
+	}
+}
+
+func TestParseAcceptsFailedChangeOutcomeWithoutExecutionPlan(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Failed\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Não foi possível produzir a alteração.","outcome":{"status":"failed","reason_code":"tool_error","message":"A ferramenta de edição falhou.","retryable":true}}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Plan != nil || parsed.Turn.Outcome == nil || parsed.Turn.Outcome.Status != domain.TurnOutcomeFailed {
+		t.Fatalf("unexpected failed turn: %#v", parsed)
+	}
+}
+
 func TestParseChangeTurnRequiresMatchingPlan(t *testing.T) {
 	entries := map[string]string{
 		"README.md": "# Change\n",
-		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Atualizar o ficheiro."}`,
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Atualizar o ficheiro.","outcome":{"status":"completed","retryable":false}}`,
 		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"p1","request_id":"req_other999","status":"ready","summary":"fix","risk":"low","requires_approval":false,"operations":[],"verification":[]}`,
 	}
 	if _, err := Parse("wharness-bundle-req_12345678.zip", zipBytes(t, entries)); err == nil {
@@ -109,7 +141,7 @@ func TestParseChangeTurnRequiresMatchingPlan(t *testing.T) {
 
 func TestParseSynthesizesMissingReadmeFromStructuredTurn(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
-		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Resposta útil."}`,
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Resposta útil.","outcome":{"status":"completed","retryable":false}}`,
 	})
 	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
 	if err != nil {
@@ -125,7 +157,7 @@ func TestParseSynthesizesMissingReadmeFromStructuredTurn(t *testing.T) {
 
 func TestParseNormalizesSingleWrapperDirectoryAndRootPatch(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
-		"result/turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Aplicar alteração."}`,
+		"result/turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Aplicar alteração.","outcome":{"status":"completed","retryable":false}}`,
 		"result/plan.json": `{"protocol":"harness.execution/v1","plan_id":"p1","request_id":"req_12345678","status":"ready","summary":"fix","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch_file":"001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 		"result/README.md": "# Fix\n",
 		"result/001.patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n",
@@ -145,7 +177,7 @@ func TestParseNormalizesSingleWrapperDirectoryAndRootPatch(t *testing.T) {
 func TestParseWorkflowTurnWithCommandPlan(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md": "# Workflow\nInspect local evidence.\n",
-		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"workflow","message":"Vou confirmar um detalhe local antes de responder."}`,
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"workflow","message":"Vou confirmar um detalhe local antes de responder.","outcome":{"status":"completed","retryable":false}}`,
 		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"wf1","request_id":"req_12345678","status":"ready","summary":"inspect status","risk":"low","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["git","status","--short"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	})
 	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
@@ -160,7 +192,7 @@ func TestParseWorkflowTurnWithCommandPlan(t *testing.T) {
 func TestParseWorkflowTurnRequiresPlan(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md": "# Workflow\n",
-		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"workflow","message":"Preciso de evidência local."}`,
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"workflow","message":"Preciso de evidência local.","outcome":{"status":"completed","retryable":false}}`,
 	})
 	if _, err := Parse("wharness-bundle-req_12345678.zip", raw); err == nil {
 		t.Fatal("expected workflow plan requirement")

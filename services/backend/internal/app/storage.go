@@ -1,36 +1,41 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 )
 
 type ProjectStorageUsage struct {
-	ProjectPath  string `json:"project_path"`
-	SessionCount int    `json:"session_count"`
-	ContextBytes int64  `json:"context_bytes"`
-	SandboxBytes int64  `json:"sandbox_bytes"`
-	TotalBytes   int64  `json:"total_bytes"`
+	ProjectPath   string `json:"project_path"`
+	SessionCount  int    `json:"session_count"`
+	ContextBytes  int64  `json:"context_bytes"`
+	SandboxBytes  int64  `json:"sandbox_bytes"`
+	ArtifactBytes int64  `json:"artifact_bytes"`
+	TotalBytes    int64  `json:"total_bytes"`
 }
 
 type StorageUsage struct {
-	TotalBytes   int64                 `json:"total_bytes"`
-	StateBytes   int64                 `json:"state_bytes"`
-	ContextBytes int64                 `json:"context_bytes"`
-	SandboxBytes int64                 `json:"sandbox_bytes"`
-	OrphanBytes  int64                 `json:"orphan_bytes"`
-	Projects     []ProjectStorageUsage `json:"projects"`
+	TotalBytes    int64                 `json:"total_bytes"`
+	StateBytes    int64                 `json:"state_bytes"`
+	ContextBytes  int64                 `json:"context_bytes"`
+	SandboxBytes  int64                 `json:"sandbox_bytes"`
+	ArtifactBytes int64                 `json:"artifact_bytes"`
+	OrphanBytes   int64                 `json:"orphan_bytes"`
+	Projects      []ProjectStorageUsage `json:"projects"`
 }
 
 func (s *Service) StorageUsage() StorageUsage {
 	usage := StorageUsage{Projects: make([]ProjectStorageUsage, 0)}
-	usage.StateBytes = fileSize(s.store.Path())
+	usage.StateBytes = s.store.StateBytes()
 	projects := map[string]*ProjectStorageUsage{}
 	seen := map[string]struct{}{}
 	for _, item := range s.store.List() {
@@ -40,6 +45,10 @@ func (s *Service) StorageUsage() StorageUsage {
 			projects[item.ProjectPath] = project
 		}
 		project.SessionCount++
+		for _, artifact := range item.Artifacts {
+			project.ArtifactBytes += artifact.Size
+			usage.ArtifactBytes += artifact.Size
+		}
 		if dir := ownedContextDir(item); dir != "" {
 			if _, ok := seen[dir]; !ok {
 				bytes := directorySize(dir)
@@ -60,23 +69,44 @@ func (s *Service) StorageUsage() StorageUsage {
 	}
 	usage.OrphanBytes = orphanWharnessTempBytes(seen)
 	for _, project := range projects {
-		project.TotalBytes = project.ContextBytes + project.SandboxBytes
+		project.TotalBytes = project.ContextBytes + project.SandboxBytes + project.ArtifactBytes
 		usage.Projects = append(usage.Projects, *project)
 	}
 	sort.Slice(usage.Projects, func(i, j int) bool { return usage.Projects[i].ProjectPath < usage.Projects[j].ProjectPath })
-	usage.TotalBytes = usage.StateBytes + usage.ContextBytes + usage.SandboxBytes + usage.OrphanBytes
+	usage.TotalBytes = usage.StateBytes + usage.ContextBytes + usage.SandboxBytes + usage.ArtifactBytes + usage.OrphanBytes
 	return usage
 }
 
 func (s *Service) ClearAllData() error {
 	items := s.store.List()
+	if s.artifactStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		for _, item := range items {
+			for _, artifact := range item.Artifacts {
+				if artifact.ObjectKey == "" {
+					continue
+				}
+				if err := s.artifactStore.Delete(ctx, artifact.ObjectKey); err != nil {
+					return fmt.Errorf("delete artifact %s: %w", artifact.ID, err)
+				}
+			}
+		}
+	}
 	if err := s.store.Clear(); err != nil {
 		return err
 	}
 	for _, item := range items {
+		s.releaseSupersededRemoteInputLeases(item.ID, nil)
+		s.closeRemoteInputChannel(item.ID, "request.cancelled")
 		s.resetDevspace(item.ID)
 		if dir := ownedContextDir(item); dir != "" {
 			_ = os.RemoveAll(dir)
+		}
+	}
+	if store, ok := s.remoteInputs.(RemoteInputSessionStore); ok {
+		if err := store.ClearRemoteInputSession(context.Background()); err != nil {
+			return err
 		}
 	}
 	// Only remove artifacts explicitly owned by this Service instance above.
@@ -92,17 +122,6 @@ func ownedContextDir(item domain.Session) string {
 		return ""
 	}
 	return filepath.Clean(dir)
-}
-
-func fileSize(path string) int64 {
-	if strings.TrimSpace(path) == "" {
-		return 0
-	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return 0
-	}
-	return info.Size()
 }
 
 func directorySize(root string) int64 {

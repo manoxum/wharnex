@@ -1,0 +1,2593 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 9ce8a11..8e41a2f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,14 @@
++## v1.2.43 - Persistent Docker service stack and tunnel daemon
++
++- Move backend, frontend, PostgreSQL and every tunnel-provider client into one project-owned Docker Compose stack; Electron/Desktop remains the only host service.
++- Add a dedicated Go `wharness-tunnel` daemon that owns tunnel processes, persisted request-channel resources and provider credentials independently from backend lifetime. Backend stack mode talks to it only over a bearer-authenticated private HTTP API; backend shutdown intentionally does not stop tunnel sessions.
++- Preserve temporary public tunnel URLs across normal `make stop`, backend/frontend replacement and self-evolution activation. Normal stack reconciliation uses `--no-recreate database tunnel` and rolls only backend/frontend with `--no-deps`.
++- Add first-run PostgreSQL 17 migration from the previous checkout-owned bind-mounted PGDATA into the Compose named volume, with ownership validation, offline physical copy and a durable one-time marker. Incompatible major versions fail closed instead of copying unsafe bytes. Existing tunnel credentials/state are migrated into the tunnel volume once.
++- Change lifecycle semantics: `make build` stages images then reconciles the application stack; `make build-stage` is the self-evolution-safe build that never replaces running services; `make start` reconciles the stack and starts Desktop; `make stop` stops Desktop only; `make stack-stop` and `make stack-down` explicitly control the persistent stack.
++- Keep Protected execution isolated even though the backend is containerized: only the backend receives the host Docker socket; runner containers still receive no socket, and host-visible sandbox/context temporary paths live below `.harness/bridge`.
++- Include the v1.2.42.5.1 completeness fix (`SourceProbe`, probe regressions and lazy archive serving) so this patch is self-contained over the supplied baseline.
++- Fix daemon-client response decoding so provider/publication/enrollment results are returned after the HTTP response is decoded rather than as pre-request zero values.
++
+ ## v1.2.42.5 - Live context fast-path
+ 
+ - Make live HTTPS file-map transport the default (`request archive ZIP=false`, `live tunnels=true`) and bump the persisted global transport preference key so installations carrying the former both-on default stop uploading a duplicate request ZIP automatically.
+diff --git a/Makefile b/Makefile
+index 34be190..6274831 100644
+--- a/Makefile
++++ b/Makefile
+@@ -9,8 +9,8 @@ BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
+ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
+ BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
+ 
+-.PHONY: help deps deps-status deps-refresh build-status build-refresh runner-deps build build-all build-backend build-frontend build-desktop build-runner build-plan \
+-	backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
++.PHONY: help deps deps-status deps-refresh build-status build-refresh runner-deps build build-stage build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
++	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
+ 	electron-runtime-check electron-runtime-install electron-runtime-status \
+ 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
+ 	run-backend run-frontend run-desktop clean export export-check
+@@ -18,19 +18,24 @@ BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
+ help:
+ 	@printf '%s\n' \
+ 		'Wharness lifecycle:' \
+-		'  make build    Reuse dependency cache and build backend/frontend/desktop (does not touch Docker)' \
++		'  make build    Build application/stack images and reconcile backend/frontend services' \
++		'  make build-stage  Build artifacts/images without replacing running services (self-evolution)' \
+ 		'  make deps-status   Show dependency fingerprint cache state' \
+ 		'  make deps-refresh  Force deterministic dependency re-hydration' \
+ 		'  make build-status  Show compiled-artifact fingerprint cache state' \
+ 		'  make build-refresh Force recompilation while preserving dependency caches' \
+ 		'  make build-runner  Explicitly build the Protected Docker runner (Docker must already be active)' \
+ 		'  make build-all     Build desktop lifecycle + runner explicitly' \
+-		'  make start    Start backend + frontend + Electron in background' \
+-		'  make stop     Stop services started by make start' \
+-		'  make restart  Restart the complete desktop stack' \
+-		'  make status   Show coordinator/services status' \
+-		'  make logs     Follow desktop stack logs' \
+-		'  PostgreSQL runs in a project-owned Docker container with persistent local data' \
++		'  make start    Reconcile Compose services and start Desktop on the host' \
++		'  make stop     Stop Desktop only; Compose services and tunnel URLs stay alive' \
++		'  make restart  Restart Desktop/application containers while preserving tunnel/database' \
++		'  make stack-up     Ensure the persistent Compose stack is running' \
++		'  make stack-stop   Stop all Compose services, preserving containers/volumes' \
++		'  make stack-down   Remove Compose containers/network, preserving named volumes' \
++		'  make stack-status Show Compose service state' \
++		'  make stack-logs   Follow Compose service logs' \
++		'  make status   Show Desktop + Compose service status' \
++		'  make logs     Follow Desktop lifecycle logs' \
+ 		'  make check    Run backend/frontend/desktop quality checks' \
+ 		'' \
+ 		'Linux Electron runtime:' \
+@@ -99,15 +104,20 @@ build-desktop:
+ build-runner: runner-deps
+ 	docker build -t "$(RUNNER_IMAGE)" -f "$(ROOT_DIR)/docker/runner/Dockerfile" "$(ROOT_DIR)"
+ 
+-build:
++build-stage:
+ 	@mkdir -p "$(dir $(BUILD_STAMP))"
+ 	@if [ -f "$(BUILD_STAMP)" ]; then cp -p "$(BUILD_STAMP)" "$(BUILD_BASELINE_STAMP)"; fi
+ 	@rm -f "$(BUILD_STAMP)"
+ 	@$(MAKE) --no-print-directory deps
+ 	@$(MAKE) --no-print-directory -j"$(BUILD_JOBS)" build-backend build-frontend build-desktop
++	@$(MAKE) --no-print-directory stack-build
+ 	@touch "$(BUILD_STAMP)"
+ 	@rm -f "$(BUILD_BASELINE_STAMP)"
+-	@printf '\nWharness build complete without Docker daemon access. Start with: make start\n'
++	@printf '\nWharness build stage complete; running stack services were not replaced.\n'
++
++build: build-stage
++	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" ensure
++	@printf '\nWharness build complete; backend/frontend reconciled and durable tunnel/database preserved.\n'
+ 
+ 
+ build-all:
+@@ -116,7 +126,25 @@ build-all:
+ 	@printf '\nWharness application + Protected runner build complete.\n'
+ 
+ build-plan:
+-	@printf '%s\n' deps build-backend build-frontend build-desktop
++	@printf '%s\n' deps build-backend build-frontend build-desktop stack-build
++
++stack-build:
++	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" build
++
++stack-up:
++	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" ensure
++
++stack-stop:
++	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" stop
++
++stack-down:
++	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" down
++
++stack-status:
++	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" status
++
++stack-logs:
++	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" logs
+ 
+ backend-check:
+ 	cd "$(ROOT_DIR)/services/backend" && gofmt -w . && go vet ./... && go test ./... && go test -race ./...
+diff --git a/README.md b/README.md
+index ae16d71..dd5b10c 100644
+--- a/README.md
++++ b/README.md
+@@ -75,7 +75,11 @@ For Node.js projects, `node_modules` stays out of model context and the initial
+ 
+ ## Recommended lifecycle — Desktop
+ 
+-Prerequisites for the desktop lifecycle: Go, Node.js 20+, npm, `curl` and an explicitly running Docker daemon for the PostgreSQL Session Store. Run lifecycle commands from the repository root.
++Prerequisites for the desktop lifecycle: Go, Node.js 20+, npm, `curl`, Docker Engine and Docker Compose v2. Desktop runs on the host; backend, frontend, PostgreSQL and all tunnel clients run in the project-owned Compose stack.
++
++`make build` builds/stages application artifacts and Compose images, then reconciles backend/frontend without recreating the persistent tunnel/database services. `make start` ensures that stack and launches Desktop. `make stop` stops Desktop only. Use `make stack-stop` or `make stack-down` only when you intentionally want to interrupt the persistent service stack and any ephemeral tunnel URLs. Transactional self-evolution uses `make build-stage`, which never activates replacement containers.
++
++On first stack initialization, Wharness reuses the existing PostgreSQL credentials and migrates a compatible PostgreSQL 17 `.harness/postgres/data` directory into the Compose named volume before starting the new database.
+ 
+ ### Build the desktop lifecycle
+ 
+@@ -93,7 +97,7 @@ make build-status    # show backend/frontend/desktop artifact-cache state
+ make build-refresh   # force recompilation, preserving dependency caches
+ ```
+ 
+-`make build` performs the complete desktop/application build path **without invoking Docker**. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
++`make build` performs the complete desktop/application build path, builds the Compose service images, and reconciles backend/frontend while preserving the running tunnel/database containers. `make build-stage` performs the same staging without activating replacement containers. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
+ 
+ Compiled artifacts are fingerprinted independently as well. If a component's source/configuration/runtime fingerprint is unchanged and its expected output is present, `make build` skips that component's compilation. Backend-only or no-change rebuilds therefore leave the frontend untouched. When a real frontend change does require Vite, the official versioned precompiled Monaco runtime is copied into the production output instead of making Rollup transform and minify Monaco's full source module graph again.
+ 
+@@ -104,7 +108,7 @@ Compiled artifacts are fingerprinted independently as well. If a component's sou
+ - builds the React frontend into `services/frontend/dist` only when frontend inputs change;
+ - validates the Electron main/preload/dev code and installed Electron binary only when desktop inputs change.
+ 
+-The Protected runner image remains decoupled from application builds. `make start` manages only the PostgreSQL container and refuses to wake a socket-activated, stopped Docker daemon. Build the runner only when required:
++The Protected runner image remains decoupled from application/service-image builds. Docker must already be explicitly running; normal lifecycle commands refuse unsafe socket activation. Build the runner only when required:
+ 
+ ```bash
+ # Docker must already be running; Wharness will not auto-start it.
+@@ -123,7 +127,7 @@ cd ~/workspace/wharness
+ make start
+ ```
+ 
+-`make start` starts a lifecycle coordinator in the background. It starts:
++`make start` first reconciles the persistent Compose services and then starts the host Desktop lifecycle coordinator. The Compose services are:
+ 
+ - project-owned PostgreSQL on a dynamically allocated loopback port;
+ - backend: `127.0.0.1:8080`;
+diff --git a/SoT/ARCHITECTURE.md b/SoT/ARCHITECTURE.md
+index 9ade64a..0ef80e6 100644
+--- a/SoT/ARCHITECTURE.md
++++ b/SoT/ARCHITECTURE.md
+@@ -47,9 +47,12 @@ There is no direct `AI -> shell` path. MCP, when introduced, is an adapter behin
+ 
+ ## Services
+ 
+-- `services/frontend`: React user experience.
+-- `services/backend`: Go API/orchestrator.
+-- `docker/runner`: execution environment.
++- `services/frontend`: React user experience, served by the persistent Compose stack.
++- `services/backend`: Go API/orchestrator, executed in Compose and connected to the host Docker daemon only as the trusted owner of Protected runner creation.
++- `services/backend/cmd/tunnel` + `services/tunnel`: dedicated Go tunnel daemon/runtime. It owns all tunnel-provider processes and persisted public-channel resources independently from backend lifetime.
++- `database`: PostgreSQL 17 Compose service with a named persistent volume.
++- `services/desktop`: Electron/Desktop host process; it is intentionally not containerized.
++- `docker/runner`: ephemeral Protected execution environment, never a persistent Compose service and never given the Docker socket.
+ 
+ ## Session persistence
+ 
+@@ -59,12 +62,13 @@ columns and one JSONB aggregate payload. Updating one session MUST NOT rewrite
+ unrelated sessions. The backend MUST fail closed if its configured database is
+ unavailable; a file fallback is forbidden in production.
+ 
+-The canonical local lifecycle owns a project-labelled PostgreSQL container,
+-persists its data below `.harness/`, publishes PostgreSQL only to a dynamically
+-allocated loopback port, and supplies credentials to the backend without
+-logging them. The previous `sessions.json` is a Legacy Session Snapshot: it is
+-imported transactionally and idempotently, retained for recovery, and never
+-written after PostgreSQL becomes authoritative.
++The canonical local lifecycle owns PostgreSQL as a persistent Compose service backed by a project-specific named volume; the database is not published publicly. On the first stack migration, compatible PostgreSQL 17 data from the former `.harness/postgres/data` PGDATA is copied offline into that named volume exactly once. The previous `sessions.json` remains a Legacy Session Snapshot: it is imported transactionally and idempotently, retained for recovery, and never written after PostgreSQL becomes authoritative.
++
++### Tunnel daemon boundary
++
++The backend MUST NOT own tunnel process lifetime in stack mode. It communicates with the dedicated tunnel daemon over an internal Docker-network HTTP API authenticated with a generated local bearer token. The daemon owns provider processes, provider credentials, request-channel storage, retention and public URL lifetime. Backend shutdown/replacement therefore cannot call provider session stop. Normal lifecycle reconciliation MUST preserve the tunnel container. Explicit `stack-stop`/`stack-down` may terminate it and consequently invalidate ephemeral URLs.
++
++Backend-created context/sandbox temporary files used by the host Docker daemon or tunnel daemon live under a host-visible `.harness/bridge` mounted at the same absolute pathname. The tunnel daemon accepts publication source paths only from this bridge and copies them into its own persistent volume before exposing them.
+ ## Desktop multi-window and multi-project composition
+ 
+ The Electron main process owns a registry of desktop windows and canonical project-path leases. A canonical project path may be bound to at most one desktop window at a time; attempts from another window fail closed and may focus the owning window. This lease is a UI/runtime ownership boundary and does not weaken backend project containment or execution policy.
+diff --git a/SoT/EXECUTION_MODEL.md b/SoT/EXECUTION_MODEL.md
+index 648fbe4..5d1b373 100644
+--- a/SoT/EXECUTION_MODEL.md
++++ b/SoT/EXECUTION_MODEL.md
+@@ -69,7 +69,7 @@ Self-evolution is locked to `Protected`; switching that session to `Unprotected`
+ 
+ 1. acquire a durable `.harness/self-evolution/active.lock` for the pending activation batch and a short-lived `stage.lock` for the current mutation stage;
+ 2. for the first batch member, snapshot patch-touched source files, root/frontend compiled artifacts, build stamp and known-good lifecycle scripts;
+-3. apply validated patches to the real root and run `make build` while the old Wharness remains healthy;
++3. apply validated patches to the real root and run `make build-stage` while the old Wharness remains healthy; this may build replacement application images but MUST NOT recreate the running backend/frontend/database/tunnel containers;
+ 4. rollback the whole batch immediately on host Apply/build failure;
+ 5. on success, persist `restart_pending`, keep `active.lock`, and release only `stage.lock`;
+ 6. another verified self-evolution plan MAY extend that same `restart_pending` transaction: it reuses the original runtime rollback baseline, snapshots only newly touched source paths, records its session/plan membership, applies, rebuilds, and returns to `restart_pending`;
+diff --git a/SoT/QUALITY_GATES.md b/SoT/QUALITY_GATES.md
+index 48990eb..aa8918e 100644
+--- a/SoT/QUALITY_GATES.md
++++ b/SoT/QUALITY_GATES.md
+@@ -28,14 +28,14 @@ No credentials, generated context bundles, or temporary workspaces committed.
+ 
+ ## G5 Build
+ 
+-Canonical local build command: `make build`. It must:
++Canonical operator build command: `make build`. It must:
+ 
+-- resolve/install service dependencies;
+-- build the Go backend binary under `dist/bin`;
+-- build the React production bundle and copy the versioned precompiled local Monaco runtime without rebundling Monaco's dependency source graph;
+-- validate the Electron desktop runtime and installed Electron binary;
++- resolve/install development dependencies needed by quality gates/Desktop;
++- build the compatibility Go/frontend artifacts and validate the Electron desktop runtime;
++- build backend, frontend and tunnel Compose images;
++- reconcile backend/frontend containers while preserving existing PostgreSQL/tunnel containers.
+ 
+-The Docker runner is deliberately excluded from normal `make build`; `make build-runner` builds it explicitly from the repository root context.
++`make build-stage` performs the same artifact/image staging but MUST NOT replace running services and is the only build target used by transactional self-evolution. The Protected Docker runner is deliberately excluded from both targets; `make build-runner` remains explicit.
+ 
+ ## G6 Security
+ 
+@@ -56,20 +56,16 @@ Playwright session/bootstrap/manual-plan workflow plus Docker executor tests whe
+ 
+ ## G9 Local lifecycle
+ 
+-Canonical startup readiness MUST allow up to two minutes for a configured
+-permanent tunnel provider to establish and validate its public edge; it MUST NOT
+-report failure merely because frontend readiness completed first.
+-
+ The canonical Desktop lifecycle is rooted at the repository Makefile:
+ 
+-- `make start`: start the tracked coordinator, backend/frontend as needed, and Electron.
+-- `make stop`: stop only processes owned by that coordinator.
+-- `make status`: report tracked PIDs plus backend/frontend health.
+-- `make logs`: follow the combined Desktop lifecycle log.
++- `make build-stage`: stage artifacts and service images without replacing running services.
++- `make build`: stage then reconcile backend/frontend while preserving PostgreSQL/tunnel identity.
++- `make start`: ensure the persistent Compose stack is healthy and start only the host Electron/Desktop coordinator.
++- `make stop`: stop Desktop only; it MUST NOT stop/recreate backend, frontend, PostgreSQL or tunnel services.
++- `make stack-stop`: explicitly stop every Compose service while retaining containers and named volumes.
++- `make stack-down`: remove Compose containers/network while retaining named data volumes.
++- `make status`: report Desktop plus Compose health.
+ 
+-`make start` also starts the project-owned PostgreSQL container before the
+-backend. `make stop` stops only the validated container and processes owned by
+-this Wharness checkout; database files and the Legacy Session Snapshot remain
+-recoverable.
++Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tunnel containers. Backend/frontend may roll independently with `--no-deps`; this preserves active temporary tunnel base URLs across application restart/self-evolution. First stack initialization migrates compatible PostgreSQL 17 data from the former checkout-owned PGDATA into the named volume before the new database starts.
+ 
+ Runtime state belongs under `.harness/` and must never be committed.
+diff --git a/SoT/SANDBOX_MODEL.md b/SoT/SANDBOX_MODEL.md
+index ff86501..bf32e7e 100644
+--- a/SoT/SANDBOX_MODEL.md
++++ b/SoT/SANDBOX_MODEL.md
+@@ -14,10 +14,9 @@ Required controls:
+ - network `none` by default;
+ - no Docker socket;
+ - non-root host UID/GID when possible.
+-- normal `make build` MUST NOT invoke Docker. `make start` MAY invoke Docker
+-  only to manage the project-owned PostgreSQL Session Store container; it MUST
+-  NOT build/start the runner or socket-activate a stopped Docker daemon. Runner
+-  image construction remains an explicit operator action.
++- the canonical application lifecycle is Docker-backed: `make build-stage` MAY build backend/frontend/tunnel service images without replacing the running stack; `make build` MAY reconcile application service containers after staging. The Protected runner image remains a separate explicit `make build-runner` action and MUST NOT be implicitly rebuilt by either target.
++- the containerized backend MAY mount the host Docker socket because it owns the trusted sandbox adapter, but it MUST preserve host-visible canonical workspace/bridge paths when asking the host daemon to create runner containers. The runner itself MUST NEVER receive the Docker socket.
++- `make stop` MUST stop only the host Desktop/coordinator. PostgreSQL and tunnel infrastructure are persistent stack services and may be stopped only by explicit stack lifecycle commands.
+ - on Linux/systemd, Protected execution MUST fail closed when `docker.socket` is active but `docker.service` is stopped, rather than triggering socket activation that can recreate host bridges/routes while the desktop browser is online.
+ - on Linux, the Electron desktop MUST NOT depend on privileged metadata inside project `node_modules`. The primary SUID launch path is a versioned, root-owned, non-user-writable Electron runtime outside the workspace (default `/opt/wharness/electron/<version>-linux-<arch>/`) whose complete distribution and root-owned checksum manifest are validated before launch; only that runtime's adjacent `chrome-sandbox` may be mode `4755`. `npm install`, `npm ci`, normal builds and worktree changes MUST NOT mutate that privileged runtime. A version change requires explicit runtime synchronization. If no matching runtime exists, Wharness MAY use the workspace Electron only after an actual unprivileged user-namespace probe succeeds and only with `--disable-setuid-sandbox`; `--no-sandbox` remains forbidden.
+ 
+diff --git a/VALIDATION.md b/VALIDATION.md
+index 705e31b..ce8738a 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -138,3 +138,14 @@ Focused validation for this update:
+ - Regression: a live allowlisted ChatGPT conversation request suppresses heuristic silent recovery even when a DOM sample briefly reports idle — PASS.
+ - Regression: `net::ERR_FAILED` remains ignored for unrelated resources but is recoverable for the narrow ChatGPT conversation transport — PASS.
+ - Static regression: expected-bundle polling uses `faultOnly: true`, tracks per-view conversation request start/end, and passes `transportActive` into the full recovery snapshot — PASS.
++
++## v1.2.43 persistent Compose stack / tunnel daemon
++
++Required regression coverage for this architecture:
++
++- Go tunnel-daemon client decodes response payloads only after the authenticated HTTP request completes and backend shutdown does not send a daemon session-stop request.
++- Backend retains the local tunnel-manager fallback when no daemon URL is configured, while Compose always configures `http://tunnel:8090`.
++- Lifecycle static gates require `make build-stage` for self-evolution, `--no-recreate database tunnel`, independent backend/frontend rollout, Desktop-only `make stop`, and the one-time PostgreSQL 17 physical migration guard.
++- `sh -n` for stack/start/stop/status/orphan/lifecycle scripts and `node --check services/desktop/dev.mjs` must pass.
++- `docker compose config` and an actual first-run migration/start are host gates because they require a Docker daemon and provider-image network access.
++- Full `make check` remains mandatory on the operator machine. The v1.2.42.5.1 completeness files are included in this consolidated patch so `SourceProbe` and lazy archive routing compile together.
+diff --git a/adr/ADR-0024-persistent-compose-stack-and-tunnel-daemon.md b/adr/ADR-0024-persistent-compose-stack-and-tunnel-daemon.md
+new file mode 100644
+index 0000000..0bd998f
+--- /dev/null
++++ b/adr/ADR-0024-persistent-compose-stack-and-tunnel-daemon.md
+@@ -0,0 +1,26 @@
++# ADR-0024 — Persistent Compose stack and tunnel daemon
++
++Status: Accepted
++
++## Context
++
++Wharness previously ran backend/frontend on the host and started tunnel provider processes inside the backend. Self-evolution or a backend restart therefore terminated Quick Tunnel processes and invalidated public URLs while ChatGPT could still be consuming request resources. PostgreSQL was a separately managed one-off Docker container, creating a second lifecycle model.
++
++## Decision
++
++Desktop remains a host Electron process. Backend, frontend, PostgreSQL and a new Go tunnel daemon run in one project-owned Docker Compose stack. The tunnel daemon is the sole owner of cloudflared/ngrok/zrok/localxpose/SSH-based tunnel processes and persisted request-channel resources. Backend stack mode uses a bearer-authenticated private HTTP adapter to the daemon and its session stop is deliberately a no-op.
++
++Normal build/start reconciliation preserves database and tunnel container identity and rolls backend/frontend independently. Explicit `make stack-stop` and `make stack-down` are the only normal commands allowed to terminate the durable stack. Transactional self-evolution uses `make build-stage`, which may build new images but may not activate them; the detached restart path activates backend/frontend later without touching tunnel/database.
++
++The first stack initialization performs a one-time offline physical migration of the legacy PostgreSQL PGDATA only when its major version is PostgreSQL 17. Any incompatible version fails closed. Existing tunnel credentials/state are copied once into the tunnel named volume.
++
++The backend alone may access the host Docker socket so it can create Protected runner containers. Runner containers never receive that socket. Host-visible temporary work required across the backend/container/host-daemon boundary is rooted below `.harness/bridge` and mounted at the same absolute path.
++
++## Consequences
++
++- Backend/Desktop restarts no longer invalidate active ephemeral tunnel URLs.
++- Existing tunnel resources continue to be served while the backend is temporarily unavailable.
++- Normal `make stop` is intentionally Desktop-only.
++- Tunnel binary dependencies leave the host and are versioned in the tunnel image.
++- Projects opened by the containerized backend must be reachable through the configured host-path mounts; the canonical local stack mounts the operator home at the same absolute path.
++- Explicit full stack stop/down may invalidate ephemeral public URLs and is therefore an operator action rather than part of self-evolution.
+diff --git a/compose.yml b/compose.yml
+index 0cac05a..cbfe50b 100644
+--- a/compose.yml
++++ b/compose.yml
+@@ -1,50 +1,131 @@
+ services:
+   database:
+     image: postgres:17-alpine
++    restart: unless-stopped
+     environment:
+       POSTGRES_USER: wharness
+       POSTGRES_DB: wharness
+-      POSTGRES_PASSWORD: "${WHARNESS_DATABASE_PASSWORD:?set WHARNESS_DATABASE_PASSWORD}"
++      POSTGRES_PASSWORD: "${WHARNESS_DATABASE_PASSWORD:?stack credentials are missing}"
+     volumes:
+       - wharness-postgres:/var/lib/postgresql/data
+     healthcheck:
+-      test: ["CMD-SHELL", "pg_isready -U wharness -d wharness"]
++      test: ["CMD-SHELL", "pg_isready -q -U wharness -d wharness"]
+       interval: 2s
+       timeout: 3s
+-      retries: 30
++      retries: 60
++      start_period: 3s
++    labels:
++      wharness.root: "${WHARNESS_ROOT}"
++      wharness.role: "database"
++
++  tunnel:
++    image: "wharness-tunnel:${WHARNESS_STACK_ID}"
++    build:
++      context: .
++      dockerfile: services/tunnel/Dockerfile
++      args:
++        WHARNESS_UID: "${WHARNESS_UID}"
++        WHARNESS_GID: "${WHARNESS_GID}"
++    restart: unless-stopped
++    user: "${WHARNESS_UID}:${WHARNESS_GID}"
++    environment:
++      WHARNESS_TUNNEL_ADDR: ":8090"
++      WHARNESS_TUNNEL_STATE_DIR: "/var/lib/wharness-tunnel"
++      WHARNESS_BRIDGE_DIR: "${WHARNESS_BRIDGE_DIR}"
++      WHARNESS_TUNNEL_API_TOKEN: "${WHARNESS_TUNNEL_API_TOKEN:?stack token is missing}"
++      HARNESS_TUNNEL_CONFIG_FILE: "/control/tunnel-providers.json"
++      HARNESS_REMOTE_STORAGE_CONFIG_FILE: "/control/remote-storage.json"
++      HARNESS_REMOTE_STORAGE_PROVIDER: "${HARNESS_REMOTE_STORAGE_PROVIDER:-}"
++    volumes:
++      - wharness-tunnel:/var/lib/wharness-tunnel
++      - "${WHARNESS_STATE_DIR}:/control:ro"
++      - "${WHARNESS_BRIDGE_DIR}:${WHARNESS_BRIDGE_DIR}:ro"
++    healthcheck:
++      test: ["CMD-SHELL", "curl -fsS -H \"Authorization: Bearer $$WHARNESS_TUNNEL_API_TOKEN\" http://127.0.0.1:8090/health >/dev/null"]
++      interval: 2s
++      timeout: 5s
++      retries: 90
++      start_period: 3s
++    labels:
++      wharness.root: "${WHARNESS_ROOT}"
++      wharness.role: "tunnel"
+ 
+   backend:
++    image: "wharness-backend:${WHARNESS_STACK_ID}"
+     build:
+       context: ./services/backend
++      args:
++        WHARNESS_UID: "${WHARNESS_UID}"
++        WHARNESS_GID: "${WHARNESS_GID}"
++    restart: unless-stopped
++    user: "${WHARNESS_UID}:${WHARNESS_GID}"
++    group_add:
++      - "${WHARNESS_DOCKER_GID}"
+     environment:
++      HOME: "${WHARNESS_HOME}"
++      TMPDIR: "${WHARNESS_BRIDGE_DIR}/tmp"
+       HARNESS_ADDR: ":8080"
+       HARNESS_PLANNER: "${HARNESS_PLANNER:-manual}"
+       HARNESS_SANDBOX: "docker"
+-      HARNESS_RUNNER_IMAGE: "kernl-runner:local"
++      HARNESS_RUNNER_IMAGE: "${HARNESS_RUNNER_IMAGE:-kernl-runner:local}"
+       HARNESS_DATABASE_URL: "postgres://wharness:${WHARNESS_DATABASE_PASSWORD}@database:5432/wharness?sslmode=disable"
+-      HARNESS_STATE_FILE: "/state/sessions.json"
++      HARNESS_STATE_FILE: "${WHARNESS_STATE_DIR}/sessions.json"
++      HARNESS_TUNNEL_DAEMON_URL: "http://tunnel:8090"
++      HARNESS_TUNNEL_DAEMON_TOKEN: "${WHARNESS_TUNNEL_API_TOKEN}"
++      HARNESS_TUNNEL_CONFIG_FILE: "${WHARNESS_STATE_DIR}/tunnel-providers.json"
++      HARNESS_REMOTE_STORAGE_CONFIG_FILE: "${WHARNESS_STATE_DIR}/remote-storage.json"
++      HARNESS_REMOTE_STORAGE_PROVIDER: "${HARNESS_REMOTE_STORAGE_PROVIDER:-}"
++      HARNESS_MAX_CONTEXT_BYTES: "${HARNESS_MAX_CONTEXT_BYTES:-4194304}"
++      HARNESS_MAX_BUNDLE_BYTES: "${HARNESS_MAX_BUNDLE_BYTES:-134217728}"
+       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.6-sol}"
++      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+     ports:
+-      - "8080:8080"
++      - "127.0.0.1:8080:8080"
+     volumes:
+-      - ./.harness/state:/state
++      - "${WHARNESS_HOME}:${WHARNESS_HOME}"
++      - "${WHARNESS_STATE_DIR}:${WHARNESS_STATE_DIR}"
++      - "${WHARNESS_BRIDGE_DIR}:${WHARNESS_BRIDGE_DIR}"
++      - /var/run/docker.sock:/var/run/docker.sock
+     depends_on:
+       database:
+         condition: service_healthy
+-    # Docker CLI orchestration requires access to a Docker daemon.
+-    # Prefer a dedicated/rootless daemon in production. This development
+-    # compose example intentionally does NOT mount the host docker socket.
++      tunnel:
++        condition: service_healthy
++    healthcheck:
++      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
++      interval: 2s
++      timeout: 5s
++      retries: 60
++      start_period: 3s
++    labels:
++      wharness.root: "${WHARNESS_ROOT}"
++      wharness.role: "backend"
+ 
+   frontend:
++    image: "wharness-frontend:${WHARNESS_STACK_ID}"
+     build:
+       context: ./services/frontend
+-    environment:
+-      VITE_API_URL: "http://localhost:8080"
++      args:
++        VITE_API_URL: "http://127.0.0.1:8080"
++    restart: unless-stopped
+     ports:
+-      - "5173:80"
++      - "127.0.0.1:5173:80"
+     depends_on:
+-      - backend
++      backend:
++        condition: service_healthy
++    healthcheck:
++      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
++      interval: 2s
++      timeout: 5s
++      retries: 60
++      start_period: 3s
++    labels:
++      wharness.root: "${WHARNESS_ROOT}"
++      wharness.role: "frontend"
+ 
+ volumes:
+   wharness-postgres:
++    name: "${WHARNESS_POSTGRES_VOLUME}"
++  wharness-tunnel:
++    name: "${WHARNESS_TUNNEL_VOLUME}"
+diff --git a/scripts/lifecycle-check.sh b/scripts/lifecycle-check.sh
+index 174fac0..3ca7724 100755
+--- a/scripts/lifecycle-check.sh
++++ b/scripts/lifecycle-check.sh
+@@ -5,87 +5,108 @@ ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
+ MAKEFILE="$ROOT/Makefile"
+ START="$ROOT/scripts/start.sh"
+ STOP="$ROOT/scripts/stop.sh"
+-DATABASE="$ROOT/scripts/database.sh"
++STACK="$ROOT/scripts/stack.sh"
+ ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
+ DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
++SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
++COMPOSE="$ROOT/compose.yml"
+ 
+ section() {
+   target=$1
+-  awk -v header="$target:" '
+-    $0 == header { inside=1; next }
++  awk -v target="$target" '
++    $0 ~ ("^" target ":") { inside=1; next }
+     inside && /^[A-Za-z0-9_.-]+:/ { exit }
+     inside { print }
+   ' "$MAKEFILE"
+ }
+ 
+ build_block=$(section build)
++build_stage_block=$(section build-stage)
+ deps_block=$(section deps)
++stop_block=$(section stop)
+ 
+-if printf '%s\n' "$build_block" | grep -Eq 'build-runner|docker[[:space:]]+(build|run|info)'; then
+-  echo 'lifecycle regression: make build must not invoke the Docker runner/daemon' >&2
++if ! printf '%s\n' "$build_block" | grep -Fq 'stack.sh" ensure'; then
++  echo 'lifecycle regression: make build must reconcile the Compose application stack' >&2
+   exit 1
+ fi
+-
+-if printf '%s\n' "$deps_block" | grep -Eq 'command -v docker|docker[[:space:]]'; then
+-  echo 'lifecycle regression: normal dependencies must not require/invoke Docker' >&2
++if ! printf '%s\n' "$build_stage_block" | grep -Fq 'stack-build'; then
++  echo 'lifecycle regression: build-stage must build Compose images without activating them' >&2
+   exit 1
+ fi
+-
+-if grep -Fq '"$ROOT/docker" \' "$START"; then
+-  echo 'lifecycle regression: Dockerfile changes must not stale the application-only build stamp' >&2
++if ! grep -A2 '^stack-build:' "$MAKEFILE" | grep -Fq 'stack.sh" build'; then
++  echo 'lifecycle regression: stack-build must delegate to the Compose image builder' >&2
++  exit 1
++fi
++if ! grep -Fq 'exec.CommandContext(ctx, "make", "build-stage")' "$SELF_EVOLUTION"; then
++  echo 'lifecycle regression: self-evolution must stage images without replacing the active runtime' >&2
++  exit 1
++fi
++if printf '%s\n' "$deps_block" | grep -Eq 'command -v docker|docker[[:space:]]'; then
++  echo 'lifecycle regression: dependency hydration must remain Docker-independent' >&2
+   exit 1
+ fi
+-
+ if ! grep -Fq 'build-runner: runner-deps' "$MAKEFILE"; then
+-  echo 'lifecycle regression: runner construction must remain an explicit guarded target' >&2
++  echo 'lifecycle regression: Protected runner construction must remain explicit' >&2
+   exit 1
+ fi
+-
+-printf 'Lifecycle network-stability checks passed.\n'
+-
++if grep -Eq 'database\.sh.*stop|stack\.sh.*(stop|down)' "$STOP" || printf '%s\n' "$stop_block" | grep -Eq 'stack-(stop|down)'; then
++  echo 'lifecycle regression: make stop must never stop the persistent Compose stack' >&2
++  exit 1
++fi
++if ! grep -Fq -- '--no-recreate database tunnel' "$STACK"; then
++  echo 'lifecycle regression: normal stack reconciliation must preserve tunnel/database containers' >&2
++  exit 1
++fi
++if ! grep -Fq -- '--no-deps backend frontend' "$STACK"; then
++  echo 'lifecycle regression: backend/frontend rollout must not recreate durable dependencies' >&2
++  exit 1
++fi
++if ! grep -Fq 'stack-postgres-migrated-v1' "$STACK" || ! grep -Fq 'PG_VERSION' "$STACK" || ! grep -Fq 'cp -a /source/. /target/' "$STACK"; then
++  echo 'lifecycle regression: first-run PostgreSQL stack migration is missing or no longer fail-closed' >&2
++  exit 1
++fi
++for service in database tunnel backend frontend; do
++  grep -Eq "^[[:space:]]{2}${service}:" "$COMPOSE" || { echo "lifecycle regression: Compose service $service is missing" >&2; exit 1; }
++done
++if grep -Eq '^[[:space:]]{2}desktop:' "$COMPOSE"; then
++  echo 'lifecycle regression: Desktop must remain a host process, not a Compose service' >&2
++  exit 1
++fi
++if ! grep -Fq 'HARNESS_TUNNEL_DAEMON_URL: "http://tunnel:8090"' "$COMPOSE"; then
++  echo 'lifecycle regression: backend must use the dedicated tunnel daemon inside Compose' >&2
++  exit 1
++fi
++if ! grep -Fq '/var/run/docker.sock:/var/run/docker.sock' "$COMPOSE"; then
++  echo 'lifecycle regression: containerized backend must retain host Docker executor access' >&2
++  exit 1
++fi
++printf 'Lifecycle Compose isolation checks passed.\n'
+ 
+ if [ ! -x "$ELECTRON_RUNTIME" ]; then
+   echo 'lifecycle regression: immutable Electron runtime manager is missing or not executable' >&2
+   exit 1
+ fi
+-
+ if ! grep -Fq '/opt/wharness/electron' "$ELECTRON_RUNTIME"; then
+   echo 'lifecycle regression: Linux Electron runtime must live outside the npm workspace' >&2
+   exit 1
+ fi
+-
+ if grep -Eq 'sudo[[:space:]]+(chown|chmod).*SOURCE_(HELPER|DIST)' "$ELECTRON_RUNTIME"; then
+   echo 'lifecycle regression: node_modules Electron files must never be made privileged in place' >&2
+   exit 1
+ fi
+-
+ if ! grep -Fq 'WHARNESS_ELECTRON_BINARY' "$START" || ! grep -Fq 'electron-runtime.sh' "$START"; then
+   echo 'lifecycle regression: start must resolve the immutable Electron runtime before launch' >&2
+   exit 1
+ fi
+-
+-if ! grep -Fq 'resolveElectronBinary' "$DESKTOP_DEV" || ! grep -Fq 'electron-runtime.sh' "$DESKTOP_DEV"; then
+-  echo 'lifecycle regression: desktop coordinator must resolve and honor the immutable Electron binary' >&2
++if ! grep -Fq 'WHARNESS_SERVICES_MODE=stack' "$START" || ! grep -Fq "servicesMode === 'stack'" "$DESKTOP_DEV"; then
++  echo 'lifecycle regression: Desktop coordinator must attach only to the validated Compose application services in stack mode' >&2
+   exit 1
+ fi
+-
+-if grep -Fq 'Reusing existing backend on 127.0.0.1:8080' "$DESKTOP_DEV" || grep -Fq 'Reusing existing frontend on 127.0.0.1:5173' "$DESKTOP_DEV"; then
+-  echo 'lifecycle regression: coordinator must not attach to an untracked port owner' >&2
+-  exit 1
+-fi
+-
+-if ! grep -Fq 'scripts/orphan-recovery.sh' "$START" || ! grep -Fq 'scripts/orphan-recovery.sh' "$STOP"; then
+-  echo 'lifecycle regression: start/stop must recover only identity-verified orphan processes' >&2
+-  exit 1
+-fi
+-
+-if [ ! -x "$DATABASE" ] || ! grep -Fq 'scripts/database.sh" ensure' "$START" || ! grep -Fq -- '--publish 127.0.0.1::5432' "$DATABASE"; then
+-  echo 'lifecycle regression: start must own PostgreSQL on a dynamic loopback port' >&2
++if ! grep -Fq 'resolveElectronBinary' "$DESKTOP_DEV" || ! grep -Fq 'electron-runtime.sh' "$DESKTOP_DEV"; then
++  echo 'lifecycle regression: Desktop coordinator must resolve and honor the immutable Electron binary' >&2
+   exit 1
+ fi
+-
+-printf 'Lifecycle immutable Electron runtime checks passed.
+-'
++printf 'Lifecycle immutable Electron runtime checks passed.\n'
+ 
+ DEPS_CACHE="$ROOT/scripts/deps-cache.sh"
+ if [ ! -x "$DEPS_CACHE" ]; then
+@@ -96,9 +117,7 @@ if ! grep -Fq 'deps-cache.sh" sync' "$MAKEFILE"; then
+   echo 'lifecycle regression: make deps must use dependency fingerprint cache' >&2
+   exit 1
+ fi
+-if ! grep -Fq -- '--prefer-offline' "$DEPS_CACHE" || \
+-   ! grep -Fq -- '--no-audit' "$DEPS_CACHE" || \
+-   ! grep -Fq -- '--no-fund' "$DEPS_CACHE"; then
++if ! grep -Fq -- '--prefer-offline' "$DEPS_CACHE" || ! grep -Fq -- '--no-audit' "$DEPS_CACHE" || ! grep -Fq -- '--no-fund' "$DEPS_CACHE"; then
+   echo 'lifecycle regression: npm hydration must reuse cache without audit/funding network work' >&2
+   exit 1
+ fi
+@@ -106,8 +125,8 @@ if printf '%s\n' "$deps_block" | grep -Eq 'npm[[:space:]]+install'; then
+   echo 'lifecycle regression: make deps must not unconditionally run npm install' >&2
+   exit 1
+ fi
+-if ! printf '%s\n' "$build_block" | grep -Fq '$(BUILD_JOBS)'; then
+-  echo 'lifecycle regression: application components must retain bounded parallel build support' >&2
++if ! printf '%s\n' "$build_stage_block" | grep -Fq '$(BUILD_JOBS)'; then
++  echo 'lifecycle regression: local application artifacts must retain bounded parallel build support' >&2
+   exit 1
+ fi
+ printf 'Lifecycle fast rebuild checks passed.\n'
+diff --git a/scripts/orphan-recovery.sh b/scripts/orphan-recovery.sh
+index 6539f45..372ea06 100755
+--- a/scripts/orphan-recovery.sh
++++ b/scripts/orphan-recovery.sh
+@@ -96,9 +96,11 @@ recover_electron_groups() {
+ }
+ 
+ mkdir -p "$RUN_DIR"
+-recover_pid_file backend
+-recover_pid_file frontend
++if [ "${WHARNESS_SERVICES_MODE:-local}" != stack ]; then
++  recover_pid_file backend
++  recover_pid_file frontend
++  recover_port backend 8080
++  recover_port frontend 5173
++fi
+ recover_pid_file electron
+-recover_port backend 8080
+-recover_port frontend 5173
+ recover_electron_groups
+diff --git a/scripts/stack.sh b/scripts/stack.sh
+new file mode 100755
+index 0000000..bdf052b
+--- /dev/null
++++ b/scripts/stack.sh
+@@ -0,0 +1,246 @@
++#!/usr/bin/env sh
++set -eu
++
++ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
++STATE_DIR="$ROOT/.harness/state"
++BRIDGE_DIR="$ROOT/.harness/bridge"
++STACK_ENV="$STATE_DIR/stack.env"
++POSTGRES_ENV="$STATE_DIR/postgres.env"
++LEGACY_DATA="$ROOT/.harness/postgres/data"
++POSTGRES_IMAGE=${WHARNESS_POSTGRES_IMAGE:-postgres:17-alpine}
++ROOT_ID=$(printf '%s' "$ROOT" | sha256sum | cut -c1-12)
++PROJECT="wharness-$ROOT_ID"
++POSTGRES_VOLUME="wharness-postgres-$ROOT_ID"
++TUNNEL_VOLUME="wharness-tunnel-$ROOT_ID"
++LEGACY_CONTAINER="wharness-postgres-$ROOT_ID"
++MIGRATION_MARKER="$STATE_DIR/stack-postgres-migrated-v1"
++TUNNEL_MIGRATION_MARKER="$STATE_DIR/stack-tunnel-state-migrated-v1"
++BACKEND_IMAGE="wharness-backend:$ROOT_ID"
++FRONTEND_IMAGE="wharness-frontend:$ROOT_ID"
++TUNNEL_IMAGE="wharness-tunnel:$ROOT_ID"
++
++require_docker() {
++  command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharness service stack.' >&2; exit 1; }
++  docker compose version >/dev/null 2>&1 || { echo 'Docker Compose v2 is required for the Wharness service stack.' >&2; exit 1; }
++  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/docker-daemon-guard.sh"
++  docker info >/dev/null 2>&1 || { echo 'The Docker daemon is not available for the Wharness service stack.' >&2; exit 1; }
++}
++
++secret_hex() {
++  od -An -N 32 -tx1 /dev/urandom | tr -d ' \n'
++}
++
++ensure_credentials() {
++  mkdir -p "$STATE_DIR" "$BRIDGE_DIR/tmp"
++  chmod 700 "$STATE_DIR" "$BRIDGE_DIR" "$BRIDGE_DIR/tmp"
++  if [ ! -f "$POSTGRES_ENV" ]; then
++    umask 077
++    {
++      printf 'POSTGRES_USER=wharness\n'
++      printf 'POSTGRES_DB=wharness\n'
++      printf 'POSTGRES_PASSWORD=%s\n' "$(secret_hex)"
++    } >"$POSTGRES_ENV"
++  fi
++  chmod 600 "$POSTGRES_ENV"
++
++  user=$(sed -n 's/^POSTGRES_USER=//p' "$POSTGRES_ENV" | head -n 1)
++  database=$(sed -n 's/^POSTGRES_DB=//p' "$POSTGRES_ENV" | head -n 1)
++  password=$(sed -n 's/^POSTGRES_PASSWORD=//p' "$POSTGRES_ENV" | head -n 1)
++  [ "$user" = wharness ] && [ "$database" = wharness ] && [ -n "$password" ] || {
++    echo 'Wharness PostgreSQL credentials are incomplete or incompatible.' >&2
++    exit 1
++  }
++
++  token=$(sed -n 's/^WHARNESS_TUNNEL_API_TOKEN=//p' "$STACK_ENV" 2>/dev/null | head -n 1 || true)
++  [ -n "$token" ] || token=$(secret_hex)
++  docker_gid=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)
++  [ -n "$docker_gid" ] || { echo 'Cannot resolve Docker socket group id.' >&2; exit 1; }
++
++  umask 077
++  {
++    printf 'COMPOSE_PROJECT_NAME=%s\n' "$PROJECT"
++    printf 'WHARNESS_STACK_ID=%s\n' "$ROOT_ID"
++    printf 'WHARNESS_ROOT=%s\n' "$ROOT"
++    printf 'WHARNESS_HOME=%s\n' "$HOME"
++    printf 'WHARNESS_UID=%s\n' "$(id -u)"
++    printf 'WHARNESS_GID=%s\n' "$(id -g)"
++    printf 'WHARNESS_DOCKER_GID=%s\n' "$docker_gid"
++    printf 'WHARNESS_STATE_DIR=%s\n' "$STATE_DIR"
++    printf 'WHARNESS_BRIDGE_DIR=%s\n' "$BRIDGE_DIR"
++    printf 'WHARNESS_POSTGRES_VOLUME=%s\n' "$POSTGRES_VOLUME"
++    printf 'WHARNESS_TUNNEL_VOLUME=%s\n' "$TUNNEL_VOLUME"
++    printf 'WHARNESS_DATABASE_PASSWORD=%s\n' "$password"
++    printf 'WHARNESS_TUNNEL_API_TOKEN=%s\n' "$token"
++  } >"$STACK_ENV.tmp"
++  mv -f "$STACK_ENV.tmp" "$STACK_ENV"
++  chmod 600 "$STACK_ENV"
++}
++
++compose() {
++  docker compose --project-name "$PROJECT" --env-file "$STACK_ENV" -f "$ROOT/compose.yml" "$@"
++}
++
++volume_empty() {
++  volume=$1
++  docker run --rm --entrypoint sh -v "$volume:/target" "$POSTGRES_IMAGE" -c \
++    'test -z "$(find /target -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)"'
++}
++
++stop_owned_legacy_database() {
++  docker inspect "$LEGACY_CONTAINER" >/dev/null 2>&1 || return 0
++  owner=$(docker inspect -f '{{ index .Config.Labels "wharness.root" }}' "$LEGACY_CONTAINER" 2>/dev/null || true)
++  [ "$owner" = "$ROOT" ] || { echo "Refusing unowned legacy PostgreSQL container: $LEGACY_CONTAINER" >&2; exit 1; }
++  running=$(docker inspect -f '{{.State.Running}}' "$LEGACY_CONTAINER")
++  if [ "$running" = true ]; then
++    printf 'Stopping legacy Wharness PostgreSQL for one-time stack migration...\n'
++    docker stop --time 30 "$LEGACY_CONTAINER" >/dev/null
++  fi
++}
++
++migrate_legacy_tunnel_state_if_needed() {
++  [ -f "$TUNNEL_MIGRATION_MARKER" ] && return 0
++  docker volume inspect "$TUNNEL_VOLUME" >/dev/null 2>&1 || docker volume create "$TUNNEL_VOLUME" >/dev/null
++  printf 'Migrating existing tunnel credentials/state into the dedicated tunnel volume when present...\n'
++  docker run --rm --user 0 --entrypoint sh \
++    -v "$STATE_DIR:/legacy:ro" \
++    -v "$TUNNEL_VOLUME:/target" \
++    "$POSTGRES_IMAGE" -ec '
++      mkdir -p /target
++      if [ -d /legacy/tunnel-credentials ] && [ ! -e /target/credentials ]; then
++        cp -a /legacy/tunnel-credentials /target/credentials
++      fi
++      if [ -d /legacy/tunnel-inputs ] && [ ! -e /target/tunnel-inputs ]; then
++        cp -a /legacy/tunnel-inputs /target/tunnel-inputs
++      fi
++      if [ -f /legacy/tunnel-inputs.json ] && [ ! -e /target/usage.json ]; then
++        cp -a /legacy/tunnel-inputs.json /target/usage.json
++      fi
++    '
++  umask 077
++  printf 'tunnel-state-v1\n' >"$TUNNEL_MIGRATION_MARKER"
++}
++
++migrate_legacy_postgres_if_needed() {
++  [ -f "$MIGRATION_MARKER" ] && return 0
++  docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1 || docker volume create "$POSTGRES_VOLUME" >/dev/null
++
++  if ! volume_empty "$POSTGRES_VOLUME"; then
++    printf 'Compose PostgreSQL volume already contains data; preserving it.\n'
++    return 0
++  fi
++  [ -f "$LEGACY_DATA/PG_VERSION" ] || return 0
++
++  version=$(tr -d '[:space:]' <"$LEGACY_DATA/PG_VERSION")
++  if [ "$version" != 17 ]; then
++    printf 'Legacy PostgreSQL PGDATA uses major version %s; refusing unsafe physical copy into PostgreSQL 17.\n' "$version" >&2
++    printf 'Migrate that database logically before starting this stack.\n' >&2
++    exit 1
++  fi
++  stop_owned_legacy_database
++  printf 'Migrating legacy PostgreSQL PGDATA into Compose volume %s...\n' "$POSTGRES_VOLUME"
++  docker run --rm --user 0 --entrypoint sh \
++    -v "$LEGACY_DATA:/source:ro" \
++    -v "$POSTGRES_VOLUME:/target" \
++    "$POSTGRES_IMAGE" -ec '
++      test -f /source/PG_VERSION
++      test "$(cat /source/PG_VERSION)" = 17
++      test -z "$(find /target -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)"
++      cp -a /source/. /target/
++    '
++}
++
++wait_service() {
++  service=$1
++  limit=${2:-120}
++  attempts=0
++  while [ "$attempts" -lt "$limit" ]; do
++    container=$(compose ps -q "$service" 2>/dev/null || true)
++    if [ -n "$container" ]; then
++      state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)
++      [ "$state" = healthy ] || [ "$state" = running ] && return 0
++      if [ "$state" = unhealthy ] || [ "$state" = exited ] || [ "$state" = dead ]; then
++        echo "Wharness stack service $service entered state $state." >&2
++        compose logs --tail=80 "$service" >&2 || true
++        exit 1
++      fi
++    fi
++    attempts=$((attempts + 1))
++    sleep 1
++  done
++  echo "Wharness stack service $service did not become healthy." >&2
++  compose logs --tail=80 "$service" >&2 || true
++  exit 1
++}
++
++images_ready() {
++  docker image inspect "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$TUNNEL_IMAGE" >/dev/null 2>&1
++}
++
++build_images() {
++  printf 'Building Wharness backend/frontend/tunnel images...\n'
++  compose build backend frontend tunnel
++}
++
++ensure_stack() {
++  require_docker
++  ensure_credentials
++  migrate_legacy_postgres_if_needed
++  migrate_legacy_tunnel_state_if_needed
++  images_ready || build_images
++
++  # Durable infrastructure is explicitly kept on its current container/image.
++  # This is the URL-stability boundary: normal build/start may never recreate it.
++  compose up -d --no-recreate database tunnel
++  wait_service database 120
++  wait_service tunnel 180
++  [ -f "$MIGRATION_MARKER" ] || { umask 077; printf 'postgres17-stack-v1\n' >"$MIGRATION_MARKER"; }
++
++  # Application services can roll independently during normal start/restart.
++  compose up -d --no-deps backend frontend
++  wait_service backend 120
++  wait_service frontend 120
++}
++
++stack_status() {
++  require_docker
++  ensure_credentials
++  compose ps
++}
++
++case ${1:-} in
++  prepare)
++    require_docker
++    ensure_credentials
++    migrate_legacy_postgres_if_needed
++    ;;
++  build)
++    require_docker
++    ensure_credentials
++    build_images
++    ;;
++  ensure|up)
++    ensure_stack
++    ;;
++  stop)
++    require_docker
++    ensure_credentials
++    compose stop
++    ;;
++  down)
++    require_docker
++    ensure_credentials
++    compose down --remove-orphans
++    ;;
++  status)
++    stack_status
++    ;;
++  logs)
++    require_docker
++    ensure_credentials
++    compose logs --tail=120 -f
++    ;;
++  *)
++    echo 'usage: stack.sh prepare|build|ensure|up|stop|down|status|logs' >&2
++    exit 2
++    ;;
++esac
+diff --git a/scripts/start.sh b/scripts/start.sh
+index c72d6c5..417ebeb 100755
+--- a/scripts/start.sh
++++ b/scripts/start.sh
+@@ -17,25 +17,26 @@ alive() {
+ if [ -f "$PID_FILE" ]; then
+   pid=$(cat "$PID_FILE" 2>/dev/null || true)
+   if alive "$pid"; then
+-    printf 'Wharness is already running (pid %s).\n' "$pid"
++    printf 'Wharness Desktop is already running (pid %s).\n' "$pid"
+     printf 'Use: make status | make logs | make stop\n'
+     exit 0
+   fi
+   rm -f "$PID_FILE"
+ fi
+ 
+-WHARNESS_ROOT="$ROOT" "$ROOT/scripts/orphan-recovery.sh"
++WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
+ 
+ if [ ! -f "$BUILD_STAMP" ]; then
+   echo 'No successful Wharness build is recorded. Run: make build' >&2
+   exit 1
+ fi
+ 
+-# Refuse to launch stale compiled artifacts after source/configuration changes.
+ if find \
+   "$ROOT/Makefile" \
++  "$ROOT/compose.yml" \
+   "$ROOT/scripts" \
+   "$ROOT/services/backend" \
++  "$ROOT/services/tunnel" \
+   "$ROOT/services/frontend/src" \
+   "$ROOT/services/frontend/index.html" \
+   "$ROOT/services/frontend/package.json" \
+@@ -59,10 +60,6 @@ if [ ! -x "$ROOT/services/desktop/node_modules/.bin/electron" ]; then
+   echo 'Electron dependencies are missing. Run: make build' >&2
+   exit 1
+ fi
+-if [ ! -x "$ROOT/services/frontend/node_modules/.bin/vite" ]; then
+-  echo 'Frontend dependencies are missing. Run: make build' >&2
+-  exit 1
+-fi
+ 
+ if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
+   WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" check
+@@ -72,17 +69,17 @@ if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
+   unset CHROME_DEVEL_SANDBOX 2>/dev/null || true
+ fi
+ 
+-DATABASE_URL=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/database.sh" ensure)
++# Backend/frontend/PostgreSQL/tunnel are persistent Compose services. Normal
++# start updates only the application containers while preserving tunnel/DB.
++WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" ensure
+ 
+ : > "$LOG_FILE"
+-
+ (
+   cd "$ROOT/services/desktop"
+   nohup env \
+     WHARNESS_ROOT="$ROOT" \
+     WHARNESS_RUNTIME_DIR="$RUN_DIR" \
+-    HARNESS_STATE_FILE="$ROOT/.harness/state/sessions.json" \
+-    HARNESS_DATABASE_URL="$DATABASE_URL" \
++    WHARNESS_SERVICES_MODE=stack \
+     WHARNESS_RUNNER_IMAGE="${WHARNESS_RUNNER_IMAGE:-kernl-runner:local}" \
+     WHARNESS_OZONE_PLATFORM="${WHARNESS_OZONE_PLATFORM:-auto}" \
+     WHARNESS_LINUX_SANDBOX_MODE="${WHARNESS_LINUX_SANDBOX_MODE:-}" \
+@@ -93,29 +90,25 @@ DATABASE_URL=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/database.sh" ensure)
+ 
+ pid=$(cat "$PID_FILE")
+ i=0
+-# Permanent tunnel providers validate the public edge before the backend opens
+-# its API. Account/edge establishment may legitimately take close to a minute.
+-while [ "$i" -lt 480 ]; do
++while [ "$i" -lt 120 ]; do
+   if ! alive "$pid"; then
+-    echo 'Wharness failed to start. Last log lines:' >&2
++    echo 'Wharness Desktop failed to start. Last log lines:' >&2
+     tail -n 60 "$LOG_FILE" >&2 || true
+     rm -f "$PID_FILE"
+     exit 1
+   fi
+-  backend_ok=0
+-  frontend_ok=0
+   electron_ok=0
+-  curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 && backend_ok=1 || true
+-  curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1 && frontend_ok=1 || true
+   if [ -f "$RUN_DIR/electron.pid" ]; then
+     ep=$(cat "$RUN_DIR/electron.pid" 2>/dev/null || true)
+     alive "$ep" && electron_ok=1 || true
+   fi
+-  if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ] && [ "$electron_ok" -eq 1 ]; then
++  if [ "$electron_ok" -eq 1 ] && \
++     curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 && \
++     curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
+     printf 'Wharness Desktop started.\n'
+     printf '  coordinator: %s\n' "$pid"
+-    printf '  backend:     http://127.0.0.1:8080\n'
+-    printf '  frontend:    http://127.0.0.1:5173\n'
++    printf '  backend:     http://127.0.0.1:8080 (Compose)\n'
++    printf '  frontend:    http://127.0.0.1:5173 (Compose)\n'
+     printf '  logs:        %s\n' "$LOG_FILE"
+     exit 0
+   fi
+@@ -123,6 +116,6 @@ while [ "$i" -lt 480 ]; do
+   sleep 0.25
+ done
+ 
+-echo 'Wharness did not become fully ready. Last log lines:' >&2
++echo 'Wharness Desktop did not become fully ready. Last log lines:' >&2
+ tail -n 60 "$LOG_FILE" >&2 || true
+ exit 1
+diff --git a/scripts/status.sh b/scripts/status.sh
+index 288ddb6..c29ab54 100755
+--- a/scripts/status.sh
++++ b/scripts/status.sh
+@@ -20,12 +20,16 @@ pid_status() {
+ }
+ 
+ printf 'Wharness status\n'
+-WHARNESS_ROOT="$ROOT" "$ROOT/scripts/database.sh" status
+ pid_status coordinator "$RUN_DIR/coordinator.pid"
+-pid_status backend "$RUN_DIR/backend.pid"
+-pid_status frontend "$RUN_DIR/frontend.pid"
+ pid_status electron "$RUN_DIR/electron.pid"
+ 
++if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
++  printf 'Compose stack\n'
++  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" status || true
++else
++  echo 'Compose stack: Docker unavailable'
++fi
++
+ if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+   echo '  backend HTTP  healthy'
+ else
+diff --git a/scripts/stop.sh b/scripts/stop.sh
+index e0e09ce..0e7662f 100755
+--- a/scripts/stop.sh
++++ b/scripts/stop.sh
+@@ -10,22 +10,20 @@ alive() {
+ }
+ 
+ if [ ! -f "$PID_FILE" ]; then
+-  echo 'Wharness is not running (no coordinator pid file).'
+-  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/orphan-recovery.sh"
+-  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/database.sh" stop
++  echo 'Wharness Desktop is not running (no coordinator pid file).'
++  WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
+   exit 0
+ fi
+ 
+ pid=$(cat "$PID_FILE" 2>/dev/null || true)
+ if ! alive "$pid"; then
+-  echo 'Wharness coordinator is not running; cleaning stale runtime files.'
+-  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/orphan-recovery.sh"
++  echo 'Wharness Desktop coordinator is not running; cleaning stale runtime files.'
++  WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
+   rm -f "$RUN_DIR"/*.pid
+-  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/database.sh" stop
+   exit 0
+ fi
+ 
+-printf 'Stopping Wharness coordinator %s...\n' "$pid"
++printf 'Stopping Wharness Desktop coordinator %s...\n' "$pid"
+ kill -TERM "$pid" 2>/dev/null || true
+ 
+ i=0
+@@ -34,26 +32,10 @@ while [ "$i" -lt 40 ]; do
+   i=$((i + 1))
+   sleep 0.25
+ done
+-
+ if alive "$pid"; then
+-  echo 'Coordinator did not stop gracefully; sending SIGKILL.' >&2
++  echo 'Desktop coordinator did not stop gracefully; sending SIGKILL.' >&2
+   kill -KILL "$pid" 2>/dev/null || true
+ fi
+ 
+-# dev.mjs owns and terminates only the child processes that it started.
+-i=0
+-while [ "$i" -lt 20 ]; do
+-  remaining=0
+-  for f in "$RUN_DIR/backend.pid" "$RUN_DIR/frontend.pid" "$RUN_DIR/electron.pid"; do
+-    [ -f "$f" ] || continue
+-    child=$(cat "$f" 2>/dev/null || true)
+-    alive "$child" && remaining=1 || true
+-  done
+-  [ "$remaining" -eq 0 ] && break
+-  i=$((i + 1))
+-  sleep 0.25
+-done
+-
+ rm -f "$RUN_DIR"/*.pid
+-WHARNESS_ROOT="$ROOT" "$ROOT/scripts/database.sh" stop
+-printf 'Wharness stopped.\n'
++printf 'Wharness Desktop stopped. Compose services remain running.\n'
+diff --git a/services/backend/Dockerfile b/services/backend/Dockerfile
+index 1d268ea..b5b2694 100644
+--- a/services/backend/Dockerfile
++++ b/services/backend/Dockerfile
+@@ -1,11 +1,16 @@
+ FROM golang:1.23-bookworm AS build
+ WORKDIR /src
++COPY go.mod go.sum ./
++RUN go mod download
+ COPY . .
+-RUN CGO_ENABLED=0 go build -o /out/kernl ./cmd/harness
++RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharness-backend ./cmd/harness
+ 
+ FROM docker:27-cli
+-RUN addgroup -g 10001 kernl && adduser -D -u 10001 -G kernl kernl
+-COPY --from=build /out/kernl /usr/local/bin/kernl
+-USER kernl
++ARG WHARNESS_UID=1000
++ARG WHARNESS_GID=1000
++RUN addgroup -g "${WHARNESS_GID}" wharness \
++ && adduser -D -u "${WHARNESS_UID}" -G wharness wharness
++COPY --from=build /out/wharness-backend /usr/local/bin/wharness-backend
++USER wharness
+ EXPOSE 8080
+-ENTRYPOINT ["/usr/local/bin/kernl"]
++ENTRYPOINT ["/usr/local/bin/wharness-backend"]
+diff --git a/services/backend/cmd/harness/main.go b/services/backend/cmd/harness/main.go
+index 4ab8cd8..af2c864 100644
+--- a/services/backend/cmd/harness/main.go
++++ b/services/backend/cmd/harness/main.go
+@@ -3,14 +3,10 @@ package main
+ import (
+ 	"context"
+ 	"errors"
+-	"fmt"
+ 	"log"
+ 	"net/http"
+ 	"os"
+ 	"os/signal"
+-	"path/filepath"
+-	"sort"
+-	"strings"
+ 	"syscall"
+ 	"time"
+ 
+@@ -26,6 +22,7 @@ import (
+ 	"kernl.local/harness/backend/internal/sandbox"
+ 	"kernl.local/harness/backend/internal/session"
+ 	"kernl.local/harness/backend/internal/transport/httpapi"
++	"kernl.local/harness/backend/internal/tunneldaemon"
+ )
+ 
+ func main() {
+@@ -67,32 +64,10 @@ func main() {
+ 
+ 	service := app.NewService(store, bus, builder, p, policies, runner)
+ 	service.SetRemoteStorageConnector(remoteinput.NewRcloneConnector())
+-	service.SetTunnelProviders(remoteinput.TunnelProviders())
+-	service.SetTunnelProviderConnector(remoteinput.NewTunnelConnector(cfg.Tunnel.SecretsDir))
+-	remoteManager, err := tunnelInputManager(cfg.Tunnel)
+-	if err != nil {
+-		log.Fatalf("remote storage configuration: %v", err)
+-	}
+-	service.SetRemoteInputStore(remoteManager)
+-	defer func() {
+-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+-		defer closeCancel()
+-		if err := remoteManager.StopRemoteInputSession(closeCtx); err != nil {
+-			log.Printf("remote input session close failed: %v", err)
+-		}
+-	}()
+-	startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+-	if err := remoteManager.StartRemoteInputSession(startCtx); err != nil {
+-		log.Fatalf("tunnel session start: %v", err)
+-	}
+-	startCancel()
+-	if remoteManager.Status().Enabled {
+-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+-		if err := remoteManager.Cleanup(cleanupCtx, time.Now().UTC().Add(-app.RemoteInputRetention)); err != nil {
+-			log.Printf("remote storage retention cleanup failed: %v", err)
+-		}
+-		cancel()
+-	}
++	remoteStore, cleanupRemote, stopRemote := configureRemoteInputs(cfg, service)
++	service.SetRemoteInputStore(remoteStore)
++	defer stopRemote()
++	cleanupRemote()
+ 	handler := httpapi.New(service, store, bus, cfg)
+ 	server := &http.Server{
+ 		Addr:              cfg.Addr,
+@@ -121,60 +96,62 @@ func main() {
+ 	}
+ }
+ 
+-func tunnelInputManager(cfg config.TunnelConfig) (*remoteinput.Manager, error) {
+-	document, err := config.ReadTunnelDocument(cfg)
+-	if err != nil {
+-		return nil, err
+-	}
+-	configs := append([]config.TunnelInstanceConfig(nil), document.Instances...)
+-	// Every public relay renders the same harmless discovery page. Its origin
+-	// list comes only from configured permanent HTTPS origins, never live
+-	// request namespaces or generated Quick Tunnel URLs.
+-	landing := remoteinput.TunnelLanding{InstanceName: document.InstanceName, Origins: configuredTunnelOrigins(configs)}
+-	// Preserve the explicit priority contract of LoadTunnelInstances.
+-	sort.SliceStable(configs, func(i, j int) bool { return configs[i].Priority < configs[j].Priority })
+-	instances := make([]remoteinput.Instance, 0, len(configs))
+-	for _, instanceConfig := range configs {
+-		if strings.EqualFold(instanceConfig.Provider, "desktop_direct") {
+-			continue
++func configureRemoteInputs(cfg config.Config, service *app.Service) (app.RemoteInputStore, func(), func()) {
++	var store app.RemoteInputStore
++	var session app.RemoteInputSessionStore
++	var cleanup func(context.Context, time.Time) error
++	if cfg.Tunnel.DaemonURL != "" {
++		client, err := tunneldaemon.NewClient(cfg.Tunnel.DaemonURL, cfg.Tunnel.DaemonToken)
++		if err != nil {
++			log.Fatalf("tunnel daemon client: %v", err)
+ 		}
+-		provider, err := tunnelInputProvider(instanceConfig, filepath.Dir(cfg.IndexFile), cfg.SecretsDir, landing)
++		probeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++		providers, err := client.Providers(probeCtx)
++		cancel()
+ 		if err != nil {
+-			return nil, fmt.Errorf("remote storage instance %s: %w", instanceConfig.ID, err)
++			log.Fatalf("tunnel daemon providers: %v", err)
+ 		}
+-		instances = append(instances, remoteinput.Instance{ID: instanceConfig.ID, Priority: instanceConfig.Priority, Provider: provider})
++		service.SetTunnelProviders(providers)
++		service.SetTunnelProviderConnector(client)
++		store, session, cleanup = client, client, client.Cleanup
++	} else {
++		manager, err := remoteinput.NewTunnelManager(cfg.Tunnel)
++		if err != nil {
++			log.Fatalf("remote storage configuration: %v", err)
++		}
++		service.SetTunnelProviders(remoteinput.TunnelProviders())
++		service.SetTunnelProviderConnector(remoteinput.NewTunnelConnector(cfg.Tunnel.SecretsDir))
++		store, session, cleanup = manager, manager, manager.Cleanup
+ 	}
+-	return remoteinput.NewPool(instances, cfg.IndexFile), nil
+-}
+-
+-func configuredTunnelOrigins(configs []config.TunnelInstanceConfig) []string {
+-	origins := make([]string, 0, len(configs))
+-	seen := make(map[string]struct{}, len(configs))
+-	for _, instance := range configs {
+-		origin := strings.TrimSpace(instance.PublicURL)
+-		if origin == "" {
+-			continue
++	startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Minute)
++	if err := session.StartRemoteInputSession(startCtx); err != nil {
++		startCancel()
++		log.Fatalf("tunnel session start: %v", err)
++	}
++	startCancel()
++	cleanupRemote := func() {
++		if !store.Status().Enabled {
++			return
++		}
++		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
++		defer cancel()
++		if err := cleanup(ctx, time.Now().UTC().Add(-app.RemoteInputRetention)); err != nil {
++			log.Printf("remote storage retention cleanup failed: %v", err)
+ 		}
+-		if _, exists := seen[origin]; !exists {
+-			seen[origin] = struct{}{}
+-			origins = append(origins, origin)
++	}
++	stopRemote := func() {
++		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++		defer cancel()
++		if err := session.StopRemoteInputSession(ctx); err != nil {
++			log.Printf("remote input session close failed: %v", err)
+ 		}
+ 	}
+-	return origins
++	return store, cleanupRemote, stopRemote
+ }
+ 
+-func tunnelInputProvider(cfg config.TunnelInstanceConfig, stateDir, secretsDir string, landing remoteinput.TunnelLanding) (remoteinput.Provider, error) {
+-	storageDir := filepath.Join(stateDir, "tunnel-inputs", cfg.ID)
+-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+-	case "trycloudflare":
+-		return remoteinput.NewTryCloudflareProvider(remoteinput.TryCloudflareConfig{StorageDir: storageDir, Landing: landing})
+-	case "zrok", "localxpose", "localhost_run", "pinggy", "serveo":
+-		return remoteinput.NewEphemeralTunnelProvider(strings.ToLower(strings.TrimSpace(cfg.Provider)), storageDir, landing)
+-	case "tailscale_funnel":
+-		return remoteinput.NewTailscaleFunnelProvider(remoteinput.AccountTunnelConfig{StorageDir: storageDir, PublicURL: cfg.PublicURL, LocalPort: cfg.LocalPort, Landing: landing})
+-	case "cloudflare_named", "ngrok":
+-		return remoteinput.NewAccountTunnelProvider(remoteinput.AccountTunnelConfig{Provider: cfg.Provider, StorageDir: storageDir, SecretsDir: secretsDir, CredentialRef: cfg.CredentialRef, PublicURL: cfg.PublicURL, LocalPort: cfg.LocalPort, Landing: landing})
+-	default:
+-		return nil, errors.New("unsupported tunnel provider")
+-	}
++// tunnelInputManager remains a narrow compatibility helper for package-level
++// tests and non-daemon development paths. Production stack mode uses the
++// tunnel daemon client above.
++func tunnelInputManager(cfg config.TunnelConfig) (*remoteinput.Manager, error) {
++	return remoteinput.NewTunnelManager(cfg)
+ }
+diff --git a/services/backend/cmd/harness/main_test.go b/services/backend/cmd/harness/main_test.go
+index 686bf80..8254920 100644
+--- a/services/backend/cmd/harness/main_test.go
++++ b/services/backend/cmd/harness/main_test.go
+@@ -11,7 +11,7 @@ import (
+ func TestTunnelInputManagerBuildsSeveralInstancesInPriorityOrder(t *testing.T) {
+ 	root := t.TempDir()
+ 	configFile := filepath.Join(root, "tunnel-providers.json")
+-	raw := []byte(`{"version":1,"instances":[{"id":"backup","provider":"trycloudflare","priority":20},{"id":"primary","provider":"trycloudflare","priority":10}]}`)
++	raw := []byte(`{"version":1,"instances":[{"id":"backup","provider":"tailscale_funnel","priority":20,"public_url":"https://backup.example.ts.net","local_port":8443},{"id":"primary","provider":"tailscale_funnel","priority":10,"public_url":"https://primary.example.ts.net","local_port":10000}]}`)
+ 	if err := os.WriteFile(configFile, raw, 0o600); err != nil {
+ 		t.Fatal(err)
+ 	}
+diff --git a/services/backend/cmd/tunnel/main.go b/services/backend/cmd/tunnel/main.go
+new file mode 100644
+index 0000000..875d21b
+--- /dev/null
++++ b/services/backend/cmd/tunnel/main.go
+@@ -0,0 +1,82 @@
++package main
++
++import (
++	"context"
++	"errors"
++	"log"
++	"net/http"
++	"os"
++	"os/signal"
++	"path/filepath"
++	"syscall"
++	"time"
++
++	"kernl.local/harness/backend/internal/config"
++	"kernl.local/harness/backend/internal/remoteinput"
++	"kernl.local/harness/backend/internal/tunneldaemon"
++)
++
++func main() {
++	addr := env("WHARNESS_TUNNEL_ADDR", ":8090")
++	stateDir := env("WHARNESS_TUNNEL_STATE_DIR", "/var/lib/wharness-tunnel")
++	bridgeDir := env("WHARNESS_BRIDGE_DIR", "/bridge")
++	token := os.Getenv("WHARNESS_TUNNEL_API_TOKEN")
++	if token == "" {
++		log.Fatal("WHARNESS_TUNNEL_API_TOKEN is required")
++	}
++	if err := os.MkdirAll(stateDir, 0o700); err != nil {
++		log.Fatalf("tunnel state: %v", err)
++	}
++	cfg := config.TunnelConfig{
++		ConfigFile:        env("HARNESS_TUNNEL_CONFIG_FILE", "/control/tunnel-providers.json"),
++		IndexFile:         filepath.Join(stateDir, "usage.json"),
++		SecretsDir:        filepath.Join(stateDir, "credentials"),
++		LegacyStorageFile: env("HARNESS_REMOTE_STORAGE_CONFIG_FILE", "/control/remote-storage.json"),
++		LegacyProvider:    os.Getenv("HARNESS_REMOTE_STORAGE_PROVIDER"),
++	}
++	manager, err := remoteinput.NewTunnelManager(cfg)
++	if err != nil {
++		log.Fatalf("tunnel configuration: %v", err)
++	}
++	connector := remoteinput.NewTunnelConnector(cfg.SecretsDir)
++	api, err := tunneldaemon.NewServer(manager, connector, remoteinput.TunnelProviders(), bridgeDir)
++	if err != nil {
++		log.Fatalf("tunnel daemon: %v", err)
++	}
++	startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Minute)
++	if err := manager.StartRemoteInputSession(startCtx); err != nil {
++		startCancel()
++		log.Fatalf("tunnel session start: %v", err)
++	}
++	startCancel()
++	defer func() {
++		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++		defer cancel()
++		if err := manager.StopRemoteInputSession(ctx); err != nil {
++			log.Printf("tunnel session stop: %v", err)
++		}
++	}()
++
++	server := &http.Server{Addr: addr, Handler: api.Handler(token), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second}
++	go func() {
++		log.Printf("wharness tunnel daemon listening on %s", addr)
++		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
++			log.Fatalf("tunnel daemon HTTP: %v", err)
++		}
++	}()
++	stop := make(chan os.Signal, 1)
++	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
++	<-stop
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	if err := server.Shutdown(ctx); err != nil {
++		log.Printf("tunnel daemon shutdown: %v", err)
++	}
++}
++
++func env(name, fallback string) string {
++	if value := os.Getenv(name); value != "" {
++		return value
++	}
++	return fallback
++}
+diff --git a/services/backend/internal/app/service_test.go b/services/backend/internal/app/service_test.go
+index 0b79102..032f22f 100644
+--- a/services/backend/internal/app/service_test.go
++++ b/services/backend/internal/app/service_test.go
+@@ -1597,7 +1597,7 @@ func TestWorkflowRoundLimitKeepsTerminalRequestPending(t *testing.T) {
+ func TestAutoSelfEvolutionRunsProjectVerificationAndReachesRestartPending(t *testing.T) {
+ 	root := t.TempDir()
+ 	files := map[string]string{
+-		"Makefile":                      "build:\n\t@true\n",
++		"Makefile":                      "build-stage:\n\t@true\n",
+ 		"scripts/start.sh":              "#!/usr/bin/env sh\nexit 0\n",
+ 		"scripts/stop.sh":               "#!/usr/bin/env sh\nexit 0\n",
+ 		"scripts/self-restart.sh":       "#!/usr/bin/env sh\nexit 0\n",
+diff --git a/services/backend/internal/config/config.go b/services/backend/internal/config/config.go
+index 59cd862..cf94877 100644
+--- a/services/backend/internal/config/config.go
++++ b/services/backend/internal/config/config.go
+@@ -94,6 +94,8 @@ func Load() Config {
+ 		StateFile:         stateFile,
+ 		RemoteStorage:     remoteStorage,
+ 		Tunnel: TunnelConfig{
++			DaemonURL:         env("HARNESS_TUNNEL_DAEMON_URL", ""),
++			DaemonToken:       os.Getenv("HARNESS_TUNNEL_DAEMON_TOKEN"),
+ 			ConfigFile:        env("HARNESS_TUNNEL_CONFIG_FILE", tunnelConfigFile(stateFile)),
+ 			IndexFile:         tunnelIndexFile(stateFile),
+ 			SecretsDir:        filepath.Join(filepath.Dir(stateFile), "tunnel-credentials"),
+diff --git a/services/backend/internal/config/tunnel.go b/services/backend/internal/config/tunnel.go
+index e710a69..312ea98 100644
+--- a/services/backend/internal/config/tunnel.go
++++ b/services/backend/internal/config/tunnel.go
+@@ -16,6 +16,8 @@ import (
+ )
+ 
+ type TunnelConfig struct {
++	DaemonURL         string
++	DaemonToken       string
+ 	ConfigFile        string
+ 	IndexFile         string
+ 	SecretsDir        string
+diff --git a/services/backend/internal/contextbundle/probe.go b/services/backend/internal/contextbundle/probe.go
+new file mode 100644
+index 0000000..657c484
+--- /dev/null
++++ b/services/backend/internal/contextbundle/probe.go
+@@ -0,0 +1,110 @@
++package contextbundle
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++
++	"kernl.local/harness/backend/internal/projectconfig"
++)
++
++// SourceProbe is a lightweight dirty detector for an already-built managed
++// context. It uses filesystem metadata only; the authoritative SHA-256 still
++// comes from Build. A changed probe therefore triggers a full rebuild, while an
++// unchanged probe avoids repeatedly re-reading and recompressing the project.
++func SourceProbe(projectRoot string) (string, error) {
++	root, err := filepath.Abs(projectRoot)
++	if err != nil {
++		return "", err
++	}
++	cfg, err := projectconfig.Load(root)
++	if err != nil {
++		return "", err
++	}
++	patterns := LoadIgnorePatterns(root)
++	hash := sha256.New()
++	writeProbe := func(rel string, info fs.FileInfo) {
++		fmt.Fprintf(hash, "%s\x00%d\x00%d\x00%d\n", filepath.ToSlash(rel), info.Size(), info.Mode(), info.ModTime().UnixNano())
++	}
++	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
++		if walkErr != nil {
++			return walkErr
++		}
++		rel, err := filepath.Rel(root, path)
++		if err != nil || rel == "." {
++			return err
++		}
++		rel = filepath.ToSlash(rel)
++		if entry.Type()&os.ModeSymlink != 0 {
++			info, statErr := entry.Info()
++			if statErr == nil {
++				writeProbe(rel, info)
++			}
++			return nil
++		}
++		if reason, _, ignored := contextExclusion(rel, entry.IsDir(), patterns, cfg.Context); ignored {
++			_ = reason
++			if entry.IsDir() {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		if entry.IsDir() {
++			return nil
++		}
++		info, err := entry.Info()
++		if err != nil {
++			return err
++		}
++		writeProbe(rel, info)
++		return nil
++	})
++	if err != nil {
++		return "", err
++	}
++	writeGitProbeSignals(root, hash)
++	return hex.EncodeToString(hash.Sum(nil)), nil
++}
++
++func writeGitProbeSignals(root string, hash interface{ Write([]byte) (int, error) }) {
++	gitRoot := filepath.Join(root, ".git")
++	info, err := os.Lstat(gitRoot)
++	if err != nil {
++		return
++	}
++	_, _ = fmt.Fprintf(hash, ".git\x00%d\x00%d\x00%d\n", info.Size(), info.Mode(), info.ModTime().UnixNano())
++	if !info.IsDir() {
++		return
++	}
++	var paths []string
++	for _, name := range []string{"HEAD", "index", "packed-refs", "refs", "worktrees"} {
++		base := filepath.Join(gitRoot, name)
++		_ = filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
++			if walkErr != nil {
++				return nil
++			}
++			if entry.Type()&os.ModeSymlink != 0 {
++				return nil
++			}
++			paths = append(paths, path)
++			return nil
++		})
++	}
++	sort.Strings(paths)
++	for _, candidate := range paths {
++		info, err := os.Stat(candidate)
++		if err != nil {
++			continue
++		}
++		rel, err := filepath.Rel(root, candidate)
++		if err != nil || strings.HasPrefix(filepath.ToSlash(rel), "../") {
++			continue
++		}
++		_, _ = fmt.Fprintf(hash, "%s\x00%d\x00%d\x00%d\n", filepath.ToSlash(rel), info.Size(), info.Mode(), info.ModTime().UnixNano())
++	}
++}
+diff --git a/services/backend/internal/contextbundle/probe_test.go b/services/backend/internal/contextbundle/probe_test.go
+new file mode 100644
+index 0000000..60c4881
+--- /dev/null
++++ b/services/backend/internal/contextbundle/probe_test.go
+@@ -0,0 +1,50 @@
++package contextbundle
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"kernl.local/harness/backend/internal/projectconfig"
++)
++
++func TestSourceProbeChangesForEligibleFileMetadataAndIgnoresPrunedDependencies(t *testing.T) {
++	root := t.TempDir()
++	if err := projectconfig.Save(root, projectconfig.Default(root)); err != nil {
++		t.Fatal(err)
++	}
++	file := filepath.Join(root, "main.txt")
++	if err := os.WriteFile(file, []byte("one"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	first, err := SourceProbe(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	time.Sleep(2 * time.Millisecond)
++	if err := os.WriteFile(file, []byte("two-two"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	second, err := SourceProbe(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if second == first {
++		t.Fatal("eligible file change did not alter source probe")
++	}
++	dependencyDir := filepath.Join(root, "node_modules", "pkg")
++	if err := os.MkdirAll(dependencyDir, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(dependencyDir, "index.js"), []byte("ignored"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	third, err := SourceProbe(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if third != second {
++		t.Fatalf("mandatory excluded dependency changed source probe: %s != %s", third, second)
++	}
++}
+diff --git a/services/backend/internal/remoteinput/trycloudflare_archive.go b/services/backend/internal/remoteinput/trycloudflare_archive.go
+new file mode 100644
+index 0000000..2ae7f75
+--- /dev/null
++++ b/services/backend/internal/remoteinput/trycloudflare_archive.go
+@@ -0,0 +1,163 @@
++package remoteinput
++
++import (
++	"archive/zip"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"os"
++	"path"
++	"path/filepath"
++	"sort"
++	"strconv"
++	"strings"
++
++	"kernl.local/harness/backend/internal/app"
++)
++
++const tryCloudflareArchiveIndexProtocol = "wharness.tunnel-archive-index/v1"
++
++type tryCloudflareArchiveRoute struct {
++	Path         string `json:"path"`
++	ArchiveID    string `json:"archive_id"`
++	ArchiveEntry string `json:"archive_entry"`
++	ContentType  string `json:"content_type"`
++	Bytes        int64  `json:"bytes"`
++}
++
++type tryCloudflareArchiveIndex struct {
++	Protocol string                      `json:"protocol"`
++	Routes   []tryCloudflareArchiveRoute `json:"routes"`
++}
++
++func (p *TryCloudflareProvider) installArchiveResourceLocked(channelID string, channel *tryCloudflareChannel, resource app.RemoteInputChannelResource) error {
++	if !tryCloudflareChannelPattern.MatchString(channelID) || !tryCloudflareHashPattern.MatchString(resource.ArchiveID) || !safeArchiveEntry(resource.ArchiveEntry) {
++		return errors.New("invalid TryCloudflare archive-backed resource")
++	}
++	root := filepath.Join(p.dir, "channels", channelID, ".snapshots")
++	if err := os.MkdirAll(root, 0o700); err != nil {
++		return err
++	}
++	target := filepath.Join(root, resource.ArchiveID+".zip")
++	if _, err := os.Stat(target); os.IsNotExist(err) {
++		if err := copyPrivateFile(resource.ArchivePath, target); err != nil {
++			return fmt.Errorf("copy channel context snapshot: %w", err)
++		}
++	} else if err != nil {
++		return err
++	}
++	channel.resources[resource.Path] = tryCloudflareResource{
++		archivePath: target, archiveEntry: resource.ArchiveEntry,
++		contentType: resource.ContentType, bytes: resource.Bytes,
++	}
++	return nil
++}
++
++func persistArchiveRouteIndex(root string, channel *tryCloudflareChannel) error {
++	index := tryCloudflareArchiveIndex{Protocol: tryCloudflareArchiveIndexProtocol}
++	for resourcePath, resource := range channel.resources {
++		if resource.archivePath == "" {
++			continue
++		}
++		archiveID := strings.TrimSuffix(filepath.Base(resource.archivePath), ".zip")
++		index.Routes = append(index.Routes, tryCloudflareArchiveRoute{
++			Path: resourcePath, ArchiveID: archiveID, ArchiveEntry: resource.archiveEntry,
++			ContentType: resource.contentType, Bytes: resource.bytes,
++		})
++	}
++	sort.Slice(index.Routes, func(i, j int) bool { return index.Routes[i].Path < index.Routes[j].Path })
++	raw, err := json.MarshalIndent(index, "", "  ")
++	if err != nil {
++		return err
++	}
++	dir := filepath.Join(root, ".snapshots")
++	if err := os.MkdirAll(dir, 0o700); err != nil {
++		return err
++	}
++	temporary, err := os.CreateTemp(dir, ".routes-*.json")
++	if err != nil {
++		return err
++	}
++	name := temporary.Name()
++	defer os.Remove(name)
++	if err := temporary.Chmod(0o600); err != nil {
++		temporary.Close()
++		return err
++	}
++	if _, err := temporary.Write(raw); err != nil {
++		temporary.Close()
++		return err
++	}
++	if err := temporary.Close(); err != nil {
++		return err
++	}
++	return os.Rename(name, filepath.Join(dir, "routes.json"))
++}
++
++func loadArchiveRouteIndex(root string, channel *tryCloudflareChannel) error {
++	raw, err := os.ReadFile(filepath.Join(root, ".snapshots", "routes.json"))
++	if os.IsNotExist(err) {
++		return nil
++	}
++	if err != nil {
++		return err
++	}
++	var index tryCloudflareArchiveIndex
++	if err := json.Unmarshal(raw, &index); err != nil || index.Protocol != tryCloudflareArchiveIndexProtocol {
++		return errors.New("persisted tunnel archive index is invalid")
++	}
++	for _, route := range index.Routes {
++		if !validChannelResourcePath(route.Path) || !validChannelContentType(route.Path, route.ContentType) || !tryCloudflareHashPattern.MatchString(route.ArchiveID) || !safeArchiveEntry(route.ArchiveEntry) || route.Bytes < 0 {
++			return errors.New("persisted tunnel archive route is invalid")
++		}
++		archivePath := filepath.Join(root, ".snapshots", route.ArchiveID+".zip")
++		info, err := os.Lstat(archivePath)
++		if err != nil || !info.Mode().IsRegular() {
++			return errors.New("persisted tunnel archive snapshot is unavailable")
++		}
++		channel.resources[route.Path] = tryCloudflareResource{archivePath: archivePath, archiveEntry: route.ArchiveEntry, contentType: route.ContentType, bytes: route.Bytes}
++	}
++	return nil
++}
++
++func serveArchivedChannelResource(w http.ResponseWriter, r *http.Request, resource tryCloudflareResource) {
++	archive, err := zip.OpenReader(resource.archivePath)
++	if err != nil {
++		http.NotFound(w, r)
++		return
++	}
++	defer archive.Close()
++	var selected *zip.File
++	for _, entry := range archive.File {
++		if entry.Name == resource.archiveEntry && !entry.FileInfo().IsDir() {
++			selected = entry
++			break
++		}
++	}
++	if selected == nil || int64(selected.UncompressedSize64) != resource.bytes {
++		http.NotFound(w, r)
++		return
++	}
++	w.Header().Set("Content-Type", resource.contentType)
++	w.Header().Set("Content-Length", strconv.FormatInt(resource.bytes, 10))
++	w.Header().Set("Cache-Control", "no-store")
++	w.Header().Set("X-Content-Type-Options", "nosniff")
++	if r.Method == http.MethodHead {
++		w.WriteHeader(http.StatusOK)
++		return
++	}
++	input, err := selected.Open()
++	if err != nil {
++		http.NotFound(w, r)
++		return
++	}
++	defer input.Close()
++	_, _ = io.Copy(w, input)
++}
++
++func safeArchiveEntry(value string) bool {
++	clean := path.Clean(strings.TrimSpace(value))
++	return value != "" && clean == value && clean != "." && !strings.HasPrefix(clean, "/") && !strings.HasPrefix(clean, "../")
++}
+diff --git a/services/backend/internal/remoteinput/tunnel_manager.go b/services/backend/internal/remoteinput/tunnel_manager.go
+new file mode 100644
+index 0000000..d24095d
+--- /dev/null
++++ b/services/backend/internal/remoteinput/tunnel_manager.go
+@@ -0,0 +1,65 @@
++package remoteinput
++
++import (
++	"errors"
++	"fmt"
++	"path/filepath"
++	"sort"
++	"strings"
++
++	"kernl.local/harness/backend/internal/config"
++)
++
++func NewTunnelManager(cfg config.TunnelConfig) (*Manager, error) {
++	document, err := config.ReadTunnelDocument(cfg)
++	if err != nil {
++		return nil, err
++	}
++	configs := append([]config.TunnelInstanceConfig(nil), document.Instances...)
++	landing := TunnelLanding{InstanceName: document.InstanceName, Origins: configuredTunnelOrigins(configs)}
++	sort.SliceStable(configs, func(i, j int) bool { return configs[i].Priority < configs[j].Priority })
++	instances := make([]Instance, 0, len(configs))
++	for _, instanceConfig := range configs {
++		if strings.EqualFold(instanceConfig.Provider, "desktop_direct") {
++			continue
++		}
++		provider, err := tunnelProvider(instanceConfig, filepath.Dir(cfg.IndexFile), cfg.SecretsDir, landing)
++		if err != nil {
++			return nil, fmt.Errorf("tunnel instance %s: %w", instanceConfig.ID, err)
++		}
++		instances = append(instances, Instance{ID: instanceConfig.ID, Priority: instanceConfig.Priority, Provider: provider})
++	}
++	return NewPool(instances, cfg.IndexFile), nil
++}
++
++func configuredTunnelOrigins(configs []config.TunnelInstanceConfig) []string {
++	origins := make([]string, 0, len(configs))
++	seen := make(map[string]struct{}, len(configs))
++	for _, instance := range configs {
++		origin := strings.TrimSpace(instance.PublicURL)
++		if origin == "" {
++			continue
++		}
++		if _, exists := seen[origin]; !exists {
++			seen[origin] = struct{}{}
++			origins = append(origins, origin)
++		}
++	}
++	return origins
++}
++
++func tunnelProvider(cfg config.TunnelInstanceConfig, stateDir, secretsDir string, landing TunnelLanding) (Provider, error) {
++	storageDir := filepath.Join(stateDir, "tunnel-inputs", cfg.ID)
++	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
++	case "trycloudflare":
++		return NewTryCloudflareProvider(TryCloudflareConfig{StorageDir: storageDir, Landing: landing})
++	case "zrok", "localxpose", "localhost_run", "pinggy", "serveo":
++		return NewEphemeralTunnelProvider(strings.ToLower(strings.TrimSpace(cfg.Provider)), storageDir, landing)
++	case "tailscale_funnel":
++		return NewTailscaleFunnelProvider(AccountTunnelConfig{StorageDir: storageDir, PublicURL: cfg.PublicURL, LocalPort: cfg.LocalPort, Landing: landing})
++	case "cloudflare_named", "ngrok":
++		return NewAccountTunnelProvider(AccountTunnelConfig{Provider: cfg.Provider, StorageDir: storageDir, SecretsDir: secretsDir, CredentialRef: cfg.CredentialRef, PublicURL: cfg.PublicURL, LocalPort: cfg.LocalPort, Landing: landing})
++	default:
++		return nil, errors.New("unsupported tunnel provider")
++	}
++}
+diff --git a/services/backend/internal/selfevolution/manager.go b/services/backend/internal/selfevolution/manager.go
+index 27a18fc..2b1aaa7 100644
+--- a/services/backend/internal/selfevolution/manager.go
++++ b/services/backend/internal/selfevolution/manager.go
+@@ -394,7 +394,7 @@ func (m *Manager) BuildHost(ctx context.Context, tx Transaction) (string, error)
+ 	if err != nil {
+ 		return "", fmt.Errorf("capture pre-build source guard: %w", err)
+ 	}
+-	cmd := exec.CommandContext(ctx, "make", "build")
++	cmd := exec.CommandContext(ctx, "make", "build-stage")
+ 	cmd.Dir = m.root
+ 	cmd.Env = append(os.Environ(), "WHARNESS_SELF_EVOLUTION=1")
+ 	var output limitedBuffer
+diff --git a/services/backend/internal/selfevolution/manager_test.go b/services/backend/internal/selfevolution/manager_test.go
+index a26bec6..4d4edb2 100644
+--- a/services/backend/internal/selfevolution/manager_test.go
++++ b/services/backend/internal/selfevolution/manager_test.go
+@@ -174,7 +174,7 @@ func assertFile(t *testing.T, path, expected string) {
+ func TestBuildHostRejectsDependencyMetadataMutation(t *testing.T) {
+ 	root := fakeRoot(t)
+ 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+-	mustWrite(t, filepath.Join(root, "Makefile"), "build:\n\t@mkdir -p services/frontend\n\t@printf 'unexpected\\n' > services/frontend/package-lock.json\n", 0o644)
++	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n\t@mkdir -p services/frontend\n\t@printf 'unexpected\\n' > services/frontend/package-lock.json\n", 0o644)
+ 	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+ 	manager := New(root)
+ 	tx, err := manager.Prepare("ses-build-guard", "plan-build-guard", []string{patch})
+diff --git a/services/backend/internal/tunneldaemon/client.go b/services/backend/internal/tunneldaemon/client.go
+new file mode 100644
+index 0000000..ebb031a
+--- /dev/null
++++ b/services/backend/internal/tunneldaemon/client.go
+@@ -0,0 +1,170 @@
++package tunneldaemon
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"time"
++
++	"kernl.local/harness/backend/internal/app"
++)
++
++type Client struct {
++	baseURL string
++	token   string
++	http    *http.Client
++}
++
++func NewClient(baseURL, token string) (*Client, error) {
++	validated, err := validateBaseURL(baseURL)
++	if err != nil {
++		return nil, err
++	}
++	if token == "" {
++		return nil, errors.New("tunnel daemon token is required")
++	}
++	return &Client{baseURL: validated, token: token, http: &http.Client{Timeout: 2 * time.Minute}}, nil
++}
++
++func (c *Client) request(ctx context.Context, method, path string, input, output any) error {
++	var body io.Reader
++	if input != nil {
++		raw, err := json.Marshal(input)
++		if err != nil {
++			return err
++		}
++		body = bytes.NewReader(raw)
++	}
++	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
++	if err != nil {
++		return err
++	}
++	req.Header.Set("Authorization", "Bearer "+c.token)
++	if input != nil {
++		req.Header.Set("Content-Type", "application/json")
++	}
++	response, err := c.http.Do(req)
++	if err != nil {
++		return fmt.Errorf("tunnel daemon request: %w", err)
++	}
++	defer response.Body.Close()
++	if response.StatusCode < 200 || response.StatusCode >= 300 {
++		raw, _ := io.ReadAll(io.LimitReader(response.Body, 16<<10))
++		return fmt.Errorf("tunnel daemon %s: %s", response.Status, bytes.TrimSpace(raw))
++	}
++	if output == nil || response.StatusCode == http.StatusNoContent {
++		return nil
++	}
++	if err := json.NewDecoder(io.LimitReader(response.Body, 16<<20)).Decode(output); err != nil {
++		return fmt.Errorf("decode tunnel daemon response: %w", err)
++	}
++	return nil
++}
++
++func (c *Client) Providers(ctx context.Context) ([]app.TunnelProviderDescriptor, error) {
++	var response struct {
++		Providers []app.TunnelProviderDescriptor `json:"providers"`
++	}
++	if err := c.request(ctx, http.MethodGet, APIPathProviders, nil, &response); err != nil {
++		return nil, err
++	}
++	return response.Providers, nil
++}
++
++func (c *Client) Status() app.RemoteInputStatus {
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	var status app.RemoteInputStatus
++	if err := c.request(ctx, http.MethodGet, APIPathStatus, nil, &status); err != nil {
++		return app.RemoteInputStatus{Mode: "tunnel", Instances: []app.RemoteInputInstanceStatus{{ID: "tunnel-daemon", Provider: "daemon", Available: false, Error: err.Error()}}}
++	}
++	return status
++}
++
++func (c *Client) Publish(ctx context.Context, object app.RemoteInputObject) (app.RemoteInputPublication, error) {
++	var result app.RemoteInputPublication
++	if err := c.request(ctx, http.MethodPost, APIPathPublish, object, &result); err != nil {
++		return app.RemoteInputPublication{}, err
++	}
++	return result, nil
++}
++
++func (c *Client) RetainRemoteInput(instanceID, objectName string) error {
++	return c.request(context.Background(), http.MethodPost, APIPathRetain, instanceObjectRequest{instanceID, objectName}, nil)
++}
++
++func (c *Client) ReleaseRemoteInput(instanceID, objectName string) error {
++	return c.request(context.Background(), http.MethodPost, APIPathRelease, instanceObjectRequest{instanceID, objectName}, nil)
++}
++
++func (c *Client) SupportsRemoteInputChannels() bool { return true }
++
++func (c *Client) PublishRemoteInputChannel(ctx context.Context, channel app.RemoteInputChannel) (app.RemoteInputPublication, error) {
++	var result app.RemoteInputPublication
++	if err := c.request(ctx, http.MethodPost, APIPathChannels, channel, &result); err != nil {
++		return app.RemoteInputPublication{}, err
++	}
++	return result, nil
++}
++
++func (c *Client) PublishRemoteInputChannelSet(ctx context.Context, channel app.RemoteInputChannel) ([]app.RemoteInputPublication, error) {
++	var result []app.RemoteInputPublication
++	if err := c.request(ctx, http.MethodPost, APIPathChannelSet, channel, &result); err != nil {
++		return nil, err
++	}
++	return result, nil
++}
++
++func (c *Client) UpdateRemoteInputChannel(ctx context.Context, instanceID string, update app.RemoteInputChannelUpdate) error {
++	return c.request(ctx, http.MethodPut, APIPathChannel, struct {
++		InstanceID string                       `json:"instance_id"`
++		Update     app.RemoteInputChannelUpdate `json:"update"`
++	}{instanceID, update}, nil)
++}
++
++func (c *Client) UpdateRemoteInputChannelSet(ctx context.Context, instanceIDs []string, update app.RemoteInputChannelUpdate) error {
++	return c.request(ctx, http.MethodPut, APIPathChannelSet, struct {
++		InstanceIDs []string                     `json:"instance_ids"`
++		Update      app.RemoteInputChannelUpdate `json:"update"`
++	}{instanceIDs, update}, nil)
++}
++
++func (c *Client) CloseRemoteInputChannel(ctx context.Context, instanceID, channelID string) error {
++	return c.request(ctx, http.MethodDelete, APIPathChannel, instanceChannelRequest{instanceID, channelID}, nil)
++}
++
++func (c *Client) CloseRemoteInputChannelSet(ctx context.Context, instanceIDs []string, channelID string) error {
++	return c.request(ctx, http.MethodDelete, APIPathChannelSet, closeChannelSetRequest{instanceIDs, channelID}, nil)
++}
++
++func (c *Client) StartRemoteInputSession(ctx context.Context) error {
++	return c.request(ctx, http.MethodPost, APIPathSessionStart, nil, nil)
++}
++
++// Stop is intentionally a no-op. The tunnel daemon owns tunnel lifetime and
++// survives backend/Desktop restarts. Only stack lifecycle stops the daemon.
++func (c *Client) StopRemoteInputSession(context.Context) error { return nil }
++
++func (c *Client) ClearRemoteInputSession(ctx context.Context) error {
++	return c.request(ctx, http.MethodPost, APIPathSessionClear, nil, nil)
++}
++
++func (c *Client) Cleanup(ctx context.Context, cutoff time.Time) error {
++	return c.request(ctx, http.MethodPost, APIPathCleanup, cleanupRequest{Cutoff: cutoff.UTC().Format(time.RFC3339Nano)}, nil)
++}
++
++func (c *Client) Enroll(ctx context.Context, request app.TunnelProviderEnrollmentRequest) (app.TunnelProviderEnrollment, error) {
++	var result app.TunnelProviderEnrollment
++	if err := c.request(ctx, http.MethodPost, APIPathEnroll, request, &result); err != nil {
++		return app.TunnelProviderEnrollment{}, err
++	}
++	return result, nil
++}
++
++func (c *Client) Disconnect(ctx context.Context, credentialRef string) error {
++	return c.request(ctx, http.MethodPost, APIPathDisconnect, map[string]string{"credential_ref": credentialRef}, nil)
++}
+diff --git a/services/backend/internal/tunneldaemon/client_test.go b/services/backend/internal/tunneldaemon/client_test.go
+new file mode 100644
+index 0000000..bba263f
+--- /dev/null
++++ b/services/backend/internal/tunneldaemon/client_test.go
+@@ -0,0 +1,84 @@
++package tunneldaemon
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strings"
++	"testing"
++
++	"kernl.local/harness/backend/internal/app"
++)
++
++func TestClientReturnsDecodedProviderAndPublicationResponses(t *testing.T) {
++	const token = "test-token"
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Header.Get("Authorization") != "Bearer "+token {
++			http.Error(w, "unauthorized", http.StatusUnauthorized)
++			return
++		}
++		switch r.URL.Path {
++		case APIPathProviders:
++			_ = json.NewEncoder(w).Encode(map[string]any{"providers": []app.TunnelProviderDescriptor{{ID: "trycloudflare", Available: true}}})
++		case APIPathPublish:
++			_ = json.NewEncoder(w).Encode(app.RemoteInputPublication{Provider: "trycloudflare", URL: "https://example.test/input.zip"})
++		default:
++			http.NotFound(w, r)
++		}
++	}))
++	defer server.Close()
++
++	client := &Client{baseURL: server.URL, token: token, http: server.Client()}
++	providers, err := client.Providers(context.Background())
++	if err != nil || len(providers) != 1 || providers[0].ID != "trycloudflare" {
++		t.Fatalf("unexpected providers: %#v err=%v", providers, err)
++	}
++	publication, err := client.Publish(context.Background(), app.RemoteInputObject{ObjectName: "input.zip"})
++	if err != nil || publication.Provider != "trycloudflare" || !strings.HasPrefix(publication.URL, "https://") {
++		t.Fatalf("unexpected publication: %#v err=%v", publication, err)
++	}
++}
++
++func TestClientStopDoesNotContactDaemon(t *testing.T) {
++	client := &Client{baseURL: "http://127.0.0.1:1", token: "unused", http: http.DefaultClient}
++	if err := client.StopRemoteInputSession(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestValidateBaseURLRejectsExternalOrigins(t *testing.T) {
++	for _, candidate := range []string{"https://tunnel:8090", "http://example.com:8090", "http://backend:8090"} {
++		if _, err := validateBaseURL(candidate); err == nil {
++			t.Fatalf("expected %q to be rejected", candidate)
++		}
++	}
++	if got, err := validateBaseURL("http://tunnel:8090/"); err != nil || got != "http://tunnel:8090" {
++		t.Fatalf("unexpected internal URL validation: %q %v", got, err)
++	}
++}
++
++func TestServerSourceValidationIsBridgeBound(t *testing.T) {
++	bridge := t.TempDir()
++	server, err := NewServer(nil, nil, nil, bridge)
++	if err != nil {
++		t.Fatal(err)
++	}
++	inside := bridge + "/resource.bin"
++	if err := os.WriteFile(inside, []byte("ok"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	insideRecorder := httptest.NewRecorder()
++	if !server.validateSourcePath(insideRecorder, inside) {
++		t.Fatalf("bridge file rejected: %s", insideRecorder.Body.String())
++	}
++	outside := t.TempDir() + "/outside.bin"
++	if err := os.WriteFile(outside, []byte("no"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	outsideRecorder := httptest.NewRecorder()
++	if server.validateSourcePath(outsideRecorder, outside) || outsideRecorder.Code != http.StatusBadRequest {
++		t.Fatalf("outside path should fail closed: code=%d", outsideRecorder.Code)
++	}
++}
+diff --git a/services/backend/internal/tunneldaemon/protocol.go b/services/backend/internal/tunneldaemon/protocol.go
+new file mode 100644
+index 0000000..64e68f5
+--- /dev/null
++++ b/services/backend/internal/tunneldaemon/protocol.go
+@@ -0,0 +1,61 @@
++package tunneldaemon
++
++import (
++	"errors"
++	"net/http"
++	"strings"
++)
++
++const (
++	APIPathHealth       = "/health"
++	APIPathStatus       = "/v1/status"
++	APIPathProviders    = "/v1/providers"
++	APIPathEnroll       = "/v1/providers/enroll"
++	APIPathDisconnect   = "/v1/providers/disconnect"
++	APIPathPublish      = "/v1/objects"
++	APIPathRetain       = "/v1/objects/retain"
++	APIPathRelease      = "/v1/objects/release"
++	APIPathChannels     = "/v1/channels"
++	APIPathChannelSet   = "/v1/channels/set"
++	APIPathChannel      = "/v1/channels/item"
++	APIPathSessionStart = "/v1/session/start"
++	APIPathSessionClear = "/v1/session/clear"
++	APIPathCleanup      = "/v1/cleanup"
++)
++
++type instanceObjectRequest struct {
++	InstanceID string `json:"instance_id"`
++	ObjectName string `json:"object_name"`
++}
++
++type instanceChannelRequest struct {
++	InstanceID string `json:"instance_id"`
++	ChannelID  string `json:"channel_id"`
++}
++
++type closeChannelSetRequest struct {
++	InstanceIDs []string `json:"instance_ids"`
++	ChannelID   string   `json:"channel_id"`
++}
++
++type cleanupRequest struct {
++	Cutoff string `json:"cutoff"`
++}
++
++func authorize(token string, next http.Handler) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if token == "" || r.Header.Get("Authorization") != "Bearer "+token {
++			http.Error(w, "unauthorized", http.StatusUnauthorized)
++			return
++		}
++		next.ServeHTTP(w, r)
++	})
++}
++
++func validateBaseURL(raw string) (string, error) {
++	value := strings.TrimRight(strings.TrimSpace(raw), "/")
++	if value == "" || !(strings.HasPrefix(value, "http://tunnel:") || strings.HasPrefix(value, "http://127.0.0.1:")) {
++		return "", errors.New("tunnel daemon URL must be an internal HTTP origin")
++	}
++	return value, nil
++}
+diff --git a/services/backend/internal/tunneldaemon/server.go b/services/backend/internal/tunneldaemon/server.go
+new file mode 100644
+index 0000000..4d5c877
+--- /dev/null
++++ b/services/backend/internal/tunneldaemon/server.go
+@@ -0,0 +1,236 @@
++package tunneldaemon
++
++import (
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++
++	"kernl.local/harness/backend/internal/app"
++	"kernl.local/harness/backend/internal/remoteinput"
++)
++
++type Server struct {
++	manager   *remoteinput.Manager
++	connector app.TunnelProviderConnector
++	providers []app.TunnelProviderDescriptor
++	bridgeDir string
++}
++
++func NewServer(manager *remoteinput.Manager, connector app.TunnelProviderConnector, providers []app.TunnelProviderDescriptor, bridgeDir string) (*Server, error) {
++	bridge, err := filepath.Abs(strings.TrimSpace(bridgeDir))
++	if err != nil || bridge == "" || bridge == string(filepath.Separator) {
++		return nil, errors.New("tunnel daemon bridge directory is invalid")
++	}
++	return &Server{manager: manager, connector: connector, providers: append([]app.TunnelProviderDescriptor(nil), providers...), bridgeDir: bridge}, nil
++}
++
++func (s *Server) Handler(token string) http.Handler {
++	mux := http.NewServeMux()
++	mux.HandleFunc("GET "+APIPathHealth, func(w http.ResponseWriter, _ *http.Request) {
++		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
++	})
++	mux.HandleFunc("GET "+APIPathStatus, func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.manager.Status()) })
++	mux.HandleFunc("GET "+APIPathProviders, func(w http.ResponseWriter, _ *http.Request) {
++		writeJSON(w, http.StatusOK, map[string]any{"providers": s.providers})
++	})
++	mux.HandleFunc("POST "+APIPathEnroll, s.enroll)
++	mux.HandleFunc("POST "+APIPathDisconnect, s.disconnect)
++	mux.HandleFunc("POST "+APIPathPublish, s.publishObject)
++	mux.HandleFunc("POST "+APIPathRetain, s.retainObject)
++	mux.HandleFunc("POST "+APIPathRelease, s.releaseObject)
++	mux.HandleFunc("POST "+APIPathChannels, s.publishChannel)
++	mux.HandleFunc("POST "+APIPathChannelSet, s.publishChannelSet)
++	mux.HandleFunc("PUT "+APIPathChannel, s.updateChannel)
++	mux.HandleFunc("PUT "+APIPathChannelSet, s.updateChannelSet)
++	mux.HandleFunc("DELETE "+APIPathChannel, s.closeChannel)
++	mux.HandleFunc("DELETE "+APIPathChannelSet, s.closeChannelSet)
++	mux.HandleFunc("POST "+APIPathSessionStart, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
++	mux.HandleFunc("POST "+APIPathSessionClear, s.clearSession)
++	mux.HandleFunc("POST "+APIPathCleanup, s.cleanup)
++	return authorize(token, mux)
++}
++
++func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
++	var request app.TunnelProviderEnrollmentRequest
++	if !decode(w, r, &request) {
++		return
++	}
++	result, err := s.connector.Enroll(r.Context(), request)
++	respond(w, result, err)
++}
++
++func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
++	var request struct {
++		CredentialRef string `json:"credential_ref"`
++	}
++	if !decode(w, r, &request) {
++		return
++	}
++	respondEmpty(w, s.connector.Disconnect(r.Context(), request.CredentialRef))
++}
++
++func (s *Server) publishObject(w http.ResponseWriter, r *http.Request) {
++	var object app.RemoteInputObject
++	if !decode(w, r, &object) || !s.validateSourcePath(w, object.FilePath) {
++		return
++	}
++	result, err := s.manager.Publish(r.Context(), object)
++	respond(w, result, err)
++}
++
++func (s *Server) retainObject(w http.ResponseWriter, r *http.Request)  { s.objectLease(w, r, true) }
++func (s *Server) releaseObject(w http.ResponseWriter, r *http.Request) { s.objectLease(w, r, false) }
++
++func (s *Server) objectLease(w http.ResponseWriter, r *http.Request, retain bool) {
++	var request instanceObjectRequest
++	if !decode(w, r, &request) {
++		return
++	}
++	var err error
++	if retain {
++		err = s.manager.RetainRemoteInput(request.InstanceID, request.ObjectName)
++	} else {
++		err = s.manager.ReleaseRemoteInput(request.InstanceID, request.ObjectName)
++	}
++	respondEmpty(w, err)
++}
++
++func (s *Server) publishChannel(w http.ResponseWriter, r *http.Request) {
++	var channel app.RemoteInputChannel
++	if !decode(w, r, &channel) || !s.validateResources(w, channel.Resources) {
++		return
++	}
++	result, err := s.manager.PublishRemoteInputChannel(r.Context(), channel)
++	respond(w, result, err)
++}
++
++func (s *Server) publishChannelSet(w http.ResponseWriter, r *http.Request) {
++	var channel app.RemoteInputChannel
++	if !decode(w, r, &channel) || !s.validateResources(w, channel.Resources) {
++		return
++	}
++	result, err := s.manager.PublishRemoteInputChannelSet(r.Context(), channel)
++	respond(w, result, err)
++}
++
++func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
++	var request struct {
++		InstanceID string                       `json:"instance_id"`
++		Update     app.RemoteInputChannelUpdate `json:"update"`
++	}
++	if !decode(w, r, &request) || !s.validateResources(w, request.Update.Resources) {
++		return
++	}
++	respondEmpty(w, s.manager.UpdateRemoteInputChannel(r.Context(), request.InstanceID, request.Update))
++}
++
++func (s *Server) updateChannelSet(w http.ResponseWriter, r *http.Request) {
++	var request struct {
++		InstanceIDs []string                     `json:"instance_ids"`
++		Update      app.RemoteInputChannelUpdate `json:"update"`
++	}
++	if !decode(w, r, &request) || !s.validateResources(w, request.Update.Resources) {
++		return
++	}
++	respondEmpty(w, s.manager.UpdateRemoteInputChannelSet(r.Context(), request.InstanceIDs, request.Update))
++}
++
++func (s *Server) closeChannel(w http.ResponseWriter, r *http.Request) {
++	var request instanceChannelRequest
++	if !decode(w, r, &request) {
++		return
++	}
++	respondEmpty(w, s.manager.CloseRemoteInputChannel(r.Context(), request.InstanceID, request.ChannelID))
++}
++
++func (s *Server) closeChannelSet(w http.ResponseWriter, r *http.Request) {
++	var request closeChannelSetRequest
++	if !decode(w, r, &request) {
++		return
++	}
++	respondEmpty(w, s.manager.CloseRemoteInputChannelSet(r.Context(), request.InstanceIDs, request.ChannelID))
++}
++
++func (s *Server) clearSession(w http.ResponseWriter, r *http.Request) {
++	respondEmpty(w, s.manager.ClearRemoteInputSession(r.Context()))
++}
++
++func (s *Server) cleanup(w http.ResponseWriter, r *http.Request) {
++	var request cleanupRequest
++	if !decode(w, r, &request) {
++		return
++	}
++	cutoff, err := time.Parse(time.RFC3339Nano, request.Cutoff)
++	if err == nil {
++		err = s.manager.Cleanup(r.Context(), cutoff)
++	}
++	respondEmpty(w, err)
++}
++
++func (s *Server) validateResources(w http.ResponseWriter, resources []app.RemoteInputChannelResource) bool {
++	for _, resource := range resources {
++		for _, candidate := range []string{resource.FilePath, resource.ArchivePath} {
++			if candidate != "" && !s.validateSourcePath(w, candidate) {
++				return false
++			}
++		}
++	}
++	return true
++}
++
++func (s *Server) validateSourcePath(w http.ResponseWriter, source string) bool {
++	clean, err := filepath.Abs(filepath.Clean(source))
++	if err != nil {
++		http.Error(w, "invalid shared source path", http.StatusBadRequest)
++		return false
++	}
++	relative, err := filepath.Rel(s.bridgeDir, clean)
++	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || relative == ".." {
++		http.Error(w, "source path is outside the shared bridge", http.StatusBadRequest)
++		return false
++	}
++	info, err := os.Lstat(clean)
++	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
++		http.Error(w, "shared source path is not a regular file", http.StatusBadRequest)
++		return false
++	}
++	return true
++}
++
++func decode(w http.ResponseWriter, r *http.Request, target any) bool {
++	decoder := json.NewDecoder(io.LimitReader(r.Body, 16<<20))
++	decoder.DisallowUnknownFields()
++	if err := decoder.Decode(target); err != nil {
++		http.Error(w, "invalid JSON", http.StatusBadRequest)
++		return false
++	}
++	return true
++}
++
++func respond(w http.ResponseWriter, value any, err error) {
++	if err != nil {
++		http.Error(w, err.Error(), http.StatusBadRequest)
++		return
++	}
++	writeJSON(w, http.StatusOK, value)
++}
++
++func respondEmpty(w http.ResponseWriter, err error) {
++	if err != nil {
++		http.Error(w, err.Error(), http.StatusBadRequest)
++		return
++	}
++	w.WriteHeader(http.StatusNoContent)
++}
++
++func writeJSON(w http.ResponseWriter, status int, value any) {
++	w.Header().Set("Content-Type", "application/json")
++	w.Header().Set("X-Content-Type-Options", "nosniff")
++	w.WriteHeader(status)
++	_ = json.NewEncoder(w).Encode(value)
++}
+diff --git a/services/desktop/dev.mjs b/services/desktop/dev.mjs
+index ab4a88b..a4e4698 100644
+--- a/services/desktop/dev.mjs
++++ b/services/desktop/dev.mjs
+@@ -12,6 +12,7 @@ const frontendDir = path.resolve(here, '../frontend')
+ const runtimeDir = path.resolve(process.env.WHARNESS_RUNTIME_DIR || path.join(projectRoot, '.harness/run'))
+ const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
+ const children = new Map()
++const servicesMode = process.env.WHARNESS_SERVICES_MODE || 'local'
+ let shuttingDown = false
+ 
+ function desktopRuntimeEnvironment() {
+@@ -102,20 +103,27 @@ function frontendCommand() {
+ }
+ 
+ async function main() {
+-  if (await ready('http://127.0.0.1:8080/api/health')) throw new Error('An untracked process already owns Wharness backend port 8080. Stop that verified Wharness process before starting.')
+-  if (await ready('http://127.0.0.1:5173')) throw new Error('An untracked process already owns Wharness frontend port 5173. Stop that verified Wharness process before starting.')
+-
+-  const backend = backendCommand()
+-  run('backend', backend.command, backend.args, backendDir, {
+-    HARNESS_RUNNER_IMAGE: process.env.WHARNESS_RUNNER_IMAGE || process.env.HARNESS_RUNNER_IMAGE || 'kernl-runner:local',
+-  })
+-  const frontend = frontendCommand()
+-  run('frontend', frontend.command, frontend.args, frontendDir)
+-
+-  await Promise.all([
+-    waitFor('http://127.0.0.1:8080/api/health', 'backend'),
+-    waitFor('http://127.0.0.1:5173', 'frontend'),
+-  ])
++  if (servicesMode === 'stack') {
++    await Promise.all([
++      waitFor('http://127.0.0.1:8080/api/health', 'stack backend'),
++      waitFor('http://127.0.0.1:5173', 'stack frontend'),
++    ])
++  } else {
++    if (await ready('http://127.0.0.1:8080/api/health')) throw new Error('An untracked process already owns Wharness backend port 8080. Stop that verified Wharness process before starting.')
++    if (await ready('http://127.0.0.1:5173')) throw new Error('An untracked process already owns Wharness frontend port 5173. Stop that verified Wharness process before starting.')
++
++    const backend = backendCommand()
++    run('backend', backend.command, backend.args, backendDir, {
++      HARNESS_RUNNER_IMAGE: process.env.WHARNESS_RUNNER_IMAGE || process.env.HARNESS_RUNNER_IMAGE || 'kernl-runner:local',
++    })
++    const frontend = frontendCommand()
++    run('frontend', frontend.command, frontend.args, frontendDir)
++
++    await Promise.all([
++      waitFor('http://127.0.0.1:8080/api/health', 'backend'),
++      waitFor('http://127.0.0.1:5173', 'frontend'),
++    ])
++  }
+ 
+   const desktopEnv = desktopRuntimeEnvironment()
+   const launch = electronLaunchArguments(process.platform, desktopEnv)
+diff --git a/services/tunnel/Dockerfile b/services/tunnel/Dockerfile
+new file mode 100644
+index 0000000..12d5707
+--- /dev/null
++++ b/services/tunnel/Dockerfile
+@@ -0,0 +1,52 @@
++ARG GO_VERSION=1.23
++FROM golang:${GO_VERSION}-bookworm AS build
++WORKDIR /src
++COPY services/backend/go.mod services/backend/go.sum ./
++RUN go mod download
++COPY services/backend/ ./
++RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharness-tunnel ./cmd/tunnel
++
++FROM cloudflare/cloudflared:2026.8.3 AS cloudflared
++FROM tailscale/tailscale:stable AS tailscale
++
++FROM debian:bookworm-slim AS runtime
++ARG TARGETARCH
++ARG WHARNESS_UID=1000
++ARG WHARNESS_GID=1000
++ARG NGROK_VERSION=3
++ARG ZROK_VERSION=1.1.11
++ENV DEBIAN_FRONTEND=noninteractive
++RUN apt-get update \
++ && apt-get install -y --no-install-recommends ca-certificates curl openssh-client unzip \
++ && rm -rf /var/lib/apt/lists/*
++
++COPY --from=build /out/wharness-tunnel /usr/local/bin/wharness-tunnel
++COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
++COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscale
++COPY --from=tailscale /usr/local/bin/tailscaled /usr/local/bin/tailscaled
++
++RUN set -eux; \
++    case "${TARGETARCH}" in \
++      amd64) ngrok_arch=amd64; zrok_arch=amd64; loclx_arch=amd64 ;; \
++      arm64) ngrok_arch=arm64; zrok_arch=arm64; loclx_arch=arm64 ;; \
++      *) echo "unsupported tunnel runtime architecture: ${TARGETARCH}" >&2; exit 1 ;; \
++    esac; \
++    curl -fsSL "https://bin.ngrok.com/c/bNyj1mQVY4c/ngrok-v${NGROK_VERSION}-stable-linux-${ngrok_arch}.tgz" -o /tmp/ngrok.tgz; \
++    tar -xzf /tmp/ngrok.tgz -C /usr/local/bin ngrok; \
++    curl -fsSL "https://github.com/openziti/zrok/releases/download/v${ZROK_VERSION}/zrok_${ZROK_VERSION}_linux_${zrok_arch}.tar.gz" -o /tmp/zrok.tgz; \
++    tar -xzf /tmp/zrok.tgz -C /usr/local/bin zrok; \
++    curl -fsSL "https://api.localxpose.io/api/v2/downloads/loclx-linux-${loclx_arch}.zip" -o /tmp/loclx.zip; \
++    unzip -q /tmp/loclx.zip -d /tmp/loclx; \
++    install -m 0755 "$(find /tmp/loclx -type f -name loclx -print -quit)" /usr/local/bin/loclx; \
++    chmod 0755 /usr/local/bin/wharness-tunnel /usr/local/bin/cloudflared /usr/local/bin/tailscale /usr/local/bin/tailscaled /usr/local/bin/ngrok /usr/local/bin/zrok /usr/local/bin/loclx; \
++    rm -rf /tmp/ngrok.tgz /tmp/zrok.tgz /tmp/loclx.zip /tmp/loclx
++
++RUN groupadd --gid "${WHARNESS_GID}" wharness \
++ && useradd --uid "${WHARNESS_UID}" --gid "${WHARNESS_GID}" --create-home --home-dir /var/lib/wharness-tunnel/home --shell /usr/sbin/nologin wharness \
++ && mkdir -p /var/lib/wharness-tunnel \
++ && chown -R wharness:wharness /var/lib/wharness-tunnel
++
++USER wharness
++ENV HOME=/var/lib/wharness-tunnel/home
++EXPOSE 8090
++ENTRYPOINT ["/usr/local/bin/wharness-tunnel"]

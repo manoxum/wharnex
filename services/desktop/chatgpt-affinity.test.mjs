@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { confirmChatGPTAffinity, createChatGPTAffinityTracker, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
+import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
 
-test('unbound affinity ignores stale concrete navigation until home and a Harness submit are both observed', () => {
+test('unbound affinity observes concrete navigation but publishes only after definitive settlement', () => {
   const tracker = createChatGPTAffinityTracker()
   syncChatGPTAffinity(tracker, '', false)
   assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/stale' }), '')
@@ -10,25 +10,59 @@ test('unbound affinity ignores stale concrete navigation until home and a Harnes
   assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/still-stale' }), '')
   markChatGPTAffinitySubmitted(tracker)
   assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/new?model=auto' }), 'https://chatgpt.com/c/new')
+  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'armed', boundConversationUrl: '', bindingCandidate: '' })
+  assert.equal(isChatGPTAffinityAwaitingSettlement(tracker), true)
+  assert.equal(settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/new?model=auto'), 'https://chatgpt.com/c/new')
   assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'candidate', boundConversationUrl: '', bindingCandidate: 'https://chatgpt.com/c/new' })
 })
 
-test('candidate survives unrelated observations until renderer validation confirms it', () => {
+test('transient concrete observations can change before only the settled URL becomes the candidate', () => {
   const tracker = createChatGPTAffinityTracker()
   syncChatGPTAffinity(tracker, '', true)
   markChatGPTAffinitySubmitted(tracker)
-  observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/fast' })
-  observeChatGPTAffinity(tracker, { home: true })
-  assert.equal(tracker.candidateURL, 'https://chatgpt.com/c/fast')
-  assert.equal(confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/fast'), 'https://chatgpt.com/c/fast')
+  assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/first' }), 'https://chatgpt.com/c/first')
+  assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/final' }), 'https://chatgpt.com/c/final')
+  assert.equal(tracker.candidateURL, '')
+  assert.equal(settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/final'), 'https://chatgpt.com/c/final')
+  assert.equal(tracker.candidateURL, 'https://chatgpt.com/c/final')
+  assert.equal(confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/final'), 'https://chatgpt.com/c/final')
   assert.equal(tracker.phase, 'bound')
 })
 
-test('rejected first candidate rearms new-chat affinity and requires another submit', () => {
+test('new chats ignore transient WEB conversation URLs and bind the final URL while hidden', () => {
+  const tracker = createChatGPTAffinityTracker()
+  syncChatGPTAffinity(tracker, '', true)
+  markChatGPTAffinitySubmitted(tracker)
+
+  assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/WEB:temporary-id' }), '')
+  assert.equal(settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/WEB:temporary-id'), '')
+  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'armed', boundConversationUrl: '', bindingCandidate: '' })
+
+  assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/final-id' }), 'https://chatgpt.com/c/final-id')
+  assert.equal(settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/final-id'), 'https://chatgpt.com/c/final-id')
+  assert.equal(confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/final-id'), 'https://chatgpt.com/c/final-id')
+  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'bound', boundConversationUrl: 'https://chatgpt.com/c/final-id', bindingCandidate: '' })
+})
+
+test('switching away and back preserves an unbound submitted conversation until binding completes', () => {
+  const tracker = createChatGPTAffinityTracker()
+  syncChatGPTAffinity(tracker, '', true)
+  markChatGPTAffinitySubmitted(tracker)
+  assert.equal(shouldPreserveChatGPTAffinityNavigation(tracker), true)
+
+  settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/final-after-background-processing')
+  assert.equal(shouldPreserveChatGPTAffinityNavigation(tracker), true)
+
+  confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/final-after-background-processing')
+  assert.equal(shouldPreserveChatGPTAffinityNavigation(tracker), false)
+})
+
+test('rejected first settled candidate rearms new-chat affinity and requires another submit', () => {
   const tracker = createChatGPTAffinityTracker()
   syncChatGPTAffinity(tracker, '', true)
   markChatGPTAffinitySubmitted(tracker)
   observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/conflict' })
+  settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/conflict')
   rejectChatGPTAffinity(tracker, 'https://chatgpt.com/c/conflict')
   assert.deepEqual(tracker, { phase: 'armed', boundURL: '', candidateURL: '', homeSeen: false, submitted: false })
 })
@@ -57,6 +91,7 @@ test('syncing an existing persisted binding resets stale candidate state', () =>
   syncChatGPTAffinity(tracker, '', true)
   markChatGPTAffinitySubmitted(tracker)
   observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/old' })
+  settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/old')
   syncChatGPTAffinity(tracker, 'https://chatgpt.com/c/persisted')
   assert.deepEqual(tracker, { phase: 'bound', boundURL: 'https://chatgpt.com/c/persisted', candidateURL: '', homeSeen: false, submitted: false })
 })

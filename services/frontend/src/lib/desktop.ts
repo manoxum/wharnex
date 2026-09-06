@@ -46,8 +46,9 @@ export function chatgptConversationURL(value: string) {
     const trusted = url.protocol === 'https:' && (host === 'chatgpt.com' || host.endsWith('.chatgpt.com'))
     if (!trusted) return ''
     const match = /^\/c\/([^/]+)(?:\/.*)?$/.exec(url.pathname)
-    if (!match?.[1]) return ''
-    return `https://chatgpt.com/c/${match[1]}`
+    const id = match?.[1] || ''
+    if (!id || /^WEB(?::|%3A)/i.test(id)) return ''
+    return `https://chatgpt.com/c/${id}`
   } catch { return '' }
 }
 

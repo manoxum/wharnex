@@ -13,6 +13,7 @@ STAGE_LOCK="$BASE/stage.lock"
 KNOWN_STOP="$TXN/stop-known-good.sh"
 KNOWN_START="$TXN/start-known-good.sh"
 ROLLBACK="$TXN/rollback.sh"
+KNOWN_STACK="$TXN/stack-known-good.sh"
 
 case "$TXN" in
   "$BASE"/txn-*) ;;
@@ -81,6 +82,47 @@ recover_old_runtime() {
   release_stage_lock
   return 1
 }
+
+stack_runtime_healthy() {
+  curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 || return 1
+  curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1
+}
+
+recover_stack_runtime() {
+  status rollback_runtime "new application containers failed health/start checks"
+  if ! "$ROLLBACK" "$ROOT" "$TXN" >>"$LOG" 2>&1; then
+    status rollback_failed "source/artifact rollback failed; persistent tunnel/database preserved"
+    release_stage_lock
+    return 1
+  fi
+  status rollback_restored "previous source/artifacts restored; rebuilding previous application images"
+  if (cd "$ROOT" && make build-stage) >>"$LOG" 2>&1 && \
+     WHARNESS_ROOT="$ROOT" "$KNOWN_STACK" activate-app >>"$LOG" 2>&1 && \
+     stack_runtime_healthy; then
+    status rolled_back_runtime "previous application containers restored; persistent tunnel/database were never restarted"
+    cleanup_lock
+    return 0
+  fi
+  status rollback_failed "previous application containers could not be restored; inspect self-evolution.log"
+  release_stage_lock
+  return 1
+}
+
+if [ "${WHARNESS_SERVICES_MODE:-}" = stack ]; then
+  # This worker runs in a detached Docker supervisor container, so replacing
+  # backend/frontend cannot terminate it. Database and tunnel are explicitly
+  # outside the rollout and keep their containers/public URLs unchanged.
+  sleep 2
+  status restarting "host build passed; activating backend/frontend without restarting tunnel/database"
+  if WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" activate-app >>"$LOG" 2>&1 && stack_runtime_healthy; then
+    status restarted "new backend/frontend containers are healthy; Desktop and tunnel/database stayed alive"
+    cleanup_lock
+    find "$BASE" -mindepth 1 -maxdepth 1 -type d -name 'txn-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true
+    exit 0
+  fi
+  recover_stack_runtime
+  exit $?
+fi
 
 # Give the request that scheduled this worker enough time to return to the UI.
 sleep 2

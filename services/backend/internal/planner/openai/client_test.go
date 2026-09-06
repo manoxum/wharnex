@@ -63,7 +63,7 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 			if responses.Load() == 2 {
 				requestID = "req2"
 			}
-			turn := domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindAnswer, Message: "Resposta baseada no projeto."}
+			turn := domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindAnswer, Message: "Resposta baseada no projeto.", Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}}
 			encoded, _ := json.Marshal(struct {
 				domain.AgentTurn
 				Plan *domain.ExecutionPlan `json:"plan"`
@@ -101,5 +101,25 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 	}
 	if uploads.Load() != 1 || responses.Load() != 2 {
 		t.Fatalf("uploads=%d responses=%d", uploads.Load(), responses.Load())
+	}
+}
+
+func TestExecutionFormatRequiresExplicitPlannerOutcome(t *testing.T) {
+	format := executionFormat("req1", "snapshot-1")
+	schema := format["schema"].(map[string]any)
+	required := schema["required"].([]string)
+	found := false
+	for _, field := range required {
+		if field == "outcome" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("outcome missing from structured output requirements: %#v", required)
+	}
+	properties := schema["properties"].(map[string]any)
+	outcome := properties["outcome"].(map[string]any)
+	if outcome["additionalProperties"] != false {
+		t.Fatalf("outcome schema is not strict: %#v", outcome)
 	}
 }
