@@ -132,6 +132,12 @@ function statusMeta(event: HarnessEvent) {
     case 'host.pending_rejected': return { title: 'Alterações pendentes rejeitadas', detail: `${String(event.data.plan_count || 0)} plano(s) descartado(s)`, badge: 'REJECT', tone: 'warning' as const }
     case 'host.revert_started': return { title: 'Reversão no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'REVERT', tone: 'warning' as const }
     case 'host.reverted': return { title: 'Alterações revertidas no host', detail: '', badge: 'REVERT', tone: 'ok' as const }
+    case 'host_dependency_repair.started': return { title: 'Reinstalação de dependências do host iniciada', detail: String(event.data.cwd || ''), badge: 'REPAIR', tone: 'warning' as const }
+    case 'host_dependency_repair.command_started': return { title: 'Comando de reparo iniciado', detail: (event.data.argv as string[] | undefined)?.join(' ') || '', badge: 'REPAIR', tone: 'warning' as const }
+    case 'host_dependency_repair.command_completed': return { title: 'Comando de reparo concluído', detail: (event.data.argv as string[] | undefined)?.join(' ') || '', badge: exit, tone: event.data.success ? 'ok' as const : 'fail' as const }
+    case 'host_dependency_repair.completed': return { title: 'Dependências do host reinstaladas', detail: String(event.data.cwd || ''), badge: 'REPAIR', tone: 'ok' as const }
+    case 'host_dependency_repair.failed': return { title: 'Reinstalação de dependências do host falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
+    case 'host_dependency_repair.reverify_failed': return { title: 'Dependências reinstaladas, mas a verificação ainda falha', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
     case 'verification.started': return { title: 'Verificação iniciada', detail: target, badge: 'CHECK', tone: 'warning' as const }
     case 'verification.completed': return { title: 'Verificação concluída', detail: target, badge: exit, tone: event.data.baseline_failure ? 'warning' as const : 'ok' as const }
     case 'verification.baseline_unchanged': return { title: 'Falha pré-existente inalterada', detail: 'baseline unchanged', badge: exit, tone: 'warning' as const }

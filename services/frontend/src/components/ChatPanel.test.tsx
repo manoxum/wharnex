@@ -147,6 +147,38 @@ describe('ChatPanel', () => {
     expect((screen.getByRole('button', { name: 'Retomar pedido' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('offers to resend a request that is still pending, so a silently failed auto-delivery can be retried', async () => {
+    const onResendPendingRequest = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-new'], state: 'awaiting_plan' }} items={[{ id: 'auto-recovery-1', role: 'harness', source: 'wharness', presentation: 'notice', text: 'O pedido de correção automática foi preparado no ChatGPT.', meta: 'Pedido req-new · confirmação pendente', iteration: { id: 'iteration-2', requestId: 'req-new', phase: 'prepared', artifacts: ['context', 'prompt'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onResendPendingRequest={onResendPendingRequest} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reenviar request' }))
+    await waitFor(() => expect(onResendPendingRequest).toHaveBeenCalledWith('req-new'))
+  })
+
+  it('does not offer to resend a notice whose request has already been superseded', () => {
+    render(
+      <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-new'], state: 'awaiting_plan' }} items={[{ id: 'auto-recovery-old', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Recuperação automática preparada.', meta: 'Recuperação automática preparada · req-new', iteration: { id: 'iteration-3', requestId: 'req-old', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onResendPendingRequest={async () => undefined} {...chatActions} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Reenviar request' })).toBeNull()
+  })
+
+  it('disables the resend action while a newer request is already in flight', () => {
+    render(
+      <ChatPanel session={{ ...session, last_request_id: 'req-new', state: 'awaiting_plan' }} items={[{ id: 'auto-recovery-2', role: 'harness', source: 'wharness', presentation: 'notice', text: 'O pedido de correção automática foi enviado ao ChatGPT em segundo plano.', meta: 'Pedido req-new enviado automaticamente', iteration: { id: 'iteration-4', requestId: 'req-new', phase: 'submitted', artifacts: ['context', 'prompt'] } }]} chats={[]} activeChatId="" busy={false} taskInFlight onSend={async () => undefined} onResendPendingRequest={async () => undefined} {...chatActions} />,
+    )
+    expect((screen.getByRole('button', { name: 'Reenviar request' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('also allows cancelling a request that is only listed in pending_manual_request_ids, not just last_request_id', async () => {
+    const onCancelPendingRequest = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-new'], state: 'awaiting_plan' }} items={[{ id: 'auto-recovery-3', role: 'harness', source: 'wharness', presentation: 'notice', text: 'O pedido de correção automática foi preparado no ChatGPT.', meta: 'Pedido req-new · confirmação pendente', iteration: { id: 'iteration-5', requestId: 'req-new', phase: 'prepared', artifacts: ['context', 'prompt'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCancelPendingRequest={onCancelPendingRequest} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
+    await waitFor(() => expect(onCancelPendingRequest).toHaveBeenCalledWith('req-new'))
+  })
+
   it('offers reprocessing in the message footer used by older imported bundles', async () => {
     const onReprocessPolicyBlock = vi.fn(async () => undefined)
     render(

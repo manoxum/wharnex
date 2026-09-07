@@ -34,6 +34,20 @@ Go dependency hydration is likewise execution-only and offline by default. Befor
 
 That local failure MAY expose a prominent human approval action. Approval grants network only to the eligible Go build/dependency/verification argv commands retained in that failed Protected plan. The approved command resolves modules into `.kernl/go-mod` inside the isolated copied workspace; successful hydration marks that private cache ready, and later non-approved commands continue with `GOPROXY=off`. It MUST NOT enable arbitrary shell/package commands, mutate or mount the host module cache, mount the original project, expose the Docker socket, or weaken the runner's capabilities, user, resource and `no-new-privileges` controls.
 
+### Host dependency state repair (npm optional-dependency defect)
+
+A distinct host-only failure class (`domain.FailureKindHostDependencyState`) occurs after a candidate already passed Protected verification: the post-merge host build fails because a platform-specific npm optional/native binding never installed correctly under the host's own `node_modules` (the npm optional-dependencies bug tracked as npm/cli#4828, first observed with `rolldown`'s native binding). No source patch can repair host package-manager state, so — exactly like the Go case above — this MUST NOT spend an automatic ChatGPT repair round.
+
+Unlike the Go case, Wharness does not grant network to a plan-supplied command; it offers a fixed, hand-reviewed recovery recipe (`RetryHostDependencyRepair`) that is never planner-supplied and never accepts planner-proposed commands:
+
+1. `rm -rf node_modules`
+2. `rm -f package-lock.json`
+3. `npm install` (the only command in the recipe with network access — this is exactly what human approval grants)
+
+Each command runs directly against the host project directory (never the sandbox) through the same host runner and policy profile as the interactive Host terminal (`Engine.EvaluateInteractiveCommand`, AGENTS.md §7) — argv-only, no shell, no `sudo`/privilege escalation, no host-management primitives. The recipe's working directory is derived only from Wharness's own verified pending plan data (the failing `npm`/`npx`/`node` verification command's `cwd`), never from planner text. After the recipe succeeds, Wharness reruns the exact verification commands that failed post-merge; if they now pass, the failure classification is cleared and Apply is retried automatically. If they still fail, the (now-inapplicable) `host_dependency_state` label is cleared and the concrete new error is surfaced instead of re-blocking under a stale reason — this recovery never loops or spends more than one attempt per approval.
+
+This recipe is closed and specific to the diagnosed npm optional-dependency defect. A host-only failure that Wharness cannot recognize still blocks with only a manual notice, exactly as before.
+
 ## Unprotected exception
 
 A workspace may be explicitly switched to `Unprotected` in the UI. This is not a sandbox variant: Agent plan operations execute directly in the real project directory. The Policy Engine remains mandatory and each direct execution requires user confirmation. The UI must display a persistent host-direct warning while the mode is active. This choice is stored per project and must never become the global/default mode.

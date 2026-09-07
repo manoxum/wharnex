@@ -28,11 +28,43 @@ test('a failed prompt delivery remains retryable without asking the planner for 
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
-  const retryStart = source.indexOf('async function retryPreparedChatGPTPrompt(cacheKey)')
+  const retryStart = source.indexOf("async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
   const retryEnd = source.indexOf('\nasync function attachContextToChatGPT', retryStart)
   assert.match(source.slice(prepareStart, prepareEnd), /retryableChatGPTPrompts\.set\(key, \{ request, preparedAt: Date\.now\(\) \}\)/)
   assert.match(source.slice(retryStart, retryEnd), /return preparePromptForChatGPT\(retryable\.request\)/)
   assert.match(source, /wharness:chatgpt:retry-prepared-prompt/)
+})
+
+test('observing a submit does not erase the retryable prompt, only a real terminal outcome does', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
+  const retryDeclStart = source.indexOf("\nasync function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
+  const prepareOwnBody = source.slice(prepareStart, retryDeclStart)
+  // A conversation POST being observed only confirms transport, not that
+  // ChatGPT actually received the composed prompt/attachment — the retry
+  // entry must survive that observation so a manual resend stays possible.
+  assert.doesNotMatch(prepareOwnBody, /retryableChatGPTPrompts\.delete\(key\)/)
+
+  const downloadStart = source.indexOf('function registerChatGPTPlanDownloads(chatSession)')
+  const downloadEnd = source.indexOf('\nfunction chatGPTKeyForEntry', downloadStart)
+  const downloadBody = source.slice(downloadStart, downloadEnd)
+  assert.match(downloadBody, /const retryable = retryableChatGPTPrompts\.get\(retryKey\)/)
+  assert.match(downloadBody, /retryable\.request\?\.requestId \|\| ''\) === validated\.requestId\) retryableChatGPTPrompts\.delete\(retryKey\)/)
+
+  const pickBundleStart = source.indexOf("ipcMain.handle('wharness:chatgpt:pick-bundle'")
+  const pickBundleEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:paste'", pickBundleStart)
+  const pickBundleBody = source.slice(pickBundleStart, pickBundleEnd)
+  assert.match(pickBundleBody, /retryable\.request\?\.requestId \|\| ''\) === validated\.requestId\) retryableChatGPTPrompts\.delete\(chatId\)/)
+})
+
+test('resending a prepared prompt refuses to act on a request that has since been superseded', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const retryStart = source.indexOf("async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
+  const retryEnd = source.indexOf('\nasync function attachContextToChatGPT', retryStart)
+  const retryBody = source.slice(retryStart, retryEnd)
+  assert.match(retryBody, /String\(retryable\.request\?\.requestId \|\| ''\) !== requestId/)
+  assert.match(retryBody, /Uma requisição mais recente substituiu esta/)
+  assert.match(source, /return retryPreparedChatGPTPrompt\(request\?\.cacheKey, request\?\.expectedRequestId\)/)
 })
 
 test('a visible ChatGPT page waits briefly for its composer then requires human attention instead of reporting a retryable delivery', async () => {

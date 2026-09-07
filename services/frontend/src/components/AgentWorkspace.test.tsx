@@ -21,12 +21,14 @@ function session(): Session {
 function props(current = session(), human: { notice?: DesktopChatGPTHumanAction; nonce?: number; onAction?: () => void } = {}, busy = false) {
   const onExecute = vi.fn(async () => undefined)
   const onRetryDependencyNetwork = vi.fn(async () => undefined)
+  const onRetryHostDependencyRepair = vi.fn(async () => undefined)
+  const onApply = vi.fn(async () => undefined)
   const onRestore = vi.fn(async () => undefined)
   const onDelete = vi.fn(async () => undefined)
   const onOpenFile = vi.fn()
   const onExportChat = vi.fn(async () => undefined)
   return {
-    onExecute, onRetryDependencyNetwork, onRestore, onDelete, onOpenFile, onExportChat,
+    onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onApply, onRestore, onDelete, onOpenFile, onExportChat,
     element: <AgentWorkspace
       session={current}
       busy={busy}
@@ -43,7 +45,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
       }}
       inspectorProps={{
         config: { planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }, session: current, events: [], manualPrompt: '', busy,
-        onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onApply: async () => undefined, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
+        onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onApply, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
       }}
     />,
   }
@@ -182,14 +184,47 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Permitir rede restrita e repetir' })).toBeNull()
   })
 
-  it('shows host dependency state as a terminal environment block without a repair action', () => {
+  it('offers a host dependency repair action instead of a dead-end notice', () => {
+    // This used to be a terminal notice with no way forward: reinstalling
+    // node_modules never needs a source patch, so Wharness now offers a
+    // fixed, human-approved recipe (rm -rf node_modules; rm -f
+    // package-lock.json; npm install) directly, instead of telling the human
+    // to fix it outside the app.
     const blocked = session()
-    blocked.state = 'failed'
+    blocked.state = 'verified'
     blocked.failure_kind = 'host_dependency_state'
-    render(props(blocked).element)
-    expect(screen.getByRole('status', { name: 'Build do host bloqueado por dependências incompletas' })).toBeTruthy()
-    expect(screen.getByText('Reinstale node_modules — sem reparação via ChatGPT')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Permitir rede restrita e repetir' })).toBeNull()
+    const view = props(blocked)
+    render(view.element)
+    const retry = screen.getByRole('button', { name: 'Reinstalar dependências do host e repetir' })
+    expect(retry.textContent).toContain('Reinstalar node_modules')
+    fireEvent.click(retry)
+    expect(view.onRetryHostDependencyRepair).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a clear retry-apply action for a local coordination block instead of a generic error', () => {
+    // self_evolution_transaction_busy / host_integration_race both mean the
+    // verified candidate is fine — a transient local lock/race blocked Apply,
+    // not a defect the model could fix, and the backend already stopped
+    // spending ChatGPT repair rounds on it (TODO.md §16). Retrying Apply is
+    // the correct next step, so this must render as an explicit action
+    // rather than the generic error surface, for both failure kinds.
+    for (const failureKind of ['self_evolution_transaction_busy', 'host_integration_race'] as const) {
+      const blocked = session()
+      blocked.state = 'failed'
+      blocked.failure_kind = failureKind
+      blocked.pending_host_changes = [{
+        plan: blocked.plan!,
+        execution: { plan_id: 'plan-agent', success: true, started_at: '2026-09-05T13:00:00.000Z', completed_at: '2026-09-05T13:01:00.000Z', commands: [] },
+        verified_at: '2026-09-05T13:01:00.000Z',
+      }]
+      const view = props(blocked)
+      const rendered = render(view.element)
+      const retry = screen.getByRole('button', { name: 'Candidato verificado — repetir aplicação no host' })
+      expect(retry.textContent).toContain('Repetir aplicação')
+      fireEvent.click(retry)
+      expect(view.onApply).toHaveBeenCalledTimes(1)
+      rendered.unmount()
+    }
   })
 
   it('keeps human ChatGPT intervention visible and opens the ChatGPT inspector on acknowledgement', async () => {

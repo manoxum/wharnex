@@ -71,6 +71,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
 	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
+	mux.HandleFunc("POST /api/sessions/{id}/host-dependency-repair", a.retryHostDependencyRepair)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/resume", a.resumeInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/discard", a.discardInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
@@ -852,6 +853,23 @@ func (a *API) retryDependencyNetwork(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusForbidden
 		}
 		writeJSON(w, status, map[string]any{"error": map[string]any{"code": "dependency_network_retry_failed", "message": err.Error()}, "session": item})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) retryHostDependencyRepair(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Approved bool `json:"approved"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	item, err := a.service.RetryHostDependencyRepair(r.Context(), r.PathValue("id"), body.Approved)
+	if err != nil {
+		status := http.StatusConflict
+		if errors.Is(err, app.ErrApprovalRequired) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": map[string]any{"code": "host_dependency_repair_failed", "message": err.Error()}, "session": item})
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

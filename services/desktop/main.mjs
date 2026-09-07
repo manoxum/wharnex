@@ -770,6 +770,11 @@ function registerChatGPTPlanDownloads(chatSession) {
           markChatGPTBundleRequestDelivered(validated.requestId)
           publishBundleDownload({ cacheKey: sourceCacheKey, filename, requestId: validated.requestId, contentBase64: bytes.toString('base64'), bytes: bytes.byteLength, sourceFilename, normalizedFilename: bundleCandidate.normalized })
           if (expectedBundle?.key && expectedBundle.requestId === validated.requestId) expectedChatGPTBundles.delete(expectedBundle.key)
+          const retryKey = expectedBundle?.key || sourceCacheKey
+          if (retryKey) {
+            const retryable = retryableChatGPTPrompts.get(retryKey)
+            if (retryable && String(retryable.request?.requestId || '') === validated.requestId) retryableChatGPTPrompts.delete(retryKey)
+          }
           console.log(`[chatgpt-bundle-download] imported file=${filename} bytes=${bytes.byteLength}`)
         } catch (error) {
           publishBundleDownloadError(error instanceof Error ? error.message : String(error), filename, sourceCacheKey)
@@ -1679,16 +1684,25 @@ async function preparePromptForChatGPT(request) {
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=1 archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
-  retryableChatGPTPrompts.delete(key)
+  // Do not clear retryableChatGPTPrompts here: observing this submit only
+  // confirms transport (a conversation POST was seen), never that ChatGPT
+  // actually received the composed prompt/attachment. The entry stays
+  // available for a manual "Reenviar request" until the request reaches a
+  // real terminal outcome (validated bundle downloaded, or explicitly
+  // superseded/cancelled) — see registerChatGPTPlanDownloads and pick-bundle.
   return { ok: true, cacheKey: key, attachmentCount: 1, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl }
 }
 
-async function retryPreparedChatGPTPrompt(cacheKey) {
+async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '') {
   const key = sanitizeChatCacheKey(cacheKey)
   const retryable = retryableChatGPTPrompts.get(key)
   if (!retryable || Date.now() - retryable.preparedAt > 10 * 60 * 1000) {
     retryableChatGPTPrompts.delete(key)
     throw new Error('Não existe uma entrega de prompt recente para repetir neste chat')
+  }
+  const requestId = String(expectedRequestId || '').trim()
+  if (requestId && String(retryable.request?.requestId || '') !== requestId) {
+    throw new Error('Uma requisição mais recente substituiu esta; abra a aba do ChatGPT para continuar.')
   }
   return preparePromptForChatGPT(retryable.request)
 }
@@ -2569,6 +2583,10 @@ function registerIPC() {
     if (!candidate) throw new Error('O ficheiro selecionado não é um bundle ZIP Wharness reconhecível.')
     const validated = validateWharnessBundleDownload(candidate.filename, bytes)
     if (validated.requestId !== requestId) throw new Error('O bundle selecionado não pertence ao pedido ativo.')
+    if (chatId) {
+      const retryable = retryableChatGPTPrompts.get(chatId)
+      if (retryable && String(retryable.request?.requestId || '') === validated.requestId) retryableChatGPTPrompts.delete(chatId)
+    }
     return {
       cancelled: false,
       filename: candidate.filename,
@@ -2593,7 +2611,7 @@ function registerIPC() {
   ipcMain.handle('wharness:chatgpt:retry-prepared-prompt', async (event, request) => {
     const windowState = trustedSender(event)
     ensureChatGPTView(request?.cacheKey, windowState)
-    return retryPreparedChatGPTPrompt(request?.cacheKey)
+    return retryPreparedChatGPTPrompt(request?.cacheKey, request?.expectedRequestId)
   })
   ipcMain.handle('wharness:chatgpt:attach-context', async (event, request) => {
     const windowState = trustedSender(event)

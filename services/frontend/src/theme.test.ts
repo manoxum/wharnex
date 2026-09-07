@@ -31,6 +31,11 @@ describe('complete colour themes', () => {
     expect(theme).toContain('background: #292929;\n  color: #cecece;')
   })
 
+  it('keeps chat message sender colors genuinely distinct in dark mode too', () => {
+    expect(theme).toContain("[data-theme='dark'] .message-chatgpt .message-body { border-color: #3a5573; background: #1d2b3d; color: #bcd6f2; }")
+    expect(theme).toContain("[data-theme='dark'] .message-wharness .message-body { border-color: #3d5a2e; background: #1e2b18; color: #b8dba0; }")
+  })
+
   it('does not tint large active or verification surfaces green', () => {
     expect(theme).toMatch(/\[data-theme='dark'\] \.composer\.comment-mode \{[^}]*background: #171717;/)
     expect(theme).toContain("[data-theme='dark'] .operation.verification")

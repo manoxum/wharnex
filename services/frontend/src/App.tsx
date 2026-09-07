@@ -1099,17 +1099,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
   }
 
-  async function retryPreparedPromptDelivery() {
-    if (!activeChatId || busy) return
+  async function retryPreparedPromptDelivery(requestId?: string) {
+    if (!session || !activeChatId || busy) return
+    if (requestId && !sessionHasPendingRequest(session, requestId)) return
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     setBusy(true); setError(undefined); setTransportProgress('A repetir a entrega já preparada ao ChatGPT…')
     try {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
-      const prepared = await bridge.chatgpt.retryPreparedPrompt({ cacheKey: activeChatId })
+      const prepared = await bridge.chatgpt.retryPreparedPrompt({ cacheKey: activeChatId, expectedRequestId: requestId })
       if (prepared.conversationUrl) bindChatGPTURL(prepared.conversationUrl)
       if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [activeChatId]: prepared.attachmentCount }))
       setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: prepared.submitted ? 'O prompt original foi entregue novamente ao ChatGPT.' : 'O prompt original foi montado novamente no ChatGPT; confirme o envio quando estiver pronto.', meta: prepared.submitted ? 'Aguardando bundle do ChatGPT' : 'Confirmação pendente' }])
+      const text = requestId ? (prepared.submitted ? 'O mesmo pedido foi reenviado ao ChatGPT.' : 'O mesmo pedido foi montado novamente no ChatGPT; confirme o envio quando estiver pronto.') : (prepared.submitted ? 'O prompt original foi entregue novamente ao ChatGPT.' : 'O prompt original foi montado novamente no ChatGPT; confirme o envio quando estiver pronto.')
+      const meta = prepared.submitted ? 'Aguardando bundle do ChatGPT' : 'Confirmação pendente'
+      appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text, meta, iteration: requestId ? iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (retryError) {
       setError(`Não foi possível repetir a entrega: ${messageOf(retryError)}`)
     } finally { setTransportProgress(''); setBusy(false) }
@@ -1689,6 +1694,26 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	} finally { setBusy(false) }
   }
 
+  async function retryHostDependencyRepair() {
+	if (!session || busy || !(await confirmDialog({
+		title: 'Reinstalar dependências do host?',
+		message: 'A mesma verificação passou na sandbox Protected mas falhou no host por uma dependência npm nativa/opcional ausente em node_modules (bug conhecido do npm com dependências opcionais). O Wharness vai rodar, direto no host e sem sudo:\n\n  rm -rf node_modules\n  rm -f package-lock.json\n  npm install\n\nSe a build passar de novo, o Apply é repetido automaticamente.',
+		tone: 'warning',
+		confirmLabel: 'Reinstalar e repetir',
+	}))) return
+	setBusy(true); setError(undefined)
+	try {
+		setSession(await api.retryHostDependencyRepair(session.id))
+	} catch (cause) {
+		setError(messageOf(cause))
+		// The repair may have reinstalled cleanly and then failed a later
+		// reverification/apply step. Refresh before unlocking the UI so a
+		// stale host_dependency_state session cannot expose this button a
+		// second time after the backend already advanced past it.
+		try { setSession(await api.getSession(session.id)) } catch { /* keep the original repair error */ }
+	} finally { setBusy(false) }
+  }
+
   async function rejectPendingChanges() {
     if (!session || !(await confirmDialog({
       title: 'Rejeitar alterações pendentes?',
@@ -1882,7 +1907,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           if (!repairDispatchRef.current.has(dispatchKey)) {
             repairDispatchRef.current.add(dispatchKey)
             setManualPrompt(updated.last_manual_prompt || '')
-            await transportPlannerContinuation(updated, active)
+            try {
+              const prepared = await transportPlannerContinuation(updated, active)
+              // A dedicated notice for the recovered request id, distinct from
+              // the diagnostic notice above (which stays pinned to the old,
+              // now-superseded id). This is what makes "Reenviar request"
+              // appear if the automatic delivery below silently fails.
+              appendChatItem(active, updated.project_path, {
+                id: `auto-recovery-dispatch-${updated.last_request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+                text: prepared.submitted ? 'O pedido de correção automática foi enviado ao ChatGPT em segundo plano. O Wharness vigia agora o download do novo bundle ZIP.' : 'O pedido de correção automática foi preparado no ChatGPT; confirme o envio para continuar.',
+                meta: prepared.submitted ? `Pedido ${updated.last_request_id} enviado automaticamente` : `Pedido ${updated.last_request_id} · confirmação pendente`,
+                iteration: updated.last_request_id ? iterationRef(updated.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], prepared.conversationUrl || active.chatgptUrl) : undefined,
+              })
+            } catch (dispatchError) {
+              repairDispatchRef.current.delete(dispatchKey)
+              reportChatError(`A recuperação automática foi preparada, mas o envio ao ChatGPT falhou: ${messageOf(dispatchError)}`, 'Abra a aba ChatGPT para retomar', active, updated.project_path)
+            }
           }
         }
       }
@@ -2042,12 +2082,12 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
           onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onChatTransportMode: changeChatTransportMode, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
           onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
           onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
-          onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed), onRetryTransportFailure: retryTransportFailure, onCancelPendingRequest: cancelPendingRequest,
+          onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
           onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
         }}
         inspectorProps={{
 		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
-		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
+		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
           onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession,
         }}
       />}

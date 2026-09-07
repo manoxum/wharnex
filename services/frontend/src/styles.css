@@ -1052,8 +1052,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .message-user { margin-left: auto; }
 .message-chatgpt { margin-right: auto; }
 .message-wharness { margin-right: auto; opacity: .94; }
-.message-chatgpt .message-body { background: #f5f6f2; border-color: #dfe3da; color: #31362e; border-radius: 5px 14px 14px 14px; }
-.message-wharness .message-body { background: #f0f2ed; border-color: #d6dbd1; color: #4a5146; border-radius: 8px; }
+.message-chatgpt .message-body { background: #eaf1fb; border-color: #b9cfe8; color: #2a4a6b; border-radius: 5px 14px 14px 14px; }
+.message-wharness .message-body { background: #edf5e7; border-color: #b9d2a2; color: #3a5b28; border-radius: 8px; }
 .message-plan { width: min(92%, 820px); border-left: 3px solid #7992b6; padding-left: 8px; }
 .message-plan .message-body { background: #f3f6fa; border-color: #d7e0ea; }
 .plan-approval { margin-top: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #d5dde7; border-radius: 9px; background: #eef3f8; color: #566579; font-size: calc(8.5px * var(--ui-font-scale)); }

@@ -555,8 +555,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .message-user .message-tools button:hover { background: var(--theme-hover); color: var(--theme-text); }
 :root[data-theme='dark'] .message-body { border-color: var(--theme-border); background: var(--theme-elevated); color: var(--theme-text); }
 :root[data-theme='dark'] .message-user .message-body { border-color: #4d4d4d; background: #303030; color: #f2f2f2; }
-:root[data-theme='dark'] .message-chatgpt .message-body { border-color: #424242; background: #2f2f2f; color: #ececec; }
-:root[data-theme='dark'] .message-wharness .message-body { border-color: #383838; background: #252525; color: #cecece; }
+:root[data-theme='dark'] .message-chatgpt .message-body { border-color: #3a5573; background: #1d2b3d; color: #bcd6f2; }
+:root[data-theme='dark'] .message-wharness .message-body { border-color: #3d5a2e; background: #1e2b18; color: #b8dba0; }
 :root[data-theme='dark'] .message-plan .message-body { border-color: #38475a; background: #1b222b; }
 :root[data-theme='dark'] .message-attachment-card,
 :root[data-theme='dark'] .composer-attachment-chip { border-color: var(--theme-border); background: var(--theme-muted); color: var(--theme-text-soft); }
@@ -966,10 +966,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .agent-command-icon { border-color: #424242; background: #292929; color: #b4b4b4; }
 :root[data-theme='dark'] .agent-command-icon:hover:not(:disabled) { border-color: #666; background: #333; color: #ececec; }
 
-:root[data-theme='dark'] .message-body,
-:root[data-theme='dark'] .message-chatgpt .message-body { border-color: #424242; background: #2f2f2f; color: #ececec; }
+:root[data-theme='dark'] .message-body { border-color: #424242; background: #2f2f2f; color: #ececec; }
+:root[data-theme='dark'] .message-chatgpt .message-body { border-color: #3a5573; background: #1d2b3d; color: #bcd6f2; }
 :root[data-theme='dark'] .message-user .message-body { border-color: #4a4a4a; background: #303030; color: #f2f2f2; }
-:root[data-theme='dark'] .message-wharness .message-body { border-color: #383838; background: #252525; color: #c7c7c7; }
+:root[data-theme='dark'] .message-wharness .message-body { border-color: #3d5a2e; background: #1e2b18; color: #b8dba0; }
 :root[data-theme='dark'] .composer { border-color: #424242; background: #212121; }
 :root[data-theme='dark'] .composer:focus-within { border-color: #6a6a6a; box-shadow: 0 12px 34px rgba(0,0,0,.34), 0 0 0 2px rgba(255,255,255,.08); }
 :root[data-theme='dark'] .composer-round-action,

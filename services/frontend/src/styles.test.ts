@@ -92,6 +92,17 @@ describe('composer layout CSS', () => {
     expect(manualTransportMode).toContain('background: #dcf0ef')
   })
 
+  it('gives each chat message sender a genuinely distinct color instead of near-identical shades of grey', () => {
+    const chatgpt = lastRule('.message-chatgpt .message-body')
+    const wharness = lastRule('.message-wharness .message-body')
+    expect(chatgpt).toContain('background: #eaf1fb')
+    expect(chatgpt).toContain('border-color: #b9cfe8')
+    expect(wharness).toContain('background: #edf5e7')
+    expect(wharness).toContain('border-color: #b9d2a2')
+    // The two must not resolve to the same color.
+    expect(chatgpt).not.toEqual(wharness)
+  })
+
 
   it('keeps application dialogs polished, modal and visually semantic', () => {
     const backdrop = firstRule('.app-dialog-backdrop')

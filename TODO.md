@@ -1062,3 +1062,111 @@ eliminação de branch); suite completa `internal/app` (incluindo o teste que
 expôs o bug do snapshot, `TestStaleBundleWithOverlappingLocalChangePreparesDedicatedConflictResolution`);
 `go vet`/`go build`/`go test ./...` e `tsc --noEmit`/`vitest run` (49
 ficheiros, 195 testes) verdes.
+
+## 23. Análise profunda do ping-pong + fiabilidade DOM + modo Manual — entregue (A-D) e backlog registado (E)
+
+Pedido do utilizador depois de nova ocorrência ao vivo do "external write race": análise
+profunda de 4 problemas críticos — #1 ping-pong que nunca termina, #2 reload indevido dos
+chats, #3 péssima integração DOM com o ChatGPT (ficheiros duplicados, downloads perdidos,
+submits silenciosamente falhados), #4 novo modo de transporte de chat "Scraper" (actual,
+corrigido) vs "Manual" (o Wharness deixa de tocar no DOM do ChatGPT; entrega prompt para
+copiar e recebe o bundle por upload manual). Consolidado num único plano de execução depois
+de o utilizador ter sinalizado alterações paralelas a meio do planeamento.
+
+### Entregue e verificado (Go completo + Vitest completo + Node/Desktop completo, sempre verdes)
+
+**Frente A — bug estrutural do rollback de self-evolution a ignorar o git**: `Transaction.Rollback`
+(`internal/selfevolution/manager.go`) restaurava ficheiros por cópia bruta sem verificar se o
+git HEAD tinha avançado por trás (um merge de integração não relacionado a decorrer entre o
+`Prepare` e o `Rollback`) — descoberto num incidente real documentado em `VALIDATION.md`.
+Corrigido: `Prepare` capta agora o SHA do git antes de comitar (`PreTransactionSHA`), e
+`Rollback` recusa (`ErrRollbackUnsafe`) se detectar sobreposição entre os ficheiros que ia
+restaurar e o que mudou entretanto, em vez de sobrescrever silenciosamente. 2 testes novos
+reproduzindo o cenário exacto.
+
+**Frente B — limite de tentativas de resolução de conflito**: o caminho de conflito de merge
+Git descoberto dentro de `ApplyToHost` (e os 2 ramos de repetição em `failExecution`) nunca
+passava pelo contador `RepairAttempt`, podendo pedir resolução automática ao ChatGPT
+indefinidamente em modo Auto. Novo campo dedicado `ConflictAttempt` (não reaproveita
+`RepairAttempt`, que mede uma coisa diferente), protegendo os 5 pontos de entrada através de
+um único ponto de correcção partilhado (`exhaustConflictResolution`) nas duas funções que já
+preparam o capsule de conflito. Novo estado terminal `conflict_resolution_exhausted`. 2 testes
+novos.
+
+**Frente C — fiabilidade da automação DOM do Desktop**:
+- C1: `submitChatGPTDraft` (`services/desktop/main.mjs`) devolvia `{accepted:false}`
+  silenciosamente em 7 de 9 pontos de chamada em vez de falhar. Corrigido para usar
+  `submitWithRetry` (já existente em `chatgpt-input.mjs`, nunca importado) internamente — só
+  uma função a mudar, não os 7 pontos de chamada (todos já tratam correctamente uma excepção).
+- C2: `pollExpectedChatGPTDownloadKey` reclicava o download por cooldown de tempo sem guard de
+  "já em curso", produzindo downloads duplicados (Chromium desambigua com sufixo `(1)`/`(2)`,
+  que o código já aceitava). Novo `downloadInFlight` + deduplicação por `requestId` com TTL.
+- C4: `pollChatGPTVisibleActivity` sondava o DOM em plena navegação pós-reload (faltava o
+  guard `entry.loading` que `pollExpectedChatGPTDownloadKey` já tinha), acumulando falhas e
+  disparando um segundo reload em cima do primeiro.
+- Detecção de "ChatGPT está a pensar" (`chatgpt-dom.mjs`) dependia só do botão
+  `data-testid="stop-button"`; qualquer mudança desse detalhe na interface do ChatGPT fazia o
+  Wharness interpretar uma resposta longa como parada e recarregar a meio do raciocínio.
+  Reforçada com selectores alternativos + a classe `.result-streaming`, sinal independente do
+  botão específico.
+- 5+ testes de regressão novos.
+
+**Frente D — novo `ChatTransportMode` (Scraper/Manual)**: campo novo per-chat (domínio +
+serviço + endpoint HTTP `PUT /api/sessions/{id}/chat-transport-mode` + tipos/API/toggle no
+frontend), independente de `AutomationMode` (Auto+Manual é combinação válida). Painel novo
+`ManualChatGPTPane` (upload de bundle por drag-and-drop, extrai `request_id` do nome do
+ficheiro via novo `lib/bundlename.ts`) reaproveitando `onBundleFile` já existente mas nunca
+ligado a nenhuma UI. Dois níveis de garantia "não tocar no DOM": primário em `App.tsx` (nunca
+chama `preparePrompt`/`transportPlannerContinuation` em modo Manual), defesa em profundidade no
+Desktop (`chatgptTransportModes`, 3 guards). ~15 testes novos entre backend/frontend/desktop.
+
+**Bug adicional encontrado e corrigido durante a verificação em produção**: uma superfície de
+resolução de conflito usa sempre um `cacheKey` `<chat_id>_cf_<conflict_id>` (com `_`), mas o
+esquema de nomes de bundle proíbe `_` no segmento do chat_id (é o separador do próprio
+esquema) — qualquer ficheiro real descarregado do ChatGPT tem esse `_` trocado por `-`. A
+validação `canonicalWharnessBundleDownload` (`services/desktop/security.mjs`) comparava o
+`chat_id` já sanitizado do nome do ficheiro directamente contra o `cacheKey` cru, sem
+sanitizar este último primeiro — por isso **qualquer** conflito, mesmo com um único chat
+activo, falhava sempre com "Bundle pertence a outro chat". Corrigido para sanitizar os dois
+lados antes de comparar. **Exige reiniciar a app Wharnex Desktop** para entrar em vigor (só
+backend/frontend foram reconstruídos e reconciliados via `make build`).
+
+**Frente E item 1** — aviso frontend accionável para bloqueio local de self-evolution
+(`self_evolution_transaction_busy`/`host_integration_race`): já classificado no backend desde a
+secção 16, mas a UI ainda mostrava erro genérico. Novo banner "Candidato verificado — repetir
+aplicação" (botão real, chama `onApply`), substituindo a confusão de "preciso mandar isto ao
+ChatGPT outra vez" quando na verdade é só repetir o Apply.
+
+**Frente E item 7** — cores de mensagem por remetente: já existia uma diferenciação subtil
+(tons de cinza quase idênticos entre ChatGPT e Wharness) que passava despercebida; agora
+ChatGPT tem tom azulado e Wharness tom esverdeado, genuinamente distintos, claro e escuro.
+Corrigida de caminho uma regra duplicada em `theme.css` que anulava silenciosamente a cor do
+ChatGPT no modo escuro.
+
+### ❌ Por fazer — Frente E, backlog ainda por implementar
+
+| Item | Estado |
+|---|---|
+| Item 2 — containerizar `make build-stage` (Go/Node fixos via `docker run`, AGENTS.md §11) | **Desenhado e parcialmente verificado**: `docker/build/Dockerfile` criado (Go 1.23 + Node 22, testado manualmente com sucesso para o build do backend). Makefile foi alterado e depois **revertido de propósito**: o host ficou sob pressão severa de memória a meio da verificação (chegou a 12,6GB/15GB usados, 8GB de swap), fazendo `docker build` bloquear indefinidamente em vez de falhar — se tivesse ficado no Makefile real, o `make build-stage` do self-evolution podia bloquear para sempre nessas condições. Retomar quando o host tiver memória livre para terminar a verificação em isolamento antes de voltar a tocar no Makefile. |
+| Item 3 — Fase C do protocolo (consolidar `TurnKind`, `request` tipado, intenções de alto nível, skills, execução fora do sandbox) | Precisa de âmbito confirmado antes de começar; nunca começou. |
+| Item 4 — Renomeação completa Wharness → Wharnex | Precisa de âmbito confirmado antes de começar (módulo Go inteiro, volumes/imagens Docker já em produção, env vars, `whaness.yml`). |
+| Item 5 — Editor: 3 modos (editor/preview/split), split genérico, terminal agêntico com múltiplos terminais | Não iniciado; projecto grande por si só. |
+| Item 6 — Funcionalidade de limpeza selectiva na app + `make clean` equivalente | Não iniciado; projecto grande por si só. |
+| Item 8 — Modal de arquivado mostrar a conversa ChatGPT ao lado | Adiado por escolha explícita do utilizador (exigiria embutir webview ao vivo; não existe transcript bruto guardado). |
+| Item 9 — Varredura exaustiva do tema "verde escuro" (hardcodes fora do "chrome visível" já auditado) | Adiado por escolha explícita do utilizador. |
+
+### Nota operacional
+
+Ao longo desta sessão, sempre que se confirmou concorrência activa perigosa no mesmo
+repositório (outra sessão de self-evolution a mudar os mesmos ficheiros ao mesmo tempo que
+este trabalho), as sessões do projecto foram pausadas para `automation_mode=manual` como
+contenção temporária — mas qualquer chat novo nasce sempre em `auto` por omissão, pelo que o
+número de sessões em auto cresce sozinho com o tempo (20 no momento de fechar esta sessão,
+depois de várias pausas). Isto não é tratado como bug — é o comportamento esperado do produto
+— mas fica registado para quem retomar não presumir que a pausa é permanente.
+
+Verificação final antes de fechar esta sessão: `go build`/`go vet`/`go test ./...` (backend
+completo), `npm run typecheck`/`lint`/`test -- --run` (52 ficheiros, 227 testes), `node --test`
+(Desktop, 140+ testes) — todos verdes. Existem alterações por commitar no repositório
+(Frente E itens 1 e 7, mais trabalho de outra sessão paralela já terminado nos mesmos
+ficheiros) — nenhum commit foi pedido nesta sessão.
