@@ -810,7 +810,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         if (cancelled || resumedBundleKeysRef.current.has(resumeKey)) return
         resumedBundleKeysRef.current.add(resumeKey)
         try {
-          await bridge.chatgpt.resumeExpectedBundle({ cacheKey, requestId, url, recoveryBootstrap: candidate.last_manual_prompt || '' })
+          await bridge.chatgpt.resumeExpectedBundle({ cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap: candidate.last_manual_prompt || '' })
         } catch (resumeError) {
           resumedBundleKeysRef.current.delete(resumeKey)
           console.warn('pending ChatGPT bundle recovery failed', cacheKey, messageOf(resumeError))

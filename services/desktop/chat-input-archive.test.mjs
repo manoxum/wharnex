@@ -31,9 +31,12 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const requestId = 'req_20260905T083123_example123'
     const filename = chatInputArchiveFilename('chat-1', requestId)
     const target = path.join(root, filename)
+    const knowledgeContent = '# Project knowledge\n\n- Prior integration lesson.\n'
+    const knowledgeSha256 = 'a9d213eb8d86ef6c392563787faead1dcfae23d588dbb6bf01070a4d1b0476c1'
     const result = await writeChatInputArchive(target, {
       requestId,
-      prompt: '# Planner\n\nReturn the bundle.',
+      prompt: `# Planner\n\nPROJECT KNOWLEDGE\nKnowledge identity: version=3 sha256=${knowledgeSha256}\n${knowledgeContent}\nReturn the bundle.`,
+      knowledge: { state: 'present', content: knowledgeContent, version: 3, sha256: knowledgeSha256, updated_by_request_id: 'req_earlier12345678' },
       context: { bytes: Buffer.from('UEsDBBQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAbWFuaWZlc3QuanNvbquuBQBQSwMEFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAABzcmMvQXBwLnRzeEutKMgvKlFIzs8rLlGoULBVMOQCAFBLAQIUAxQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAAAAAAAAAAACAAQAAAABtYW5pZmVzdC5qc29uUEsBAhQDFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAAAAAAAAAAAAAIABLwAAAHNyYy9BcHAudHN4UEsFBgAAAAACAAIAdAAAAG0AAAAAAA==', 'base64') },
       artifacts: [{ name: 'result.md', bytes: Buffer.from('result') }],
       attachments: [{ name: 'notes.txt', bytes: Buffer.from('notes') }],
@@ -46,10 +49,11 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const raw = await readFile(target)
     const entries = storedEntries(raw)
     assert.equal(raw.byteLength, result.bytes)
-    assert.equal(result.fileCount, 7)
+    assert.equal(result.fileCount, 8)
     assert.deepEqual([...entries.keys()], [
       'transport.json',
       'prompt/wharness-planner-prompt.md',
+      'knowledge/project.md',
       'context/manifest.json',
       'context/src/App.tsx',
       'references/project-files.json',
@@ -59,7 +63,9 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const transport = JSON.parse(entries.get('transport.json').toString('utf8'))
     assert.equal(transport.protocol, 'wharness.chat-input/v1')
     assert.deepEqual(transport.live_tunnels.map((item) => item.instance_id), ['tunnel-1', 'tunnel-2'])
-    assert.equal(entries.get('prompt/wharness-planner-prompt.md').toString('utf8'), '# Planner\n\nReturn the bundle.\n')
+    assert.deepEqual(transport.knowledge, { state: 'present', path: 'knowledge/project.md', version: 3, sha256: knowledgeSha256, updated_by_request_id: 'req_earlier12345678' })
+    assert.equal(entries.get('knowledge/project.md').toString('utf8'), knowledgeContent)
+    assert.match(entries.get('prompt/wharness-planner-prompt.md').toString('utf8'), new RegExp(`Knowledge identity: version=3 sha256=${knowledgeSha256}`))
     assert.equal(entries.get('context/src/App.tsx').toString('utf8'), 'export const x = 1\n')
     assert.equal(entries.get('attachments/notes.txt').toString('utf8'), 'notes')
   } finally {

@@ -36,3 +36,7 @@ This amendment also narrows what the document is expected to contain. Normative 
 - Every derived request already carries a `RequestLineage`; `knowledge_review` is simply one more recognized kind (`requestKindKnowledgeReview`), parented on the task's main request, reusing `expectedResponseBundleFilenameForDerivedRequest` and the existing bundle-name/chat-id scheme unchanged.
 - The mandatory final report (files changed and why, summary, next steps, knowledge captured) is delivered as the round's `turn.message`, which the existing chat-rendering path already displays as an ordinary ChatGPT message — no new frontend rendering was needed for it.
 - Since the v1.2.46.3 amendment, the document reaches the model on every request for the project, not only the first of a chat, and is framed as operational/procedural knowledge rather than a place to restate normative rules already available elsewhere in context.
+
+## Transport and terminal-learning amendment
+
+Incremental knowledge is now part of request protocol state rather than prompt-only context. Each request freezes one knowledge version and reuses it across prompt and transport materialization. Read failures fail closed. Terminal knowledge review runs for both success and terminal failure/block, with deterministic retention of integration/repair/conflict/apply evidence. Knowledge persistence uses compare-and-swap; stale review output is reconciled in a bounded follow-up instead of replacing newer knowledge.

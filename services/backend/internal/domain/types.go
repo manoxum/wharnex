@@ -239,6 +239,22 @@ type ProjectKnowledge struct {
 	UpdatedByRequestID string    `json:"updated_by_request_id,omitempty"`
 }
 
+const (
+	KnowledgeStateNone    = "none"
+	KnowledgeStatePresent = "present"
+)
+
+// RequestKnowledgeSnapshot is the immutable knowledge identity attached to one
+// planner request. It is server-only session state so every transport can use
+// exactly the same document/version/hash that was embedded in the prompt.
+type RequestKnowledgeSnapshot struct {
+	State              string `json:"state"`
+	Content            string `json:"content,omitempty"`
+	Version            int    `json:"version,omitempty"`
+	SHA256             string `json:"sha256,omitempty"`
+	UpdatedByRequestID string `json:"updated_by_request_id,omitempty"`
+}
+
 type ExecutionResult struct {
 	PlanID      string          `json:"plan_id"`
 	Success     bool            `json:"success"`
@@ -446,22 +462,23 @@ type Session struct {
 	// arrive at a conflict with fewer automatic attempts left than another
 	// plan, for no reason related to the conflict itself. Reset to 0
 	// whenever a conflict with a new ID begins.
-	ConflictAttempt        int                          `json:"conflict_attempt,omitempty"`
-	LastRepairError        string                       `json:"last_repair_error,omitempty"`
-	FailureKind            string                       `json:"failure_kind,omitempty"`
-	WorkflowRound          int                          `json:"workflow_round,omitempty"`
-	LastRequestMode        string                       `json:"last_request_mode,omitempty"`
-	PlannerInFlight        bool                         `json:"planner_in_flight,omitempty"`
-	RequestBaselines       map[string]string            `json:"request_baselines,omitempty"`
-	RequestContextArchives map[string]string            `json:"-"`
-	BaselineFileSnapshots  map[string]map[string]string `json:"baseline_file_snapshots,omitempty"`
-	BaselineNotices        []BaselineNotice             `json:"baseline_notices,omitempty"`
-	ProjectRevisions       []ProjectRevision            `json:"project_revisions,omitempty"`
-	IntegrationConflict    *ConflictResolution          `json:"integration_conflict,omitempty"`
-	Artifacts              []ArtifactRecord             `json:"artifacts,omitempty"`
-	InterruptedExecution   *InterruptedExecution        `json:"interrupted_execution,omitempty"`
-	RemoteRecoveryAttempt  int                          `json:"remote_recovery_attempt,omitempty"`
-	RequestLineages        map[string]RequestLineage    `json:"request_lineages,omitempty"`
+	ConflictAttempt        int                                 `json:"conflict_attempt,omitempty"`
+	LastRepairError        string                              `json:"last_repair_error,omitempty"`
+	FailureKind            string                              `json:"failure_kind,omitempty"`
+	WorkflowRound          int                                 `json:"workflow_round,omitempty"`
+	LastRequestMode        string                              `json:"last_request_mode,omitempty"`
+	PlannerInFlight        bool                                `json:"planner_in_flight,omitempty"`
+	RequestBaselines       map[string]string                   `json:"request_baselines,omitempty"`
+	RequestContextArchives map[string]string                   `json:"-"`
+	RequestKnowledge       map[string]RequestKnowledgeSnapshot `json:"-"`
+	BaselineFileSnapshots  map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`
+	BaselineNotices        []BaselineNotice                    `json:"baseline_notices,omitempty"`
+	ProjectRevisions       []ProjectRevision                   `json:"project_revisions,omitempty"`
+	IntegrationConflict    *ConflictResolution                 `json:"integration_conflict,omitempty"`
+	Artifacts              []ArtifactRecord                    `json:"artifacts,omitempty"`
+	InterruptedExecution   *InterruptedExecution               `json:"interrupted_execution,omitempty"`
+	RemoteRecoveryAttempt  int                                 `json:"remote_recovery_attempt,omitempty"`
+	RequestLineages        map[string]RequestLineage           `json:"request_lineages,omitempty"`
 }
 
 // InterruptedExecution is a durable execution intent. Its presence means the

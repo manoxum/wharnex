@@ -83,6 +83,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/evidence/resolve", a.selfEvolutionResolveEvidence)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
 	mux.HandleFunc("GET /api/sessions/{id}/knowledge", a.projectKnowledge)
+	mux.HandleFunc("GET /api/sessions/{id}/requests/{request_id}/knowledge", a.requestKnowledge)
 	mux.HandleFunc("POST /api/sessions/{id}/chat-export", a.chatExport)
 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts", a.artifacts)

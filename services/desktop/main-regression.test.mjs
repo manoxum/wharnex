@@ -144,14 +144,14 @@ test('bundle fallback snapshots assistant-turn baseline before each planner subm
   const prepare = source.slice(prepareStart, prepareEnd)
   const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
   const submit = prepare.indexOf('await submitChatGPTDraft(key)')
-  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt)')
+  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId)')
   assert.ok(baseline >= 0 && arm > baseline && submit > arm)
 
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
   const repair = source.slice(repairStart, repairEnd)
   assert.match(repair, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
-  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, liveTunnels, text\)/)
+  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, liveTunnels, text, sessionId\)/)
 })
 
 test('external auth reuses the persistent Wharness browser profile and clear-session owns deletion', async () => {
@@ -360,7 +360,7 @@ test('expected bundle polling rehydrates recoverable ChatGPT transport and stall
   assert.match(recovery, /now - expected\.settledAt >= BUNDLE_COMPLETION_GRACE_MS/)
   assert.match(recovery, /wc\.reload\(\)/)
   assert.match(recovery, /chatGPTStalledRecoveryPrompt\(expected\.requestId, expected\.filename, expected\.originalPrompt\)/)
-  assert.match(recovery, /fillBundledChatGPTComposer\(key, entry, expected\.requestId, prompt, expected\.filename/)
+  assert.match(recovery, /fillBundledChatGPTComposer\(key, entry, expected\.sessionId, expected\.requestId, prompt, expected\.filename/)
   assert.match(recovery, /await submitChatGPTDraft\(key\)/)
   assert.match(recovery, /awaitingConversationAffinity: isChatGPTAffinityAwaitingSettlement\(entry\.affinity\)/)
   assert.match(recovery, /CHATGPT_AFFINITY_RECOVERY_GRACE_MS/)
@@ -460,7 +460,7 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   const comments = source.slice(commentStart, commentEnd)
   assert.match(comments, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
   assert.match(comments, /await submitChatGPTDraft\(key\)/)
-  assert.match(comments, /armExpectedChatGPTBundle\(key, pending\.requestId, assistantBaseline\)/)
+  assert.match(comments, /armExpectedChatGPTBundle\(key, pending\.requestId, assistantBaseline, '', \[\], '', pending\.sessionId\)/)
 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
   const pollEnd = source.indexOf('\nasync function exportBrowserSession', pollStart)
@@ -582,13 +582,13 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   const materializeEnd = source.indexOf('\nasync function fillBundledChatGPTComposer', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, prompt: promptText, attachments: decoded, liveTunnels \}\)/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, prompt: promptText, knowledge, attachments: decoded, liveTunnels \}\)/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
   const flushEnd = source.indexOf('\nasync function publishRemoteChannelComment', flushStart)
   const flush = source.slice(flushStart, flushEnd)
   assert.notEqual(flushStart, -1)
-  assert.match(flush, /fillBundledChatGPTComposer\(key, target\.entry, pending\.requestId, commentPrompt,[^\n]+pending\.attachments, liveTunnels\)/)
+  assert.match(flush, /fillBundledChatGPTComposer\(key, target\.entry, pending\.sessionId, pending\.requestId, commentPrompt,[^\n]+pending\.attachments, liveTunnels\)/)
   assert.doesNotMatch(flush, /chatGPTFillComposerScript\(pending\.text\)/)
 })
 

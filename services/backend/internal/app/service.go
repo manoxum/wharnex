@@ -400,10 +400,13 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
-	// Every request carries the project's accumulated knowledge document,
-	// if any — see the field note on KnowledgeSource in
-	// internal/planner/planner.go.
-	knowledgeSource := s.knowledgeContentForProject(item.ProjectPath)
+	// Capture one immutable knowledge identity for this request. Transport
+	// materialization later reuses this exact snapshot instead of reading the
+	// mutable project knowledge again.
+	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
+	if err != nil {
+		return planner.Result{}, item, err
+	}
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
@@ -412,12 +415,13 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		recordRequestLineage(current, requestID, "", requestKindStandard)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		recordRequestContext(current, requestID, item.Context)
+		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		return nil
 	}); err != nil {
 		return planner.Result{}, item, err
 	}
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA})
-	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, KnowledgeSource: knowledgeSource, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)})
+	result, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)}, knowledgeSnapshot))
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -431,7 +435,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	if result.ManualPrompt != "" {
 		if latest, latestErr := s.store.Get(sessionID); latestErr == nil && latest.Context.Manifest.SHA256 != requestBaselineSHA {
 			requestBaselineSHA = latest.Context.Manifest.SHA256
-			result.ManualPrompt = planner.BuildManualPrompt(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, KnowledgeSource: knowledgeSource, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)})
+			result.ManualPrompt = planner.BuildManualPrompt(withPlannerKnowledge(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)}, knowledgeSnapshot))
 		}
 	}
 	enrichPlanConcurrency(result.Plan, requestBaselineSHA)
@@ -533,6 +537,12 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 			}
 		}
 	}
+	if result.Plan == nil && result.ManualPrompt == "" && result.Turn != nil {
+		s.triggerKnowledgeReview(ctx, sessionID)
+		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+			updated = reviewed
+		}
+	}
 	return result, updated, nil
 }
 
@@ -615,7 +625,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	// also the ONLY place ProjectKnowledgeUpdate is ever read — see
 	// ingestKnowledgeReviewResponse.
 	if lineage, ok := current.RequestLineages[parsed.Turn.RequestID]; ok && lineage.Kind == requestKindKnowledgeReview {
-		return s.ingestKnowledgeReviewResponse(sessionID, parsed)
+		return s.ingestKnowledgeReviewResponse(ctx, sessionID, parsed)
 	}
 	if parsed.Turn.Outcome != nil && parsed.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
 		outcome := parsed.Turn.Outcome
@@ -652,6 +662,10 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			} else {
 				s.bus.Publish(sessionID, "turn.auto_recovery_failed", map[string]any{"replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode, "error": retryErr.Error()})
 			}
+		}
+		s.triggerKnowledgeReview(ctx, sessionID)
+		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+			updated = reviewed
 		}
 		return BundleSubmission{Session: updated, AutoError: updated.LastRepairError}, nil
 	}
@@ -771,6 +785,10 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
 		s.closeRemoteInputChannel(sessionID, "request.terminal")
 		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": parsed.Turn.RequestID, "kind": parsed.Turn.Kind, "transport": "zip_bundle"})
+		s.triggerKnowledgeReview(ctx, sessionID)
+		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+			updated = reviewed
+		}
 		return BundleSubmission{Session: updated}, nil
 	}
 	if err := protocol.Validate(*parsed.Plan); err != nil {
@@ -1612,6 +1630,10 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
 		s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": result.PlanID, "error": cause.Error(), "scope": "go_dependency_commands"})
 		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "dependency_network_approval": true})
+		s.triggerKnowledgeReview(ctx, sessionID)
+		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+			updated = reviewed
+		}
 		return result, updated, cause
 	}
 
@@ -1679,6 +1701,12 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	}
 
 	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": updated.State == "repair_pending", "repair_attempt": updated.RepairAttempt})
+	if updated.State != "repair_pending" && updated.State != "conflict_resolution_pending" {
+		s.triggerKnowledgeReview(ctx, sessionID)
+		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+			updated = reviewed
+		}
+	}
 	return result, updated, cause
 }
 
@@ -1733,8 +1761,12 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 	attempt := refreshed.RepairAttempt + 1
 	repairMessage := buildRepairMessage(refreshed, result, cause, attempt)
 	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
+	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
+	if err != nil {
+		return refreshed, err
+	}
 
-	planned, err := s.planner.Plan(ctx, planner.Request{
+	planned, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
 		Message:                repairMessage,
@@ -1743,9 +1775,8 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 		PreviousResponseID:     refreshed.LastProviderResponseID,
 		AutomationMode:         refreshed.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(refreshed),
-		KnowledgeSource:        s.knowledgeContentForProject(refreshed.ProjectPath),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
-	})
+	}, knowledgeSnapshot))
 	if err != nil {
 		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
 	}
@@ -1759,6 +1790,7 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
 		recordRequestLineage(item, requestID, refreshed.LastRequestID, requestKindRepair)
+		recordRequestKnowledge(item, requestID, knowledgeSnapshot)
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
 		recordRequestContext(item, requestID, refreshed.Context)

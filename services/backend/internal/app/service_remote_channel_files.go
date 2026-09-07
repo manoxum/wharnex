@@ -36,7 +36,7 @@ type remoteFileMapDocument struct {
 // buildRemoteFileMapResources publishes only individually-addressable files.
 // The ZIP remains a local snapshot/audit artifact; it is never exposed through
 // the consumer-Web channel because that runtime cannot reliably retrieve it.
-func buildRemoteFileMapResources(dir, contextPath string, manifest domain.ContextManifest, selectedPaths []string, attachments, artifacts []decodedRemoteFile, existing []remoteFileMapEntry, resourceURL func(string) string) ([]RemoteInputChannelResource, []remoteFileMapEntry, error) {
+func buildRemoteFileMapResources(dir, contextPath string, manifest domain.ContextManifest, knowledge domain.RequestKnowledgeSnapshot, selectedPaths []string, attachments, artifacts []decodedRemoteFile, existing []remoteFileMapEntry, resourceURL func(string) string) ([]RemoteInputChannelResource, []remoteFileMapEntry, error) {
 	resources := make([]RemoteInputChannelResource, 0, len(manifest.Files)+len(attachments)+len(artifacts))
 	entries := make([]remoteFileMapEntry, 0, len(manifest.Files)+len(attachments)+len(artifacts))
 	selected := make(map[string]struct{}, len(selectedPaths))
@@ -80,6 +80,14 @@ func buildRemoteFileMapResources(dir, contextPath string, manifest domain.Contex
 		}
 		entries = append(entries, remoteFileMapEntry{Path: displayPath, URL: resourceURL(resourcePath), SHA256: digestText, Bytes: int64(len(raw)), ContentType: contentType, Role: role, Selected: selected})
 		return nil
+	}
+	if err := validateRequestKnowledgeSnapshot(knowledge); err != nil {
+		return nil, nil, err
+	}
+	if knowledge.State == domain.KnowledgeStatePresent {
+		if err := addBytes("knowledge", "knowledge/project.md", []byte(knowledge.Content), true); err != nil {
+			return nil, nil, err
+		}
 	}
 	for _, file := range manifest.Files {
 		if !safeRemoteMapPath(file.Path) || file.SHA256 == "" {

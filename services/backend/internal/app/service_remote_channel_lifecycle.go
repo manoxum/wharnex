@@ -133,7 +133,7 @@ func buildRemoteContextUpdateResources(dir string, item domain.Session, state *r
 		}
 	}
 	resourceURL := func(path string) string { return strings.TrimSuffix(state.baseURL, "/") + "/" + path }
-	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, nil, nil, nil, state.fileMapEntries, resourceURL)
+	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, nil, nil, nil, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,11 @@ func buildRemoteContextUpdateResources(dir string, item domain.Session, state *r
 	if err := writeRemoteChannelJSON(diffCheckPath, remoteDiffCheck(state, resourceURL)); err != nil {
 		return nil, err
 	}
-	document := remoteChannelDocument{Protocol: "wharness.remote-channel/v2", RootRequestID: state.rootRequestID, ActiveRequestID: state.activeRequest, Generation: state.generation, ContextSHA256: item.Context.Manifest.SHA256, Prompt: resourceURL("prompt.md"), FileMap: resourceURL("file-map.json"), DiffCheck: resourceURL("diff-check.json"), Hash: resourceURL("hash.txt"), Events: resourceURL("events"), BundleContract: resourceURL("bundle-contract.json"), Status: "active", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), FinalCheckMessage: remoteFinalDiffCheckInstruction}
+	knowledgeURL := ""
+	if state.knowledge.State == domain.KnowledgeStatePresent {
+		knowledgeURL = resourceURL("files/knowledge/" + state.knowledge.SHA256)
+	}
+	document := remoteChannelDocument{Protocol: "wharness.remote-channel/v2", RootRequestID: state.rootRequestID, ActiveRequestID: state.activeRequest, Generation: state.generation, ContextSHA256: item.Context.Manifest.SHA256, Prompt: resourceURL("prompt.md"), FileMap: resourceURL("file-map.json"), DiffCheck: resourceURL("diff-check.json"), Hash: resourceURL("hash.txt"), Events: resourceURL("events"), BundleContract: resourceURL("bundle-contract.json"), Status: "active", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), FinalCheckMessage: remoteFinalDiffCheckInstruction, Knowledge: knowledgeURL, KnowledgeState: state.knowledge.State, KnowledgeVersion: state.knowledge.Version, KnowledgeSHA256: state.knowledge.SHA256}
 	if err := writeRemoteChannelJSON(statePath, document); err != nil {
 		return nil, err
 	}

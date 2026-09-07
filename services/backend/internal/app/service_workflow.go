@@ -179,7 +179,11 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	requestID := ids.New("req")
 	message := buildWorkflowObservationMessage(execution, round)
 	s.bus.Publish(sessionID, "workflow.continuation_started", map[string]any{"request_id": requestID, "round": round, "plan_id": execution.PlanID})
-	planned, err := s.planner.Plan(ctx, planner.Request{
+	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
+	if err != nil {
+		return fmt.Errorf("load knowledge for workflow continuation: %w", err)
+	}
+	planned, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
 		Message:                message,
@@ -188,9 +192,8 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 		PreviousResponseID:     refreshed.LastProviderResponseID,
 		AutomationMode:         refreshed.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(refreshed),
-		KnowledgeSource:        s.knowledgeContentForProject(refreshed.ProjectPath),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
-	})
+	}, knowledgeSnapshot))
 	if err != nil {
 		return fmt.Errorf("prepare workflow continuation: %w", err)
 	}
@@ -204,6 +207,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	}
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
 		recordRequestLineage(item, requestID, refreshed.LastRequestID, requestKindEvidence)
+		recordRequestKnowledge(item, requestID, knowledgeSnapshot)
 		item.WorkflowRound = round
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)

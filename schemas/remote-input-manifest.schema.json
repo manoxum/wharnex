@@ -4,11 +4,119 @@
   "title": "Wharness remote input transport manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "request_id", "prompt", "context_included"],
+  "required": [
+    "protocol",
+    "request_id",
+    "prompt",
+    "context_included",
+    "project_files",
+    "knowledge"
+  ],
   "properties": {
-    "protocol": { "const": "wharness.remote-input/v1" },
-    "request_id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9_-]+$" },
-    "prompt": { "const": "prompt/wharness-planner-prompt.md" },
-    "context_included": { "type": "boolean" }
+    "protocol": {
+      "const": "wharness.remote-input/v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "prompt": {
+      "const": "prompt/wharness-planner-prompt.md"
+    },
+    "context_included": {
+      "type": "boolean"
+    },
+    "project_files": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "path",
+        "version",
+        "sha256",
+        "updated_by_request_id"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "none",
+            "present"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "updated_by_request_id": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "present"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "const": "knowledge/project.md"
+              },
+              "version": {
+                "minimum": 1
+              },
+              "sha256": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "const": ""
+              },
+              "version": {
+                "const": 0
+              },
+              "sha256": {
+                "const": ""
+              },
+              "updated_by_request_id": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
+    }
   }
 }
