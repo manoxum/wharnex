@@ -292,4 +292,12 @@ describe('AgentWorkspace', () => {
     expect(getSession).toHaveBeenCalledTimes(2)
   })
 
+  it('opens the project knowledge explorer from the left activity rail', async () => {
+    vi.spyOn(api, 'projectKnowledge').mockResolvedValue({ knowledge: { project_path: '/workspace/wharness', content: '# Arquitetura\n\n- API local.', version: 2, updated_at: '2026-09-07T10:00:00.000Z', updated_by_request_id: 'req-review' } })
+    render(props().element)
+    fireEvent.click(screen.getByRole('button', { name: 'Conhecimento do projeto' }))
+    expect(await screen.findByRole('navigation', { name: 'Tópicos do conhecimento' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Arquitetura' })).toBeTruthy()
+  })
+
 })
