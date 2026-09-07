@@ -35,7 +35,7 @@ const chatActions = {
 describe('ChatPanel', () => {
   afterEach(() => { vi.restoreAllMocks(); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
-  it('does not return scrollIntoView result as an effect cleanup', () => {
+  it('positions the initial transcript at the latest messages without smooth scrolling', () => {
     const scrollIntoView = vi.fn(() => Promise.resolve())
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
@@ -46,8 +46,29 @@ describe('ChatPanel', () => {
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
 
-    expect(scrollIntoView).toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'end' })
     expect(() => view.unmount()).not.toThrow()
+  })
+
+
+  it('renders only the latest transcript window and loads older messages when scrolling upward', async () => {
+    const items = Array.from({ length: 25 }, (_, index) => ({ id: `history-${index + 1}`, role: 'user' as const, text: `mensagem ${index + 1}` }))
+    const view = render(
+      <ChatPanel session={session} items={items} chats={[]} activeChatId="history-chat" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    expect(screen.queryByText('mensagem 1')).toBeNull()
+    expect(screen.getByText('mensagem 25')).toBeTruthy()
+    expect(screen.getByText('5 mensagem(ns) anterior(es)')).toBeTruthy()
+
+    const stream = view.container.querySelector('.chat-stream') as HTMLDivElement
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, value: 1000 })
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, value: 400 })
+    stream.scrollTop = 0
+    fireEvent.scroll(stream)
+
+    await waitFor(() => expect(screen.getByText('mensagem 1')).toBeTruthy())
+    expect(screen.queryByText('5 mensagem(ns) anterior(es)')).toBeNull()
   })
 
 
