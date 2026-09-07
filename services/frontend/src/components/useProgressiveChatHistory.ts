@@ -6,29 +6,36 @@ const HISTORY_PAGE_SIZE = 20
 const LOAD_MORE_THRESHOLD_PX = 96
 const FOLLOW_TAIL_THRESHOLD_PX = 120
 
-type ChatViewportSnapshot = {
+export type ChatViewportSnapshot = {
   start: number
   scrollTop: number
   followTail: boolean
 }
 
+export type ChatViewportStore = Map<string, ChatViewportSnapshot>
+
 function initialStart(itemCount: number) {
   return Math.max(0, itemCount - INITIAL_ITEM_COUNT)
 }
 
-export function useProgressiveChatHistory(items: ChatItem[], activeChatId: string, busy: boolean) {
+export function useProgressiveChatHistory(items: ChatItem[], activeChatId: string, busy: boolean, viewportStore?: ChatViewportStore) {
   const streamRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const previousChatIdRef = useRef(activeChatId)
   const chatEpochRef = useRef(0)
-  const viewportByChatRef = useRef(new Map<string, ChatViewportSnapshot>())
-  const restoreViewportRef = useRef<ChatViewportSnapshot | undefined>(undefined)
-  const currentStartRef = useRef(initialStart(items.length))
-  const initialPositionPendingRef = useRef(true)
-  const followTailRef = useRef(true)
+  const viewportByChatRef = useRef<ChatViewportStore>(viewportStore ?? new Map())
+  if (viewportStore && viewportByChatRef.current !== viewportStore) viewportByChatRef.current = viewportStore
+  const initialViewportRef = useRef(viewportByChatRef.current.get(activeChatId))
+  const initialWindowStart = initialViewportRef.current && !initialViewportRef.current.followTail
+    ? Math.min(initialViewportRef.current.start, initialStart(items.length))
+    : initialStart(items.length)
+  const restoreViewportRef = useRef<ChatViewportSnapshot | undefined>(initialViewportRef.current)
+  const currentStartRef = useRef(initialWindowStart)
+  const initialPositionPendingRef = useRef(!initialViewportRef.current)
+  const followTailRef = useRef(initialViewportRef.current?.followTail ?? true)
   const loadingOlderRef = useRef(false)
   const prependSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number } | undefined>(undefined)
-  const [windowState, setWindowState] = useState(() => ({ chatId: activeChatId, epoch: 0, start: initialStart(items.length), itemCount: items.length }))
+  const [windowState, setWindowState] = useState(() => ({ chatId: activeChatId, epoch: 0, start: initialWindowStart, itemCount: items.length }))
 
   if (previousChatIdRef.current !== activeChatId) {
     const previousChatId = previousChatIdRef.current
@@ -86,6 +93,11 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
     const prependSnapshot = prependSnapshotRef.current
     if (prependSnapshot) {
       stream.scrollTop = prependSnapshot.scrollTop + Math.max(0, stream.scrollHeight - prependSnapshot.scrollHeight)
+      viewportByChatRef.current.set(activeChatId, {
+        start: currentStartRef.current,
+        scrollTop: stream.scrollTop,
+        followTail: followTailRef.current,
+      })
       prependSnapshotRef.current = undefined
       loadingOlderRef.current = false
       return
