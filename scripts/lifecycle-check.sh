@@ -13,6 +13,7 @@ SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
 SELF_RESTART="$ROOT/scripts/self-restart.sh"
 BACKEND_DOCKERFILE="$ROOT/services/backend/Dockerfile"
 COMPOSE="$ROOT/compose.yml"
+FRONTEND_NGINX="$ROOT/services/frontend/nginx.conf"
 
 section() {
   target=$1
@@ -78,6 +79,18 @@ if ! grep -Fq 'mktemp "$STATE_DIR/stack.env.tmp.XXXXXX"' "$STACK"; then
 fi
 if ! grep -Fq -- '--no-deps backend frontend' "$STACK"; then
   echo 'lifecycle regression: backend/frontend rollout must not recreate durable dependencies' >&2
+  exit 1
+fi
+if ! grep -Fq -- '--force-recreate' "$STACK"; then
+  echo 'lifecycle regression: application activation must force backend/frontend onto the freshly tagged images' >&2
+  exit 1
+fi
+if ! grep -Fq 'desired_frontend=$(docker image inspect' "$STACK" || ! grep -Fq 'running_frontend=$(docker inspect' "$STACK"; then
+  echo 'lifecycle regression: application activation must verify the running frontend image id' >&2
+  exit 1
+fi
+if ! grep -Fq 'Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always' "$FRONTEND_NGINX"; then
+  echo 'lifecycle regression: frontend index.html must not be served from a stale HTTP cache' >&2
   exit 1
 fi
 if ! grep -Fq 'activate_application' "$STACK" || ! grep -Fq 'docker image tag "$old_backend" "$BACKEND_IMAGE"' "$STACK"; then
