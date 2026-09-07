@@ -32,6 +32,7 @@ var offlineGoModuleCacheReasonCodes = map[string]bool{
 var nonRepairablePlannerReasonCodes = map[string]string{
 	"host_build_toolchain_mismatch":   domain.FailureKindHostBuildToolchain,
 	"host_toolchain_mismatch":         domain.FailureKindHostBuildToolchain,
+	"host_dependency_state":           domain.FailureKindHostDependencyState,
 	"self_evolution_transaction_busy": domain.FailureKindSelfEvolutionBusy,
 	"self_evolution_busy":             domain.FailureKindSelfEvolutionBusy,
 	"stale_pending_baseline":          domain.FailureKindStaleHostBaseline,
@@ -49,6 +50,9 @@ func classifyExecutionFailure(cause error) string {
 	}
 	if errors.Is(cause, selfevolution.ErrHostBuildToolchainMismatch) {
 		return domain.FailureKindHostBuildToolchain
+	}
+	if errors.Is(cause, errHostDependencyState) {
+		return domain.FailureKindHostDependencyState
 	}
 	if errors.Is(cause, selfevolution.ErrBusy) {
 		return domain.FailureKindSelfEvolutionBusy
@@ -89,6 +93,9 @@ func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {
 	if selfevolution.IsHostToolchainMismatch(outcome.Message) {
 		return domain.FailureKindHostBuildToolchain
 	}
+	if isHostDependencyStateDiagnostic(outcome.Message) {
+		return domain.FailureKindHostDependencyState
+	}
 	if strings.Contains(message, strings.ToLower(selfevolution.ErrBusy.Error())) {
 		return domain.FailureKindSelfEvolutionBusy
 	}
@@ -123,6 +130,12 @@ func sessionFailureKind(item domain.Session) string {
 	}
 	if item.LastExecution != nil && selfevolution.IsHostToolchainMismatch(item.LastExecution.Error) {
 		return domain.FailureKindHostBuildToolchain
+	}
+	if isHostDependencyStateDiagnostic(item.LastRepairError) {
+		return domain.FailureKindHostDependencyState
+	}
+	if item.LastExecution != nil && isHostDependencyStateDiagnostic(item.LastExecution.Error) {
+		return domain.FailureKindHostDependencyState
 	}
 	legacyDetails := []string{item.LastRepairError}
 	if item.LastExecution != nil {

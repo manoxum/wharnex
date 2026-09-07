@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -435,15 +436,18 @@ type BuildOutputCallback func(stream, text string)
 // caller can publish it immediately rather than waiting for cmd.Run to
 // return the complete text.
 type buildOutputWriter struct {
-	stream   string
-	buffer   *limitedBuffer
-	onOutput BuildOutputCallback
+	stream     string
+	buffer     *limitedBuffer
+	onOutput   BuildOutputCallback
+	callbackMu *sync.Mutex
 }
 
 func (w *buildOutputWriter) Write(p []byte) (int, error) {
 	n, err := w.buffer.Write(p)
 	if w.onOutput != nil && len(p) > 0 {
+		w.callbackMu.Lock()
 		w.onOutput(w.stream, string(p))
+		w.callbackMu.Unlock()
 	}
 	return n, err
 }
@@ -460,8 +464,9 @@ func (m *Manager) BuildHost(ctx context.Context, tx Transaction, onOutput BuildO
 	cmd.Dir = m.root
 	cmd.Env = append(os.Environ(), "WHARNESS_SELF_EVOLUTION=1")
 	var output limitedBuffer
-	cmd.Stdout = &buildOutputWriter{stream: "stdout", buffer: &output, onOutput: onOutput}
-	cmd.Stderr = &buildOutputWriter{stream: "stderr", buffer: &output, onOutput: onOutput}
+	var callbackMu sync.Mutex
+	cmd.Stdout = &buildOutputWriter{stream: "stdout", buffer: &output, onOutput: onOutput, callbackMu: &callbackMu}
+	cmd.Stderr = &buildOutputWriter{stream: "stderr", buffer: &output, onOutput: onOutput, callbackMu: &callbackMu}
 	err = cmd.Run()
 	text := strings.TrimSpace(output.String())
 	if err != nil {
@@ -740,19 +745,30 @@ func transactionID() string {
 	return fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 }
 
-type limitedBuffer struct{ bytes.Buffer }
+type limitedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	const limit = 512 * 1024
 	original := len(p)
-	if b.Len() < limit {
-		remaining := limit - b.Len()
+	if b.buffer.Len() < limit {
+		remaining := limit - b.buffer.Len()
 		if len(p) > remaining {
 			p = p[:remaining]
 		}
-		_, _ = b.Buffer.Write(p)
+		_, _ = b.buffer.Write(p)
 	}
 	return original, nil
+}
+
+func (b *limitedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
 }
 
 func copyFile(source, destination string, mode os.FileMode) error {

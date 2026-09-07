@@ -182,6 +182,16 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Permitir rede restrita e repetir' })).toBeNull()
   })
 
+  it('shows host dependency state as a terminal environment block without a repair action', () => {
+    const blocked = session()
+    blocked.state = 'failed'
+    blocked.failure_kind = 'host_dependency_state'
+    render(props(blocked).element)
+    expect(screen.getByRole('status', { name: 'Build do host bloqueado por dependências incompletas' })).toBeTruthy()
+    expect(screen.getByText('Reinstale node_modules — sem reparação via ChatGPT')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Permitir rede restrita e repetir' })).toBeNull()
+  })
+
   it('keeps human ChatGPT intervention visible and opens the ChatGPT inspector on acknowledgement', async () => {
     const current = session()
     const onHumanAction = vi.fn()

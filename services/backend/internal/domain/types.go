@@ -75,6 +75,13 @@ const (
 	// installed runtime, so this must never consume a ChatGPT repair round.
 	FailureKindHostBuildToolchain = "host_build_toolchain_mismatch"
 
+	// FailureKindHostDependencyState marks a host-only dependency installation
+	// defect discovered after the same candidate already verified in Protected
+	// execution (for example, a missing platform-specific npm optional/native
+	// binding under node_modules). Replanning source cannot repair host package
+	// installation state, so this must stop automatic GPT repair/retry loops.
+	FailureKindHostDependencyState = "host_dependency_state"
+
 	// FailureKindSelfEvolutionBusy marks a local coordination block: another
 	// self-evolution transaction currently owns the activation lock. The
 	// verified candidate is retained and can be applied after that transaction

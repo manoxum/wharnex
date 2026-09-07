@@ -1639,6 +1639,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		setSession(await api.retryDependencyNetwork(session.id))
 	} catch (cause) {
 		setError(messageOf(cause))
+		// The dependency retry may have executed successfully and then failed on
+		// a later verification command. Refresh before unlocking the UI so a
+		// stale offline_go_module_cache session cannot expose the retry button a
+		// second time after the backend has already advanced to repair_pending.
+		try { setSession(await api.getSession(session.id)) } catch { /* keep the original retry error */ }
 	} finally { setBusy(false) }
   }
 
