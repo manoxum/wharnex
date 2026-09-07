@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ArtifactEntry, ArtifactRecord, Session } from '../types'
 import { api } from '../lib/api'
 import { formatBytes } from '../lib/desktop'
+import { parseBundleName, parseBundleNameWithDuplicateSuffix } from '../lib/bundlename'
 import { Icon } from './Icon'
 import { ArtifactPreview } from './ArtifactPreview'
 
@@ -10,7 +11,7 @@ type BundleTone = 'request-main' | 'request-repair' | 'request-summary' | 'respo
 type BundlePresentation = { tone: BundleTone; label: string }
 
 export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
-  const bundles = useMemo(() => artifacts.filter((item) => item.kind === 'bundle' && item.bundle).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
+  const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
   const counts = useMemo(() => ({ input: bundles.filter((item) => item.direction === 'input').length, output: bundles.filter((item) => item.direction === 'output').length }), [bundles])
   const [selected, setSelected] = useState<ArtifactRecord>()
   if (!bundles.length) return null
@@ -40,6 +41,15 @@ function BundleExplorer({ sessionId, bundle, bundles, requestLineages, onBundle,
         <section className="bundle-preview"><div><strong>{path || 'Pré-visualização'}</strong>{path && <a href={api.artifactEntryURL(sessionId, bundle.id, path, true)} download>Descarregar</a>}</div>{path ? <ArtifactPreview path={path} size={selectedEntry?.size || 0} url={api.artifactEntryURL(sessionId, bundle.id, path)}/> : <p>Selecione um ficheiro para pré-visualizar ou descarregar.</p>}{error && entries.length ? <span className="composer-error">{error}</span> : null}</section></main>
     </div>
   </section></div>
+}
+
+function isTransportBundleArtifact(item: ArtifactRecord) {
+  if (item.kind !== 'bundle' || !item.bundle || !item.request_id) return false
+  const parsed = parseBundleName(item.name) || parseBundleNameWithDuplicateSuffix(item.name)
+  if (!parsed) return false
+  const expectedDirection = parsed.kind === 'req' ? 'input' : 'output'
+  const effectiveRequestId = parsed.subrequestId || parsed.requestId
+  return item.direction === expectedDirection && item.request_id === effectiveRequestId
 }
 
 function bundlePresentation(bundle: ArtifactRecord, requestLineages: RequestLineages): BundlePresentation {
