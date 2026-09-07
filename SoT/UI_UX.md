@@ -32,6 +32,10 @@ After a successful host Apply, the Agent chat MUST defer the applied diff until 
 
 The Agent left activity rail exposes a read-only **Conhecimento do projeto** explorer for the opened project. It loads the latest persisted incremental knowledge document through the current Harness session, shows version/update provenance, indexes Markdown headings as browsable topics, supports local search and manual refresh, and presents an explicit empty state before the first knowledge review has retained anything.
 
+A verified candidate waiting for Host Apply MUST use a labelled, visually prominent **Aplicar no host** action in the fixed Agent command bar; an icon-only checkmark is not sufficient for this destructive/important transition. The action keeps the verified-candidate count visible and remains distinct from Execute/Approve/Reject controls.
+
+The Agent MUST expose a project-level **Centro de notificações** that aggregates actionable attention from every open Harness chat, not only the currently selected chat. It includes at least pending Host Apply/retry, policy approval/block, integration conflict, interrupted execution, host dependency/toolchain blocks, ChatGPT human-action pauses, clarification requests and self-evolution restart confirmation. The rail/command-bar badge reflects the global count, inactive chat sessions are refreshed on a bounded cadence, severity is conveyed by icon/label as well as colour, and selecting an alert navigates to its owning chat and relevant inspector surface without executing the action implicitly.
+
 
 ## Desktop ChatGPT composition (v1.2)
 

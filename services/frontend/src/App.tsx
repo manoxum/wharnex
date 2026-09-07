@@ -62,6 +62,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [busyChats, setBusyChats] = useState<Record<string, boolean>>({})
   const [transportProgress, setTransportProgress] = useState('')
   const [chatgptHumanActions, setChatgptHumanActions] = useState<Record<string, DesktopChatGPTHumanAction>>({})
+  const [attentionSessions, setAttentionSessions] = useState<Record<string, Session | undefined>>({})
   const [chatgptAttentionNonce, setChatgptAttentionNonce] = useState(0)
   const [inspectorAttention, setInspectorAttention] = useState<{ tab: 'terminal' | 'chatgpt'; nonce: number }>({ tab: 'terminal', nonce: 0 })
   const [error, setError] = useState<string>()
@@ -95,6 +96,35 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const activeBusy = busy || Boolean(busyChats[activeChatId])
 
   useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
+
+  useEffect(() => {
+    if (!session || !activeChatId) return
+    setAttentionSessions((current) => current[activeChatId] === session ? current : { ...current, [activeChatId]: session })
+  }, [activeChatId, session])
+
+  useEffect(() => {
+    if (!session || !chats.length) {
+      if (!chats.length) setAttentionSessions({})
+      return
+    }
+    let cancelled = false
+    let refreshing = false
+    const refresh = async () => {
+      if (refreshing) return
+      refreshing = true
+      try {
+        const entries = await Promise.all(chats.map(async (chat) => {
+          if (chat.id === activeChatId && chat.sessionId === session.id) return [chat.id, session] as const
+          try { return [chat.id, await api.getSession(chat.sessionId)] as const }
+          catch { return [chat.id, undefined] as const }
+        }))
+        if (!cancelled) setAttentionSessions(Object.fromEntries(entries))
+      } finally { refreshing = false }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 6000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [activeChatId, chats, session])
 
   useEffect(() => {
     if (!restartPresentationKey) {
@@ -2066,6 +2096,8 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
         session={session}
         busy={activeBusy}
         executionFIFO={executionFIFO}
+        attentionSessions={attentionSessions}
+        chatgptHumanActions={chatgptHumanActions}
         chatgptHumanAction={chatgptHumanAction}
         chatgptAttentionNonce={chatgptAttentionNonce}
         inspectorAttention={inspectorAttention}
