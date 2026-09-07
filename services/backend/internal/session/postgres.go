@@ -39,7 +39,14 @@ CREATE TABLE IF NOT EXISTS harness_events (
     data jsonb NOT NULL
 );
 CREATE INDEX IF NOT EXISTS harness_events_session_time_idx
-    ON harness_events (session_id, occurred_at, id);`
+    ON harness_events (session_id, occurred_at, id);
+CREATE TABLE IF NOT EXISTS harness_project_knowledge (
+    project_path text PRIMARY KEY,
+    content text NOT NULL DEFAULT '',
+    version integer NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    updated_by_request_id text NOT NULL DEFAULT ''
+);`
 
 func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Store, error) {
 	if databaseURL == "" {

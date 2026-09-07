@@ -1,3 +1,16 @@
+## v1.2.46.1 legacy integration-race classifier hotfix
+
+- Regression extends `TestLegacyFailureKindRecognizesPersistedPingPongCauses` across both legacy persistence surfaces: `LastRepairError` and `LastExecution.Error`.
+- The classifier lowercases both the persisted detail and the `ErrHostIntegrationRace` sentinel before matching, so the mixed-case `ChangeSet` token cannot silently disable `host_integration_race` recovery after reload.
+- Patch-construction environment: `gofmt` and `git diff --check` pass. The focused Go test cannot start here because the supplied source export omits `github.com/jackc/pgx/v5` from the module cache and outbound access to `proxy.golang.org` is blocked; the operator batch runs the canonical backend/frontend gates in the hydrated workspace.
+
+## v1.2.46 concurrency recovery + fixed chat header
+
+- `service_recovery_hardening_test.go` covers verification-only pending-plan filtering, local failure classification (`self_evolution_transaction_busy`, `stale_host_baseline`, `host_integration_race`, `execution_context_canceled`), planner reason-code classification and ChangeSet race restaging and stale-candidate revalidation where a verification failure is unchanged from the current host baseline, plus canceled exit -1 propagation so renderer/request cancellation cannot fabricate a source repair.
+- `requestDispatch.test.ts` verifies persisted request ids block automatic re-dispatch after a renderer reload; repair/conflict/workflow notices now carry durable request iteration metadata.
+- `AgentWorkspace.test.tsx` verifies **Exportar chat** is rendered in the chat header rather than the Agent activity rail; `styles.test.ts` verifies that header remains sticky while `.chat-stream` owns scrolling.
+- The apply path aborts and releases a prepared self-evolution transaction on pre-mutation ChangeSet race/restage failure, never rolling back an external writer's host state.
+
 ## v1.2.45 chat audit export
 
 - `services/backend/internal/app/chat_export_test.go` verifies that the audit ZIP preserves the exact original bytes for main request/response and correction request/response bundles, exports execution and approval events, and correlates ChatGPT transcript responses to their request ids.

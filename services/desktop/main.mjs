@@ -1323,8 +1323,16 @@ async function chooseChatGPTConversationAction(key, entry, action) {
   return runChatGPTAccountAction(providerAction, { key }, async () => {
     const opened = await runChatGPTAccountScript(key, entry, `${action}-menu`, chatGPTOpenConversationMenuScript(action))
     if (!opened.ok) return opened
-    await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-    return runChatGPTAccountScript(key, entry, action, chatGPTChooseConversationActionScript(action))
+    // The menu's own open animation can still be in flight at the single
+    // fixed settle wait below, leaving its items not yet visible/attached —
+    // retry a few times instead of failing on the first miss.
+    let chosen = { ok: false, state: 'action-unavailable' }
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+      chosen = await runChatGPTAccountScript(key, entry, action, chatGPTChooseConversationActionScript(action))
+      if (chosen.ok) break
+    }
+    return chosen
   })
 }
 

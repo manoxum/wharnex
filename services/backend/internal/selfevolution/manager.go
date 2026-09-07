@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -424,7 +423,32 @@ func sanitizeDetail(value string) string {
 	return value
 }
 
-func (m *Manager) BuildHost(ctx context.Context, tx Transaction) (string, error) {
+// BuildOutputCallback receives incremental chunks of `make build-stage`
+// output as they are produced. It exists so the host build — which can run
+// for minutes (dependency hydration, npm ci, vite/tsc, go build) — can be
+// shown live instead of appearing to hang until it finally succeeds or
+// fails; see buildOutputWriter.
+type BuildOutputCallback func(stream, text string)
+
+// buildOutputWriter both accumulates the full output (limitedBuffer already
+// bounds it) and forwards each chunk to onOutput as it is written, so the
+// caller can publish it immediately rather than waiting for cmd.Run to
+// return the complete text.
+type buildOutputWriter struct {
+	stream   string
+	buffer   *limitedBuffer
+	onOutput BuildOutputCallback
+}
+
+func (w *buildOutputWriter) Write(p []byte) (int, error) {
+	n, err := w.buffer.Write(p)
+	if w.onOutput != nil && len(p) > 0 {
+		w.onOutput(w.stream, string(p))
+	}
+	return n, err
+}
+
+func (m *Manager) BuildHost(ctx context.Context, tx Transaction, onOutput BuildOutputCallback) (string, error) {
 	if tx.Root != m.root || tx.Dir == "" {
 		return "", errors.New("invalid self-evolution transaction")
 	}
@@ -436,8 +460,8 @@ func (m *Manager) BuildHost(ctx context.Context, tx Transaction) (string, error)
 	cmd.Dir = m.root
 	cmd.Env = append(os.Environ(), "WHARNESS_SELF_EVOLUTION=1")
 	var output limitedBuffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
+	cmd.Stdout = &buildOutputWriter{stream: "stdout", buffer: &output, onOutput: onOutput}
+	cmd.Stderr = &buildOutputWriter{stream: "stderr", buffer: &output, onOutput: onOutput}
 	err = cmd.Run()
 	text := strings.TrimSpace(output.String())
 	if err != nil {
@@ -655,30 +679,24 @@ func activeLockOwnerAlive(path string) bool {
 	if err != nil {
 		return false
 	}
-	hasRunID := false
-	isAlive := false
 	for _, line := range strings.Split(string(data), "\n") {
 		key, value, ok := strings.Cut(line, "=")
-		if !ok {
+		if !ok || strings.TrimSpace(key) != "run_id" {
 			continue
 		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if key == "run_id" {
-			hasRunID = true
-			if value != runtimeInstanceID {
-				return false
-			}
-			isAlive = true
-		} else if key == "pid" && !hasRunID {
-			pid, parseErr := strconv.Atoi(value)
-			if parseErr == nil && pid > 0 {
-				err := syscall.Kill(pid, 0)
-				isAlive = err == nil || errors.Is(err, syscall.EPERM)
-			}
-		}
+		return strings.TrimSpace(value) == runtimeInstanceID
 	}
-	return hasRunID || isAlive
+	// No run_id: the lock predates run-id stamping, so its owner cannot be
+	// this runtime instance. Its `pid` is deliberately NOT consulted: the
+	// backend runs as PID 1 inside its own container, so a recorded `pid=1`
+	// answers "alive" for every future backend process too and the lock can
+	// never be reclaimed. That is not hypothetical — an orphaned stage.lock
+	// holding `pid=1` blocked every self-evolution host apply for hours,
+	// and because each blocked apply asks ChatGPT for a correction that
+	// cannot possibly release a local lock file, it turned into an
+	// unbounded request/repair ping-pong. Treat it as stale and let the
+	// caller reclaim it.
+	return false
 }
 
 func extendablePendingPhase(phase string) bool {
@@ -697,7 +715,11 @@ func persistentSelfEvolutionPhase(phase string) bool {
 func acquireLock(path string) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err == nil {
-		_, _ = fmt.Fprintf(file, "pid=%d\ncreated=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+		// run_id is what makes this lock reclaimable after a crash or
+		// restart: activeLockOwnerAlive can only recognize a lock as stale
+		// when it can tell which runtime instance wrote it. A pid alone is
+		// useless here (the backend is PID 1 in its container).
+		_, _ = fmt.Fprintf(file, "pid=%d\nrun_id=%s\ncreated=%s\n", os.Getpid(), runtimeInstanceID, time.Now().UTC().Format(time.RFC3339Nano))
 		return file.Close()
 	}
 	if !errors.Is(err, os.ErrExist) {

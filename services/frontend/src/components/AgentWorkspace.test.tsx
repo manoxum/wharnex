@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../lib/api'
 import type { Session } from '../types'
 import { AgentWorkspace } from './AgentWorkspace'
@@ -50,14 +50,34 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
 }
 
 describe('AgentWorkspace', () => {
-  afterEach(() => vi.restoreAllMocks())
+  beforeEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/?wharnessWindow=primary')
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('migrates the legacy chat width once and leaves a new desktop window on the default split', () => {
+    localStorage.setItem('whx.agent.chat-width', '777')
+    const primary = render(props().element)
+    expect((primary.container.querySelector('.agent-workspace') as HTMLElement).style.getPropertyValue('--agent-chat-width')).toBe('777px')
+    expect(localStorage.getItem('whx.agent.chat-width:primary')).toBe('777')
+    expect(localStorage.getItem('whx.agent.chat-width')).toBeNull()
+    primary.unmount()
+
+    window.history.replaceState({}, '', '/?wharnessWindow=secondary')
+    const secondary = render(props().element)
+    expect((secondary.container.querySelector('.agent-workspace') as HTMLElement).style.getPropertyValue('--agent-chat-width')).toBe('')
+  })
 
   it('keeps the chat fixed on the left and uses the right-side tabs for the inspector', () => {
     const view = props()
     const rendered = render(view.element)
     expect(screen.getByRole('navigation', { name: 'Áreas do Agent' })).toBeTruthy()
     expect(screen.queryByText('Agent Inspector')).toBeNull()
-    expect(screen.queryByText('Harness chat')).toBeNull()
+    expect(screen.getByText('Harness chat')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Chat' })).toBeNull()
     const chatSwitcher = screen.getByRole('navigation', { name: 'Conversas do Harness' })
     const newChat = screen.getByRole('button', { name: 'Novo chat' })
@@ -176,11 +196,14 @@ describe('AgentWorkspace', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Engine' }).className).toContain('active'))
   })
 
-  it('exports the active chat from the activity bar', () => {
+  it('exports the active chat from the fixed chat header', () => {
     const view = props()
     render(view.element)
     const exportButton = screen.getByRole('button', { name: 'Exportar chat' })
     expect((exportButton as HTMLButtonElement).disabled).toBe(false)
+    expect(exportButton.closest('header')?.className).toContain('chat-header')
+    expect(exportButton.closest('.agent-activity-bar')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Principal' })).toBeTruthy()
     fireEvent.click(exportButton)
     expect(view.onExportChat).toHaveBeenCalledTimes(1)
   })

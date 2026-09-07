@@ -175,6 +175,12 @@ export type Session = {
   last_manual_prompt?: string
   last_request_id?: string
   pending_manual_request_ids?: string[]
+  /** An in-flight post-apply knowledge_review round, independent of
+   *  `state`: the apply that triggered it already succeeded and `state`
+   *  already reflects that. Auto mode delivers `last_manual_prompt`
+   *  automatically when this is set, same as repair/conflict, but keyed on
+   *  this field instead of `state` so it never competes with those. */
+  pending_knowledge_review_request_id?: string
   last_bundle?: { filename: string; readme: string; files: string[]; patches: string[]; sha256: string }
   last_turn?: AgentTurn
   repair_attempt?: number
@@ -352,7 +358,7 @@ export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; t
 export type ChatIterationRef = {
   id: string
   requestId: string
-  phase: 'outbound' | 'prepared' | 'submitted' | 'workflow' | 'repair' | 'result' | 'failed'
+  phase: 'outbound' | 'prepared' | 'submitted' | 'workflow' | 'repair' | 'conflict' | 'result' | 'failed'
   artifacts: ChatArtifactKind[]
   chatgptUrl?: string
 }

@@ -48,7 +48,7 @@ Required entries for `workflow`:
 
 Required entries for `change`:
 
-- `plan.json`: `harness.execution/v1` metadata. `apply_patch` operations SHOULD use `patch_file` instead of embedding a diff string.
+- `plan.json`: `harness.execution/v1` metadata, including a mandatory `commit_message`: a short Git commit message (Conventional-Commits style) summarizing what the patch does. It becomes the real Git commit that integrates this candidate into the host (see the Git-native host integration section below) after sanitization and an appended `Request-Id`/`Plan-Id` trailer; a `workflow` (command-only) plan does not require it. `apply_patch` operations SHOULD use `patch_file` instead of embedding a diff string.
 - `README.md`: human explanation of the user problem, solution, affected files, operations, verification, risks, and expected result.
 - `patches/*.patch`: raw UTF-8 standard unified diffs referenced by `patch_file`.
 
@@ -65,6 +65,8 @@ bundle or a valid terminal `blocked` bundle; it MUST NOT use malformed bundles
 or ordinary prose as a retry loop mechanism.
 
 Optional support material may be included under `docs/`, `metadata/`, or `artifacts/`. Only `plan.json` commands and referenced `patches/*.patch` can influence execution. Other bundle files are documentation/support and are never executed.
+
+An optional `knowledge.md` MAY exist at the ZIP root, capped at 256 KiB, as the complete replacement content for that project's incremental knowledge document (see `AI_PROTOCOL.md`'s `knowledge_review` round) — never a diff, and unrelated to `apply_patch`/`patches/*.patch`. The bundle parser extracts it whenever present, purely as transport; only the dedicated `knowledge_review` response-ingestion path in the service layer ever reads and persists it, keyed on that request's lineage. A `knowledge.md` attached to any other response is parsed but never read.
 
 ## Bundle validation
 
@@ -87,6 +89,10 @@ Clipboard/raw JSON remains a legacy fallback only.
 ### Narrow consumer-web bundle normalization
 
 Before executable validation, the parser MAY normalize only transport/layout mistakes that do not invent execution semantics: remove one common top-level wrapper directory, synthesize missing README documentation from an already valid structured turn/plan message, and canonicalize a root-level `.patch` referenced by an otherwise safe patch basename to `patches/<name>.patch`. Missing `plan.json`, missing executable patches, request-id mismatches, unsafe paths, malformed JSON, or policy violations remain hard failures.
+
+## Git-native host integration (v1.3, superseding ChangeSet/CAS)
+
+This is the primary integration and communication protocol between the sandbox and the host — see the "Concurrent host integration invariant" in `AGENTS.md` and `SoT/SANDBOX_MODEL.md` for the full normative contract. Once a `change` plan's sandbox verification succeeds, WHX commits the applied patch onto a dedicated branch (`whx/<request_id>`) inside the sandbox's own Git clone of the host, using `commit_message` (above) as the commit message, then pushes that branch locally into the host's own `.git` and merges it (`git merge --no-ff --no-edit`) into whatever the host currently has checked out. The plan's `verification` commands are rerun against the merged result before the branch is deleted. A real merge conflict aborts before touching the host working tree and routes into the same `harness.conflict/v1` request described in `AI_PROTOCOL.md`; a post-merge verification failure reverts the host to its exact pre-merge commit and re-enters the normal repair loop with that concrete failure. Neither outcome consumes an extra planner turn beyond what the ChangeSet-based path already required for the same outcome.
 
 ## Host execution observability and regression (v1.2.31)
 

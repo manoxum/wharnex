@@ -29,6 +29,17 @@ var offlineGoModuleCacheReasonCodes = map[string]bool{
 	"go_mod_cache_offline":         true,
 }
 
+var nonRepairablePlannerReasonCodes = map[string]string{
+	"host_build_toolchain_mismatch":   domain.FailureKindHostBuildToolchain,
+	"host_toolchain_mismatch":         domain.FailureKindHostBuildToolchain,
+	"self_evolution_transaction_busy": domain.FailureKindSelfEvolutionBusy,
+	"self_evolution_busy":             domain.FailureKindSelfEvolutionBusy,
+	"stale_pending_baseline":          domain.FailureKindStaleHostBaseline,
+	"stale_host_baseline":             domain.FailureKindStaleHostBaseline,
+	"host_integration_race":           domain.FailureKindHostIntegrationRace,
+	"integration_race":                domain.FailureKindHostIntegrationRace,
+}
+
 // classifyExecutionFailure derives a domain.FailureKind from a Wharness
 // sandbox-raised execution error. It is the authoritative classifier: the
 // error originates entirely inside Wharness, never from planner text.
@@ -38,6 +49,18 @@ func classifyExecutionFailure(cause error) string {
 	}
 	if errors.Is(cause, selfevolution.ErrHostBuildToolchainMismatch) {
 		return domain.FailureKindHostBuildToolchain
+	}
+	if errors.Is(cause, selfevolution.ErrBusy) {
+		return domain.FailureKindSelfEvolutionBusy
+	}
+	if errors.Is(cause, ErrStaleHostBaseline) {
+		return domain.FailureKindStaleHostBaseline
+	}
+	if errors.Is(cause, ErrHostIntegrationRace) {
+		return domain.FailureKindHostIntegrationRace
+	}
+	if errors.Is(cause, context.Canceled) {
+		return domain.FailureKindExecutionCanceled
 	}
 	return ""
 }
@@ -52,11 +75,28 @@ func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {
 	if outcome == nil || outcome.Status == domain.TurnOutcomeCompleted {
 		return ""
 	}
-	if offlineGoModuleCacheReasonCodes[strings.ToLower(strings.TrimSpace(outcome.ReasonCode))] {
+	reasonCode := strings.ToLower(strings.TrimSpace(outcome.ReasonCode))
+	if offlineGoModuleCacheReasonCodes[reasonCode] {
 		return domain.FailureKindOfflineGoModuleCache
 	}
-	if strings.Contains(strings.ToLower(outcome.Message), sandbox.ErrOfflineDependenciesUnavailable.Error()) {
+	if kind := nonRepairablePlannerReasonCodes[reasonCode]; kind != "" {
+		return kind
+	}
+	message := strings.ToLower(outcome.Message)
+	if strings.Contains(message, sandbox.ErrOfflineDependenciesUnavailable.Error()) {
 		return domain.FailureKindOfflineGoModuleCache
+	}
+	if selfevolution.IsHostToolchainMismatch(outcome.Message) {
+		return domain.FailureKindHostBuildToolchain
+	}
+	if strings.Contains(message, strings.ToLower(selfevolution.ErrBusy.Error())) {
+		return domain.FailureKindSelfEvolutionBusy
+	}
+	if strings.Contains(message, "host apply blocked by stale baseline") {
+		return domain.FailureKindStaleHostBaseline
+	}
+	if strings.Contains(message, strings.ToLower(ErrHostIntegrationRace.Error())) {
+		return domain.FailureKindHostIntegrationRace
 	}
 	return ""
 }
@@ -83,6 +123,25 @@ func sessionFailureKind(item domain.Session) string {
 	}
 	if item.LastExecution != nil && selfevolution.IsHostToolchainMismatch(item.LastExecution.Error) {
 		return domain.FailureKindHostBuildToolchain
+	}
+	legacyDetails := []string{item.LastRepairError}
+	if item.LastExecution != nil {
+		legacyDetails = append(legacyDetails, item.LastExecution.Error)
+	}
+	for _, detail := range legacyDetails {
+		legacyDetail := strings.ToLower(detail)
+		if strings.Contains(legacyDetail, strings.ToLower(selfevolution.ErrBusy.Error())) {
+			return domain.FailureKindSelfEvolutionBusy
+		}
+		if strings.Contains(legacyDetail, "host apply blocked by stale baseline") || strings.Contains(legacyDetail, "stale_pending_baseline") {
+			return domain.FailureKindStaleHostBaseline
+		}
+		if strings.Contains(legacyDetail, strings.ToLower(ErrHostIntegrationRace.Error())) {
+			return domain.FailureKindHostIntegrationRace
+		}
+		if strings.Contains(legacyDetail, context.Canceled.Error()) {
+			return domain.FailureKindExecutionCanceled
+		}
 	}
 	return ""
 }

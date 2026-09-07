@@ -44,7 +44,7 @@ export function chatGPTShowSidebarScript() {
 
 export function chatGPTStopConversationScript() {
   return `(() => {
-    const button = document.querySelector('button[data-testid="stop-button"]');
+    const button = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button[aria-label*="stop generating" i], button[aria-label*="parar de gerar" i]');
     if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return { ok: true, state: 'idle' };
     button.click();
     return { ok: true, state: 'stopping' };
@@ -79,13 +79,17 @@ export function chatGPTChooseConversationActionScript(action) {
       : action === 'archive'
         ? ['[role="menuitem"][data-testid*="archive"]','button[data-testid*="archive-conversation"]']
         : ['[role="menuitem"][data-testid*="move-project"]','button[data-testid*="move-project"]'];
-    const labels = action === 'rename'
-      ? new Set(['rename','renomear','cambiar nombre','renommer','umbenennen'])
+    const labelPrefixes = action === 'rename'
+      ? ['rename','renomear','cambiar nombre','renommer','umbenennen']
       : action === 'archive'
-        ? new Set(['archive','arquivar','archivar','archiver','archivieren'])
-        : new Set(['move to project','mover para projeto','mover al proyecto','déplacer vers le projet','in projekt verschieben']);
+        ? ['archive','arquivar','archivar','archiver','archivieren']
+        : ['move to project','mover para projeto','mover al proyecto','déplacer vers le projet','in projekt verschieben'];
     const item = selectors.map((s) => document.querySelector(s)).find((node) => node && visible(node))
-      || [...document.querySelectorAll('[role="menuitem"],button[role="menuitem"]')].find((node) => visible(node) && labels.has(String(node.getAttribute('aria-label') || node.getAttribute('title') || node.textContent || '').trim().toLowerCase()));
+      || [...document.querySelectorAll('[role="menuitem"],button[role="menuitem"]')].find((node) => {
+        if (!visible(node)) return false;
+        const text = String(node.getAttribute('aria-label') || node.getAttribute('title') || node.textContent || '').trim().toLowerCase();
+        return labelPrefixes.some((prefix) => text.startsWith(prefix));
+      });
     if (!item) return { ok: false, state: 'action-unavailable' };
     item.click();
     return { ok: true, state: 'action-selected' };

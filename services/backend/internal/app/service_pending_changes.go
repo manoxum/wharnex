@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/policy"
 	"kernl.local/harness/backend/internal/sandbox"
 )
 
@@ -63,6 +64,39 @@ func pendingHostChanges(item domain.Session) []domain.PendingHostChange {
 		return []domain.PendingHostChange{{Plan: *item.Plan, Execution: *item.LastExecution, VerifiedAt: item.LastExecution.CompletedAt}}
 	}
 	return nil
+}
+
+// planRequiresHostApply reports whether a verified plan can mutate the host.
+// Pure verification/answer plans must never join the cumulative host candidate:
+// they have no ChangeSet and would force ApplyToHost back onto the legacy
+// per-plan baseline path, where an unrelated stale baseline can manufacture a
+// repair loop despite the real cumulative candidate already being verified.
+func planRequiresHostApply(plan *domain.ExecutionPlan) bool {
+	if plan == nil {
+		return false
+	}
+	if len(actualPatchFiles(plan)) > 0 {
+		return true
+	}
+	for _, op := range plan.Operations {
+		if op.Type == "command" && policy.HostReplayGitCommand(op.Command) {
+			return true
+		}
+	}
+	return false
+}
+
+// hostApplicablePendingChanges is both the normal write filter and a migration
+// adapter for sessions persisted before verification-only plans were excluded.
+// Filtering at read/apply time self-heals already polluted pending chains.
+func hostApplicablePendingChanges(changes []domain.PendingHostChange) []domain.PendingHostChange {
+	filtered := make([]domain.PendingHostChange, 0, len(changes))
+	for _, change := range changes {
+		if planRequiresHostApply(&change.Plan) {
+			filtered = append(filtered, change)
+		}
+	}
+	return filtered
 }
 
 func pendingPatchCount(changes []domain.PendingHostChange) int {

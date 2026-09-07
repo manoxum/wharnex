@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	MaxBundleBytes   = 16 << 20
-	maxExpandedBytes = 32 << 20
-	maxEntries       = 128
+	MaxBundleBytes    = 16 << 20
+	maxExpandedBytes  = 32 << 20
+	maxEntries        = 128
+	maxKnowledgeBytes = 256 << 10
 )
 
 type operationWire struct {
@@ -40,6 +41,7 @@ type planWire struct {
 	RequestID         string               `json:"request_id"`
 	Status            string               `json:"status"`
 	Summary           string               `json:"summary"`
+	CommitMessage     string               `json:"commit_message,omitempty"`
 	Risk              string               `json:"risk"`
 	RequiresApproval  bool                 `json:"requires_approval"`
 	Operations        []operationWire      `json:"operations"`
@@ -118,6 +120,10 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 	if len(readmeBytes) > 1<<20 {
 		return Parsed{}, errors.New("README.md exceeds 1 MiB limit")
 	}
+	knowledgeBytes := files["knowledge.md"]
+	if len(knowledgeBytes) > maxKnowledgeBytes {
+		return Parsed{}, errors.New("knowledge.md exceeds 256 KiB limit")
+	}
 	turn, hasTurn, err := parseTurn(files["turn.json"])
 	if err != nil {
 		return Parsed{}, err
@@ -146,7 +152,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		}
 		resolvedPlan := domain.ExecutionPlan{
 			Protocol: wire.Protocol, BaseContextSHA256: wire.BaseContextSHA256, ImpactFiles: wire.ImpactFiles, ReadFiles: wire.ReadFiles, BarrierFiles: wire.BarrierFiles, PlanID: wire.PlanID, RequestID: wire.RequestID,
-			Status: wire.Status, Summary: wire.Summary, Risk: wire.Risk,
+			Status: wire.Status, Summary: wire.Summary, CommitMessage: wire.CommitMessage, Risk: wire.Risk,
 			RequiresApproval: wire.RequiresApproval, Operations: make([]domain.Operation, 0), Verification: wire.Verification,
 		}
 		if resolvedPlan.Verification == nil {
@@ -209,6 +215,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 	return Parsed{Plan: plan, Info: domain.ExecutionBundleInfo{
 		Filename: path.Base(filename), README: string(readmeBytes), Files: listed,
 		Patches: patches, SHA256: hex.EncodeToString(digest[:]),
+		ProjectKnowledgeUpdate: string(knowledgeBytes),
 	}, Turn: turn}, nil
 }
 

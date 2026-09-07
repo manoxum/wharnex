@@ -23,6 +23,11 @@ type Request struct {
 	// this package knows about. Falls back to RequestID-based defaults when
 	// empty (e.g. an API-transport request, which never names a file).
 	ExpectedBundleFilename string
+	// KnowledgeSource is the project's current incremental knowledge
+	// document (see domain.ProjectKnowledge), included only in the first
+	// request of a new chat. Empty when the project has no recorded
+	// knowledge yet, or for every request after the first in a chat.
+	KnowledgeSource string
 }
 
 type Result struct {

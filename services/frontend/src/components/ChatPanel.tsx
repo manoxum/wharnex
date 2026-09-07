@@ -18,7 +18,7 @@ function clampComposerHeight(height: number) {
   return Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)))
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { requestArchive: false, liveTunnels: true }, chatTransport, taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onToggleArtifact, onRequestMode, onGlobalTransport, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onCancelPendingRequest, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { requestArchive: false, liveTunnels: true }, chatTransport, taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onToggleArtifact, onRequestMode, onGlobalTransport, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -65,6 +65,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
 	 canReprocessPolicyBlock?: boolean
 	 onRetryTransportFailure?: (requestId: string) => Promise<void>
 	 onCancelPendingRequest?: (requestId: string) => Promise<void>
+  onExportChat?: () => Promise<void>
   onNewChat: () => Promise<void>
   onSelectChat: (chatId: string) => Promise<void>
   onArchiveChat: (chatId: string) => Promise<void>
@@ -248,11 +249,17 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     }, 1400)
   }
 
+  const activeChat = chats.find((chat) => chat.id === activeChatId)
+  const headerTitle = activeChat?.title || session.context.manifest.project_root.split('/').pop() || 'Harness Chat'
+
   return <section className={`chat-panel ${embedded ? 'embedded' : ''}`}>
-    {!embedded && <header className="panel-header chat-header">
-      <div><span className="panel-kicker">Harness chat</span><h2>{session.context.manifest.project_root.split('/').pop() || 'Projeto'}</h2></div>
-      <StatusPill tone={session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'}>{stateLabel(session.state)}</StatusPill>
-    </header>}
+    <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
+      <div className="chat-header-copy"><span className="panel-kicker">Harness chat</span><h2 title={headerTitle}>{headerTitle}</h2></div>
+      <div className="chat-header-actions">
+        <StatusPill tone={session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'}>{stateLabel(session.state)}</StatusPill>
+        {onExportChat && <button type="button" className="chat-export-button" disabled={busy} onClick={() => void onExportChat()} aria-label="Exportar chat" title="Exportar chat completo, execuções e bundles em ZIP"><Icon name="download" size={13}/><span>Exportar ZIP</span></button>}
+      </div>
+    </header>
 
     {!hideSwitcher && <div className="chat-switcher" aria-label="Conversas do Harness">
       <button className="chat-new-button" disabled={busy} onClick={() => void onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>

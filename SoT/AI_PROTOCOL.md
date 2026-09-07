@@ -4,7 +4,7 @@
 
 - `harness.turn/v1`: classifies one conversational agent outcome.
 - `harness.execution/v1`: describes executable work for a `workflow` or `change` turn.
-- `harness.conflict/v1`: a Wharness-generated, focused BASE/CURRENT/RESULT capsule for resolving a verified integration conflict.
+- `harness.conflict/v1`: a Wharness-generated, focused BASE/CURRENT/RESULT capsule for resolving a verified integration conflict — sourced from a real Git merge conflict's merge-base/host/branch commits for a candidate integrated via the Git-native flow (see `AUTOMATION_BUNDLE.md`), or from a canonical `ChangeSet` for a candidate reconciled from an immutable archived base.
 
 ## Intent-first agent rule
 
@@ -50,7 +50,7 @@ Every new `harness.turn/v1` result MUST include an `outcome` object with `status
 
 The recovery surface for a non-completed outcome MUST preserve the original goal and offer a new request path. The user can edit the recovery prompt, add context/files, enable another configured transport, or repeat the request. In Auto, a `retryable=true` terminal outcome MAY prepare exactly one bounded fresh-request recovery automatically. A retry is a new correlated request and never silently reclassifies the failed result as successful.
 
-Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `repair`, `evidence`, or `conflict`). A retained ChangeSet replay conflict MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
+Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `repair`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
@@ -97,3 +97,13 @@ The embedded consumer ChatGPT web surface is not treated as a trusted local MCP 
 ## Self-evolution evidence disposition (v1.3.1)
 
 A self-evolution `turn.json` MAY return `resolved_evidence_ids`, containing only event IDs from the active, explicit evidence-review selection. Wharnex validates the IDs against that selection and marks them resolved only after the corresponding self-evolution change has passed Protected verification and host application. Failed, rejected, merely analyzed, or unrelated evidence remains unresolved.
+
+## Incremental project knowledge and the `knowledge_review` round (v1.4)
+
+Each project MAY accumulate one incremental knowledge document (`domain.ProjectKnowledge`), authored by the planner and stored by Wharnex — never a file inside the project tree, and never sent as JSON in `turn.json`.
+
+- **Delivery into the conversation**: the current knowledge document, if any, is included only in the first request of a new chat, as untrusted-content-exempt prompt context (it is Wharnex-curated, not project content and not user input, so it is not subject to the prompt-injection rule in the trust hierarchy above). It is never resent on later requests within the same chat.
+- **The `knowledge_review` round**: after a `change` is verified and successfully applied to the host, Wharnex MAY send exactly one additional, best-effort, answer-only round carrying the full event history of that task (every request, response, plan, command execution and exit code, repair round, local block, and permission granted, from the task's main request through to this round) together with the current knowledge document. This round never carries an execution plan and is never subject to repair/retry.
+- **Mandatory report, optional knowledge update**: the round's `turn.message` MUST be one consolidated final report — the files changed and why, a summary, next steps, and what (if anything) was captured into the knowledge document. Attaching an updated `knowledge.md` at the response bundle root is optional: the planner is never obligated to change the knowledge document, and declining to attach one is a normal, expected answer. When attached, `knowledge.md` is always the complete replacement document, never a diff — the planner may append, correct, consolidate, or entirely rewrite it.
+- **Update is gated by construction, not convention**: `knowledge.md` is extracted by the bundle parser whenever present (transport, no policy), but Wharnex only ever reads and persists it inside the dedicated `knowledge_review` response-ingestion path, keyed on `RequestLineage.Kind`. A `knowledge.md` attached to any other response is structurally never read.
+- **State is unaffected**: the `knowledge_review` round never changes session state, plan, policy, or execution result — the apply that triggered it already succeeded and that is the result the user sees.

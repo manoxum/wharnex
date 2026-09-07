@@ -163,18 +163,29 @@ func (r *terminalTargetRunner) Run(_ context.Context, _ sandbox.Workspace, comma
 }
 func (r *terminalTargetRunner) Cleanup(sandbox.Workspace) error { return nil }
 
-type fakeRunner struct{}
+// fakeRunner delegates Prepare/ApplyPatch/Cleanup to a real LocalRunner (safe
+// to call on the nil embedded pointer: LocalRunner has no fields and never
+// dereferences its receiver), so verification produces a REAL Git-backed
+// sandbox with the patch genuinely applied — required since ApplyToHost now
+// commits verified changes onto a real integration branch (see
+// internal/sandbox/gitintegration.go), which needs an actual repository and
+// actual file content to commit. Run stays fake/canned: tests using this
+// runner want a deterministic, instant "verification passed" without a real
+// toolchain, not a real `go test`/`npm test` execution.
+type fakeRunner struct{ *sandbox.LocalRunner }
 
-func (fakeRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
-	return sandbox.Workspace{Path: "/tmp/fake"}, nil
-}
-func (fakeRunner) ApplyPatch(context.Context, sandbox.Workspace, string) (domain.CommandResult, error) {
-	return domain.CommandResult{Argv: []string{"git", "apply"}, ExitCode: 0, Success: true}, nil
-}
 func (fakeRunner) Run(_ context.Context, _ sandbox.Workspace, c domain.CommandSpec) (domain.CommandResult, error) {
 	return domain.CommandResult{Argv: c.Argv, Cwd: c.Cwd, ExitCode: 0, Success: true}, nil
 }
-func (fakeRunner) Cleanup(sandbox.Workspace) error { return nil }
+
+// RunStreaming must also be overridden and not merely inherited from the
+// embedded *LocalRunner: LocalRunner implements sandbox.StreamingRunner, so
+// without this override runCommandWithRunner's own type-assertion for that
+// interface would silently prefer the REAL (promoted) RunStreaming over the
+// fake Run above, running verification commands for real after all.
+func (r fakeRunner) RunStreaming(ctx context.Context, workspace sandbox.Workspace, c domain.CommandSpec, _ sandbox.StreamCallback) (domain.CommandResult, error) {
+	return r.Run(ctx, workspace, c)
+}
 
 type streamingEventRunner struct{}
 

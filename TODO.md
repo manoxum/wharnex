@@ -1,4 +1,4 @@
-# NEXTLEVEL — registo desta sessão
+# TODO — registo desta sessão
 
 Este ficheiro exporta tudo o que foi discutido, planeado e implementado numa única
 sessão de trabalho sobre o Wharness: o diagnóstico e correção do beco sem saída da
@@ -371,7 +371,7 @@ código e dos testes, não apenas do texto do prompt.
 |---|---|
 | Fase C (evolução do protocolo) | Por implementar |
 | **Renomeação Wharness → Wharnex** | **Precisa de âmbito confirmado antes de começar** — toca o módulo Go (`kernl.local/harness/...`, provavelmente centenas de ficheiros), nomes de volumes/imagens Docker já em produção nesta máquina (`wharness-minio-*`, `wharness-postgres-*`, `wharness-tunnel-*`), variáveis de ambiente (`WHARNESS_*`), o ficheiro `whaness.yml`/`.harnessignore`, e toda a UI. Um rename cego arrisca órfãos de volumes Docker existentes e quebrar o stack a correr |
-| Exportar chat para ZIP de análise | Nova funcionalidade, ainda por desenhar e implementar |
+| ~~Exportar chat para ZIP de análise~~ | **Entregue** numa ronda posterior não documentada aqui na altura: `internal/app/chat_export.go` + `chat_export_format.go`, endpoint `POST /api/sessions/{id}/chat-export`, `onExportChat` ligado em `ChatPanel`/`AgentWorkspace`/`App.tsx`. Usado ao vivo nesta sessão (secção 16) para diagnosticar o chat `64623e2c-...` |
 | Editor: 3 modos, split genérico, terminal agêntico | Por fazer |
 | Cores de mensagem por remetente | Baixa prioridade, por fazer |
 
@@ -703,7 +703,15 @@ incremental, secção 15).
 **Decisão do utilizador**: não implementar nenhum dos dois agora (sessão com
 tokens quase esgotados) — ambos ficam registados aqui para retomar depois.
 
-## 15. Por fazer — fonte de aprendizado incremental por projecto (plano aprovado, não implementado)
+**Resolvido estruturalmente na secção 22**: o `stale_pending_baseline`
+descrito acima era um sintoma do mecanismo CAS/ChangeSet — um candidato
+pendente "obsoleto" não tinha nenhuma operação de recuperação. A migração
+para integração Git nativa (secção 22) elimina esta classe de impasse por
+construção: um candidato pendente obsoleto passa a ser um merge conflict
+Git normal, tratado pelo mesmo caminho `harness.conflict/v1` já existente —
+nunca mais um beco sem saída sem operação de recuperação.
+
+## 15. Entregue — fonte de aprendizado incremental por projecto
 
 Pedido do utilizador: cada projecto acumula uma fonte de conhecimento
 persistente, escrita pelo próprio ChatGPT, com este ciclo de vida: nada muda
@@ -713,19 +721,344 @@ planos, comandos+exit codes, correcções, bloqueios, permissões) + o
 conhecimento actual, perguntando se há algo a reter (ChatGPT não é
 obrigado a responder); pode incrementar, corrigir, consolidar ou reescrever
 por completo; o resultado é enviado na primeira requisição de cada chat
-novo desse projecto.
+novo desse projecto. Dois refinamentos pedidos a meio da implementação:
+(a) a ronda final tem também de devolver, sempre, um resumo de tudo o que
+foi feito desde o pedido principal até esta ronda de consolidação — não só
+o conhecimento novo; (b) a listagem de ficheiros alterados só deve aparecer
+no chat junto desse resumo final, nunca antes, para não fragmentar o
+relatório em vários avisos soltos.
 
-Plano completo já desenhado e **aprovado** pelo utilizador em modo de
-planeamento — ver
-`/home/zootakuxy/.claude/plans/elabore-o-plano-minuncioso-glittery-plum.md`
-para o desenho detalhado (armazenamento Postgres por projecto via extensão
-do `session.Store` existente; documento viaja como ficheiro opcional
-`knowledge.md` na raiz do bundle de resposta, nunca como campo JSON; só é
-lido pelo serviço dentro de um branch dedicado activado por
-`RequestLineage.Kind == "knowledge_review"`, nunca por uma resposta normal;
-estado da sessão nunca é tocado pela ronda de revisão — usa um campo novo
-`pending_knowledge_review_request_id` independente de `state`; 3 pontos de
-disparo, todos já marcados no código por
-`closeRemoteInputChannel(sessionID, "request.completed")`). **Nenhum código
-foi escrito ainda para esta funcionalidade** — só o plano existe. Retomar a
-partir desse ficheiro de plano quando houver disponibilidade.
+Implementado por completo, seguindo o plano aprovado
+(`/home/zootakuxy/.claude/plans/elabore-o-plano-minuncioso-glittery-plum.md`):
+
+- **`internal/domain/types.go`**: `ProjectKnowledge` (Postgres, por
+  `project_path`, substituição completa de documento — não há histórico de
+  versões, só o contador); `Session.PendingKnowledgeReviewRequestID`
+  (independente de `state`, de propósito — a sessão já está correctamente
+  em `applied`/`restart_pending` quando esta ronda dispara, e não há
+  "estado real" a restaurar depois); `ExecutionBundleInfo.ProjectKnowledgeUpdate`.
+- **`internal/executionbundle/bundle.go`**: extrai `knowledge.md` opcional
+  da raiz do bundle (cap 256 KiB), tal como já faz para `README.md` —
+  puramente transporte, sem qualquer acoplamento a `turn.Kind`.
+- **`internal/session/`**: `harness_project_knowledge` na schema Postgres;
+  `GetProjectKnowledge`/`AppendProjectKnowledge` (upsert com incremento de
+  versão), com o mesmo padrão dual-mode Postgres/memória já usado pelo
+  resto do `*Store`.
+- **`internal/planner/`**: `Request.KnowledgeSource`; `BuildManualPrompt`
+  ganha uma secção `PROJECT KNOWLEDGE` (só quando não vazio) e um desvio
+  cedo para `buildKnowledgeReviewPrompt` quando `PlanningMode ==
+  "knowledge_review"` — um prompt dedicado, sem qualquer contrato
+  CHANGE/WORKFLOW, que exige um relatório final obrigatório em
+  `turn.message` (trabalho realizado por ficheiro, resumo, próximos
+  passos, conhecimento adquirido) e um `knowledge.md` opcional (documento
+  completo, nunca diff).
+- **`internal/app/service_knowledge.go`** (novo): `triggerKnowledgeReview`
+  (best-effort, nunca toca em `State`/`Plan`/`Policy`/`LastExecution`) e
+  `ingestKnowledgeReviewResponse` (único caminho de código que alguma vez
+  lê `ProjectKnowledgeUpdate` — é isto que torna o invariante "só actualiza
+  no fecho" uma propriedade do código, não uma convenção). Disparado nos 3
+  pontos já marcados por `closeRemoteInputChannel(sessionID,
+  "request.completed")`. `SubmitExecutionBundle` ganhou um desvio cedo
+  activado por `RequestLineage.Kind == "knowledge_review"`, que salta toda
+  a máquina de baseline/workflow/repair (não se aplica — esta ronda nunca
+  carrega plano). `SubmitMessageWithMode` inclui `KnowledgeSource` só
+  quando `len(item.RequestLineages) == 0` (primeira requisição do chat).
+- **Frontend**: `types.ts` ganhou `chat_id`... (já existia) e
+  `pending_knowledge_review_request_id`; novo `useEffect` em `App.tsx`,
+  paralelo ao de despacho de reparação/conflito mas chaveado neste campo
+  novo em vez de `session.state`, reaproveitando
+  `transportPlannerContinuation` sem qualquer UI nova — o relatório final
+  do ChatGPT aparece como uma mensagem de chat normal porque
+  `ingestKnowledgeReviewResponse` grava `LastTurn`, e o mecanismo que já
+  renderiza `session.last_turn.message` como balão de chat (usado por
+  qualquer resposta `answer`) trata este caso sem alterações.
+- **Documentação**: `SoT/AI_PROTOCOL.md` (nova secção v1.4),
+  `SoT/AUTOMATION_BUNDLE.md` (`knowledge.md` como ficheiro de bundle
+  reconhecido), `adr/ADR-0028-incremental-project-knowledge.md`,
+  `CHANGELOG.md`.
+- Testado: `internal/executionbundle` (3 testes), `internal/session`
+  (4 testes, incluindo um gated por `WHARNESS_TEST_DATABASE_URL` para o
+  caminho Postgres real), `internal/planner` (4 testes), `internal/app`
+  (5 testes), frontend (1 teste estrutural). Suites completas Go e Vitest
+  verdes (194 testes Vitest).
+
+**Por fazer, fora de âmbito do V1** (conforme o plano original): transporte
+via API OpenAI directa; UI dedicada em Definições para ver/editar/repor o
+documento; histórico versionado de conteúdos passados.
+
+## 16. Causa raiz definitiva do ping-pong "real" — lock de auto-evolução órfão com `pid=1`
+
+Analisado a partir do ZIP de exportação do chat
+`64623e2c-6674-4d07-a593-2f48491cec96` (o `774dc75049e2` referido pelo
+utilizador é o prefixo do **baseline sha256** actual, não um chat id) e do
+estado em disco de `.harness/self-evolution/`.
+
+**Estado encontrado**: `stage.lock` com o conteúdo literal
+`pid=1 / created=2026-09-06T21:54:25Z`, `active.lock` inexistente, `status`
+em `phase=prepared` desde as 21:54, e 3 candidatos Protected verificados na
+fila (`default_agent_chat_split`, `window_scoped_agent_chat_width`,
+`integration_race_chat_id_ref`), todos com ChangeSet e todos com a
+verificação de integração a passar (lint + 28 testes + build às 00:11).
+
+**Mecanismo exacto do impasse permanente**:
+1. `prepareNewBatch` escrevia o `stage.lock` via `acquireLock`, que só
+   registava `pid=` — sem `run_id=` (ao contrário do `active.lock`, escrito
+   por `acquireActiveLock`, que já registava ambos).
+2. O backend corre como **PID 1** dentro do seu container. `syscall.Kill(1, 0)`
+   responde sempre "vivo" — para este processo e para todos os backends
+   futuros, porque cada um deles também é o PID 1.
+3. Logo `activeLockOwnerAlive` classificava o lock órfão como "vivo" para
+   sempre: `acquireLock` nunca o reclamava e devolvia `ErrBusy`.
+4. Em `Prepare`, o ramo que falha a obter o `stage.lock` remove o
+   `active.lock` que acabara de criar e devolve `ErrBusy` — o que explica o
+   `active.lock` ausente e o `stage.lock` eterno.
+5. Resultado: **todos** os Apply de auto-evolução falhavam com
+   `another Wharness self-evolution transaction is already active`, e cada
+   falha pedia uma correcção ao ChatGPT que nunca poderia libertar um
+   ficheiro de lock local → ping-pong sem fim (o "ping pong real").
+
+**Correcções implementadas** (`internal/selfevolution/manager.go`):
+- `acquireLock` passa a gravar `run_id=<runtimeInstanceID>` além do `pid`,
+  tal como `acquireActiveLock` — é isso que torna o lock reclamável depois
+  de um crash ou restart.
+- `activeLockOwnerAlive` deixa de consultar o `pid`: decide exclusivamente
+  pelo `run_id`. Um lock **sem** `run_id` é, por construção, anterior a
+  este build e portanto obsoleto (e o seu `pid` não é confiável, pela razão
+  do ponto 2). Um lock com `run_id` diferente continua obsoleto; só o
+  `run_id` desta instância bloqueia. Isto faz o impasse curar-se sozinho
+  em qualquer reinício, sem intervenção manual.
+- 3 testes de regressão novos, incluindo a reprodução literal do estado de
+  produção (`pid=1`, sem `run_id`) e a garantia de que a exclusão mútua real
+  (lock desta instância) continua a bloquear.
+
+**Desbloqueio imediato**: o `stage.lock` órfão foi removido do disco (cópia
+em scratchpad), pelo que o backend em execução — ainda com o código antigo —
+já consegue aplicar. Os 3 candidatos continuam verificados e íntegros.
+
+**Notas para o próximo Apply**:
+- O Node do host foi entretanto actualizado para v22.20.0 e o Electron está
+  correctamente instalado, pelo que a falha `ERR_REQUIRE_ESM` da secção 13
+  já não se aplica ao `make build-stage`.
+- Nenhum ficheiro tocado por esta correcção pertence aos ChangeSets
+  pendentes (só `internal/selfevolution/*`), para não introduzir conflitos
+  de integração nesses candidatos.
+
+**Fica por fazer** (deliberadamente adiado para não colidir com a fila
+pendente, que altera `AgentWorkspace.tsx`): um aviso acionável no frontend
+para `failure_kind` de bloqueio local (`self_evolution_transaction_busy`,
+`host_integration_race`) que diga "candidato verificado — repetir aplicação"
+em vez de aparecer como erro genérico. Hoje o backend já classifica estes
+casos (e já não gasta rondas de ChatGPT com eles), mas a UI ainda os mostra
+como erro comum, o que continua a convidar o utilizador a devolvê-los ao
+ChatGPT sem necessidade.
+
+## 17. O Node do build de auto-evolução é o do CONTAINER, não o do host
+
+Depois de desbloqueado o lock da secção 16, o Apply avançou até ao fim
+(`Aplicação no host iniciada`, 5 × `changeset.integrated`) e falhou no
+`BuildHost` com o mesmo `ERR_REQUIRE_ESM` do Electron — reportando
+`node: 'v20.15.1'` **apesar de o host ter v22.20.0**. É por isso que
+`make build && make stop && make start` feitos à mão não resolviam: são dois
+Node diferentes.
+
+**Causa raiz**: `services/backend/Dockerfile` assentava em
+`golang:1.23.0-alpine3.20`, cujo `apk add nodejs` dá **Node 20.15.1**. O
+`BuildHost` corre `make build-stage` dentro do próprio container do backend
+(é intencional — o comentário do Dockerfile di-lo: "keep the build/control
+toolchain in this container"), logo usa o Node do container. O Electron
+fixado (`electron@44.1.1`) exige `>=22.12`. Resultado: o operador compila à
+mão com o seu Node 22 (nvm) e passa; a auto-evolução compila com o Node 20
+do container e falha sempre — uma divergência invisível de fora e que
+nenhum patch de código pode corrigir.
+
+**Correções implementadas**:
+- `services/backend/Dockerfile`: base passa a `golang:1.23-alpine3.21`
+  (Node **v22.23.2**, Go 1.23.12) nas duas fases, com um comentário a
+  explicar que a release do Alpine é *load-bearing* e deve acompanhar o
+  requisito do Electron fixado. Imagem construída e verificada.
+- `scripts/deps-cache.sh`: novo `require_supported_node`, chamado
+  imediatamente antes de qualquer `npm ci`. Abaixo de 22.12 falha de
+  imediato com a versão encontrada, o caminho do `node` em uso e a
+  indicação explícita de que um build de auto-evolução usa o Node do
+  container — em vez do stack trace de 60 linhas do `install.js` do
+  Electron, que não nomeia nem o Node nem o requisito. Verificado nos dois
+  sentidos (falha em alpine3.20/Node 20, passa em alpine3.21/Node 22).
+
+**AÇÃO NECESSÁRIA**: a correção só produz efeito depois de a imagem do
+backend ser reconstruída — `make build` (que faz `stack-build`) e reiniciar
+o stack. Enquanto o container em execução tiver o Node 20, o próximo Apply
+volta a falhar exactamente da mesma maneira.
+
+## 18. Comandos de verificação repetidos em looping numa única tentativa
+
+O utilizador reparou que "os mesmos comandos são rodados várias vezes antes
+de falhar". Confirmado: `stageHostIntegration`
+(`internal/app/service_changeset.go`) corria os gates de verificação de
+**cada candidato pendente** contra o **mesmo** workspace integrado. Com 3
+candidatos a repetirem `npm run typecheck`, `npm run lint` e `npm run build`,
+cada um desses corria 3×, ~12 execuções e ~2,5 min de trabalho duplicado por
+passagem — e tudo outra vez em cada nova tentativa de Apply.
+
+**Correção**: novo `dedupedIntegrationVerifications`, que achata os gates de
+todos os candidatos no conjunto que realmente tem de correr, com identidade
+`argv + cwd` (o mesmo gate é o mesmo gate independentemente do timeout ou do
+envelope de exit codes que um plano posterior lhe tenha escrito). O primeiro
+candidato que declara um gate fica dono dele, o que mantém a comparação de
+baseline ancorada ao prefixo mais pequeno — e portanto mais conservador.
+2 testes novos, incluindo o caso em que nada se repete e o caso `cwd`
+diferente (que continua a ser um gate distinto).
+
+## 19. Alinhamento automático do Node do host via nvm (pedido explícito do utilizador)
+
+Depois da correção da secção 17 (Node do *container* do backend), o
+utilizador levantou um ponto distinto, sobre o `make build` invocado
+directamente pelo humano no host: em vez de só falhar com uma mensagem clara
+quando o Node do host está desactualizado, o Wharnex deveria tentar
+**alinhar automaticamente** a versão, usando `nvm` (já presente no host,
+confirmado: `~/.nvm` com várias versões instaladas) para subir
+temporariamente para uma versão compatível — e só falhar de facto se isso
+não for possível. O próprio utilizador reconheceu que isto é uma excepção
+deliberada à norma da secção 11 ("menos dependência de host, tudo em
+container"), justificada porque `nvm` é uma ferramenta de host inerentemente
+pessoal/interactiva, sem equivalente containerizado sensato *para este fim*
+(escolher qual Node o shell interactivo do operador usa) — ao contrário das
+CLIs auxiliares que essa norma obriga a containerizar.
+
+**Implementado** em `scripts/deps-cache.sh`:
+- `node_version_satisfies_minimum` — extraído do antigo `require_supported_node`
+  para poder ser chamado antes e depois da tentativa de alinhamento.
+- `try_nvm_alignment` — corre via `bash -c` explícito (nvm.sh não é POSIX
+  `sh`, e o script mantém o shebang `sh`), procura entre as versões já
+  instaladas do operador (`nvm ls`) a mais recente que satisfaça o mínimo, e
+  só instala uma nova (`nvm install --lts`) se nenhuma já instalada servir.
+  Nunca instala o próprio nvm, nunca corre dentro de um container (self-
+  evolution nunca alcança este fallback: a imagem do backend já satisfaz o
+  mínimo directamente, corrigido na secção 17).
+- `require_supported_node` — verifica o Node do `PATH`; se insuficiente,
+  tenta o alinhamento e, em caso de sucesso, põe o `bin/` resolvido pelo nvm
+  à frente do `PATH` só para o resto desta execução do script (sem tocar em
+  `.bashrc`/perfis persistentes) e prossegue; só falha, com a mesma mensagem
+  clara de antes, se o nvm não estiver disponível ou não encontrar/instalar
+  nada que sirva.
+- Verificado isoladamente nos dois sentidos: com Node 20.19.5 forçado no
+  `PATH`, alinha para v22.20.0 já instalada via `nvm use` e passa; sem
+  `NVM_DIR` válido, falha com a mensagem clara e `exit 1`.
+- `AGENTS.md §11` actualizado (v1.2.45) com esta excepção registada
+  explicitamente, para não parecer uma violação silenciosa da norma.
+
+## 20. Confirmação: o Apply seguinte funcionou de facto (banner "incompatível" era estado obsoleto)
+
+O utilizador reportou que, mesmo depois de corrigido o Node, a UI continuava
+a mostrar "Build do host bloqueado — Node do host incompatível". Verificado
+ao vivo: o `failure_kind` mostrado vinha de uma tentativa **anterior**
+(21:16), e entretanto — com a imagem do backend já reconstruída — uma NOVA
+tentativa (01:17:05–01:18:38) **completou com sucesso**:
+`self_evolution.host_build_completed` → `host.applied` →
+`self_evolution.restart_pending` → `restart_scheduled`, com os 3 candidatos
+pendentes aplicados (`pending_host_changes` passou a 0) e `failure_kind`
+limpo. O backend reiniciou (`docker ps` confirmou o container novo,
+healthy). Não havia bug adicional aqui — era só a UI ainda a mostrar o
+resultado da tentativa antiga até a nova terminar. Sem acção necessária.
+
+## 21. Logs em tempo real do build de auto-evolução (pedido explícito do utilizador)
+
+Pedido recorrente nesta sessão (já identificado antes como lacuna, agora
+implementado): o cartão "Build do Wharness no host" ficava mudo — sem
+qualquer log — até o build terminar (sucesso ou falha), o que lia como um
+bloqueio mesmo quando estava só a decorrer (`npm ci`/`vite build`/`go build`
+podem demorar minutos).
+
+**Implementado**, seguindo exactamente o padrão já existente para comandos
+de sandbox (`sandbox.StreamingRunner`/`streamCapture`, que já publica
+`command.output` por bloco em tempo real):
+- `internal/selfevolution/manager.go`: `BuildHost` ganhou um parâmetro
+  `onOutput BuildOutputCallback`, e um novo `buildOutputWriter` que escreve
+  simultaneamente no buffer acumulado (para a classificação de erro
+  existente) e invoca o callback por cada bloco recebido de stdout/stderr.
+- `internal/app/service.go`: o único ponto de chamada publica
+  `self_evolution.host_build_output` (`{stream, text, transaction_id}`) por
+  cada bloco — o mesmo mecanismo SSE (`/api/sessions/{id}/events`, já com
+  `flusher.Flush()` por evento) que já entrega `command.output` ao vivo.
+- `lib/executionTimeline.ts`: novo agrupamento por `transaction_id`
+  (`self_evolution.host_build_started/output/completed/failed`), no mesmo
+  molde do agrupamento por `run_id` de `command.*` — a mesma entrada
+  expansível de log ao vivo, não um mecanismo novo. Os dois casos mortos
+  em `statusMeta` (`started`/`completed` sem agrupamento) foram removidos,
+  substituídos por este agrupamento.
+- `components/Inspector.tsx`: `terminalEvents` passou a incluir também
+  `self_evolution.host_build_output` e `self_evolution.host_build_failed`
+  (só `started`/`completed` estavam listados antes).
+- Testado: `internal/selfevolution` (1 teste novo, confirma stdout/stderr
+  chegam ao callback à medida que são produzidos, não só no fim);
+  `lib/executionTimeline.test.ts` (2 testes novos — sucesso com log
+  acumulado, e falha preservando o log já recebido). Suites completas Go e
+  Vitest verdes (193 testes).
+
+## 22. Entregue — integração sandbox→host nativa em Git (novo protocolo principal)
+
+Pedido explícito do utilizador, na sequência de mais uma ocorrência ao vivo
+do erro `host changed repeatedly during ChangeSet integration: external
+write race on ...`: substituir por completo o mecanismo de integração
+CAS/ChangeSet (`internal/changeset`) por Git real — "o wharnex faz
+alterações em sandbox e commita em uma branch diferente... quando for para
+integrar no host, ela faz o merge dessa branch para a branch do host...
+sem necessariamente comitar para o repositório principal". O utilizador
+declarou isto **"o nosso protocolo principal de integração e comunicação"**
+daqui em diante.
+
+Descoberta decisiva: `internal/sandbox/copy.go` já clona o `.git` real do
+projecto (`git clone --local --no-hardlinks`, via `cloneGitBaseline`)
+sempre que o host é um repositório Git — o que é sempre o caso, garantido
+por `internal/projectgit.Ensure`. O histórico real do host já estava
+disponível dentro do sandbox; faltava apenas comitar o patch verificado
+numa branch e, do lado do host, fazer um merge Git real em vez de escrever
+ficheiros por compare-and-swap manual.
+
+**Fluxo entregue** (ver `SoT/SANDBOX_MODEL.md`, `SoT/AI_PROTOCOL.md`,
+`SoT/AUTOMATION_BUNDLE.md`, `AGENTS.md` e `adr/ADR-0029-git-native-sandbox-host-integration.md`
+para o contrato normativo completo):
+1. Verificação sandbox bem-sucedida → `git commit` numa branch
+   `whx/<request_id>`, autor fixo `Wharness <wharness@localhost>`,
+   mensagem = `commit_message` do plano (agora obrigatório para `change`
+   no protocolo), sanitizada, com trailers `Request-Id`/`Plan-Id`.
+2. Push local (nunca remoto) dessa branch para o `.git` real do host.
+3. Merge real (`git merge --no-ff --no-edit`) na branch do host, com
+   verificação pós-merge reaproveitando os mesmos comandos de verificação
+   do plano, agora via `s.hostRunner`.
+4. Conflito de merge real → aborta e devolve o mesmo capsule
+   `harness.conflict/v1` já existente, agora alimentado por `git show` nas
+   SHAs do merge-base/host/branch em vez de conteúdo de `ChangeSet`.
+5. Falha de verificação pós-merge → reversão automática (`git reset --hard`
+   para o HEAD pré-merge; decisão do utilizador).
+6. Sucesso → elimina a branch de integração (decisão do utilizador: os
+   commits/merge permanecem no log do host de qualquer forma).
+
+Um caso permanece na via legada CAS/`ChangeSet`: candidatos reconciliados a
+partir de um arquivo ZIP imutável (`reconcileFromArchive`, quando o baseline
+do host avançou e o candidato só pode ser reverificado contra a base
+arquivada) não têm ancestralidade Git real partilhada com o host — nesse
+caso não há branch para commitar/fazer merge, e o caminho
+`materializePlanChangeSet` original é preservado inalterado.
+
+**Correcções durante a implementação** (ver histórico de commits para
+detalhe): garantir HEAD resolvível em projectos Git recém-criados
+(`ensureInitialCommit` em `internal/projectgit`); auto-commitar estado não
+rastreado do host antes do merge para não confundir ficheiros não
+rastreados comuns com um conflito real; encadear correctamente candidatos
+pendentes sequenciais (replay da branch já integrada do candidato anterior
+antes de aplicar o seguinte); usar `git fetch <caminho> branch:branch`
+explícito em vez de depender de `origin/<branch>`, porque
+`configureSandboxGitRemotes` remove o remoto `origin` transitório do clone
+quando o projecto real não tem remotos configurados; e um bug introduzido
+durante a própria migração — o snapshot base usado pelo caminho
+`reconcileFromArchive` estava a ser tirado **depois** do patch já aplicado
+(diff vazio, resultando na tentativa incorrecta de reverify por patch bruto
+contra a árvore do host), corrigido movendo o snapshot para antes do loop
+de operações do plano.
+
+Testado: `internal/sandbox/gitintegration_test.go` (novo — commit, push
+local, merge limpo, merge com conflito real estruturado, reversão exacta,
+eliminação de branch); suite completa `internal/app` (incluindo o teste que
+expôs o bug do snapshot, `TestStaleBundleWithOverlappingLocalChangePreparesDedicatedConflictResolution`);
+`go vet`/`go build`/`go test ./...` e `tsc --noEmit`/`vitest run` (49
+ficheiros, 195 testes) verdes.

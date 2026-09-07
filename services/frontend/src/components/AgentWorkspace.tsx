@@ -10,8 +10,33 @@ import { FilePreviewModal } from './FilePreviewModal'
 import { loadChat } from '../lib/workspaceMemory'
 import { MarkdownContent } from './MarkdownContent'
 import { promptDialog } from '../lib/appDialog'
+import { desktopWindowScope } from '../lib/projectBindings'
 
 type Drawer = 'archive' | 'project' | 'fifo' | 'evolution' | ProjectActivityKind | ''
+
+const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
+const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
+const AGENT_CHAT_WIDTH_MIGRATION_KEY = 'whx.agent.chat-width.scoped-v1'
+
+function agentChatWidthStorageKey() { return `${AGENT_CHAT_WIDTH_PREFIX}${desktopWindowScope()}` }
+
+function loadAgentChatWidth() {
+  try {
+    const storageKey = agentChatWidthStorageKey()
+    const scoped = Number(localStorage.getItem(storageKey)) || 0
+    if (scoped) return scoped
+    if (localStorage.getItem(AGENT_CHAT_WIDTH_MIGRATION_KEY) === '1') return 0
+    const legacy = Number(localStorage.getItem(AGENT_CHAT_WIDTH_KEY)) || 0
+    localStorage.setItem(AGENT_CHAT_WIDTH_MIGRATION_KEY, '1')
+    localStorage.removeItem(AGENT_CHAT_WIDTH_KEY)
+    if (legacy) localStorage.setItem(storageKey, String(legacy))
+    return legacy
+  } catch { return 0 }
+}
+
+function saveAgentChatWidth(width: number) {
+  try { localStorage.setItem(agentChatWidthStorageKey(), String(width)) } catch { /* best effort */ }
+}
 
 export type ExecutionFIFOItem = { key: string; chatId: string; chatTitle: string; planId: string; status: 'submitting' | 'queued' | 'running'; position?: number; addedAt: number }
 
@@ -33,7 +58,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
   const [drawer, setDrawer] = useState<Drawer>('')
   const [previewPath, setPreviewPath] = useState<string>()
   const workspaceRef = useRef<HTMLElement>(null)
-  const [chatWidth, setChatWidth] = useState(() => Number(localStorage.getItem('whx.agent.chat-width')) || 0)
+  const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
   const archived = chatProps.archivedChats || []
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
   useEffect(() => {
@@ -75,7 +100,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
     const update = (clientX: number) => {
       const available = Math.max(720, rect.width - fixed - 6)
       const next = Math.round(Math.max(320, Math.min(available - 320, clientX - rect.left - fixed)))
-      setChatWidth(next); localStorage.setItem('whx.agent.chat-width', String(next))
+      setChatWidth(next); saveAgentChatWidth(next)
     }
     const move = (moveEvent: PointerEvent) => update(moveEvent.clientX)
     const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }
@@ -113,7 +138,6 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
     </nav>
 
     <aside className="agent-activity-bar" aria-label="Ferramentas do Agent">
-      <button type="button" disabled={busy || !onExportChat} onClick={() => void onExportChat?.()} aria-label="Exportar chat" title="Exportar chat completo em ZIP"><Icon name="download" size={18}/></button>
       <button type="button" className={drawer === 'archive' ? 'active' : ''} onClick={() => toggleDrawer('archive')} aria-label="Chats arquivados" title="Chats arquivados"><Icon name="folder" size={18}/>{archived.length > 0 && <b>{archived.length}</b>}</button>
       <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggleDrawer('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
       <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggleDrawer('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>
@@ -132,7 +156,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
 
     {previewPath && <FilePreviewModal sessionId={session.id} path={previewPath} onOpenInEditor={onOpenFile} onClose={() => setPreviewPath(undefined)}/>}
 
-    <div className="agent-chat-stage"><ChatPanel key={chatProps.activeChatId} {...chatProps} embedded hideSwitcher /></div>
+    <div className="agent-chat-stage"><ChatPanel key={chatProps.activeChatId} {...chatProps} embedded hideSwitcher onExportChat={onExportChat} /></div>
     <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
     <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} /></div>
   </section>

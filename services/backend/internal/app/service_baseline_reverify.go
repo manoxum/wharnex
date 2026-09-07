@@ -8,6 +8,7 @@ import (
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/protocol"
+	"kernl.local/harness/backend/internal/sandbox"
 )
 
 // reverifyPendingCandidate replays the complete verified candidate against the
@@ -55,15 +56,39 @@ func (s *Service) reverifyPendingCandidate(ctx context.Context, sessionID string
 				return item, fmt.Errorf("plan %s command reverify exited with %d", plan.PlanID, run.ExitCode)
 			}
 		}
-		for _, command := range plan.Verification {
-			run, runErr := s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "sandbox-baseline-reverify")
-			result.Commands = append(result.Commands, run)
-			if runErr != nil || !run.Success {
-				if runErr != nil {
-					return item, fmt.Errorf("plan %s verification reverify: %w", plan.PlanID, runErr)
+		verificationErr := func() error {
+			var baselineWorkspace *sandbox.Workspace
+			defer func() {
+				if baselineWorkspace != nil {
+					_ = s.runner.Cleanup(*baselineWorkspace)
 				}
-				return item, fmt.Errorf("plan %s verification reverify failed: %s", plan.PlanID, commandResultDiagnostic(run))
+			}()
+			for _, command := range plan.Verification {
+				run, runErr := s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "sandbox-baseline-reverify")
+				result.Commands = append(result.Commands, run)
+				if runErr != nil {
+					return fmt.Errorf("plan %s verification reverify: %w", plan.PlanID, runErr)
+				}
+				if run.Success {
+					continue
+				}
+				baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, s.runner, &baselineWorkspace, item.ProjectPath, next[:index], command, run)
+				if baselineErr == nil && unchanged {
+					s.bus.Publish(sessionID, "baseline.reverify_failure_unchanged", map[string]any{
+						"plan_id": plan.PlanID, "argv": command.Argv, "exit_code": baselineResult.ExitCode,
+						"diagnostic": commandResultDiagnostic(baselineResult),
+					})
+					continue
+				}
+				if baselineErr != nil {
+					s.bus.Publish(sessionID, "baseline.reverify_compare_failed", map[string]any{"plan_id": plan.PlanID, "argv": command.Argv, "error": baselineErr.Error()})
+				}
+				return fmt.Errorf("plan %s verification reverify failed: %s", plan.PlanID, commandResultDiagnostic(run))
 			}
+			return nil
+		}()
+		if verificationErr != nil {
+			return item, verificationErr
 		}
 		result.Success = true
 		result.CompletedAt = time.Now().UTC()

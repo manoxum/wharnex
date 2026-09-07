@@ -24,8 +24,13 @@ import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 import { projectFileReferenceSuffix } from './lib/projectFileReferences'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
+import { hasRecordedRequest } from './lib/requestDispatch'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
+
+function requestAlreadyRecorded(projectPath: string, chatId: string, requestId: string, phases?: Parameters<typeof hasRecordedRequest>[2]) {
+  return hasRecordedRequest(loadChat(projectPath, chatId), requestId, phases)
+}
 
 export default function App() {
   const embeddedProject = embeddedProjectPath()
@@ -72,6 +77,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const baselineSeenRef = useRef(new Set<string>())
   const repairDispatchRef = useRef(new Set<string>())
   const chatIdBackfillRef = useRef(new Set<string>())
+  const creatingChatRef = useRef(false)
+  // Keep strict typecheck stable when a concurrent restage temporarily separates this ref from its consumer.
+  void chatIdBackfillRef
   const resumedBundleKeysRef = useRef(new Set<string>())
   const submitBundleFileRef = useRef<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => '')
   const dismissedRestartKeysRef = useRef(new Set<string>())
@@ -272,6 +280,25 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	}
   }, [session, activeChatId, chats])
 
+  useEffect(() => {
+    // The post-apply knowledge_review round is independent of session.state
+    // on purpose (see PendingKnowledgeReviewRequestID in the backend): the
+    // apply that triggered it already succeeded and state already reflects
+    // that, so this is keyed on its own field instead of joining the
+    // repair/conflict/baseline dispatch above, which would either compete
+    // with those states or require "restoring" state afterward.
+    if (!session || !session.pending_knowledge_review_request_id || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    const dispatchKey = `knowledge:${targetChat.id}:${session.pending_knowledge_review_request_id}`
+    if (baselineSeenRef.current.has(dispatchKey)) return
+    baselineSeenRef.current.add(dispatchKey)
+    void transportPlannerContinuation(session, targetChat).catch((sendError) => {
+      baselineSeenRef.current.delete(dispatchKey)
+      setError(messageOf(sendError))
+    })
+  }, [session, activeChatId, chats])
+
   async function syncSessionModes(value: Session, nextExecution: ExecutionMode, nextAutomation: AutomationMode) {
     let current = value
     const currentAutomation = current.automation_mode || 'manual'
@@ -343,8 +370,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function newChat() {
-    if (!session || busy) return
-    setBusy(true); setError(undefined)
+    // Deliberately does not gate on the shared `busy` flag: that flag also
+    // covers unrelated in-flight work in OTHER chats (send, apply, retry,
+    // ...), and blocking new-chat creation on those left "Novo chat"
+    // silently doing nothing while any other chat was merely processing.
+    // Each chat owns an independent backend session, so creating one has no
+    // actual conflict with another chat's in-flight request. A dedicated
+    // ref still debounces a genuine double-click of this same action.
+    if (!session || creatingChatRef.current) return
+    creatingChatRef.current = true
+    setError(undefined)
     try {
       const chatId = crypto.randomUUID()
       const created = await api.createSession(session.project_path, executionMode, automationMode, chatId)
@@ -353,7 +388,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       persistChats(created.project_path, next)
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
       setEvents([]); setManualPrompt(''); connectEvents(created.id, created.project_path, chat.id)
-    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+    } catch (e) { setError(messageOf(e)) } finally { creatingChatRef.current = false }
   }
 
   async function exportActiveChat() {
@@ -1402,15 +1437,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		const cacheKey = conflictChatGPTCacheKey(targetChat.id, conflict.id)
 		const existing = targetChat.conflictSurfaces?.[conflict.id]
 		const dispatchKey = `conflict:${conflictedSession.id}:${conflict.request_id}`
-		if (repairDispatchRef.current.has(dispatchKey)) return
+		if (repairDispatchRef.current.has(dispatchKey) || requestAlreadyRecorded(conflictedSession.project_path, targetChat.id, conflict.request_id, ['conflict', 'prepared', 'submitted'])) return
 		repairDispatchRef.current.add(dispatchKey)
 		updateWorkspaceChat(targetChat.id, conflictedSession.project_path, {
 			conflictSurfaces: { ...targetChat.conflictSurfaces, [conflict.id]: { cacheKey, url: existing?.url } },
 		})
 		appendChatItem(targetChat, conflictedSession.project_path, {
-			id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+			id: `conflict-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
 			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. O Wharness abriu uma janela ChatGPT dedicada e enviará apenas o capsule harness.conflict/v1 para resolução.`,
 			meta: `Conflito ${conflict.id} · superfície dedicada`,
+			iteration: iterationRef(conflict.request_id, 'conflict', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), existing?.url || targetChat.chatgptUrl),
 		})
 		try {
 			const prepared = await transportPlannerContinuation(conflictedSession, targetChat, { cacheKey, url: existing?.url })
@@ -1425,9 +1461,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 				void desktopBridge()?.chatgpt.confirmAffinity(cacheKey, conversation).catch((error) => setError(messageOf(error)))
 			}
 			appendChatItem(targetChat, conflictedSession.project_path, {
-				id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+				id: `conflict-dispatch-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
 				text: prepared.submitted ? 'Capsule de conflito submetido automaticamente na janela ChatGPT dedicada.' : 'Capsule preparado na janela dedicada; confirme o envio para continuar.',
 				meta: prepared.submitted ? 'Resolução de conflito em curso' : 'Resolução aguarda confirmação',
+				iteration: iterationRef(conflict.request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), prepared.conversationUrl || existing?.url || targetChat.chatgptUrl),
 			})
 		} catch (error) {
 			repairDispatchRef.current.delete(dispatchKey)
@@ -1437,8 +1474,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function submitWorkflowPrompt(workflowSession: Session, targetChat: WorkspaceChat): Promise<boolean> {
     const round = workflowSession.workflow_round || 1
+    const requestId = workflowSession.last_request_id || ''
+    if (requestAlreadyRecorded(workflowSession.project_path, targetChat.id, requestId, ['workflow'])) return false
     appendChatItem(targetChat, workflowSession.project_path, {
-      id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+      id: `workflow-${requestId || round}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
       text: `O Wharness terminou o passo local ${round}/6 e vai devolver stdout, stderr e códigos de saída ao mesmo ChatGPT para decidir o próximo passo.`,
       meta: workflowSession.last_request_id ? `Workflow ${round}/6 · ${workflowSession.last_request_id}` : `Workflow ${round}/6`,
       turnKind: 'workflow',
@@ -1447,7 +1486,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const prepared = await transportPlannerContinuation(workflowSession, targetChat)
       appendChatItem(targetChat, workflowSession.project_path, {
-        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        id: `workflow-dispatch-${requestId || round}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: prepared.submitted
           ? 'Resultados locais submetidos automaticamente ao ChatGPT. O Wharness aguarda a próxima decisão ou o encerramento do fluxo.'
           : 'A continuação foi preparada no ChatGPT, mas ainda precisa de confirmação manual.',
@@ -1472,22 +1511,26 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const repairPrompt = failedSession.last_manual_prompt || ''
     if (!repairPrompt) return
     const attempt = failedSession.repair_attempt || 1
-    const dispatchKey = `${failedSession.id}:${failedSession.last_request_id || attempt}`
+    const requestId = failedSession.last_request_id || ''
+    const dispatchKey = `${failedSession.id}:${requestId || attempt}`
     if (force) repairDispatchRef.current.delete(dispatchKey)
-    if (repairDispatchRef.current.has(dispatchKey)) return
+    if (!force && (repairDispatchRef.current.has(dispatchKey) || requestAlreadyRecorded(failedSession.project_path, targetChat.id, requestId, ['repair', 'prepared', 'submitted']))) {
+      repairDispatchRef.current.add(dispatchKey)
+      return
+    }
     repairDispatchRef.current.add(dispatchKey)
     const cause = truncateRepairCause(failedSession.last_repair_error || failedSession.last_execution?.error)
     appendChatItem(targetChat, failedSession.project_path, {
-      id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+      id: `repair-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
       text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
       iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'repair', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined,
     })
     try {
       const prepared = await transportPlannerContinuation(failedSession, targetChat)
-      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.', meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
+      appendChatItem(targetChat, failedSession.project_path, { id: `repair-dispatch-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.', meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: requestId ? iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (sendError) {
-      appendChatItem(targetChat, failedSession.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT para retomar', iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'failed', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined })
+      appendChatItem(targetChat, failedSession.project_path, { id: `repair-failed-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT para retomar', iteration: requestId ? iterationRef(requestId, 'failed', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined })
       setError(messageOf(sendError))
     }
   }

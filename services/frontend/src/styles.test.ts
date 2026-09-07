@@ -16,6 +16,17 @@ function firstRule(selector: string) {
   return match?.[1] || ''
 }
 
+describe('chat header CSS', () => {
+  it('keeps the active chat header fixed while the transcript scrolls', () => {
+    const header = lastRule('.chat-header')
+    const stream = lastRule('.chat-stream')
+    expect(header).toContain('position: sticky')
+    expect(header).toContain('top: 0')
+    expect(header).toContain('z-index: 12')
+    expect(stream).toContain('overflow: auto')
+  })
+})
+
 describe('composer layout CSS', () => {
   it('uses the whole top composer edge as the vertical resize handle', () => {
     const composer = lastRule('.composer')
@@ -91,6 +102,7 @@ describe('composer layout CSS', () => {
 describe('split Agent layout CSS', () => {
   it('uses a persistent resizable chat/inspector split with a shared chat strip', () => {
     const splitLayout = css.slice(css.lastIndexOf('/* v1.2.42'))
+    expect(splitLayout).toContain('--agent-chat-width: 60vw')
     expect(splitLayout).toContain('grid-template-columns: 42px minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr)')
     expect(splitLayout).toContain('grid-template-rows: 42px 42px minmax(0, 1fr)')
     expect(splitLayout).toContain('grid-template-columns: auto minmax(0, 1fr) auto auto')

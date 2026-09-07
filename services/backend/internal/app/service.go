@@ -38,6 +38,8 @@ var (
 	ErrExecutionBundleRequestMismatch     = errors.New("execution bundle filename/request_id mismatch")
 	ErrExecutionBundleNotPending          = errors.New("execution bundle request_id is not pending for this chat/session")
 	ErrIntegrationConflict                = errors.New("verified changes require focused conflict resolution")
+	ErrStaleHostBaseline                  = errors.New("verified candidate requires host baseline revalidation")
+	ErrHostIntegrationRace                = errors.New("host changed repeatedly during ChangeSet integration")
 )
 
 type BundleSubmission struct {
@@ -375,6 +377,15 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
+	// Snapshot BEFORE recordRequestLineage below adds this request's own
+	// entry: an empty lineage map is exactly "no request has ever been sent
+	// in this chat/session yet", which is when the project's accumulated
+	// knowledge document (if any) belongs in the bundle — see the plan
+	// note on KnowledgeSource in internal/planner/planner.go.
+	knowledgeSource := ""
+	if len(item.RequestLineages) == 0 {
+		knowledgeSource = s.knowledgeContentForProject(item.ProjectPath)
+	}
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
@@ -388,7 +399,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		return planner.Result{}, item, err
 	}
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA})
-	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)})
+	result, err := s.planner.Plan(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, KnowledgeSource: knowledgeSource, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)})
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -402,7 +413,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	if result.ManualPrompt != "" {
 		if latest, latestErr := s.store.Get(sessionID); latestErr == nil && latest.Context.Manifest.SHA256 != requestBaselineSHA {
 			requestBaselineSHA = latest.Context.Manifest.SHA256
-			result.ManualPrompt = planner.BuildManualPrompt(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)})
+			result.ManualPrompt = planner.BuildManualPrompt(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, KnowledgeSource: knowledgeSource, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)})
 		}
 	}
 	enrichPlanConcurrency(result.Plan, requestBaselineSHA)
@@ -580,6 +591,14 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			return BundleSubmission{}, fmt.Errorf("persist execution bundle: %w", err)
 		}
 	}
+	// A knowledge_review response never carries a plan and is never subject
+	// to the baseline/workflow/repair machinery below (there is nothing to
+	// repair: the apply that triggered this round already succeeded). It is
+	// also the ONLY place ProjectKnowledgeUpdate is ever read — see
+	// ingestKnowledgeReviewResponse.
+	if lineage, ok := current.RequestLineages[parsed.Turn.RequestID]; ok && lineage.Kind == requestKindKnowledgeReview {
+		return s.ingestKnowledgeReviewResponse(sessionID, parsed)
+	}
 	if parsed.Turn.Outcome != nil && parsed.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
 		outcome := parsed.Turn.Outcome
 		var failureKind string
@@ -605,7 +624,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		// fail identically against a missing host module cache — must not
 		// fire, and a repair attempt must not be spent diagnosing it.
 		infrastructure := failureKind != ""
-		if infrastructure {
+		if failureKind == domain.FailureKindOfflineGoModuleCache {
 			s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": parsed.Turn.RequestID, "error": detail, "scope": "go_dependency_commands"})
 		}
 		if !infrastructure && outcome.Retryable && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
@@ -928,6 +947,11 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			s.bus.Publish(sessionID, "automation.execution_failed", map[string]any{"error": execErr.Error(), "repair_pending": executed.State == "repair_pending"})
 			return result
 		}
+		if len(hostApplicablePendingChanges(pendingHostChanges(executed))) == 0 {
+			result.Session = executed
+			s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": false, "sandbox_only": true, "transport": transport})
+			return result
+		}
 		applied, applyErr := s.ApplyToHost(ctx, sessionID)
 		if applyErr != nil {
 			result.AutoError = applyErr.Error()
@@ -1206,17 +1230,27 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 		pendingForExecution = retireConflictingMutations(pendingForExecution, item.IntegrationConflict)
 	}
 	if !unprotected {
-		if replayErr := s.replayPendingChangeSets(ctx, sessionID, runner, workspace, pendingForExecution, item.Plan.PlanID, &result); replayErr != nil {
+		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, &result); replayErr != nil {
 			return s.failExecution(ctx, sessionID, result, replayErr)
 		}
 	}
-	changeBasePaths := append(actualPatchFiles(item.Plan), item.Plan.ReadFiles...)
-	changeBasePaths = append(changeBasePaths, item.Plan.BarrierFiles...)
-	changeBaseRoot, cleanupChangeBase, err := changeset.SnapshotPaths(workspace.Path, changeBasePaths)
-	if err != nil {
-		return s.failExecution(ctx, sessionID, result, fmt.Errorf("snapshot plan write set: %w", err))
+	var changeBaseRoot string
+	var cleanupChangeBase func()
+	if !unprotected && reconcileFromArchive {
+		// Snapshot the plan's write set BEFORE any patch is applied below —
+		// materializePlanChangeSet needs the pre-patch content to diff
+		// against, and workspace.Path is mutated in place by the operations
+		// loop that follows.
+		changeBasePaths := append(actualPatchFiles(item.Plan), item.Plan.ReadFiles...)
+		changeBasePaths = append(changeBasePaths, item.Plan.BarrierFiles...)
+		root, cleanup, snapshotErr := changeset.SnapshotPaths(workspace.Path, changeBasePaths)
+		if snapshotErr != nil {
+			return s.failExecution(ctx, sessionID, result, fmt.Errorf("snapshot plan write set: %w", snapshotErr))
+		}
+		changeBaseRoot = root
+		cleanupChangeBase = cleanup
+		defer cleanupChangeBase()
 	}
-	defer cleanupChangeBase()
 
 	for _, op := range item.Plan.Operations {
 		if op.Type == "apply_patch" {
@@ -1289,14 +1323,29 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
+	var integrationBranch, integrationCommit string
 	var canonicalChangeSet *domain.ChangeSet
 	if !unprotected {
-		canonicalChangeSet, err = materializePlanChangeSet(*item.Plan, changeBaseRoot, workspace.Path)
-		if err != nil {
-			return s.failExecution(ctx, sessionID, result, fmt.Errorf("materialize verified ChangeSet: %w", err))
-		}
-		if canonicalChangeSet != nil {
-			s.bus.Publish(sessionID, "changeset.verified", map[string]any{"changeset_id": canonicalChangeSet.ID, "plan_id": item.Plan.PlanID, "files": changeSetPaths(*canonicalChangeSet)})
+		if reconcileFromArchive {
+			// This sandbox was reconstructed from an immutable request-base
+			// archive (see executionBase), not cloned from the live host —
+			// it has no real Git ancestry in common with item.ProjectPath at
+			// all, so there is no shared history to commit a branch onto or
+			// later merge. Fall back to the same CAS-based ChangeSet this
+			// path has always used, diffing against the pre-patch snapshot
+			// taken above (before the operations loop mutated workspace.Path).
+			canonicalChangeSet, err = materializePlanChangeSet(*item.Plan, changeBaseRoot, workspace.Path)
+			if err != nil {
+				return s.failExecution(ctx, sessionID, result, fmt.Errorf("materialize verified ChangeSet: %w", err))
+			}
+			if canonicalChangeSet != nil {
+				s.bus.Publish(sessionID, "changeset.verified", map[string]any{"changeset_id": canonicalChangeSet.ID, "plan_id": item.Plan.PlanID, "files": changeSetPaths(*canonicalChangeSet)})
+			}
+		} else {
+			integrationBranch, integrationCommit, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path)
+			if err != nil {
+				return s.failExecution(ctx, sessionID, result, fmt.Errorf("commit verified patch to integration branch: %w", err))
+			}
 		}
 	}
 	retiredRequestIDs := make([]string, 0)
@@ -1321,9 +1370,16 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 				pendingBase = retireConflictingMutations(pendingBase, current.IntegrationConflict)
 				current.IntegrationConflict = nil
 			}
-			current.PendingHostChanges = upsertPendingHostChange(pendingBase, domain.PendingHostChange{
-				Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt, ChangeSet: canonicalChangeSet,
-			})
+			if planRequiresHostApply(item.Plan) {
+				current.PendingHostChanges = upsertPendingHostChange(pendingBase, domain.PendingHostChange{
+					Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt, ChangeSet: canonicalChangeSet, IntegrationBranch: integrationBranch, IntegrationCommit: integrationCommit,
+				})
+			} else {
+				// Verification-only/no-op plans are allowed to validate an existing
+				// cumulative candidate, but they must never poison the host-apply
+				// chain with a nil ChangeSet and stale baseline metadata.
+				current.PendingHostChanges = hostApplicablePendingChanges(pendingBase)
+			}
 			current.State = "verified"
 		}
 		return nil
@@ -1347,6 +1403,7 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 		}
 		s.closeRemoteInputChannel(sessionID, "request.completed")
+		s.triggerKnowledgeReview(ctx, sessionID)
 	}
 	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	return result, updated, nil
@@ -1474,6 +1531,13 @@ func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, ru
 		result, err = runner.Run(ctx, workspace, command)
 	}
 	result = normalizePreflightCommandFailure(command, result, err)
+	if err == nil && !result.Success && result.ExitCode == -1 && ctx.Err() != nil {
+		// exec.CommandContext commonly reports a killed child as exit -1. Some
+		// runner adapters intentionally normalize ordinary non-zero exits to a nil
+		// Go error, so recover the parent cancellation here before it can be
+		// mistaken for a source regression and routed into the GPT repair loop.
+		err = ctx.Err()
+	}
 	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "duration_ms": result.DurationMS, "target": target})
 	return result, err
 }
@@ -1524,6 +1588,24 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 			"error": cause.Error(), "execution_mode": updated.ExecutionMode,
 			"conflict_resolution_pending": updated.State == "conflict_resolution_pending",
 			"conflict_source":             "pending_changeset_replay", "changeset_id": replayConflict.changeSetID,
+		})
+		return result, updated, cause
+	}
+
+	var replayIntegrationConflict *pendingIntegrationReplayConflict
+	if errors.As(cause, &replayIntegrationConflict) {
+		conflict := replayIntegrationConflict.conflict
+		failedPlanID := planIDForIntegrationBranch(updated.PendingHostChanges, conflict.Branch)
+		conflicted, conflictErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, updated, replayIntegrationConflict.workspacePath, failedPlanID, conflict)
+		if conflictErr != nil {
+			s.bus.Publish(sessionID, "conflict.prepare_failed", map[string]any{"error": conflictErr.Error(), "source": "pending_integration_branch_replay"})
+		} else {
+			updated = conflicted
+		}
+		s.bus.Publish(sessionID, "execution.failed", map[string]any{
+			"error": cause.Error(), "execution_mode": updated.ExecutionMode,
+			"conflict_resolution_pending": updated.State == "conflict_resolution_pending",
+			"conflict_source":             "pending_integration_branch_replay", "branch": conflict.Branch,
 		})
 		return result, updated, cause
 	}
@@ -1786,7 +1868,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if initialized {
 		s.bus.Publish(sessionID, "project.git_initialized", map[string]any{"project_path": item.ProjectPath, "reason": "host_apply"})
 	}
-	pending := pendingHostChanges(item)
+	pending := hostApplicablePendingChanges(pendingHostChanges(item))
 	if len(pending) == 0 {
 		return item, ErrExecutionRequired
 	}
@@ -1804,7 +1886,15 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	item = refreshedBeforeApply
 	currentBaseline := strings.TrimSpace(item.Context.Manifest.SHA256)
-	useChangeSets := allPendingHaveChangeSets(pending)
+	// useIntegrationBranches is checked first and is mutually exclusive with
+	// useChangeSets in practice: a candidate verified after this feature
+	// shipped never has ChangeSet set, and one verified before it never has
+	// IntegrationBranch set. A genuinely mixed batch (straddling a deploy)
+	// satisfies neither and falls through to the legacy per-patch path
+	// below unchanged — the same fallback a mixed batch already fell to
+	// before this feature existed.
+	useIntegrationBranches := allPendingHaveIntegrationBranches(pending)
+	useChangeSets := !useIntegrationBranches && allPendingHaveChangeSets(pending)
 	var stagedIntegration stagedHostIntegration
 	stagedIntegrationCleaned := true
 	if useChangeSets {
@@ -1828,19 +1918,22 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	reverify := false
 	for index := range pending {
-		if useChangeSets {
+		if useChangeSets || useIntegrationBranches {
+			// A real Git merge resolves host drift natively (clean merge or
+			// a genuine conflict) — the custom baseline-staleness pre-check
+			// below exists only for the legacy per-patch path.
 			break
 		}
 		expected := strings.TrimSpace(expectedBaselines[index])
 		if expected == "" || expected == currentBaseline {
 			continue
 		}
-		if canFastForwardPlanBaseline(item, &pending[index].Plan, expected, currentBaseline) {
+		if canFastForwardPlanBaseline(item, &pending[index].Plan, expected, currentBaseline) || canLegacyRebasePlan(item, &pending[index].Plan) {
 			reverify = true
 			continue
 		}
 		s.bus.Publish(sessionID, "baseline.apply_blocked", map[string]any{"plan_id": pending[index].Plan.PlanID, "expected_sha256": expected, "current_sha256": currentBaseline, "impact_files": pending[index].Plan.ImpactFiles})
-		failure := fmt.Errorf("host apply failed: host apply blocked by stale baseline: plan %s was verified on %s but current baseline is %s", pending[index].Plan.PlanID, expected, currentBaseline)
+		failure := fmt.Errorf("%w: host apply blocked by stale baseline: plan %s was verified on %s but current baseline is %s", ErrStaleHostBaseline, pending[index].Plan.PlanID, expected, currentBaseline)
 		updated, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
 			current.LastRepairError = failure.Error()
 			return nil
@@ -1858,7 +1951,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			return item, fmt.Errorf("reverify pending candidate on current baseline: %w", reverifyErr)
 		}
 		item = reverified
-		pending = pendingHostChanges(item)
+		pending = hostApplicablePendingChanges(pendingHostChanges(item))
 	}
 
 	patches := make([]string, 0)
@@ -1883,6 +1976,17 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		s.bus.Publish(sessionID, "self_evolution.transaction_started", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 	}
+	abortPreparedTransaction := func(cause error) error {
+		if !selfEvolution {
+			return cause
+		}
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "aborted", cause.Error())
+		transaction.Release()
+		transaction.Finalize()
+		s.bus.Publish(sessionID, "self_evolution.transaction_aborted", map[string]any{"plan_id": latestPlanID, "error": cause.Error()})
+		return cause
+	}
+
 	rollback := func(cause error) error {
 		if !selfEvolution {
 			return cause
@@ -1903,25 +2007,47 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	s.bus.Publish(sessionID, "host.apply_started", map[string]any{"plan_id": latestPlanID, "plan_count": len(pending), "patch_count": len(patches)})
 	workspace, err := s.hostRunner.Prepare(ctx, item.ProjectPath)
 	if err != nil {
-		if selfEvolution {
-			return item, rollback(err)
-		}
-		return item, err
+		return item, abortPreparedTransaction(err)
 	}
 	defer s.hostRunner.Cleanup(workspace)
 	appliedPatches := make([]string, 0, len(patches))
 	var integrationJournal *changeset.Journal
+	// mergedIntegrationBranches/preMergeIntegrationSHA are set by the
+	// useIntegrationBranches block below, once real merges have actually
+	// happened, so failApply (defined before that block runs) can revert
+	// them if a LATER step (a model-requested git command, or post-merge
+	// verification) fails. Declared here so the closure can see them.
+	var mergedIntegrationBranches []string
+	var preMergeIntegrationSHA string
 	failApply := func(cause error) error {
 		var failure error
-		if selfEvolution {
+		switch {
+		case useIntegrationBranches && preMergeIntegrationSHA != "":
+			// A real `git reset --hard` to the exact pre-merge HEAD undoes
+			// every merge this Apply attempt made, in one step — simpler
+			// and more reliable than the CAS journal's per-write rollback.
+			// For self-evolution, this ALSO has to run before the
+			// transaction's own rollback: that rollback restores captured
+			// file/build-artifact snapshots, but knows nothing about Git
+			// refs, so HEAD would otherwise keep pointing at the merge
+			// commit while the working tree no longer matches it.
+			if revertErr := sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA); revertErr != nil {
+				cause = fmt.Errorf("%w; git revert also failed: %v", cause, revertErr)
+			}
+			if selfEvolution {
+				failure = rollback(cause)
+			} else {
+				failure = cause
+			}
+		case selfEvolution:
 			failure = rollback(cause)
-		} else if integrationJournal != nil {
+		case integrationJournal != nil:
 			if rollbackErr := integrationJournal.Rollback(item.ProjectPath); rollbackErr != nil {
 				failure = fmt.Errorf("%w; ChangeSet rollback failed: %v", cause, rollbackErr)
 			} else {
 				failure = cause
 			}
-		} else {
+		default:
 			failure = s.rollbackHostPatches(ctx, item.ProjectPath, appliedPatches, cause)
 		}
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
@@ -1931,9 +2057,35 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": latestPlanID, "error": failure.Error(), "rolled_back_patch_count": len(appliedPatches)})
 		return failure
 	}
+	if useIntegrationBranches {
+		var mergeErr error
+		var failedPlanID string
+		mergedIntegrationBranches, preMergeIntegrationSHA, failedPlanID, mergeErr = s.mergeIntegrationBranches(ctx, sessionID, item.ProjectPath, pending)
+		if mergeErr != nil {
+			var conflict *sandbox.MergeConflictError
+			if errors.As(mergeErr, &conflict) {
+				// Undo any earlier candidates in this batch that already
+				// merged cleanly before this one conflicted — all-or-
+				// nothing, matching the legacy ChangeSet path's semantics.
+				if len(mergedIntegrationBranches) > 0 {
+					_ = sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA)
+				}
+				updated, prepareErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, item, item.ProjectPath, failedPlanID, conflict)
+				if prepareErr != nil {
+					return item, abortPreparedTransaction(fmt.Errorf("prepare focused conflict resolution: %w", prepareErr))
+				}
+				return updated, abortPreparedTransaction(fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflict.Paths, ", ")))
+			}
+			if len(mergedIntegrationBranches) > 0 {
+				_ = sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA)
+			}
+			return item, abortPreparedTransaction(fmt.Errorf("merge integration branch: %w", mergeErr))
+		}
+	}
 	if useChangeSets {
 		var journal changeset.Journal
 		var commitErr error
+		raceExhausted := false
 		for attempt := 1; attempt <= 3; attempt++ {
 			journal, commitErr = changeset.Commit(item.ProjectPath, stagedIntegration.prepared)
 			_ = s.runner.Cleanup(stagedIntegration.workspace)
@@ -1943,6 +2095,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			}
 			s.bus.Publish(sessionID, "integration.race", map[string]any{"plan_id": latestPlanID, "outcome": journal.Outcome, "attempt": attempt, "error": commitErr.Error()})
 			if journal.Outcome != domain.IntegrationRetryableRace || attempt == 3 {
+				raceExhausted = journal.Outcome == domain.IntegrationRetryableRace && attempt == 3
 				break
 			}
 			item, err = s.refreshContext(sessionID)
@@ -1958,18 +2111,22 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
 				updated, prepareErr := s.prepareConflictResolution(sessionID, item, pending, stagedIntegration.prepared.Conflicts)
 				if prepareErr != nil {
-					return item, fmt.Errorf("prepare focused conflict resolution after integration race: %w", prepareErr)
+					return item, abortPreparedTransaction(fmt.Errorf("prepare focused conflict resolution after integration race: %w", prepareErr))
 				}
-				return updated, fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflictPaths(stagedIntegration.prepared.Conflicts), ", "))
+				cause := fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflictPaths(stagedIntegration.prepared.Conflicts), ", "))
+				return updated, abortPreparedTransaction(cause)
 			}
 			stagedIntegrationCleaned = false
 		}
 		if commitErr != nil {
+			if raceExhausted {
+				commitErr = fmt.Errorf("%w: %v", ErrHostIntegrationRace, commitErr)
+			}
 			_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 				current.LastRepairError = commitErr.Error()
 				return nil
 			})
-			return item, commitErr
+			return item, abortPreparedTransaction(commitErr)
 		}
 		integrationJournal = &journal
 		for _, write := range stagedIntegration.prepared.Writes {
@@ -1979,7 +2136,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	for _, change := range pending {
 		for _, op := range change.Plan.Operations {
 			if op.Type == "apply_patch" {
-				if useChangeSets {
+				if useChangeSets || useIntegrationBranches {
 					continue
 				}
 				if err := protocol.ValidatePatchPaths(op.Patch); err != nil {
@@ -2010,10 +2167,37 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 	}
 
+	if useIntegrationBranches && !selfEvolution {
+		// Re-run the same gates already run in the sandbox (deduplicated
+		// exactly like the sandbox integration pass), now against the
+		// REAL merged result on host. For an ordinary project this is new:
+		// today's legacy paths never re-verify after a host write at all.
+		// Self-evolution skips this and goes straight to BuildHost below,
+		// which is a strictly broader check over the same merged result —
+		// running both would just double the wait for no extra safety.
+		for _, run := range dedupedIntegrationVerifications(pending) {
+			index, command := run.index, run.command
+			s.bus.Publish(sessionID, "integration.verification_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "argv": command.Argv, "target": "host"})
+			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, command, "host")
+			if runErr != nil || !result.Success {
+				if runErr == nil {
+					runErr = fmt.Errorf("post-merge verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), result.ExitCode, commandResultDiagnostic(result))
+				}
+				return item, failApply(runErr)
+			}
+			s.bus.Publish(sessionID, "integration.verification_completed", map[string]any{"plan_id": pending[index].Plan.PlanID, "exit_code": result.ExitCode, "target": "host"})
+		}
+	}
 	if selfEvolution {
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "building", "verified patch applied; building real Wharness host runtime")
 		s.bus.Publish(sessionID, "self_evolution.host_build_started", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
-		output, buildErr := s.selfEvolution.BuildHost(ctx, transaction)
+		output, buildErr := s.selfEvolution.BuildHost(ctx, transaction, func(stream, text string) {
+			// This build can run for minutes (dependency hydration, npm ci,
+			// vite/tsc, go build) with nothing surfaced until it finally
+			// succeeds or fails, which reads as a hang. Stream it the same
+			// way an ordinary sandbox command already does.
+			s.bus.Publish(sessionID, "self_evolution.host_build_output", map[string]any{"stream": stream, "text": text, "transaction_id": transaction.ID})
+		})
 		if buildErr != nil {
 			detail := truncateRepairText(output, 12000)
 			if detail != "" {
@@ -2052,6 +2236,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if err != nil {
 		return item, rollback(err)
 	}
+	if len(mergedIntegrationBranches) > 0 {
+		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, mergedIntegrationBranches)
+	}
 
 	if selfEvolution {
 		transaction.ReleaseStage()
@@ -2065,6 +2252,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 		}
 		s.closeRemoteInputChannel(sessionID, "request.completed")
+		s.triggerKnowledgeReview(ctx, sessionID)
 		return updated, nil
 	}
 
@@ -2077,6 +2265,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 	}
 	s.closeRemoteInputChannel(sessionID, "request.completed")
+	s.triggerKnowledgeReview(ctx, sessionID)
 	return updated, nil
 }
 

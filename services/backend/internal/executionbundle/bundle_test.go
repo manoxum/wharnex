@@ -88,6 +88,46 @@ func TestParseAnswerTurnWithoutExecutionPlan(t *testing.T) {
 	}
 }
 
+func TestParseExposesOptionalKnowledgeFileAtRoot(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md":    "# Knowledge review\n",
+		"turn.json":    `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Sem alterações necessárias.","outcome":{"status":"completed","retryable":false}}`,
+		"knowledge.md": "# Wharness knowledge\n\n- Node do host tem de ser >=22.12 para o Electron fixado.\n",
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Info.ProjectKnowledgeUpdate == "" || !strings.Contains(parsed.Info.ProjectKnowledgeUpdate, "Electron fixado") {
+		t.Fatalf("expected knowledge.md content to be exposed, got %q", parsed.Info.ProjectKnowledgeUpdate)
+	}
+}
+
+func TestParseLeavesProjectKnowledgeUpdateEmptyWhenAbsent(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Answer\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Ok.","outcome":{"status":"completed","retryable":false}}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Info.ProjectKnowledgeUpdate != "" {
+		t.Fatalf("expected no knowledge update, got %q", parsed.Info.ProjectKnowledgeUpdate)
+	}
+}
+
+func TestParseRejectsOversizedKnowledgeFile(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md":    "# Answer\n",
+		"turn.json":    `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Ok.","outcome":{"status":"completed","retryable":false}}`,
+		"knowledge.md": strings.Repeat("x", maxKnowledgeBytes+1),
+	})
+	if _, err := Parse("wharness-bundle-req_12345678.zip", raw); err == nil || !strings.Contains(err.Error(), "256 KiB") {
+		t.Fatalf("expected oversized knowledge.md rejection, got %v", err)
+	}
+}
+
 func TestParseRejectsMissingOutcomeAndPlanOnFailedOutcome(t *testing.T) {
 	missing := zipBytes(t, map[string]string{
 		"README.md": "# Answer\n",

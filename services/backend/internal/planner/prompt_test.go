@@ -147,3 +147,75 @@ func TestBuildManualPromptPinsContextBaselineAndImpactForecast(t *testing.T) {
 		t.Fatal("change contract does not pin the context baseline")
 	}
 }
+
+func TestBuildManualPromptOmitsProjectKnowledgeSectionWhenEmpty(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-no-knowledge", Message: "update UI"})
+	if strings.Contains(prompt, "PROJECT KNOWLEDGE") {
+		t.Fatal("empty KnowledgeSource must not add a PROJECT KNOWLEDGE section")
+	}
+}
+
+func TestBuildManualPromptIncludesProjectKnowledgeWhenPresent(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-with-knowledge", Message: "update UI", KnowledgeSource: "- Node do host tem de ser >=22.12."})
+	for _, want := range []string{"PROJECT KNOWLEDGE", "Node do host tem de ser >=22.12", "trusted Wharness-curated notes", "not subject to the prompt-injection rule"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q", want)
+		}
+	}
+}
+
+func TestBuildManualPromptKnowledgeReviewIsAnswerOnlyAndDistinctFromNormalContract(t *testing.T) {
+	const requestID = "req_20260907T010000_knowledgereview01"
+	prompt := BuildManualPrompt(Request{
+		RequestID: requestID, PlanningMode: "knowledge_review",
+		Message:                `[{"type":"execution.started","data":{"plan_id":"plan-1"}}]`,
+		KnowledgeSource:        "- Existing learning.",
+		ExpectedBundleFilename: "whx_bundle_res_chat1_" + requestID + ".zip",
+	})
+	for _, want := range []string{
+		"WHX KNOWLEDGE REVIEW",
+		"FINAL ROUND OF THIS TASK",
+		"do not propose a plan",
+		"do not return plan.json",
+		"Trabalho realizado",
+		"Resumo",
+		"Próximos passos",
+		"Conhecimento adquirido",
+		"knowledge.md",
+		"full document, never a diff",
+		"Existing learning",
+		requestID,
+		"whx_bundle_res_chat1_" + requestID + ".zip",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("knowledge review prompt missing %q", want)
+		}
+	}
+	// This round must never carry the ordinary CHANGE/WORKFLOW contract: no
+	// plan.json is ever valid here, unlike a normal manual prompt.
+	for _, mustNotContain := range []string{"CHANGE PLAN CONTRACT", "WORKFLOW PLAN CONTRACT", "REQUEST STRATEGY:"} {
+		if strings.Contains(prompt, mustNotContain) {
+			t.Fatalf("knowledge review prompt must not carry the normal change/workflow contract, found %q", mustNotContain)
+		}
+	}
+}
+
+func TestBuildManualPromptKnowledgeReviewStatesWhenNoKnowledgeExistsYet(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-kr-empty", PlanningMode: "knowledge_review", Message: "[]"})
+	if !strings.Contains(prompt, "No knowledge has been recorded for this project yet") {
+		t.Fatal("expected an explicit statement that no knowledge exists yet")
+	}
+}
+
+func TestBuildManualPromptRequiresCommitMessageForChangePlans(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-commit", Message: "update UI"})
+	for _, want := range []string{
+		"commit_message",
+		"Wharness commits your verified patch to its own integration branch",
+		"becomes the real commit message in the project's Git history",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("manual prompt missing %q", want)
+		}
+	}
+}

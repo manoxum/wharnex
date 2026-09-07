@@ -74,6 +74,28 @@ const (
 	// no Wharness-grantable recovery: no source patch can change the host's
 	// installed runtime, so this must never consume a ChatGPT repair round.
 	FailureKindHostBuildToolchain = "host_build_toolchain_mismatch"
+
+	// FailureKindSelfEvolutionBusy marks a local coordination block: another
+	// self-evolution transaction currently owns the activation lock. The
+	// verified candidate is retained and can be applied after that transaction
+	// clears; asking the model for another source patch cannot resolve it.
+	FailureKindSelfEvolutionBusy = "self_evolution_transaction_busy"
+
+	// FailureKindStaleHostBaseline marks a retained legacy candidate that could
+	// not be safely replayed/reverified on the current host baseline. Wharness
+	// must preserve the candidate for explicit retry/review rather than spend a
+	// ChatGPT repair round on baseline metadata.
+	FailureKindStaleHostBaseline = "stale_host_baseline"
+
+	// FailureKindHostIntegrationRace marks repeated compare-and-swap races while
+	// committing an already verified ChangeSet. This is host concurrency, not a
+	// model/source defect; the candidate remains safe to retry.
+	FailureKindHostIntegrationRace = "host_integration_race"
+
+	// FailureKindExecutionCanceled marks a sandbox/host command interrupted by
+	// cancellation of the owning request context. It is a transport/lifecycle
+	// interruption, not evidence that the model-generated source is defective.
+	FailureKindExecutionCanceled = "execution_context_canceled"
 )
 
 type ExecutionMode string
@@ -133,10 +155,16 @@ type ExecutionPlan struct {
 	RequestID         string        `json:"request_id"`
 	Status            string        `json:"status"`
 	Summary           string        `json:"summary"`
-	Risk              string        `json:"risk"`
-	RequiresApproval  bool          `json:"requires_approval"`
-	Operations        []Operation   `json:"operations"`
-	Verification      []CommandSpec `json:"verification"`
+	// CommitMessage is the planner-authored Git commit message for a
+	// `change` plan's patch, used verbatim (after sanitization) as the
+	// commit Wharnex makes on the sandbox's own integration branch before
+	// merging it into the host — see internal/sandbox/gitintegration.go.
+	// Empty for `workflow` plans, which never reach the host.
+	CommitMessage    string        `json:"commit_message,omitempty"`
+	Risk             string        `json:"risk"`
+	RequiresApproval bool          `json:"requires_approval"`
+	Operations       []Operation   `json:"operations"`
+	Verification     []CommandSpec `json:"verification"`
 }
 
 type PolicyDecision struct {
@@ -165,6 +193,24 @@ type ExecutionBundleInfo struct {
 	Files    []string `json:"files"`
 	Patches  []string `json:"patches"`
 	SHA256   string   `json:"sha256"`
+	// ProjectKnowledgeUpdate is the raw content of an optional knowledge.md
+	// at the bundle root, if present. Purely a transport-level field: the
+	// service layer decides whether a given response is even allowed to
+	// act on it (only inside the dedicated knowledge_review response
+	// branch), never this parser.
+	ProjectKnowledgeUpdate string `json:"project_knowledge_update,omitempty"`
+}
+
+// ProjectKnowledge is the incremental, ChatGPT-authored knowledge source for
+// one project. It is a full-document replacement on every update, never a
+// diff: Version/UpdatedAt/UpdatedByRequestID exist for audit, not history —
+// only the latest content is retained.
+type ProjectKnowledge struct {
+	ProjectPath        string    `json:"project_path"`
+	Content            string    `json:"content"`
+	Version            int       `json:"version"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	UpdatedByRequestID string    `json:"updated_by_request_id,omitempty"`
 }
 
 type ExecutionResult struct {
@@ -218,7 +264,20 @@ type PendingHostChange struct {
 	Plan       ExecutionPlan   `json:"plan"`
 	Execution  ExecutionResult `json:"execution"`
 	VerifiedAt time.Time       `json:"verified_at"`
-	ChangeSet  *ChangeSet      `json:"change_set,omitempty"`
+	// ChangeSet is the legacy CAS-based integration record. New candidates
+	// no longer set it (see IntegrationBranch); it is kept only so a
+	// candidate already persisted before this field existed keeps
+	// integrating through its original mechanism instead of being stranded.
+	ChangeSet *ChangeSet `json:"change_set,omitempty"`
+	// IntegrationBranch is the Git branch holding this candidate's verified
+	// commit, already pushed into the host's own .git (never a remote) at
+	// verification time — see internal/sandbox/gitintegration.go. Applying
+	// this candidate is a real `git merge` of this branch into the host's
+	// checked-out branch, not a file-level compare-and-swap.
+	IntegrationBranch string `json:"integration_branch,omitempty"`
+	// IntegrationCommit is the commit SHA IntegrationBranch pointed to right
+	// after it was created, for audit/diagnostics.
+	IntegrationCommit string `json:"integration_commit,omitempty"`
 }
 
 type IntegrationOutcome string
@@ -317,46 +376,54 @@ type ContextBundle struct {
 }
 
 type Session struct {
-	ID                      string                       `json:"id"`
-	ChatID                  string                       `json:"chat_id,omitempty"`
-	ProjectPath             string                       `json:"project_path"`
-	ExecutionMode           ExecutionMode                `json:"execution_mode"`
-	AutomationMode          AutomationMode               `json:"automation_mode"`
-	SelfEvolution           bool                         `json:"self_evolution,omitempty"`
-	SelfEvolutionActivation string                       `json:"self_evolution_activation,omitempty"`
-	ResolvedEvidenceIDs     map[string]time.Time         `json:"resolved_evidence_ids,omitempty"`
-	EvidenceReviewIDs       []string                     `json:"evidence_review_ids,omitempty"`
-	State                   string                       `json:"state"`
-	CreatedAt               time.Time                    `json:"created_at"`
-	Context                 ContextBundle                `json:"context"`
-	Plan                    *ExecutionPlan               `json:"plan,omitempty"`
-	Policy                  *PolicyDecision              `json:"policy,omitempty"`
-	LastExecution           *ExecutionResult             `json:"last_execution,omitempty"`
-	PendingHostChanges      []PendingHostChange          `json:"pending_host_changes,omitempty"`
-	LastAppliedChanges      []PendingHostChange          `json:"last_applied_changes,omitempty"`
-	LastProviderResponseID  string                       `json:"last_provider_response_id,omitempty"`
-	LastRequestID           string                       `json:"last_request_id,omitempty"`
-	PendingManualRequestIDs []string                     `json:"pending_manual_request_ids,omitempty"`
-	LastManualPrompt        string                       `json:"last_manual_prompt,omitempty"`
-	LastBundle              *ExecutionBundleInfo         `json:"last_bundle,omitempty"`
-	LastTurn                *AgentTurn                   `json:"last_turn,omitempty"`
-	RepairAttempt           int                          `json:"repair_attempt,omitempty"`
-	RepairParentPlanID      string                       `json:"repair_parent_plan_id,omitempty"`
-	LastRepairError         string                       `json:"last_repair_error,omitempty"`
-	FailureKind             string                       `json:"failure_kind,omitempty"`
-	WorkflowRound           int                          `json:"workflow_round,omitempty"`
-	LastRequestMode         string                       `json:"last_request_mode,omitempty"`
-	PlannerInFlight         bool                         `json:"planner_in_flight,omitempty"`
-	RequestBaselines        map[string]string            `json:"request_baselines,omitempty"`
-	RequestContextArchives  map[string]string            `json:"-"`
-	BaselineFileSnapshots   map[string]map[string]string `json:"baseline_file_snapshots,omitempty"`
-	BaselineNotices         []BaselineNotice             `json:"baseline_notices,omitempty"`
-	ProjectRevisions        []ProjectRevision            `json:"project_revisions,omitempty"`
-	IntegrationConflict     *ConflictResolution          `json:"integration_conflict,omitempty"`
-	Artifacts               []ArtifactRecord             `json:"artifacts,omitempty"`
-	InterruptedExecution    *InterruptedExecution        `json:"interrupted_execution,omitempty"`
-	RemoteRecoveryAttempt   int                          `json:"remote_recovery_attempt,omitempty"`
-	RequestLineages         map[string]RequestLineage    `json:"request_lineages,omitempty"`
+	ID                      string               `json:"id"`
+	ChatID                  string               `json:"chat_id,omitempty"`
+	ProjectPath             string               `json:"project_path"`
+	ExecutionMode           ExecutionMode        `json:"execution_mode"`
+	AutomationMode          AutomationMode       `json:"automation_mode"`
+	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
+	SelfEvolutionActivation string               `json:"self_evolution_activation,omitempty"`
+	ResolvedEvidenceIDs     map[string]time.Time `json:"resolved_evidence_ids,omitempty"`
+	EvidenceReviewIDs       []string             `json:"evidence_review_ids,omitempty"`
+	State                   string               `json:"state"`
+	CreatedAt               time.Time            `json:"created_at"`
+	Context                 ContextBundle        `json:"context"`
+	Plan                    *ExecutionPlan       `json:"plan,omitempty"`
+	Policy                  *PolicyDecision      `json:"policy,omitempty"`
+	LastExecution           *ExecutionResult     `json:"last_execution,omitempty"`
+	PendingHostChanges      []PendingHostChange  `json:"pending_host_changes,omitempty"`
+	LastAppliedChanges      []PendingHostChange  `json:"last_applied_changes,omitempty"`
+	LastProviderResponseID  string               `json:"last_provider_response_id,omitempty"`
+	LastRequestID           string               `json:"last_request_id,omitempty"`
+	PendingManualRequestIDs []string             `json:"pending_manual_request_ids,omitempty"`
+	LastManualPrompt        string               `json:"last_manual_prompt,omitempty"`
+	// PendingKnowledgeReviewRequestID marks an in-flight post-apply
+	// knowledge_review round. Deliberately independent of State: the apply
+	// that triggered this round already succeeded and State already
+	// reflects that (applied/restart_pending/...); this field must never be
+	// folded into State, or the session would need to "restore" its real
+	// state once the review round resolves, which is unnecessary risk for
+	// what is a best-effort side round.
+	PendingKnowledgeReviewRequestID string                       `json:"pending_knowledge_review_request_id,omitempty"`
+	LastBundle                      *ExecutionBundleInfo         `json:"last_bundle,omitempty"`
+	LastTurn                        *AgentTurn                   `json:"last_turn,omitempty"`
+	RepairAttempt                   int                          `json:"repair_attempt,omitempty"`
+	RepairParentPlanID              string                       `json:"repair_parent_plan_id,omitempty"`
+	LastRepairError                 string                       `json:"last_repair_error,omitempty"`
+	FailureKind                     string                       `json:"failure_kind,omitempty"`
+	WorkflowRound                   int                          `json:"workflow_round,omitempty"`
+	LastRequestMode                 string                       `json:"last_request_mode,omitempty"`
+	PlannerInFlight                 bool                         `json:"planner_in_flight,omitempty"`
+	RequestBaselines                map[string]string            `json:"request_baselines,omitempty"`
+	RequestContextArchives          map[string]string            `json:"-"`
+	BaselineFileSnapshots           map[string]map[string]string `json:"baseline_file_snapshots,omitempty"`
+	BaselineNotices                 []BaselineNotice             `json:"baseline_notices,omitempty"`
+	ProjectRevisions                []ProjectRevision            `json:"project_revisions,omitempty"`
+	IntegrationConflict             *ConflictResolution          `json:"integration_conflict,omitempty"`
+	Artifacts                       []ArtifactRecord             `json:"artifacts,omitempty"`
+	InterruptedExecution            *InterruptedExecution        `json:"interrupted_execution,omitempty"`
+	RemoteRecoveryAttempt           int                          `json:"remote_recovery_attempt,omitempty"`
+	RequestLineages                 map[string]RequestLineage    `json:"request_lineages,omitempty"`
 }
 
 // InterruptedExecution is a durable execution intent. Its presence means the

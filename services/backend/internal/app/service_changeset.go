@@ -89,7 +89,21 @@ func (e *pendingChangeSetReplayConflict) Error() string {
 	return fmt.Sprintf("replay pending ChangeSet %s conflicts at %s", e.changeSetID, strings.Join(conflictPaths(e.conflicts), ", "))
 }
 
-func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, pending []domain.PendingHostChange, skipPlanID string, result *domain.ExecutionResult) error {
+// pendingIntegrationReplayConflict is the Git-based counterpart of
+// pendingChangeSetReplayConflict: a real merge conflict hit while replaying
+// an earlier pending candidate's branch into a NEW verification sandbox.
+// workspacePath carries where that conflict's SHAs/branch actually resolve
+// — the sandbox, not the host — since failExecution has no other way to
+// reach it (it is not otherwise passed a workspace).
+type pendingIntegrationReplayConflict struct {
+	workspacePath string
+	conflict      *sandbox.MergeConflictError
+}
+
+func (e *pendingIntegrationReplayConflict) Error() string { return e.conflict.Error() }
+func (e *pendingIntegrationReplayConflict) Unwrap() error { return e.conflict }
+
+func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID, hostProjectPath string, runner sandbox.Runner, workspace sandbox.Workspace, pending []domain.PendingHostChange, skipPlanID string, result *domain.ExecutionResult) error {
 	for index := range pending {
 		change := pending[index]
 		if change.Plan.PlanID == skipPlanID {
@@ -107,6 +121,34 @@ func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID string,
 				return fmt.Errorf("replay pending ChangeSet %s: %w", change.ChangeSet.ID, err)
 			}
 			s.bus.Publish(sessionID, "changeset.replayed", map[string]any{"changeset_id": change.ChangeSet.ID, "target": "sandbox-pending", "files": changeSetPaths(*change.ChangeSet)})
+			continue
+		}
+		if change.IntegrationBranch != "" {
+			// The earlier candidate's branch was already pushed into the
+			// host's own .git at its own verification time. Fetching it
+			// explicitly by path (rather than relying on the clone's own
+			// "origin" remote-tracking ref, which configureSandboxGitRemotes
+			// may have already deleted by reconciling remotes to mirror the
+			// real project) and merging it — a real commit, not a raw
+			// overlay — is what lets THIS candidate's own commit, made
+			// later in this same verification round, correctly descend
+			// from it: a plain `git apply` of the raw patch text (as the
+			// fallback below does for a legacy candidate) would leave this
+			// candidate's branch rooted at the original clone point, and
+			// merging both branches into host afterwards would then look
+			// like two independent edits to the same line — a spurious
+			// conflict, not the clean sequential build this actually is.
+			if fetchErr := sandbox.FetchBranchFromHost(ctx, workspace.Path, hostProjectPath, change.IntegrationBranch); fetchErr != nil {
+				return fmt.Errorf("fetch pending integration branch %s: %w", change.IntegrationBranch, fetchErr)
+			}
+			if _, mergeErr := sandbox.MergeBranchOnHost(ctx, workspace.Path, change.IntegrationBranch); mergeErr != nil {
+				var conflict *sandbox.MergeConflictError
+				if errors.As(mergeErr, &conflict) {
+					return &pendingIntegrationReplayConflict{workspacePath: workspace.Path, conflict: conflict}
+				}
+				return fmt.Errorf("replay pending integration branch %s: %w", change.IntegrationBranch, mergeErr)
+			}
+			s.bus.Publish(sessionID, "integration.branch_replayed", map[string]any{"branch": change.IntegrationBranch, "plan_id": change.Plan.PlanID, "target": "sandbox-pending"})
 			continue
 		}
 		for _, patch := range planPatches(&change.Plan) {
@@ -188,20 +230,76 @@ func (s *Service) stageHostIntegration(ctx context.Context, sessionID string, it
 	if len(prepared.SemanticFiles) > 0 || len(prepared.BarrierFiles) > 0 {
 		s.bus.Publish(sessionID, "integration.semantic_recheck", map[string]any{"read_files": prepared.SemanticFiles, "barrier_files": prepared.BarrierFiles})
 	}
-	for index := range pending {
-		for _, command := range pending[index].Plan.Verification {
-			s.bus.Publish(sessionID, "integration.verification_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "argv": command.Argv})
-			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "integration-sandbox")
-			if runErr != nil || !result.Success {
-				_ = s.runner.Cleanup(workspace)
-				if runErr != nil {
-					return stagedHostIntegration{}, runErr
-				}
-				return stagedHostIntegration{}, fmt.Errorf("integration verification failed for plan %s: %s", pending[index].Plan.PlanID, commandResultDiagnostic(result))
-			}
+	var baselineWorkspace *sandbox.Workspace
+	defer func() {
+		if baselineWorkspace != nil {
+			_ = s.runner.Cleanup(*baselineWorkspace)
 		}
+	}()
+	// Every pending candidate is verified against the SAME merged workspace,
+	// so two candidates declaring the same gate (typically `npm run lint`,
+	// `npm run typecheck` and `npm run build`, which nearly every frontend
+	// plan repeats) would run it once per candidate for an identical tree
+	// and an identical result. Observed in production: three queued
+	// candidates turned one integration pass into ~12 command runs and
+	// ~2.5 minutes of duplicated work, repeated again on every Apply retry.
+	// Deduplicate on the command identity (argv + cwd); the first candidate
+	// that declares a gate owns it, which keeps the baseline comparison
+	// below anchored to the smallest — most conservative — prefix.
+	for _, run := range dedupedIntegrationVerifications(pending) {
+		index, command := run.index, run.command
+		s.bus.Publish(sessionID, "integration.verification_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "argv": command.Argv})
+		result, runErr := s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "integration-sandbox")
+		if runErr != nil {
+			_ = s.runner.Cleanup(workspace)
+			return stagedHostIntegration{}, runErr
+		}
+		if result.Success {
+			continue
+		}
+		baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, s.runner, &baselineWorkspace, item.ProjectPath, pending[:index], command, result)
+		if baselineErr == nil && unchanged {
+			s.bus.Publish(sessionID, "integration.verification_baseline_unchanged", map[string]any{
+				"plan_id": pending[index].Plan.PlanID, "argv": command.Argv,
+				"exit_code": baselineResult.ExitCode, "diagnostic": commandResultDiagnostic(baselineResult),
+			})
+			continue
+		}
+		if baselineErr != nil {
+			s.bus.Publish(sessionID, "integration.verification_baseline_compare_failed", map[string]any{"plan_id": pending[index].Plan.PlanID, "argv": command.Argv, "error": baselineErr.Error()})
+		}
+		_ = s.runner.Cleanup(workspace)
+		return stagedHostIntegration{}, fmt.Errorf("integration verification failed for plan %s: %s", pending[index].Plan.PlanID, commandResultDiagnostic(result))
 	}
 	return stagedHostIntegration{workspace: workspace, prepared: prepared}, nil
+}
+
+// integrationVerification is one gate to run against the merged integration
+// workspace, together with the index of the pending candidate that owns it.
+type integrationVerification struct {
+	index   int
+	command domain.CommandSpec
+}
+
+// dedupedIntegrationVerifications flattens every pending candidate's
+// verification gates into the set that actually has to run, keeping the
+// first candidate that declared each one. Identity is argv + cwd: a gate is
+// the same gate regardless of the timeout or exit-code envelope a later
+// plan happened to write for it, and it runs against one shared workspace.
+func dedupedIntegrationVerifications(pending []domain.PendingHostChange) []integrationVerification {
+	runs := make([]integrationVerification, 0)
+	seen := make(map[string]struct{})
+	for index := range pending {
+		for _, command := range pending[index].Plan.Verification {
+			key := strings.Join(append([]string{strings.TrimSpace(command.Cwd)}, command.Argv...), "\x00")
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			runs = append(runs, integrationVerification{index: index, command: command})
+		}
+	}
+	return runs
 }
 
 func allPendingHaveChangeSets(pending []domain.PendingHostChange) bool {

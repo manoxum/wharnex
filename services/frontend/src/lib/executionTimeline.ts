@@ -45,6 +45,30 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       }
       continue
     }
+    if (event.type === 'self_evolution.host_build_started' || event.type === 'self_evolution.host_build_output' || event.type === 'self_evolution.host_build_completed' || event.type === 'self_evolution.host_build_failed') {
+      // A self-evolution host build can run for minutes (dependency
+      // hydration, npm ci, vite/tsc, go build) with nothing surfaced until
+      // it finally succeeds or fails, which reads as a hang. Group it under
+      // its transaction_id exactly like a command run, so its live output
+      // streams into the same expandable log instead of only appearing
+      // after the fact.
+      const runID = String(event.data.transaction_id || event.id)
+      let entry = grouped.get(runID)
+      if (!entry) {
+        entry = { id: runID, kind: 'command', title: 'Build do Wharness no host', detail: '', badge: 'BUILD', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
+        grouped.set(runID, entry); entries.push(entry)
+      }
+      if (event.type === 'self_evolution.host_build_output') {
+        const text = String(event.data.text || '')
+        if (text) entry.output += `${event.data.stream === 'stderr' ? '[stderr]' : '[stdout]'} ${text}`
+      } else if (event.type === 'self_evolution.host_build_completed') {
+        entry.title = 'Build do Wharness concluído'; entry.badge = 'OK'; entry.tone = 'ok'; entry.running = false
+      } else if (event.type === 'self_evolution.host_build_failed') {
+        entry.title = 'Build do Wharness falhou'; entry.badge = 'FAIL'; entry.tone = 'fail'; entry.running = false
+        if (!entry.output) entry.output = joinedFallback(event)
+      }
+      continue
+    }
     if (event.type === 'patch.started' || event.type === 'patch.applied') {
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
@@ -108,8 +132,6 @@ function statusMeta(event: HarnessEvent) {
     case 'host.pending_rejected': return { title: 'Alterações pendentes rejeitadas', detail: `${String(event.data.plan_count || 0)} plano(s) descartado(s)`, badge: 'REJECT', tone: 'warning' as const }
     case 'host.revert_started': return { title: 'Reversão no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'REVERT', tone: 'warning' as const }
     case 'host.reverted': return { title: 'Alterações revertidas no host', detail: '', badge: 'REVERT', tone: 'ok' as const }
-    case 'self_evolution.host_build_started': return { title: 'Build do Wharness no host', detail: '', badge: 'BUILD', tone: 'warning' as const }
-    case 'self_evolution.host_build_completed': return { title: 'Build do Wharness concluído', detail: '', badge: 'OK', tone: 'ok' as const }
     case 'verification.started': return { title: 'Verificação iniciada', detail: target, badge: 'CHECK', tone: 'warning' as const }
     case 'verification.completed': return { title: 'Verificação concluída', detail: target, badge: exit, tone: event.data.baseline_failure ? 'warning' as const : 'ok' as const }
     case 'verification.baseline_unchanged': return { title: 'Falha pré-existente inalterada', detail: 'baseline unchanged', badge: exit, tone: 'warning' as const }

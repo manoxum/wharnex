@@ -127,7 +127,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 
 - Every opened project root must own a Git repository. The backend may run `git init` automatically when `.git` is absent.
 - Do not auto-commit or rewrite host history during Git bootstrap.
-- Sandbox copies use a fresh local Git baseline; never copy the host `.git` directory into a model execution workspace.
+- When the host has an existing Git repository, sandbox copies are a real local clone of it (`git clone --local`), sharing its actual commit history; a host with no repository yet gets a fresh synthetic Git baseline instead. Either way the host's own `.git` directory is never copied byte-for-byte into a model execution workspace.
 - Opening/restoring a project MUST initialize the Agent workspace in Protected + Auto. A user may switch that open project to Unprotected only through explicit confirmation; doing so disables Auto, and every Unprotected plan execution MUST require another explicit confirmation.
 - The interactive Editor terminal target is independent of Agent Protected/Unprotected mode: `Sandbox` remains the default; `Host` is a separate explicit human-only target with confirmation and a persistent warning.
 - Patch fallback may use `git apply --recount` or checked `--3way` only after a dry/check pass; never partially apply a failed fallback. Surface Git stderr on failure.
@@ -143,12 +143,15 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - Once a chat already has a ChatGPT URL, navigation alone MUST NOT silently replace that binding. An explicit rebind action or an explicit Harness Send while a different concrete ChatGPT conversation is open counts as user intent; the latter MUST refresh the project context for the newly targeted conversation.
 - Desktop navigation IPC MUST accept only trusted HTTPS `chatgpt.com` origins. Never expose arbitrary renderer-controlled navigation.
 - While an expected Wharness bundle is active, liveness recovery MAY use only bounded transport/renderer failures and narrow structural activity signals already allowed by the ChatGPT transport. Recoverable connection failures reload the owned renderer; silent/stalled or ambiguous processing MUST request human attention and MUST NOT inject an automatic same-request recovery prompt. Recovery MUST NOT inspect assistant prose for decisions, change task scope, cross chat ownership, or loop indefinitely.
-## Concurrent ChangeSet integration invariant (v1.3)
+## Concurrent host integration invariant — Git-native (v1.3, superseding the ChangeSet/CAS mechanism)
 
 - A project fingerprint is provenance, not a global mutation lock. Peer or external edits MUST NOT automatically supersede an in-flight planner request.
-- Protected changes MUST be reconstructed from their immutable request base, materialized as canonical base/result ChangeSets, three-way integrated into a fresh current-host sandbox, and reverified before Apply.
-- Only the short host integration phase is serialized per canonical project. Host writes MUST use per-file compare-and-swap and conditional rollback; an unexpected external value is never overwritten.
-- Clean disjoint changes require no model turn. A true conflict creates one bounded `harness.conflict/v1` support request limited to the conflicting paths and preserves unrelated verified mutations.
+- This is the primary integration and communication protocol between the sandbox and the host. A verified sandbox candidate MUST be committed onto its own dedicated branch (`whx/<request_id>`) inside the same Git clone the sandbox already is, using a fixed non-human author identity and the plan's own `commit_message` (a mandatory field for `change` plans) plus `Request-Id`/`Plan-Id` trailers, never the operator's own configured Git identity or an unsanitized planner string.
+- That branch MUST be pushed only locally (an absolute host filesystem path, never a network remote, never the operator's own configured `origin`) into the host's own `.git`. Apply MUST integrate it with a real `git merge --no-ff --no-edit` into whatever the host currently has checked out, then rerun the plan's own verification commands against the merged result.
+- A failed post-merge verification MUST revert the host with `git reset --hard` to its exact pre-merge commit before entering the repair loop. A genuine merge conflict MUST abort before it touches the host working tree and creates one bounded `harness.conflict/v1` support request limited to the conflicting paths, sourced via `git show` against the conflict's merge-base/host/branch commits — never a generic repair attempt. The integration branch is deleted only after a successful merge and verification; the merge commit itself remains in the host's log regardless.
+- Only the short host merge+verification phase is serialized per canonical project. This internal Git plumbing is Wharness's own execution engine mutating the host it already owns — analogous to Apply writing files without per-file approval — and is a distinct authority from a model-requested `git` command inside a plan's own operations, which still requires explicit user approval per the Git workspace invariant's mutation rule.
+- A candidate reconciled from an immutable archived request base (no Git ancestry shared with the live host — see `SoT/SANDBOX_MODEL.md`) has nothing to branch or merge onto and MUST keep using the legacy canonical base/result `ChangeSet` materialized and integrated via per-file compare-and-swap and conditional rollback instead.
+- Clean disjoint changes require no model turn. A true conflict, from either path, preserves unrelated verified mutations.
 
 ## Manual plan transport normalization
 
@@ -165,7 +168,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - `whaness.yml` context include/exclude settings affect AI context assembly only. They MUST NOT weaken secret/path/symlink protections or silently expand Agent/terminal privileges.
 - Automatic context pruning SHOULD remove dependencies, VCS/IDE metadata, caches, generated build/test output, temporary files, archives, binary/media assets, and generated Wharness context snapshots while retaining source/configuration files by default.
 
-## 11. Host-independence / containerized tooling invariant (v1.2.44)
+## 11. Host-independence / containerized tooling invariant (v1.2.45)
 
 - Lifecycle, build, maintenance, and cleanup tasks (including `make build`,
   `make clean`, and any in-app administrative/cleanup feature) MUST run their
@@ -184,4 +187,18 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - This does not apply to `docker`/`docker compose` themselves, or to
   editing files directly on the host filesystem — only to auxiliary CLIs a
   task would otherwise assume are present on `$PATH`.
+- Narrow, explicit exception: a human-invoked `make build`/`make deps` runs
+  `npm ci` for `services/frontend`/`services/desktop` directly on the host
+  (containerizing that install is tracked separately, not yet done). Node
+  version compatibility for that path MAY be self-healed by driving the
+  operator's own already-installed `nvm`, never by installing nvm itself or
+  mutating anything outside the operator's existing nvm-managed Node
+  versions, and only ever as a fallback after the Node already on `PATH` is
+  checked and found too old. This is deliberately host-side: nvm is
+  inherently a per-user host tool with no meaningful containerized
+  equivalent for *this* purpose (selecting which Node an interactive
+  operator shell uses), unlike the auxiliary CLIs this section otherwise
+  requires containerizing. A self-evolution build is unaffected either way:
+  it runs `make build-stage` inside the backend's own container and is
+  satisfied directly by that image's pinned Node.
 - Context inspection MUST derive final inclusion from the current manifest/ZIP snapshot, expose structured exclusion reasons and effective rules, and never claim a file is included merely because its parent directory is eligible.

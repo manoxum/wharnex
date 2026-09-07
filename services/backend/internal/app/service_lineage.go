@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	requestKindStandard = "standard"
-	requestKindRepair   = "repair"
-	requestKindEvidence = "evidence"
-	requestKindConflict = "conflict"
+	requestKindStandard        = "standard"
+	requestKindRepair          = "repair"
+	requestKindEvidence        = "evidence"
+	requestKindConflict        = "conflict"
+	requestKindKnowledgeReview = "knowledge_review"
 )
 
 func recordRequestLineage(item *domain.Session, requestID, parentID, kind string) {

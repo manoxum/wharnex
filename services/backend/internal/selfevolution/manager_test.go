@@ -183,7 +183,7 @@ func TestBuildHostRejectsDependencyMetadataMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Release()
-	if _, err := manager.BuildHost(context.Background(), tx); err == nil || !strings.Contains(err.Error(), "mutated source dependency metadata") {
+	if _, err := manager.BuildHost(context.Background(), tx, nil); err == nil || !strings.Contains(err.Error(), "mutated source dependency metadata") {
 		t.Fatalf("expected build guard rejection, got %v", err)
 	}
 	if err := tx.Rollback(); err != nil {
@@ -212,12 +212,64 @@ func TestBuildHostClassifiesHostToolchainMismatchAsUnrepairable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Release()
-	_, err = manager.BuildHost(context.Background(), tx)
+	_, err = manager.BuildHost(context.Background(), tx, nil)
 	if err == nil {
 		t.Fatal("expected BuildHost to fail")
 	}
 	if !errors.Is(err, ErrHostBuildToolchainMismatch) {
 		t.Fatalf("expected ErrHostBuildToolchainMismatch, got %v", err)
+	}
+}
+
+func TestBuildHostStreamsOutputAsItArrivesInsteadOfOnlyAtCompletion(t *testing.T) {
+	// A host build can run for minutes; without incremental delivery it
+	// looks hung until it finally succeeds or fails. onOutput must fire
+	// for each chunk as it is produced, not just once at the end.
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
+		"\t@printf 'first line\\n'\n"+
+		"\t@printf 'second line\\n' >&2\n", 0o644)
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-stream", "plan-stream", []string{patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+
+	type chunk struct{ stream, text string }
+	var chunks []chunk
+	full, err := manager.BuildHost(context.Background(), tx, func(stream, text string) {
+		chunks = append(chunks, chunk{stream, text})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one streamed chunk")
+	}
+	var streamedStdout, streamedStderr strings.Builder
+	for _, c := range chunks {
+		switch c.stream {
+		case "stdout":
+			streamedStdout.WriteString(c.text)
+		case "stderr":
+			streamedStderr.WriteString(c.text)
+		default:
+			t.Fatalf("unexpected stream label %q", c.stream)
+		}
+	}
+	if !strings.Contains(streamedStdout.String(), "first line") {
+		t.Fatalf("expected streamed stdout to contain the stdout line, got %q", streamedStdout.String())
+	}
+	if !strings.Contains(streamedStderr.String(), "second line") {
+		t.Fatalf("expected streamed stderr to contain the stderr line, got %q", streamedStderr.String())
+	}
+	// The streamed chunks must be a live view of the SAME output BuildHost
+	// still accumulates and returns whole, not a separate/lossy channel.
+	if !strings.Contains(full, "first line") || !strings.Contains(full, "second line") {
+		t.Fatalf("accumulated output missing streamed content: %q", full)
 	}
 }
 
@@ -241,6 +293,69 @@ func TestIsHostToolchainMismatchIsNarrow(t *testing.T) {
 		if IsHostToolchainMismatch(output) {
 			t.Fatalf("expected no match for output: %s", output)
 		}
+	}
+}
+
+func TestPrepareReclaimsAnOrphanedStageLockFromAPreviousRuntime(t *testing.T) {
+	// The exact production deadlock: a stage.lock left behind by a backend
+	// that died mid-apply, holding `pid=1` because the backend is PID 1 in
+	// its own container. Every later backend is also PID 1, so a liveness
+	// probe answered "alive" forever and every self-evolution apply failed
+	// with ErrBusy — which each time asked ChatGPT for a correction that
+	// could not possibly release a local lock file.
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	base := filepath.Join(root, ".harness", "self-evolution")
+	mustWrite(t, filepath.Join(base, "stage.lock"), "pid=1\ncreated=2026-09-06T21:54:25.645751593Z\n", 0o600)
+	mustWrite(t, filepath.Join(base, "status"), "phase=prepared\nsession_id=ses-old\nplan_id=plan-old\ntransaction=txn-old\nupdated_at=2026-09-06T21:54:25Z\n", 0o600)
+
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-reclaim", "plan-reclaim", []string{patch})
+	if err != nil {
+		t.Fatalf("orphaned stage lock must be reclaimed, got %v", err)
+	}
+	defer tx.Release()
+	if data, readErr := os.ReadFile(filepath.Join(base, "stage.lock")); readErr != nil {
+		t.Fatal(readErr)
+	} else if !strings.Contains(string(data), "run_id="+runtimeInstanceID) {
+		t.Fatalf("reclaimed stage lock must record this runtime instance, got %q", string(data))
+	}
+}
+
+func TestLockHeldByThisRuntimeStillBlocksConcurrentPreparation(t *testing.T) {
+	// The reclaim above must not weaken real mutual exclusion: a lock this
+	// runtime instance still holds keeps reporting busy.
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	first, err := manager.Prepare("ses-one", "plan-one", []string{patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	if _, err := manager.Prepare("ses-two", "plan-two", []string{patch}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("expected ErrBusy while this runtime still holds the batch, got %v", err)
+	}
+}
+
+func TestActiveLockOwnerAliveIgnoresUntrustworthyPidOnlyLocks(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "stale.lock")
+	mustWrite(t, stale, "pid=1\ncreated=2026-09-06T21:54:25Z\n", 0o600)
+	if activeLockOwnerAlive(stale) {
+		t.Fatal("a pid-only lock predates run-id stamping and must never be reported alive")
+	}
+	mine := filepath.Join(dir, "mine.lock")
+	mustWrite(t, mine, "pid=1\nrun_id="+runtimeInstanceID+"\ncreated=2026-09-06T21:54:25Z\n", 0o600)
+	if !activeLockOwnerAlive(mine) {
+		t.Fatal("a lock stamped with this runtime instance must be reported alive")
+	}
+	foreign := filepath.Join(dir, "foreign.lock")
+	mustWrite(t, foreign, "pid=1\nrun_id=0000000000000000\ncreated=2026-09-06T21:54:25Z\n", 0o600)
+	if activeLockOwnerAlive(foreign) {
+		t.Fatal("a lock from a different runtime instance must be reclaimable")
 	}
 }
 

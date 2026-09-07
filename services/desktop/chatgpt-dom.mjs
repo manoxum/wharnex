@@ -160,7 +160,15 @@ export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
   return `(() => {
     const baseline = ${baseline};
     const assistantCount = document.querySelectorAll('[data-message-author-role="assistant"]').length;
-    const stop = document.querySelector('button[data-testid="stop-button"]');
+    // The stop-button testid is the primary "still generating/reasoning"
+    // signal, but a renamed/restructured control must never read as "idle" —
+    // that misreading is what makes the automatic recovery reload above
+    // interrupt a genuinely still-running response. ".result-streaming" is
+    // ChatGPT's own longstanding marker on the assistant message while its
+    // text/reasoning is still being produced, independent of the button's
+    // current testid/label.
+    const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button[aria-label*="stop generating" i], button[aria-label*="parar de gerar" i]')
+      || document.querySelector('.result-streaming, [class*="result-streaming" i]');
     const failed = document.querySelector('[data-testid="conversation-turn-error"] button,button[data-testid="retry-button"],[data-testid="message-error"] button');
     const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
     const composerReady = Boolean(composer && !composer.disabled && composer.getAttribute?.('aria-disabled') !== 'true');
@@ -170,7 +178,8 @@ export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
 
 export function chatGPTVisibleActivityScript() {
   return `(() => {
-    const stop = document.querySelector('button[data-testid="stop-button"]');
+    const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i]')
+      || document.querySelector('.result-streaming, [class*="result-streaming" i]');
     return { state: stop ? 'thinking' : 'idle', text: '', capturedAt: new Date().toISOString() };
   })()`
 }

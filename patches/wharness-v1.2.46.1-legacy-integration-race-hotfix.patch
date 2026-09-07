@@ -1,0 +1,87 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 271f028..2909d28 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,6 @@
+ ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+ 
++- Fix the v1.2.46 legacy ping-pong classifier so persisted `host changed repeatedly during ChangeSet integration` errors are matched case-insensitively after normalization and are recovered from either `LastRepairError` or legacy `LastExecution.Error`, preventing a renderer/backend reload from misclassifying a host integration race as a model defect.
+ - Harden concurrent Protected Apply against the ping-pong modes captured by chat audit `64623e2c-6674-4d07-a593-2f48491cec96`: verification-only plans no longer poison the host candidate, race restaging accepts unchanged host-baseline verification failures, abandoned self-evolution transactions release their locks without rolling back external writes, and stale/busy/repeated-CAS conditions and request-context cancellations surfaced as exit -1 are classified as local coordination/lifecycle failures that never consume GPT repair/retry rounds. Automatic repair/conflict/workflow dispatch also consults durable transcript request ids to prevent re-sending the same request after a renderer reload. Move chat audit export from the Agent activity rail into a fixed active-chat header with a compact **Exportar ZIP** action.
+ - Add a fail-closed **Exportar chat** audit ZIP for the active Harness chat. The archive groups exact persisted main/correction request and response bundles, backend/frontend event history, execution command logs and exit/success/error fields, Policy/approval/block events, request lineage, session snapshots and GPT transcript responses correlated to request ids where available.
+ - Route conflicts discovered while replaying a retained Protected ChangeSet into the dedicated `harness.conflict/v1` resolution path instead of starting an impossible generic repair loop.
+diff --git a/VALIDATION.md b/VALIDATION.md
+index 17d62da..bb73eaa 100644
+--- a/VALIDATION.md
++++ b/VALIDATION.md
+@@ -1,3 +1,9 @@
++## v1.2.46.1 legacy integration-race classifier hotfix
++
++- Regression extends `TestLegacyFailureKindRecognizesPersistedPingPongCauses` across both legacy persistence surfaces: `LastRepairError` and `LastExecution.Error`.
++- The classifier lowercases both the persisted detail and the `ErrHostIntegrationRace` sentinel before matching, so the mixed-case `ChangeSet` token cannot silently disable `host_integration_race` recovery after reload.
++- Patch-construction environment: `gofmt` and `git diff --check` pass. The focused Go test cannot start here because the supplied source export omits `github.com/jackc/pgx/v5` from the module cache and outbound access to `proxy.golang.org` is blocked; the operator batch runs the canonical backend/frontend gates in the hydrated workspace.
++
+ ## v1.2.46 concurrency recovery + fixed chat header
+ 
+ - `service_recovery_hardening_test.go` covers verification-only pending-plan filtering, local failure classification (`self_evolution_transaction_busy`, `stale_host_baseline`, `host_integration_race`, `execution_context_canceled`), planner reason-code classification and ChangeSet race restaging and stale-candidate revalidation where a verification failure is unchanged from the current host baseline, plus canceled exit -1 propagation so renderer/request cancellation cannot fabricate a source repair.
+diff --git a/services/backend/internal/app/service_dependency_network.go b/services/backend/internal/app/service_dependency_network.go
+index 887441f..75e469b 100644
+--- a/services/backend/internal/app/service_dependency_network.go
++++ b/services/backend/internal/app/service_dependency_network.go
+@@ -124,18 +124,24 @@ func sessionFailureKind(item domain.Session) string {
+ 	if item.LastExecution != nil && selfevolution.IsHostToolchainMismatch(item.LastExecution.Error) {
+ 		return domain.FailureKindHostBuildToolchain
+ 	}
+-	legacyDetail := strings.ToLower(item.LastRepairError)
+-	if strings.Contains(legacyDetail, strings.ToLower(selfevolution.ErrBusy.Error())) {
+-		return domain.FailureKindSelfEvolutionBusy
+-	}
+-	if strings.Contains(legacyDetail, "host apply blocked by stale baseline") || strings.Contains(legacyDetail, "stale_pending_baseline") {
+-		return domain.FailureKindStaleHostBaseline
+-	}
+-	if strings.Contains(legacyDetail, ErrHostIntegrationRace.Error()) {
+-		return domain.FailureKindHostIntegrationRace
+-	}
+-	if strings.Contains(legacyDetail, context.Canceled.Error()) {
+-		return domain.FailureKindExecutionCanceled
++	legacyDetails := []string{item.LastRepairError}
++	if item.LastExecution != nil {
++		legacyDetails = append(legacyDetails, item.LastExecution.Error)
++	}
++	for _, detail := range legacyDetails {
++		legacyDetail := strings.ToLower(detail)
++		if strings.Contains(legacyDetail, strings.ToLower(selfevolution.ErrBusy.Error())) {
++			return domain.FailureKindSelfEvolutionBusy
++		}
++		if strings.Contains(legacyDetail, "host apply blocked by stale baseline") || strings.Contains(legacyDetail, "stale_pending_baseline") {
++			return domain.FailureKindStaleHostBaseline
++		}
++		if strings.Contains(legacyDetail, strings.ToLower(ErrHostIntegrationRace.Error())) {
++			return domain.FailureKindHostIntegrationRace
++		}
++		if strings.Contains(legacyDetail, context.Canceled.Error()) {
++			return domain.FailureKindExecutionCanceled
++		}
+ 	}
+ 	return ""
+ }
+diff --git a/services/backend/internal/app/service_recovery_hardening_test.go b/services/backend/internal/app/service_recovery_hardening_test.go
+index 76b4aae..06fa3bf 100644
+--- a/services/backend/internal/app/service_recovery_hardening_test.go
++++ b/services/backend/internal/app/service_recovery_hardening_test.go
+@@ -120,9 +120,13 @@ func TestLegacyFailureKindRecognizesPersistedPingPongCauses(t *testing.T) {
+ 		{ErrHostIntegrationRace.Error() + ": external write race", domain.FailureKindHostIntegrationRace},
+ 	}
+ 	for _, tc := range cases {
+-		item := domain.Session{LastRepairError: tc.detail}
+-		if got := sessionFailureKind(item); got != tc.want {
+-			t.Fatalf("sessionFailureKind(%q)=%q want %q", tc.detail, got, tc.want)
++		for _, item := range []domain.Session{
++			{LastRepairError: tc.detail},
++			{LastExecution: &domain.ExecutionResult{Error: tc.detail}},
++		} {
++			if got := sessionFailureKind(item); got != tc.want {
++				t.Fatalf("sessionFailureKind(%q)=%q want %q", tc.detail, got, tc.want)
++			}
+ 		}
+ 	}
+ }

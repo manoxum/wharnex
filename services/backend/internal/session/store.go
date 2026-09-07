@@ -54,6 +54,11 @@ type Store struct {
 	items map[string]domain.Session
 	path  string
 	db    *sql.DB
+	// knowledge is the in-memory fallback for ProjectKnowledge, used only
+	// when db is nil (tests/dev). Production always runs with a Postgres
+	// store (see cmd/harness/main.go), where harness_project_knowledge is
+	// authoritative instead. Lazily initialized: see knowledge.go.
+	knowledge map[string]domain.ProjectKnowledge
 }
 
 func NewStore() *Store { return &Store{items: make(map[string]domain.Session)} }
