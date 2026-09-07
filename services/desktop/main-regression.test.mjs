@@ -499,3 +499,13 @@ test('bundle download failures remain correlated to a strict late filename inste
   const publish = source.slice(start, end)
   assert.match(publish, /wharnessBundleRequestIdFromFilename\(filename\) \|\| expectedChatGPTBundles\.get\(cacheKey\)\?\.requestId/)
 })
+
+test('ChatGPT request archive upload uses the dedicated file input instead of clipboard paste', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
+  const end = source.indexOf('\nasync function submitChatGPTDraft', start)
+  const upload = source.slice(start, end)
+  assert.match(upload, /selectChatGPTUploadFile\(wc, filePath\)/)
+  assert.doesNotMatch(upload, /clipboard\.write/)
+  assert.doesNotMatch(upload, /wc\.paste\(\)/)
+})
