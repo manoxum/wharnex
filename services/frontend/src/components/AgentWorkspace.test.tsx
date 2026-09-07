@@ -100,6 +100,42 @@ describe('AgentWorkspace', () => {
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
   })
 
+  it('restores each chat viewport across the keyed chat panel remount', async () => {
+    const base = props()
+    const chatAItems = Array.from({ length: 45 }, (_, index) => ({ id: `chat-a-${index + 1}`, role: 'user' as const, text: `chat A mensagem ${index + 1}` }))
+    const chatBItems = Array.from({ length: 12 }, (_, index) => ({ id: `chat-b-${index + 1}`, role: 'user' as const, text: `chat B mensagem ${index + 1}` }))
+    const workspace = (activeChatId: string, items: typeof chatAItems) => <AgentWorkspace
+      {...base.element.props}
+      chatProps={{ ...base.element.props.chatProps, activeChatId, items }}
+    />
+    const rendered = render(workspace('chat-1', chatAItems))
+
+    let stream = rendered.container.querySelector('.chat-stream') as HTMLDivElement
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, value: 400 })
+    stream.scrollTop = 0
+    fireEvent.scroll(stream)
+    await waitFor(() => expect(screen.getByText('chat A mensagem 6')).toBeTruthy())
+    stream.scrollTop = 320
+    fireEvent.scroll(stream)
+
+    rendered.rerender(workspace('chat-2', chatBItems))
+    stream = rendered.container.querySelector('.chat-stream') as HTMLDivElement
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, value: 1200 })
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, value: 400 })
+    stream.scrollTop = 140
+    fireEvent.scroll(stream)
+
+    rendered.rerender(workspace('chat-1', chatAItems))
+    stream = rendered.container.querySelector('.chat-stream') as HTMLDivElement
+    expect(stream.scrollTop).toBe(320)
+    expect(screen.getByText('chat A mensagem 6')).toBeTruthy()
+
+    rendered.rerender(workspace('chat-2', chatBItems))
+    stream = rendered.container.querySelector('.chat-stream') as HTMLDivElement
+    expect(stream.scrollTop).toBe(140)
+  })
+
   it('keeps the FIFO discoverable even while it is empty and renders queued work in order', () => {
     const empty = props()
     const rendered = render(empty.element)

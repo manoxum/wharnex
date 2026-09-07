@@ -10,7 +10,7 @@ import { MarkdownContent } from './MarkdownContent'
 import { fileReferenceQuery, matchingProjectFiles } from '../lib/projectFileReferences'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 import { BundleExchangeBar } from './BundleExplorer'
-import { useProgressiveChatHistory } from './useProgressiveChatHistory'
+import { useProgressiveChatHistory, type ChatViewportStore } from './useProgressiveChatHistory'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
@@ -19,7 +19,7 @@ function clampComposerHeight(height: number) {
   return Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)))
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -28,6 +28,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   busy: boolean
   embedded?: boolean
   hideSwitcher?: boolean
+  historyViewportStore?: ChatViewportStore
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
   chatTransportMode?: ChatTransportMode
@@ -106,7 +107,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const todos = useMemo(() => latestTodoSnapshot(items), [items])
-  const { endRef, hasOlder, hiddenItemCount, loadOlder, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy)
+  const { endRef, hasOlder, hiddenItemCount, loadOlder, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
   const fileSuggestions = useMemo(() => fileQuery ? matchingProjectFiles(eligibleProjectFiles, fileQuery.query, projectFiles) : [], [eligibleProjectFiles, fileQuery, projectFiles])
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
