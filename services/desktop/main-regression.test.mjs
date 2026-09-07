@@ -2,6 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
+test('local frontend navigation uses a per-runtime cache token', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const FRONTEND_RUNTIME_TOKEN = randomUUID\(\)/)
+  const createStart = source.indexOf('function createWindow(')
+  const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
+  const create = source.slice(createStart, registerStart)
+  assert.match(create, /target\.searchParams\.set\('wharnessRuntime', FRONTEND_RUNTIME_TOKEN\)/)
+})
+
 test('prepare-prompt uses the background composer targeting helper', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function preparePromptForChatGPT(request)')

@@ -25,6 +25,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
 const BACKEND_URL = requireLocalHTTPURL(process.env.WHARNESS_API_URL || 'http://127.0.0.1:8080', 'Backend URL').href
 const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
+const FRONTEND_RUNTIME_TOKEN = randomUUID()
 const CHATGPT_URL = 'https://chatgpt.com/'
 const CHATGPT_LOGIN_URL = 'https://chatgpt.com/auth/login'
 const CHATGPT_PARTITION = 'persist:wharness-chatgpt'
@@ -2125,6 +2126,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
 
   const target = new URL(FRONTEND_URL)
   target.searchParams.set('wharnessWindow', id)
+  target.searchParams.set('wharnessRuntime', FRONTEND_RUNTIME_TOKEN)
   void win.loadURL(target.href)
   if (!quitting && persistLayout) persistWindowLayout()
   return state

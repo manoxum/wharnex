@@ -360,9 +360,19 @@ activate_application() {
   frontend_container=$(compose ps -q frontend 2>/dev/null || true)
   [ -z "$backend_container" ] || old_backend=$(docker inspect -f '{{.Image}}' "$backend_container" 2>/dev/null || true)
   [ -z "$frontend_container" ] || old_frontend=$(docker inspect -f '{{.Image}}' "$frontend_container" 2>/dev/null || true)
+  desired_backend=$(docker image inspect -f '{{.Id}}' "$BACKEND_IMAGE")
+  desired_frontend=$(docker image inspect -f '{{.Id}}' "$FRONTEND_IMAGE")
 
-  if compose up -d --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
-    return 0
+  if compose up -d --force-recreate --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
+    backend_container=$(compose ps -q backend 2>/dev/null || true)
+    frontend_container=$(compose ps -q frontend 2>/dev/null || true)
+    running_backend=$(docker inspect -f '{{.Image}}' "$backend_container" 2>/dev/null || true)
+    running_frontend=$(docker inspect -f '{{.Image}}' "$frontend_container" 2>/dev/null || true)
+    if [ "$running_backend" = "$desired_backend" ] && [ "$running_frontend" = "$desired_frontend" ]; then
+      return 0
+    fi
+    printf 'Wharness application rollout selected stale image IDs: backend=%s/%s frontend=%s/%s.\n' \
+      "$running_backend" "$desired_backend" "$running_frontend" "$desired_frontend" >&2
   fi
 
   echo 'Wharness application rollout failed; restoring previous backend/frontend images when available.' >&2
@@ -370,7 +380,7 @@ activate_application() {
   if [ -n "$old_backend" ] && [ -n "$old_frontend" ]; then
     docker image tag "$old_backend" "$BACKEND_IMAGE"
     docker image tag "$old_frontend" "$FRONTEND_IMAGE"
-    if compose up -d --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
+    if compose up -d --force-recreate --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
       echo 'Previous Wharness application containers restored after failed rollout.' >&2
     else
       echo 'Previous Wharness application containers could not be restored automatically.' >&2
