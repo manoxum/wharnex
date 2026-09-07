@@ -149,5 +149,5 @@ test('stalled recovery prompt preserves the request and canonical file contract'
   assert.match(prompt, /ORIGINAL request/)
   assert.match(prompt, /wharness-bundle-req_123\.zip/)
   assert.match(prompt, /https:\/\/files\.example\/input\.zip/)
-  assert.match(prompt, /repeat the remote-input download/)
+  assert.match(prompt, /ORIGINAL REQUEST CONTENT/)
 })

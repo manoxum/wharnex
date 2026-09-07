@@ -19,7 +19,7 @@ import { chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, commitChatGP
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
-import { chatInputArchiveFilename, commentAttachmentArchiveFilename, localChatInputBootstrap, writeChatInputArchive, writeCommentAttachmentArchive } from './chat-input-archive.mjs'
+import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -243,7 +243,7 @@ function canonicalBundleFilename(chatId, requestId) {
   return filename
 }
 
-function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, recoveryBootstrap = '') {
+function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, recoveryBootstrap = '', liveTunnels = [], originalPrompt = '') {
   const key = sanitizeChatCacheKey(cacheKey)
   const filename = canonicalBundleFilename(key, requestId)
   const prior = expectedChatGPTBundles.get(key)
@@ -266,6 +266,8 @@ function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, re
     rehydrating: sameRequest ? prior.rehydrating === true : false,
     recoveryEligibleAt: sameRequest ? Number(prior.recoveryEligibleAt || 0) : 0,
     recoveryBootstrap: String(recoveryBootstrap || (sameRequest ? prior?.recoveryBootstrap : '') || ''),
+    originalPrompt: String(originalPrompt || (sameRequest ? prior?.originalPrompt : '') || ''),
+    liveTunnels: Array.isArray(liveTunnels) && liveTunnels.length ? liveTunnels.slice(0, 16) : (sameRequest && Array.isArray(prior?.liveTunnels) ? prior.liveTunnels.slice(0, 16) : []),
     recovery: createChatGPTRecoveryState(Date.now()),
   })
   return filename
@@ -1247,22 +1249,19 @@ async function persistChatArtifact(sessionId, requestId, direction, kind, filena
   return response.json()
 }
 
-async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = []) {
+async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = [], tunnelInstanceIds = []) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/remote-input`, BACKEND_URL)
   const response = await fetch(target, {
     method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles)),
+    body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles, tunnelInstanceIds)),
   })
   const result = await response.json().catch(() => ({}))
   return parseRemoteInputResponse(response.status, result)
 }
 
-function normalizeTransportOptions(value) {
-  const requestArchive = value?.requestArchive === true
-  const liveTunnels = value?.liveTunnels !== false
-  if (!requestArchive && !liveTunnels) throw new Error('At least one ChatGPT transport must be enabled')
-  return { requestArchive, liveTunnels }
+function normalizeTunnelInstanceIDs(value) {
+  return [...new Set((Array.isArray(value) ? value : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 16)
 }
 
 async function requireAutoSession(sessionId) {
@@ -1349,21 +1348,24 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   return { archivePath, archiveName, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes }
 }
 
-
-// Bundles every comment attachment into exactly one ZIP so a task comment
-// still delivers a single file to ChatGPT, matching the FILE-FIRST contract
-// the main input archive already follows — see writeCommentAttachmentArchive
-// for why pasting the attachments individually was wrong.
-async function materializeCommentAttachments(cacheKey, sessionId, requestId, values) {
-  const { decoded, total } = decodeChatAttachmentSet(values)
-  if (!decoded.length) return { path: '', bytes: 0, count: 0 }
-  const dir = path.join(app.getPath('temp'), 'wharness-chat-comments', cacheKey, `${Date.now()}`)
+async function materializeProtocolChatInput(cacheKey, requestId, promptText, values = [], liveTunnels = []) {
+  const { decoded } = decodeChatAttachmentSet(values)
+  const dir = path.join(app.getPath('temp'), 'wharness-chat-protocol', cacheKey, `${Date.now()}-${randomUUID()}`)
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const archiveName = commentAttachmentArchiveFilename(cacheKey, requestId)
+  const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
-  await writeCommentAttachmentArchive(archivePath, { attachments: decoded })
-  if (sessionId) await persistChatArtifact(sessionId, requestId, 'input', 'comment-attachment', archiveName, 'application/zip', await readFile(archivePath))
-  return { path: archivePath, bytes: total, count: decoded.length }
+  const archive = await writeChatInputArchive(archivePath, { requestId, prompt: promptText, attachments: decoded, liveTunnels })
+  return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes }
+}
+
+async function fillBundledChatGPTComposer(key, entry, requestId, promptText, expectedFilename, attachments = [], liveTunnels = []) {
+  const input = await materializeProtocolChatInput(key, requestId, promptText, attachments, liveTunnels)
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels)
+  const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)
+  if (!filled) throw new Error('ChatGPT composer DOM could not be populated with bundled protocol input')
+  await pasteChatGPTFile(entry, input.archivePath, 1, 1)
+  await wait(chatInputSettleDelay(input.bytes, 1))
+  return { ...input, bootstrap }
 }
 
 async function executeChatGPTDOMScript(cacheKey, entry, stage, script) {
@@ -1636,52 +1638,21 @@ async function preparePromptForChatGPT(request) {
   const previousURL = String(request?.lastContextChatgptUrl || '').trim()
   const includeContext = shouldAttachProjectContext({ currentSha, previousSha, currentConversationId: chatGPTConversationID(target.conversationUrl), previousConversationId: chatGPTConversationID(previousURL), force: request?.includeContext === true })
 
-  const transportOptions = normalizeTransportOptions(request?.transport)
+  const tunnelInstanceIds = normalizeTunnelInstanceIDs(request?.tunnelInstanceIds)
   let remoteInput = null
-  if (transportOptions.liveTunnels) {
+  if (tunnelInstanceIds.length) {
     try {
-      remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, request?.bootstrapText, includeContext, request?.attachments || [], request?.artifacts || [], request?.projectFiles || [])
+      remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, request?.bootstrapText, includeContext, request?.attachments || [], request?.artifacts || [], request?.projectFiles || [], tunnelInstanceIds)
     } catch (error) {
-      if (!transportOptions.requestArchive) throw error
       console.warn(`[chatgpt-protocol-channel] optional live fallback unavailable: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  if (!transportOptions.requestArchive) {
-    if (!remoteInput) throw new Error('No live verification tunnel is available')
-    const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(remoteInput.bootstrapPrompt))
-    if (!filled) throw new Error('ChatGPT composer DOM could not be populated with remote input bootstrap')
-    let conversationUrl = target.conversationUrl
-    if (autoSubmit) {
-      const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-      armExpectedChatGPTBundle(key, requestId, assistantBaseline, remoteInput.bootstrapPrompt)
-      await wait(250)
-      try {
-        await submitChatGPTDraft(key)
-      } catch (error) {
-        disarmExpectedChatGPTBundle(key, requestId)
-        throw error
-      }
-      conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
-      if (conversationUrl && requestedTitle) {
-        const organized = await organizeChatGPTConversation(key, request?.projectName, requestedTitle)
-        publishChatGPTAccountAction(key, 'organize', organized)
-        if (!organized.ok) console.warn(`[chatgpt-account] organization incomplete key=${key} state=${organized.state}`)
-      }
-      preparedChatGPTDrafts.delete(key)
-    } else {
-      preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 0, requestId, recoveryBootstrap: remoteInput.bootstrapPrompt, projectName: request?.projectName, chatTitle: requestedTitle })
-    }
-    touchChatGPTEntry(target.entry)
-    console.log(`[chatgpt-draft] prepared key=${key} transport=remote provider=${String(remoteInput.provider || 'configured')} instance=${String(remoteInput.instance_id || 'configured')} tunnels=${Array.isArray(remoteInput.tunnels) ? remoteInput.tunnels.length : 1} bytes=${Number(remoteInput.bytes || 0)} chars=${remoteInput.bootstrapPrompt.length} autoSubmit=${autoSubmit}`)
-    retryableChatGPTPrompts.delete(key)
-    return { ok: true, cacheKey: key, attachmentCount: 0, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl, transport: remoteInput.mode, provider: remoteInput.provider, instanceId: remoteInput.instance_id, expiresAt: remoteInput.expires_at }
-  }
 
-  // The request archive is self-contained. When live tunnels are also enabled,
-  // their ordered endpoints are embedded as optional verification fallbacks.
+  // Every planner request is transported as exactly one request ZIP. Selected
+  // tunnels are optional live mirrors and never replace that authoritative ZIP.
   const directPrompt = remoteInput?.fallbackPrompt ? `${text}\n\n${remoteInput.fallbackPrompt}` : text
   const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [])
-  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename)
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [])
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with local input bootstrap')
   await pasteChatGPTFile(target.entry, input.archivePath, 1, 1)
@@ -1689,7 +1660,7 @@ async function preparePromptForChatGPT(request) {
   if (autoSubmit) {
     await wait(chatInputSettleDelay(input.bytes, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-    armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap)
+    armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt)
     try {
       await submitChatGPTDraft(key)
     } catch (error) {
@@ -1704,7 +1675,7 @@ async function preparePromptForChatGPT(request) {
     }
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, recoveryBootstrap: bootstrap, projectName: request?.projectName, chatTitle: requestedTitle })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, projectName: request?.projectName, chatTitle: requestedTitle })
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=1 archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
@@ -1767,7 +1738,7 @@ async function submitPreparedChatGPTDraft(cacheKey) {
   if (!prepared || Date.now() - prepared.preparedAt > 10 * 60 * 1000) throw new Error('No recent prepared ChatGPT draft exists for this chat')
   const entry = activateChatGPTView(key)
   const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
-  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap)
+  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap, prepared.liveTunnels || [], prepared.originalPrompt || '')
   try {
     await submitChatGPTDraft(key)
   } catch (error) {
@@ -1794,9 +1765,10 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   const expectedFilename = canonicalBundleFilename(key, requestId)
   const target = await targetChatGPTComposer(key, expectedURL)
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-  const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(text), true)
-  if (!filled) throw new Error('ChatGPT composer DOM could not be populated')
-  armExpectedChatGPTBundle(key, requestId, assistantBaseline)
+  const prior = expectedChatGPTBundles.get(key)
+  const liveTunnels = prior?.requestId === requestId && Array.isArray(prior.liveTunnels) ? prior.liveTunnels : []
+  const bundled = await fillBundledChatGPTComposer(key, target.entry, requestId, text, expectedFilename, [], liveTunnels)
+  armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, liveTunnels, text)
   await wait(100)
   try {
     await submitChatGPTDraft(key)
@@ -1857,10 +1829,12 @@ async function flushQueuedChatGPTComments() {
       const target = await targetChatGPTComposer(key, pending.url, true)
       const ready = await target.wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) continue
-      const attachmentSet = await materializeCommentAttachments(key, pending.sessionId, pending.requestId, pending.attachments)
-      if (attachmentSet.path) await pasteChatGPTFile(target.entry, attachmentSet.path, 1, 1)
-      const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(pending.text), true)
-      if (!filled) continue
+      const expected = expectedChatGPTBundles.get(key)
+      const liveTunnels = expected?.requestId === pending.requestId && Array.isArray(expected.liveTunnels) ? expected.liveTunnels : []
+      const commentPrompt = expected?.requestId === pending.requestId && expected.originalPrompt
+        ? `${pending.text}\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this comment bundle:\n\n${expected.originalPrompt}`
+        : pending.text
+      const bundled = await fillBundledChatGPTComposer(key, target.entry, pending.requestId, commentPrompt, canonicalBundleFilename(key, pending.requestId), pending.attachments, liveTunnels)
       const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
       await wait(80)
       await submitChatGPTDraft(key)
@@ -1874,7 +1848,7 @@ async function flushQueuedChatGPTComments() {
       if (!queue.length) pendingChatGPTComments.delete(key)
       if (expectedChatGPTBundles.has(key)) armExpectedChatGPTBundle(key, pending.requestId, assistantBaseline)
       touchChatGPTEntry(target.entry)
-      sendToChatGPTKey(key, 'wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId, attachments: attachmentSet.count })
+      sendToChatGPTKey(key, 'wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId, attachments: bundled.attachmentCount })
       break
     } catch (error) {
       console.warn(`[chatgpt-comment] queued key=${key} error=${error instanceof Error ? error.message : String(error)}`)
@@ -1971,9 +1945,10 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
     return true
   }
   if (action.type !== 'prompt') return false
-  const prompt = chatGPTStalledRecoveryPrompt(expected.requestId, expected.filename, expected.recoveryBootstrap)
-  const filled = await wc.executeJavaScript(chatGPTFillComposerScript(prompt), true)
-  if (!filled) return false
+  const prompt = chatGPTStalledRecoveryPrompt(expected.requestId, expected.filename, expected.originalPrompt)
+  try {
+    await fillBundledChatGPTComposer(key, entry, expected.requestId, prompt, expected.filename, [], expected.liveTunnels || [])
+  } catch { return false }
   await wait(80)
   const submission = await submitChatGPTDraft(key)
   commitChatGPTRecoveryAction(expected.recovery, action, now)
@@ -2093,9 +2068,8 @@ async function pollExpectedChatGPTDownloadKey(key) {
       const continuation = `WHARNESS DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}
 
 The previous ChatGPT turn finished without a detected validated downloadable bundle named ${expected.filename}.
-Do not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharness file-first contract. Finish with the file attachment only.`
-      const filled = await wc.executeJavaScript(chatGPTFillComposerScript(continuation), true)
-      if (!filled) return
+Do not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharness file-first contract. Finish with the file attachment only.${expected.originalPrompt ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${expected.originalPrompt}` : ''}`
+      await fillBundledChatGPTComposer(key, entry, expected.requestId, continuation, expected.filename, [], expected.liveTunnels || [])
       await wait(80)
       await submitChatGPTDraft(key)
       expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion.assistantCount) || 0)
@@ -2561,9 +2535,8 @@ function registerIPC() {
     if (expected.manualContinuationInFlight) throw new Error('Já existe uma continuação manual em curso.')
     expected.manualContinuationInFlight = true
     try {
-      const prompt = chatGPTStalledRecoveryPrompt(requestId, expected.filename, expected.recoveryBootstrap)
-      const filled = await wc.executeJavaScript(chatGPTFillComposerScript(prompt), true)
-      if (!filled) throw new Error('O compositor do ChatGPT não está disponível.')
+      const prompt = chatGPTStalledRecoveryPrompt(requestId, expected.filename, expected.originalPrompt)
+      await fillBundledChatGPTComposer(key, entry, requestId, prompt, expected.filename, [], expected.liveTunnels || [])
       await wait(80)
       await submitChatGPTDraft(key)
       expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion?.assistantCount) || 0)

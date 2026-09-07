@@ -212,9 +212,9 @@ export function TunnelProviderSettings({
           <span className="eyebrow">Transporte para o ChatGPT</span>
           <h3>Túneis de verificação</h3>
           <p>
-            Todos os túneis configurados são publicados por pedido e
-            apresentados ao ChatGPT pela prioridade. O bundle ZIP é controlado
-            separadamente no composer.
+            Os túneis configurados ficam disponíveis como canais individuais
+            no composer; cada chat decide quais publicar. O bundle ZIP faz parte
+            do protocolo base e é sempre enviado.
           </p>
         </div>
         <button
@@ -301,8 +301,8 @@ export function TunnelProviderSettings({
             <Icon name="file" size={26} />
             <strong>Transporte direto por ficheiros</strong>
             <span>
-              Nenhum túnel configurado. O bundle ZIP continua disponível quando
-              estiver ativo no composer.
+              Nenhum túnel configurado. O bundle ZIP continua obrigatório e é
+              enviado em qualquer requisição ao ChatGPT.
             </span>
           </div>
         ) : null}

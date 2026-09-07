@@ -184,8 +184,17 @@ func (m *Manager) PublishRemoteInputChannelSet(ctx context.Context, channel app.
 	now := m.now().UTC()
 	shape := app.RemoteInputObject{ObjectName: "channel-" + channel.ChannelID, Bytes: channel.Bytes, FileCount: channel.FileCount, MaxFileSize: channel.MaxFileSize}
 	publications := make([]app.RemoteInputPublication, 0, len(m.instances))
+	selected := make(map[string]struct{}, len(channel.InstanceIDs))
+	for _, id := range channel.InstanceIDs {
+		selected[id] = struct{}{}
+	}
 	var failures error
 	for _, instance := range m.instances {
+		if len(selected) > 0 {
+			if _, ok := selected[instance.ID]; !ok {
+				continue
+			}
+		}
 		if disabled := m.disabled[instance.ID]; disabled != nil {
 			failures = errors.Join(failures, fmt.Errorf("instance %s is unavailable: %w", instance.ID, disabled))
 			continue

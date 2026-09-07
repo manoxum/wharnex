@@ -28,6 +28,7 @@ type remoteInputChannelState struct {
 	provider       string
 	manifestURL    string
 	publications   []RemoteInputPublication
+	selectedIDs    []string
 	baseURL        string
 	manifestDigest string
 	rootRequestID  string
@@ -99,6 +100,10 @@ func (s *Service) publishRemoteInputChannel(ctx context.Context, store RemoteInp
 	if current == nil {
 		return s.openRemoteInputChannel(ctx, store, temporaryDir, item, request, attachments, artifacts)
 	}
+	if !sameStringSet(current.selectedIDs, request.TunnelInstanceIDs) {
+		s.closeRemoteInputChannel(item.ID, "tunnel.selection.changed")
+		return s.openRemoteInputChannel(ctx, store, temporaryDir, item, request, attachments, artifacts)
+	}
 	return s.updateRemoteInputChannel(ctx, store, temporaryDir, item, request, attachments, artifacts, current)
 }
 
@@ -107,13 +112,13 @@ func (s *Service) openRemoteInputChannel(ctx context.Context, store RemoteInputC
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
-	state := &remoteInputChannelState{channelID: channelID, rootRequestID: request.RequestID, activeRequest: request.RequestID, generation: 1, contextSHA256: item.Context.Manifest.SHA256, contextChecked: time.Now()}
+	state := &remoteInputChannelState{channelID: channelID, rootRequestID: request.RequestID, activeRequest: request.RequestID, generation: 1, contextSHA256: item.Context.Manifest.SHA256, contextChecked: time.Now(), selectedIDs: append([]string(nil), request.TunnelInstanceIDs...)}
 	state.contextProbe, _ = contextbundle.SourceProbe(item.ProjectPath)
 	resources, total, largest, err := buildRemoteChannelResources(dir, item, request, attachments, artifacts, state, true)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
-	publications, err := publishRemoteChannelSet(ctx, store, RemoteInputChannel{ChannelID: channelID, RootRequest: request.RequestID, Resources: resources, Bytes: total, FileCount: len(resources), MaxFileSize: largest})
+	publications, err := publishRemoteChannelSet(ctx, store, RemoteInputChannel{ChannelID: channelID, InstanceIDs: request.TunnelInstanceIDs, RootRequest: request.RequestID, Resources: resources, Bytes: total, FileCount: len(resources), MaxFileSize: largest})
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -229,6 +234,22 @@ func closeRemoteChannelSet(ctx context.Context, store RemoteInputChannelStore, p
 		return fmt.Errorf("remote channel publication set is unsupported")
 	}
 	return store.CloseRemoteInputChannel(ctx, ids[0], channelID)
+}
+
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	values := make(map[string]struct{}, len(left))
+	for _, value := range left {
+		values[value] = struct{}{}
+	}
+	for _, value := range right {
+		if _, ok := values[value]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func publicationIDs(publications []RemoteInputPublication) []string {

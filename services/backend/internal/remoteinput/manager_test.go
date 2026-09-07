@@ -143,6 +143,30 @@ func TestManagerPublishesChannelSetInConfiguredPriorityOrder(t *testing.T) {
 	}
 }
 
+func TestManagerPublishesOnlySelectedChannelInstances(t *testing.T) {
+	primary := &fakeChannelProvider{}
+	secondary := &fakeChannelProvider{}
+	limits := app.RemoteInputLimits{MaxRequests: 10, WindowSeconds: 3600}
+	manager := NewPool([]Instance{
+		{ID: "primary", Priority: 10, Limits: limits, Provider: primary},
+		{ID: "secondary", Priority: 20, Limits: limits, Provider: secondary},
+	}, filepath.Join(t.TempDir(), "state.json"))
+	publications, err := manager.PublishRemoteInputChannelSet(context.Background(), app.RemoteInputChannel{
+		ChannelID: "abcdef0123456789abcdef0123456789", InstanceIDs: []string{"secondary"},
+		Resources: []app.RemoteInputChannelResource{{Path: "manifest.json"}}, Bytes: 10, FileCount: 1, MaxFileSize: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(publications) != 1 || publications[0].InstanceID != "secondary" {
+		t.Fatalf("unexpected selected publication set: %#v", publications)
+	}
+	status := manager.Status()
+	if status.Instances[0].Usage.RequestsInWindow != 0 || status.Instances[1].Usage.RequestsInWindow != 1 {
+		t.Fatalf("selection was not enforced in usage counters: %#v", status.Instances)
+	}
+}
+
 func (f *fakeProvider) Delete(_ context.Context, name string) error {
 	f.deleted = append(f.deleted, name)
 	return nil
