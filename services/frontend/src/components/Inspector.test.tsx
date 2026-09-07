@@ -336,7 +336,7 @@ describe('Inspector Manual chat transport mode', () => {
 
   it('extracts the request id from an uploaded bundle filename and submits it, including a browser duplicate-suffix name', async () => {
     const requestId = 'req_20260906T192238_1adfea24039ba474'
-    const onBundleFile = vi.fn(async () => 'Bundle importado com sucesso')
+    const onBundleFile = vi.fn<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => 'Bundle importado com sucesso')
     render(<Inspector
       config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
       session={manualSession()}

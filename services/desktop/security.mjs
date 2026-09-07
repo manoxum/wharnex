@@ -151,8 +151,15 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
     if (expectedRequestId && effectiveRequestId !== expectedRequestId) {
       throw new Error(`Bundle pertence ao pedido ${effectiveRequestId}, mas o pedido ativo é ${expectedRequestId}.`)
     }
-    if (expectedChatId && parsed.chatId !== expectedChatId) {
-      throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o chat ativo é ${expectedChatId}.`)
+    // parsed.chatId always comes from a real filename, so it is necessarily
+    // already in its sanitized [A-Za-z0-9-]-only form (the naming scheme
+    // forbids '_', which is its own field separator — see safeChatId).
+    // expectedChatId is the live, unsanitized cacheKey (a conflict-resolution
+    // surface's cacheKey is always "<chatId>_cf_<conflictId>", which
+    // contains '_'): comparing it raw against parsed.chatId would reject
+    // every bundle for such a surface, even the one it genuinely belongs to.
+    if (expectedChatId && parsed.chatId !== safeChatId(expectedChatId)) {
+      throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o chat ativo é ${safeChatId(expectedChatId)}.`)
     }
     return { requestId: effectiveRequestId, filename, normalized: false }
   }

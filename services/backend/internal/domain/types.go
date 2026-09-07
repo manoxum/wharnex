@@ -433,11 +433,11 @@ type Session struct {
 	// folded into State, or the session would need to "restore" its real
 	// state once the review round resolves, which is unnecessary risk for
 	// what is a best-effort side round.
-	PendingKnowledgeReviewRequestID string                       `json:"pending_knowledge_review_request_id,omitempty"`
-	LastBundle                      *ExecutionBundleInfo         `json:"last_bundle,omitempty"`
-	LastTurn                        *AgentTurn                   `json:"last_turn,omitempty"`
-	RepairAttempt                   int                          `json:"repair_attempt,omitempty"`
-	RepairParentPlanID              string                       `json:"repair_parent_plan_id,omitempty"`
+	PendingKnowledgeReviewRequestID string               `json:"pending_knowledge_review_request_id,omitempty"`
+	LastBundle                      *ExecutionBundleInfo `json:"last_bundle,omitempty"`
+	LastTurn                        *AgentTurn           `json:"last_turn,omitempty"`
+	RepairAttempt                   int                  `json:"repair_attempt,omitempty"`
+	RepairParentPlanID              string               `json:"repair_parent_plan_id,omitempty"`
 	// ConflictAttempt counts automatic rounds requesting resolution of the
 	// SAME IntegrationConflict.ID (a real Git merge conflict or a ChangeSet
 	// replay conflict). Distinct from RepairAttempt, which already measures
@@ -446,22 +446,22 @@ type Session struct {
 	// arrive at a conflict with fewer automatic attempts left than another
 	// plan, for no reason related to the conflict itself. Reset to 0
 	// whenever a conflict with a new ID begins.
-	ConflictAttempt int `json:"conflict_attempt,omitempty"`
-	LastRepairError                 string                       `json:"last_repair_error,omitempty"`
-	FailureKind                     string                       `json:"failure_kind,omitempty"`
-	WorkflowRound                   int                          `json:"workflow_round,omitempty"`
-	LastRequestMode                 string                       `json:"last_request_mode,omitempty"`
-	PlannerInFlight                 bool                         `json:"planner_in_flight,omitempty"`
-	RequestBaselines                map[string]string            `json:"request_baselines,omitempty"`
-	RequestContextArchives          map[string]string            `json:"-"`
-	BaselineFileSnapshots           map[string]map[string]string `json:"baseline_file_snapshots,omitempty"`
-	BaselineNotices                 []BaselineNotice             `json:"baseline_notices,omitempty"`
-	ProjectRevisions                []ProjectRevision            `json:"project_revisions,omitempty"`
-	IntegrationConflict             *ConflictResolution          `json:"integration_conflict,omitempty"`
-	Artifacts                       []ArtifactRecord             `json:"artifacts,omitempty"`
-	InterruptedExecution            *InterruptedExecution        `json:"interrupted_execution,omitempty"`
-	RemoteRecoveryAttempt           int                          `json:"remote_recovery_attempt,omitempty"`
-	RequestLineages                 map[string]RequestLineage    `json:"request_lineages,omitempty"`
+	ConflictAttempt        int                          `json:"conflict_attempt,omitempty"`
+	LastRepairError        string                       `json:"last_repair_error,omitempty"`
+	FailureKind            string                       `json:"failure_kind,omitempty"`
+	WorkflowRound          int                          `json:"workflow_round,omitempty"`
+	LastRequestMode        string                       `json:"last_request_mode,omitempty"`
+	PlannerInFlight        bool                         `json:"planner_in_flight,omitempty"`
+	RequestBaselines       map[string]string            `json:"request_baselines,omitempty"`
+	RequestContextArchives map[string]string            `json:"-"`
+	BaselineFileSnapshots  map[string]map[string]string `json:"baseline_file_snapshots,omitempty"`
+	BaselineNotices        []BaselineNotice             `json:"baseline_notices,omitempty"`
+	ProjectRevisions       []ProjectRevision            `json:"project_revisions,omitempty"`
+	IntegrationConflict    *ConflictResolution          `json:"integration_conflict,omitempty"`
+	Artifacts              []ArtifactRecord             `json:"artifacts,omitempty"`
+	InterruptedExecution   *InterruptedExecution        `json:"interrupted_execution,omitempty"`
+	RemoteRecoveryAttempt  int                          `json:"remote_recovery_attempt,omitempty"`
+	RequestLineages        map[string]RequestLineage    `json:"request_lineages,omitempty"`
 }
 
 // InterruptedExecution is a durable execution intent. Its presence means the

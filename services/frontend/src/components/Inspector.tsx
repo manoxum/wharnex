@@ -87,7 +87,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''}`}>
         {selectedTab === 'plan' && <PlanView session={session} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
-        {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
+        {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
         {desktop && <ChatGPTEnginePool
           visible={selectedTab === 'chatgpt'}
@@ -145,8 +145,7 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
 // already renders for the "no Desktop bridge" case, since the two surfaces
 // share the same "no automation available" shape; only the ZIP upload zone
 // below is new.
-function ManualChatGPTPane({ config, session, manualPrompt, manualJSON, setManualJSON, busy, copy, onManualPlan, onBundleFile }: {
-  config?: AppConfig
+function ManualChatGPTPane({ session, manualPrompt, manualJSON, setManualJSON, busy, copy, onManualPlan, onBundleFile }: {
   session: Session
   manualPrompt: string
   manualJSON: string
