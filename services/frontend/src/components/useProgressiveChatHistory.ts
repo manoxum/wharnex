@@ -6,6 +6,12 @@ const HISTORY_PAGE_SIZE = 20
 const LOAD_MORE_THRESHOLD_PX = 96
 const FOLLOW_TAIL_THRESHOLD_PX = 120
 
+type ChatViewportSnapshot = {
+  start: number
+  scrollTop: number
+  followTail: boolean
+}
+
 function initialStart(itemCount: number) {
   return Math.max(0, itemCount - INITIAL_ITEM_COUNT)
 }
@@ -15,6 +21,9 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
   const endRef = useRef<HTMLDivElement>(null)
   const previousChatIdRef = useRef(activeChatId)
   const chatEpochRef = useRef(0)
+  const viewportByChatRef = useRef(new Map<string, ChatViewportSnapshot>())
+  const restoreViewportRef = useRef<ChatViewportSnapshot | undefined>(undefined)
+  const currentStartRef = useRef(initialStart(items.length))
   const initialPositionPendingRef = useRef(true)
   const followTailRef = useRef(true)
   const loadingOlderRef = useRef(false)
@@ -22,10 +31,22 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
   const [windowState, setWindowState] = useState(() => ({ chatId: activeChatId, epoch: 0, start: initialStart(items.length), itemCount: items.length }))
 
   if (previousChatIdRef.current !== activeChatId) {
+    const previousChatId = previousChatIdRef.current
+    const stream = streamRef.current
+    if (stream) {
+      viewportByChatRef.current.set(previousChatId, {
+        start: currentStartRef.current,
+        scrollTop: stream.scrollTop,
+        followTail: followTailRef.current,
+      })
+    }
+
+    const savedViewport = viewportByChatRef.current.get(activeChatId)
     previousChatIdRef.current = activeChatId
     chatEpochRef.current += 1
-    initialPositionPendingRef.current = true
-    followTailRef.current = true
+    restoreViewportRef.current = savedViewport
+    initialPositionPendingRef.current = !savedViewport
+    followTailRef.current = savedViewport?.followTail ?? true
     loadingOlderRef.current = false
     prependSnapshotRef.current = undefined
   }
@@ -33,7 +54,10 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
   const newestStart = initialStart(items.length)
   const stateMatchesChat = windowState.chatId === activeChatId && windowState.epoch === chatEpochRef.current
   const stateWasAtTail = windowState.start === initialStart(windowState.itemCount)
-  const start = stateMatchesChat && (!followTailRef.current || !stateWasAtTail) ? Math.min(windowState.start, newestStart) : newestStart
+  const savedViewport = viewportByChatRef.current.get(activeChatId)
+  const restoredStart = savedViewport && !followTailRef.current ? Math.min(savedViewport.start, newestStart) : newestStart
+  const start = stateMatchesChat && (!followTailRef.current || !stateWasAtTail) ? Math.min(windowState.start, newestStart) : restoredStart
+  currentStartRef.current = start
   const visibleItems = useMemo(() => items.slice(start), [items, start])
 
   const loadOlder = useCallback(() => {
@@ -47,8 +71,13 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
   const onScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const stream = event.currentTarget
     followTailRef.current = stream.scrollHeight - stream.scrollTop - stream.clientHeight <= FOLLOW_TAIL_THRESHOLD_PX
+    viewportByChatRef.current.set(activeChatId, {
+      start: currentStartRef.current,
+      scrollTop: stream.scrollTop,
+      followTail: followTailRef.current,
+    })
     if (stream.scrollTop <= LOAD_MORE_THRESHOLD_PX) loadOlder()
-  }, [loadOlder])
+  }, [activeChatId, loadOlder])
 
   useLayoutEffect(() => {
     const stream = streamRef.current
@@ -59,6 +88,14 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
       stream.scrollTop = prependSnapshot.scrollTop + Math.max(0, stream.scrollHeight - prependSnapshot.scrollHeight)
       prependSnapshotRef.current = undefined
       loadingOlderRef.current = false
+      return
+    }
+
+    const restoreViewport = restoreViewportRef.current
+    if (restoreViewport) {
+      restoreViewportRef.current = undefined
+      if (restoreViewport.followTail) endRef.current?.scrollIntoView?.({ behavior: 'auto', block: 'end' })
+      else stream.scrollTop = restoreViewport.scrollTop
       return
     }
 
