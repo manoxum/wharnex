@@ -1488,9 +1488,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-workspace.drawer-open:has(.agent-drawer.activity-wide) { grid-template-columns: 42px clamp(440px, 42vw, 680px) minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr); }
 .agent-workspace.drawer-open:has(.agent-drawer.evidence-wide) { grid-template-columns: 42px clamp(340px, 32vw, 460px) minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr); }
 .agent-commandbar { grid-column: 1 / -1; grid-row: 1; min-width: 0; height: 42px; position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: stretch; border-bottom: 1px solid #30342d; background: #181b17; color: #c9d0c3; }
-.agent-commandbar .self-evolution-badge { position: absolute; left: 50%; top: 50%; z-index: 1; transform: translate(-50%, -50%); }
-.agent-direct-chatgpt-tab { grid-column: 1; min-width: 0; display: grid; grid-template-columns: 42px; }
-.agent-surface-tabs { grid-column: 3; min-width: 0; display: grid; grid-template-columns: repeat(3, 42px); }
+.agent-commandbar-center { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; pointer-events: none; }
+.agent-commandbar-center .self-evolution-badge { position: static; transform: none; }
+.agent-direct-chatgpt-tab { grid-column: 1; min-width: 0; display: grid; grid-template-columns: 42px; justify-self: start; }
+.agent-surface-tabs { grid-column: 3; min-width: 0; display: grid; grid-template-columns: repeat(3, 42px); justify-self: end; }
 .agent-direct-chatgpt-tab button, .agent-surface-tabs button { min-width: 0; height: 42px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-right: 1px solid #292d27; border-bottom: 2px solid transparent; background: transparent; color: #7f887a; cursor: pointer; }
 .agent-direct-chatgpt-tab button:hover, .agent-surface-tabs button:hover { background: #20241e; color: #cfd6c8; }
 .agent-direct-chatgpt-tab button.active, .agent-surface-tabs button.active { border-bottom-color: var(--acid); background: #21251f; color: #f0f3ec; }
