@@ -27,7 +27,10 @@ const (
 	maxRemoteArtifactBytes   = 6 << 20
 )
 
-var remoteFilenamePattern = regexp.MustCompile(`^[^/\\\x00-\x1f\x7f]{1,180}$`)
+var (
+	remoteFilenamePattern       = regexp.MustCompile(`^[^/\\\x00-\x1f\x7f]{1,180}$`)
+	remoteTunnelInstancePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+)
 
 func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, request RemoteInputRequest) (RemoteInputResult, error) {
 	status := s.RemoteInputStatus()
@@ -59,6 +62,10 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 		return RemoteInputResult{}, fmt.Errorf("artifacts: %w", err)
 	}
 	request.ProjectFiles, err = validateProjectFileReferences(item, request.ProjectFiles)
+	if err != nil {
+		return RemoteInputResult{}, err
+	}
+	request.TunnelInstanceIDs, err = validateRemoteTunnelInstanceIDs(request.TunnelInstanceIDs)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -227,6 +234,26 @@ type decodedRemoteFile struct {
 	name string
 	mime string
 	raw  []byte
+}
+
+func validateRemoteTunnelInstanceIDs(values []string) ([]string, error) {
+	if len(values) > 16 {
+		return nil, errors.New("remote tunnel selection exceeds 16 instances")
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		id := strings.TrimSpace(value)
+		if !remoteTunnelInstancePattern.MatchString(id) {
+			return nil, errors.New("remote tunnel selection contains an invalid instance id")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result, nil
 }
 
 func decodeRemoteFiles(files []RemoteInputFile, totalLimit int) ([]decodedRemoteFile, error) {

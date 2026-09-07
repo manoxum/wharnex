@@ -110,6 +110,7 @@ type RemoteInputSessionStore interface {
 
 type RemoteInputChannel struct {
 	ChannelID   string
+	InstanceIDs []string
 	RootRequest string
 	Resources   []RemoteInputChannelResource
 	Bytes       int64
@@ -141,13 +142,14 @@ type RemoteInputFile struct {
 }
 
 type RemoteInputRequest struct {
-	RequestID      string            `json:"request_id"`
-	Prompt         string            `json:"prompt"`
-	BootstrapText  string            `json:"bootstrap_text"`
-	IncludeContext bool              `json:"include_context"`
-	Attachments    []RemoteInputFile `json:"attachments"`
-	Artifacts      []RemoteInputFile `json:"artifacts"`
-	ProjectFiles   []string          `json:"project_files"`
+	RequestID         string            `json:"request_id"`
+	Prompt            string            `json:"prompt"`
+	BootstrapText     string            `json:"bootstrap_text"`
+	IncludeContext    bool              `json:"include_context"`
+	Attachments       []RemoteInputFile `json:"attachments"`
+	Artifacts         []RemoteInputFile `json:"artifacts"`
+	ProjectFiles      []string          `json:"project_files"`
+	TunnelInstanceIDs []string          `json:"tunnel_instance_ids"`
 }
 
 type RemoteInputResult struct {

@@ -14,7 +14,7 @@ import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
   loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
-  conflictChatGPTCacheKey, loadTransportOptions, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type TransportOptions, type WorkspaceChat,
+  conflictChatGPTCacheKey, enabledTunnelIds, loadTransportOptions, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
@@ -887,7 +887,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!await authorizeChatGPTConversationMismatch(targetChat)) return
     const projectPath = targetSession.project_path
     const transport = targetChat.transport || globalTransport
-    if (!transport.requestArchive && !transport.liveTunnels) throw new Error('Ativa pelo menos um transporte para enviar ao ChatGPT.')
+    const tunnelInstanceIds = enabledTunnelIds(transport, config?.remote_input?.instances || [])
 
     setChatBusy(targetChat.id, true); setError(undefined)
     const messageId = crypto.randomUUID()
@@ -936,9 +936,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 240))
           const bridge = desktopBridge()
           if (!bridge) throw new Error('Desktop bridge indisponível')
-          if (activeChatIdRef.current === targetChat.id) setTransportProgress('A publicar apenas as rotas HTTPS necessárias; os ficheiros serão lidos sob demanda…')
+          if (activeChatIdRef.current === targetChat.id) setTransportProgress('A preparar o bundle ZIP e a publicar apenas os túneis selecionados…')
           const prepared = await bridge.chatgpt.preparePrompt({
-            cacheKey: targetChat.id, text: prompt, transport, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
+            cacheKey: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
             requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: automationMode === 'auto',
             projectFiles,
             contextSha256: response.session.context.manifest.sha256, lastContextSha256: targetChat.lastContextSha256,
@@ -1477,8 +1477,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	const dedicatedConflict = Boolean(surface)
 	const dedicatedURL = surface?.url && !sameChatGPTConversation(surface.url, targetChat.chatgptUrl) ? surface.url : undefined
 	const targetURL = dedicatedConflict ? dedicatedURL : targetChat.chatgptUrl
+    const transport = targetChat.transport || globalTransport
     const prepared = await bridge.chatgpt.preparePrompt({
-	  cacheKey, text, transport: targetChat.transport || globalTransport, url: targetURL, sessionId: promptSession.id,
+	  cacheKey, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetURL, sessionId: promptSession.id,
       requestId: promptSession.last_request_id || '', attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
       projectFiles: [],
 	  contextSha256: promptSession.context.manifest.sha256, lastContextSha256: dedicatedConflict ? undefined : targetChat.lastContextSha256,
@@ -2037,9 +2038,8 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
           attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
           artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
           artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
-          requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
+          requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
           onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onChatTransportMode: changeChatTransportMode, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
-          onGlobalTransport: (transport: TransportOptions) => { setGlobalTransport(transport); saveTransportOptions(transport) },
           onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
           onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
           onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed), onRetryTransportFailure: retryTransportFailure, onCancelPendingRequest: cancelPendingRequest,

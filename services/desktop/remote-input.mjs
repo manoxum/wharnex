@@ -1,4 +1,4 @@
-export function remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments = [], artifacts = [], projectFiles = []) {
+export function remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments = [], artifacts = [], projectFiles = [], tunnelInstanceIds = []) {
   const encode = (values) => (Array.isArray(values) ? values : []).map((item) => ({
     name: String(item?.name || ''),
     mime: String(item?.mime || ''),
@@ -12,6 +12,7 @@ export function remoteInputPayload(requestId, prompt, bootstrapText, includeCont
     attachments: encode(attachments),
     artifacts: encode(artifacts),
     project_files: [...new Set((Array.isArray(projectFiles) ? projectFiles : []).map((path) => String(path || '').trim()).filter(Boolean))].slice(0, 32),
+    tunnel_instance_ids: [...new Set((Array.isArray(tunnelInstanceIds) ? tunnelInstanceIds : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 16),
   }
 }
 

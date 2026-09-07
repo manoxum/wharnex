@@ -272,21 +272,50 @@ describe('ChatPanel', () => {
     expect(onAutomationMode).toHaveBeenCalledWith('auto')
   })
 
-  it('configures ZIP and tunnel transports independently at project and chat scope', () => {
-    const onGlobalTransport = vi.fn()
+  it('keeps the request ZIP mandatory while each chat can enable or disable tunnel channels', () => {
     const onChatTransport = vi.fn()
     render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} globalTransport={{ requestArchive: true, liveTunnels: true }} chatTransport={{ requestArchive: true, liveTunnels: true }} onGlobalTransport={onGlobalTransport} onChatTransport={onChatTransport} onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false}
+        globalTransport={{ disabledTunnelIds: [] }} chatTransport={{ disabledTunnelIds: ['secondary'] }}
+        tunnelInstances={[
+          { id: 'primary', provider: 'cloudflare', available: true },
+          { id: 'secondary', provider: 'tailscale', available: true },
+          { id: 'offline', provider: 'cloudflare', available: false, error: 'offline' },
+        ]}
+        onChatTransport={onChatTransport} onSend={async () => undefined} {...chatActions} />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Transportes do ChatGPT' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Túneis do ChatGPT' }))
+    expect(screen.getByText('Sempre incluído em qualquer requisição')).toBeTruthy()
     const choices = screen.getAllByRole('menuitemcheckbox')
-    expect(choices).toHaveLength(4)
+    expect(choices).toHaveLength(3)
+    expect(choices[0].getAttribute('aria-checked')).toBe('true')
+    expect(choices[1].getAttribute('aria-checked')).toBe('false')
+    expect((choices[2] as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(choices[1])
-    expect(onGlobalTransport).toHaveBeenCalledWith({ requestArchive: true, liveTunnels: false })
-    fireEvent.click(choices[2])
-    expect(onChatTransport).toHaveBeenCalledWith({ requestArchive: false, liveTunnels: true })
+    expect(onChatTransport).toHaveBeenCalledWith({ disabledTunnelIds: [] })
+    fireEvent.click(choices[0])
+    expect(onChatTransport).toHaveBeenCalledWith({ disabledTunnelIds: ['secondary', 'primary'] })
     fireEvent.click(screen.getByRole('button', { name: /Usar padrão global/ }))
     expect(onChatTransport).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('can enable one tunnel from the migrated all-disabled selection', () => {
+    const onChatTransport = vi.fn()
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false}
+        globalTransport={{ disabledTunnelIds: ['*'] }}
+        tunnelInstances={[
+          { id: 'primary', provider: 'cloudflare', available: true },
+          { id: 'secondary', provider: 'tailscale', available: true },
+        ]}
+        onChatTransport={onChatTransport} onSend={async () => undefined} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Túneis do ChatGPT' }))
+    const choices = screen.getAllByRole('menuitemcheckbox')
+    expect(choices[0].getAttribute('aria-checked')).toBe('false')
+    expect(choices[1].getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(choices[0])
+    expect(onChatTransport).toHaveBeenCalledWith({ disabledTunnelIds: ['secondary'] })
   })
 
   it('keeps Unprotected disabled in the composer during self-evolution', () => {

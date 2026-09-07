@@ -78,6 +78,18 @@ test('local bootstrap points the model at the prompt inside the single archive',
   assert.equal(bootstrap.split('\n').length, 2)
 })
 
+test('local bootstrap exposes selected tunnel links directly without duplicating the task prompt', () => {
+  const requestId = 'req_20260905T083123_example123'
+  const archive = chatInputArchiveFilename('chat-1', requestId)
+  const bootstrap = localChatInputBootstrap(requestId, archive, `whx_bundle_res_chat-1_${requestId}.zip`, [
+    { provider: 'cloudflare', instance_id: 'primary', status: 'https://example.test/status', manifest: 'https://example.test/token/manifest.json' },
+  ])
+  assert.match(bootstrap, /TUNNELS DIRECT LINKS:/)
+  assert.match(bootstrap, /https:\/\/example\.test\/status/)
+  assert.match(bootstrap, /https:\/\/example\.test\/token\/manifest\.json/)
+  assert.doesNotMatch(bootstrap, /Return the bundle|PROJECT MANIFEST/)
+})
+
 test('input archive filename rejects non-canonical request ids', () => {
   assert.throws(() => chatInputArchiveFilename('chat-1', 'request-1'), /Invalid Wharness request id/)
 })

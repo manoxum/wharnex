@@ -112,14 +112,14 @@ test('bundle fallback snapshots assistant-turn baseline before each planner subm
   const prepare = source.slice(prepareStart, prepareEnd)
   const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
   const submit = prepare.indexOf('await submitChatGPTDraft(key)')
-  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap)')
-  assert.ok(baseline >= 0 && submit > baseline && arm > submit)
+  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt)')
+  assert.ok(baseline >= 0 && arm > baseline && submit > arm)
 
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
   const repair = source.slice(repairStart, repairEnd)
   assert.match(repair, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
-  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline\)/)
+  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, liveTunnels, text\)/)
 })
 
 test('external auth reuses the persistent Wharness browser profile and clear-session owns deletion', async () => {
@@ -158,29 +158,26 @@ test('desktop owns the new-chat affinity handshake and renderer only confirms or
   assert.match(prepare, /syncChatGPTAffinityURL\(key, target\.entry\)/)
 })
 
-test('Desktop direct embeds an optional tunnel fallback without depending on it', async () => {
+test('Desktop always sends one request ZIP and selected tunnels only augment the direct bootstrap', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /function normalizeTransportOptions\(value\)/)
-  assert.match(source, /if \(!requestArchive && !liveTunnels\) throw new Error/)
-  assert.match(source, /const requestArchive = value\?\.requestArchive === true/)
+  assert.match(source, /function normalizeTunnelInstanceIDs\(value\)/)
   const start = source.indexOf('async function preparePromptForChatGPT(request)')
   const end = source.indexOf('\nasync function attachContextToChatGPT', start)
   const prepare = source.slice(start, end)
-  assert.match(prepare, /if \(transportOptions\.liveTunnels\) \{/)
-  assert.match(prepare, /if \(!transportOptions\.requestArchive\) throw error/)
-  assert.match(prepare, /if \(!transportOptions\.requestArchive\) \{/)
-  assert.match(prepare, /const directPrompt = remoteInput\?\.fallbackPrompt \?/)
+  assert.match(prepare, /const tunnelInstanceIds = normalizeTunnelInstanceIDs\(request\?\.tunnelInstanceIds\)/)
+  assert.match(prepare, /if \(tunnelInstanceIds\.length\) \{/)
+  assert.match(prepare, /publishRemoteChatInput\([^\n]+tunnelInstanceIds\)/)
   assert.match(prepare, /materializeChatInput\([^\n]+directPrompt/)
-  assert.match(prepare, /chatGPTFillComposerScript\(bootstrap\)/)
-  assert.doesNotMatch(prepare, /chatGPTFillComposerScript\(directPrompt\)/)
-  assert.match(prepare, /materializeChatInput/)
+  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\]\)/)
+  assert.doesNotMatch(prepare, /if \(!transportOptions\.requestArchive\)/)
+  assert.doesNotMatch(prepare, /attachmentCount: 0/)
 })
 
 test('Desktop direct transport collapses prompt, context and attachments into one request ZIP', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /writeChatInputArchive/)
   const materializeStart = source.indexOf('async function materializeChatInput')
-  const materializeEnd = source.indexOf('\n\nasync function materializeCommentAttachments', materializeStart)
+  const materializeEnd = source.indexOf('\nasync function materializeProtocolChatInput', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.match(materialize, /chatInputArchiveFilename\(cacheKey, requestId\)/)
   assert.match(materialize, /writeChatInputArchive\(archivePath/)
@@ -189,11 +186,11 @@ test('Desktop direct transport collapses prompt, context and attachments into on
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const prepare = source.slice(prepareStart, prepareEnd)
-  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename\)/)
+  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\]\)/)
   assert.match(prepare, /await pasteChatGPTFile\(target\.entry, input\.archivePath, 1, 1\)/)
   assert.match(prepare, /attachmentCount: 1/)
-  assert.match(prepare, /transport=remote[^\n]+tunnels=/)
-  assert.match(prepare, /return \{ ok: true, cacheKey: key, attachmentCount: 0,[^\n]+transport: remoteInput\.mode/)
+  assert.doesNotMatch(prepare, /transport=remote[^\n]+tunnels=/)
+  assert.match(prepare, /return \{ ok: true, cacheKey: key, attachmentCount: 1/)
   assert.doesNotMatch(prepare, /for \(let index = 0; index < transportPaths\.length/)
 })
 
@@ -330,7 +327,8 @@ test('expected bundle polling rehydrates recoverable ChatGPT transport and stall
   assert.match(recovery, /const completionSettled = completion\?\.complete === true/)
   assert.match(recovery, /now - expected\.settledAt >= BUNDLE_COMPLETION_GRACE_MS/)
   assert.match(recovery, /wc\.reload\(\)/)
-  assert.match(recovery, /chatGPTStalledRecoveryPrompt\(expected\.requestId, expected\.filename, expected\.recoveryBootstrap\)/)
+  assert.match(recovery, /chatGPTStalledRecoveryPrompt\(expected\.requestId, expected\.filename, expected\.originalPrompt\)/)
+  assert.match(recovery, /fillBundledChatGPTComposer\(key, entry, expected\.requestId, prompt, expected\.filename/)
   assert.match(recovery, /await submitChatGPTDraft\(key\)/)
   assert.match(recovery, /awaitingConversationAffinity: isChatGPTAffinityAwaitingSettlement\(entry\.affinity\)/)
   assert.match(recovery, /CHATGPT_AFFINITY_RECOVERY_GRACE_MS/)
@@ -546,21 +544,20 @@ test('ChatGPT request archive upload uses the dedicated file input instead of cl
   assert.doesNotMatch(upload, /wc\.paste\(\)/)
 })
 
-test('task comment attachments are bundled into one ZIP instead of pasted as separate files', async () => {
+test('task comments are sent as a single protocol ZIP containing the guidance and attachments', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const materializeStart = source.indexOf('async function materializeCommentAttachments')
-  const materializeEnd = source.indexOf('\nasync function executeChatGPTDOMScript', materializeStart)
+  const materializeStart = source.indexOf('async function materializeProtocolChatInput')
+  const materializeEnd = source.indexOf('\nasync function fillBundledChatGPTComposer', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
-  assert.match(materialize, /writeCommentAttachmentArchive\(archivePath/)
-  assert.doesNotMatch(materialize, /paths\.push/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, prompt: promptText, attachments: decoded, liveTunnels \}\)/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
   const flushEnd = source.indexOf('\nasync function publishRemoteChannelComment', flushStart)
   const flush = source.slice(flushStart, flushEnd)
   assert.notEqual(flushStart, -1)
-  assert.match(flush, /if \(attachmentSet\.path\) await pasteChatGPTFile\(target\.entry, attachmentSet\.path, 1, 1\)/)
-  assert.doesNotMatch(flush, /for \(let index = 0; index < attachmentSet\.paths\.length/)
+  assert.match(flush, /fillBundledChatGPTComposer\(key, target\.entry, pending\.requestId, commentPrompt,[^\n]+pending\.attachments, liveTunnels\)/)
+  assert.doesNotMatch(flush, /chatGPTFillComposerScript\(pending\.text\)/)
 })
 
 test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
@@ -593,8 +590,8 @@ test('preparePromptForChatGPT disarms a stale expected bundle when the automatic
   const prepare = source.slice(prepareStart, prepareEnd)
   const submitCount = (prepare.match(/await submitChatGPTDraft\(key\)/g) || []).length
   const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
-  assert.equal(submitCount, 2, 'both the tunnel and archive autoSubmit branches call submitChatGPTDraft')
-  assert.equal(disarmCount, 2, 'a failed submit in either branch must disarm the bundle it just armed instead of leaving a stale wait')
+  assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
+  assert.equal(disarmCount, 1, 'a failed mandatory ZIP submit must disarm the bundle it just armed instead of leaving a stale wait')
 
   const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(cacheKey)')
   const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)

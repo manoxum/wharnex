@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
 	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
+  enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -55,11 +55,15 @@ describe('workspace memory', () => {
     expect(loadAutomationMode('/tmp/project')).toBe('auto')
   })
 
-  it('persists independent project transport switches and prevents disabling both', () => {
-    expect(loadTransportOptions()).toEqual({ requestArchive: false, liveTunnels: true })
-    saveTransportOptions({ requestArchive: true, liveTunnels: false })
-    expect(loadTransportOptions()).toEqual({ requestArchive: true, liveTunnels: false })
-    expect(normalizeTransportOptions({ requestArchive: false, liveTunnels: false })).toEqual({ requestArchive: false, liveTunnels: true })
+  it('persists disabled tunnel choices while the request ZIP stays mandatory', () => {
+    expect(loadTransportOptions()).toEqual({ disabledTunnelIds: [] })
+    saveTransportOptions({ disabledTunnelIds: ['secondary'] })
+    expect(loadTransportOptions()).toEqual({ disabledTunnelIds: ['secondary'] })
+    expect(normalizeTransportOptions({ liveTunnels: false })).toEqual({ disabledTunnelIds: ['*'] })
+    localStorage.removeItem('kernl.workspace.transport-options.v3')
+    localStorage.setItem('kernl.workspace.transport-options.v2', JSON.stringify({ requestArchive: true, liveTunnels: false }))
+    expect(loadTransportOptions()).toEqual({ disabledTunnelIds: ['*'] })
+    expect(enabledTunnelIds({ disabledTunnelIds: ['secondary'] }, [{ id: 'primary', available: true }, { id: 'secondary', available: true }, { id: 'offline', available: false }])).toEqual(['primary'])
   })
 
   it('deduplicates recent workspaces', () => {
@@ -68,7 +72,7 @@ describe('workspace memory', () => {
   })
 
   it('persists multiple Harness chats with independent ChatGPT URLs and histories', () => {
-    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa', requestMode: 'plan_first' as const, transport: { requestArchive: false, liveTunnels: true }, pendingPlan: { requestId: 'req-1', originalMessage: 'alterar UI' } }
+    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), chatgptUrl: 'https://chatgpt.com/c/aaa', requestMode: 'plan_first' as const, transport: { disabledTunnelIds: ['fallback'] }, pendingPlan: { requestId: 'req-1', originalMessage: 'alterar UI' } }
     const second = { ...newWorkspaceChat('ses-2', 'Segundo'), chatgptUrl: 'https://chatgpt.com/c/bbb' }
     saveWorkspaceChats('/tmp/project', [first, second])
     saveChat('/tmp/project', first.id, [{ id: 'm1', role: 'user', text: 'A' }])
@@ -78,7 +82,7 @@ describe('workspace memory', () => {
     expect(loaded).toHaveLength(2)
     expect(loaded.map((item) => item.chatgptUrl).sort()).toEqual(['https://chatgpt.com/c/aaa', 'https://chatgpt.com/c/bbb'])
     expect(loaded.find((item) => item.id === first.id)?.pendingPlan?.requestId).toBe('req-1')
-    expect(loaded.find((item) => item.id === first.id)?.transport).toEqual({ requestArchive: false, liveTunnels: true })
+    expect(loaded.find((item) => item.id === first.id)?.transport).toEqual({ disabledTunnelIds: ['fallback'] })
     expect(loadChat('/tmp/project', first.id)[0].text).toBe('A')
     expect(loadChat('/tmp/project', second.id)[0].text).toBe('B')
   })

@@ -193,14 +193,14 @@ export function isChatGPTConversationTransportURL(value) {
   } catch { return false }
 }
 
-export function chatGPTStalledRecoveryPrompt(requestId, filename, remoteInputBootstrap = '') {
+export function chatGPTStalledRecoveryPrompt(requestId, filename, originalPrompt = '') {
   const id = String(requestId || '').trim()
   const expected = String(filename || '').trim()
-  const bootstrap = String(remoteInputBootstrap || '').trim()
-  const retry = bootstrap
-    ? `\n\nThe original request used remote input. First repeat the remote-input download from this original bootstrap, fetching its raw binary response rather than treating it as a source page:\n\n${bootstrap}`
+  const original = String(originalPrompt || '').trim()
+  const repeated = original
+    ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this recovery bundle:\n\n${original}`
     : ''
-  return `WHARNESS PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request from the existing context without restarting or changing scope.${retry}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharness file-first contract. Finish with the file attachment only.`
+  return `WHARNESS PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request without restarting or changing scope.${repeated}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharness file-first contract. Finish with the file attachment only.`
 }
 
 function finiteTime(value) {

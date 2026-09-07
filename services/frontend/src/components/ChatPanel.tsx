@@ -19,7 +19,7 @@ function clampComposerHeight(height: number) {
   return Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)))
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { requestArchive: false, liveTunnels: true }, chatTransport, taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onToggleArtifact, onRequestMode, onGlobalTransport, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -40,6 +40,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   requestMode?: ChatRequestMode
   globalTransport?: TransportOptions
   chatTransport?: TransportOptions
+  tunnelInstances?: Array<{ id: string; provider: string; available: boolean; error?: string }>
   taskInFlight?: boolean
   queuedRequests?: QueuedChatRequest[]
   transportProgress?: string
@@ -48,7 +49,6 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onChatTransportMode?: (mode: ChatTransportMode) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
   onRequestMode?: (mode: ChatRequestMode) => void
-  onGlobalTransport?: (transport: TransportOptions) => void
   onChatTransport?: (transport?: TransportOptions) => void
   onSend: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<void>
   onComment?: (message: string, attachments: File[]) => Promise<void>
@@ -344,7 +344,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(Array.from(event.target.files || []))}/>
           <button type="button" className={attachments.length ? 'composer-round-action selected' : 'composer-round-action'} disabled={!attachmentsEnabled || Boolean(preparedAttachmentCount)} onClick={() => fileInputRef.current?.click()} title={attachmentsEnabled ? `Ficheiros do utilizador${attachments.length ? ` · ${attachments.length} selecionado(s)` : ''}` : 'Anexos diretos requerem o Desktop com planner manual'} aria-label="Anexar ficheiros"><Icon name="file" size={12}/>{attachments.length > 0 && <b>{attachments.length}</b>}</button>
           <span className="composer-action-divider" />
-          <span className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || (effectiveTransport.requestArchive && effectiveTransport.liveTunnels) ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Transportes do ChatGPT" title="Configurar contexto remoto e ZIP de compatibilidade" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Padrão global</strong><TransportChoices value={globalTransport} onChoose={onGlobalTransport}/><strong>Este chat</strong><TransportChoices value={effectiveTransport} onChoose={onChatTransport}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Remove a substituição deste chat</small></span></button>}</span>}</span>
+          <span className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
           <span className="composer-mode-group" role="group" aria-label="Proteção de execução">
             <button type="button" className={`composer-round-action mode-protected ${currentExecutionMode === 'protected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode} aria-pressed={currentExecutionMode === 'protected'} aria-label="Protected" title="Protected · executar e verificar primeiro na sandbox" onClick={() => onExecutionMode?.('protected')}><Icon name="shield" size={12}/></button>
             <button type="button" className={`composer-round-action mode-unprotected ${currentExecutionMode === 'unprotected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode || Boolean(session.self_evolution)} aria-pressed={currentExecutionMode === 'unprotected'} aria-label="Unprotected" title={session.self_evolution ? 'Unprotected indisponível · auto-evolução do Wharness é sempre Protected' : 'Unprotected · executar diretamente no projeto real'} onClick={() => onExecutionMode?.('unprotected')}><Icon name="external" size={12}/></button>
@@ -450,15 +450,23 @@ function DiffInspector({ sessionId, file, onOpenFile, onClose }: { sessionId: st
   return <div className="diff-inspector-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="diff-inspector" role="dialog" aria-modal="true" aria-label={`Diff de ${file.path}`}><header><div><strong>{file.path}</strong><span>+{file.additions} −{file.deletions}</span></div><div><button type="button" className="text-button" onClick={() => { onOpenFile?.(file.path); onClose() }}><Icon name="file" size={12}/> Abrir no Editor</button><button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></div></header><ChangeDiffEditor sessionId={sessionId} file={file}/></section></div>
 }
 
-function TransportChoices({ value, onChoose }: { value: TransportOptions; onChoose?: (value: TransportOptions) => void }) {
-  const toggle = (key: keyof TransportOptions) => {
-    const next = { ...value, [key]: !value[key] }
-    if (next.requestArchive || next.liveTunnels) onChoose?.(next)
+function TransportChoices({ value, tunnels, onChoose }: { value: TransportOptions; tunnels: Array<{ id: string; provider: string; available: boolean; error?: string }>; onChoose?: (value: TransportOptions) => void }) {
+  const disabled = new Set(value.disabledTunnelIds)
+  const toggle = (id: string) => {
+    if (disabled.has('*')) {
+      onChoose?.({ disabledTunnelIds: tunnels.map((tunnel) => tunnel.id).filter((tunnelId) => tunnelId !== id) })
+      return
+    }
+    const next = new Set(disabled)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChoose?.({ disabledTunnelIds: [...next] })
   }
-  return <>
-    <button type="button" role="menuitemcheckbox" aria-checked={value.requestArchive} disabled={value.requestArchive && !value.liveTunnels} title={value.requestArchive && !value.liveTunnels ? 'Ativa primeiro outro transporte' : undefined} onClick={() => toggle('requestArchive')}><Icon name="file" size={13}/><span>Bundle de requisição ZIP<small>Compatibilidade opcional; envia um arquivo ao ChatGPT</small></span>{value.requestArchive && <Icon name="check" size={13}/>}</button>
-    <button type="button" role="menuitemcheckbox" aria-checked={value.liveTunnels} disabled={value.liveTunnels && !value.requestArchive} title={value.liveTunnels && !value.requestArchive ? 'Ativa primeiro outro transporte' : undefined} onClick={() => toggle('liveTunnels')}><Icon name="network" size={13}/><span>Contexto remoto em tempo real<small>Expõe rotas HTTPS individuais sem enviar o ZIP</small></span>{value.liveTunnels && <Icon name="check" size={13}/>}</button>
-  </>
+  if (!tunnels.length) return <span className="transport-empty">Nenhum túnel configurado.</span>
+  return <>{tunnels.map((tunnel) => {
+    const enabled = tunnel.available && !disabled.has('*') && !disabled.has(tunnel.id)
+    return <button key={tunnel.id} type="button" role="menuitemcheckbox" aria-checked={enabled} disabled={!tunnel.available} title={tunnel.error || undefined} onClick={() => toggle(tunnel.id)}><Icon name="network" size={13}/><span>{tunnel.id}<small>{tunnel.provider}{tunnel.available ? '' : ' · indisponível'}</small></span>{enabled && <Icon name="check" size={13}/>}</button>
+  })}</>
 }
 
 function ArtifactToggle({ kind, label, selected, required = false, disabled = false, inspectable = false, onToggle, onInspect }: { kind: ChatArtifactKind; label: string; selected: boolean; required?: boolean; disabled?: boolean; inspectable?: boolean; onToggle?: (kind: ChatArtifactKind) => void; onInspect?: (kind: ChatArtifactKind) => void }) {

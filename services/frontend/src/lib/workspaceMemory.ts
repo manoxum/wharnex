@@ -10,10 +10,11 @@ const ARCHIVED_CHAT_INDEX_PREFIX = 'kernl.workspace.chats.archived.v1:'
 const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
 const AUTOMATION_MODE_PREFIX = 'kernl.workspace.automation-mode.v1:'
 const EXECUTION_HISTORY_PREFIX = 'kernl.workspace.execution-history.v1:'
-export const TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v2'
+const LEGACY_TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v2'
+export const TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v3'
 
-export type TransportOptions = { requestArchive: boolean; liveTunnels: boolean }
-export const DEFAULT_TRANSPORT_OPTIONS: TransportOptions = { requestArchive: false, liveTunnels: true }
+export type TransportOptions = { disabledTunnelIds: string[] }
+export const DEFAULT_TRANSPORT_OPTIONS: TransportOptions = { disabledTunnelIds: [] }
 
 export type ActiveWorkspace = {
   sessionId: string
@@ -98,8 +99,8 @@ export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
 
 export function loadTransportOptions(): TransportOptions {
   try {
-    const raw = localStorage.getItem(TRANSPORT_OPTIONS_STORAGE_KEY)
-    const value = raw ? JSON.parse(raw) as Partial<TransportOptions> : {}
+    const raw = localStorage.getItem(TRANSPORT_OPTIONS_STORAGE_KEY) || localStorage.getItem(LEGACY_TRANSPORT_OPTIONS_STORAGE_KEY)
+    const value = raw ? JSON.parse(raw) as Partial<TransportOptions> & { liveTunnels?: boolean } : {}
     return normalizeTransportOptions(value)
   } catch { return { ...DEFAULT_TRANSPORT_OPTIONS } }
 }
@@ -109,12 +110,16 @@ export function saveTransportOptions(value: TransportOptions) {
   try { localStorage.setItem(TRANSPORT_OPTIONS_STORAGE_KEY, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
 }
 
-export function normalizeTransportOptions(value?: Partial<TransportOptions>): TransportOptions {
-  const normalized = {
-    requestArchive: value?.requestArchive === true,
-    liveTunnels: value?.liveTunnels !== false,
-  }
-  return normalized.requestArchive || normalized.liveTunnels ? normalized : { ...DEFAULT_TRANSPORT_OPTIONS }
+export function normalizeTransportOptions(value?: Partial<TransportOptions> & { liveTunnels?: boolean }): TransportOptions {
+  if (value?.liveTunnels === false) return { disabledTunnelIds: ['*'] }
+  const disabledTunnelIds = [...new Set((Array.isArray(value?.disabledTunnelIds) ? value.disabledTunnelIds : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 64)
+  return { disabledTunnelIds }
+}
+
+export function enabledTunnelIds(value: TransportOptions | undefined, instances: Array<{ id: string; available?: boolean }> = []): string[] {
+  const disabled = new Set(normalizeTransportOptions(value).disabledTunnelIds)
+  if (disabled.has('*')) return []
+  return instances.filter((instance) => instance.available !== false && !disabled.has(instance.id)).map((instance) => instance.id).slice(0, 16)
 }
 
 export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {
@@ -246,6 +251,7 @@ function normalizeWorkspaceChatAffinity(chat: WorkspaceChat): WorkspaceChat {
   else delete normalized.chatgptUrl
   if (lastContextChatgptUrl) normalized.lastContextChatgptUrl = lastContextChatgptUrl
   else delete normalized.lastContextChatgptUrl
+  if (chat.transport) normalized.transport = normalizeTransportOptions(chat.transport as TransportOptions & { liveTunnels?: boolean })
 	if (chat.conflictSurfaces && typeof chat.conflictSurfaces === 'object') {
 		const surfaces: NonNullable<WorkspaceChat['conflictSurfaces']> = {}
 		for (const [id, surface] of Object.entries(chat.conflictSurfaces)) {
