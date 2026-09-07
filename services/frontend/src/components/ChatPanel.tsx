@@ -253,12 +253,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     }, 1400)
   }
 
-  const activeChat = chats.find((chat) => chat.id === activeChatId)
-  const headerTitle = activeChat?.title || session.context.manifest.project_root.split('/').pop() || 'Harness Chat'
-
   return <section className={`chat-panel ${embedded ? 'embedded' : ''}`}>
     <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
-      <div className="chat-header-copy"><span className="panel-kicker">Harness chat</span><h2 title={headerTitle}>{headerTitle}</h2></div>
       <div className="chat-header-context" aria-label="Contexto isolado">
         <span className="chat-header-context-icon"><Icon name="shield" size={13}/></span>
         <span><strong>Contexto isolado</strong><small>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</small></span>

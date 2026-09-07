@@ -61,6 +61,19 @@ describe('ChatPanel', () => {
     expect(view.container.querySelector('.chat-stream .system-note')).toBeNull()
   })
 
+  it('removes redundant chat labels from the header while keeping the title in the switcher', () => {
+    const now = new Date().toISOString()
+    const chat = { id: 'chat-1', title: 'Nome de chat', sessionId: session.id, createdAt: now, updatedAt: now }
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[chat]} activeChatId={chat.id} busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const header = view.container.querySelector('.chat-header')
+    expect(header?.firstElementChild?.classList.contains('chat-header-context')).toBe(true)
+    expect(header?.textContent).not.toContain('Harness chat')
+    expect(header?.textContent).not.toContain('Nome de chat')
+    expect(screen.getByText('Nome de chat')).toBeTruthy()
+  })
+
 
   it('renders only the latest transcript window and loads older messages when scrolling upward', async () => {
     const items = Array.from({ length: 25 }, (_, index) => ({ id: `history-${index + 1}`, role: 'user' as const, text: `mensagem ${index + 1}` }))

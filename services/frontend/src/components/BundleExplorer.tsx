@@ -10,7 +10,7 @@ type BundleTone = 'request-main' | 'request-repair' | 'request-summary' | 'respo
 type BundlePresentation = { tone: BundleTone; label: string }
 
 export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
-  const bundles = useMemo(() => artifacts.filter((item) => item.bundle).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
+  const bundles = useMemo(() => artifacts.filter((item) => item.kind === 'bundle' && item.bundle).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
   const counts = useMemo(() => ({ input: bundles.filter((item) => item.direction === 'input').length, output: bundles.filter((item) => item.direction === 'output').length }), [bundles])
   const [selected, setSelected] = useState<ArtifactRecord>()
   if (!bundles.length) return null
