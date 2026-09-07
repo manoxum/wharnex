@@ -33,6 +33,18 @@ describe('chat header CSS', () => {
     expect(exportButton).toContain('padding: 0')
     expect(exportButton).toContain('justify-content: center')
   })
+
+  it('keeps bundle counters readable without spending space on a text label', () => {
+    const summary = firstRule('.bundle-exchange-summary')
+    const stats = firstRule('.bundle-exchange-stats')
+    const total = firstRule('.bundle-exchange-stats b')
+    const directional = firstRule('.bundle-exchange-stats i')
+
+    expect(summary).toContain('gap:4px')
+    expect(stats).toContain('gap:4px')
+    expect(total).toContain('font-size:10px')
+    expect(directional).toContain('font-size:9px')
+  })
 })
 
 describe('composer layout CSS', () => {
