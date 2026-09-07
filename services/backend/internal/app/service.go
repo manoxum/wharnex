@@ -1364,6 +1364,8 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 		current.LastManualPrompt = ""
 		if unprotected {
 			current.State = "applied"
+			current.LastHostCommands = append([]domain.CommandResult(nil), result.Commands...)
+			current.LastHostAppliedAt = result.CompletedAt
 		} else {
 			pendingBase := current.PendingHostChanges
 			if current.IntegrationConflict != nil && current.IntegrationConflict.RequestID == item.Plan.RequestID {
@@ -1404,6 +1406,9 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 		}
 		s.closeRemoteInputChannel(sessionID, "request.completed")
 		s.triggerKnowledgeReview(ctx, sessionID)
+		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+			updated = reviewed
+		}
 	}
 	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	return result, updated, nil
@@ -2011,6 +2016,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	defer s.hostRunner.Cleanup(workspace)
 	appliedPatches := make([]string, 0, len(patches))
+	hostCommands := make([]domain.CommandResult, 0)
 	var integrationJournal *changeset.Journal
 	// mergedIntegrationBranches/preMergeIntegrationSHA are set by the
 	// useIntegrationBranches block below, once real merges have actually
@@ -2163,6 +2169,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 					}
 					return item, failApply(fmt.Errorf("host git operation failed: %s", strings.TrimSpace(result.Stderr)))
 				}
+				hostCommands = append(hostCommands, result)
 			}
 		}
 	}
@@ -2185,12 +2192,14 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				}
 				return item, failApply(runErr)
 			}
+			hostCommands = append(hostCommands, result)
 			s.bus.Publish(sessionID, "integration.verification_completed", map[string]any{"plan_id": pending[index].Plan.PlanID, "exit_code": result.ExitCode, "target": "host"})
 		}
 	}
 	if selfEvolution {
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "building", "verified patch applied; building real Wharness host runtime")
 		s.bus.Publish(sessionID, "self_evolution.host_build_started", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
+		buildStarted := time.Now().UTC()
 		output, buildErr := s.selfEvolution.BuildHost(ctx, transaction, func(stream, text string) {
 			// This build can run for minutes (dependency hydration, npm ci,
 			// vite/tsc, go build) with nothing surfaced until it finally
@@ -2207,9 +2216,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			return item, failApply(buildErr)
 		}
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "restart_pending", "host build passed; explicit restart confirmation pending")
+		hostCommands = append(hostCommands, domain.CommandResult{Argv: []string{"make", "build-stage"}, Cwd: ".", ExitCode: 0, Success: true, DurationMS: time.Since(buildStarted).Milliseconds()})
 		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 	}
 
+	hostAppliedAt := time.Now().UTC()
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		if selfEvolution {
 			current.State = "restart_pending"
@@ -2219,6 +2230,8 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		current.SelfEvolution = current.SelfEvolution || selfEvolution
 		current.LastAppliedChanges = append([]domain.PendingHostChange(nil), pending...)
+		current.LastHostCommands = append([]domain.CommandResult(nil), hostCommands...)
+		current.LastHostAppliedAt = hostAppliedAt
 		current.PendingHostChanges = nil
 		clearSessionFailure(current)
 		if selfEvolution && current.LastTurn != nil && len(current.LastTurn.ResolvedEvidenceIDs) > 0 {
@@ -2253,6 +2266,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		s.closeRemoteInputChannel(sessionID, "request.completed")
 		s.triggerKnowledgeReview(ctx, sessionID)
+		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+			updated = reviewed
+		}
 		return updated, nil
 	}
 
@@ -2266,6 +2282,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	s.closeRemoteInputChannel(sessionID, "request.completed")
 	s.triggerKnowledgeReview(ctx, sessionID)
+	if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
+		updated = reviewed
+	}
 	return updated, nil
 }
 
@@ -2367,6 +2386,8 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.State = "reverted"
 		current.LastAppliedChanges = nil
+		current.LastHostCommands = nil
+		current.LastHostAppliedAt = time.Time{}
 		return nil
 	})
 	if err != nil {

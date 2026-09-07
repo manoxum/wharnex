@@ -146,15 +146,15 @@ type Operation struct {
 }
 
 type ExecutionPlan struct {
-	Protocol          string        `json:"protocol"`
-	BaseContextSHA256 string        `json:"base_context_sha256,omitempty"`
-	ImpactFiles       []string      `json:"impact_files,omitempty"`
-	ReadFiles         []string      `json:"read_files,omitempty"`
-	BarrierFiles      []string      `json:"barrier_files,omitempty"`
-	PlanID            string        `json:"plan_id"`
-	RequestID         string        `json:"request_id"`
-	Status            string        `json:"status"`
-	Summary           string        `json:"summary"`
+	Protocol          string   `json:"protocol"`
+	BaseContextSHA256 string   `json:"base_context_sha256,omitempty"`
+	ImpactFiles       []string `json:"impact_files,omitempty"`
+	ReadFiles         []string `json:"read_files,omitempty"`
+	BarrierFiles      []string `json:"barrier_files,omitempty"`
+	PlanID            string   `json:"plan_id"`
+	RequestID         string   `json:"request_id"`
+	Status            string   `json:"status"`
+	Summary           string   `json:"summary"`
 	// CommitMessage is the planner-authored Git commit message for a
 	// `change` plan's patch, used verbatim (after sanitization) as the
 	// commit Wharnex makes on the sandbox's own integration branch before
@@ -393,6 +393,8 @@ type Session struct {
 	LastExecution           *ExecutionResult     `json:"last_execution,omitempty"`
 	PendingHostChanges      []PendingHostChange  `json:"pending_host_changes,omitempty"`
 	LastAppliedChanges      []PendingHostChange  `json:"last_applied_changes,omitempty"`
+	LastHostCommands        []CommandResult      `json:"last_host_commands,omitempty"`
+	LastHostAppliedAt       time.Time            `json:"last_host_applied_at,omitempty"`
 	LastProviderResponseID  string               `json:"last_provider_response_id,omitempty"`
 	LastRequestID           string               `json:"last_request_id,omitempty"`
 	PendingManualRequestIDs []string             `json:"pending_manual_request_ids,omitempty"`

@@ -1174,6 +1174,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       busyTargetChatId = targetChat.id
       setChatBusy(busyTargetChatId, true)
 
+      const knowledgeReviewResult = targetSession.pending_knowledge_review_request_id === requestId
       const submission = await api.executionBundle(targetSession.id, filename, contentBase64)
       const updated = submission.session
       // A pending-approval pause (network access, high-risk command, an
@@ -1228,10 +1229,31 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (targetChat.id === activeChatIdRef.current) {
         setSession(updated); setManualPrompt(updated.last_manual_prompt || '')
       }
-      appendChatItem(targetChat, updated.project_path, bundleItem)
-      if (submission.auto_applied) {
-        const change = buildChangeSummary(appliedSummaryPlan(updated))
-        if (change) appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'change', createdAt: change.appliedAt, text: 'Resumo das alterações aplicadas ao host.', change })
+      const waitingForKnowledgeReview = submission.auto_applied && Boolean(updated.pending_knowledge_review_request_id)
+      if (waitingForKnowledgeReview && updated.automation_mode === 'auto' && updated.last_manual_prompt) {
+        const dispatchKey = `knowledge:${targetChat.id}:${updated.pending_knowledge_review_request_id}`
+        if (!baselineSeenRef.current.has(dispatchKey)) {
+          baselineSeenRef.current.add(dispatchKey)
+          try {
+            await transportPlannerContinuation(updated, targetChat)
+          } catch (sendError) {
+            baselineSeenRef.current.delete(dispatchKey)
+            throw sendError
+          }
+        }
+      }
+      if (waitingForKnowledgeReview) {
+        appendChatItem(targetChat, updated.project_path, {
+          id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.',
+          meta: 'Host aplicado · revisão final',
+        })
+      } else {
+        appendChatItem(targetChat, updated.project_path, bundleItem)
+      }
+      if (knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview)) {
+        const change = buildAppliedChangeSummary(updated)
+        if (change) appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'change', createdAt: change.appliedAt, text: 'Alterações e comandos aplicados ao host.', change })
       }
       if (submission.auto_error && !pendingApproval) reportChatError(`A execução automática do bundle falhou:\n\n${submission.auto_error}`, 'Execução do bundle falhou', targetChat, updated.project_path)
       if (submission.auto_executed && updated.last_execution) updateWorkspaceChat(targetChat.id, updated.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: updated.last_execution.success === false } })
@@ -1575,10 +1597,24 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setSession(updated)
       markContextDirtyForOtherChats(updated.project_path, activeChatId)
       void syncPeerBaselineUpdates(updated.project_path, activeChatId)
-      const change = buildChangeSummary(appliedSummaryPlan(updated))
+      const targetChat = chats.find((chat) => chat.id === activeChatId)
+      const waitingForKnowledgeReview = Boolean(updated.pending_knowledge_review_request_id)
+      if (waitingForKnowledgeReview && updated.automation_mode === 'auto' && updated.last_manual_prompt && targetChat) {
+        const dispatchKey = `knowledge:${targetChat.id}:${updated.pending_knowledge_review_request_id}`
+        if (!baselineSeenRef.current.has(dispatchKey)) {
+          baselineSeenRef.current.add(dispatchKey)
+          try {
+            await transportPlannerContinuation(updated, targetChat)
+          } catch (sendError) {
+            baselineSeenRef.current.delete(dispatchKey)
+            throw sendError
+          }
+        }
+      }
+      const change = waitingForKnowledgeReview ? undefined : buildAppliedChangeSummary(updated)
       setItems((current) => [...current,
-        { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.', meta: updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado' },
-        ...(change ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, createdAt: change.appliedAt, text: 'Resumo das alterações aplicadas ao host.', change }] : []),
+        { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: waitingForKnowledgeReview ? (updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.') : (updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.'), meta: waitingForKnowledgeReview ? 'Host aplicado · revisão final' : (updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado') },
+        ...(change ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, createdAt: change.appliedAt, text: 'Alterações e comandos aplicados ao host.', change }] : []),
       ])
 	} catch (e) {
 	  setError(messageOf(e))
@@ -2015,6 +2051,10 @@ function requestChainActive(session: Session) {
   if (session.planner_in_flight || session.pending_manual_request_ids?.length) return true
   if (session.self_evolution_activation === 'restart_scheduled') return true
   return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending', 'restart_scheduled']).has(session.state)
+}
+
+function buildAppliedChangeSummary(session: Session) {
+  return buildChangeSummary(appliedSummaryPlan(session), session.last_host_applied_at || new Date().toISOString(), session.last_host_commands || [])
 }
 
 function appliedSummaryPlan(session: Session) {

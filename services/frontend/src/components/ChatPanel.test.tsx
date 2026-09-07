@@ -51,6 +51,16 @@ describe('ChatPanel', () => {
   })
 
 
+  it('renders actual host commands after the applied diff summary', () => {
+    render(
+      <ChatPanel session={session} items={[{ id: 'change-1', role: 'harness', source: 'wharness', presentation: 'change', text: 'Alterações e comandos aplicados ao host.', change: { planId: 'plan-1', files: [], hostCommands: [{ argv: ['make', 'build-stage'], cwd: '.', exit_code: 0, stdout: '', stderr: '', success: true, duration_ms: 4321 }], appliedAt: '2026-09-07T10:00:00Z', canRevert: false } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(screen.getByText('Comandos no host')).toBeTruthy()
+    expect(screen.getByText('make build-stage')).toBeTruthy()
+    expect(screen.getByText('. · exit 0 · 4321 ms')).toBeTruthy()
+  })
+
+
   it('renders the new-chat control as an icon-only plus button', () => {
     render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
