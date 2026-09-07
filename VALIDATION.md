@@ -1,3 +1,11 @@
+## v1.2.46.3 knowledge document sent on every request, reframed as operational
+
+- `TestSubmitMessageIncludesKnowledgeSourceOnEveryRequest` replaces the old first-request-only test: the second request in the same chat now still carries `PROJECT KNOWLEDGE`.
+- `TestExecutionFailureRepairRequestIncludesProjectKnowledge` covers the actual gap: an automatic repair round previously built its planner request with no `KnowledgeSource` at all, in any chat position. Same fix applied to workflow-continuation (`service_workflow.go`) and both conflict-resolution rounds (`service_changeset.go`, `service_gitintegration.go`), which had the identical gap.
+- `internal/planner/prompt.go`: the `PROJECT KNOWLEDGE` prompt section and the `knowledge_review` round's `knowledge.md` authoring instructions now both direct the planner toward procedural/operational lessons (what made a change fail to apply/need repair/hit conflict, and how to avoid that) and explicitly away from restating normative rules already supplied via `AGENTS.md`/`SoT`/ADR context.
+- ADR-0028 amended with a dated section explaining the delivery-scope and content-priority change; `SoT/AI_PROTOCOL.md`'s normative `knowledge_review` bullets updated to match; `CHANGELOG.md` records the user-facing change.
+- Gates run in the real workspace: `gofmt -l`, `go vet ./...`, `go test ./...`, `go test -race ./...` all pass.
+
 ## v1.2.46.2 self-evolution orphaned-lock recovery
 
 - `TestPrepareReclaimsAFailClosedLockWhoseTransactionDirectoryIsGone` reproduces the observed production deadlock: `active.lock` held from a different runtime instance, `status` fail-closed at `rollback_failed`, and its `transaction=` directory already absent from disk. `Prepare` now reclaims the lock and returns a new transaction instead of `ErrBusy`, and writes an audit line to `self-evolution.log` naming the discarded transaction/phase.
