@@ -45,7 +45,7 @@ interface WharnessDesktopBridge {
     back(cacheKey: string): Promise<{ ok: boolean }>
     forward(cacheKey: string): Promise<{ ok: boolean }>
     paste(cacheKey: string): Promise<{ ok: boolean }>
-    submitPrompt(request: { cacheKey: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
+    submitPrompt(request: { cacheKey: string; sessionId: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
     preparePrompt(request: { cacheKey: string; text: string; transport?: { disabledTunnelIds: string[] }; tunnelInstanceIds?: string[]; bootstrapText?: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; artifacts?: DesktopUserAttachment[]; projectFiles?: string[]; autoSubmit?: boolean; contextSha256?: string; lastContextSha256?: string; lastContextChatgptUrl?: string; includeContext?: boolean; preferCurrentConversation?: boolean; firstRequest?: boolean; chatTitle?: string; projectName?: string }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string; transport?: 'tunnel' | 'remote_channel'; provider?: string; instanceId?: string; expiresAt?: string }>
     retryPreparedPrompt(request: { cacheKey: string; expectedRequestId?: string }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string; transport?: 'tunnel' | 'remote_channel'; provider?: string; instanceId?: string; expiresAt?: string }>
     attachContext(request: { cacheKey: string; sessionId: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
@@ -69,7 +69,7 @@ interface WharnessDesktopBridge {
     startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     openExternal(url?: string): Promise<{ ok: boolean }>
     resumeEmbedded(cacheKey: string): Promise<DesktopChatGPTState>
-    resumeExpectedBundle(request: { cacheKey: string; requestId: string; url: string; recoveryBootstrap?: string }): Promise<{ ok: boolean; cacheKey: string; requestId: string; expectedFilename: string }>
+    resumeExpectedBundle(request: { cacheKey: string; sessionId: string; requestId: string; url: string; recoveryBootstrap?: string }): Promise<{ ok: boolean; cacheKey: string; requestId: string; expectedFilename: string }>
     continueExpectedBundle(cacheKey: string, requestId: string, options?: { force?: boolean }): Promise<{ ok: boolean; cacheKey: string; requestId: string; confirmationRequired?: boolean }>
     pickBundle(request: { requestId: string }): Promise<{ cancelled: boolean; filename?: string; requestId?: string; contentBase64?: string; bytes?: number; sourceFilename?: string; normalizedFilename?: boolean }>
     onState(callback: (state: DesktopChatGPTState) => void): () => void

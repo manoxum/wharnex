@@ -226,3 +226,28 @@ func TestSubmitMessageIncludesKnowledgeSourceOnEveryRequest(t *testing.T) {
 		t.Fatal("a later request in the same chat must still include the project's knowledge source")
 	}
 }
+
+func TestSelectKnowledgeReviewHistoryPreservesEarlyPatchFailure(t *testing.T) {
+	history := make([]domain.Event, 0, 700)
+	for i := 0; i < 700; i++ {
+		event := domain.Event{Type: "planner.progress", Data: map[string]any{"index": i}}
+		if i == 25 {
+			event = domain.Event{Type: "changeset.apply_failed", Data: map[string]any{"error": "patch rejected"}}
+		}
+		history = append(history, event)
+	}
+	selected := selectKnowledgeReviewHistory(history)
+	if len(selected) > maxKnowledgeReviewHistoryEvents {
+		t.Fatalf("selected %d events, cap is %d", len(selected), maxKnowledgeReviewHistoryEvents)
+	}
+	found := false
+	for _, event := range selected {
+		if event.Type == "changeset.apply_failed" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("early patch failure must survive bounded knowledge-review history selection")
+	}
+}

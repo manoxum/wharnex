@@ -4,17 +4,128 @@
   "title": "Wharness direct ChatGPT input archive manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "request_id", "prompt", "context_included", "project_files", "live_tunnels"],
+  "required": [
+    "protocol",
+    "request_id",
+    "prompt",
+    "context_included",
+    "context_root",
+    "project_files",
+    "knowledge",
+    "live_tunnels"
+  ],
   "properties": {
-    "protocol": { "const": "wharness.chat-input/v1" },
-    "request_id": { "type": "string", "minLength": 12, "maxLength": 184, "pattern": "^req_[A-Za-z0-9_-]{8,180}$" },
-    "prompt": { "const": "prompt/wharness-planner-prompt.md" },
-    "context_included": { "type": "boolean" },
+    "protocol": {
+      "const": "wharness.chat-input/v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 12,
+      "maxLength": 184,
+      "pattern": "^req_[A-Za-z0-9_-]{8,180}$"
+    },
+    "prompt": {
+      "const": "prompt/wharness-planner-prompt.md"
+    },
+    "context_included": {
+      "type": "boolean"
+    },
+    "context_root": {
+      "type": "string",
+      "enum": [
+        "",
+        "context/"
+      ]
+    },
     "project_files": {
       "type": "array",
       "maxItems": 32,
       "uniqueItems": true,
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "path",
+        "version",
+        "sha256",
+        "updated_by_request_id"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "none",
+            "present"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "updated_by_request_id": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "present"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "const": "knowledge/project.md"
+              },
+              "version": {
+                "minimum": 1
+              },
+              "sha256": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "const": ""
+              },
+              "version": {
+                "const": 0
+              },
+              "sha256": {
+                "const": ""
+              },
+              "updated_by_request_id": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
     },
     "live_tunnels": {
       "type": "array",
@@ -22,12 +133,29 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["provider", "instance_id", "status", "manifest"],
+        "required": [
+          "provider",
+          "instance_id",
+          "status",
+          "manifest"
+        ],
         "properties": {
-          "provider": { "type": "string", "minLength": 1 },
-          "instance_id": { "type": "string", "minLength": 1 },
-          "status": { "type": "string", "pattern": "^https://" },
-          "manifest": { "type": "string", "pattern": "^https://" }
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instance_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "manifest": {
+            "type": "string",
+            "pattern": "^https://"
+          }
         }
       }
     }

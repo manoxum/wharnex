@@ -31,7 +31,10 @@ type Request struct {
 	// a prior failure are always in front of the model, not only at the
 	// start of whichever chat happened to be open when they were recorded.
 	// Empty when the project has no recorded knowledge yet.
-	KnowledgeSource string
+	KnowledgeSource             string
+	KnowledgeVersion            int
+	KnowledgeSHA256             string
+	KnowledgeUpdatedByRequestID string
 }
 
 type Result struct {

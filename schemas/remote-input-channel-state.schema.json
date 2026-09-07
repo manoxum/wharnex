@@ -4,21 +4,124 @@
   "title": "Wharness Remote Input Channel State",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "root_request_id", "active_request_id", "generation", "context_sha256", "prompt", "file_map", "diff_check", "hash", "events", "bundle_contract", "status", "updated_at", "final_check_instruction"],
+  "required": [
+    "protocol",
+    "root_request_id",
+    "active_request_id",
+    "generation",
+    "context_sha256",
+    "prompt",
+    "file_map",
+    "diff_check",
+    "hash",
+    "events",
+    "bundle_contract",
+    "status",
+    "updated_at",
+    "final_check_instruction",
+    "knowledge_state"
+  ],
   "properties": {
-    "protocol": { "const": "wharness.remote-channel/v2" },
-    "root_request_id": { "type": "string", "pattern": "^req_[A-Za-z0-9._-]+$" },
-    "active_request_id": { "type": "string", "pattern": "^req_[A-Za-z0-9._-]+$" },
-    "generation": { "type": "integer", "minimum": 1 },
-    "context_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "prompt": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "file_map": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "diff_check": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "hash": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "events": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "bundle_contract": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "status": { "enum": ["active", "terminal"] },
-    "updated_at": { "type": "string", "format": "date-time" },
-    "final_check_instruction": { "type": "string", "minLength": 1, "maxLength": 512 }
-  }
+    "protocol": {
+      "const": "wharness.remote-channel/v2"
+    },
+    "root_request_id": {
+      "type": "string",
+      "pattern": "^req_[A-Za-z0-9._-]+$"
+    },
+    "active_request_id": {
+      "type": "string",
+      "pattern": "^req_[A-Za-z0-9._-]+$"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "context_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "prompt": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "file_map": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "diff_check": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "hash": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "events": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "bundle_contract": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "terminal"
+      ]
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "final_check_instruction": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "knowledge": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "knowledge_state": {
+      "enum": [
+        "none",
+        "present"
+      ]
+    },
+    "knowledge_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "knowledge_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "knowledge_state": {
+            "const": "present"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "knowledge",
+          "knowledge_version",
+          "knowledge_sha256"
+        ]
+      }
+    }
+  ]
 }

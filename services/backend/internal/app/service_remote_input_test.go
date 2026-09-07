@@ -228,7 +228,7 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, size, err := buildRemoteInputArchive(target, contextPath, request, attachments, nil)
+	digest, size, err := buildRemoteInputArchive(target, contextPath, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, attachments, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,6 +512,7 @@ func TestRemoteInputChannelReusesMainRequestNamespaceAndRefreshesContext(t *test
 		item.LastRequestID = childRequest
 		item.LastManualPrompt = "continue with refreshed context"
 		item.PendingManualRequestIDs = []string{childRequest}
+		recordRequestKnowledge(item, childRequest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone})
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -705,7 +706,7 @@ func TestRemoteFileMapKeepsContextFilesSnapshotBackedUntilFetched(t *testing.T) 
 	}
 	defer os.RemoveAll(filepath.Dir(bundle.ZipPath))
 	dir := t.TempDir()
-	resources, entries, err := buildRemoteFileMapResources(dir, bundle.ZipPath, bundle.Manifest, nil, nil, nil, nil, func(path string) string { return "https://example.invalid/" + path })
+	resources, entries, err := buildRemoteFileMapResources(dir, bundle.ZipPath, bundle.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, nil, nil, nil, nil, func(path string) string { return "https://example.invalid/" + path })
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -133,5 +134,29 @@ func TestProjectKnowledgeIsIsolatedPerProject(t *testing.T) {
 	}
 	if b.Content != "b-content" || b.Version != 1 {
 		t.Fatalf("project b leaked or wrong version: %#v", b)
+	}
+}
+
+func TestProjectKnowledgeCompareAndSwapRejectsStaleVersion(t *testing.T) {
+	store := NewStore()
+	first, err := store.CompareAndSwapProjectKnowledge("/workspace/demo", "first", "req-1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Version != 1 {
+		t.Fatalf("version = %d, want 1", first.Version)
+	}
+	if _, err := store.CompareAndSwapProjectKnowledge("/workspace/demo", "stale", "req-stale", 0); !errors.Is(err, ErrProjectKnowledgeConflict) {
+		t.Fatalf("expected stale create conflict, got %v", err)
+	}
+	second, err := store.CompareAndSwapProjectKnowledge("/workspace/demo", "second", "req-2", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Version != 2 || second.Content != "second" {
+		t.Fatalf("unexpected second version: %#v", second)
+	}
+	if _, err := store.CompareAndSwapProjectKnowledge("/workspace/demo", "lost update", "req-stale-2", 1); !errors.Is(err, ErrProjectKnowledgeConflict) {
+		t.Fatalf("expected stale update conflict, got %v", err)
 	}
 }

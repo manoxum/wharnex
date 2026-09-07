@@ -785,7 +785,9 @@ type contextCapturePlanner struct{ seen string }
 type messageCapturePlanner struct{ seen string }
 
 func (p *messageCapturePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
-	p.seen = request.Message
+	if request.PlanningMode != "knowledge_review" {
+		p.seen = request.Message
+	}
 	return planner.Result{Turn: &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: request.RequestID, Kind: domain.TurnKindAnswer, Message: "captured", Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}}}, nil
 }
 

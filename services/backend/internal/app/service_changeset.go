@@ -389,17 +389,21 @@ func (s *Service) prepareConflictResolution(sessionID string, item domain.Sessio
 		return item, err
 	}
 	message := buildConflictResolutionMessage(capsuleJSON, paths)
-	prompt := planner.BuildManualPrompt(planner.Request{
+	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
+	if err != nil {
+		return item, err
+	}
+	prompt := planner.BuildManualPrompt(withPlannerKnowledge(planner.Request{
 		SessionID: sessionID, RequestID: requestID, Message: message,
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
-		KnowledgeSource:        s.knowledgeContentForProject(item.ProjectPath),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, item.LastRequestID),
-	})
+	}, knowledgeSnapshot))
 	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: planIDs, Paths: paths, Details: append([]domain.IntegrationConflictDetail(nil), conflicts...), CreatedAt: time.Now().UTC()}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
+		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		if current.IntegrationConflict == nil {
 			current.RepairAttempt = 0
 			current.RepairParentPlanID = ""

@@ -50,6 +50,11 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	if request.RequestID == "" || request.RequestID != item.LastRequestID || !containsString(item.PendingManualRequestIDs, request.RequestID) {
 		return RemoteInputResult{}, errors.New("remote input request_id is not the active manual request")
 	}
+	knowledgeSnapshot, err := requestKnowledgeSnapshot(item, request.RequestID)
+	if err != nil {
+		s.bus.Publish(sessionID, "knowledge.load_failed", map[string]any{"request_id": request.RequestID, "error": err.Error(), "transport": "remote_input"})
+		return RemoteInputResult{}, err
+	}
 	if len(request.Prompt) == 0 || len(request.Prompt) > maxRemotePromptBytes {
 		return RemoteInputResult{}, errors.New("remote input prompt is empty or exceeds 1 MiB")
 	}
@@ -76,13 +81,14 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 		}
 	}
 	if channels, ok := s.remoteInputs.(RemoteInputChannelStore); ok && channels.SupportsRemoteInputChannels() {
-		result, publishErr := s.publishRemoteInputChannel(ctx, channels, item, request, attachments, artifacts)
+		result, publishErr := s.publishRemoteInputChannel(ctx, channels, item, request, knowledgeSnapshot, attachments, artifacts)
 		if publishErr == nil {
 			s.bus.Publish(sessionID, "remote_input.published", map[string]any{
 				"request_id": request.RequestID, "provider": result.Provider, "instance_id": result.InstanceID,
 				"bytes": result.Bytes, "sha256": result.SHA256, "expires_at": result.ExpiresAt,
 				"tunnel_count": len(result.Tunnels), "context_reused": true,
 			})
+			s.bus.Publish(sessionID, "knowledge.attached", map[string]any{"request_id": request.RequestID, "transport": "remote_live_channel", "state": knowledgeSnapshot.State, "version": knowledgeSnapshot.Version, "sha256": knowledgeSnapshot.SHA256})
 		}
 		return result, publishErr
 	}
@@ -113,7 +119,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	temporaryPath := temporary.Name()
 	_ = temporary.Close()
 	defer os.Remove(temporaryPath)
-	digest, size, err := buildRemoteInputArchive(temporaryPath, item.Context.ZipPath, request, attachments, artifacts)
+	digest, size, err := buildRemoteInputArchive(temporaryPath, item.Context.ZipPath, request, knowledgeSnapshot, attachments, artifacts)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -126,7 +132,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 			return RemoteInputResult{}, fmt.Errorf("persist remote input bundle: %w", err)
 		}
 	}
-	fileCount, maxFileSize, err := remoteInputShape(item.Context.ZipPath, request, attachments, artifacts)
+	fileCount, maxFileSize, err := remoteInputShape(item.Context.ZipPath, request, knowledgeSnapshot, attachments, artifacts)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -146,6 +152,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 		"request_id": request.RequestID, "provider": publication.Provider, "instance_id": publication.InstanceID,
 		"bytes": size, "sha256": digest, "expires_at": expiresAt, "cleanup_warning": publication.CleanupWarning,
 	})
+	s.bus.Publish(sessionID, "knowledge.attached", map[string]any{"request_id": request.RequestID, "transport": "remote_one_shot", "state": knowledgeSnapshot.State, "version": knowledgeSnapshot.Version, "sha256": knowledgeSnapshot.SHA256})
 	return RemoteInputResult{Mode: "remote_url", Provider: publication.Provider, InstanceID: publication.InstanceID, BootstrapPrompt: bootstrap, SHA256: digest, Bytes: size, ExpiresAt: expiresAt, IncludedContext: request.IncludeContext}, nil
 }
 
@@ -208,12 +215,15 @@ func (s *Service) releaseSupersededRemoteInputLeases(sessionID string, pending [
 	}
 }
 
-func remoteInputShape(contextPath string, request RemoteInputRequest, attachments, artifacts []decodedRemoteFile) (int, int64, error) {
+func remoteInputShape(contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, attachments, artifacts []decodedRemoteFile) (int, int64, error) {
 	count := 2 + len(attachments) + len(artifacts) // transport manifest + prompt
+	if knowledge.State == domain.KnowledgeStatePresent {
+		count++
+	}
 	if len(request.ProjectFiles) > 0 {
 		count++
 	}
-	largest := int64(len(request.Prompt))
+	largest := max(int64(len(request.Prompt)), int64(len(knowledge.Content)))
 	if request.IncludeContext {
 		info, err := os.Stat(contextPath)
 		if err != nil {
@@ -286,18 +296,25 @@ func decodeRemoteFiles(files []RemoteInputFile, totalLimit int) ([]decodedRemote
 	return decoded, nil
 }
 
-func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequest, attachments, artifacts []decodedRemoteFile) (string, int64, error) {
+func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, attachments, artifacts []decodedRemoteFile) (string, int64, error) {
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", 0, err
 	}
 	hash := sha256.New()
 	archive := zip.NewWriter(io.MultiWriter(file, hash))
-	manifest := map[string]any{"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext, "project_files": request.ProjectFiles}
+	if err := validateRequestKnowledgeSnapshot(knowledge); err != nil {
+		_ = file.Close()
+		return "", 0, err
+	}
+	manifest := map[string]any{"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext, "project_files": request.ProjectFiles, "knowledge": knowledgeManifest(knowledge)}
 	manifestRaw, _ := json.MarshalIndent(manifest, "", "  ")
 	writeErr := writeZipBytes(archive, "transport.json", manifestRaw)
 	if writeErr == nil {
 		writeErr = writeZipBytes(archive, "prompt/wharness-planner-prompt.md", []byte(request.Prompt))
+	}
+	if writeErr == nil && knowledge.State == domain.KnowledgeStatePresent {
+		writeErr = writeZipBytes(archive, "knowledge/project.md", []byte(knowledge.Content))
 	}
 	if writeErr == nil && request.IncludeContext {
 		writeErr = writeContextDirectory(archive, contextPath)

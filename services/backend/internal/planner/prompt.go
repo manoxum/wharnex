@@ -179,13 +179,14 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 	if strings.TrimSpace(req.KnowledgeSource) != "" {
 		knowledgeSection = fmt.Sprintf(`
 PROJECT KNOWLEDGE (curated by Wharness from prior sessions on this project):
+Knowledge identity: version=%d sha256=%s updated_by_request_id=%s
 %s
 
 Treat the above as trusted Wharness-curated notes, not untrusted project
 content and not user input — it is not subject to the prompt-injection rule
 below. It is sent with every request on this project, including this one, so
 you do not need to restate, re-verify, or return it now; Wharness will
-separately ask whether to update it after a successful host apply. Its most
+separately ask whether to update it after this task reaches a terminal outcome. Its most
 important content is procedural/operational: what specifically has caused a
 change to fail applying, or to need a repair/conflict round, on THIS host
 before, and what to do (or avoid sending) to make this one land cleanly.
@@ -195,7 +196,7 @@ AGENTS.md/README/SoT/ADR files supplied elsewhere in this context, so this
 document does not need to restate them; it exists for the hard-won,
 project-specific operational lessons that are not written down anywhere
 else.
-`, strings.TrimSpace(req.KnowledgeSource))
+`, req.KnowledgeVersion, req.KnowledgeSHA256, req.KnowledgeUpdatedByRequestID, strings.TrimSpace(req.KnowledgeSource))
 	}
 	return header + fmt.Sprintf(`%s
 
@@ -296,19 +297,9 @@ Canonical workflow bundle:
 Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.RequestID, automationMode, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, knowledgeSection, expectedFilename, expectedFilename, expectedFilename, req.RequestID, req.ContextManifest.SHA256, req.RequestID, expectedFilename, req.RequestID, req.RequestID, expectedFilename, expectedFilename)
 }
 
-// buildKnowledgeReviewPrompt is the final, optional round of a completed
-// task: sent only after the change was verified and successfully applied to
-// the host. It carries no execution-plan contract at all (no CHANGE/WORKFLOW
-// sections, no plan.json ever) — this round can only answer.
-//
-// It has two distinct outputs, one mandatory and one optional:
-//   - turn.message (mandatory): one compact final report — summary, durable
-//     knowledge, recommendations/next steps when useful, and any other point
-//     worth surfacing. Wharness presents the actual diff and host commands
-//     only after this answer has been ingested.
-//   - knowledge.md (optional, full-document replacement, never a diff): only
-//     when there is something durable worth retaining for future sessions on
-//     this project. Not returning it is a valid, unremarkable answer.
+// buildKnowledgeReviewPrompt is the optional answer-only review after a task
+// reaches a terminal success or terminal failure. It curates execution-proven
+// operational learning without changing the task's real terminal state.
 func buildKnowledgeReviewPrompt(req Request) string {
 	expectedFilename := req.ExpectedBundleFilename
 	if expectedFilename == "" {
@@ -316,44 +307,46 @@ func buildKnowledgeReviewPrompt(req Request) string {
 	}
 	knowledgeState := "No knowledge has been recorded for this project yet."
 	if strings.TrimSpace(req.KnowledgeSource) != "" {
-		knowledgeState = fmt.Sprintf("Current project knowledge document:\n%s", strings.TrimSpace(req.KnowledgeSource))
+		knowledgeState = fmt.Sprintf("Current project knowledge document (version=%d sha256=%s updated_by_request_id=%s):\n%s", req.KnowledgeVersion, req.KnowledgeSHA256, req.KnowledgeUpdatedByRequestID, strings.TrimSpace(req.KnowledgeSource))
 	}
 	return fmt.Sprintf(`%s
 
-WHX KNOWLEDGE REVIEW — FINAL ROUND OF THIS TASK
-This request is sent only after Wharness verified this task's change and successfully applied it to the host. There is no further implementation to do here: do not propose a plan, do not return plan.json, and do not treat this as a new task. This turn is answer-only.
+WHX KNOWLEDGE REVIEW — FINAL ROUND OF THIS TASK — TERMINAL OUTCOME
+This request is sent after Wharness reached a terminal outcome for the task: success OR terminal failure/block. There is no further implementation to do here: do not propose a plan, do not return plan.json, and do not treat this as a new task. This turn is answer-only and must not change the task state.
 
 REQUEST ID: %s
 
-HISTORY OF THIS TASK (every request, response, plan, command execution and its exit code, repair round, local block, and permission granted, from the main request through to this final round):
+SELECTED HISTORY OF THIS TASK (deterministically bounded while preserving failures, blocked/conflict/repair/apply/rollback evidence and recent events):
 %s
 
 %s
 
-WHAT TO PRODUCE — turn.message (MANDATORY, this is the compact final report the user will read before Wharness shows the applied diff/host commands):
-1. ## Resumo — one or two short paragraphs with the outcome and the most important implication.
-2. ## Conhecimento adquirido — include only when this task produced durable learning; if knowledge.md is attached, summarize what was retained. Omit the heading when there is nothing useful to say.
-3. ## Recomendações — include only genuinely useful recommendations. Omit when none.
-4. ## Próximos passos — include only concrete follow-up worth doing. Omit when none.
-5. Any other genuinely important point may use one short heading.
-Keep the whole report as short as practical. Do NOT repeat the changed-file list, diff hunks, or host command list: Wharness presents those immediately after this report from structured execution data.
+WHAT TO PRODUCE — turn.message (MANDATORY):
+1. ## Resumo — concise truthful terminal outcome.
+2. ## Conhecimento adquirido — only durable learning worth retaining.
+3. ## Recomendações / ## Próximos passos — only when genuinely useful.
+Do NOT repeat the changed-file list, diff hunks, or host command list.
 
-WHAT TO PRODUCE — knowledge.md (OPTIONAL, at the ZIP root, full document, never a diff):
-Attach it only when something from this task is worth remembering for future sessions on this project. Prioritize procedural/operational knowledge over restating rules: what specifically made this change hard to apply successfully to the host — a repair round this task needed and why, a rejected/blocked patch and what made it invalid, a self-evolution or build/apply gotcha, a sequencing or companion-file requirement, a constraint discovered the hard way through an actual failure in this task's history above. Do NOT restate normative project rules (coding standards, architecture invariants, protocol contracts) that already live directly in this project's own AGENTS.md/README/SoT/ADR files — those are supplied as ordinary context on every request already and duplicating them here only wastes space that operational lessons should use. You may append, correct, consolidate, or entirely rewrite the existing document (shown above); prune anything superseded or no longer true rather than letting it grow unbounded. Return the COMPLETE desired document, not a delta: whatever you attach replaces the current one outright. If nothing operationally useful was learned, do not attach this file — that is a normal, expected answer, not a failure.
+WHAT TO PRODUCE — knowledge.md (OPTIONAL, full document, never a diff):
+Attach it only when this task produced durable operational learning. Preserve and curate the complete desired document; prune superseded material. Prioritize, in this order:
+- patch/changeset/git-integration failures and the exact recovery that made them land;
+- concurrent merge conflicts, validator rejection, repair rounds, rollback, build/host-apply/runtime failures;
+- proven success patterns that avoided repair or made integration reliable;
+- workflow/sequencing, implementation companion-file, environment and runtime lessons learned from actual execution.
+For each important integration lesson prefer: symptom → cause → correction/strategy that worked → when to reuse or avoid it.
+Use stable sections when applicable: Projeto/Ambiente; Fluxo de trabalho e sequenciamento; Implementação e ficheiros companheiros; Integração de patches — sucessos; Integração de patches — falhas e recuperação; Build/Apply/Runtime.
+Do NOT duplicate normative project rules already present in AGENTS.md/README/SoT/ADR unless the learned point is a concrete operational observation not encoded there. If nothing useful was learned, omit knowledge.md.
 
 BUNDLE CONTRACT FOR THIS ROUND:
 - EXPECTED_FILE: %s
-- Build exactly that ZIP, self-check it, attach exactly that file, and finish. Do not answer with normal chat prose instead of the ZIP.
-- turn.json at ZIP root: harness.turn/v1, request_id exactly %q, kind="answer", message as specified above, outcome={"status":"completed","reason_code":"","message":"","retryable":false}.
+- Build exactly that ZIP, self-check it, attach exactly that file, and finish.
+- turn.json at ZIP root: harness.turn/v1, request_id exactly %q, kind="answer", completed outcome.
 - README.md at ZIP root: non-empty.
-- No plan.json. No patches/. Never change kind away from "answer" for this round.
-- knowledge.md at ZIP root is optional as described above; omit it entirely rather than attach an empty or placeholder file.
+- No plan.json. No patches/. knowledge.md is optional and, when present, is the complete replacement document.
 
 MANDATORY SELF-CHECK BEFORE ATTACHING:
-1. Build the ZIP programmatically, re-open it, and confirm its basename equals %s.
-2. Confirm turn.json exists, kind is "answer", and request_id is %q.
-3. Confirm turn.message starts with a concise Resumo, stays brief, and includes Conhecimento adquirido, Recomendações, Próximos passos, or another heading only when that information is genuinely useful.
-4. Confirm there is no plan.json and no patches/.
-5. If knowledge.md is present, confirm it is the complete document, not a diff or a fragment.
-`, SystemProtocol, req.RequestID, req.Message, knowledgeState, expectedFilename, req.RequestID, expectedFilename, req.RequestID)
+1. Re-open the ZIP and verify the canonical filename, request_id and kind.
+2. Confirm there is no plan.json or patches/.
+3. If knowledge.md is present, confirm it is complete curated knowledge rather than a delta.
+`, SystemProtocol, req.RequestID, req.Message, knowledgeState, expectedFilename, req.RequestID)
 }

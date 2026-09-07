@@ -4,22 +4,152 @@
   "title": "Wharness Remote Input Channel Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "root_request_id", "state", "prompt", "file_map", "diff_check", "hash", "events", "bundle_contract", "instructions"],
+  "required": [
+    "protocol",
+    "root_request_id",
+    "state",
+    "prompt",
+    "file_map",
+    "diff_check",
+    "hash",
+    "events",
+    "bundle_contract",
+    "knowledge",
+    "instructions"
+  ],
   "properties": {
-    "protocol": { "const": "wharness.remote-channel/v2" },
-    "root_request_id": { "type": "string", "pattern": "^req_[A-Za-z0-9._-]+$" },
-    "state": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "prompt": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "file_map": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "diff_check": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "hash": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "events": { "type": "string", "format": "uri", "pattern": "^https://" },
-    "bundle_contract": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "protocol": {
+      "const": "wharness.remote-channel/v2"
+    },
+    "root_request_id": {
+      "type": "string",
+      "pattern": "^req_[A-Za-z0-9._-]+$"
+    },
+    "state": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "prompt": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "file_map": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "diff_check": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "hash": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "events": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "bundle_contract": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "path",
+        "version",
+        "sha256",
+        "updated_by_request_id"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "none",
+            "present"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "updated_by_request_id": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "present"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "const": "knowledge/project.md"
+              },
+              "version": {
+                "minimum": 1
+              },
+              "sha256": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "const": ""
+              },
+              "version": {
+                "const": 0
+              },
+              "sha256": {
+                "const": ""
+              },
+              "updated_by_request_id": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
+    },
     "instructions": {
       "type": "array",
       "minItems": 3,
-      "maxItems": 6,
-      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
     }
   }
 }
