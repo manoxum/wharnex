@@ -572,9 +572,37 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
   const body = source.slice(start, end)
   assert.match(body, /submitWithRetry\(\{/)
   assert.match(body, /beginSubmission: \(\) => chatGPTSubmissions\.expect\(wc\.id\)/)
+  // A retry loop that never re-verifies composer readiness between attempts
+  // is not really a retry; and an omitted beforeAttempt previously crashed
+  // every automatic submit with "beforeAttempt is not a function" because
+  // submitWithRetry had no default, silently turning a real ChatGPT send
+  // failure (e.g. a repair prompt) into a stale expected-bundle wait that
+  // later got "resolved" with an unrelated generic continuation nudge.
+  assert.match(body, /beforeAttempt: async \(attempt\) => \{/)
   // The old implementation swallowed a failed submit into `{ accepted: false }`
   // instead of throwing — every caller must see a real error now.
   assert.doesNotMatch(body, /return \{ accepted: false/)
+})
+
+test('preparePromptForChatGPT disarms a stale expected bundle when the automatic submit itself fails', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
+  const prepareEnd = source.indexOf('\nasync function retryPreparedChatGPTPrompt', prepareStart)
+  assert.notEqual(prepareStart, -1)
+  assert.notEqual(prepareEnd, -1)
+  const prepare = source.slice(prepareStart, prepareEnd)
+  const submitCount = (prepare.match(/await submitChatGPTDraft\(key\)/g) || []).length
+  const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
+  assert.equal(submitCount, 2, 'both the tunnel and archive autoSubmit branches call submitChatGPTDraft')
+  assert.equal(disarmCount, 2, 'a failed submit in either branch must disarm the bundle it just armed instead of leaving a stale wait')
+
+  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(cacheKey)')
+  const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
+  assert.match(source.slice(preparedStart, preparedEnd), /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
+
+  const repairStart = source.indexOf('async function submitPromptToChatGPT')
+  const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
+  assert.match(source.slice(repairStart, repairEnd), /disarmExpectedChatGPTBundle\(key, requestId\)/)
 })
 
 test('pollChatGPTVisibleActivity skips DOM probing while the view is still navigating, mirroring pollExpectedChatGPTDownloadKey', async () => {

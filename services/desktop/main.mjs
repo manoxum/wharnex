@@ -271,6 +271,18 @@ function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, re
   return filename
 }
 
+// A prompt that was armed as an expected bundle but never actually reached
+// ChatGPT (submitChatGPTDraft threw before the message was sent) must not be
+// left behind: the DOM poll otherwise treats the still-open, already-settled
+// prior turn as "finished without a bundle" and overwrites the unsent draft
+// with a content-free WHARNESS DELIVERY CONTINUATION nudge instead of
+// surfacing the real send failure to the human.
+function disarmExpectedChatGPTBundle(cacheKey, requestId) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const expected = expectedChatGPTBundles.get(key)
+  if (expected && expected.requestId === String(requestId)) expectedChatGPTBundles.delete(key)
+}
+
 async function chatGPTAssistantTurnCount(wc) {
   try {
     const count = await wc.executeJavaScript(chatGPTAssistantTurnCountScript(), true)
@@ -1580,6 +1592,12 @@ async function submitChatGPTDraft(key) {
   markChatGPTAffinitySubmitted(target.entry.affinity)
   let method = 'dom-click'
   const result = await submitWithRetry({
+    beforeAttempt: async (attempt) => {
+      if (attempt === 1) return
+      await waitForChatGPTSurfaceReady(key, target.entry)
+      const focused = await wc.executeJavaScript(chatGPTFocusComposerScript(), true)
+      if (!focused) throw new Error('ChatGPT composer DOM was not found before submit retry')
+    },
     beginSubmission: () => chatGPTSubmissions.expect(wc.id),
     submit: async () => {
       const clicked = await wc.executeJavaScript(chatGPTSubmitScript(), true)
@@ -1637,7 +1655,12 @@ async function preparePromptForChatGPT(request) {
       const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
       armExpectedChatGPTBundle(key, requestId, assistantBaseline, remoteInput.bootstrapPrompt)
       await wait(250)
-      await submitChatGPTDraft(key)
+      try {
+        await submitChatGPTDraft(key)
+      } catch (error) {
+        disarmExpectedChatGPTBundle(key, requestId)
+        throw error
+      }
       conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
       if (conversationUrl && requestedTitle) {
         const organized = await organizeChatGPTConversation(key, request?.projectName, requestedTitle)
@@ -1667,7 +1690,12 @@ async function preparePromptForChatGPT(request) {
     await wait(chatInputSettleDelay(input.bytes, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap)
-    await submitChatGPTDraft(key)
+    try {
+      await submitChatGPTDraft(key)
+    } catch (error) {
+      disarmExpectedChatGPTBundle(key, requestId)
+      throw error
+    }
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (conversationUrl && requestedTitle) {
       const organized = await organizeChatGPTConversation(key, request?.projectName, requestedTitle)
@@ -1740,7 +1768,12 @@ async function submitPreparedChatGPTDraft(cacheKey) {
   const entry = activateChatGPTView(key)
   const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
   const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap)
-  await submitChatGPTDraft(key)
+  try {
+    await submitChatGPTDraft(key)
+  } catch (error) {
+    disarmExpectedChatGPTBundle(key, prepared.requestId)
+    throw error
+  }
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, entry)
   if (conversationUrl && prepared.chatTitle) {
     const organized = await organizeChatGPTConversation(key, prepared.projectName, prepared.chatTitle)
@@ -1765,7 +1798,12 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated')
   armExpectedChatGPTBundle(key, requestId, assistantBaseline)
   await wait(100)
-  await submitChatGPTDraft(key)
+  try {
+    await submitChatGPTDraft(key)
+  } catch (error) {
+    disarmExpectedChatGPTBundle(key, requestId)
+    throw error
+  }
   await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=dom`)

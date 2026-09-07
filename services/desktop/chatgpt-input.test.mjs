@@ -43,6 +43,24 @@ test('automatic submit retries until ChatGPT starts the conversation request', a
   assert.deepEqual(result, { accepted: true, requestId: '91' })
 })
 
+test('automatic submit defaults beforeAttempt to a no-op instead of crashing when a caller omits it', async () => {
+  const coordinator = new ChatGPTSubmitCoordinator()
+  let submitCount = 0
+
+  const result = await submitWithRetry({
+    attempts: 3,
+    beginSubmission: () => coordinator.expect(43, { startTimeoutMs: 2 }),
+    submit: () => {
+      submitCount += 1
+      coordinator.onBeforeRequest({ id: 92, method: 'POST', webContentsId: 43, url: conversationURL })
+    },
+    wait: async () => {},
+  })
+
+  assert.equal(submitCount, 1)
+  assert.deepEqual(result, { accepted: true, requestId: '92' })
+})
+
 test('automatic submit rejects after confirmation attempts are exhausted', async () => {
   const coordinator = new ChatGPTSubmitCoordinator()
   let submitCount = 0

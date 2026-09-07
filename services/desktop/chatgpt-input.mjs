@@ -88,7 +88,7 @@ export async function submitWithoutReplay({
 }
 
 export async function submitWithRetry({
-  beforeAttempt,
+  beforeAttempt = async () => {},
   beginSubmission,
   submit,
   attempts = 5,
