@@ -251,8 +251,9 @@ describe('AgentWorkspace', () => {
   it('exports the active chat from the fixed chat header', () => {
     const view = props()
     render(view.element)
-    const exportButton = screen.getByRole('button', { name: 'Exportar chat' })
+    const exportButton = screen.getByRole('button', { name: 'Exportar ZIP' })
     expect((exportButton as HTMLButtonElement).disabled).toBe(false)
+    expect(exportButton.textContent).toBe('')
     expect(exportButton.closest('header')?.className).toContain('chat-header')
     expect(exportButton.closest('.agent-activity-bar')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Principal' })).toBeNull()

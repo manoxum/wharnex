@@ -262,7 +262,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages} />
       <div className="chat-header-actions">
         <StatusPill tone={session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'}>{stateLabel(session.state)}</StatusPill>
-        {onExportChat && <button type="button" className="chat-export-button" disabled={busy} onClick={() => void onExportChat()} aria-label="Exportar chat" title="Exportar chat completo, execuções e bundles em ZIP"><Icon name="download" size={13}/><span>Exportar ZIP</span></button>}
+        {onExportChat && <button type="button" className="chat-export-button" disabled={busy} onClick={() => void onExportChat()} aria-label="Exportar ZIP" title="Exportar chat completo, execuções e bundles em ZIP"><Icon name="download" size={13}/></button>}
       </div>
     </header>
 
