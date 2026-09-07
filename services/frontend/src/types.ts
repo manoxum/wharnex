@@ -216,7 +216,7 @@ export type Session = {
   artifacts?: ArtifactRecord[]
   interrupted_execution?: { plan_id: string; requested_at: string; approved: boolean; status?: 'awaiting_decision' | 'running' | 'resuming' | 'failed_retryable'; last_error?: string }
   remote_recovery_attempt?: number
-	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'evidence' | 'conflict'; created_at: string }>
+	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'evidence' | 'conflict' | 'knowledge_review'; created_at: string }>
 }
 
 

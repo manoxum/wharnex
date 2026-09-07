@@ -26,4 +26,39 @@ describe('BundleExchangeBar', () => {
     expect(await screen.findByText('turn.json')).toBeTruthy()
     expect(screen.getByText('Bundle inteiro')).toBeTruthy()
   })
+  it('assigns a distinct visual category to every request/response bundle stage', async () => {
+    const base = { kind: 'bundle', content_type: 'application/zip', size: 2048, sha256: 'b'.repeat(64), expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1 }
+    const artifacts: ArtifactRecord[] = [
+      { ...base, id: 'main', request_id: 'req-main', direction: 'input', name: 'main.zip', created_at: '2026-09-05T18:00:00Z' },
+      { ...base, id: 'repair', request_id: 'req-repair', direction: 'input', name: 'repair.zip', created_at: '2026-09-05T19:00:00Z' },
+      { ...base, id: 'response', request_id: 'req-repair', direction: 'output', name: 'response.zip', created_at: '2026-09-05T20:00:00Z' },
+      { ...base, id: 'summary-request', request_id: 'req-summary', direction: 'input', name: 'summary-request.zip', created_at: '2026-09-05T21:00:00Z' },
+      { ...base, id: 'summary-response', request_id: 'req-summary', direction: 'output', name: 'summary-response.zip', created_at: '2026-09-05T22:00:00Z' },
+    ]
+    const requestLineages = {
+      'req-main': { request_id: 'req-main', root_request_id: 'req-main', kind: 'standard' as const, created_at: '2026-09-05T18:00:00Z' },
+      'req-repair': { request_id: 'req-repair', root_request_id: 'req-main', parent_request_id: 'req-main', kind: 'repair' as const, created_at: '2026-09-05T19:00:00Z' },
+      'req-summary': { request_id: 'req-summary', root_request_id: 'req-main', parent_request_id: 'req-main', kind: 'knowledge_review' as const, created_at: '2026-09-05T21:00:00Z' },
+    }
+
+    const view = render(<BundleExchangeBar sessionId="ses_1" artifacts={artifacts} requestLineages={requestLineages} />)
+    expect(view.container.querySelector('.bundle-tone-final-summary')).toBeTruthy()
+    expect(view.container.querySelector('.bundle-tone-request-summary')).toBeTruthy()
+    expect(view.container.querySelector('.bundle-tone-response')).toBeTruthy()
+
+    fireEvent.click(screen.getByTitle('Abrir galeria completa'))
+    await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'summary-response'))
+    const selector = view.container.querySelector('.bundle-selector')!
+    expect(selector.querySelector('.bundle-tone-request-main')).toBeTruthy()
+    expect(selector.querySelector('.bundle-tone-request-repair')).toBeTruthy()
+    expect(selector.querySelector('.bundle-tone-request-summary')).toBeTruthy()
+    expect(selector.querySelector('.bundle-tone-response')).toBeTruthy()
+    expect(selector.querySelector('.bundle-tone-final-summary')).toBeTruthy()
+    expect(screen.getAllByText('Pedido principal').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Pedido · correção').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Pedido · resumo final').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Resposta').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Resumo final').length).toBeGreaterThan(0)
+  })
+
 })

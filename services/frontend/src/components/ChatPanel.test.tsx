@@ -51,6 +51,17 @@ describe('ChatPanel', () => {
   })
 
 
+  it('keeps isolated-context metadata in the header instead of repeating it in the transcript', () => {
+    const view = render(
+      <ChatPanel session={{ ...session, context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'README.md', size: 12, sha256: 'abc' }] } } }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const context = view.container.querySelector('.chat-header-context')
+    expect(context?.textContent).toContain('Contexto isolado')
+    expect(context?.textContent).toContain('1 ficheiros · abcdef123456')
+    expect(view.container.querySelector('.chat-stream .system-note')).toBeNull()
+  })
+
+
   it('renders only the latest transcript window and loads older messages when scrolling upward', async () => {
     const items = Array.from({ length: 25 }, (_, index) => ({ id: `history-${index + 1}`, role: 'user' as const, text: `mensagem ${index + 1}` }))
     const view = render(

@@ -18,7 +18,7 @@ function firstRule(selector: string) {
 
 describe('chat header CSS', () => {
   it('keeps the active chat header fixed while the transcript scrolls', () => {
-    const header = lastRule('.chat-header')
+    const header = firstRule('.chat-header')
     const stream = lastRule('.chat-stream')
     expect(header).toContain('position: sticky')
     expect(header).toContain('top: 0')
