@@ -25,6 +25,14 @@ describe('chat header CSS', () => {
     expect(header).toContain('z-index: 12')
     expect(stream).toContain('overflow: auto')
   })
+
+  it('keeps chat export as a compact square icon action', () => {
+    const exportButton = firstRule('.chat-export-button')
+    expect(exportButton).toContain('width: 32px')
+    expect(exportButton).toContain('height: 32px')
+    expect(exportButton).toContain('padding: 0')
+    expect(exportButton).toContain('justify-content: center')
+  })
 })
 
 describe('composer layout CSS', () => {

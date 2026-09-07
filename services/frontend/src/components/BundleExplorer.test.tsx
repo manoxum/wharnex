@@ -42,7 +42,12 @@ describe('BundleExchangeBar', () => {
     expect(screen.getByText(`whx_bundle_req_chat-1_${requestId}.zip`)).toBeTruthy()
     expect(screen.queryByText(`context-${requestId}.zip`)).toBeNull()
     expect(screen.queryByText('wharness-context-ses_123.zip')).toBeNull()
-    expect(screen.getByTitle('Abrir galeria completa').textContent).toContain('1')
+    const summary = screen.getByRole('button', { name: 'Abrir galeria completa: 1 bundle, 1 enviado, 0 recebidos' })
+    expect(summary.textContent).toContain('Bundles')
+    expect(summary.textContent).toContain('↑1')
+    expect(summary.textContent).toContain('↓0')
+    expect(summary.querySelector('b')?.textContent).toBe('1')
+    expect(screen.queryByText('Todos')).toBeNull()
   })
 
   it('assigns a distinct visual category to every request/response bundle stage', async () => {
@@ -68,7 +73,7 @@ describe('BundleExchangeBar', () => {
     expect(view.container.querySelector('.bundle-tone-request-summary')).toBeTruthy()
     expect(view.container.querySelector('.bundle-tone-response')).toBeTruthy()
 
-    fireEvent.click(screen.getByTitle('Abrir galeria completa'))
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir galeria completa: 5 bundles, 3 enviados, 2 recebidos' }))
     await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'summary-response'))
     const selector = view.container.querySelector('.bundle-selector')!
     expect(selector.querySelector('.bundle-tone-request-main')).toBeTruthy()

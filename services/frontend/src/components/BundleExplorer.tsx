@@ -15,8 +15,9 @@ export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages =
   const counts = useMemo(() => ({ input: bundles.filter((item) => item.direction === 'input').length, output: bundles.filter((item) => item.direction === 'output').length }), [bundles])
   const [selected, setSelected] = useState<ArtifactRecord>()
   if (!bundles.length) return null
+  const summaryLabel = `Abrir galeria completa: ${bundles.length} ${bundles.length === 1 ? 'bundle' : 'bundles'}, ${counts.input} ${counts.input === 1 ? 'enviado' : 'enviados'}, ${counts.output} ${counts.output === 1 ? 'recebido' : 'recebidos'}`
   return <><section className="bundle-exchange-bar" aria-label="Galeria de bundles trocados com o ChatGPT">
-    <div className="bundle-exchange-summary"><span className="bundle-exchange-icon"><Icon name="folder" size={13}/></span><span><strong>Bundles</strong><small><i>↑ {counts.input}</i> pedidos · <i>↓ {counts.output}</i> respostas</small></span></div>
+    <button className="bundle-exchange-summary" type="button" onClick={() => setSelected(bundles[0])} title={summaryLabel} aria-label={summaryLabel}><span className="bundle-exchange-icon"><Icon name="folder" size={13}/></span><span className="bundle-exchange-copy"><strong>Bundles</strong><small><b>{bundles.length}</b><i title="Enviados">↑{counts.input}</i><i title="Recebidos">↓{counts.output}</i></small></span></button>
     <div className="bundle-exchange-list">{bundles.slice(0, 3).map((bundle) => {
       const presentation = bundlePresentation(bundle, requestLineages)
       return <button key={bundle.id} className={`bundle-card bundle-tone-${presentation.tone}`} type="button" onClick={() => setSelected(bundle)} title={`Explorar ${bundle.name}`}>
@@ -25,7 +26,6 @@ export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages =
         <Icon name="chevron" size={10}/>
       </button>
     })}</div>
-    <button className="bundle-all-button" type="button" onClick={() => setSelected(bundles[0])} title="Abrir galeria completa"><span>Todos</span><b>{bundles.length}</b><Icon name="chevron" size={10}/></button>
   </section>{selected && <BundleExplorer sessionId={sessionId} bundle={selected} bundles={bundles} requestLineages={requestLineages} onBundle={setSelected} onClose={() => setSelected(undefined)}/>}</>
 }
 
