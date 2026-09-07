@@ -1957,6 +1957,15 @@ func TestAutoBundleExecutesSandboxAndAppliesHost(t *testing.T) {
 	if !result.AutoExecuted || !result.AutoApplied || result.Session.State != "applied" {
 		t.Fatalf("unexpected auto result: %#v", result)
 	}
+	if result.Session.PendingKnowledgeReviewRequestID == "" || !containsString(result.Session.PendingManualRequestIDs, result.Session.PendingKnowledgeReviewRequestID) {
+		t.Fatalf("successful auto apply must return the prepared knowledge-review request: %#v", result.Session)
+	}
+	if !strings.Contains(result.Session.LastManualPrompt, "WHX KNOWLEDGE REVIEW") {
+		t.Fatalf("successful auto apply returned without the final review prompt: %q", result.Session.LastManualPrompt)
+	}
+	if result.Session.LastHostAppliedAt.IsZero() {
+		t.Fatal("successful auto apply must retain the host-apply timestamp")
+	}
 	contents, err := os.ReadFile(filepath.Join(root, "hello.txt"))
 	if err != nil {
 		t.Fatal(err)

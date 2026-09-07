@@ -28,6 +28,8 @@ The active workspace, project path, recent workspaces, per-project choices, and 
 
 The Agent **Execução** tab is an observability surface, not a stack of mini terminals. One logical command or patch owns one timeline item for its complete lifecycle: start, streamed stdout/stderr and completion are correlated by run id rather than rendered as separate rows. Output details are collapsible, the newest five output-bearing items open by default when the tab is entered, and the surface follows the tail while active as new events arrive. Each item exposes its execution date/time and duration when known; an in-flight item uses a non-colour-only animated running affordance. Host Apply/revert and self-evolution build phases are first-class execution events instead of silent side effects.
 
+After a successful host Apply, the Agent chat MUST defer the applied diff until the dedicated `knowledge_review` response has been ingested. Any returned `knowledge.md` is persisted first, then the chat shows the compact ChatGPT summary/knowledge/recommendations/next steps, and only then a Wharnex-owned application card shows the changed-file diffs and the important commands that actually ran on the host (including the self-evolution `make build-stage` when applicable). While that final round is pending, the chat may show only a compact status notice; it must not expose the diff early.
+
 
 ## Desktop ChatGPT composition (v1.2)
 

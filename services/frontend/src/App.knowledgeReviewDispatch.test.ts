@@ -27,4 +27,14 @@ describe('App knowledge-review dispatch', () => {
     expect(body).not.toContain("session.state ===")
     expect(body).not.toContain('includes(session.state)')
   })
+
+  it('defers applied diff/host-command presentation until the knowledge review bundle is ingested', () => {
+    expect(source).toContain('const knowledgeReviewResult = targetSession.pending_knowledge_review_request_id === requestId')
+    expect(source).toContain('const waitingForKnowledgeReview = submission.auto_applied && Boolean(updated.pending_knowledge_review_request_id)')
+    expect(source).toContain('await transportPlannerContinuation(updated, targetChat)')
+    const reviewIndex = source.indexOf('if (knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview))')
+    expect(reviewIndex).toBeGreaterThan(-1)
+    expect(source.slice(reviewIndex, reviewIndex + 600)).toContain('buildAppliedChangeSummary(updated)')
+    expect(source).toContain('Alterações e comandos aplicados ao host.')
+  })
 })

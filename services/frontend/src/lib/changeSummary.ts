@@ -1,6 +1,6 @@
-import type { ChatChangeFile, ChatChangeSummary, ExecutionPlan } from '../types'
+import type { ChatChangeFile, ChatChangeSummary, CommandResult, ExecutionPlan } from '../types'
 
-export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = new Date().toISOString()): ChatChangeSummary | undefined {
+export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = new Date().toISOString(), hostCommands: CommandResult[] = []): ChatChangeSummary | undefined {
   if (!plan) return undefined
   const files = new Map<string, ChatChangeFile>()
   for (const operation of plan.operations) {
@@ -15,9 +15,9 @@ export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = 
     }
   }
   const values = [...files.values()]
-  if (!values.length) return undefined
-  const canRevert = plan.operations.every((operation) => operation.type === 'apply_patch')
-  return { planId: plan.plan_id, files: values, appliedAt, canRevert }
+  if (!values.length && !hostCommands.length) return undefined
+  const canRevert = values.length > 0 && plan.operations.every((operation) => operation.type === 'apply_patch')
+  return { planId: plan.plan_id, files: values, hostCommands, appliedAt, canRevert }
 }
 
 function splitPatchByFile(patch: string): ChatChangeFile[] {

@@ -172,6 +172,8 @@ export type Session = {
   last_execution?: ExecutionResult
   pending_host_changes?: PendingHostChange[]
   last_applied_changes?: PendingHostChange[]
+  last_host_commands?: CommandResult[]
+  last_host_applied_at?: string
   last_manual_prompt?: string
   last_request_id?: string
   pending_manual_request_ids?: string[]
@@ -353,7 +355,7 @@ export type ChatItemSource = 'user' | 'chatgpt' | 'wharness'
 export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | 'change'
 export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage: string; requestId: string }
 export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }
-export type ChatChangeSummary = { planId: string; files: ChatChangeFile[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
+export type ChatChangeSummary = { planId: string; files: ChatChangeFile[]; hostCommands?: CommandResult[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
 export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 export type ChatIterationRef = {
   id: string

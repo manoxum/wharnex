@@ -294,10 +294,10 @@ Wharness validates and policy-checks executable content after download. Workflow
 // sections, no plan.json ever) — this round can only answer.
 //
 // It has two distinct outputs, one mandatory and one optional:
-//   - turn.message (mandatory): one consolidated final report — the files
-//     changed and what each change did, a summary, next steps, and whatever
-//     knowledge was captured (or none). This is the ONLY place that report
-//     appears; Wharness does not show a changed-files list anywhere earlier.
+//   - turn.message (mandatory): one compact final report — summary, durable
+//     knowledge, recommendations/next steps when useful, and any other point
+//     worth surfacing. Wharness presents the actual diff and host commands
+//     only after this answer has been ingested.
 //   - knowledge.md (optional, full-document replacement, never a diff): only
 //     when there is something durable worth retaining for future sessions on
 //     this project. Not returning it is a valid, unremarkable answer.
@@ -322,12 +322,13 @@ HISTORY OF THIS TASK (every request, response, plan, command execution and its e
 
 %s
 
-WHAT TO PRODUCE — turn.message (MANDATORY, this is the complete final report the user will read, not a placeholder):
-1. ## Trabalho realizado — list every file actually changed and, for each, a short description of what changed and why (you already know this: you authored these patches earlier in this same conversation). Do not paste full diff hunks; a precise per-file description is what is wanted, not a diff dump.
-2. ## Resumo — a concise summary of the overall task and its outcome.
-3. ## Próximos passos — anything genuinely worth a human following up on; write "Nenhum" if there truly is none. Do not invent busywork.
-4. ## Conhecimento adquirido — if you are attaching knowledge.md below, summarize briefly what it now captures. If you are not attaching one, say plainly that nothing new was captured this time.
-5. Any other point you judge worth explaining, under its own short heading.
+WHAT TO PRODUCE — turn.message (MANDATORY, this is the compact final report the user will read before Wharness shows the applied diff/host commands):
+1. ## Resumo — one or two short paragraphs with the outcome and the most important implication.
+2. ## Conhecimento adquirido — include only when this task produced durable learning; if knowledge.md is attached, summarize what was retained. Omit the heading when there is nothing useful to say.
+3. ## Recomendações — include only genuinely useful recommendations. Omit when none.
+4. ## Próximos passos — include only concrete follow-up worth doing. Omit when none.
+5. Any other genuinely important point may use one short heading.
+Keep the whole report as short as practical. Do NOT repeat the changed-file list, diff hunks, or host command list: Wharness presents those immediately after this report from structured execution data.
 
 WHAT TO PRODUCE — knowledge.md (OPTIONAL, at the ZIP root, full document, never a diff):
 Attach it only when something from this task is worth remembering for future sessions on this project — a gotcha, a recurring root cause and its fix, a convention, a constraint discovered the hard way. You may append, correct, consolidate, or entirely rewrite the existing document (shown above). Return the COMPLETE desired document, not a delta: whatever you attach replaces the current one outright. If nothing is worth retaining, do not attach this file — that is a normal, expected answer, not a failure.
@@ -343,7 +344,7 @@ BUNDLE CONTRACT FOR THIS ROUND:
 MANDATORY SELF-CHECK BEFORE ATTACHING:
 1. Build the ZIP programmatically, re-open it, and confirm its basename equals %s.
 2. Confirm turn.json exists, kind is "answer", and request_id is %q.
-3. Confirm turn.message covers all of: trabalho realizado (files + why), resumo, próximos passos, conhecimento adquirido.
+3. Confirm turn.message starts with a concise Resumo, stays brief, and includes Conhecimento adquirido, Recomendações, Próximos passos, or another heading only when that information is genuinely useful.
 4. Confirm there is no plan.json and no patches/.
 5. If knowledge.md is present, confirm it is the complete document, not a diff or a fragment.
 `, SystemProtocol, req.RequestID, req.Message, knowledgeState, expectedFilename, req.RequestID, expectedFilename, req.RequestID)
