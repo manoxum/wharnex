@@ -36,5 +36,7 @@ describe('App knowledge-review dispatch', () => {
     expect(reviewIndex).toBeGreaterThan(-1)
     expect(source.slice(reviewIndex, reviewIndex + 600)).toContain('buildAppliedChangeSummary(updated)')
     expect(source).toContain('Alterações e comandos aplicados ao host.')
+    expect(source).toContain('restartModalOpen && restartPresentationKey && <RestartConfirmation')
+    expect(source).toContain('change={buildAppliedChangeSummary(session)}')
   })
 })

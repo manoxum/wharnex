@@ -9,6 +9,7 @@ import { EditorWorkspace } from './components/EditorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
 import { WorkspaceShell } from './components/WorkspaceShell'
 import { ProjectSettings } from './components/ProjectSettings'
+import { RestartConfirmation } from './components/RestartConfirmation'
 import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
@@ -2042,7 +2043,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
   return <main className="workspace-root">
     {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
-    {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
+    {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
       items={interruptedExecutions.map((target) => ({ ...target, queue: executionFIFO.find((item) => item.chatId === target.chat.id && item.planId === target.session.interrupted_execution?.plan_id), humanAction: recoveryHumanAction(target.chat, chatgptHumanActions) }))}
       busyChats={busyChats}
@@ -2104,16 +2105,6 @@ function compareExecutionQueueItems(a: { position?: number; addedAt: number }, b
   const left = a.position || Number.MAX_SAFE_INTEGER
   const right = b.position || Number.MAX_SAFE_INTEGER
   return left === right ? a.addedAt - b.addedAt : left - right
-}
-
-function RestartConfirmation({ busy, onLater, onRestart }: { busy: boolean; onLater: () => void; onRestart: (scope: 'all' | 'current') => void }) {
-  return <div className="restart-confirmation-backdrop" role="presentation">
-    <section className="restart-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="restart-confirmation-title">
-      <div className="restart-confirmation-icon"><Icon name="refresh" size={24}/></div>
-      <div><span className="panel-kicker">Auto-evolução concluída</span><h2 id="restart-confirmation-title">Como ativar a nova versão?</h2><p>O restart transacional reinicia a runtime do Wharness, mas o gestor multi-janela restaura automaticamente os projetos vinculados. Pode recarregar todas as janelas, priorizar apenas esta janela de auto-evolução e preservar as restantes, ou adiar a ativação.</p></div>
-      <div className="restart-confirmation-actions restart-scope-actions"><button className="secondary-button" disabled={busy} onClick={onLater}>Mais tarde</button><button className="secondary-button" disabled={busy} onClick={() => onRestart('current')}><Icon name="refresh" size={14}/> Apenas esta</button><button className="apply-button" disabled={busy} onClick={() => onRestart('all')}><Icon name="refresh" size={14}/> Todas agora</button></div>
-    </section>
-  </div>
 }
 
 function iterationRef(requestId: string, phase: ChatIterationRef['phase'], artifacts: ChatArtifactKind[], chatgptUrl?: string): ChatIterationRef {

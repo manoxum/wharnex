@@ -861,6 +861,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .restart-confirmation-dialog { border-color: var(--theme-border); background: #1b1f19; box-shadow: 0 28px 90px rgba(0,0,0,.5); }
 :root[data-theme='dark'] .restart-confirmation-dialog h2 { color: var(--theme-text); }
 :root[data-theme='dark'] .restart-confirmation-dialog p { color: var(--theme-text-soft); }
+:root[data-theme='dark'] .restart-confirmation-changes { border-color: var(--theme-border); background: #20231f; }
+:root[data-theme='dark'] .restart-confirmation-changes > header { border-color: var(--theme-border-soft); }
+:root[data-theme='dark'] .restart-confirmation-changes > header strong { color: var(--theme-text); }
+:root[data-theme='dark'] .restart-confirmation-changes > header > span { color: var(--theme-text-muted); }
+:root[data-theme='dark'] .restart-confirmation-files { border-color: var(--theme-border-soft); background: #1d201c; }
+:root[data-theme='dark'] .restart-confirmation-files button { border-color: var(--theme-border-soft); color: var(--theme-text-soft); }
+:root[data-theme='dark'] .restart-confirmation-files button:hover { background: #2c302a; }
+:root[data-theme='dark'] .restart-confirmation-files button.active { background: #31372d; box-shadow: inset 3px 0 #91c64b; }
+:root[data-theme='dark'] .restart-confirmation-empty-diff { color: var(--theme-text-muted); }
 :root[data-theme='dark'] .execution-recovery-trigger { border-color: #665536; background: #332d22; color: #d8b77a; box-shadow: 0 12px 34px rgba(0,0,0,.35); }
 :root[data-theme='dark'] .execution-recovery-trigger strong { background: #8c6a32; color: #fff; }
 :root[data-theme='dark'] .execution-recovery-panel { border-color: var(--theme-border); background: color-mix(in srgb, #252525 96%, transparent); box-shadow: 0 24px 70px rgba(0,0,0,.48); }
@@ -1426,8 +1435,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .bundle-tone-final-summary { --bundle-color:#e69abd; --bundle-bg:#3a2130; --bundle-border:#7a405c; }
 :root[data-theme='dark'] .bundle-kind-mark,
 :root[data-theme='dark'] .bundle-selector-mark { color: #101010; box-shadow: none; }
-:root[data-theme='dark'] .bundle-all-button { border-color: #414141; background: #292929; color: #c6c6c6; }
-:root[data-theme='dark'] .bundle-all-button:hover { border-color: #606060; background: #333; color: #f0f0f0; }
 :root[data-theme='dark'] .bundle-explorer { border-color: #444; background: #202020; box-shadow: 0 30px 100px rgba(0,0,0,.6); }
 :root[data-theme='dark'] .bundle-explorer > header { border-color: #353535; background: #1b1b1b; }
 :root[data-theme='dark'] .bundle-explorer-layout > aside { border-color: #353535; background: #181818; }
