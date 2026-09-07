@@ -15,45 +15,52 @@ afterEach(() => { cleanup(); mocks.artifactEntries.mockClear() })
 describe('BundleExchangeBar', () => {
   it('shows exchange metadata and opens the bundle file explorer', async () => {
     const bundle: ArtifactRecord = {
-      id: 'artifact_1', request_id: 'req_12345678', direction: 'input', kind: 'bundle', name: 'wharness-input.zip', content_type: 'application/zip',
+      id: 'artifact_1', request_id: 'req_20260905T220000_1234567890abcdef', direction: 'input', kind: 'bundle', name: 'whx_bundle_req_chat-1_req_20260905T220000_1234567890abcdef.zip', content_type: 'application/zip',
       size: 2048, sha256: 'a'.repeat(64), created_at: '2026-09-05T22:00:00Z', expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1,
     }
     render(<BundleExchangeBar sessionId="ses_1" artifacts={[bundle]} />)
-    expect(screen.getByText('wharness-input.zip')).toBeTruthy()
+    expect(screen.getByText('whx_bundle_req_chat-1_req_20260905T220000_1234567890abcdef.zip')).toBeTruthy()
     expect(screen.getByText(/2.0 KB/)).toBeTruthy()
-    fireEvent.click(screen.getByTitle('Explorar wharness-input.zip'))
+    fireEvent.click(screen.getByTitle('Explorar whx_bundle_req_chat-1_req_20260905T220000_1234567890abcdef.zip'))
     await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'artifact_1'))
     expect(await screen.findByText('turn.json')).toBeTruthy()
     expect(screen.getByText('Bundle inteiro')).toBeTruthy()
   })
-  it('ignores auxiliary ZIP artifacts even when they are technically inspectable bundles', () => {
+  it('ignores auxiliary ZIP artifacts even when legacy metadata marks them as bundles', () => {
+    const requestId = 'req_20260905T220000_1234567890abcdef'
     const base = { content_type: 'application/zip', size: 1024, sha256: 'c'.repeat(64), created_at: '2026-09-05T22:00:00Z', expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1 }
     const artifacts: ArtifactRecord[] = [
-      { ...base, id: 'transport', request_id: 'req-main', direction: 'input', kind: 'bundle', name: 'request.zip' },
-      { ...base, id: 'context', request_id: 'req-main', direction: 'input', kind: 'context', name: 'context.zip' },
-      { ...base, id: 'attachment', request_id: 'req-main', direction: 'input', kind: 'attachment', name: 'attachment.zip' },
+      { ...base, id: 'transport', request_id: requestId, direction: 'input', kind: 'bundle', name: `whx_bundle_req_chat-1_${requestId}.zip` },
+      { ...base, id: 'legacy-context', request_id: requestId, direction: 'input', kind: 'bundle', name: `context-${requestId}.zip` },
+      { ...base, id: 'legacy-session-context', request_id: requestId, direction: 'input', kind: 'bundle', name: 'wharness-context-ses_123.zip' },
+      { ...base, id: 'wrong-direction', request_id: requestId, direction: 'output', kind: 'bundle', name: `whx_bundle_req_chat-1_${requestId}.zip` },
+      { ...base, id: 'wrong-request', request_id: 'req_20260905T220001_fedcba0987654321', direction: 'input', kind: 'bundle', name: `whx_bundle_req_chat-1_${requestId}.zip` },
+      { ...base, id: 'typed-context', request_id: requestId, direction: 'input', kind: 'context', name: `whx_bundle_req_chat-1_${requestId}.zip` },
     ]
 
     render(<BundleExchangeBar sessionId="ses_1" artifacts={artifacts} />)
-    expect(screen.getByText('request.zip')).toBeTruthy()
-    expect(screen.queryByText('context.zip')).toBeNull()
-    expect(screen.queryByText('attachment.zip')).toBeNull()
+    expect(screen.getByText(`whx_bundle_req_chat-1_${requestId}.zip`)).toBeTruthy()
+    expect(screen.queryByText(`context-${requestId}.zip`)).toBeNull()
+    expect(screen.queryByText('wharness-context-ses_123.zip')).toBeNull()
     expect(screen.getByTitle('Abrir galeria completa').textContent).toContain('1')
   })
 
   it('assigns a distinct visual category to every request/response bundle stage', async () => {
     const base = { kind: 'bundle', content_type: 'application/zip', size: 2048, sha256: 'b'.repeat(64), expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1 }
+    const mainRequest = 'req_20260905T180000_1111111111111111'
+    const repairRequest = 'req_20260905T190000_2222222222222222'
+    const summaryRequest = 'req_20260905T210000_3333333333333333'
     const artifacts: ArtifactRecord[] = [
-      { ...base, id: 'main', request_id: 'req-main', direction: 'input', name: 'main.zip', created_at: '2026-09-05T18:00:00Z' },
-      { ...base, id: 'repair', request_id: 'req-repair', direction: 'input', name: 'repair.zip', created_at: '2026-09-05T19:00:00Z' },
-      { ...base, id: 'response', request_id: 'req-repair', direction: 'output', name: 'response.zip', created_at: '2026-09-05T20:00:00Z' },
-      { ...base, id: 'summary-request', request_id: 'req-summary', direction: 'input', name: 'summary-request.zip', created_at: '2026-09-05T21:00:00Z' },
-      { ...base, id: 'summary-response', request_id: 'req-summary', direction: 'output', name: 'summary-response.zip', created_at: '2026-09-05T22:00:00Z' },
+      { ...base, id: 'main', request_id: mainRequest, direction: 'input', name: `whx_bundle_req_chat-1_${mainRequest}.zip`, created_at: '2026-09-05T18:00:00Z' },
+      { ...base, id: 'repair', request_id: repairRequest, direction: 'input', name: `whx_bundle_req_chat-1_${mainRequest}_${repairRequest}.zip`, created_at: '2026-09-05T19:00:00Z' },
+      { ...base, id: 'response', request_id: repairRequest, direction: 'output', name: `whx_bundle_res_chat-1_${mainRequest}_${repairRequest}.zip`, created_at: '2026-09-05T20:00:00Z' },
+      { ...base, id: 'summary-request', request_id: summaryRequest, direction: 'input', name: `whx_bundle_req_chat-1_${mainRequest}_${summaryRequest}.zip`, created_at: '2026-09-05T21:00:00Z' },
+      { ...base, id: 'summary-response', request_id: summaryRequest, direction: 'output', name: `whx_bundle_res_chat-1_${mainRequest}_${summaryRequest}.zip`, created_at: '2026-09-05T22:00:00Z' },
     ]
     const requestLineages = {
-      'req-main': { request_id: 'req-main', root_request_id: 'req-main', kind: 'standard' as const, created_at: '2026-09-05T18:00:00Z' },
-      'req-repair': { request_id: 'req-repair', root_request_id: 'req-main', parent_request_id: 'req-main', kind: 'repair' as const, created_at: '2026-09-05T19:00:00Z' },
-      'req-summary': { request_id: 'req-summary', root_request_id: 'req-main', parent_request_id: 'req-main', kind: 'knowledge_review' as const, created_at: '2026-09-05T21:00:00Z' },
+      [mainRequest]: { request_id: mainRequest, root_request_id: mainRequest, kind: 'standard' as const, created_at: '2026-09-05T18:00:00Z' },
+      [repairRequest]: { request_id: repairRequest, root_request_id: mainRequest, parent_request_id: mainRequest, kind: 'repair' as const, created_at: '2026-09-05T19:00:00Z' },
+      [summaryRequest]: { request_id: summaryRequest, root_request_id: mainRequest, parent_request_id: mainRequest, kind: 'knowledge_review' as const, created_at: '2026-09-05T21:00:00Z' },
     }
 
     const view = render(<BundleExchangeBar sessionId="ses_1" artifacts={artifacts} requestLineages={requestLineages} />)
