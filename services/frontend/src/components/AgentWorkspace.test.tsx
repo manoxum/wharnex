@@ -27,8 +27,9 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
   const onDelete = vi.fn(async () => undefined)
   const onOpenFile = vi.fn()
   const onExportChat = vi.fn(async () => undefined)
+  const onSelectChat = vi.fn(async () => undefined)
   return {
-    onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onApply, onRestore, onDelete, onOpenFile, onExportChat,
+    onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onApply, onRestore, onDelete, onOpenFile, onExportChat, onSelectChat,
     element: <AgentWorkspace
       session={current}
       busy={busy}
@@ -41,7 +42,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
       chatProps={{
         session: current, items: [], chats: [{ id: 'chat-1', title: 'Principal', sessionId: current.id, createdAt: '2026-09-04T10:00:00.000Z', updatedAt: '2026-09-04T10:00:00.000Z' }, { id: 'chat-2', title: 'Paralelo', sessionId: 'ses-parallel', createdAt: '2026-09-04T09:00:00.000Z', updatedAt: '2026-09-04T09:00:00.000Z' }],
         archivedChats: [{ id: 'arch-1', title: 'Diagnóstico antigo', sessionId: 'ses-old', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' }], activeChatId: 'chat-1', busy,
-        onSend: async () => undefined, onNewChat: async () => undefined, onSelectChat: async () => undefined, onArchiveChat: async () => undefined, onRestoreChat: onRestore, onDeleteArchivedChat: onDelete,
+        onSend: async () => undefined, onNewChat: async () => undefined, onSelectChat, onArchiveChat: async () => undefined, onRestoreChat: onRestore, onDeleteArchivedChat: onDelete,
       }}
       inspectorProps={{
         config: { planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }, session: current, events: [], manualPrompt: '', busy,
@@ -160,6 +161,44 @@ describe('AgentWorkspace', () => {
     render(props(stale).element)
     expect(screen.queryByRole('button', { name: /Aplicar alterações verificadas no host/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /Rejeitar alterações verificadas/ })).toBeNull()
+  })
+
+  it('turns a verified host apply into a prominent labelled action', () => {
+    const ready = session()
+    ready.state = 'verified'
+    ready.pending_host_changes = [{
+      plan: ready.plan!,
+      execution: { plan_id: 'plan-agent', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
+      verified_at: '2026-09-07T10:00:01.000Z',
+    }]
+    const view = props(ready)
+    render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': ready }} />)
+    const apply = screen.getByRole('button', { name: 'Aplicar alterações verificadas no host' })
+    expect(apply.textContent).toContain('Aplicar no host')
+    expect(apply.textContent).toContain('1 candidata verificada')
+    fireEvent.click(apply)
+    expect(view.onApply).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows attention from another chat in the global notification center and navigates to it', async () => {
+    const current = session()
+    const parallel = session()
+    parallel.id = 'ses-parallel'
+    parallel.state = 'verified'
+    parallel.pending_host_changes = [{
+      plan: { ...parallel.plan!, plan_id: 'plan-parallel', request_id: 'req-parallel' },
+      execution: { plan_id: 'plan-parallel', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
+      verified_at: '2026-09-07T10:00:01.000Z',
+    }]
+    const view = props(current)
+    render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
+    const summary = screen.getByRole('button', { name: 'Centro de notificações, 1 alerta(s)' })
+    expect(summary.textContent).toContain('1 alerta')
+    fireEvent.click(summary)
+    expect(screen.getByRole('region', { name: 'Centro de notificações' })).toBeTruthy()
+    const alert = screen.getByRole('button', { name: /Paralelo.*Alterações prontas para o host/ })
+    fireEvent.click(alert)
+    await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
   })
 
   it('makes ordinary and dependency-network approvals prominent', () => {

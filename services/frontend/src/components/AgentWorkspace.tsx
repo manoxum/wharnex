@@ -13,8 +13,9 @@ import { loadChat } from '../lib/workspaceMemory'
 import { MarkdownContent } from './MarkdownContent'
 import { promptDialog } from '../lib/appDialog'
 import { desktopWindowScope } from '../lib/projectBindings'
+import { collectAttentionItems, type AttentionItem } from '../lib/attentionCenter'
 
-type Drawer = 'archive' | 'project' | 'knowledge' | 'fifo' | 'evolution' | ProjectActivityKind | ''
+type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
 const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
@@ -42,10 +43,12 @@ function saveAgentChatWidth(width: number) {
 
 export type ExecutionFIFOItem = { key: string; chatId: string; chatTitle: string; planId: string; status: 'submitting' | 'queued' | 'running'; position?: number; addedAt: number }
 
-export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHumanAction, chatgptAttentionNonce = 0, inspectorAttention, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat }: {
+export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSessions = {}, chatgptHumanActions = {}, chatgptHumanAction, chatgptAttentionNonce = 0, inspectorAttention, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat }: {
   session: Session
   busy: boolean
   executionFIFO?: ExecutionFIFOItem[]
+  attentionSessions?: Record<string, Session | undefined>
+  chatgptHumanActions?: Record<string, DesktopChatGPTHumanAction>
   chatgptHumanAction?: DesktopChatGPTHumanAction
   chatgptAttentionNonce?: number
   inspectorAttention?: { tab: InspectorTab; nonce: number }
@@ -65,6 +68,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
   const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
   const archived = chatProps.archivedChats || []
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
+  const attentionItems = useMemo(() => collectAttentionItems(chatProps.chats, attentionSessions, chatgptHumanActions), [attentionSessions, chatProps.chats, chatgptHumanActions])
+  const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
   useEffect(() => {
     if (!chatgptAttentionNonce) return
     setDrawer('')
@@ -107,6 +112,12 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
 
   function toggleDrawer(next: Exclude<Drawer, ''>) { setDrawer((current) => current === next ? '' : next) }
 
+  async function openAttention(item: AttentionItem) {
+    if (item.chatId !== chatProps.activeChatId) await chatProps.onSelectChat(item.chatId)
+    if (item.target) setInspectorTab(item.target)
+    setDrawer('')
+  }
+
   function beginResize(event: React.PointerEvent<HTMLButtonElement>) {
     const root = workspaceRef.current
     if (!root) return
@@ -140,11 +151,12 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
         <button className={inspectorTab === 'chatgpt' ? 'active' : ''} onClick={() => openInspector('chatgpt')} title={session.integration_conflict ? 'Conflito Engine' : 'Engine'} aria-label={session.integration_conflict ? 'Conflito Engine' : 'Engine'}><Icon name="agent" size={15}/></button>
       </nav>
       <div className="agent-command-actions">
+        {attentionItems.length > 0 && <button type="button" className={`agent-attention-summary ${urgentAttentionCount ? 'urgent' : ''}`} onClick={() => toggleDrawer('attention')} aria-label={`Centro de notificações, ${attentionItems.length} alerta(s)`} title="Alertas de todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionItems.length} {attentionItems.length === 1 ? 'alerta' : 'alertas'}</b><small>{urgentAttentionCount ? `${urgentAttentionCount} urgente(s)` : 'atenção global'}</small></span></button>}
         {chatgptHumanAction?.active && <button type="button" className="agent-human-action-button" onClick={onChatGPTHumanAction} disabled={!onChatGPTHumanAction || (busy && chatgptHumanAction.cacheKey !== chatProps.activeChatId)} title={chatgptHumanAction.message} aria-label="Ação humana necessária no ChatGPT"><Icon name="shield" size={13}/><span>Ação no ChatGPT</span></button>}
         {session.policy && <span className={`agent-policy-icon ${session.policy.allowed ? '' : 'blocked'}`} title={session.policy.allowed ? `Policy autorizada · risco ${session.policy.risk}` : 'Policy bloqueada'} aria-label={session.policy.allowed ? `Policy autorizada, risco ${session.policy.risk}` : 'Policy bloqueada'}><Icon name="shield" size={14}/></span>}
         {hostApplyRetryBlocked && canApply ? <button type="button" className="agent-approval-callout dependency host-apply-retry" disabled={busy} onClick={() => void inspectorProps.onApply()} title="A alteração já passou a verificação; a aplicação anterior falhou por uma disputa local temporária (outra transação de auto-evolução, ou uma corrida de escrita no host), não por um defeito na alteração. O Wharness já não gasta pedidos de reparação ao ChatGPT neste tipo de falha." aria-label="Candidato verificado — repetir aplicação no host"><Icon name="apply" size={15}/><span><b>Candidato verificado</b><small>Repetir aplicação</small></span><Icon name="play" size={13}/></button> : hostToolchainBlocked ? <span className="agent-approval-callout dependency host-toolchain" role="status" title="O Node.js instalado no host é mais antigo do que o exigido pela dependência fixada (Electron). Não há correção via patch: atualize o Node do host ou baixe a versão do Electron em services/desktop/package.json." aria-label="Build do host bloqueado por incompatibilidade de toolchain"><Icon name="network" size={15}/><span><b>Build do host bloqueado</b><small>Node do host incompatível — sem correção via ChatGPT</small></span></span> : hostDependencyBlocked && inspectorProps.onRetryHostDependencyRepair ? <button type="button" className="agent-approval-callout dependency host-dependency-repair" disabled={busy} onClick={() => void inspectorProps.onRetryHostDependencyRepair?.()} title="A mesma verificação passou na sandbox Protected, mas falhou no host por uma dependência npm nativa/opcional ausente em node_modules (bug conhecido do npm). O Wharness roda, direto no host e sem sudo: rm -rf node_modules; rm -f package-lock.json; npm install — e repete o Apply automaticamente se a build voltar a passar. Nenhum patch é enviado ao ChatGPT para este erro de ambiente." aria-label="Reinstalar dependências do host e repetir"><Icon name="network" size={15}/><span><b>Dependências do host incompletas</b><small>Reinstalar node_modules</small></span><Icon name="play" size={13}/></button> : dependencyNetworkBlocked && inspectorProps.onRetryDependencyNetwork ? <button type="button" className="agent-approval-callout dependency" disabled={busy} onClick={() => void inspectorProps.onRetryDependencyNetwork?.()} aria-label="Permitir rede restrita e repetir"><Icon name="network" size={15}/><span><b>Dependências bloqueadas</b><small>Permitir rede e repetir</small></span><Icon name="play" size={13}/></button> : canExecute && needsApproval ? <button type="button" className="agent-approval-callout" disabled={busy} onClick={() => void inspectorProps.onExecute(true)} aria-label={executeLabel}><Icon name="shield" size={15}/><span><b>Aprovação necessária</b><small>Risco {session.policy?.risk || 'alto'}</small></span><Icon name="play" size={13}/></button> : canExecute && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}
         {canReject && <button type="button" className="agent-command-icon reject" disabled={busy} onClick={() => void inspectorProps.onRejectPendingChanges?.()} aria-label={session.integration_conflict ? 'Cancelar resolução e rejeitar alterações' : 'Rejeitar alterações verificadas'} title={session.integration_conflict ? 'Cancelar conflito e rejeitar a candidata' : 'Rejeitar alterações verificadas'}><Icon name="trash" size={14}/></button>}
-        {canApply && <button type="button" className="agent-command-icon apply" disabled={busy} onClick={() => void inspectorProps.onApply()} aria-label={`Aplicar alterações verificadas no host${pendingCount > 1 ? ` (${pendingCount})` : ''}`} title="Aplicar alterações verificadas no host"><Icon name="apply" size={15}/>{pendingCount > 1 && <b>{pendingCount}</b>}</button>}
+        {canApply && <button type="button" className="agent-host-apply-button" disabled={busy} onClick={() => void inspectorProps.onApply()} aria-label={`Aplicar alterações verificadas no host${pendingCount > 1 ? ` (${pendingCount})` : ''}`} title="Alterações verificadas e prontas para entrar no host"><Icon name="apply" size={15}/><span><b>Aplicar no host</b><small>{pendingCount === 1 ? '1 candidata verificada' : `${pendingCount} candidatas verificadas`}</small></span><Icon name="arrow-right" size={13}/></button>}
       </div>
     </header>
 
@@ -159,6 +171,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
     </nav>
 
     <aside className="agent-activity-bar" aria-label="Ferramentas do Agent">
+      <button type="button" className={drawer === 'attention' ? 'active attention' : 'attention'} onClick={() => toggleDrawer('attention')} aria-label="Centro de notificações" title="Alertas que precisam de atenção em todos os chats"><Icon name="bell" size={18}/>{attentionItems.length > 0 && <b className={urgentAttentionCount ? 'urgent' : ''}>{attentionItems.length}</b>}</button>
       <button type="button" className={drawer === 'archive' ? 'active' : ''} onClick={() => toggleDrawer('archive')} aria-label="Chats arquivados" title="Chats arquivados"><Icon name="folder" size={18}/>{archived.length > 0 && <b>{archived.length}</b>}</button>
       <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggleDrawer('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
       <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggleDrawer('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>
@@ -168,7 +181,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
       {session.self_evolution && <button type="button" className={drawer === 'evolution' ? 'active' : ''} onClick={() => toggleDrawer('evolution')} aria-label="Logs de auto-evolução" title="Logs e análise de auto-evolução"><Icon name="refresh" size={18}/></button>}
     </aside>
 
-    {drawer && <aside className={`agent-drawer ${drawer === 'plans' || drawer === 'executions' ? 'activity-wide' : drawer === 'evolution' ? 'evidence-wide' : drawer === 'knowledge' ? 'knowledge-wide' : ''}`}>
+    {drawer && <aside className={`agent-drawer ${drawer === 'plans' || drawer === 'executions' ? 'activity-wide' : drawer === 'evolution' ? 'evidence-wide' : drawer === 'knowledge' ? 'knowledge-wide' : drawer === 'attention' ? 'attention-wide' : ''}`}>
+      {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onClose={() => setDrawer('')}/> : null}
       {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archived} busy={busy} onRestore={chatProps.onRestoreChat} onDelete={chatProps.onDeleteArchivedChat} onRename={chatProps.onRenameChat} onGenerate={chatProps.onGenerateChatTitle} onClose={() => setDrawer('')}/> : null}
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={() => setDrawer('')}/> : null}
@@ -182,6 +196,21 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
     <div className="agent-chat-stage"><ChatPanel key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
     <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
     <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} /></div>
+  </section>
+}
+
+function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
+  const chatCount = new Set(items.map((item) => item.chatId)).size
+  return <section className="attention-center-drawer" aria-label="Centro de notificações">
+    <header className="agent-drawer-heading"><div><span className="panel-kicker">Atenção global</span><strong>Centro de notificações</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar notificações"><Icon name="close" size={13}/></button></header>
+    <div className="attention-center-summary"><span><b>{items.length}</b> {items.length === 1 ? 'alerta ativo' : 'alertas ativos'}</span><span><b>{chatCount}</b> {chatCount === 1 ? 'chat afetado' : 'chats afetados'}</span></div>
+    <div className="attention-center-list">
+      {items.length ? items.map((item) => <button type="button" className={`attention-center-item ${item.tone}`} key={item.id} disabled={busy && item.chatId !== activeChatId} onClick={() => void onOpen(item)}>
+        <span className="attention-center-marker"><Icon name={item.tone === 'danger' ? 'shield' : item.tone === 'success' ? 'apply' : 'bell'} size={15}/></span>
+        <span className="attention-center-copy"><small>{item.chatTitle}{item.chatId === activeChatId ? ' · aberto agora' : ''}</small><strong>{item.title}</strong><span>{item.detail}</span></span>
+        <Icon name="arrow-right" size={14}/>
+      </button>) : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>Nada requer atenção</strong><span>Alertas de todos os chats abertos deste projeto aparecerão aqui.</span></div>}
+    </div>
   </section>
 }
 
