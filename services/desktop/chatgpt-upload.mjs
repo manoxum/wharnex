@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 function isUploadRequest(details) {
   try {
     const url = new URL(String(details?.url || ''))
@@ -47,6 +49,39 @@ export async function waitForChatGPTReady({
     await wait(Math.min(100, Math.max(1, stableMs - quietFor)))
   }
   throw new Error('ChatGPT did not become ready for attachments before timeout')
+}
+
+// Injects the file through ChatGPT's own dedicated file input via the CDP
+// DOM.setFileInputFiles command instead of a clipboard paste. A real input
+// selection carries the OS filesystem path directly, so Chromium reads the
+// canonical basename from disk; a clipboard `text/uri-list` paste instead
+// asks Chromium to synthesize a File object from a bare URI; it may
+// materialize an anonymous/renamed file (observed: a random UUID name) and
+// can duplicate attachment state across upload retries.
+export async function selectChatGPTUploadFile(webContents, filePath) {
+  const rawPath = String(filePath || '').trim()
+  if (!rawPath || !path.isAbsolute(rawPath) || !path.basename(rawPath)) throw new Error('Invalid ChatGPT upload file path')
+  const resolvedPath = path.resolve(rawPath)
+  const client = webContents?.debugger
+  if (!client || typeof client.sendCommand !== 'function' || typeof client.isAttached !== 'function') throw new Error('ChatGPT upload debugger is unavailable')
+
+  let attachedHere = false
+  if (!client.isAttached()) {
+    client.attach('1.3')
+    attachedHere = true
+  }
+  try {
+    const document = await client.sendCommand('DOM.getDocument', { depth: 0, pierce: false })
+    const rootNodeId = Number(document?.root?.nodeId || 0)
+    if (!rootNodeId) throw new Error('ChatGPT upload DOM root is unavailable')
+    const target = await client.sendCommand('DOM.querySelector', { nodeId: rootNodeId, selector: 'input#upload-files' })
+    const nodeId = Number(target?.nodeId || 0)
+    if (!nodeId) throw new Error('ChatGPT upload file input was not found')
+    await client.sendCommand('DOM.setFileInputFiles', { nodeId, files: [resolvedPath] })
+    return { selected: true, name: path.basename(resolvedPath) }
+  } finally {
+    if (attachedHere && client.isAttached()) client.detach()
+  }
 }
 
 export class ChatGPTUploadCoordinator {

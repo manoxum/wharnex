@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
+import { chatInputArchiveFilename, commentAttachmentArchiveFilename, localChatInputBootstrap, writeChatInputArchive, writeCommentAttachmentArchive } from './chat-input-archive.mjs'
 
 function storedEntries(buffer) {
   const entries = new Map()
@@ -80,4 +80,31 @@ test('local bootstrap points the model at the prompt inside the single archive',
 
 test('input archive filename rejects non-canonical request ids', () => {
   assert.throws(() => chatInputArchiveFilename('chat-1', 'request-1'), /Invalid Wharness request id/)
+})
+
+test('a task comment with several attachments still becomes one ZIP', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-comment-'))
+  try {
+    const requestId = 'req_20260905T083123_example123'
+    const filename = commentAttachmentArchiveFilename('chat-1', requestId)
+    const target = path.join(root, filename)
+    const result = await writeCommentAttachmentArchive(target, {
+      attachments: [
+        { name: 'screenshot.png', bytes: Buffer.from('png-bytes') },
+        { name: 'notes.txt', bytes: Buffer.from('notes') },
+      ],
+    })
+    const raw = await readFile(target)
+    const entries = storedEntries(raw)
+    assert.equal(raw.byteLength, result.bytes)
+    assert.equal(result.fileCount, 2)
+    assert.deepEqual([...entries.keys()], ['attachments/screenshot.png', 'attachments/notes.txt'])
+    assert.equal(entries.get('attachments/screenshot.png').toString('utf8'), 'png-bytes')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('an empty comment attachment set refuses to produce an archive', async () => {
+  await assert.rejects(() => writeCommentAttachmentArchive('/tmp/unused.zip', { attachments: [] }), /requires at least one attachment/)
 })

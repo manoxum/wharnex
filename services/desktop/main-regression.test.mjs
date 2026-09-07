@@ -499,3 +499,30 @@ test('bundle download failures remain correlated to a strict late filename inste
   const publish = source.slice(start, end)
   assert.match(publish, /wharnessBundleRequestIdFromFilename\(filename\) \|\| expectedChatGPTBundles\.get\(cacheKey\)\?\.requestId/)
 })
+
+test('ChatGPT request archive upload uses the dedicated file input instead of clipboard paste', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
+  const end = source.indexOf('\nasync function submitChatGPTDraft', start)
+  const upload = source.slice(start, end)
+  assert.match(upload, /selectChatGPTUploadFile\(wc, filePath\)/)
+  assert.doesNotMatch(upload, /clipboard\.write/)
+  assert.doesNotMatch(upload, /wc\.paste\(\)/)
+})
+
+test('task comment attachments are bundled into one ZIP instead of pasted as separate files', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const materializeStart = source.indexOf('async function materializeCommentAttachments')
+  const materializeEnd = source.indexOf('\nasync function executeChatGPTDOMScript', materializeStart)
+  const materialize = source.slice(materializeStart, materializeEnd)
+  assert.notEqual(materializeStart, -1)
+  assert.match(materialize, /writeCommentAttachmentArchive\(archivePath/)
+  assert.doesNotMatch(materialize, /paths\.push/)
+
+  const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
+  const flushEnd = source.indexOf('\nasync function publishRemoteChannelComment', flushStart)
+  const flush = source.slice(flushStart, flushEnd)
+  assert.notEqual(flushStart, -1)
+  assert.match(flush, /if \(attachmentSet\.path\) await pasteChatGPTFile\(target\.entry, attachmentSet\.path, 1, 1\)/)
+  assert.doesNotMatch(flush, /for \(let index = 0; index < attachmentSet\.paths\.length/)
+})
