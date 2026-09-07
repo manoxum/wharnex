@@ -114,7 +114,9 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
       <nav className="agent-direct-chatgpt-tab" aria-label="ChatGPT direto">
         <button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')} title="ChatGPT" aria-label="ChatGPT"><Icon name="chatgpt" size={15}/></button>
       </nav>
-      {session.self_evolution && <span className="self-evolution-badge"><Icon name="refresh" size={13}/> WHX · AUTO-EVOLUÇÃO</span>}
+      {session.self_evolution && <div className="agent-commandbar-center">
+        <span className="self-evolution-badge"><Icon name="refresh" size={13}/> WHX · AUTO-EVOLUÇÃO</span>
+      </div>}
       <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
         <button className={inspectorTab === 'plan' ? 'active' : ''} onClick={() => openInspector('plan')} title="Plano" aria-label="Plano"><Icon name="plan" size={15}/></button>
         <button className={inspectorTab === 'terminal' ? 'active' : ''} onClick={() => openInspector('terminal')} title="Execução" aria-label="Execução"><Icon name="terminal" size={15}/></button>
