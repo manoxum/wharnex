@@ -248,6 +248,12 @@ func normalizeRestoredSession(item *domain.Session) {
 	if item.AutomationMode == "" {
 		item.AutomationMode = domain.AutomationModeManual
 	}
+	if interrupted := item.InterruptedExecution; interrupted != nil {
+		switch interrupted.Status {
+		case "", domain.InterruptedExecutionRunning, domain.InterruptedExecutionResuming:
+			interrupted.Status = domain.InterruptedExecutionAwaitingDecision
+		}
+	}
 }
 
 func wrapPostgresError(action string, err error) error {

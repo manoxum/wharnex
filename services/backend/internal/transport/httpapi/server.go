@@ -70,6 +70,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
 	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
+	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/resume", a.resumeInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/discard", a.discardInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
 	mux.HandleFunc("POST /api/sessions/{id}/pending-changes/reject", a.rejectPendingChanges)
@@ -838,6 +839,15 @@ func (a *API) retryDependencyNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) resumeInterruptedExecution(w http.ResponseWriter, r *http.Request) {
+	result, err := a.service.ResumeInterruptedExecution(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "execution_recovery_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
 }
 
 func (a *API) discardInterruptedExecution(w http.ResponseWriter, r *http.Request) {

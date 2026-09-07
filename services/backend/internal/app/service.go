@@ -1056,7 +1056,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		if current.Plan == nil || current.Plan.PlanID != planID {
 			return errors.New("plan changed before execution intent could be recorded")
 		}
-		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: planID, RequestedAt: time.Now().UTC(), Approved: approved}
+		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: planID, RequestedAt: time.Now().UTC(), Approved: approved, Status: domain.InterruptedExecutionRunning}
 		return nil
 	})
 	if err != nil {
@@ -1067,6 +1067,9 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	// Cancellation is ambiguous: the frontend, Desktop, backend, or runner may
 	// have disappeared mid-flight. Keep the durable intent for startup recovery.
 	if ctx.Err() != nil {
+		if marked, markErr := s.markInterruptedExecutionAwaitingDecision(sessionID, planID); markErr == nil {
+			item = marked
+		}
 		return result, item, err
 	}
 	cleared, clearErr := s.clearInterruptedExecution(sessionID, planID)
@@ -1096,6 +1099,9 @@ func (s *Service) DiscardInterruptedExecution(sessionID string) (domain.Session,
 	if item.InterruptedExecution == nil {
 		return item, errors.New("no interrupted execution is pending")
 	}
+	if executionRecoveryActive(item.InterruptedExecution.Status) {
+		return item, ErrExecutionRecoveryInProgress
+	}
 	planID := item.InterruptedExecution.PlanID
 	updated, err := s.clearInterruptedExecution(sessionID, planID)
 	if err == nil {
@@ -1105,12 +1111,19 @@ func (s *Service) DiscardInterruptedExecution(sessionID string) (domain.Session,
 }
 
 func (s *Service) executeRecorded(ctx context.Context, sessionID string, approved bool) (domain.ExecutionResult, domain.Session, error) {
+	return s.executeRecordedForPlan(ctx, sessionID, approved, "")
+}
+
+func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, approved bool, expectedPlanID string) (domain.ExecutionResult, domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.ExecutionResult{}, item, err
 	}
 	if item.Plan == nil || item.Policy == nil {
 		return domain.ExecutionResult{}, item, errors.New("no plan available")
+	}
+	if expectedPlanID != "" && item.Plan.PlanID != expectedPlanID {
+		return domain.ExecutionResult{}, item, fmt.Errorf("interrupted plan %s is no longer the active plan", expectedPlanID)
 	}
 	queuedPlanID := item.Plan.PlanID
 	ticket, err := s.executionQueue.acquire(ctx, item.ProjectPath, sessionID, func(position int) {
@@ -1129,6 +1142,9 @@ func (s *Service) executeRecorded(ctx context.Context, sessionID string, approve
 	}
 	if item.Plan == nil || item.Policy == nil {
 		return domain.ExecutionResult{}, item, errors.New("no plan available after leaving project execution queue")
+	}
+	if expectedPlanID != "" && item.Plan.PlanID != expectedPlanID {
+		return domain.ExecutionResult{}, item, fmt.Errorf("interrupted plan %s changed while waiting for the project execution queue", expectedPlanID)
 	}
 	if planExecutionAlreadyCompleted(item, item.Plan.PlanID) {
 		s.bus.Publish(sessionID, "execution.duplicate_blocked", map[string]any{"plan_id": item.Plan.PlanID, "state": item.State})

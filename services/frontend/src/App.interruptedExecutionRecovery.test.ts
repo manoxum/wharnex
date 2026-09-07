@@ -7,7 +7,7 @@ const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 describe('App interrupted-execution recovery', () => {
   it('drops a recovery card permanently when its session no longer exists on the backend, instead of leaving it stuck', () => {
     const start = source.indexOf('async function resolveInterruptedExecution')
-    const end = source.indexOf('\n\n\n  async function transportPlannerContinuation', start)
+    const end = source.indexOf('\n\n  async function focusRecoveryTarget', start)
     const body = source.slice(start, end)
     // Both the primary action failing with 404 and the follow-up refresh
     // failing with 404 must remove the candidate — a session that is

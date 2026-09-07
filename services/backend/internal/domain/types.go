@@ -438,10 +438,19 @@ type Session struct {
 // InterruptedExecution is a durable execution intent. Its presence means the
 // process disappeared or its caller disconnected before a terminal result was
 // persisted, so only an explicit user decision may resume or discard it.
+const (
+	InterruptedExecutionAwaitingDecision = "awaiting_decision"
+	InterruptedExecutionRunning          = "running"
+	InterruptedExecutionResuming         = "resuming"
+	InterruptedExecutionFailedRetryable  = "failed_retryable"
+)
+
 type InterruptedExecution struct {
 	PlanID      string    `json:"plan_id"`
 	RequestedAt time.Time `json:"requested_at"`
 	Approved    bool      `json:"approved"`
+	Status      string    `json:"status,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
 }
 
 type ArtifactRecord struct {
