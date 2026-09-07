@@ -19,7 +19,7 @@ import { chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, commitChatGP
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
-import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
+import { chatInputArchiveFilename, commentAttachmentArchiveFilename, localChatInputBootstrap, writeChatInputArchive, writeCommentAttachmentArchive } from './chat-input-archive.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -1267,19 +1267,20 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
 }
 
 
+// Bundles every comment attachment into exactly one ZIP so a task comment
+// still delivers a single file to ChatGPT, matching the FILE-FIRST contract
+// the main input archive already follows — see writeCommentAttachmentArchive
+// for why pasting the attachments individually was wrong.
 async function materializeCommentAttachments(cacheKey, sessionId, requestId, values) {
   const { decoded, total } = decodeChatAttachmentSet(values)
-  if (!decoded.length) return { paths: [], bytes: 0 }
+  if (!decoded.length) return { path: '', bytes: 0, count: 0 }
   const dir = path.join(app.getPath('temp'), 'wharness-chat-comments', cacheKey, `${Date.now()}`)
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const paths = []
-  for (const attachment of decoded) {
-    const target = path.join(dir, attachment.name)
-    await writeFile(target, attachment.bytes, { mode: 0o600, flag: 'wx' })
-    if (sessionId) await persistChatArtifact(sessionId, requestId, 'input', 'comment-attachment', attachment.name, attachment.mime, attachment.bytes)
-    paths.push(target)
-  }
-  return { paths, bytes: total }
+  const archiveName = commentAttachmentArchiveFilename(cacheKey, requestId)
+  const archivePath = path.join(dir, archiveName)
+  await writeCommentAttachmentArchive(archivePath, { attachments: decoded })
+  if (sessionId) await persistChatArtifact(sessionId, requestId, 'input', 'comment-attachment', archiveName, 'application/zip', await readFile(archivePath))
+  return { path: archivePath, bytes: total, count: decoded.length }
 }
 
 async function executeChatGPTDOMScript(cacheKey, entry, stage, script) {
@@ -1735,7 +1736,7 @@ async function flushQueuedChatGPTComments() {
       const ready = await target.wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) continue
       const attachmentSet = await materializeCommentAttachments(key, pending.sessionId, pending.requestId, pending.attachments)
-      for (let index = 0; index < attachmentSet.paths.length; index += 1) await pasteChatGPTFile(target.entry, attachmentSet.paths[index], index + 1, attachmentSet.paths.length)
+      if (attachmentSet.path) await pasteChatGPTFile(target.entry, attachmentSet.path, 1, 1)
       const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(pending.text), true)
       if (!filled) continue
       const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
@@ -1751,7 +1752,7 @@ async function flushQueuedChatGPTComments() {
       if (!queue.length) pendingChatGPTComments.delete(key)
       if (expectedChatGPTBundles.has(key)) armExpectedChatGPTBundle(key, pending.requestId, assistantBaseline)
       touchChatGPTEntry(target.entry)
-      sendToChatGPTKey(key, 'wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId, attachments: attachmentSet.paths.length })
+      sendToChatGPTKey(key, 'wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId, attachments: attachmentSet.count })
       break
     } catch (error) {
       console.warn(`[chatgpt-comment] queued key=${key} error=${error instanceof Error ? error.message : String(error)}`)

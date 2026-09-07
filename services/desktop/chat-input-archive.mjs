@@ -221,3 +221,24 @@ export async function writeChatInputArchive(targetPath, { requestId, prompt, con
   const bytes = await writeStoredZip(targetPath, entries)
   return { bytes, fileCount: entries.length }
 }
+
+export function commentAttachmentArchiveFilename(chatId, requestId) {
+  const id = String(requestId || '').trim()
+  if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(id)) throw new Error('Invalid Wharness request id for comment attachment transport')
+  return `whx_comment_${safeChatId(chatId)}_${id}_${Date.now()}.zip`
+}
+
+// A task comment carries its own attachments only, never the prompt/context
+// already delivered by the main input archive — see queueChatGPTComment in
+// main.mjs, which fills the composer text directly and calls this only when
+// the comment has at least one attachment. Bundled into one ZIP for the same
+// reason writeChatInputArchive never sends its parts as separate uploads:
+// the FILE-FIRST contract expects exactly one attached file per submission,
+// and pasting N raw files individually looked to ChatGPT like N unrelated
+// deliverables instead of one message with N reference files.
+export async function writeCommentAttachmentArchive(targetPath, { attachments = [] } = {}) {
+  if (!attachments.length) throw new Error('Comment attachment archive requires at least one attachment')
+  const entries = attachments.map((attachment) => ({ name: `attachments/${attachment.name}`, bytes: attachment.bytes }))
+  const bytes = await writeStoredZip(targetPath, entries)
+  return { bytes, fileCount: entries.length }
+}
