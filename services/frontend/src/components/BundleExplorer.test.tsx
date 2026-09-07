@@ -43,10 +43,9 @@ describe('BundleExchangeBar', () => {
     expect(screen.queryByText(`context-${requestId}.zip`)).toBeNull()
     expect(screen.queryByText('wharness-context-ses_123.zip')).toBeNull()
     const summary = screen.getByRole('button', { name: 'Abrir galeria completa: 1 bundle, 1 enviado, 0 recebidos' })
-    expect(summary.textContent).toContain('Bundles')
-    expect(summary.textContent).toContain('↑1')
-    expect(summary.textContent).toContain('↓0')
-    expect(summary.querySelector('b')?.textContent).toBe('1')
+    expect(summary.textContent).not.toContain('Bundles')
+    expect(summary.textContent).toBe('1↑1↓0')
+    expect(summary.querySelector('.bundle-exchange-stats b')?.textContent).toBe('1')
     expect(screen.queryByText('Todos')).toBeNull()
   })
 
