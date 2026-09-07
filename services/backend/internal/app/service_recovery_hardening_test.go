@@ -40,6 +40,7 @@ func TestLocalCoordinationFailuresNeverClassifyAsSourceRepair(t *testing.T) {
 		want string
 	}{
 		{"self evolution busy", selfevolution.ErrBusy, domain.FailureKindSelfEvolutionBusy},
+		{"host dependency state", errHostDependencyState, domain.FailureKindHostDependencyState},
 		{"stale host baseline", ErrStaleHostBaseline, domain.FailureKindStaleHostBaseline},
 		{"integration race", ErrHostIntegrationRace, domain.FailureKindHostIntegrationRace},
 	}
@@ -55,6 +56,7 @@ func TestLocalCoordinationFailuresNeverClassifyAsSourceRepair(t *testing.T) {
 func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 	cases := map[string]string{
 		"host_build_toolchain_mismatch":   domain.FailureKindHostBuildToolchain,
+		"host_dependency_state":           domain.FailureKindHostDependencyState,
 		"self_evolution_transaction_busy": domain.FailureKindSelfEvolutionBusy,
 		"stale_pending_baseline":          domain.FailureKindStaleHostBaseline,
 		"host_integration_race":           domain.FailureKindHostIntegrationRace,
@@ -64,6 +66,68 @@ func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 		if got := classifyPlannerOutcomeFailure(outcome); got != want {
 			t.Fatalf("reason %s classified as %q want %q", reason, got, want)
 		}
+	}
+}
+
+func TestRolldownNativeBindingFailureIsHostDependencyState(t *testing.T) {
+	diagnostic := `Error: Cannot find native binding. npm has a bug related to optional dependencies.
+Caused by: Cannot find module '@rolldown/binding-linux-x64-musl'
+Require stack: /workspace/node_modules/rolldown/dist/shared/binding.mjs`
+	wrapped := wrapHostDependencyState(errors.New("post-merge verification failed: npm run build"), diagnostic)
+	if !errors.Is(wrapped, errHostDependencyState) {
+		t.Fatalf("rolldown native binding failure was not wrapped: %v", wrapped)
+	}
+	if got := classifyExecutionFailure(wrapped); got != domain.FailureKindHostDependencyState {
+		t.Fatalf("host dependency failure classified as %q", got)
+	}
+}
+
+func TestHostDependencyPlannerOutcomeStopsFreshRequestRecovery(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "fix feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	seedFailedPlanForRepair(t, service, started.ID, requestID)
+	bundle := makeFailedBundleWithReason(t, requestID, "host_dependency_state", true)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RemoteRecoveryPrepared || result.Session.RemoteRecoveryAttempt != 0 {
+		t.Fatalf("host dependency state must not start another GPT request: %#v", result)
+	}
+	if result.Session.FailureKind != domain.FailureKindHostDependencyState {
+		t.Fatalf("failure kind = %q", result.Session.FailureKind)
+	}
+}
+
+func TestPrepareRepairRequestBlocksHostDependencyState(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.Join(errHostDependencyState, errors.New("post-merge verification failed: npm run build"))
+	updated, err := service.prepareRepairRequest(context.Background(), started.ID, domain.ExecutionResult{PlanID: "plan-host-deps"}, cause)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State == "repair_pending" {
+		t.Fatal("host dependency state must not be routed into the GPT repair loop")
+	}
+	if updated.FailureKind != domain.FailureKindHostDependencyState {
+		t.Fatalf("failure kind = %q", updated.FailureKind)
+	}
+	if updated.RepairAttempt != 0 {
+		t.Fatalf("repair attempt should not be consumed, got %d", updated.RepairAttempt)
 	}
 }
 
@@ -116,6 +180,7 @@ func TestLegacyFailureKindRecognizesPersistedPingPongCauses(t *testing.T) {
 		want   string
 	}{
 		{selfevolution.ErrBusy.Error(), domain.FailureKindSelfEvolutionBusy},
+		{"Planner reported failed: host_dependency_state: node_modules incomplete", domain.FailureKindHostDependencyState},
 		{"host apply blocked by stale baseline: old vs new", domain.FailureKindStaleHostBaseline},
 		{ErrHostIntegrationRace.Error() + ": external write race", domain.FailureKindHostIntegrationRace},
 	}

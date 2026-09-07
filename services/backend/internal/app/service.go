@@ -2187,9 +2187,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			s.bus.Publish(sessionID, "integration.verification_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "argv": command.Argv, "target": "host"})
 			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, command, "host")
 			if runErr != nil || !result.Success {
+				diagnostic := commandResultDiagnostic(result)
 				if runErr == nil {
-					runErr = fmt.Errorf("post-merge verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), result.ExitCode, commandResultDiagnostic(result))
+					runErr = fmt.Errorf("post-merge verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), result.ExitCode, diagnostic)
 				}
+				runErr = wrapHostDependencyState(runErr, diagnostic)
 				return item, failApply(runErr)
 			}
 			hostCommands = append(hostCommands, result)
