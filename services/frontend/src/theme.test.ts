@@ -60,4 +60,13 @@ describe('complete colour themes', () => {
     expect(theme).toContain("[data-theme='dark'] .context-rule-state.enabled")
     expect(theme).toContain('background: #303030;\n  color: #cecece !important;')
   })
+  it('gives the integrated chat header and every bundle stage a distinct dark treatment', () => {
+    expect(theme).toMatch(/:root\[data-theme='dark'\] \.chat-header \{[\s\S]*?background: linear-gradient/)
+    expect(theme).toContain("[data-theme='dark'] .bundle-tone-request-main")
+    expect(theme).toContain("[data-theme='dark'] .bundle-tone-request-repair")
+    expect(theme).toContain("[data-theme='dark'] .bundle-tone-request-summary")
+    expect(theme).toContain("[data-theme='dark'] .bundle-tone-response")
+    expect(theme).toContain("[data-theme='dark'] .bundle-tone-final-summary")
+  })
+
 })

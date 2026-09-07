@@ -258,6 +258,11 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   return <section className={`chat-panel ${embedded ? 'embedded' : ''}`}>
     <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
       <div className="chat-header-copy"><span className="panel-kicker">Harness chat</span><h2 title={headerTitle}>{headerTitle}</h2></div>
+      <div className="chat-header-context" aria-label="Contexto isolado">
+        <span className="chat-header-context-icon"><Icon name="shield" size={13}/></span>
+        <span><strong>Contexto isolado</strong><small>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</small></span>
+      </div>
+      <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages} />
       <div className="chat-header-actions">
         <StatusPill tone={session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'}>{stateLabel(session.state)}</StatusPill>
         {onExportChat && <button type="button" className="chat-export-button" disabled={busy} onClick={() => void onExportChat()} aria-label="Exportar chat" title="Exportar chat completo, execuções e bundles em ZIP"><Icon name="download" size={13}/><span>Exportar ZIP</span></button>}
@@ -277,7 +282,6 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       {!embedded && <button className={archiveOpen ? 'chat-archive-toggle active' : 'chat-archive-toggle'} disabled={busy && !archiveOpen} onClick={() => setArchiveOpen((current) => !current)} title="Chats fechados"><Icon name="folder" size={13}/><span>Arquivados</span>{archivedChats.length > 0 && <b>{archivedChats.length}</b>}</button>}
     </div>}
 
-    <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} />
 
     {!embedded && archiveOpen && <div className="chat-archive-panel">
       <div className="chat-archive-heading"><div><strong>Chats arquivados</strong><span>Fechar um chat preserva o histórico, o vínculo ChatGPT e os anexos locais.</span></div><button className="icon-button light" onClick={() => setArchiveOpen(false)} title="Fechar área de arquivados"><Icon name="close" size={13}/></button></div>
@@ -288,7 +292,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     </div>}
 
     <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
-      {hasOlder ? <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar anteriores</button></div> : <div className="system-note"><Icon name="shield" size={17}/><div><strong>Contexto isolado</strong><span>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</span></div></div>}
+      {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar anteriores</button></div>}
       {visibleItems.map((item) => <ChatItemView key={item.id} item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRetryTransportFailure={onRetryTransportFailure} onCancelPendingRequest={item.iteration?.requestId === session.last_request_id ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />)}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharness</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
