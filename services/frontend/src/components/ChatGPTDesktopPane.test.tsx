@@ -36,6 +36,24 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(onCancel).toHaveBeenCalledWith('req_pending123'))
   })
 
+  it('re-navigates (silently) every time the same chat/url pane is unsuspended again, so a view that drifted away from its bound conversation while backgrounded self-heals instead of getting stuck', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    const view = render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/abc" />)
+    await waitFor(() => expect(desktop.chatgpt.navigate).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(document.querySelector('.desktop-chatgpt-notice')).toBeNull())
+    view.rerender(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/abc" suspended />)
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+    view.rerender(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/abc" suspended={false} />)
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledTimes(2))
+    // The backend `navigate` handler is what actually corrects a remote view
+    // that silently drifted off its bound conversation while backgrounded,
+    // so it must run again on every unsuspend rather than being skipped.
+    await waitFor(() => expect(desktop.chatgpt.navigate).toHaveBeenCalledTimes(2))
+    // But the repeat visit must stay silent: no "loading"/"recovering" notice
+    // flash, since nothing about this chat/url pair actually changed.
+    expect(document.querySelector('.desktop-chatgpt-notice')).toBeNull()
+  })
+
   it('hides the native remote view while a trusted overlay is active and restores it afterwards', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     const view = render(<ChatGPTDesktopPane {...props} suspended />)

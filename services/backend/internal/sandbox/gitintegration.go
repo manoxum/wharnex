@@ -205,6 +205,28 @@ func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (preMergeSH
 	return preMergeSHA, nil
 }
 
+// ChangedPathsBetween returns the paths that differ between two commits,
+// without touching the working tree. Used to detect whether unrelated
+// commits landed on the host between two points in time and, if so, exactly
+// which paths they touched — e.g. self-evolution's rollback uses this to
+// refuse silently overwriting a file an unrelated integration merge changed
+// after the rollback's own pre-transaction baseline.
+func ChangedPathsBetween(ctx context.Context, repoPath, fromSHA, toSHA string) ([]string, error) {
+	fromSHA = strings.TrimSpace(fromSHA)
+	toSHA = strings.TrimSpace(toSHA)
+	if fromSHA == "" || toSHA == "" || fromSHA == toSHA {
+		return nil, nil
+	}
+	output, err := runGit(ctx, repoPath, "diff", "--name-only", fromSHA, toSHA)
+	if err != nil {
+		return nil, fmt.Errorf("diff %s..%s: %s", fromSHA, toSHA, output)
+	}
+	if strings.TrimSpace(output) == "" {
+		return nil, nil
+	}
+	return strings.Split(strings.TrimSpace(output), "\n"), nil
+}
+
 // RevertHostMerge resets the host's checked-out branch back to preMergeSHA.
 // Safe because preMergeSHA is always the tip this exact request's own merge
 // moved away from, moments earlier — used when post-merge verification

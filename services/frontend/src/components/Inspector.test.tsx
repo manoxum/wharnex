@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '../types'
+import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { Inspector } from './Inspector'
 
 function legacySession(): Session {
@@ -200,4 +201,198 @@ it('shows streamed command output immediately below the command event', () => {
   expect(document.querySelectorAll('.execution-command-output')).toHaveLength(1)
   expect(document.querySelectorAll('.execution-command-card')).toHaveLength(1)
   expect(document.querySelector('.execution-log-panel')).toBeNull()
+})
+
+class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
+
+function desktopBridge() {
+  const noopSubscription = () => () => undefined
+  const stateFor = (cacheKey: string) => ({ url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'embedded' as const, authWindowOpen: false, authenticated: false, cacheKey })
+  return {
+    platform: 'linux', projects: { pickDirectory: vi.fn() },
+    chatgpt: {
+      show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
+      navigate: vi.fn((_url: string, cacheKey: string) => Promise.resolve(stateFor(cacheKey))), confirmAffinity: vi.fn(), rejectAffinity: vi.fn(), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn(), stopConversation: vi.fn(),
+      state: vi.fn((cacheKey: string) => Promise.resolve(stateFor(cacheKey))), release: vi.fn(), setAuthMode: vi.fn(), startAuth: vi.fn(), openExternal: vi.fn(), resumeEmbedded: vi.fn(), pickBundle: vi.fn(),
+      onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
+      onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
+      onActivity: vi.fn(noopSubscription),
+    },
+    attachments: { persist: vi.fn(), preview: vi.fn(), open: vi.fn(), removeChat: vi.fn() }, clipboard: { copyContextZip: vi.fn(), readText: vi.fn(), writeText: vi.fn() },
+  } as unknown as WharnessDesktopBridge
+}
+
+function workspaceChat(id: string, title: string): WorkspaceChat {
+  return { id, title, sessionId: `ses-${id}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+}
+
+describe('Inspector ChatGPT engine pool (desktop)', () => {
+  beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver) })
+  afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
+
+  it('keeps one dedicated pane per open chat mounted instead of destroying/recreating it when the active chat switches', async () => {
+    const desktop = desktopBridge(); window.wharnessDesktop = desktop
+    const chatA = workspaceChat('chat-a', 'Chat A')
+    const chatB = workspaceChat('chat-b', 'Chat B')
+    const view = render(<Inspector
+      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={legacySession()}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      chat={chatA}
+      chats={[chatA, chatB]}
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+
+    await waitFor(() => expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(2))
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-a', expect.anything()))
+    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(2)
+
+    act(() => { view.rerender(<Inspector
+      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={legacySession()}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      chat={chatB}
+      chats={[chatA, chatB]}
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />) })
+
+    // Switching the active chat must show/hide the already-mounted panes, never tear them down and remount them.
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-b', expect.anything()))
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-a'))
+    expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(2)
+    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('Inspector Manual chat transport mode', () => {
+  beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver) })
+  afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
+
+  function manualSession(): Session {
+    return { ...legacySession(), chat_transport_mode: 'manual' }
+  }
+
+  it('shows the manual prompt/upload UI without requiring Desktop', () => {
+    render(<Inspector
+      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={manualSession()}
+      events={[]}
+      manualPrompt="prompt para copiar"
+      busy={false}
+      activeTab="chatgpt"
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+    expect(screen.getByText('prompt para copiar')).toBeTruthy()
+    expect(document.querySelector('.desktop-chatgpt-pool')).toBeNull()
+    expect(screen.getByText('Manual (sem DOM)')).toBeTruthy()
+  })
+
+  it('never shows the active native ChatGPT view even when Desktop is present', async () => {
+    const desktop = desktopBridge(); window.wharnessDesktop = desktop
+    const chatA = workspaceChat('chat-a', 'Chat A')
+    render(<Inspector
+      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={manualSession()}
+      events={[]}
+      manualPrompt="prompt para copiar"
+      busy={false}
+      activeTab="chatgpt"
+      chat={chatA}
+      chats={[chatA]}
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+    expect(screen.getByText('prompt para copiar')).toBeTruthy()
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-a'))
+    expect(desktop.chatgpt.show).not.toHaveBeenCalled()
+  })
+
+  it('extracts the request id from an uploaded bundle filename and submits it, including a browser duplicate-suffix name', async () => {
+    const requestId = 'req_20260906T192238_1adfea24039ba474'
+    const onBundleFile = vi.fn(async () => 'Bundle importado com sucesso')
+    render(<Inspector
+      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={manualSession()}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      activeTab="chatgpt"
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={onBundleFile}
+      onSession={() => undefined}
+    />)
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    expect(input).toBeTruthy()
+    const filename = `whx_bundle_res_9f3a2b1c-uuid-like_${requestId} (2).zip`
+    const file = new File(['zip-bytes'], filename, { type: 'application/zip' })
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await waitFor(() => expect(onBundleFile).toHaveBeenCalledTimes(1))
+    const [contentBase64, calledRequestId, calledFilename] = onBundleFile.mock.calls[0]
+    expect(calledRequestId).toBe(requestId)
+    expect(calledFilename).toBe(filename)
+    expect(typeof contentBase64).toBe('string')
+    expect(contentBase64.length).toBeGreaterThan(0)
+    await waitFor(() => expect(screen.getByText('Bundle importado com sucesso')).toBeTruthy())
+  })
+
+  it('rejects an unrecognized filename without calling onBundleFile', async () => {
+    const onBundleFile = vi.fn(async () => '')
+    render(<Inspector
+      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={manualSession()}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      activeTab="chatgpt"
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={onBundleFile}
+      onSession={() => undefined}
+    />)
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['zip-bytes'], 'result.zip', { type: 'application/zip' })
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(onBundleFile).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByText(/Nome de ficheiro não reconhecido/)).toBeTruthy())
+  })
 })

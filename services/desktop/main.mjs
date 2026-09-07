@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithRetry } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript } from './chatgpt-dom.mjs'
@@ -67,6 +67,18 @@ const recentChatGPTCommentFingerprints = new Map()
 const chatGPTActivityFingerprints = new Map()
 const expectedChatGPTBundles = new Map()
 const pollingExpectedChatGPTBundles = new Set()
+// requestId -> deliveredAt. A second concurrent download of the same file
+// (see downloadInFlight above) can still slip through as a genuine race
+// between the retry-guard check and the first click's will-download event
+// actually firing; this is the last line of defense so the backend is never
+// sent the same bundle twice for one request.
+const deliveredChatGPTBundleRequestIds = new Map()
+const DELIVERED_BUNDLE_DEDUP_TTL_MS = 60_000
+// Defense in depth for Manual chat transport mode (cacheKey -> 'manual').
+// The frontend never calls preparePrompt while a chat is Manual, so this
+// only matters for a bundle already armed before the human flips the
+// toggle mid-flight — see the 3 checks below. Absence means Scraper.
+const chatgptTransportModes = new Map()
 let chatGPTAccountOperation = Promise.resolve()
 const chatGPTAccountProviders = new ChatGPTAccountProviderChain({})
 const EXPECTED_BUNDLE_TTL_MS = 60 * 60 * 1000
@@ -115,6 +127,34 @@ function windowStateForEntry(entry) {
 function activeChatGPTEntry(windowState) {
   const state = windowState || windowStateForEntry([...chatgptViews.values()].find((entry) => entry.view.isVisible?.()))
   return state?.activeChatGPTKey ? chatgptViews.get(state.activeChatGPTKey) : undefined
+}
+
+// "Supervised" mirrors the desktop composition invariant: a hidden/inactive
+// owned view keeps running at full speed only while Wharness genuinely needs
+// to observe it (an expected bundle download, a pending human action, an
+// in-flight transport request, or account automation). Wharness's own
+// detection (executeJavaScript health probes, will-navigate/did-navigate,
+// download events) is driven from this main process on its own timers, not
+// from the ChatGPT page's own JS timers, so it is unaffected by Chromium's
+// background throttling either way; only the remote page's own idle
+// timers/rAF slow down once nothing here is waiting on it.
+function chatGPTEntryNeedsSupervision(key, entry) {
+  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.activeConversationRequests.size > 0 || expectedChatGPTBundles.has(key))
+}
+
+function chatGPTEntryIsActiveVisible(key, entry) {
+  const windowState = windowStateForEntry(entry)
+  return Boolean(windowState && windowState.activeChatGPTKey === key && windowState.chatgptVisible)
+}
+
+function reconcileChatGPTThrottle(key, entry) {
+  if (!entry || entry.view.webContents.isDestroyed()) return
+  const fullSpeed = chatGPTEntryIsActiveVisible(key, entry) || chatGPTEntryNeedsSupervision(key, entry)
+  if (entry.backgroundThrottled === !fullSpeed) return
+  // setBackgroundThrottling's `allowed` parameter is "is throttling allowed",
+  // the inverse of "stay full speed" — false keeps this view at full speed.
+  entry.view.webContents.setBackgroundThrottling(!fullSpeed)
+  entry.backgroundThrottled = !fullSpeed
 }
 
 function sendToWindowState(state, channel, payload) {
@@ -215,6 +255,7 @@ function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, re
       ? Math.max(Number(prior.assistantBaseline || 0), Number(assistantBaseline) || 0)
       : Math.max(0, Number(assistantBaseline) || 0),
     lastDOMClick: 0,
+    downloadInFlight: false,
     settledAt: 0,
     continuationCount: sameRequest ? Number(prior.continuationCount || 0) : 0,
     lastContinuationAt: sameRequest ? Number(prior.lastContinuationAt || 0) : 0,
@@ -256,6 +297,19 @@ function expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename = ''
     if (expected?.requestId === recentExpectedDownload.requestId) return { key: recentExpectedDownload.key, ...expected }
   }
   return undefined
+}
+
+function recentlyDeliveredChatGPTBundleRequestId(requestId) {
+  const deliveredAt = deliveredChatGPTBundleRequestIds.get(requestId)
+  return typeof deliveredAt === 'number' && Date.now() - deliveredAt < DELIVERED_BUNDLE_DEDUP_TTL_MS
+}
+
+function markChatGPTBundleRequestDelivered(requestId) {
+  const now = Date.now()
+  deliveredChatGPTBundleRequestIds.set(requestId, now)
+  for (const [id, deliveredAt] of deliveredChatGPTBundleRequestIds) {
+    if (now - deliveredAt >= DELIVERED_BUNDLE_DEDUP_TTL_MS) deliveredChatGPTBundleRequestIds.delete(id)
+  }
 }
 
 function chatGPTPartitionPath() {
@@ -638,6 +692,11 @@ function registerChatGPTPlanDownloads(chatSession) {
     const sourceFilename = item.getFilename()
     const expectedBundle = expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename)
     const sourceCacheKey = expectedBundle?.key || chatGPTKeyForWebContents(sourceWebContents)
+    // Manual chat transport mode: let the download proceed as an ordinary
+    // Chromium download (goes to the user's normal Downloads folder) rather
+    // than intercepting/validating/auto-importing it — the human is expected
+    // to hand the file to Wharness themselves via the Manual upload UI.
+    if (sourceCacheKey && chatgptTransportModes.get(sourceCacheKey) === 'manual') return
     let bundleCandidate
     try {
       bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '', sourceCacheKey || '')
@@ -677,6 +736,11 @@ function registerChatGPTPlanDownloads(chatSession) {
         }
       })
       item.once('done', async (_doneEvent, state) => {
+        // Release the in-flight guard regardless of outcome — a failed or
+        // cancelled download must not permanently block a later retry, and
+        // a completed one has nothing left to guard against re-clicking.
+        const live = expectedBundle?.key ? expectedChatGPTBundles.get(expectedBundle.key) : undefined
+        if (live && live.requestId === expectedBundle.requestId) live.downloadInFlight = false
         if (state !== 'completed') {
           if (state !== 'cancelled') publishBundleDownloadError(`Download do bundle terminou em estado ${state}.`, filename, sourceCacheKey)
           return
@@ -685,6 +749,11 @@ function registerChatGPTPlanDownloads(chatSession) {
           const bytes = await readFile(savePath)
           if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharness excede o limite de 16 MiB.')
           const validated = validateWharnessBundleDownload(filename, bytes)
+          if (recentlyDeliveredChatGPTBundleRequestId(validated.requestId)) {
+            console.warn(`[chatgpt-bundle-download] duplicate-suppressed file=${filename} request=${validated.requestId}`)
+            return
+          }
+          markChatGPTBundleRequestDelivered(validated.requestId)
           publishBundleDownload({ cacheKey: sourceCacheKey, filename, requestId: validated.requestId, contentBase64: bytes.toString('base64'), bytes: bytes.byteLength, sourceFilename, normalizedFilename: bundleCandidate.normalized })
           if (expectedBundle?.key && expectedBundle.requestId === validated.requestId) expectedChatGPTBundles.delete(expectedBundle.key)
           console.log(`[chatgpt-bundle-download] imported file=${filename} bytes=${bytes.byteLength}`)
@@ -1099,12 +1168,14 @@ function activateChatGPTView(cacheKey, bounds, windowState) {
   const { key, entry } = ensureChatGPTView(cacheKey, resolved)
   const ownerState = windowStateForEntry(entry)
   if (!ownerState) throw new Error('ChatGPT owner window is unavailable')
+  const previousKey = ownerState.activeChatGPTKey
   const previous = activeChatGPTEntry(ownerState)
-  if (previous && previous !== entry) previous.view.setVisible(false)
+  if (previous && previous !== entry) { previous.view.setVisible(false); reconcileChatGPTThrottle(previousKey, previous) }
   ownerState.activeChatGPTKey = key
   if (bounds) setChatGPTBounds(bounds, ownerState)
   else if (ownerState.chatgptBounds) entry.view.setBounds(ownerState.chatgptBounds)
   entry.view.setVisible(ownerState.chatgptVisible && !entry.externalAuthProvider)
+  reconcileChatGPTThrottle(key, entry)
   touchChatGPTEntry(entry)
   publishChatGPTState(key)
   return entry
@@ -1491,22 +1562,36 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
   console.log(`[chatgpt-upload] confirmed wc=${wc.id} file=${index}/${count} observed=${result.observed}`)
 }
 
+// A single click/Enter dispatch can silently fail to actually submit — a
+// disabled send button, a focus loss, a stray newline instead of a submit,
+// or a page still settling after navigation. Every caller here treats a
+// confirmed submission as a precondition for what it does next (arming an
+// expected bundle, waiting for the conversation URL, clearing a human-action
+// flag, ...), so a dispatch that never reaches ChatGPT's own POST must
+// surface as a real failure — via submitWithRetry, not a value callers can
+// silently ignore. Callers that already checked `.accepted` (kept as
+// harmless redundant defense) now simply never see a falsy value; callers
+// that relied on their own try/catch or on the shared DOM-probe-failure
+// counter in pollExpectedChatGPTDownloadKey already handle a thrown error
+// correctly.
 async function submitChatGPTDraft(key) {
   const target = await targetChatGPTComposer(key)
   const wc = target.wc
   markChatGPTAffinitySubmitted(target.entry.affinity)
-  const observed = chatGPTSubmissions.expect(wc.id)
-  const clicked = await wc.executeJavaScript(chatGPTSubmitScript(), true)
-  if (!clicked) dispatchChatGPTSubmit(wc)
-  try {
-    const result = await observed
-    console.log(`[chatgpt-submit] accepted key=${key} method=${clicked ? 'dom-click' : 'native-enter'} request=${result.requestId}`)
-    return result
-  } catch (error) {
-    const observationError = error instanceof Error ? error.message : String(error)
-    console.warn(`[chatgpt-submit] dispatched-unconfirmed key=${key} method=${clicked ? 'dom-click' : 'native-enter'} observation=${observationError}`)
-    return { accepted: false, requestId: '', observationError }
-  }
+  let method = 'dom-click'
+  const result = await submitWithRetry({
+    beginSubmission: () => chatGPTSubmissions.expect(wc.id),
+    submit: async () => {
+      const clicked = await wc.executeJavaScript(chatGPTSubmitScript(), true)
+      method = clicked ? 'dom-click' : 'native-enter'
+      if (!clicked) dispatchChatGPTSubmit(wc)
+    },
+    onRetry: ({ attempt, nextAttempt, error }) => {
+      console.warn(`[chatgpt-submit] retry key=${key} attempt=${attempt} next=${nextAttempt} error=${error?.message || error}`)
+    },
+  })
+  console.log(`[chatgpt-submit] accepted key=${key} method=${method} request=${result.requestId}`)
+  return result
 }
 
 async function preparePromptForChatGPT(request) {
@@ -1775,8 +1860,15 @@ async function publishRemoteChannelComment(sessionId, requestId, comment) {
 
 async function pollChatGPTVisibleActivity() {
   for (const [key, entry] of chatgptViews) {
+    reconcileChatGPTThrottle(key, entry)
     const wc = entry.view.webContents
     if (wc.isDestroyed() || !isTrustedChatGPTOrigin(wc.getURL())) continue
+    // Mirrors the same guard in pollExpectedChatGPTDownloadKey: probing the
+    // DOM mid-navigation (right after a reload) can transiently fail
+    // executeJavaScript, accumulating healthProbeFailures and triggering a
+    // second, redundant recovery reload on top of one already in flight.
+    if (entry.loading) continue
+    if (chatgptTransportModes.get(key) === 'manual') continue
     try {
       const health = await wc.executeJavaScript(chatGPTHumanActionScript(), true)
       entry.healthProbeFailures = 0
@@ -1862,6 +1954,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
   try {
     const expected = expectedChatGPTBundles.get(key)
     if (!expected || hasPendingChatGPTComments(key)) return
+    if (chatgptTransportModes.get(key) === 'manual') { expectedChatGPTBundles.delete(key); return }
     if (now - expected.armedAt > EXPECTED_BUNDLE_TTL_MS) {
       expectedChatGPTBundles.delete(key)
       sendToChatGPTKey(key, 'wharness:chatgpt:bundle-download-error', { cacheKey: key, requestId: expected.requestId, error: 'Tempo limite excedido enquanto o Wharness aguardava o bundle canónico.' })
@@ -1886,10 +1979,21 @@ async function pollExpectedChatGPTDownloadKey(key) {
         return
       }
 
-      if (!expected.lastDOMClick || now - expected.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS) {
+      // downloadInFlight guards against re-clicking while a prior click's
+      // download hasn't reached will-download yet: if ChatGPT takes longer
+      // than DOM_DOWNLOAD_RETRY_MS to actually start serving the file, the
+      // time-only cooldown below would otherwise fire a second concurrent
+      // download of the identical file, which Chromium disambiguates on
+      // disk with a "(1)"/"(2)" suffix and which the download handler would
+      // then publish as two separate bundle-downloaded deliveries for the
+      // same request. Cleared by the will-download handler once this
+      // download resolves (success or failure), not by a timer, so it never
+      // gets stuck open longer than the actual download takes.
+      if (!expected.downloadInFlight && (!expected.lastDOMClick || now - expected.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS)) {
         const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
         if (clickMode) {
           expected.lastDOMClick = now
+          expected.downloadInFlight = true
           recentExpectedDownload = { key, requestId: expected.requestId, at: now }
           console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
           return
@@ -2195,6 +2299,7 @@ function registerIPC() {
     const entry = chatgptViews.get(key)
     if (entry?.ownerWindowId === windowState.id) entry.view.setVisible(false)
     if (windowState.activeChatGPTKey === key) windowState.chatgptVisible = false
+    if (entry) reconcileChatGPTThrottle(key, entry)
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:set-bounds', (event, request) => {
@@ -2329,6 +2434,14 @@ function registerIPC() {
     }
     publishChatGPTState(key)
     return currentChatGPTState(key, windowState)
+  })
+  ipcMain.handle('wharness:chatgpt:set-transport-mode', async (event, request) => {
+    trustedSender(event)
+    const key = sanitizeChatCacheKey(request?.cacheKey)
+    const mode = request?.mode === 'manual' ? 'manual' : 'scraper'
+    if (mode === 'manual') chatgptTransportModes.set(key, 'manual')
+    else chatgptTransportModes.delete(key)
+    return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:start-auth', async (event, request) => {
     const windowState = trustedSender(event)

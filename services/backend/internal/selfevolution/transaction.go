@@ -23,6 +23,12 @@ type transactionMetadata struct {
 	TransactionID string        `json:"transaction_id"`
 	Root          string        `json:"root"`
 	Plans         []PendingPlan `json:"plans"`
+	// PreTransactionSHA is the host's real Git HEAD at the moment this
+	// transaction captured its source-file backups, when the host is a Git
+	// repository. Rollback compares this against HEAD at rollback time to
+	// detect an unrelated integration merge that landed on top of it — see
+	// Transaction.Rollback.
+	PreTransactionSHA string `json:"pre_transaction_sha,omitempty"`
 }
 
 var buildGuardPaths = []string{
@@ -163,9 +169,10 @@ func (tx Transaction) captureLifecycleScripts() error {
 
 func (tx Transaction) writeMetadata(sessionID, planID string) error {
 	metadata := transactionMetadata{
-		TransactionID: tx.ID,
-		Root:          tx.Root,
-		Plans:         []PendingPlan{{SessionID: sessionID, PlanID: planID}},
+		TransactionID:     tx.ID,
+		Root:              tx.Root,
+		Plans:             []PendingPlan{{SessionID: sessionID, PlanID: planID}},
+		PreTransactionSHA: tx.PreTransactionSHA,
 	}
 	return tx.saveMetadata(metadata)
 }

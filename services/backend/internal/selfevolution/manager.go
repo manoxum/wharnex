@@ -17,6 +17,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"kernl.local/harness/backend/internal/sandbox"
 )
 
 var (
@@ -29,7 +31,12 @@ var (
 	// host). Callers must never route a cause matching this sentinel into
 	// the ChatGPT repair loop.
 	ErrHostBuildToolchainMismatch = errors.New("self-evolution host build failed due to a host toolchain mismatch, not a source defect")
-	runtimeInstanceID             = makeInstanceID()
+	// ErrRollbackUnsafe marks a Transaction.Rollback refusal: the host's real
+	// Git HEAD advanced past this transaction's own pre-transaction baseline
+	// with changes overlapping the exact paths Rollback would otherwise
+	// silently overwrite by raw file copy. See Rollback's doc comment.
+	ErrRollbackUnsafe = errors.New("self-evolution rollback refused: host git history advanced with overlapping unrelated changes since this transaction's baseline")
+	runtimeInstanceID = makeInstanceID()
 )
 
 // hostToolchainMismatchMarkers are literal substrings observed in real
@@ -78,8 +85,13 @@ type Transaction struct {
 	Dir            string
 	Worker         string
 	RollbackScript string
-	lockPath       string
-	stageLockPath  string
+	// PreTransactionSHA is the host's real Git HEAD captured when this
+	// transaction's source backups were taken (empty when the host has no
+	// Git repository, or for a transaction created before this field
+	// existed). See Rollback.
+	PreTransactionSHA string
+	lockPath          string
+	stageLockPath     string
 }
 
 type PendingPlan struct {
@@ -197,6 +209,13 @@ func (m *Manager) prepareNewBatch(base, lockPath, stageLockPath, sessionID, plan
 		return Transaction{}, fmt.Errorf("create transaction: %w", err)
 	}
 	tx := Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: lockPath, stageLockPath: stageLockPath}
+	// Best-effort: a host with no Git repository (development-only local
+	// sandbox mode) leaves PreTransactionSHA empty, which simply disables
+	// the overlap safety check in Rollback below rather than blocking
+	// self-evolution.
+	if sha, shaErr := sandbox.CurrentHeadSHA(context.Background(), m.root); shaErr == nil {
+		tx.PreTransactionSHA = sha
+	}
 	if err := m.RecordStatus(tx, sessionID, planID, "preparing", "capturing rollback baseline for pending self-evolution batch"); err != nil {
 		_ = os.RemoveAll(dir)
 		return Transaction{}, err
@@ -393,7 +412,14 @@ func (m *Manager) transactionFromStatus(status Status) (Transaction, error) {
 	if err != nil || !info.IsDir() {
 		return Transaction{}, errors.New("self-evolution transaction directory is unavailable")
 	}
-	return Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: filepath.Join(m.root, ".harness", "self-evolution", "active.lock")}, nil
+	tx := Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: filepath.Join(m.root, ".harness", "self-evolution", "active.lock")}
+	// Best-effort: an older transaction created before PreTransactionSHA
+	// existed simply rolls back without the overlap safety check below,
+	// exactly like before this field was introduced.
+	if metadata, metaErr := tx.readMetadata(); metaErr == nil {
+		tx.PreTransactionSHA = metadata.PreTransactionSHA
+	}
+	return tx, nil
 }
 
 func (m *Manager) TransactionForStatus(status Status) (Transaction, error) {
@@ -610,9 +636,39 @@ func (m *Manager) scheduleStackRestart(tx Transaction, sessionID, planID string)
 	return nil
 }
 
-func (tx Transaction) Rollback() error {
+// Rollback restores this transaction's captured pre-patch file snapshots by
+// raw file copy — it does not go through Git at all, by design, since it
+// must work even when Root has no Git repository. When Root IS a Git
+// repository (every real Wharness project, since projectgit.Ensure
+// guarantees it) and PreTransactionSHA was captured, Rollback first checks
+// whether host HEAD has advanced past that baseline. If it has, an
+// unrelated integration merge may have landed since this transaction
+// started — restoring this transaction's stale snapshot over one of the
+// exact paths that merge touched would silently discard that unrelated
+// work with no error surfaced anywhere (git HEAD would keep claiming the
+// merge succeeded while the file on disk reverted underneath it). Rollback
+// refuses and returns ErrRollbackUnsafe in that case rather than guessing;
+// the caller's existing "rollback_failed" handling already routes any
+// Rollback error to human attention, so no caller-side change is needed
+// beyond passing ctx through.
+func (tx Transaction) Rollback(ctx context.Context) error {
 	if tx.RollbackScript == "" || tx.Root == "" {
 		return errors.New("invalid self-evolution rollback transaction")
+	}
+	if tx.PreTransactionSHA != "" {
+		currentSHA, shaErr := sandbox.CurrentHeadSHA(ctx, tx.Root)
+		if shaErr == nil && currentSHA != tx.PreTransactionSHA {
+			backups, backupErr := tx.readSourceBackups()
+			changed, diffErr := sandbox.ChangedPathsBetween(ctx, tx.Root, tx.PreTransactionSHA, currentSHA)
+			if backupErr != nil || diffErr != nil {
+				// Can't verify safety — fail closed rather than risk silently
+				// discarding unrelated work.
+				return fmt.Errorf("%w: unable to verify host history since baseline %s: backup=%v diff=%v", ErrRollbackUnsafe, tx.PreTransactionSHA, backupErr, diffErr)
+			}
+			if overlap := overlappingPaths(backups, changed); len(overlap) > 0 {
+				return fmt.Errorf("%w: host advanced from %s to %s with unrelated changes to %s", ErrRollbackUnsafe, tx.PreTransactionSHA, currentSHA, strings.Join(overlap, ", "))
+			}
+		}
 	}
 	cmd := exec.Command(tx.RollbackScript, tx.Root, tx.Dir)
 	cmd.Dir = tx.Root
@@ -620,6 +676,23 @@ func (tx Transaction) Rollback() error {
 		return fmt.Errorf("rollback failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func overlappingPaths(backups []sourceBackup, changed []string) []string {
+	if len(backups) == 0 || len(changed) == 0 {
+		return nil
+	}
+	known := make(map[string]struct{}, len(backups))
+	for _, backup := range backups {
+		known[backup.Path] = struct{}{}
+	}
+	overlap := make([]string, 0)
+	for _, path := range changed {
+		if _, ok := known[path]; ok {
+			overlap = append(overlap, path)
+		}
+	}
+	return overlap
 }
 
 func (tx Transaction) ReleaseStage() {

@@ -60,6 +60,12 @@ interface WharnessDesktopBridge {
     suggestTitle(cacheKey: string, url?: string): Promise<{ ok: boolean; state: string; title: string }>
     hideSidebar(cacheKey: string): Promise<{ ok: boolean; state: string }>
     setAuthMode(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
+    /** Defense in depth for Manual chat transport mode: tells Desktop's own
+     *  background polling loops to stop touching this chat's DOM (composer
+     *  fill/submit, download interception) even if a bundle was already
+     *  armed before the mode changed mid-flight. The primary enforcement is
+     *  the frontend never calling preparePrompt at all while manual. */
+    setTransportMode(cacheKey: string, mode: 'scraper' | 'manual'): Promise<{ ok: boolean }>
     startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     openExternal(url?: string): Promise<{ ok: boolean }>
     resumeEmbedded(cacheKey: string): Promise<DesktopChatGPTState>

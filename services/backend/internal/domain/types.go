@@ -127,6 +127,25 @@ func ValidAutomationMode(mode AutomationMode) bool {
 	return mode == AutomationModeManual || mode == AutomationModeAuto
 }
 
+// ChatTransportMode controls whether Wharnex Desktop drives the embedded
+// ChatGPT conversation's DOM directly (Scraper — composer fill, submit, and
+// download interception, as it always has) or never touches that DOM at all
+// (Manual — the prompt is only ever shown to the human to copy/paste, and a
+// completed response bundle is only ever imported by the human uploading
+// it). Independent of AutomationMode: Auto+Manual is a valid, meaningful
+// combination — Wharness still decides execute/apply automatically, only
+// the conversation transport itself is human-driven.
+type ChatTransportMode string
+
+const (
+	ChatTransportModeScraper ChatTransportMode = "scraper"
+	ChatTransportModeManual  ChatTransportMode = "manual"
+)
+
+func ValidChatTransportMode(mode ChatTransportMode) bool {
+	return mode == ChatTransportModeScraper || mode == ChatTransportModeManual
+}
+
 type TerminalTarget string
 
 const (
@@ -388,6 +407,7 @@ type Session struct {
 	ProjectPath             string               `json:"project_path"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
+	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
 	SelfEvolutionActivation string               `json:"self_evolution_activation,omitempty"`
 	ResolvedEvidenceIDs     map[string]time.Time `json:"resolved_evidence_ids,omitempty"`
@@ -418,6 +438,15 @@ type Session struct {
 	LastTurn                        *AgentTurn                   `json:"last_turn,omitempty"`
 	RepairAttempt                   int                          `json:"repair_attempt,omitempty"`
 	RepairParentPlanID              string                       `json:"repair_parent_plan_id,omitempty"`
+	// ConflictAttempt counts automatic rounds requesting resolution of the
+	// SAME IntegrationConflict.ID (a real Git merge conflict or a ChangeSet
+	// replay conflict). Distinct from RepairAttempt, which already measures
+	// ordinary patch-repair rounds and is reset when a conflict starts —
+	// reusing it here would let a plan that already spent repair rounds
+	// arrive at a conflict with fewer automatic attempts left than another
+	// plan, for no reason related to the conflict itself. Reset to 0
+	// whenever a conflict with a new ID begins.
+	ConflictAttempt int `json:"conflict_attempt,omitempty"`
 	LastRepairError                 string                       `json:"last_repair_error,omitempty"`
 	FailureKind                     string                       `json:"failure_kind,omitempty"`
 	WorkflowRound                   int                          `json:"workflow_round,omitempty"`

@@ -529,6 +529,117 @@ func TestRetainedChangeSetReplayConflictCreatesDedicatedConflictResolutionReques
 	}
 }
 
+// TestConflictResolutionStopsAfterBoundedAttempts is a focused unit test of
+// the exhaustion guard itself: a session whose IntegrationConflict already
+// spent maxAutoRepairAttempts automatic rounds must not get yet another
+// automatic conflict-resolution prompt prepared.
+func TestConflictResolutionStopsAfterBoundedAttempts(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), sandbox.NewLocalRunner())
+	started, err := service.StartSessionWithModes(context.Background(), t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeded, err := service.store.Update(started.ID, func(current *domain.Session) error {
+		current.IntegrationConflict = &domain.ConflictResolution{ID: "conflict-existing", RequestID: "req-existing", Paths: []string{"file.txt"}}
+		current.ConflictAttempt = maxAutoRepairAttempts
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingBefore := len(seeded.PendingManualRequestIDs)
+
+	updated, err := service.prepareConflictResolution(started.ID, seeded, nil, []domain.IntegrationConflictDetail{{Path: "file.txt", Reason: "merge conflict"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != "conflict_resolution_exhausted" {
+		t.Fatalf("expected state conflict_resolution_exhausted, got %q", updated.State)
+	}
+	if len(updated.PendingManualRequestIDs) != pendingBefore {
+		t.Fatalf("exhaustion must not create a new pending request: before=%d after=%d", pendingBefore, len(updated.PendingManualRequestIDs))
+	}
+	seen := false
+	for _, event := range service.bus.History(started.ID) {
+		if event.Type == "conflict.exhausted" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatal("expected conflict.exhausted to be published")
+	}
+}
+
+// TestRunAutomaticPlanEscalatesAfterRepeatedApplyConflict reproduces a real
+// repeated host conflict end-to-end through ApplyToHost — the same path
+// TestVerifiedChangeSetCreatesDedicatedConflictResolutionRequest exercises
+// once — but drives it past maxAutoRepairAttempts to confirm the loop
+// actually stops instead of preparing another automatic prompt forever.
+func TestRunAutomaticPlanEscalatesAfterRepeatedApplyConflict(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(path, []byte("base\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "conflicting-plan", Status: "ready", Summary: "change value", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-base\n+task\n"}},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), started.ID, "change value"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.Execute(context.Background(), started.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("external\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conflicted, err := service.ApplyToHost(context.Background(), started.ID)
+	if !errors.Is(err, ErrIntegrationConflict) {
+		t.Fatalf("expected the first integration conflict, got %v", err)
+	}
+	if conflicted.State != "conflict_resolution_pending" || conflicted.ConflictAttempt != 0 {
+		t.Fatalf("expected the first conflict round to start at ConflictAttempt=0: %#v", conflicted)
+	}
+	conflictID := conflicted.IntegrationConflict.ID
+
+	// Simulate maxAutoRepairAttempts further automatic rounds already having
+	// happened for this exact conflict (each one would otherwise require
+	// building and submitting a full resolved ChatGPT bundle), and put the
+	// session back into the "a resolved candidate just verified successfully"
+	// shape a real next round would reach, so ApplyToHost's own
+	// pendingHostResolutionBlocked guard allows this second call through.
+	seeded, err := service.store.Update(started.ID, func(current *domain.Session) error {
+		current.ConflictAttempt = maxAutoRepairAttempts
+		current.PlannerInFlight = false
+		current.PendingManualRequestIDs = nil
+		current.State = "verified"
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exhausted, err := service.ApplyToHost(context.Background(), started.ID)
+	if !errors.Is(err, ErrIntegrationConflict) {
+		t.Fatalf("expected ApplyToHost to still report the conflict, got %v", err)
+	}
+	if exhausted.State != "conflict_resolution_exhausted" {
+		t.Fatalf("expected the loop to stop after %d attempts instead of preparing another prompt, got state=%q", maxAutoRepairAttempts, exhausted.State)
+	}
+	if exhausted.IntegrationConflict == nil || exhausted.IntegrationConflict.ID != conflictID {
+		t.Fatalf("expected the same conflict ID to persist through exhaustion: before=%s after=%#v", conflictID, exhausted.IntegrationConflict)
+	}
+	if len(exhausted.PendingManualRequestIDs) != len(seeded.PendingManualRequestIDs) {
+		t.Fatalf("exhaustion must not create a new pending request: before=%d after=%d", len(seeded.PendingManualRequestIDs), len(exhausted.PendingManualRequestIDs))
+	}
+}
+
 func TestCancelPendingRequestReleasesConversationAndPreservesVerifiedCandidate(t *testing.T) {
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), sandbox.NewLocalRunner())
 	started, err := service.StartSessionWithModes(context.Background(), t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeManual)
@@ -948,6 +1059,54 @@ func TestExecutionModeCanChangePerSession(t *testing.T) {
 	}
 	if _, err := service.SetExecutionMode(s.ID, domain.ExecutionMode("invalid")); err == nil {
 		t.Fatal("invalid execution mode should be rejected")
+	}
+}
+
+func TestSetChatTransportModeValidatesAndPersists(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
+	s, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ChatTransportMode != domain.ChatTransportModeScraper {
+		t.Fatalf("default chat transport mode = %q, expected scraper", s.ChatTransportMode)
+	}
+	s, err = service.SetChatTransportMode(s.ID, domain.ChatTransportModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ChatTransportMode != domain.ChatTransportModeManual {
+		t.Fatalf("updated chat transport mode = %q", s.ChatTransportMode)
+	}
+	refetched, err := service.GetSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refetched.ChatTransportMode != domain.ChatTransportModeManual {
+		t.Fatalf("chat transport mode did not persist: %q", refetched.ChatTransportMode)
+	}
+	if _, err := service.SetChatTransportMode(s.ID, domain.ChatTransportMode("invalid")); err == nil {
+		t.Fatal("invalid chat transport mode should be rejected")
+	}
+}
+
+// TestChatTransportModeIndependentFromAutomationMode confirms Manual
+// transport is not treated as mutually exclusive with Auto automation, the
+// way Unprotected already is — the two axes are deliberately orthogonal.
+func TestChatTransportModeIndependentFromAutomationMode(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err = service.SetChatTransportMode(s.ID, domain.ChatTransportModeManual)
+	if err != nil {
+		t.Fatalf("Auto + Manual transport should be a valid combination: %v", err)
+	}
+	if s.AutomationMode != domain.AutomationModeAuto || s.ChatTransportMode != domain.ChatTransportModeManual {
+		t.Fatalf("expected Auto automation to survive switching chat transport to manual: %#v", s)
 	}
 }
 

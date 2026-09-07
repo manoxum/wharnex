@@ -82,6 +82,16 @@ describe('composer layout CSS', () => {
     expect(autoMode).toContain('background: #e4efe0')
   })
 
+  it('gives the chat transport mode icons their own distinct palette from execution/automation', () => {
+    const scraperMode = lastRule('.composer-round-action.mode-scraper.selected')
+    const manualTransportMode = lastRule('.composer-round-action.mode-manual-transport.selected')
+
+    expect(scraperMode).toContain('border-color: #8b7fc9')
+    expect(scraperMode).toContain('background: #e7e3f7')
+    expect(manualTransportMode).toContain('border-color: #6ba3a3')
+    expect(manualTransportMode).toContain('background: #dcf0ef')
+  })
+
 
   it('keeps application dialogs polished, modal and visually semantic', () => {
     const backdrop = firstRule('.app-dialog-backdrop')

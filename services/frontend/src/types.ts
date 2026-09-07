@@ -138,6 +138,11 @@ export type ContextInspection = {
 
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
+/** Scraper: Desktop drives the embedded ChatGPT DOM directly, as it always
+ *  has. Manual: Desktop never touches that DOM — the prompt is only shown
+ *  for copy/paste and a response bundle is only imported by explicit human
+ *  upload. Independent of AutomationMode; Auto + Manual is valid. */
+export type ChatTransportMode = 'scraper' | 'manual'
 export type TerminalTarget = 'sandbox' | 'host'
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'workflow' | 'change' | 'blocked'
@@ -170,6 +175,7 @@ export type Session = {
   chat_id?: string
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
+  chat_transport_mode?: ChatTransportMode
   self_evolution?: boolean
   self_evolution_activation?: 'restart_pending' | 'restart_scheduled'
   state: string

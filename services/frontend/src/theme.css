@@ -601,6 +601,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .composer-round-action.mode-unprotected.selected { border-color: #8c5249; background: #412722; color: #f2a49a; }
 :root[data-theme='dark'] .composer-round-action.mode-manual.selected { border-color: #866938; background: #3a2e1b; color: #eac47c; }
 :root[data-theme='dark'] .composer-round-action.mode-auto.selected { border-color: #557c4b; background: #243722; color: #9ed495; }
+:root[data-theme='dark'] .composer-round-action.mode-scraper.selected { border-color: #7266ad; background: #2b264a; color: #c8bff0; }
+:root[data-theme='dark'] .composer-round-action.mode-manual-transport.selected { border-color: #4c8888; background: #1c3535; color: #a3e0dd; }
 :root[data-theme='dark'] .composer-round-action.plan-first.selected { border-color: #526f99; background: #27364d; color: #bdd7ff; }
 
 :root[data-theme='dark'] .chat-switcher,
@@ -707,6 +709,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .provider-card span { color: var(--theme-text-soft); }
 :root[data-theme='dark'] .success-card { border-color: #4d4d4d; background: #292929; color: #cecece; }
 :root[data-theme='dark'] .warning-card { border-color: #6d5632; background: #2e271a; color: #ddbc7c; }
+:root[data-theme='dark'] .danger-card { border-color: #8c5249; background: #412722; color: #f2a49a; }
+:root[data-theme='dark'] .manual-bundle-dropzone { border-color: var(--theme-border); background: rgba(255,255,255,.025); color: var(--theme-text-soft); }
+:root[data-theme='dark'] .manual-bundle-dropzone.drag-over { border-color: #4c8888; background: #1c3535; color: #a3e0dd; }
 :root[data-theme='dark'] .execution-overview h3,
 :root[data-theme='dark'] .execution-event-copy strong { color: var(--theme-text); }
 :root[data-theme='dark'] .execution-overview p,

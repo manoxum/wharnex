@@ -10,16 +10,18 @@ import { DirectChatGPTPane } from './DirectChatGPTPane'
 import { MarkdownContent } from './MarkdownContent'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { buildExecutionTimeline } from '../lib/executionTimeline'
+import { requestIdFromBundleName } from '../lib/bundlename'
 
 export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
   manualPrompt: string
   busy: boolean
   chat?: WorkspaceChat
+  chats?: WorkspaceChat[]
   chatgptSurface?: { cacheKey: string; title: string; url?: string; conflictId?: string }
   chatgptSuspended?: boolean
   activeTab?: InspectorTab
@@ -68,6 +70,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
           {session.policy && <StatusPill tone={session.policy.allowed ? (session.policy.risk === 'high' ? 'warning' : 'accent') : 'danger'}>{riskLabel(session.policy.risk)}</StatusPill>}
           {direct && <StatusPill tone="warning">Unprotected</StatusPill>}
           {session.automation_mode === 'auto' && <StatusPill tone="success">Auto</StatusPill>}
+          {session.chat_transport_mode === 'manual' && <StatusPill tone="warning">Manual (sem DOM)</StatusPill>}
           {canExecute && <button className={direct ? 'danger-button' : 'secondary-button'} disabled={busy} onClick={() => onExecute(needsApproval || direct)}><Icon name="play" size={15}/> {direct ? 'Executar no host' : (needsApproval ? 'Aprovar e executar' : 'Executar')}</button>}
           {canReject && <button className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={14}/> {session.integration_conflict ? 'Cancelar conflito' : 'Rejeitar'}</button>}
           {canApply && <button className="apply-button" disabled={busy} onClick={onApply}><Icon name="apply" size={16}/> Aplicar no host{pendingCount > 1 ? ` (${pendingCount})` : ''}</button>}
@@ -84,9 +87,23 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''}`}>
         {selectedTab === 'plan' && <PlanView session={session} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
-        {selectedTab === 'chatgpt' && (desktop
-		  ? <ChatGPTDesktopPane suspended={chatgptSuspended || selectedTab !== 'chatgpt'} busy={busy} chatId={chatgptSurface?.cacheKey || chat?.id || ''} chatTitle={chatgptSurface?.title || chat?.title || 'Chat'} chatgptUrl={chatgptSurface?.url || chat?.chatgptUrl} pendingRequestId={session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]} onChatGPTURL={onChatGPTURL} onActivity={onChatGPTActivity} onTransportFailure={onTransportFailure} onCancelPendingRequest={onCancelPendingRequest} onPlanFile={importPlanFile} onBundleFile={onBundleFile} />
-          : <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />)}
+        {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
+        {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
+        {desktop && <ChatGPTEnginePool
+          visible={selectedTab === 'chatgpt'}
+          globallySuspended={chatgptSuspended}
+          chats={chats && chats.length ? chats : (chat ? [chat] : [])}
+          activeChatId={chat?.id || ''}
+          chatgptSurface={chatgptSurface}
+          busy={busy}
+          session={session}
+          onChatGPTURL={onChatGPTURL}
+          onChatGPTActivity={onChatGPTActivity}
+          onTransportFailure={onTransportFailure}
+          onCancelPendingRequest={onCancelPendingRequest}
+          onPlanFile={importPlanFile}
+          onBundleFile={onBundleFile}
+        />}
         {selectedTab === 'direct-chatgpt' && (desktop ? <DirectChatGPTPane projectPath={session.project_path} suspended={chatgptSuspended || selectedTab !== 'direct-chatgpt'}/> : <div className="provider-card warning-card">O ChatGPT livre incorporado requer Wharnex Desktop.</div>)}
       </div>
     </section>
@@ -117,6 +134,149 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
     <label className="field-label" htmlFor="manual-json">Plano JSON recebido</label>
     <textarea id="manual-json" className="json-input" spellCheck={false} value={manualJSON} onChange={(e) => setManualJSON(e.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
     <button className="primary-button full" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano no Harness</button>
+  </div>
+}
+
+// Manual chat transport mode: Wharness never touches the ChatGPT DOM for
+// this chat. The prompt is only ever shown here for the human to copy into
+// ChatGPT themselves; a completed response bundle is only ever imported by
+// the human downloading it and dropping/selecting it here — never
+// auto-detected. Reuses the same prompt/legacy-JSON blocks ChatGPTWebFallback
+// already renders for the "no Desktop bridge" case, since the two surfaces
+// share the same "no automation available" shape; only the ZIP upload zone
+// below is new.
+function ManualChatGPTPane({ config, session, manualPrompt, manualJSON, setManualJSON, busy, copy, onManualPlan, onBundleFile }: {
+  config?: AppConfig
+  session: Session
+  manualPrompt: string
+  manualJSON: string
+  setManualJSON: (value: string) => void
+  busy: boolean
+  copy: (text: string) => Promise<void>
+  onManualPlan: (json: string) => Promise<void>
+  onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
+}) {
+  const [dragOver, setDragOver] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<{ tone: 'success' | 'danger'; message: string } | undefined>()
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function submitBundleFile(file: File) {
+    setUploadStatus(undefined)
+    const requestId = requestIdFromBundleName(file.name)
+    if (!requestId) {
+      setUploadStatus({ tone: 'danger', message: `Nome de ficheiro não reconhecido: ${file.name}. Esperado whx_bundle_res_<chat_id>_<request_id>.zip.` })
+      return
+    }
+    setUploading(true)
+    try {
+      const buffer = await file.arrayBuffer()
+      const contentBase64 = arrayBufferToBase64(buffer)
+      const message = await onBundleFile(contentBase64, requestId, file.name)
+      setUploadStatus({ tone: 'success', message: message || 'Bundle importado.' })
+    } catch (error) {
+      setUploadStatus({ tone: 'danger', message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return <div className="chatgpt-view manual-transport-view">
+    <div className="section-heading"><div><span className="panel-kicker">Chat transport</span><h3>Manual</h3></div><StatusPill tone="warning">Sem automação DOM</StatusPill></div>
+    <div className="provider-card warning-card"><Icon name="clipboard" size={18}/><div><strong>O Wharness não interage com o ChatGPT neste chat</strong><span>Copie o prompt abaixo e cole-o você mesmo no ChatGPT. Quando a resposta terminar, descarregue o bundle gerado e solte-o (ou selecione-o) aqui para o entregar ao Wharness.</span></div></div>
+    <div className="bridge-actions">
+      <a className="text-button" href={api.bundleURL(session.id)}><Icon name="download" size={15}/> Contexto ZIP</a>
+      <a className="text-button" href="https://chatgpt.com/" target="_blank" rel="noreferrer"><Icon name="external" size={15}/> Abrir ChatGPT</a>
+    </div>
+    <label className="field-label">Prompt preparado</label>
+    <div className="code-box prompt-box"><button className="code-copy" disabled={!manualPrompt} onClick={() => void copy(manualPrompt)}><Icon name="copy" size={14}/> Copiar</button><pre>{manualPrompt || 'Envie uma mensagem no Agent para gerar o prompt.'}</pre></div>
+    <label className="field-label">Bundle de resposta</label>
+    <div
+      className={`manual-bundle-dropzone${dragOver ? ' drag-over' : ''}`}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault(); setDragOver(false)
+        const file = e.dataTransfer.files?.[0]
+        if (file) void submitBundleFile(file)
+      }}
+      onClick={() => fileInputRef.current?.click()}
+      role="button"
+      tabIndex={0}
+    >
+      <Icon name="file" size={18}/>
+      <span>{uploading ? 'A importar…' : 'Arraste o bundle .zip descarregado do ChatGPT para aqui, ou clique para selecionar'}</span>
+      <input ref={fileInputRef} type="file" accept=".zip" hidden disabled={busy || uploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) void submitBundleFile(file); e.target.value = '' }} />
+    </div>
+    {uploadStatus && <div className={`provider-card ${uploadStatus.tone === 'success' ? 'success-card' : 'danger-card'}`}><Icon name={uploadStatus.tone === 'success' ? 'check' : 'close'} size={16}/><span>{uploadStatus.message}</span></div>}
+    <label className="field-label" htmlFor="manual-json">Plano JSON recebido (protocolo legado)</label>
+    <textarea id="manual-json" className="json-input" spellCheck={false} value={manualJSON} onChange={(e) => setManualJSON(e.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
+    <button className="primary-button full" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano no Harness</button>
+  </div>
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
+
+// Mounts one dedicated ChatGPTDesktopPane per live chat and keeps every one of
+// them mounted for the chat's whole lifetime instead of destroying/recreating
+// it on tab or chat switches. Each pane owns its own bridge subscriptions
+// (state/activity/notices), so a chat's observability keeps working while it
+// sits in the background and switching back shows it exactly as it was left,
+// matching the dedicated ChatGPT WebContentsView the Desktop main process
+// already keeps alive per chat. Only the active, non-suspended pane is
+// visible and unsuspended; the rest stay hidden and tell their native view to
+// stay hidden too.
+function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, chatgptSurface, busy, session, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onPlanFile, onBundleFile }: {
+  visible: boolean
+  globallySuspended: boolean
+  chats: WorkspaceChat[]
+  activeChatId: string
+  chatgptSurface?: { cacheKey: string; title: string; url?: string; conflictId?: string }
+  busy: boolean
+  session: Session
+  onChatGPTURL: (url: string) => boolean
+  onChatGPTActivity?: (activity: ChatGPTActivity) => void
+  onTransportFailure?: (requestId: string, reason: string) => void
+  onCancelPendingRequest?: (requestId: string) => Promise<void>
+  onPlanFile: (json: string, requestId: string) => Promise<string>
+  onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
+}) {
+  return <div className="desktop-chatgpt-pool" hidden={!visible}>
+    {chats.map((liveChat) => {
+      const isActive = liveChat.id === activeChatId
+      const surface = isActive ? chatgptSurface : undefined
+      // The active chat's own native view is additionally suspended (hidden)
+      // when THIS chat is in Manual transport mode — ManualChatGPTPane takes
+      // its place in the DOM. Background/inactive chats are never affected
+      // by the active chat's transport mode, since each pool item is
+      // otherwise suspended purely by tab-visibility/active-ness, exactly as
+      // before this mode existed.
+      const manualTransport = isActive && session.chat_transport_mode === 'manual'
+      return <div key={liveChat.id} className={isActive ? 'desktop-chatgpt-pool-item active' : 'desktop-chatgpt-pool-item'}>
+        <ChatGPTDesktopPane
+          suspended={globallySuspended || !visible || !isActive || manualTransport}
+          busy={busy}
+          chatId={surface?.cacheKey || liveChat.id}
+          chatTitle={surface?.title || liveChat.title}
+          chatgptUrl={surface?.url || liveChat.chatgptUrl}
+          pendingRequestId={isActive ? (session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]) : undefined}
+          onChatGPTURL={onChatGPTURL}
+          onActivity={onChatGPTActivity}
+          onTransportFailure={onTransportFailure}
+          onCancelPendingRequest={onCancelPendingRequest}
+          onPlanFile={onPlanFile}
+          onBundleFile={onBundleFile}
+        />
+      </div>
+    })}
   </div>
 }
 

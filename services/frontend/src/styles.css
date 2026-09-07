@@ -276,6 +276,9 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .provider-card span { color: #686d63; font-size: calc(10px * var(--ui-font-scale)); line-height: 1.55; }
 .success-card { border-color: #b9d0ac; background: #edf4e7; color: #3f5e2c; }
 .warning-card { border-color: #dec9a9; background: #f5efe5; color: #765425; }
+.danger-card { border-color: #c98a80; background: #f6e2de; color: #803d34; }
+.manual-bundle-dropzone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 14px; border: 1px dashed #b7bcae; border-radius: 9px; background: rgba(255,255,255,.35); color: #686d63; font-size: calc(11px * var(--ui-font-scale)); text-align: center; cursor: pointer; margin-bottom: 16px; }
+.manual-bundle-dropzone.drag-over { border-color: #6ba3a3; background: #dcf0ef; color: #23615f; }
 .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #d1d4ca; background: rgba(255,255,255,.38); margin-bottom: 16px; }
 .provider-grid .metric { border-right: 1px solid #d1d4ca; }
 .provider-grid .metric:last-child { border-right: 0; }
@@ -291,6 +294,9 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 
 /* v1.2 Desktop ChatGPT composition */
 .inspector-content.desktop-content { padding: 0; overflow: hidden; background: #e5e7df; }
+.desktop-chatgpt-pool { height: 100%; min-height: 0; }
+.desktop-chatgpt-pool-item { display: none; height: 100%; min-height: 0; }
+.desktop-chatgpt-pool-item.active { display: block; }
 .desktop-dot { width: 6px; height: 6px; border-radius: 50%; background: #82b63d; box-shadow: 0 0 0 2px #dce9cb; }
 .desktop-chatgpt-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; background: #eef0e9; }
 .desktop-chatgpt-toolbar { height: 42px; flex: 0 0 42px; padding: 0 9px; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid #cfd3c8; background: #f7f8f4; }
@@ -1021,6 +1027,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .composer-round-action.mode-unprotected.selected { border-color: #c98a80; background: #f6e2de; color: #803d34; box-shadow: inset 0 0 0 1px rgba(128,61,52,.07); }
 .composer-round-action.mode-manual.selected { border-color: #c3a36b; background: #f4ead7; color: #6b5126; box-shadow: inset 0 0 0 1px rgba(107,81,38,.07); }
 .composer-round-action.mode-auto.selected { border-color: #89a978; background: #e4efe0; color: #3b622f; box-shadow: inset 0 0 0 1px rgba(59,98,47,.07); }
+.composer-round-action.mode-scraper.selected { border-color: #8b7fc9; background: #e7e3f7; color: #423583; box-shadow: inset 0 0 0 1px rgba(66,53,131,.08); }
+.composer-round-action.mode-manual-transport.selected { border-color: #6ba3a3; background: #dcf0ef; color: #23615f; box-shadow: inset 0 0 0 1px rgba(35,97,95,.07); }
 .composer-round-action.plan-first.selected { background: #243044; color: #bcd9ff; border-color: #334c70; }
 .composer-comment-state { min-height: 25px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; background: #edf2ea; color: #52604d; font-size: calc(8px * var(--ui-font-scale)); }
 .comment-pulse { width: 6px; height: 6px; border-radius: 50%; background: #7aaa54; box-shadow: 0 0 0 3px rgba(122,170,84,.13); }

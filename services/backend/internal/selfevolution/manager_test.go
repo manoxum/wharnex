@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func TestTransactionRollbackRestoresTouchedSourceAndRuntime(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "services", "frontend", "dist", "index.html"), "new-frontend\n", 0o644)
 	_ = os.Remove(filepath.Join(root, ".harness", "build-success"))
 
-	if err := tx.Rollback(); err != nil {
+	if err := tx.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, filepath.Join(root, "hello.txt"), "before\n")
@@ -132,10 +133,104 @@ func TestPendingBatchAcceptsSequentialHostChangesAndKeepsOriginalRollbackBaselin
 	if _, err := manager.PendingTransaction("ses-two", "plan-two"); err != nil {
 		t.Fatalf("second plan should be a member of the pending batch: %v", err)
 	}
-	if err := second.Rollback(); err != nil {
+	if err := second.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, filepath.Join(root, "hello.txt"), "before\n")
+}
+
+// TestRollbackRefusesWhenUnrelatedGitMergeOverlapsBackupPaths reproduces a
+// real production incident (documented in VALIDATION.md): Rollback restores
+// files by raw copy, bypassing Git entirely. If an unrelated integration
+// merge lands on one of this transaction's own backed-up paths after
+// Prepare captured its baseline but before Rollback runs, a blind raw-copy
+// restore would silently discard that unrelated merge with no error
+// anywhere — git HEAD would still claim the merge succeeded while the file
+// on disk reverted underneath it. Rollback must refuse instead.
+func TestRollbackRefusesWhenUnrelatedGitMergeOverlapsBackupPaths(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline")
+
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-race", "plan-race", []string{patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	if tx.PreTransactionSHA == "" {
+		t.Fatal("expected PreTransactionSHA to be captured for a real Git root")
+	}
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after\n", 0o644)
+
+	// Simulate an unrelated integration merge landing on the SAME path this
+	// transaction is about to roll back, after Prepare's baseline.
+	mustWrite(t, filepath.Join(root, "hello.txt"), "merged-by-someone-else\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "unrelated integration merge")
+
+	err = tx.Rollback(context.Background())
+	if err == nil {
+		t.Fatal("expected Rollback to refuse")
+	}
+	if !errors.Is(err, ErrRollbackUnsafe) {
+		t.Fatalf("expected ErrRollbackUnsafe, got %v", err)
+	}
+	assertFile(t, filepath.Join(root, "hello.txt"), "merged-by-someone-else\n")
+}
+
+// TestRollbackProceedsWhenUnrelatedGitCommitsDoNotOverlapBackupPaths confirms
+// the safety check above is narrow: unrelated commits that land on OTHER
+// paths must not block a legitimate rollback of this transaction's own
+// files.
+func TestRollbackProceedsWhenUnrelatedGitCommitsDoNotOverlapBackupPaths(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline")
+
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-safe", "plan-safe", []string{patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after\n", 0o644)
+
+	mustWrite(t, filepath.Join(root, "unrelated.txt"), "unrelated\n", 0o644)
+	mustGitCommand(t, root, "add", "unrelated.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "unrelated, non-overlapping commit")
+
+	if err := tx.Rollback(context.Background()); err != nil {
+		t.Fatalf("expected rollback to proceed when no overlap exists, got %v", err)
+	}
+	assertFile(t, filepath.Join(root, "hello.txt"), "before\n")
+}
+
+// fakeGitRoot mirrors fakeRoot but as a real Git repository, so
+// PreTransactionSHA is actually captured — every real Wharness project has
+// one (projectgit.Ensure).
+func fakeGitRoot(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	root := fakeRoot(t)
+	mustGitCommand(t, root, "init", "-q")
+	mustGitCommand(t, root, "add", "-A")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "scaffold")
+	return root
+}
+
+func mustGitCommand(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
 }
 
 func fakeRoot(t *testing.T) string {
@@ -186,7 +281,7 @@ func TestBuildHostRejectsDependencyMetadataMutation(t *testing.T) {
 	if _, err := manager.BuildHost(context.Background(), tx, nil); err == nil || !strings.Contains(err.Error(), "mutated source dependency metadata") {
 		t.Fatalf("expected build guard rejection, got %v", err)
 	}
-	if err := tx.Rollback(); err != nil {
+	if err := tx.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "services", "frontend", "package-lock.json")); !errors.Is(err, os.ErrNotExist) {

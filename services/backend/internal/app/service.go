@@ -245,7 +245,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
 		return domain.Session{}, err
 	}
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, SelfEvolution: selfEvolution, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, ChatTransportMode: domain.ChatTransportModeScraper, SelfEvolution: selfEvolution, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if err := s.store.Put(item); err != nil {
 		return domain.Session{}, fmt.Errorf("persist session: %w", err)
 	}
@@ -355,6 +355,29 @@ func (s *Service) SetAutomationMode(sessionID string, mode domain.AutomationMode
 		return domain.Session{}, err
 	}
 	s.bus.Publish(sessionID, "automation.mode_changed", map[string]any{"automation_mode": mode})
+	return item, nil
+}
+
+// SetChatTransportMode switches this chat between Scraper (Desktop drives
+// the embedded ChatGPT DOM, as it always has) and Manual (Desktop never
+// touches that DOM; the prompt is only ever shown for the human to
+// copy/paste, and a response bundle is only ever imported by explicit
+// human upload). No invariant with AutomationMode/ExecutionMode: Manual
+// transport combines validly with any of them, including Auto — Wharness
+// still decides execute/apply automatically, only the conversation
+// transport is human-driven.
+func (s *Service) SetChatTransportMode(sessionID string, mode domain.ChatTransportMode) (domain.Session, error) {
+	if !domain.ValidChatTransportMode(mode) {
+		return domain.Session{}, fmt.Errorf("unsupported chat transport mode %q", mode)
+	}
+	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.ChatTransportMode = mode
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.bus.Publish(sessionID, "chat_transport.mode_changed", map[string]any{"chat_transport_mode": mode})
 	return item, nil
 }
 
@@ -2008,7 +2031,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		if !selfEvolution {
 			return cause
 		}
-		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil {
 			_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "rollback_failed", rollbackErr.Error())
 			s.updateSelfEvolutionBatchSessions(transaction, "restart_pending", rollbackErr.Error())
 			transaction.ReleaseStage()
@@ -2356,7 +2379,7 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 		if pendingErr != nil {
 			return item, fmt.Errorf("recover self-evolution transaction for revert: %w", pendingErr)
 		}
-		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil {
 			transaction.ReleaseStage()
 			return item, fmt.Errorf("revert self-evolution transaction: %w", rollbackErr)
 		}

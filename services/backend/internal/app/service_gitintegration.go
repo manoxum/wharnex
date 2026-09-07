@@ -171,10 +171,14 @@ func (s *Service) deleteIntegrationBranches(ctx context.Context, sessionID, proj
 func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessionID string, item domain.Session, repoPath, failedPlanID string, conflict *sandbox.MergeConflictError) (domain.Session, error) {
 	requestID := ids.New("req")
 	conflictID := ids.New("conflict")
-	if item.IntegrationConflict != nil && strings.TrimSpace(item.IntegrationConflict.ID) != "" {
+	continuing := item.IntegrationConflict != nil && strings.TrimSpace(item.IntegrationConflict.ID) != ""
+	if continuing {
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := normalizedPaths(conflict.Paths)
+	if continuing && item.ConflictAttempt >= maxAutoRepairAttempts {
+		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
+	}
 	files := make([]conflictCapsuleFile, 0, len(paths))
 	for _, path := range paths {
 		base, baseExists, err := sandbox.ReadFileAtRef(ctx, repoPath, conflict.MergeBaseSHA, path)
@@ -215,6 +219,9 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		if current.IntegrationConflict == nil {
 			current.RepairAttempt = 0
 			current.RepairParentPlanID = ""
+			current.ConflictAttempt = 0
+		} else {
+			current.ConflictAttempt++
 		}
 		current.IntegrationConflict = &resolution
 		current.LastRequestID = requestID

@@ -24,6 +24,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const hostRef = useRef<HTMLDivElement>(null)
   const linkedURLRef = useRef(chatgptUrl)
   const chatIdRef = useRef(chatId)
+  const navigatedRef = useRef<{ chatId: string; chatgptUrl?: string } | null>(null)
   const onURLRef = useRef(onChatGPTURL)
   const onPlanFileRef = useRef(onPlanFile)
   const onBundleFileRef = useRef(onBundleFile)
@@ -136,21 +137,37 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   useEffect(() => {
     if (!bridge || !chatId) return
     if (suspended || overlayBlocked || externalAuth || !hostRef.current) return
+    // This pane instance now stays mounted for the chat's whole lifetime and
+    // is merely suspended/unsuspended as the user switches chats or tabs.
+    // `navigate` must still run every time this pane is unsuspended: its
+    // backend handler already no-ops cheaply when the remote view is already
+    // on the right conversation, but it is also what self-heals a view that
+    // drifted away from its bound conversation (ChatGPT-side redirect,
+    // session hiccup, a stray in-page "new chat") while this pane was
+    // backgrounded. Skipping it outright left a drifted chat stuck on the
+    // ChatGPT home page after switching back. Only the visible notice/link
+    // "loading" reset is skipped on a repeat visit to the same chatId/url,
+    // since that cosmetic reset — not the cheap backend check — is what
+    // made an already-loaded chat look like it was reloading.
+    const alreadyBound = navigatedRef.current?.chatId === chatId && navigatedRef.current?.chatgptUrl === chatgptUrl
     let alive = true
     linkedURLRef.current = chatgptUrl
-    setLinkReady(false)
     const target = chatgptUrl || CHATGPT_HOME
     const recoveryNotice = chatgptUrl ? 'A recuperar a conversa ChatGPT…' : ''
-    setNotice(recoveryNotice || 'Novo chat: aguardando URL definitiva do ChatGPT.')
+    if (!alreadyBound) {
+      setLinkReady(false)
+      setNotice(recoveryNotice || 'Novo chat: aguardando URL definitiva do ChatGPT.')
+    }
     void bridge.chatgpt.navigate(target, chatId, { resetToHomeIfConversation: !chatgptUrl, bounds: elementBounds(hostRef.current) }).then((next) => {
       if (!alive) return
+      navigatedRef.current = { chatId, chatgptUrl }
       applyDesktopState(next)
       setLinkReady(true)
-      if (recoveryNotice) setNotice((current) => current === recoveryNotice ? '' : current)
+      if (!alreadyBound && recoveryNotice) setNotice((current) => current === recoveryNotice ? '' : current)
       const linkedConversation = chatgptConversationURL(linkedURLRef.current || '')
       if (linkedConversation && linkedURLRef.current !== linkedConversation && onURLRef.current(linkedConversation)) linkedURLRef.current = linkedConversation
     }).catch((error) => { if (alive) setNotice(error instanceof Error ? error.message : 'Não foi possível abrir a conversa ChatGPT.') })
-    return () => { alive = false; setLinkReady(false) }
+    return () => { alive = false }
   }, [bridge, chatId, chatgptUrl, suspended, overlayBlocked, externalAuth, applyDesktopState])
 
   async function startAuthentication(mode: DesktopChatGPTAuthMode) {

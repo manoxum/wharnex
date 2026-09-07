@@ -381,6 +381,42 @@ test('background ChatGPT views disable renderer throttling and escalate structur
   assert.match(preload, /wharness:chatgpt:human-action/)
 })
 
+test('idle backgrounded ChatGPT views may re-enable normal throttling, but never the active view or one Wharness still needs to supervise', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const needsStart = source.indexOf('function chatGPTEntryNeedsSupervision(key, entry)')
+  const needsEnd = source.indexOf('\nfunction chatGPTEntryIsActiveVisible', needsStart)
+  const needs = source.slice(needsStart, needsEnd)
+  assert.match(needs, /entry\.loading/)
+  assert.match(needs, /entry\.humanAction\?\.active/)
+  assert.match(needs, /entry\.accountOperationActive/)
+  assert.match(needs, /entry\.activeConversationRequests\.size > 0/)
+  assert.match(needs, /expectedChatGPTBundles\.has\(key\)/)
+
+  const reconcileStart = source.indexOf('function reconcileChatGPTThrottle(key, entry)')
+  const reconcileEnd = source.indexOf('\nfunction sendToWindowState', reconcileStart)
+  const reconcile = source.slice(reconcileStart, reconcileEnd)
+  assert.match(reconcile, /chatGPTEntryIsActiveVisible\(key, entry\) \|\| chatGPTEntryNeedsSupervision\(key, entry\)/)
+  assert.match(reconcile, /entry\.view\.webContents\.setBackgroundThrottling\(!fullSpeed\)/)
+
+  // Reconciled on every visibility transition (both the outgoing and the
+  // incoming view) and on the existing bounded poller, never left to drift
+  // until something else happens to touch that chat.
+  const activateStart = source.indexOf('function activateChatGPTView(cacheKey, bounds, windowState)')
+  const activateEnd = source.indexOf('\nfunction wait(', activateStart)
+  const activate = source.slice(activateStart, activateEnd)
+  assert.match(activate, /reconcileChatGPTThrottle\(previousKey, previous\)/)
+  assert.match(activate, /reconcileChatGPTThrottle\(key, entry\)/)
+  const hideStart = source.indexOf("ipcMain.handle('wharness:chatgpt:hide',")
+  const hideEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:set-bounds',", hideStart)
+  const hideHandler = source.slice(hideStart, hideEnd)
+  assert.match(hideHandler, /reconcileChatGPTThrottle\(key, entry\)/)
+  const pollStart = source.indexOf('async function pollChatGPTVisibleActivity()')
+  const pollLoopStart = source.indexOf('for (const [key, entry] of chatgptViews)', pollStart)
+  const pollLoop = source.slice(pollLoopStart, pollLoopStart + 200)
+  assert.match(pollLoop, /reconcileChatGPTThrottle\(key, entry\)/)
+})
+
 test('desktop ChatGPT state publishes only a boolean authentication result to the renderer', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /authenticated: Boolean\(entry\?\.authenticated\)/)
@@ -525,4 +561,84 @@ test('task comment attachments are bundled into one ZIP instead of pasted as sep
   assert.notEqual(flushStart, -1)
   assert.match(flush, /if \(attachmentSet\.path\) await pasteChatGPTFile\(target\.entry, attachmentSet\.path, 1, 1\)/)
   assert.doesNotMatch(flush, /for \(let index = 0; index < attachmentSet\.paths\.length/)
+})
+
+test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function submitChatGPTDraft(key)')
+  const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  const body = source.slice(start, end)
+  assert.match(body, /submitWithRetry\(\{/)
+  assert.match(body, /beginSubmission: \(\) => chatGPTSubmissions\.expect\(wc\.id\)/)
+  // The old implementation swallowed a failed submit into `{ accepted: false }`
+  // instead of throwing — every caller must see a real error now.
+  assert.doesNotMatch(body, /return \{ accepted: false/)
+})
+
+test('pollChatGPTVisibleActivity skips DOM probing while the view is still navigating, mirroring pollExpectedChatGPTDownloadKey', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pollChatGPTVisibleActivity()')
+  const end = source.indexOf('\nasync function performChatGPTRecoveryAction', start)
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  const body = source.slice(start, end)
+  const loadingGuard = body.indexOf('if (entry.loading) continue')
+  const firstProbe = body.indexOf('executeJavaScript(chatGPTHumanActionScript()')
+  assert.notEqual(loadingGuard, -1)
+  assert.notEqual(firstProbe, -1)
+  assert.ok(loadingGuard < firstProbe, 'the loading guard must run before any DOM probe')
+})
+
+test('Manual chat transport mode disarms bundle polling, skips activity probing, and lets downloads pass through uncontrolled', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const pollDownloadStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
+  const pollDownloadEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', pollDownloadStart)
+  assert.notEqual(pollDownloadStart, -1)
+  const pollDownload = source.slice(pollDownloadStart, pollDownloadEnd)
+  const transportGuard = pollDownload.indexOf("chatgptTransportModes.get(key) === 'manual'")
+  const ttlCheck = pollDownload.indexOf('EXPECTED_BUNDLE_TTL_MS')
+  assert.notEqual(transportGuard, -1)
+  assert.ok(transportGuard < ttlCheck, 'the manual-mode guard must run before any other bundle-wait bookkeeping')
+
+  const pollActivityStart = source.indexOf('async function pollChatGPTVisibleActivity()')
+  const pollActivityEnd = source.indexOf('\nasync function performChatGPTRecoveryAction', pollActivityStart)
+  assert.notEqual(pollActivityStart, -1)
+  const pollActivity = source.slice(pollActivityStart, pollActivityEnd)
+  const activityGuard = pollActivity.indexOf("chatgptTransportModes.get(key) === 'manual'")
+  const firstProbe = pollActivity.indexOf('executeJavaScript(chatGPTHumanActionScript()')
+  assert.notEqual(activityGuard, -1)
+  assert.ok(activityGuard < firstProbe, 'the manual-mode guard must run before any DOM probe')
+
+  const registerStart = source.indexOf('function registerChatGPTPlanDownloads(chatSession)')
+  const registerEnd = source.indexOf('\nfunction publishBundleDownloadError', registerStart)
+  assert.notEqual(registerStart, -1)
+  const register = source.slice(registerStart, registerEnd)
+  const downloadGuard = register.indexOf("chatgptTransportModes.get(sourceCacheKey) === 'manual'")
+  const firstInterception = register.indexOf('canonicalWharnessBundleDownload(')
+  assert.notEqual(downloadGuard, -1)
+  assert.ok(downloadGuard < firstInterception, 'the manual-mode guard must run before any download interception')
+
+  const handlerStart = source.indexOf("ipcMain.handle('wharness:chatgpt:set-transport-mode'")
+  assert.notEqual(handlerStart, -1)
+})
+
+test('a re-click of the expected bundle download is guarded against an in-flight download, and delivered bundles are deduplicated by request id', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
+  const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', pollStart)
+  assert.notEqual(pollStart, -1)
+  const poll = source.slice(pollStart, pollEnd)
+  assert.match(poll, /if \(!expected\.downloadInFlight && \(!expected\.lastDOMClick \|\| now - expected\.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS\)\)/)
+  assert.match(poll, /expected\.downloadInFlight = true/)
+
+  const registerStart = source.indexOf('function registerChatGPTPlanDownloads(chatSession)')
+  const registerEnd = source.indexOf('\nfunction publishBundleDownloadError', registerStart)
+  assert.notEqual(registerStart, -1)
+  const register = source.slice(registerStart, registerEnd)
+  assert.match(register, /live\.downloadInFlight = false/)
+  assert.match(register, /recentlyDeliveredChatGPTBundleRequestId\(validated\.requestId\)/)
+  assert.match(register, /markChatGPTBundleRequestDelivered\(validated\.requestId\)/)
 })

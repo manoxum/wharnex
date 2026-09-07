@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import { isNonTerminalBundleRoutingError } from './lib/bundleRouting'
-import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
+import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace, type ExecutionFIFOItem } from './components/AgentWorkspace'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
@@ -53,6 +53,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [mode, setMode] = useState<WorkspaceMode>('agent')
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('protected')
   const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
+  const [chatTransportMode, setChatTransportMode] = useState<ChatTransportMode>('scraper')
   const [globalTransport, setGlobalTransport] = useState<TransportOptions>(() => loadTransportOptions())
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [restoring, setRestoring] = useState(Boolean(activeAtLoad || embeddedProject))
@@ -199,7 +200,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
         saveWorkspaceChats(restored.project_path, nextChats)
         setChats(nextChats); setArchivedChats(loadArchivedWorkspaceChats(restored.project_path)); activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored)
-        setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setManualPrompt(restored.last_manual_prompt || '')
+        setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setChatTransportMode(restored.chat_transport_mode || 'scraper'); setManualPrompt(restored.last_manual_prompt || '')
         const chatItems = loadChat(restored.project_path, nextChat.id)
         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
         connectEvents(restored.id, restored.project_path, nextChat.id)
@@ -340,7 +341,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setArchivedChats(loadArchivedWorkspaceChats(created.project_path)); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
       const chatItems = loadChat(created.project_path, selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
-      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode)
+      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
       connectEvents(selectedSession.id, selectedSession.project_path, selected.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
   }
@@ -389,7 +390,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
-      setEvents([]); setManualPrompt(''); connectEvents(created.id, created.project_path, chat.id)
+      setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); connectEvents(created.id, created.project_path, chat.id)
     } catch (e) { setError(messageOf(e)) } finally { creatingChatRef.current = false }
   }
 
@@ -569,7 +570,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         persistChats(restored.project_path, next)
       }
       activeChatIdRef.current = chatId; setActiveChatId(chatId); setSession(restored); setEvents([])
-      setManualPrompt(restored.last_manual_prompt || '')
+      setManualPrompt(restored.last_manual_prompt || ''); setChatTransportMode(restored.chat_transport_mode || 'scraper')
       const chatItems = loadChat(restored.project_path, chatId)
       setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
       connectEvents(restored.id, restored.project_path, chatId)
@@ -930,7 +931,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       let draftCount = 0
       let autoSubmitted = false
       let transportFailure = ''
-      if (prompt && isDesktop()) {
+      if (prompt && isDesktop() && response.session.chat_transport_mode !== 'manual') {
         try {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 240))
           const bridge = desktopBridge()
@@ -1466,6 +1467,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat, surface?: { cacheKey: string; url?: string }) {
     const text = promptSession.last_manual_prompt || ''
     if (!text) throw new Error('Continuação do planner vazia.')
+    if (promptSession.chat_transport_mode === 'manual') throw new Error('Este chat está em modo Manual: copie o prompt e submeta o bundle de resposta manualmente.')
     if (!isDesktop()) throw new Error('O loop automático com ChatGPT requer Wharness Desktop.')
     await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
     const bridge = desktopBridge()
@@ -1791,6 +1793,23 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
+  // Deliberately genuinely per-chat, unlike changeExecutionMode/changeAutomationMode
+  // above: those two are project-wide by design (propagated to every other chat of
+  // the project, because a mismatched sandbox/Auto lock across chats of the same
+  // project has real correctness implications). Chat transport mode has no such
+  // cross-chat dependency — it only decides whether THIS chat's own Desktop DOM
+  // automation runs — so switching it must never touch any other chat's session.
+  async function changeChatTransportMode(next: ChatTransportMode) {
+    if (!session || next === chatTransportMode || busy) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.setChatTransportMode(session.id, next)
+      setSession(updated); setChatTransportMode(next)
+      if (isDesktop() && activeChatId) { try { await desktopBridge()?.chatgpt.setTransportMode(activeChatId, next) } catch { /* best-effort defense in depth; the primary guard is never calling preparePrompt while manual */ } }
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'manual' ? 'Modo Manual ativado para este chat. O Wharness deixa de interagir com o ChatGPT — copie o prompt e entregue o bundle de resposta manualmente.' : 'Modo Scraper ativado para este chat. O Wharness volta a interagir diretamente com o ChatGPT.', meta: next === 'manual' ? 'Manual' : 'Scraper' }])
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
   function dismissRestartConfirmation() {
     if (restartPresentationKey) dismissedRestartKeysRef.current.add(restartPresentationKey)
     setRestartModalOpen(false)
@@ -2014,12 +2033,12 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onExportChat={exportActiveChat}
         chatProps={{
-          session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode,
+          session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, chatTransportMode,
           attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
           artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
           artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
           requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
-          onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
+          onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onChatTransportMode: changeChatTransportMode, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
           onGlobalTransport: (transport: TransportOptions) => { setGlobalTransport(transport); saveTransportOptions(transport) },
           onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
           onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
@@ -2027,7 +2046,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
           onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
         }}
         inspectorProps={{
-		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
+		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
 		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
           onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession,
         }}

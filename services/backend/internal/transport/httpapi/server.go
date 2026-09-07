@@ -58,6 +58,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
@@ -658,6 +659,21 @@ func (a *API) automationMode(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetAutomationMode(r.PathValue("id"), body.AutomationMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "automation_mode_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) chatTransportMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ChatTransportMode domain.ChatTransportMode `json:"chat_transport_mode"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetChatTransportMode(r.PathValue("id"), body.ChatTransportMode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "chat_transport_mode_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

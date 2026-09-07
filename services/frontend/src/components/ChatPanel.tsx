@@ -1,5 +1,5 @@
 import { type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
+import type { AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
 import { clearComposerDraft, loadComposerDraft, saveComposerDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
@@ -19,7 +19,7 @@ function clampComposerHeight(height: number) {
   return Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)))
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { requestArchive: false, liveTunnels: true }, chatTransport, taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onToggleArtifact, onRequestMode, onGlobalTransport, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { requestArchive: false, liveTunnels: true }, chatTransport, taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onToggleArtifact, onRequestMode, onGlobalTransport, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRetryTransportFailure, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -30,6 +30,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   hideSwitcher?: boolean
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
+  chatTransportMode?: ChatTransportMode
   attachmentsEnabled?: boolean
   preparedAttachmentCount?: number
   failedPromptDelivery?: 'retry' | 'attention'
@@ -44,6 +45,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   transportProgress?: string
   onExecutionMode?: (mode: ExecutionMode) => void
   onAutomationMode?: (mode: AutomationMode) => void
+  onChatTransportMode?: (mode: ChatTransportMode) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
   onRequestMode?: (mode: ChatRequestMode) => void
   onGlobalTransport?: (transport: TransportOptions) => void
@@ -95,6 +97,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const selectedArtifacts: ChatArtifactSelection = artifactSelection || { context: false, prompt: true, result: false, error: false }
   const currentExecutionMode = executionMode || session.execution_mode || 'protected'
   const currentAutomationMode = automationMode || session.automation_mode || 'manual'
+  const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const effectiveTransport = chatTransport || globalTransport
   const composerRef = useRef<HTMLFormElement>(null)
   const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
@@ -345,6 +348,10 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <span className="composer-mode-group" role="group" aria-label="Automação de execução">
             <button type="button" className={`composer-round-action mode-manual ${currentAutomationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
             <button type="button" className={`composer-round-action mode-auto ${currentAutomationMode === 'auto' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto'} aria-label="Auto" title="Auto · mudanças válidas seguem Protected e são aplicadas após verificação" onClick={() => onAutomationMode?.('auto')}><Icon name="agent" size={12}/></button>
+          </span>
+          <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
+            <button type="button" className={`composer-round-action mode-scraper ${currentChatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharness interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
+            <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>
           </span>
           <span className="composer-action-divider" />
           <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharness pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>

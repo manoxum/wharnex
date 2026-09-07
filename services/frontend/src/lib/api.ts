@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactRecord, ArtifactSettings, AutomationMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactRecord, ArtifactSettings, AutomationMode, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -82,6 +82,8 @@ export const api = {
     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
   setAutomationMode: (id: string, automationMode: AutomationMode) =>
     request<Session>(`/api/sessions/${id}/automation-mode`, { method: 'PUT', body: JSON.stringify({ automation_mode: automationMode }) }),
+  setChatTransportMode: (id: string, chatTransportMode: ChatTransportMode) =>
+    request<Session>(`/api/sessions/${id}/chat-transport-mode`, { method: 'PUT', body: JSON.stringify({ chat_transport_mode: chatTransportMode }) }),
   setChatId: (id: string, chatId: string) =>
     request<Session>(`/api/sessions/${id}/chat-id`, { method: 'PUT', body: JSON.stringify({ chat_id: chatId }) }),
   message: (id: string, message: string, planningMode: ChatRequestMode = 'direct') =>

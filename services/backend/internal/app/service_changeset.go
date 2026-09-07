@@ -355,10 +355,14 @@ type conflictCapsuleFile struct {
 func (s *Service) prepareConflictResolution(sessionID string, item domain.Session, pending []domain.PendingHostChange, conflicts []domain.IntegrationConflictDetail) (domain.Session, error) {
 	requestID := ids.New("req")
 	conflictID := ids.New("conflict")
-	if item.IntegrationConflict != nil && strings.TrimSpace(item.IntegrationConflict.ID) != "" {
+	continuing := item.IntegrationConflict != nil && strings.TrimSpace(item.IntegrationConflict.ID) != ""
+	if continuing {
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := conflictPaths(conflicts)
+	if continuing && item.ConflictAttempt >= maxAutoRepairAttempts {
+		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
+	}
 	planIDs := make([]string, 0)
 	files := make([]conflictCapsuleFile, 0, len(conflicts))
 	for _, conflict := range conflicts {
@@ -399,6 +403,9 @@ func (s *Service) prepareConflictResolution(sessionID string, item domain.Sessio
 		if current.IntegrationConflict == nil {
 			current.RepairAttempt = 0
 			current.RepairParentPlanID = ""
+			current.ConflictAttempt = 0
+		} else {
+			current.ConflictAttempt++
 		}
 		current.IntegrationConflict = &resolution
 		current.LastRequestID = requestID
@@ -412,6 +419,26 @@ func (s *Service) prepareConflictResolution(sessionID string, item domain.Sessio
 	})
 	if err == nil {
 		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths, "surface_key": conflictSurfaceKey(sessionID, conflictID)})
+	}
+	return updated, err
+}
+
+// exhaustConflictResolution stops an automatic conflict-resolution loop that
+// has already spent maxAutoRepairAttempts rounds on the SAME conflict ID
+// without converging, instead of preparing yet another automatic prompt.
+// Shared by prepareConflictResolution (ChangeSet path) and
+// prepareConflictResolutionFromMerge (Git merge path) — both call this the
+// same way once item.ConflictAttempt reaches the cap, mirroring how
+// prepareRepairRequest already escalates ordinary repair rounds.
+func (s *Service) exhaustConflictResolution(sessionID string, item domain.Session, conflictID string, paths []string) (domain.Session, error) {
+	detail := fmt.Sprintf("automatic conflict resolution exhausted after %d attempts: %s", item.ConflictAttempt, strings.Join(paths, ", "))
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.State = "conflict_resolution_exhausted"
+		current.LastRepairError = detail
+		return nil
+	})
+	if err == nil {
+		s.bus.Publish(sessionID, "conflict.exhausted", map[string]any{"conflict_id": conflictID, "attempts": item.ConflictAttempt, "paths": paths})
 	}
 	return updated, err
 }

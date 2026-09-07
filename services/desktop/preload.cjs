@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     suggestTitle: (cacheKey, url = '') => invoke('wharness:chatgpt:suggest-title', { cacheKey, url: String(url || '') }),
     hideSidebar: (cacheKey) => invoke('wharness:chatgpt:hide-sidebar', { cacheKey }),
     setAuthMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-auth-mode', { cacheKey, mode }),
+    setTransportMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-transport-mode', { cacheKey, mode }),
     startAuth: (cacheKey, mode) => invoke('wharness:chatgpt:start-auth', { cacheKey, mode }),
     openExternal: (url = '') => invoke('wharness:chatgpt:open-external', { url: String(url || '') }),
     resumeEmbedded: (cacheKey) => invoke('wharness:chatgpt:resume-embedded', { cacheKey }),
