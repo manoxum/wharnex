@@ -111,12 +111,14 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
 
   return <section ref={workspaceRef} className={`agent-workspace ${drawer ? 'drawer-open' : ''}`} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
     <header className="agent-commandbar">
-        {session.self_evolution && <span className="self-evolution-badge"><Icon name="refresh" size={13}/> WHX · AUTO-EVOLUÇÃO</span>}
+      <nav className="agent-direct-chatgpt-tab" aria-label="ChatGPT direto">
+        <button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')} title="ChatGPT" aria-label="ChatGPT"><Icon name="chatgpt" size={15}/></button>
+      </nav>
+      {session.self_evolution && <span className="self-evolution-badge"><Icon name="refresh" size={13}/> WHX · AUTO-EVOLUÇÃO</span>}
       <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
         <button className={inspectorTab === 'plan' ? 'active' : ''} onClick={() => openInspector('plan')} title="Plano" aria-label="Plano"><Icon name="plan" size={15}/></button>
         <button className={inspectorTab === 'terminal' ? 'active' : ''} onClick={() => openInspector('terminal')} title="Execução" aria-label="Execução"><Icon name="terminal" size={15}/></button>
-		<button className={inspectorTab === 'chatgpt' ? 'active' : ''} onClick={() => openInspector('chatgpt')} title={session.integration_conflict ? 'Conflito Engine' : 'Engine'} aria-label={session.integration_conflict ? 'Conflito Engine' : 'Engine'}><Icon name="agent" size={15}/></button>
-		<button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')} title="ChatGPT" aria-label="ChatGPT"><Icon name="chatgpt" size={15}/></button>
+        <button className={inspectorTab === 'chatgpt' ? 'active' : ''} onClick={() => openInspector('chatgpt')} title={session.integration_conflict ? 'Conflito Engine' : 'Engine'} aria-label={session.integration_conflict ? 'Conflito Engine' : 'Engine'}><Icon name="agent" size={15}/></button>
       </nav>
       <div className="agent-command-actions">
         {chatgptHumanAction?.active && <button type="button" className="agent-human-action-button" onClick={onChatGPTHumanAction} disabled={!onChatGPTHumanAction || (busy && chatgptHumanAction.cacheKey !== chatProps.activeChatId)} title={chatgptHumanAction.message} aria-label="Ação humana necessária no ChatGPT"><Icon name="shield" size={13}/><span>Ação no ChatGPT</span></button>}
