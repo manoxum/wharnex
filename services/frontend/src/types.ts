@@ -150,6 +150,14 @@ export type AgentTurn = {
   outcome?: { status: 'completed' | 'failed' | 'partial'; reason_code?: string; message?: string; retryable: boolean }
 }
 
+export type ProjectKnowledge = {
+  project_path: string
+  content: string
+  version: number
+  updated_at: string
+  updated_by_request_id?: string
+}
+
 export type Session = {
   id: string
   project_path: string

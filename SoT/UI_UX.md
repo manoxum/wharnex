@@ -30,6 +30,8 @@ The Agent **Execução** tab is an observability surface, not a stack of mini te
 
 After a successful host Apply, the Agent chat MUST defer the applied diff until the dedicated `knowledge_review` response has been ingested. Any returned `knowledge.md` is persisted first, then the chat shows the compact ChatGPT summary/knowledge/recommendations/next steps, and only then a Wharnex-owned application card shows the changed-file diffs and the important commands that actually ran on the host (including the self-evolution `make build-stage` when applicable). While that final round is pending, the chat may show only a compact status notice; it must not expose the diff early.
 
+The Agent left activity rail exposes a read-only **Conhecimento do projeto** explorer for the opened project. It loads the latest persisted incremental knowledge document through the current Harness session, shows version/update provenance, indexes Markdown headings as browsable topics, supports local search and manual refresh, and presents an explicit empty state before the first knowledge review has retained anything.
+
 
 ## Desktop ChatGPT composition (v1.2)
 
