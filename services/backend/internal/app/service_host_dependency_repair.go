@@ -7,7 +7,33 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/ids"
+	"kernl.local/harness/backend/internal/sandbox"
 )
+
+func (s *Service) runHostDependencyRepairCommand(ctx context.Context, sessionID string, workspace sandbox.Workspace, command domain.CommandSpec) (domain.CommandResult, error) {
+	runID := ids.New("run")
+	s.bus.Publish(sessionID, "host_dependency_repair.command_started", map[string]any{
+		"run_id": runID, "argv": command.Argv, "cwd": command.Cwd,
+	})
+	var result domain.CommandResult
+	var runErr error
+	if streaming, ok := s.hostRunner.(sandbox.StreamingRunner); ok {
+		result, runErr = streaming.RunStreaming(ctx, workspace, command, func(stream, text string) {
+			s.bus.Publish(sessionID, "host_dependency_repair.command_output", map[string]any{
+				"run_id": runID, "stream": stream, "text": text, "argv": command.Argv, "cwd": command.Cwd,
+			})
+		})
+	} else {
+		result, runErr = s.hostRunner.Run(ctx, workspace, command)
+	}
+	result = normalizePreflightCommandFailure(command, result, runErr)
+	s.bus.Publish(sessionID, "host_dependency_repair.command_completed", map[string]any{
+		"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success,
+		"stdout": result.Stdout, "stderr": result.Stderr, "duration_ms": result.DurationMS,
+	})
+	return result, runErr
+}
 
 // RetryHostDependencyRepair is an explicit human-approved recovery for a
 // narrowly classified host-only npm/node dependency defect (see
@@ -60,9 +86,7 @@ func (s *Service) RetryHostDependencyRepair(ctx context.Context, sessionID strin
 			s.bus.Publish(sessionID, "host_dependency_repair.failed", map[string]any{"argv": command.Argv, "error": err.Error()})
 			return current, err
 		}
-		s.bus.Publish(sessionID, "host_dependency_repair.command_started", map[string]any{"argv": command.Argv, "cwd": command.Cwd})
-		result, runErr := s.hostRunner.Run(ctx, workspace, command)
-		s.bus.Publish(sessionID, "host_dependency_repair.command_completed", map[string]any{"argv": command.Argv, "exit_code": result.ExitCode, "success": result.Success})
+		result, runErr := s.runHostDependencyRepairCommand(ctx, sessionID, workspace, command)
 		if runErr != nil || !result.Success {
 			detail := runErr
 			if detail == nil {

@@ -101,6 +101,22 @@ func (r *scriptedHostRunner) Run(_ context.Context, _ sandbox.Workspace, command
 
 func (r *scriptedHostRunner) Cleanup(sandbox.Workspace) error { return nil }
 
+type streamingHostRepairRunner struct {
+	scriptedHostRunner
+}
+
+func (r *streamingHostRepairRunner) RunStreaming(_ context.Context, _ sandbox.Workspace, command domain.CommandSpec, onOutput sandbox.StreamCallback) (domain.CommandResult, error) {
+	r.calls = append(r.calls, command)
+	if onOutput != nil {
+		onOutput("stdout", "repair stdout\n")
+		onOutput("stderr", "repair stderr\n")
+	}
+	return domain.CommandResult{
+		Argv: command.Argv, Cwd: command.Cwd, ExitCode: 0, Success: true,
+		Stdout: "repair stdout\n", Stderr: "repair stderr\n", DurationMS: 12,
+	}, nil
+}
+
 func newHostDependencyRepairSession(t *testing.T, plan domain.ExecutionPlan) (*Service, domain.Session) {
 	t.Helper()
 	root := t.TempDir()
@@ -199,5 +215,45 @@ func TestRetryHostDependencyRepairKeepsFailureConcreteWhenReverifyStillFails(t *
 	}
 	if !strings.Contains(final.LastRepairError, "verification still fails") {
 		t.Fatalf("expected concrete new error persisted, got %q", final.LastRepairError)
+	}
+}
+
+func TestRetryHostDependencyRepairPublishesLiveCommandOutput(t *testing.T) {
+	plan := rolldownVerificationPlan(".")
+	service, started := newHostDependencyRepairSession(t, plan)
+	host := &streamingHostRepairRunner{}
+	service.hostRunner = host
+
+	if _, err := service.RetryHostDependencyRepair(context.Background(), started.ID, true); err != nil {
+		t.Fatalf("RetryHostDependencyRepair() error = %v", err)
+	}
+
+	var repairRunID string
+	var sawOutput bool
+	var sawCompletedFallback bool
+	for _, event := range service.bus.History(started.ID) {
+		switch event.Type {
+		case "host_dependency_repair.command_started":
+			if repairRunID == "" {
+				repairRunID, _ = event.Data["run_id"].(string)
+			}
+		case "host_dependency_repair.command_output":
+			if event.Data["run_id"] == repairRunID && event.Data["stream"] == "stdout" && event.Data["text"] == "repair stdout\n" {
+				sawOutput = true
+			}
+		case "host_dependency_repair.command_completed":
+			if event.Data["run_id"] == repairRunID && event.Data["stdout"] == "repair stdout\n" && event.Data["stderr"] == "repair stderr\n" {
+				sawCompletedFallback = true
+			}
+		}
+	}
+	if repairRunID == "" {
+		t.Fatal("expected repair command_started to carry a run_id")
+	}
+	if !sawOutput {
+		t.Fatal("expected live host_dependency_repair.command_output event")
+	}
+	if !sawCompletedFallback {
+		t.Fatal("expected completed repair event to retain stdout/stderr fallback")
 	}
 }
