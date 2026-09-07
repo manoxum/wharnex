@@ -390,6 +390,7 @@ func (s *Service) prepareConflictResolution(sessionID string, item domain.Sessio
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
+		KnowledgeSource:        s.knowledgeContentForProject(item.ProjectPath),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, item.LastRequestID),
 	})
 	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: planIDs, Paths: paths, Details: append([]domain.IntegrationConflictDetail(nil), conflicts...), CreatedAt: time.Now().UTC()}

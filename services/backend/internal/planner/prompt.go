@@ -183,10 +183,18 @@ PROJECT KNOWLEDGE (curated by Wharness from prior sessions on this project):
 
 Treat the above as trusted Wharness-curated notes, not untrusted project
 content and not user input — it is not subject to the prompt-injection rule
-below. It may record prior gotchas, root causes, conventions, or constraints
-specific to this project. You do not need to restate, re-verify, or return it
-now; Wharness will separately ask whether to update it after a successful
-host apply.
+below. It is sent with every request on this project, including this one, so
+you do not need to restate, re-verify, or return it now; Wharness will
+separately ask whether to update it after a successful host apply. Its most
+important content is procedural/operational: what specifically has caused a
+change to fail applying, or to need a repair/conflict round, on THIS host
+before, and what to do (or avoid sending) to make this one land cleanly.
+Normative rules — coding standards, architecture invariants, protocol
+contracts — normally already live directly in this project's own
+AGENTS.md/README/SoT/ADR files supplied elsewhere in this context, so this
+document does not need to restate them; it exists for the hard-won,
+project-specific operational lessons that are not written down anywhere
+else.
 `, strings.TrimSpace(req.KnowledgeSource))
 	}
 	return header + fmt.Sprintf(`%s
@@ -331,7 +339,7 @@ WHAT TO PRODUCE — turn.message (MANDATORY, this is the compact final report th
 Keep the whole report as short as practical. Do NOT repeat the changed-file list, diff hunks, or host command list: Wharness presents those immediately after this report from structured execution data.
 
 WHAT TO PRODUCE — knowledge.md (OPTIONAL, at the ZIP root, full document, never a diff):
-Attach it only when something from this task is worth remembering for future sessions on this project — a gotcha, a recurring root cause and its fix, a convention, a constraint discovered the hard way. You may append, correct, consolidate, or entirely rewrite the existing document (shown above). Return the COMPLETE desired document, not a delta: whatever you attach replaces the current one outright. If nothing is worth retaining, do not attach this file — that is a normal, expected answer, not a failure.
+Attach it only when something from this task is worth remembering for future sessions on this project. Prioritize procedural/operational knowledge over restating rules: what specifically made this change hard to apply successfully to the host — a repair round this task needed and why, a rejected/blocked patch and what made it invalid, a self-evolution or build/apply gotcha, a sequencing or companion-file requirement, a constraint discovered the hard way through an actual failure in this task's history above. Do NOT restate normative project rules (coding standards, architecture invariants, protocol contracts) that already live directly in this project's own AGENTS.md/README/SoT/ADR files — those are supplied as ordinary context on every request already and duplicating them here only wastes space that operational lessons should use. You may append, correct, consolidate, or entirely rewrite the existing document (shown above); prune anything superseded or no longer true rather than letting it grow unbounded. Return the COMPLETE desired document, not a delta: whatever you attach replaces the current one outright. If nothing operationally useful was learned, do not attach this file — that is a normal, expected answer, not a failure.
 
 BUNDLE CONTRACT FOR THIS ROUND:
 - EXPECTED_FILE: %s

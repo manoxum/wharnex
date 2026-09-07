@@ -1159,6 +1159,42 @@ func TestExecutionFailurePreparesFreshManualRepairRequest(t *testing.T) {
 	}
 }
 
+func TestExecutionFailureRepairRequestIncludesProjectKnowledge(t *testing.T) {
+	// The automatic repair round is exactly where a prior operational
+	// lesson about why a change failed to apply matters most; it must not
+	// be limited to the first request of a chat the way it once was.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := session.NewStore()
+	if _, err := store.AppendProjectKnowledge(root, "- Self-evolution rollback needs stack-known-good.sh captured before Apply.", "req-earlier"); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), &repairFailureRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "fix feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalRequest := prompted.LastRequestID
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
+	planned, err := service.SubmitManualPlan(started.ID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, repaired, err := service.Execute(context.Background(), planned.ID, true)
+	if err == nil || result.Success {
+		t.Fatalf("expected execution failure, result=%#v err=%v", result, err)
+	}
+	if !strings.Contains(repaired.LastManualPrompt, "PROJECT KNOWLEDGE") || !strings.Contains(repaired.LastManualPrompt, "stack-known-good.sh") {
+		t.Fatalf("expected the automatic repair prompt to include the project's accumulated knowledge, got %q", repaired.LastManualPrompt)
+	}
+}
+
 func TestSuccessfulRetainedPlanRetryRetiresObsoleteRepairRequest(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("old\n"), 0o600); err != nil {

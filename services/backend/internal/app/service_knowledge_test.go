@@ -192,7 +192,13 @@ func TestKnowledgeMdOutsideTheReviewBranchIsStructurallyIgnored(t *testing.T) {
 	}
 }
 
-func TestSubmitMessageIncludesKnowledgeSourceOnlyOnFirstRequestOfChat(t *testing.T) {
+func TestSubmitMessageIncludesKnowledgeSourceOnEveryRequest(t *testing.T) {
+	// Repair rounds, workflow continuations and conflict-resolution rounds
+	// are exactly where a prior operational lesson (what made a change fail
+	// to apply on this host before) matters most, and a long chat can drift
+	// far enough that the first-message-only content is no longer front of
+	// mind. The knowledge document is therefore sent with every request on
+	// the project, not only the first one of a new chat.
 	root := t.TempDir()
 	store := session.NewStore()
 	if _, err := store.AppendProjectKnowledge(root, "- Prior learning from an earlier chat.", "req-earlier"); err != nil {
@@ -216,7 +222,7 @@ func TestSubmitMessageIncludesKnowledgeSourceOnlyOnFirstRequestOfChat(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(second.ManualPrompt, "PROJECT KNOWLEDGE") {
-		t.Fatal("a later request in the same chat must not repeat the knowledge source")
+	if !strings.Contains(second.ManualPrompt, "PROJECT KNOWLEDGE") || !strings.Contains(second.ManualPrompt, "Prior learning from an earlier chat") {
+		t.Fatal("a later request in the same chat must still include the project's knowledge source")
 	}
 }

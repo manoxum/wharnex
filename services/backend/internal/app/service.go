@@ -377,15 +377,10 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
-	// Snapshot BEFORE recordRequestLineage below adds this request's own
-	// entry: an empty lineage map is exactly "no request has ever been sent
-	// in this chat/session yet", which is when the project's accumulated
-	// knowledge document (if any) belongs in the bundle — see the plan
-	// note on KnowledgeSource in internal/planner/planner.go.
-	knowledgeSource := ""
-	if len(item.RequestLineages) == 0 {
-		knowledgeSource = s.knowledgeContentForProject(item.ProjectPath)
-	}
+	// Every request carries the project's accumulated knowledge document,
+	// if any — see the field note on KnowledgeSource in
+	// internal/planner/planner.go.
+	knowledgeSource := s.knowledgeContentForProject(item.ProjectPath)
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
@@ -1725,6 +1720,7 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 		PreviousResponseID:     refreshed.LastProviderResponseID,
 		AutomationMode:         refreshed.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(refreshed),
+		KnowledgeSource:        s.knowledgeContentForProject(refreshed.ProjectPath),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
 	})
 	if err != nil {

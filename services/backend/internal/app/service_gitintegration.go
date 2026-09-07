@@ -206,6 +206,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
+		KnowledgeSource:        s.knowledgeContentForProject(item.ProjectPath),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, item.LastRequestID),
 	})
 	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, CreatedAt: time.Now().UTC()}

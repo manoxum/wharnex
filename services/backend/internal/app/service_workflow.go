@@ -188,6 +188,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 		PreviousResponseID:     refreshed.LastProviderResponseID,
 		AutomationMode:         refreshed.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(refreshed),
+		KnowledgeSource:        s.knowledgeContentForProject(refreshed.ProjectPath),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
 	})
 	if err != nil {
