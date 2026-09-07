@@ -323,6 +323,60 @@ func TestPrepareReclaimsAnOrphanedStageLockFromAPreviousRuntime(t *testing.T) {
 	}
 }
 
+func TestPrepareReclaimsAFailClosedLockWhoseTransactionDirectoryIsGone(t *testing.T) {
+	// Real production deadlock: a self-evolution rollback finished with
+	// rollback_failed, which is deliberately fail-closed (ADR-0016) so the
+	// batch lock survives for manual recovery. But the transaction directory
+	// it points to was separately removed (operator cleanup, disk pressure,
+	// or any other reason), leaving nothing left to protect: no rollback
+	// baseline, no source backup, no pending-plan list. Refusing forever at
+	// that point only deadlocks every future self-evolution apply behind
+	// ErrBusy — self_evolution_transaction_busy — with no ChatGPT-side
+	// correction able to release a local lock file. Once the referenced
+	// transaction directory is verifiably absent, Prepare must reclaim.
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	base := filepath.Join(root, ".harness", "self-evolution")
+	mustWrite(t, filepath.Join(base, "active.lock"), "pid=1\nrun_id=0000000000000000\ncreated=2026-09-07T12:10:45Z\n", 0o600)
+	mustWrite(t, filepath.Join(base, "status"), "phase=rollback_failed\nsession_id=ses-old\nplan_id=plan-old\ntransaction=txn-gone\nupdated_at=2026-09-07T12:13:14Z\ndetail=previous application containers could not be restored\n", 0o600)
+
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-reclaim", "plan-reclaim", []string{patch})
+	if err != nil {
+		t.Fatalf("a fail-closed lock with no transaction directory left must be reclaimed, got %v", err)
+	}
+	defer tx.Release()
+	log, readErr := os.ReadFile(filepath.Join(root, ".harness", "logs", "self-evolution.log"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(log), "lock_reclaimed") || !strings.Contains(string(log), "txn-gone") {
+		t.Fatalf("expected an audit trail of the automatic reclaim in self-evolution.log, got %q", string(log))
+	}
+}
+
+func TestPrepareKeepsFailClosedLockWhenTransactionDirectoryStillExists(t *testing.T) {
+	// The reclaim above must not weaken the documented fail-closed guarantee
+	// for the common case: a rollback failure whose transaction directory
+	// (rollback baseline, source backups) is still on disk stays busy so a
+	// human can inspect it before anything touches the host again.
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	base := filepath.Join(root, ".harness", "self-evolution")
+	mustWrite(t, filepath.Join(base, "active.lock"), "pid=1\nrun_id=0000000000000000\ncreated=2026-09-07T12:10:45Z\n", 0o600)
+	if err := os.MkdirAll(filepath.Join(base, "txn-present"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(base, "status"), "phase=rollback_failed\nsession_id=ses-old\nplan_id=plan-old\ntransaction=txn-present\nupdated_at=2026-09-07T12:13:14Z\n", 0o600)
+
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	if _, err := manager.Prepare("ses-reclaim", "plan-reclaim", []string{patch}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("expected ErrBusy while the rollback-failed transaction directory still exists, got %v", err)
+	}
+}
+
 func TestLockHeldByThisRuntimeStillBlocksConcurrentPreparation(t *testing.T) {
 	// The reclaim above must not weaken real mutual exclusion: a lock this
 	// runtime instance still holds keeps reporting busy.

@@ -158,7 +158,25 @@ func (m *Manager) Prepare(sessionID, planID string, patches []string) (Transacti
 	if statusErr == nil && extendablePendingPhase(status.Phase) {
 		return m.extendPendingBatch(base, lockPath, stageLockPath, sessionID, planID, patches)
 	}
-	if !activeLockOwnerAlive(lockPath) && (statusErr != nil || !persistentSelfEvolutionPhase(status.Phase)) {
+	if activeLockOwnerAlive(lockPath) {
+		return Transaction{}, ErrBusy
+	}
+	if statusErr != nil || !persistentSelfEvolutionPhase(status.Phase) {
+		_ = os.Remove(lockPath)
+		return m.Prepare(sessionID, planID, patches)
+	}
+	if _, txErr := m.transactionFromStatus(status); txErr != nil {
+		// The status file still claims a fail-closed phase (e.g.
+		// rollback_failed) that is meant to hold the batch lock for manual
+		// recovery, but the transaction directory it points to no longer
+		// exists on disk — there is no rollback baseline, source backup or
+		// pending-plan list left to protect. Continuing to refuse here would
+		// not guard anything real; it would only deadlock every future
+		// self-evolution apply behind an unrecoverable ErrBusy that no
+		// ChatGPT-side correction can ever resolve, because nothing short of
+		// removing this local lock file can release it. Treat the orphaned
+		// record as reclaimable and leave an audit trail of why.
+		m.logRecovery(fmt.Sprintf("lock_reclaimed plan=%s orphaned %s (phase=%s) has no transaction directory on disk; automatically releasing the stale batch lock for recovery: %s", sanitizeLabel(planID), status.Transaction, status.Phase, txErr))
 		_ = os.Remove(lockPath)
 		return m.Prepare(sessionID, planID, patches)
 	}
@@ -383,6 +401,25 @@ func (m *Manager) TransactionForStatus(status Status) (Transaction, error) {
 		return Transaction{}, errors.New("Wharness runtime root is not available")
 	}
 	return m.transactionFromStatus(status)
+}
+
+// logRecovery appends one line to the same self-evolution.log the detached
+// worker writes to, in the same "[timestamp] self-evolution <rest>" shape,
+// so an automatic backend-side recovery decision is visible next to the
+// worker's own phase transitions instead of only living in backend process
+// logs that rotate away. Best-effort: a logging failure must never block the
+// recovery it is describing.
+func (m *Manager) logRecovery(line string) {
+	logPath := filepath.Join(m.root, ".harness", "logs", "self-evolution.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		return
+	}
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = fmt.Fprintf(file, "[%s] self-evolution %s\n", time.Now().UTC().Format(time.RFC3339), line)
 }
 
 func (m *Manager) RecordStatus(tx Transaction, sessionID, planID, phase, detail string) error {

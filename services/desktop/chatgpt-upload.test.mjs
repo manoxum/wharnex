@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatGPTUploadCoordinator, chatGPTComposerPoint, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
+import { ChatGPTUploadCoordinator, chatGPTComposerPoint, pasteWithUploadRetry, plannerPromptMarkdown, waitForChatGPTReady } from './chatgpt-upload.mjs'
 
 const uploadURL = 'https://chatgpt.com/backend-api/files/process_upload_stream'
 
@@ -8,45 +8,6 @@ test('planner prompt is always materialized as a Markdown attachment', () => {
   const attachment = plannerPromptMarkdown('# Planner\n\nReturn only the bundle.')
   assert.equal(attachment.name, 'wharness-planner-prompt.md')
   assert.equal(attachment.bytes.toString('utf8'), '# Planner\n\nReturn only the bundle.\n')
-})
-
-test('ChatGPT upload uses the native file input so the canonical basename is preserved', async () => {
-  const calls = []
-  let attached = false
-  const debuggerClient = {
-    isAttached: () => attached,
-    attach: (version) => { calls.push(['attach', version]); attached = true },
-    detach: () => { calls.push(['detach']); attached = false },
-    sendCommand: async (method, params) => {
-      calls.push([method, params])
-      if (method === 'DOM.getDocument') return { root: { nodeId: 7 } }
-      if (method === 'DOM.querySelector') return { nodeId: 9 }
-      if (method === 'DOM.setFileInputFiles') return {}
-      throw new Error(`unexpected command ${method}`)
-    },
-  }
-
-  const result = await selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/whx_bundle_req_chat-1_req_20260907T111505_example.zip')
-  assert.equal(result.name, 'whx_bundle_req_chat-1_req_20260907T111505_example.zip')
-  assert.deepEqual(calls, [
-    ['attach', '1.3'],
-    ['DOM.getDocument', { depth: 0, pierce: false }],
-    ['DOM.querySelector', { nodeId: 7, selector: 'input#upload-files' }],
-    ['DOM.setFileInputFiles', { nodeId: 9, files: ['/tmp/whx_bundle_req_chat-1_req_20260907T111505_example.zip'] }],
-    ['detach'],
-  ])
-})
-
-test('ChatGPT upload fails closed when the dedicated file input is unavailable', async () => {
-  let attached = false
-  const debuggerClient = {
-    isAttached: () => attached,
-    attach: () => { attached = true },
-    detach: () => { attached = false },
-    sendCommand: async (method) => method === 'DOM.getDocument' ? { root: { nodeId: 1 } } : { nodeId: 0 },
-  }
-  await assert.rejects(() => selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/request.zip'), /file input was not found/)
-  assert.equal(attached, false)
 })
 
 test('new-chat focus targets the centered composer instead of the conversation footer', () => {

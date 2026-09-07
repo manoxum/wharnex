@@ -1,3 +1,10 @@
+## v1.2.46.2 self-evolution orphaned-lock recovery
+
+- `TestPrepareReclaimsAFailClosedLockWhoseTransactionDirectoryIsGone` reproduces the observed production deadlock: `active.lock` held from a different runtime instance, `status` fail-closed at `rollback_failed`, and its `transaction=` directory already absent from disk. `Prepare` now reclaims the lock and returns a new transaction instead of `ErrBusy`, and writes an audit line to `self-evolution.log` naming the discarded transaction/phase.
+- `TestPrepareKeepsFailClosedLockWhenTransactionDirectoryStillExists` proves the existing fail-closed guarantee is unchanged when the referenced transaction directory is genuinely still on disk: `Prepare` still returns `ErrBusy`, unresolved until a human inspects the retained rollback baseline.
+- ADR-0016 step 13 and its Consequences section document the narrow reclaim rule; `CHANGELOG.md` records the user-facing fix.
+- Gates run in the real workspace: `gofmt -l`, `go vet ./...`, `go test ./...`, `go test -race ./...` all pass.
+
 ## v1.2.46.1 legacy integration-race classifier hotfix
 
 - Regression extends `TestLegacyFailureKindRecognizesPersistedPingPongCauses` across both legacy persistence surfaces: `LastRepairError` and `LastExecution.Error`.

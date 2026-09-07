@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for Wharness v1.2.23; amended for v1.2.26 and v1.2.34.
+Accepted for Wharness v1.2.23; amended for v1.2.26, v1.2.34 and v1.2.46.
 
 ## Context
 
@@ -26,6 +26,7 @@ Self-evolution is always Protected. After sandbox verification, host Apply becom
 10. The supervisor starts the cumulatively built runtime using normal health checks.
 11. If the new runtime fails, the single batch rollback restores the original source/runtime and starts the original known-good lifecycle scripts. Dependency reconciliation is attempted once only if needed; rollback failure remains fail-closed behind the durable batch lock for manual recovery.
 12. Completed transaction metadata is retained until the restarted backend reconciles all member sessions. Reconciliation clears the pending activation flag for every member without overwriting a newer unrelated request state, then the transaction is removed.
+13. The fail-closed hold in step 11 protects the retained rollback baseline/source-backup/pending-plan data inside that transaction's own directory, not the lock file itself. If a later `Prepare` finds the batch lock held by a phase that step 11 deliberately keeps non-reclaimable (`rollback_failed` and the other terminal/in-flight phases), it first confirms that transaction's directory still exists. When the directory is gone — nothing under `.harness/self-evolution/txn-*` can vanish except through this manager's own `Finalize`, so its absence always means the record is orphaned, never a normal in-flight state — there is no baseline left to protect, and refusing forever would only convert a one-time failure into a permanent `self_evolution_transaction_busy` deadlock that no ChatGPT-side patch can resolve, since nothing about that loop can delete a local lock file. The manager reclaims the lock automatically in that case and appends an audit line to `.harness/logs/self-evolution.log` naming the discarded transaction, its phase and the reason. A transaction directory that is still present keeps blocking exactly as before, unresolved until a human inspects it.
 
 The planner receives `SELF-EVOLUTION MODE: true` and must not place Wharness start/stop/restart/process-management commands in model plans. `.harness` recovery state remains runtime-owned and cannot be patched.
 
@@ -37,3 +38,4 @@ The planner receives `SELF-EVOLUTION MODE: true` and must not place Wharness sta
 - Concurrent mutation stages are rejected, but an idle `restart_pending` transaction is intentionally extendable as one atomic batch.
 - Sessions, chats, browser data and other `.harness` state are preserved across a successful restart.
 - The transaction is intentionally Linux/Unix-oriented because the current Wharness lifecycle itself is shell/process-group based.
+- Fail-closed rollback failure no longer risks becoming a permanent deadlock once its own protected data is gone: the durable batch lock self-heals from that specific orphaned state while still refusing to touch a transaction directory that is genuinely still present.
