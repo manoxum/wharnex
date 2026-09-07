@@ -166,7 +166,7 @@ Execution actions belong to the unified Agent tab bar. The available Execute act
 
 ## Chat artifact downloads and bundle explorer (v1.3)
 
-- Every Harness chat with persisted input/output ZIPs MUST show a compact bundle-exchange strip. Each visible bundle exposes direction, canonical filename, byte size, local date/time and entry count; the full modal list retains all bundles for that session.
+- Every Harness chat with persisted input/output ZIPs MUST show a compact bundle-exchange strip. The strip and its modal list MUST include only transport artifacts persisted with semantic `kind: bundle` and an inspectable ZIP payload; auxiliary `context`, `attachment`, `system-artifact` or other ZIP artifacts stay out of this gallery because their payloads are already carried by the transport bundle. Each visible bundle exposes direction, canonical filename, byte size, local date/time and entry count; the full modal list retains all transport bundles for that session.
 - Opening a bundle uses a Wharness-owned modal file explorer. It MUST support virtual folder navigation and breadcrumbs even when the ZIP omits explicit directory entries, opening bounded text files for preview, downloading an individual entry, and downloading the original bundle unchanged.
 - Bundle inspection is read-only and MUST NOT extract files into the project workspace. Unsupported/binary files remain downloadable even when no inline preview is offered.
 - Project settings expose global MinIO artifact retention in days. The default shown to the user is 30 days, and saving a new value applies to existing artifacts as well as future ones.

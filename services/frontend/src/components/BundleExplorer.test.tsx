@@ -26,6 +26,21 @@ describe('BundleExchangeBar', () => {
     expect(await screen.findByText('turn.json')).toBeTruthy()
     expect(screen.getByText('Bundle inteiro')).toBeTruthy()
   })
+  it('ignores auxiliary ZIP artifacts even when they are technically inspectable bundles', () => {
+    const base = { content_type: 'application/zip', size: 1024, sha256: 'c'.repeat(64), created_at: '2026-09-05T22:00:00Z', expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1 }
+    const artifacts: ArtifactRecord[] = [
+      { ...base, id: 'transport', request_id: 'req-main', direction: 'input', kind: 'bundle', name: 'request.zip' },
+      { ...base, id: 'context', request_id: 'req-main', direction: 'input', kind: 'context', name: 'context.zip' },
+      { ...base, id: 'attachment', request_id: 'req-main', direction: 'input', kind: 'attachment', name: 'attachment.zip' },
+    ]
+
+    render(<BundleExchangeBar sessionId="ses_1" artifacts={artifacts} />)
+    expect(screen.getByText('request.zip')).toBeTruthy()
+    expect(screen.queryByText('context.zip')).toBeNull()
+    expect(screen.queryByText('attachment.zip')).toBeNull()
+    expect(screen.getByTitle('Abrir galeria completa').textContent).toContain('1')
+  })
+
   it('assigns a distinct visual category to every request/response bundle stage', async () => {
     const base = { kind: 'bundle', content_type: 'application/zip', size: 2048, sha256: 'b'.repeat(64), expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1 }
     const artifacts: ArtifactRecord[] = [
