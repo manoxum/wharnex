@@ -59,7 +59,7 @@ func TestCommitVerifiedPatchCreatesRealCommitOnNewBranch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sandbox, "hello.txt"), []byte("after\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sha, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-1", "fix: update hello.txt")
+	sha, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-1", "fix: update hello.txt", []string{"hello.txt"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +80,51 @@ func TestCommitVerifiedPatchCreatesRealCommitOnNewBranch(t *testing.T) {
 	}
 }
 
+// TestCommitVerifiedPatchIgnoresUnrelatedDirtyFiles reproduces a real
+// production incident: copyProject overlays the host's current on-disk
+// content onto the sandbox's working tree (so it matches the content-hash
+// baseline the plan was verified against), which means any of the
+// operator's OWN unrelated uncommitted edits to other files ride along in
+// that same working tree, untracked by the sandbox's cloned git history.
+// CommitVerifiedPatch must stage only the plan's own declared paths, never
+// "whatever is dirty" — otherwise that unrelated drift gets folded into the
+// "verified patch" commit and collides with the host's own pre-merge dirty
+// snapshot (snapshotUncommittedHostState) as a spurious merge conflict on
+// a file the plan never touched.
+func TestCommitVerifiedPatchIgnoresUnrelatedDirtyFiles(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "hello.txt", "before\n")
+	if err := os.WriteFile(filepath.Join(host, "unrelated.txt"), []byte("committed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", "unrelated.txt")
+	mustGit(t, host, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "add unrelated file")
+	sandbox := cloneSandbox(t, host)
+	// Mirrors copyProject's disk overlay: the sandbox's working tree carries
+	// operator drift the sandbox's git history knows nothing about.
+	if err := os.WriteFile(filepath.Join(sandbox, "unrelated.txt"), []byte("operator's own uncommitted edit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sandbox, "hello.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-unrelated", "fix: update hello.txt", []string{"hello.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	status := mustGit(t, sandbox, "status", "--porcelain")
+	if !strings.HasSuffix(status, "unrelated.txt") {
+		t.Fatalf("expected the unrelated drift to remain uncommitted in the sandbox working tree, got %q", status)
+	}
+	committed := mustGit(t, sandbox, "show", "HEAD:unrelated.txt")
+	if committed != "committed" {
+		t.Fatalf("expected the integration commit to retain the original committed content, got %q", committed)
+	}
+	changedFiles := mustGit(t, sandbox, "diff", "--name-only", "HEAD~1", "HEAD")
+	if changedFiles != "hello.txt" {
+		t.Fatalf("expected only hello.txt in the verified commit, got %q", changedFiles)
+	}
+}
+
 func TestPushAndMergeIntegratesCleanlyWithoutTouchingAnyRemote(t *testing.T) {
 	requireGit(t)
 	host := newTestHostRepo(t, "hello.txt", "before\n")
@@ -87,7 +132,7 @@ func TestPushAndMergeIntegratesCleanlyWithoutTouchingAnyRemote(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sandbox, "hello.txt"), []byte("after\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-2", "fix: update hello.txt"); err != nil {
+	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-2", "fix: update hello.txt", []string{"hello.txt"}); err != nil {
 		t.Fatal(err)
 	}
 	remotes := mustGit(t, sandbox, "remote")
@@ -138,7 +183,7 @@ func TestMergeConflictLeavesHostUntouchedAndReportsStructuredPaths(t *testing.T)
 	if err := os.WriteFile(filepath.Join(sandbox, "hello.txt"), []byte("sandbox-version\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-3", "fix: sandbox edit"); err != nil {
+	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-3", "fix: sandbox edit", []string{"hello.txt"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := PushBranchToHost(context.Background(), sandbox, host, "whx/req-3"); err != nil {
@@ -214,7 +259,7 @@ func TestRevertHostMergeRestoresExactPreMergeState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sandbox, "hello.txt"), []byte("after\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-4", "fix: update hello.txt"); err != nil {
+	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-4", "fix: update hello.txt", []string{"hello.txt"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := PushBranchToHost(context.Background(), sandbox, host, "whx/req-4"); err != nil {

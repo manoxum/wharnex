@@ -64,17 +64,34 @@ func CurrentHeadSHA(ctx context.Context, repoPath string) (string, error) {
 // planner-supplied text and adding Request-Id/Plan-Id trailers is the
 // caller's responsibility (internal/app knows those identifiers; this
 // package deliberately does not).
-func CommitVerifiedPatch(ctx context.Context, workspacePath, branch, message string) (commitSHA string, err error) {
+//
+// paths MUST be exactly the plan's own declared write set (the same
+// actualPatchFiles(plan) list the caller uses everywhere else), never "add
+// everything". copyProject overlays the host's real current on-disk content
+// (including any of the operator's own unrelated uncommitted edits) onto the
+// sandbox's working tree so it matches the content-hash baseline the plan was
+// verified against — but that overlay is not part of the sandbox's cloned
+// git history. A wildcard `git add -A` here would silently fold the
+// operator's unrelated dirty files into this "verified patch" commit,
+// alongside whatever the host's own pre-merge dirty-tree snapshot
+// (snapshotUncommittedHostState) commits separately for the exact same
+// paths — producing a spurious merge conflict on files the plan never
+// touched.
+func CommitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string) (commitSHA string, err error) {
 	if strings.TrimSpace(branch) == "" {
 		return "", errors.New("branch name is required")
 	}
 	if strings.TrimSpace(message) == "" {
 		return "", errors.New("commit message is required")
 	}
+	if len(paths) == 0 {
+		return "", errors.New("at least one changed path is required")
+	}
 	if output, err := runGit(ctx, workspacePath, "checkout", "-b", branch); err != nil {
 		return "", fmt.Errorf("create integration branch %s: %s", branch, output)
 	}
-	if output, err := runGit(ctx, workspacePath, "add", "-A"); err != nil {
+	addArgs := append([]string{"add", "--"}, paths...)
+	if output, err := runGit(ctx, workspacePath, addArgs...); err != nil {
 		return "", fmt.Errorf("stage verified changes: %s", output)
 	}
 	commitArgs := []string{

@@ -97,13 +97,14 @@ func planIDForIntegrationBranch(pending []domain.PendingHostChange, branch strin
 // the host's own .git (never a remote — see PushBranchToHost). Returns ""
 // for a command-only plan with no patch, which has nothing to commit.
 func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath string) (branch, commitSHA string, err error) {
-	if len(actualPatchFiles(plan)) == 0 {
+	patchFiles := actualPatchFiles(plan)
+	if len(patchFiles) == 0 {
 		return "", "", nil
 	}
 	message := sanitizeCommitMessage(plan.CommitMessage, plan.Summary)
 	message = fmt.Sprintf("%s\n\nRequest-Id: %s\nPlan-Id: %s", message, plan.RequestID, plan.PlanID)
 	branch = integrationBranchName(plan.RequestID)
-	commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message)
+	commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message, patchFiles)
 	if err != nil {
 		return "", "", err
 	}
