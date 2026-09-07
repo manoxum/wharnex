@@ -2476,6 +2476,13 @@ func TestAutoSelfEvolutionRunsProjectVerificationAndReachesRestartPending(t *tes
 	if updated.State != "restart_pending" || updated.SelfEvolutionActivation != "restart_pending" {
 		t.Fatalf("Auto self-evolution should execute, apply, build and stop only at activation confirmation: %#v", updated)
 	}
+	if updated.PendingKnowledgeReviewRequestID == "" || !containsString(updated.PendingManualRequestIDs, updated.PendingKnowledgeReviewRequestID) {
+		t.Fatalf("Auto self-evolution must prepare the final knowledge review before activation is presented: %#v", updated)
+	}
+	lineage, ok := updated.RequestLineages[updated.PendingKnowledgeReviewRequestID]
+	if !ok || lineage.Kind != requestKindKnowledgeReview {
+		t.Fatalf("Auto self-evolution final review must be recorded as knowledge_review lineage: %#v", lineage)
+	}
 	contents, err := os.ReadFile(filepath.Join(root, "auto.txt"))
 	if err != nil {
 		t.Fatal(err)
