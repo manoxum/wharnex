@@ -4,6 +4,7 @@ import { isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace, type ExecutionFIFOItem } from './components/AgentWorkspace'
+import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
 import { WorkspaceShell } from './components/WorkspaceShell'
@@ -60,6 +61,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [transportProgress, setTransportProgress] = useState('')
   const [chatgptHumanActions, setChatgptHumanActions] = useState<Record<string, DesktopChatGPTHumanAction>>({})
   const [chatgptAttentionNonce, setChatgptAttentionNonce] = useState(0)
+  const [inspectorAttention, setInspectorAttention] = useState<{ tab: 'terminal' | 'chatgpt'; nonce: number }>({ tab: 'terminal', nonce: 0 })
   const [error, setError] = useState<string>()
   const [errorChatRef, setErrorChatRef] = useState<{ chatId: string; itemId: string; message: string }>()
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
@@ -819,6 +821,35 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     return () => { cancelled = true }
   }, [chats, session])
 
+  useEffect(() => {
+    const supervised = interruptedExecutions.filter((candidate) => ['resuming', 'running'].includes(candidate.session.interrupted_execution?.status || ''))
+    if (!supervised.length) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void Promise.all(supervised.map(async (candidate) => {
+        try { return { candidate, refreshed: await api.getSession(candidate.session.id) } }
+        catch (pollError) { console.warn('execution recovery supervision failed', candidate.session.id, messageOf(pollError)); return undefined }
+      })).then((settled) => {
+        if (cancelled) return
+        const results = settled.filter((result): result is { candidate: { chat: WorkspaceChat; session: Session }; refreshed: Session } => Boolean(result))
+        for (const result of results) {
+          if (!result.refreshed.interrupted_execution) appendChatItem(result.candidate.chat, result.refreshed.project_path, {
+            id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+            text: `Recuperação concluída para ${result.candidate.session.interrupted_execution?.plan_id || 'a execução interrompida'}.`,
+          })
+        }
+        setInterruptedExecutions((current) => current.flatMap((candidate) => {
+          const match = results.find((result) => result.candidate.session.id === candidate.session.id)
+          if (!match) return [candidate]
+          return match.refreshed.interrupted_execution ? [{ ...candidate, session: match.refreshed }] : []
+        }))
+        const activeResult = results.find((result) => result.candidate.chat.id === activeChatIdRef.current)
+        if (activeResult) setSession(activeResult.refreshed)
+      })
+    }, 1200)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [interruptedExecutions])
+
   function bindChatGPTURL(url: string) {
     if (!session || !activeChatId) return false
 	if (session.integration_conflict) {
@@ -1386,13 +1417,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setChatBusy(target.chat.id, true); setError(undefined)
     try {
       const updated = decision === 'continue'
-        ? (await api.execute(target.session.id, intent.approved)).session
+        ? (await api.resumeInterruptedExecution(target.session.id)).session
         : await api.discardInterruptedExecution(target.session.id)
-      setInterruptedExecutions((current) => current.filter((candidate) => candidate.session.id !== target.session.id))
+      setInterruptedExecutions((current) => decision === 'discard' || !updated.interrupted_execution
+        ? current.filter((candidate) => candidate.session.id !== target.session.id)
+        : current.map((candidate) => candidate.session.id === target.session.id ? { ...candidate, session: updated } : candidate))
       if (activeChatIdRef.current === target.chat.id) setSession(updated)
       appendChatItem(target.chat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-        text: decision === 'continue' ? `Execução recuperada após interrupção: ${intent.plan_id}.` : `Execução pendente descartada: ${intent.plan_id}.`,
+        text: decision === 'continue' ? `Retomada iniciada em segundo plano: ${intent.plan_id}. Pode continuar a trabalhar enquanto o Wharness acompanha a execução.` : `Execução pendente descartada: ${intent.plan_id}.`,
       })
     } catch (resolveError) {
       // A session the backend no longer has (e.g. cleared/reset data) can
@@ -1423,6 +1456,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } finally { setChatBusy(target.chat.id, false) }
   }
 
+
+  async function focusRecoveryTarget(target: InterruptedExecutionTarget, tab?: 'terminal' | 'chatgpt') {
+    if (target.chat.id !== activeChatIdRef.current) await selectChat(target.chat.id)
+    setMode('agent')
+    if (tab) setInspectorAttention((current) => ({ tab, nonce: current.nonce + 1 }))
+  }
 
   async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat, surface?: { cacheKey: string; url?: string }) {
     const text = promptSession.last_manual_prompt || ''
@@ -1937,13 +1976,21 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
     result: Boolean(activeChat?.artifactSelection?.result),
     error: errorArtifactRequired || Boolean(activeChat?.artifactSelection?.error),
   }
-  const taskInFlight = requestChainActive(session) || restartModalOpen || interruptedExecutions.length > 0
+  const recoveryBlocksActiveChat = interruptedExecutions.some((target) => target.chat.id === activeChatId)
+  const taskInFlight = requestChainActive(session) || restartModalOpen || recoveryBlocksActiveChat
   const restartPending = isRestartPending(session)
   return <main className="workspace-root">
     {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
     {restartModalOpen && restartPending && <RestartConfirmation busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
-    {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery items={interruptedExecutions} busyChats={busyChats} onDecision={(target, decision) => void resolveInterruptedExecution(target, decision)} />}
+    {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
+      items={interruptedExecutions.map((target) => ({ ...target, queue: executionFIFO.find((item) => item.chatId === target.chat.id && item.planId === target.session.interrupted_execution?.plan_id), humanAction: recoveryHumanAction(target.chat, chatgptHumanActions) }))}
+      busyChats={busyChats}
+      onDecision={(target, decision) => void resolveInterruptedExecution(target, decision)}
+      onOpenChat={(target) => void focusRecoveryTarget(target)}
+      onOpenLogs={(target) => void focusRecoveryTarget(target, 'terminal')}
+      onOpenChatGPT={(target) => void focusRecoveryTarget(target, 'chatgpt')}
+    />}
     <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} onShowInChat={errorChatRef?.message === error ? () => void showErrorInChat() : undefined} />
     <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
       <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
@@ -1960,6 +2007,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
         executionFIFO={executionFIFO}
         chatgptHumanAction={chatgptHumanAction}
         chatgptAttentionNonce={chatgptAttentionNonce}
+        inspectorAttention={inspectorAttention}
         onChatGPTHumanAction={() => void openChatGPTHumanAction()}
         onOpenFile={openFileFromChat}
         onError={setError}
@@ -1979,7 +2027,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
           onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
         }}
         inspectorProps={{
-		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen || interruptedExecutions.length > 0,
+		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
 		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
           onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession,
         }}
@@ -1988,31 +2036,15 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
   </main>
 }
 
+function recoveryHumanAction(chat: WorkspaceChat, actions: Record<string, DesktopChatGPTHumanAction>) {
+  const keys = [chat.id, ...Object.values(chat.conflictSurfaces || {}).map((surface) => surface.cacheKey)]
+  return keys.map((key) => actions[key]).find((action) => action?.active)
+}
+
 function compareExecutionQueueItems(a: { position?: number; addedAt: number }, b: { position?: number; addedAt: number }) {
   const left = a.position || Number.MAX_SAFE_INTEGER
   const right = b.position || Number.MAX_SAFE_INTEGER
   return left === right ? a.addedAt - b.addedAt : left - right
-}
-
-function InterruptedExecutionRecovery({ items, busyChats, onDecision }: {
-  items: Array<{ chat: WorkspaceChat; session: Session }>
-  busyChats: Record<string, boolean>
-  onDecision: (target: { chat: WorkspaceChat; session: Session }, decision: 'continue' | 'discard') => void
-}) {
-  return <div className="restart-confirmation-backdrop" role="presentation">
-    <section className="restart-confirmation-dialog execution-recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="execution-recovery-title">
-      <div className="restart-confirmation-icon"><Icon name="play" size={24}/></div>
-      <div><span className="panel-kicker">Recuperação segura</span><h2 id="execution-recovery-title">Execuções interrompidas</h2><p>O Wharness foi encerrado ou perdeu a ligação antes de registar o resultado destas tarefas. Nenhuma será retomada sem a sua decisão.</p></div>
-      <div className="execution-recovery-list">{items.map((target) => {
-        const intent = target.session.interrupted_execution!
-        const pending = Boolean(busyChats[target.chat.id])
-        return <article key={`${target.session.id}:${intent.plan_id}`} className="execution-recovery-item">
-          <div><strong>{target.chat.title}</strong><span>{target.session.plan?.summary || intent.plan_id}</span><small>{new Date(intent.requested_at).toLocaleString()} · {target.session.execution_mode === 'unprotected' ? 'Host direto' : 'Sandbox protegida'}</small></div>
-          <div className="restart-confirmation-actions"><button className="secondary-button" disabled={pending} onClick={() => onDecision(target, 'discard')}>Descartar</button><button className="apply-button" disabled={pending} onClick={() => onDecision(target, 'continue')}><Icon name="play" size={14}/> Continuar</button></div>
-        </article>
-      })}</div>
-    </section>
-  </div>
 }
 
 function RestartConfirmation({ busy, onLater, onRestart }: { busy: boolean; onLater: () => void; onRestart: (scope: 'all' | 'current') => void }) {

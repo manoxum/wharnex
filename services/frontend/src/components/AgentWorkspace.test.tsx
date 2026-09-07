@@ -206,6 +206,13 @@ describe('AgentWorkspace', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Engine' }).className).toContain('active'))
   })
 
+  it('focuses the execution inspector when an external recovery action requests logs', async () => {
+    const view = props()
+    const rendered = render(view.element)
+    rendered.rerender(<AgentWorkspace {...view.element.props} inspectorAttention={{ tab: 'terminal', nonce: 1 }} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Execução' }).className).toContain('active'))
+  })
+
   it('exports the active chat from the fixed chat header', () => {
     const view = props()
     render(view.element)

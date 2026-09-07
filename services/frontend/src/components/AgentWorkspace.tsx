@@ -41,12 +41,13 @@ function saveAgentChatWidth(width: number) {
 
 export type ExecutionFIFOItem = { key: string; chatId: string; chatTitle: string; planId: string; status: 'submitting' | 'queued' | 'running'; position?: number; addedAt: number }
 
-export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHumanAction, chatgptAttentionNonce = 0, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat }: {
+export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHumanAction, chatgptAttentionNonce = 0, inspectorAttention, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat }: {
   session: Session
   busy: boolean
   executionFIFO?: ExecutionFIFOItem[]
   chatgptHumanAction?: DesktopChatGPTHumanAction
   chatgptAttentionNonce?: number
+  inspectorAttention?: { tab: InspectorTab; nonce: number }
   onChatGPTHumanAction?: () => void
   chatProps: ComponentProps<typeof ChatPanel>
   inspectorProps: ComponentProps<typeof Inspector>
@@ -67,6 +68,11 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], chatgptHuman
     setDrawer('')
     setInspectorTab('chatgpt')
   }, [chatgptAttentionNonce])
+  useEffect(() => {
+    if (!inspectorAttention?.nonce) return
+    setDrawer('')
+    setInspectorTab(inspectorAttention.tab)
+  }, [inspectorAttention])
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
