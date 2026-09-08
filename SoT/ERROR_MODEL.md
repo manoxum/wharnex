@@ -23,3 +23,5 @@ A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set c
 | `execution_context_canceled` | A sandbox/host command was interrupted by request cancellation. | Not evidence the generated source is defective; safe to resume/retry. |
 
 None of these classifications ever consume an automatic ChatGPT repair round: each represents a local/host condition no source patch can fix, so routing it into the planner repair loop would only spend a bounded repair attempt the model cannot satisfy.
+
+Failures without one of these infrastructure classifications are repairable planner failures. Wharness attempts their bounded GPT repair automatically and retains a manual GPT repair fallback with optional operator guidance after automatic preparation, transport, or attempt exhaustion fails.

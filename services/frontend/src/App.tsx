@@ -462,6 +462,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         if (!remote.ok) throw new Error(`A conversa local não foi arquivada porque o arquivo remoto não pôde ser confirmado (${remote.state}).`)
       }
       const moved = archiveStoredChat(projectPath, chatId)
+      // Best-effort: the local transcript archive above stays authoritative
+      // and is never blocked on this. It only gives the backend a trigger
+      // to eventually compact this session's own artifacts/logs (ADR-0031).
+      try { await api.archiveChat(target.sessionId) } catch { /* backend archive state will simply lag; retried on next archive/restore */ }
       const remoteKeys = [chatId, ...Object.values(target.conflictSurfaces || {}).map((surface) => surface.cacheKey)]
       await Promise.allSettled(remoteKeys.map((cacheKey) => bridge?.chatgpt.release(cacheKey)))
       setArchivedChats(moved.archived)
@@ -515,7 +519,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       let selected = moved.active.find((chat) => chat.id === chatId) || target
       let restored: Session
       try {
-        restored = await api.getSession(selected.sessionId)
+        // Not best-effort here, unlike archiveChat: once the session has
+        // been compacted (ADR-0031) this is the call that actually extracts
+        // its artifacts/logs back into place, so a failure means real data
+        // didn't come back and must surface to the user.
+        restored = await api.restoreChat(selected.sessionId)
         restored = await syncSessionModes(restored, executionMode, automationMode)
       } catch (error) {
         if (!(error instanceof APIError) || error.status !== 404) throw error
@@ -1614,6 +1622,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const repairPrompt = failedSession.last_manual_prompt || ''
     if (!repairPrompt) return
     const attempt = failedSession.repair_attempt || 1
+    const attemptLabel = attempt <= 3 ? `${attempt}/3` : `manual ${attempt - 3}`
     const requestId = failedSession.last_request_id || ''
     const dispatchKey = `${failedSession.id}:${requestId || attempt}`
     if (force) repairDispatchRef.current.delete(dispatchKey)
@@ -1625,7 +1634,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const cause = truncateRepairCause(failedSession.last_repair_error || failedSession.last_execution?.error)
     appendChatItem(targetChat, failedSession.project_path, {
       id: `repair-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-      text: `O Wharness criou automaticamente a requisição de correção ${attempt}/3 e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
+      text: `O Wharness preparou a requisição de correção ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
       meta: failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático',
       iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'repair', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined,
     })
@@ -1660,6 +1669,45 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       if (repaired.state !== 'repair_pending') throw new Error('O Wharness não encontrou um bloqueio que possa ser reprocessado.')
       await submitRepairPrompt(repaired, targetChat, true)
+    } catch (error) {
+      setError(messageOf(error))
+    } finally { setBusy(false) }
+  }
+
+  async function repairFailureWithGPT(detail: string) {
+    if (!session || !activeChatId) return
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    setBusy(true); setError(undefined)
+    try {
+      const repaired = await api.requestFailureRepair(session.id, detail)
+      setSession(repaired)
+      setManualPrompt(repaired.last_manual_prompt || '')
+      if (repaired.state === 'planned' && repaired.plan) {
+        appendChatItem(targetChat, repaired.project_path, {
+          id: `manual-repair-plan-${repaired.plan.plan_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: `O GPT devolveu um plano de correção: ${repaired.plan.summary}`,
+          meta: `Plano de correção ${repaired.plan.plan_id}`,
+          iteration: repaired.last_request_id ? iterationRef(repaired.last_request_id, 'result', ['result'], targetChat.chatgptUrl) : undefined,
+        })
+        return
+      }
+      if (!repaired.last_manual_prompt) {
+        throw new Error('O Wharness não conseguiu preparar uma requisição de correção para este erro.')
+      }
+      if (repaired.state === 'repair_pending') {
+        await submitRepairPrompt(repaired, targetChat, true)
+      } else if (repaired.state === 'awaiting_plan') {
+        const prepared = await transportPlannerContinuation(repaired, targetChat)
+        appendChatItem(targetChat, repaired.project_path, {
+          id: `manual-repair-${repaired.last_request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: prepared.submitted ? 'Correção manual enviada ao ChatGPT. O Wharness aguarda o novo bundle ZIP.' : 'Correção manual preparada no ChatGPT; confirme o envio para continuar.',
+          meta: prepared.submitted ? 'Correção GPT enviada' : 'Correção GPT · confirmação pendente',
+          iteration: repaired.last_request_id ? iterationRef(repaired.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds(continuationArtifactSelection(repaired)), prepared.conversationUrl || targetChat.chatgptUrl) : undefined,
+        })
+      } else {
+        throw new Error('O Wharness não conseguiu preparar uma requisição de correção para este erro.')
+      }
     } catch (error) {
       setError(messageOf(error))
     } finally { setBusy(false) }
@@ -2122,7 +2170,8 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
           onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onChatTransportMode: changeChatTransportMode, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
           onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
           onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
-          onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
+          onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
+          onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
           onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
         }}
         inspectorProps={{
@@ -2133,6 +2182,16 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
       />}
     </div>
   </main>
+}
+
+function canRetryDependencyNetwork(session: Session) {
+  return session.failure_kind === 'offline_go_module_cache' && Boolean(session.plan && session.last_execution?.plan_id === session.plan.plan_id)
+}
+
+function canRepairFailureWithGPT(session: Session) {
+  if (session.failure_kind || (session.plan && session.policy && !session.policy.allowed)) return false
+  if (session.state === 'repair_pending') return Boolean(session.last_manual_prompt)
+  return session.state === 'failed' && Boolean(session.last_repair_error || (session.last_execution?.success === false && session.last_execution.error))
 }
 
 function recoveryHumanAction(chat: WorkspaceChat, actions: Record<string, DesktopChatGPTHumanAction>) {

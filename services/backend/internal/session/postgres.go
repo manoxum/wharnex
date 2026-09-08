@@ -206,6 +206,19 @@ func (s *Store) AppendEvent(event domain.Event) error {
 	return nil
 }
 
+// DeleteSessionEvents removes every audit/log event recorded for one
+// session. Used by chat-archive compaction (ADR-0031) once those events
+// have been folded into the session's compacted package. A no-op when
+// running without Postgres, matching AppendEvent/EventHistory's existing
+// guard: the in-memory store never persists events in the first place.
+func (s *Store) DeleteSessionEvents(sessionID string) error {
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM harness_events WHERE session_id = $1`, sessionID)
+	return wrapPostgresError("delete session events", err)
+}
+
 func (s *Store) EventHistory(sessionID string) ([]domain.Event, error) {
 	if s.db == nil {
 		return nil, nil

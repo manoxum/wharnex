@@ -101,3 +101,33 @@ backend cleanup removes expired objects and metadata; changing the retention
 setting applies the new cutoff immediately. Explicit session/data deletion also
 removes owned artifact objects. Normal stack stop/down preserves the MinIO named
 volume just like the other durable stack services.
+
+## Chat archive lifecycle and compaction (v1.4)
+
+Closing a Harness chat archives its backend Session and is an instant,
+idempotent state flip (`archived_at`) — it never itself does heavy work. A
+passive, throttled sweep (see ADR-0031) later folds every backend-owned
+artifact still attached to that session — its MinIO artifacts, its
+`harness_events` audit/log rows, and any still-present on-disk context
+archive files — into one package, compressed with the pure-Go
+`klauspost/compress/zstd` library's best-compression mode, and uploads it to
+MinIO through the same artifact object-store port. Only once that upload is
+confirmed does the sweep delete the originals it now covers; a session whose
+deletes are still failing stays parked, retried on the next sweep tick,
+never advancing past that checkpoint until the destructive step after it has
+confirmed success. The chat's human-readable transcript is out of scope for
+this pipeline: it remains a frontend-local concern, unaffected by session
+archive/compaction state.
+
+Restoring a chat is bimodal. Within a configurable grace period (default 72
+hours) after archiving, the session has not yet been compacted, so restoring
+is the same kind of instant state flip as archiving — the backend never
+touched the session's data. Once the sweep has compacted it, restoring must
+instead download the package, verify its digest, unpack it, and re-upload
+every artifact and re-append every event before the session is usable again;
+only after all of that fully succeeds does the session commit as restored
+and the package get deleted. The sweep itself runs strictly one session at a
+time, never concurrently, with a short pause between sessions — Go has no
+portable OS thread-priority API, so this bounded, sequential processing is
+the mechanism behind keeping compaction from monopolizing backend resources,
+not an OS-level priority grant.

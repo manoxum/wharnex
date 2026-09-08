@@ -486,6 +486,13 @@ type Session struct {
 	InterruptedExecution   *InterruptedExecution               `json:"interrupted_execution,omitempty"`
 	RemoteRecoveryAttempt  int                                 `json:"remote_recovery_attempt,omitempty"`
 	RequestLineages        map[string]RequestLineage           `json:"request_lineages,omitempty"`
+	// ArchivedAt/CompactedAt/ArchivePackage implement the passive chat-archive
+	// lifecycle (see ADR-0031). Pointers, not bare time.Time: encoding/json's
+	// omitempty is a no-op on a zero struct value, and callers need a clean
+	// null to mean "not archived".
+	ArchivedAt     *time.Time            `json:"archived_at,omitempty"`
+	CompactedAt    *time.Time            `json:"compacted_at,omitempty"`
+	ArchivePackage *ArchivePackageRecord `json:"archive_package,omitempty"`
 }
 
 // InterruptedExecution is a durable execution intent. Its presence means the
@@ -520,6 +527,17 @@ type ArtifactRecord struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 	Bundle      bool      `json:"bundle"`
 	EntryCount  int       `json:"entry_count,omitempty"`
+}
+
+// ArchivePackageRecord describes the single compacted object a session's
+// artifacts/events/context archives were folded into (ADR-0031). ObjectKey
+// is server-only, exactly like ArtifactRecord.ObjectKey.
+type ArchivePackageRecord struct {
+	ObjectKey  string    `json:"-"`
+	SHA256     string    `json:"sha256"`
+	Size       int64     `json:"size"`
+	EntryCount int       `json:"entry_count"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type ArtifactEntry struct {

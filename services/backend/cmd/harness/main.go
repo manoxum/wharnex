@@ -67,6 +67,8 @@ func main() {
 	service.SetRuntimeInstanceID(cfg.InstanceID)
 	stopArtifacts := configureArtifactStore(cfg, service)
 	defer stopArtifacts()
+	stopChatArchive := configureChatArchive(cfg, service)
+	defer stopChatArchive()
 	service.SetRemoteStorageConnector(remoteinput.NewRcloneConnector())
 	remoteStore, cleanupRemote, stopRemote := configureRemoteInputs(cfg, service)
 	service.SetRemoteInputStore(remoteStore)
@@ -193,6 +195,37 @@ func configureArtifactStore(cfg config.Config, service *app.Service) func() {
 			select {
 			case <-ticker.C:
 				cleanup()
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
+// configureChatArchive wires the passive chat-archive compaction sweep
+// (ADR-0031). It must run after configureArtifactStore: compaction depends
+// on the artifact store already being set.
+func configureChatArchive(cfg config.Config, service *app.Service) func() {
+	sweep := func() {
+		// Generous timeout: strictly-sequential, throttled processing of
+		// many due sessions in one sweep can legitimately take a while.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		cutoff := time.Now().UTC().Add(-time.Duration(cfg.ChatArchive.GraceHours) * time.Hour)
+		if err := service.CompactArchivedChats(ctx, cutoff); err != nil {
+			log.Printf("chat archive compaction failed: %v", err)
+		}
+	}
+	sweep()
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(time.Duration(cfg.ChatArchive.SweepIntervalMinutes) * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				sweep()
 			case <-stop:
 				return
 			}

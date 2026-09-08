@@ -4,7 +4,7 @@ import { executionNeedsAttention } from './executionRecovery'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
-export type AttentionAction = 'approve-execution' | 'retry-dependency-network' | 'repair-host-dependency' | 'retry-host-apply' | 'apply-host'
+export type AttentionAction = 'approve-execution' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-host-apply' | 'apply-host'
 export type AttentionItem = {
   id: string
   chatId: string
@@ -101,6 +101,13 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
         failureAlertAdded = true
       }
       break
+  }
+
+  const repairableFailure = !session.failure_kind && session.state === 'failed' && Boolean(session.last_repair_error || (session.last_execution?.success === false && session.last_execution.error))
+  const preparedRepair = !session.failure_kind && session.state === 'repair_pending' && Boolean(session.last_manual_prompt)
+  if (!failureAlertAdded && (repairableFailure || preparedRepair)) {
+    items.push(item(chat, 'gpt-repair', 'warning', preparedRepair ? 'Correção GPT pronta para enviar' : 'Erro reparável com GPT', preparedRepair ? 'A correção automática foi preparada; pode reenviá-la manualmente e acrescentar um detalhe.' : 'A tentativa automática terminou; pode iniciar uma correção manual e acrescentar um detalhe.', 'chatgpt', 'repair-with-gpt'))
+    failureAlertAdded = true
   }
 
   if (canExecute && session.policy?.requires_approval) {

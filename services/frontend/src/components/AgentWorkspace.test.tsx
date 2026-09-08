@@ -244,17 +244,19 @@ describe('AgentWorkspace', () => {
     expect(blockedView.onRetryDependencyNetwork).toHaveBeenCalledTimes(1)
   })
 
-  it('does not surface the dependency-network action from error prose alone', () => {
+  it('does not infer dependency-network permission from error prose alone', () => {
     // Guards against reverting to substring classification: this session's
     // prose contains the legacy sentinel text, but the backend did not set
-    // failure_kind, so no alert action may render.
+    // failure_kind, so the restricted network action must stay hidden. The
+    // unclassified terminal error still gets the generic manual GPT fallback.
     const proseOnly = session()
     proseOnly.state = 'failed'
     proseOnly.last_repair_error = 'offline sandbox dependencies unavailable: module lookup disabled by GOPROXY=off'
     const view = props(proseOnly)
     render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': proseOnly }} />)
-    expect(screen.queryByRole('button', { name: /Centro de notificações/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
     expect(screen.queryByRole('button', { name: 'Permitir rede e repetir' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Corrigir com GPT' })).toBeTruthy()
   })
 
   it('surfaces the dependency-network action for a planner-reported infrastructure failure with a coherent failed plan', () => {

@@ -1320,6 +1320,131 @@ func TestExecutionFailurePreparesFreshManualRepairRequest(t *testing.T) {
 	}
 }
 
+func TestRequestFailureRepairStartsManualGPTRepairWithOptionalGuidanceAfterAutomationStops(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "fix feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedFailedPlanForRepair(t, service, started.ID, prompted.LastRequestID)
+	failed, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "failed"
+		item.RepairAttempt = maxAutoRepairAttempts
+		item.LastRepairError = "tests still fail"
+		item.LastExecution = &domain.ExecutionResult{PlanID: item.Plan.PlanID, Success: false, Error: item.LastRepairError}
+		item.PendingManualRequestIDs = nil
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, err := service.RequestFailureRepair(context.Background(), failed.ID, "Verifique também o fixture Windows.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.State != "repair_pending" || repaired.LastManualPrompt == "" {
+		t.Fatalf("manual GPT repair was not prepared: %#v", repaired)
+	}
+	if !strings.Contains(repaired.LastManualPrompt, "Verifique também o fixture Windows.") {
+		t.Fatalf("manual guidance missing from repair prompt: %q", repaired.LastManualPrompt)
+	}
+	if repaired.LastRequestID == failed.LastRequestID {
+		t.Fatal("manual repair must own a fresh request id")
+	}
+}
+
+func TestRequestFailureRepairReusesPreparedPromptAndAppendsGuidanceOnce(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "repair_pending"
+		item.LastRequestID = "req-repair"
+		item.LastManualPrompt = "repair evidence"
+		item.PendingManualRequestIDs = []string{"req-repair"}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.RequestFailureRepair(context.Background(), prepared.ID, "Observe o Windows.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.RequestFailureRepair(context.Background(), prepared.ID, "Observe o Windows.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(second.LastManualPrompt, "OPTIONAL OPERATOR GUIDANCE:") != 1 || second.LastManualPrompt != first.LastManualPrompt {
+		t.Fatalf("operator guidance was duplicated: %q", second.LastManualPrompt)
+	}
+}
+
+func TestRequestFailureRepairRetriesTerminalPlannerFailureWithGuidance(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "failed"
+		item.LastRequestID = "req-failed"
+		item.LastRepairError = "bundle validation failed"
+		item.LastExecution = nil
+		item.PendingManualRequestIDs = nil
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := service.RequestFailureRepair(context.Background(), failed.ID, "Preserve the public API.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.State != "awaiting_plan" || repaired.LastManualPrompt == "" || repaired.LastRequestID == failed.LastRequestID {
+		t.Fatalf("terminal planner failure was not retried: %#v", repaired)
+	}
+	if !strings.Contains(repaired.LastManualPrompt, "Preserve the public API.") {
+		t.Fatalf("manual guidance missing from fresh recovery: %q", repaired.LastManualPrompt)
+	}
+}
+
+func TestRequestFailureRepairRejectsInfrastructureFailure(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "failed"
+		item.FailureKind = domain.FailureKindOfflineGoModuleCache
+		item.LastRepairError = "offline sandbox dependencies unavailable"
+		item.LastExecution = &domain.ExecutionResult{PlanID: "plan-offline", Success: false, Error: item.LastRepairError}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unchanged, err := service.RequestFailureRepair(context.Background(), failed.ID, "try changing the source")
+	if err == nil || !strings.Contains(err.Error(), "dedicated local recovery action") {
+		t.Fatalf("expected infrastructure-specific recovery rejection, got %v", err)
+	}
+	if unchanged.RepairAttempt != 0 || unchanged.LastManualPrompt != "" {
+		t.Fatalf("infrastructure failure must not consume or prepare a GPT repair: %#v", unchanged)
+	}
+}
+
 func TestExecutionFailureRepairRequestIncludesProjectKnowledge(t *testing.T) {
 	// The automatic repair round is exactly where a prior operational
 	// lesson about why a change failed to apply matters most; it must not

@@ -60,6 +60,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
+	mux.HandleFunc("POST /api/sessions/{id}/archive", a.archiveChat)
+	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
@@ -67,6 +69,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/manual-plan", a.manualPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-bundle", a.executionBundle)
 	mux.HandleFunc("POST /api/sessions/{id}/policy-repair", a.retryPolicyRepair)
+	mux.HandleFunc("POST /api/sessions/{id}/failure-repair", a.requestFailureRepair)
 	mux.HandleFunc("POST /api/sessions/{id}/failed-request/retry", a.retryFailedRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
@@ -824,6 +827,22 @@ func (a *API) retryPolicyRepair(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.RetryPolicyRepair(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusConflict, "policy_repair_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) requestFailureRepair(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Detail string `json:"detail"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid_failure_repair", "request body must be valid JSON")
+		return
+	}
+	item, err := a.service.RequestFailureRepair(r.Context(), r.PathValue("id"), body.Detail)
+	if err != nil {
+		writeError(w, http.StatusConflict, "failure_repair_unavailable", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

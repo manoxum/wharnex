@@ -35,6 +35,7 @@ type Config struct {
 	RemoteStorage      RemoteStorageConfig
 	Tunnel             TunnelConfig
 	Artifacts          ArtifactStorageConfig
+	ChatArchive        ChatArchiveConfig
 }
 
 type ArtifactStorageConfig struct {
@@ -44,6 +45,15 @@ type ArtifactStorageConfig struct {
 	Bucket       string
 	Region       string
 	SettingsFile string
+}
+
+// ChatArchiveConfig tunes the passive chat-archive compaction sweep
+// (ADR-0031). GraceHours is the "restore is instant" window; only sessions
+// archived longer ago than that are eligible for compaction.
+// SweepIntervalMinutes is how often the sweep runs.
+type ChatArchiveConfig struct {
+	GraceHours           int64
+	SweepIntervalMinutes int64
 }
 
 type ArtifactSettingsDocument struct {
@@ -120,6 +130,10 @@ func Load() Config {
 			Bucket:       env("HARNESS_ARTIFACT_BUCKET", "wharness-artifacts"),
 			Region:       env("HARNESS_ARTIFACT_REGION", "us-east-1"),
 			SettingsFile: filepath.Join(filepath.Dir(stateFile), "artifact-storage.json"),
+		},
+		ChatArchive: ChatArchiveConfig{
+			GraceHours:           envInt64("HARNESS_CHAT_ARCHIVE_GRACE_HOURS", 72),
+			SweepIntervalMinutes: envInt64("HARNESS_CHAT_ARCHIVE_SWEEP_INTERVAL_MINUTES", 60),
 		},
 		RemoteStorage: remoteStorage,
 		Tunnel: TunnelConfig{

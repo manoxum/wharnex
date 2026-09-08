@@ -85,3 +85,66 @@ func TestPostgresStoreMigratesLegacySnapshotIntoIndependentRecords(t *testing.T)
 		t.Fatal("legacy snapshot was modified during migration")
 	}
 }
+
+func TestDeleteSessionEventsRemovesOnlyThatSessionsRows(t *testing.T) {
+	databaseURL := os.Getenv("WHARNESS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("WHARNESS_TEST_DATABASE_URL is not configured")
+	}
+	schema := fmt.Sprintf("session_test_%d", time.Now().UnixNano())
+	admin, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	if _, err := admin.Exec(`CREATE SCHEMA ` + schema); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`)
+	testURL, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := testURL.Query()
+	query.Set("search_path", schema)
+	testURL.RawQuery = query.Encode()
+
+	store, err := NewPostgresStore(context.Background(), testURL.String(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	for _, id := range []string{"ses_a", "ses_b"} {
+		if err := store.Put(domain.Session{ID: id, ProjectPath: "/tmp/" + id, CreatedAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.AppendEvent(domain.Event{ID: "evt_a1", SessionID: "ses_a", Type: "session.archived", Timestamp: time.Now().UTC(), Data: map[string]any{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(domain.Event{ID: "evt_a2", SessionID: "ses_a", Type: "session.archive_compacted", Timestamp: time.Now().UTC(), Data: map[string]any{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(domain.Event{ID: "evt_b1", SessionID: "ses_b", Type: "session.archived", Timestamp: time.Now().UTC(), Data: map[string]any{}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteSessionEvents("ses_a"); err != nil {
+		t.Fatal(err)
+	}
+	remainingA, err := store.EventHistory("ses_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remainingA) != 0 {
+		t.Fatalf("expected ses_a's events to be gone, got %#v", remainingA)
+	}
+	remainingB, err := store.EventHistory("ses_b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remainingB) != 1 || remainingB[0].ID != "evt_b1" {
+		t.Fatalf("expected ses_b's events to survive untouched, got %#v", remainingB)
+	}
+}
