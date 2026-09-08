@@ -3,6 +3,7 @@ import type { WorkspaceChat } from './workspaceMemory'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
+export type AttentionAction = 'approve-execution' | 'retry-dependency-network' | 'repair-host-dependency' | 'retry-host-apply' | 'apply-host'
 export type AttentionItem = {
   id: string
   chatId: string
@@ -11,6 +12,7 @@ export type AttentionItem = {
   detail: string
   tone: AttentionTone
   target?: AttentionTarget
+  action?: AttentionAction
 }
 
 export type AttentionHumanAction = {
@@ -67,25 +69,25 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
       items.push(item(chat, 'host-toolchain', 'danger', 'Build do host bloqueado', 'A toolchain do host é incompatível com a dependência fixada; requer intervenção local.', 'terminal'))
       break
     case 'host_dependency_state':
-      items.push(item(chat, 'host-dependency', 'warning', 'Dependências do host incompletas', 'Reinstale as dependências do host e repita a aplicação verificada.', 'terminal'))
+      items.push(item(chat, 'host-dependency', 'warning', 'Dependências do host incompletas', 'Reinstale as dependências do host e repita a aplicação verificada.', 'terminal', 'repair-host-dependency'))
       break
     case 'offline_go_module_cache':
-      items.push(item(chat, 'dependency-network', 'warning', 'Dependências precisam de rede', 'A execução está parada até autorizar a tentativa restrita com rede.', 'plan'))
+      items.push(item(chat, 'dependency-network', 'warning', 'Dependências precisam de rede', 'A execução está parada até autorizar a tentativa restrita com rede.', 'plan', 'retry-dependency-network'))
       break
     case 'self_evolution_transaction_busy':
     case 'host_integration_race':
-      if (pendingCount) items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu o Apply anterior.', 'plan'))
+      if (pendingCount) items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu o Apply anterior.', 'plan', 'retry-host-apply'))
       break
   }
 
   if (canExecute && session.policy?.requires_approval) {
-    items.push(item(chat, 'approval-required', 'warning', 'Aprovação necessária', `Plano pronto para executar · risco ${session.policy.risk}.`, 'plan'))
+    items.push(item(chat, 'approval-required', 'warning', 'Aprovação necessária', `Plano pronto para executar · risco ${session.policy.risk}.`, 'plan', 'approve-execution'))
   } else if (session.plan && session.policy && !session.policy.allowed) {
     items.push(item(chat, 'policy-blocked', 'danger', 'Plano bloqueado pela Policy', session.policy.reasons?.[0] || 'Revise o plano antes de executar.', 'plan'))
   }
 
   if (canApply && !APPLY_BLOCKING_FAILURES.has(session.failure_kind || '')) {
-    items.push(item(chat, 'host-apply', 'success', 'Alterações prontas para o host', pendingCount === 1 ? '1 candidata verificada aguarda aplicação no host.' : `${pendingCount} candidatas verificadas aguardam aplicação no host.`, 'plan'))
+    items.push(item(chat, 'host-apply', 'success', 'Alterações prontas para o host', pendingCount === 1 ? '1 candidata verificada aguarda aplicação no host.' : `${pendingCount} candidatas verificadas aguardam aplicação no host.`, 'plan', 'apply-host'))
   }
 
   if (session.self_evolution_activation === 'restart_pending') {
@@ -100,8 +102,8 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   return items
 }
 
-function item(chat: WorkspaceChat, suffix: string, tone: AttentionTone, title: string, detail: string, target?: AttentionTarget): AttentionItem {
-  return { id: `${chat.id}:${suffix}`, chatId: chat.id, chatTitle: chat.title, title, detail, tone, target }
+function item(chat: WorkspaceChat, suffix: string, tone: AttentionTone, title: string, detail: string, target?: AttentionTarget, action?: AttentionAction): AttentionItem {
+  return { id: `${chat.id}:${suffix}`, chatId: chat.id, chatTitle: chat.title, title, detail, tone, target, action }
 }
 
 function attentionRank(tone: AttentionTone) {

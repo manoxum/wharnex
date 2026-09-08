@@ -23,7 +23,7 @@ describe('attention center', () => {
       verified_at: '2026-09-07T10:00:01.000Z',
     }]
     const items = collectAttentionItems([principal, parallel], { 'chat-1': session('ses-chat-1'), 'chat-2': inactive })
-    expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ chatId: 'chat-2', title: 'Alterações prontas para o host', tone: 'success' })]))
+    expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ chatId: 'chat-2', title: 'Alterações prontas para o host', tone: 'success', action: 'apply-host' })]))
   })
 
   it('surfaces human action and integration conflicts ahead of ready applies', () => {
@@ -35,6 +35,21 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).toContain('Ação humana necessária no ChatGPT')
   })
 
+  it('maps approval and dependency recovery alerts to their popup actions', () => {
+    const approval = session('ses-chat-1')
+    approval.state = 'planned'
+    approval.policy = { allowed: true, requires_approval: true, risk: 'medium', reasons: ['Mudança protegida.'] }
+    approval.plan = { protocol: 'harness.execution/v1', plan_id: 'plan-approval', request_id: 'req-approval', status: 'ready', summary: 'Aprovação', risk: 'medium', requires_approval: true, operations: [], verification: [] }
+    const approvalItems = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': approval })
+    expect(approvalItems).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Aprovação necessária', action: 'approve-execution' })]))
+
+    const offline = session('ses-chat-1')
+    offline.failure_kind = 'offline_go_module_cache'
+    offline.last_repair_error = 'Planner reported failed: offline_host_go_module_cache'
+    const offlineItems = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': offline })
+    expect(offlineItems).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Dependências precisam de rede', action: 'retry-dependency-network' })]))
+  })
+
   it('does not duplicate a generic host-apply alert when retry/apply recovery is the real action', () => {
     const current = session('ses-chat-1')
     current.failure_kind = 'host_integration_race'
@@ -44,6 +59,6 @@ describe('attention center', () => {
       verified_at: '2026-09-07T10:00:01.000Z',
     }]
     const items = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': current })
-    expect(items.map((entry) => entry.title)).toEqual(['Aplicação ao host pronta para repetir'])
+    expect(items).toEqual([expect.objectContaining({ title: 'Aplicação ao host pronta para repetir', action: 'retry-host-apply' })])
   })
 })
