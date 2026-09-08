@@ -379,20 +379,20 @@ describe('ChatPanel', () => {
   it('offers a retry when ChatGPT could not receive a prepared prompt', async () => {
     const onRetryPreparedDelivery = vi.fn(async () => undefined)
     render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery="retry" onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery={{ kind: 'retry', requestId: 'req-retry' }} onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Tentar entregar novamente' }))
-    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledWith('req-retry'))
   })
 
   it('labels the retry as a post-attention retry when the ChatGPT composer needs human attention', async () => {
     const onRetryPreparedDelivery = vi.fn(async () => undefined)
     render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery="attention" onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery={{ kind: 'attention', requestId: 'req-attention' }} onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
     )
     expect(screen.getByText('Ação necessária no ChatGPT')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Tentar depois de resolver' }))
-    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledWith('req-attention'))
   })
 
   it('shows remote context generation progress while an enriched ZIP is being published', () => {

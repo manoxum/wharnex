@@ -67,6 +67,16 @@ test('resending a prepared prompt refuses to act on a request that has since bee
   assert.match(source, /return retryPreparedChatGPTPrompt\(request\?\.cacheKey, request\?\.expectedRequestId\)/)
 })
 
+test('retrying delivery after its bundle arrived is idempotent instead of reporting missing prompt state', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const retryStart = source.indexOf("async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
+  const retryEnd = source.indexOf('\nasync function attachContextToChatGPT', retryStart)
+  const retryBody = source.slice(retryStart, retryEnd)
+  assert.match(source, /const DELIVERED_BUNDLE_DEDUP_TTL_MS = RETRYABLE_PROMPT_TTL_MS/)
+  assert.match(retryBody, /recentlyDeliveredChatGPTBundleRequestId\(requestId\)/)
+  assert.match(retryBody, /alreadyDelivered: true/)
+})
+
 test('a visible ChatGPT page waits briefly for its composer then requires human attention instead of reporting a retryable delivery', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function targetChatGPTComposer(cacheKey')

@@ -109,7 +109,11 @@ const pollingExpectedChatGPTBundles = new Set()
 // actually firing; this is the last line of defense so the backend is never
 // sent the same bundle twice for one request.
 const deliveredChatGPTBundleRequestIds = new Map()
-const DELIVERED_BUNDLE_DEDUP_TTL_MS = 60_000
+const RETRYABLE_PROMPT_TTL_MS = 10 * 60 * 1000
+// Keep the delivered tombstone for at least as long as the retry affordance.
+// This makes a late click idempotent after the valid bundle already consumed
+// the in-memory prompt instead of surfacing a false missing-delivery error.
+const DELIVERED_BUNDLE_DEDUP_TTL_MS = RETRYABLE_PROMPT_TTL_MS
 // Defense in depth for Manual chat transport mode (cacheKey -> 'manual').
 // The frontend never calls preparePrompt while a chat is Manual, so this
 // only matters for a bundle already armed before the human flips the
@@ -1758,12 +1762,15 @@ async function preparePromptForChatGPT(request) {
 
 async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '') {
   const key = sanitizeChatCacheKey(cacheKey)
+  const requestId = String(expectedRequestId || '').trim()
   const retryable = retryableChatGPTPrompts.get(key)
-  if (!retryable || Date.now() - retryable.preparedAt > 10 * 60 * 1000) {
+  if (!retryable || Date.now() - retryable.preparedAt > RETRYABLE_PROMPT_TTL_MS) {
     retryableChatGPTPrompts.delete(key)
+    if (requestId && recentlyDeliveredChatGPTBundleRequestId(requestId)) {
+      return { ok: true, cacheKey: key, requestId, alreadyDelivered: true }
+    }
     throw new Error('Não existe uma entrega de prompt recente para repetir neste chat')
   }
-  const requestId = String(expectedRequestId || '').trim()
   if (requestId && String(retryable.request?.requestId || '') !== requestId) {
     throw new Error('Uma requisição mais recente substituiu esta; abra a aba do ChatGPT para continuar.')
   }

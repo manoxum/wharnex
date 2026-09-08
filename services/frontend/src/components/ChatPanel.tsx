@@ -35,7 +35,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   chatTransportMode?: ChatTransportMode
   attachmentsEnabled?: boolean
   preparedAttachmentCount?: number
-  failedPromptDelivery?: 'retry' | 'attention'
+  failedPromptDelivery?: { kind: 'retry' | 'attention'; requestId: string }
   artifactSelection?: ChatArtifactSelection
   artifactRequired?: Partial<Record<ChatArtifactKind, boolean>>
   artifactContent?: Partial<Record<ChatArtifactKind, string>>
@@ -64,7 +64,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onRejectPlan?: (item: ChatItem) => void
   onConfirmPrepared?: () => Promise<void>
   onDismissPrepared?: () => void
-  onRetryPreparedDelivery?: () => Promise<void>
+  onRetryPreparedDelivery?: (requestId?: string) => Promise<void>
   onOpenFile?: (path: string) => void
   onRevertChange?: (item: ChatItem) => Promise<void>
   onReprocessPolicyBlock?: () => Promise<void>
@@ -311,7 +311,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       <div ref={endRef}/>
     </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
 
-    {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.()}><Icon name="refresh" size={14}/> {failedPromptDelivery === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
+    {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery.kind === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery.kind === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.(failedPromptDelivery.requestId)}><Icon name="refresh" size={14}/> {failedPromptDelivery.kind === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
     {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>{preparedAttachmentCount} item(ns) de entrada preparados. O contexto é incluído automaticamente apenas quando necessário.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}
 
     {queueOpen && queuedRequests.length > 0 && <QueuePanel requests={queuedRequests} editingId={editingQueueId} editingText={editingQueueText} onEditing={(id, text) => { setEditingQueueId(id); setEditingQueueText(text) }} onEditingText={setEditingQueueText} onSave={() => { if (editingQueueId && editingQueueText.trim()) onQueueEdit?.(editingQueueId, editingQueueText.trim()); setEditingQueueId('') }} onCancel={() => setEditingQueueId('')} onMove={onQueueMove} onRemove={onQueueRemove} onMerge={onQueueMerge} onPromote={onQueuePromote} onClose={() => setQueueOpen(false)} />}

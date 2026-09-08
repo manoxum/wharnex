@@ -28,6 +28,7 @@ import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
 import { hasRecordedRequest } from './lib/requestDispatch'
 import { executionNeedsAttention } from './lib/executionRecovery'
+import { errorMessage as messageOf } from './lib/errorMessage'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
@@ -70,7 +71,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [error, setError] = useState<string>()
   const [errorChatRef, setErrorChatRef] = useState<{ chatId: string; itemId: string; message: string }>()
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
-  const [failedPromptDeliveries, setFailedPromptDeliveries] = useState<Record<string, PromptDeliveryFailureKind>>({})
+  const [failedPromptDeliveries, setFailedPromptDeliveries] = useState<Record<string, { kind: PromptDeliveryFailureKind; requestId: string }>>({})
   const [queuedRequestsByChat, setQueuedRequestsByChat] = useState<Record<string, QueuedChatRequest[]>>({})
   const queueDrainRef = useRef(false)
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
@@ -810,6 +811,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const bridge = desktopBridge()
     if (!bridge) return
     return bridge.chatgpt.onBundleDownloaded((bundle) => {
+      if (bundle.cacheKey) {
+        setPreparedDrafts((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
+        setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
+      }
       void submitBundleFileRef.current(bundle.contentBase64, bundle.requestId, bundle.filename)
         .catch((bundleError) => setError(messageOf(bundleError)))
     })
@@ -1010,7 +1015,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         } catch (prepareError) {
           transportFailure = messageOf(prepareError)
           const failureKind = promptDeliveryFailureKind(transportFailure)
-          setFailedPromptDeliveries((current) => ({ ...current, [targetChat.id]: failureKind }))
+          setFailedPromptDeliveries((current) => ({ ...current, [targetChat.id]: { kind: failureKind, requestId } }))
         } finally {
           if (activeChatIdRef.current === targetChat.id) setTransportProgress('')
         }
@@ -1143,7 +1148,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function retryPreparedPromptDelivery(requestId?: string) {
     if (!session || !activeChatId || busy) return
-    if (requestId && !sessionHasPendingRequest(session, requestId)) return
+    if (requestId && !sessionHasPendingRequest(session, requestId)) {
+      setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
+      return
+    }
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     setBusy(true); setError(undefined); setTransportProgress('A repetir a entrega já preparada ao ChatGPT…')
@@ -1151,14 +1159,26 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
       const prepared = await bridge.chatgpt.retryPreparedPrompt({ cacheKey: activeChatId, expectedRequestId: requestId })
+      if (prepared.alreadyDelivered) {
+        setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
+        setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
+        appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'O bundle deste pedido já tinha sido recebido; não foi feita uma entrega duplicada.', meta: 'Entrega já concluída' })
+        return
+      }
       if (prepared.conversationUrl) bindChatGPTURL(prepared.conversationUrl)
-      if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [activeChatId]: prepared.attachmentCount }))
+      if (!prepared.submitted && prepared.attachmentCount) setPreparedDrafts((current) => ({ ...current, [activeChatId]: prepared.attachmentCount! }))
       setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
       const text = requestId ? (prepared.submitted ? 'O mesmo pedido foi reenviado ao ChatGPT.' : 'O mesmo pedido foi montado novamente no ChatGPT; confirme o envio quando estiver pronto.') : (prepared.submitted ? 'O prompt original foi entregue novamente ao ChatGPT.' : 'O prompt original foi montado novamente no ChatGPT; confirme o envio quando estiver pronto.')
       const meta = prepared.submitted ? 'Aguardando bundle do ChatGPT' : 'Confirmação pendente'
       appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text, meta, iteration: requestId ? iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (retryError) {
-      setError(`Não foi possível repetir a entrega: ${messageOf(retryError)}`)
+      const detail = messageOf(retryError)
+      if (detail.includes('Não existe uma entrega de prompt recente')) {
+        setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
+        setError('A ação de entrega já não corresponde a um rascunho ativo e foi removida. Se o pedido ainda estiver pendente, use “Reenviar request” no respetivo aviso.')
+      } else {
+        setError(`Não foi possível repetir a entrega: ${detail}`)
+      }
     } finally { setTransportProgress(''); setBusy(false) }
   }
 
@@ -1252,6 +1272,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (!targetSession || !targetChat) throw new BundleRoutingError(`O bundle pertence ao pedido ${requestId}, mas esse pedido não está pendente em nenhum Harness Chat deste workspace.`)
       busyTargetChatId = targetChat.id
       setChatBusy(busyTargetChatId, true)
+      setPreparedDrafts((current) => { const next = { ...current }; delete next[targetChat!.id]; return next })
+      setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[targetChat!.id]; return next })
 
       const knowledgeReviewResult = targetSession.pending_knowledge_review_request_id === requestId
       const submission = await api.executionBundle(targetSession.id, filename, contentBase64)
@@ -2279,7 +2301,9 @@ function appliedSummaryPlan(session: Session) {
 }
 
 function sessionHasPendingRequest(session: Session, requestId: string) {
-  return Boolean(session.pending_manual_request_ids?.includes(requestId) || session.last_request_id === requestId)
+  if (session.pending_manual_request_ids?.includes(requestId)) return true
+  if (session.last_request_id !== requestId) return false
+  return new Set(['awaiting_plan', 'workflow_pending', 'repair_pending', 'baseline_update_pending', 'conflict_resolution_pending']).has(session.state)
 }
 
 function pendingBundleRequestIDs(session: Session) {
@@ -2305,13 +2329,6 @@ function truncateRepairCause(cause?: string, limit = 800) {
   const text = (cause || '').trim()
   if (!text) return ''
   return text.length > limit ? `${text.slice(0, limit)}…` : text
-}
-
-function messageOf(error: unknown) {
-  if (error instanceof APIError || error instanceof Error) return error.message
-  if (typeof error === 'string' && error.trim()) return error
-  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' && error.message.trim()) return error.message
-  return 'Erro inesperado'
 }
 
 function chatGPTProjectName(projectPath: string) {
