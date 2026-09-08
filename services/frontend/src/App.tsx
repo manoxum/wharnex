@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
-import { isNonTerminalBundleRoutingError } from './lib/bundleRouting'
+import { BundleRoutingError, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace, type ExecutionFIFOItem } from './components/AgentWorkspace'
@@ -1239,7 +1239,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           }
         }
       }
-      if (!targetSession || !targetChat) throw new Error(`O bundle pertence ao pedido ${requestId}, mas esse pedido não está pendente em nenhum Harness Chat deste workspace.`)
+      if (!targetSession || !targetChat) throw new BundleRoutingError(`O bundle pertence ao pedido ${requestId}, mas esse pedido não está pendente em nenhum Harness Chat deste workspace.`)
       busyTargetChatId = targetChat.id
       setChatBusy(busyTargetChatId, true)
 
@@ -1369,7 +1369,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		const message = messageOf(e)
 		if (isNonTerminalBundleRoutingError(e)) {
 			setError(undefined)
-			return `Bundle atrasado ou duplicado ignorado; o pedido atual continua ativo. (${message})`
+			return `Bundle atrasado ou duplicado ignorado. (${message})`
 		}
 		// A downloaded bundle can still be rejected by strict protocol
 		// validation. It is terminal for this request: do not leave the chat

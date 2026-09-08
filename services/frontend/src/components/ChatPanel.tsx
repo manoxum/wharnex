@@ -9,7 +9,7 @@ import { MessageAttachmentCard, ComposerAttachmentChip } from './ChatAttachmentC
 import { MarkdownContent } from './MarkdownContent'
 import { fileReferenceQuery, matchingProjectFiles } from '../lib/projectFileReferences'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
-import { BundleExchangeBar, ReturnedArtifactGallery } from './BundleExplorer'
+import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
 import { useProgressiveChatHistory, type ChatViewportStore } from './useProgressiveChatHistory'
 
 const COMPOSER_MIN_HEIGHT = 118
@@ -88,6 +88,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const [fileQuery, setFileQuery] = useState<{ start: number; end: number; query: string }>()
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [archiveOpen, setArchiveOpen] = useState(false)
+  const [contentView, setContentView] = useState<'conversation' | 'files'>('conversation')
   const [commentBusy, setCommentBusy] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
   const [editingQueueId, setEditingQueueId] = useState('')
@@ -113,7 +114,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
     const draft = loadComposerDraft(session.project_path, activeChatId)
-    setMessage(draft.message); setComposerHeight(draft.height)
+    setMessage(draft.message); setComposerHeight(draft.height); setContentView('conversation')
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
   useEffect(() => () => {
@@ -289,12 +290,17 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       </div>)}</div> : <div className="chat-archive-empty">Nenhum chat fechado.</div>}
     </div>}
 
-    <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
+    <div className="chat-content-tabs" role="tablist" aria-label="Conteúdo do chat">
+      <button type="button" role="tab" aria-selected={contentView === 'conversation'} className={contentView === 'conversation' ? 'active' : ''} onClick={() => setContentView('conversation')}><Icon name="chatgpt" size={12}/> Conversa</button>
+      <button type="button" role="tab" aria-selected={contentView === 'files'} className={contentView === 'files' ? 'active' : ''} onClick={() => setContentView('files')}><Icon name="folder" size={12}/> Ficheiros</button>
+    </div>
+
+    {contentView === 'conversation' ? <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
       {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar anteriores</button></div>}
       {visibleItems.map((item) => <Fragment key={item.id}><ChatItemView item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) && canResendPreparedRequest(item) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />{item.iteration?.phase === 'result' && item.turnKind !== 'workflow' && <ReturnedArtifactGallery sessionId={session.id} artifacts={session.artifacts} requestId={item.iteration.requestId}/>}</Fragment>)}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharness</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
-    </div>
+    </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
 
     {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.()}><Icon name="refresh" size={14}/> {failedPromptDelivery === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
     {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>{preparedAttachmentCount} item(ns) de entrada preparados. O contexto é incluído automaticamente apenas quando necessário.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}

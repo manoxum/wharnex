@@ -9,6 +9,7 @@ import { ArtifactPreview } from './ArtifactPreview'
 type RequestLineages = NonNullable<Session['request_lineages']>
 type BundleTone = 'request-main' | 'request-repair' | 'request-summary' | 'response' | 'final-summary'
 type BundlePresentation = { tone: BundleTone; label: string }
+const EMPTY_ARTIFACTS: ArtifactRecord[] = []
 
 export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
   const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
@@ -48,6 +49,67 @@ export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }
       <div className="returned-artifact-preview"><ArtifactPreview path={entry.path} size={entry.size} url={api.artifactEntryURL(sessionId, bundle.id, entry.path)}/></div>
     </article>)}</div>}
   </section>
+}
+
+
+type ReturnedArtifactRef = { bundle: ArtifactRecord; entry: ArtifactEntry }
+
+export function ChatArtifactLibrary({ sessionId, artifacts = EMPTY_ARTIFACTS, requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
+  const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
+  const outputBundles = useMemo(() => bundles.filter((item) => item.direction === 'output'), [bundles])
+  const [returned, setReturned] = useState<ReturnedArtifactRef[]>([])
+  const [selectedBundle, setSelectedBundle] = useState<ArtifactRecord>()
+  const [selectedFile, setSelectedFile] = useState<ReturnedArtifactRef>()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!outputBundles.length) {
+      setReturned([]); setSelectedFile(undefined); setLoading(false); setError('')
+      return
+    }
+    let alive = true
+    setLoading(true); setError('')
+    void Promise.all(outputBundles.map(async (bundle) => {
+      const result = await api.artifactEntries(sessionId, bundle.id)
+      return result.entries.filter(isReturnedArtifactEntry).map((entry) => ({ bundle, entry }))
+    })).then((groups) => {
+      if (!alive) return
+      const next = groups.flat()
+      setReturned(next)
+      setSelectedFile((current) => current ? next.find((item) => sameReturnedArtifact(item, current)) || next[0] : next[0])
+    }).catch((reason) => {
+      if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível carregar os ficheiros devolvidos pelo ChatGPT.')
+    }).finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [outputBundles, sessionId])
+
+  const selectedPresentation = selectedFile ? bundlePresentation(selectedFile.bundle, requestLineages) : undefined
+  const selectedPath = selectedFile?.entry.path || ''
+  const selectedURL = selectedFile ? api.artifactEntryURL(sessionId, selectedFile.bundle.id, selectedFile.entry.path) : ''
+
+  return <section className="chat-artifact-library" aria-label="Ficheiros e bundles do chat">
+    <header className="chat-artifact-library-header"><div><span><Icon name="folder" size={14}/></span><div><strong>Ficheiros e bundles</strong><small>Conteúdo trocado com o ChatGPT e artefactos locais devolvidos em artifacts/.</small></div></div><div className="chat-artifact-library-counts"><b>{bundles.length}</b><span>bundles</span><b>{returned.length}</b><span>ficheiros</span></div></header>
+    <div className="chat-artifact-library-layout">
+      <aside>
+        <section className="chat-artifact-library-section"><header><strong>Bundles</strong><span>{bundles.length}</span></header>{bundles.length ? <div className="chat-artifact-library-list">{bundles.map((bundle) => {
+          const presentation = bundlePresentation(bundle, requestLineages)
+          return <button key={bundle.id} className={`chat-artifact-bundle-row bundle-tone-${presentation.tone}`} type="button" onClick={() => setSelectedBundle(bundle)} title={`Explorar ${bundle.name}`}><span className="bundle-selector-mark">{bundle.direction === 'input' ? '↑' : '↓'}</span><span><em>{presentation.label}</em><b>{bundle.name}</b><small>{formatBytes(bundle.size)} · {formatDateTime(bundle.created_at)}</small></span><Icon name="chevron" size={10}/></button>
+        })}</div> : <div className="chat-artifact-library-empty">Nenhum bundle trocado neste chat.</div>}</section>
+        <section className="chat-artifact-library-section"><header><strong>Ficheiros do ChatGPT</strong><span>{returned.length}</span></header>{loading ? <div className="chat-artifact-library-empty"><span className="spinner"/> A carregar ficheiros…</div> : error ? <div className="chat-artifact-library-empty composer-error">{error}</div> : returned.length ? <div className="chat-artifact-library-list">{returned.map((item) => {
+          const active = selectedFile && sameReturnedArtifact(item, selectedFile)
+          const presentation = bundlePresentation(item.bundle, requestLineages)
+          return <button key={`${item.bundle.id}:${item.entry.path}`} className={`chat-artifact-file-row ${active ? 'active' : ''}`} type="button" onClick={() => setSelectedFile(item)} title={`Pré-visualizar ${item.entry.path}`}><Icon name="file" size={12}/><span><b>{baseName(item.entry.path)}</b><small>{presentation.label} · {formatBytes(item.entry.size)}</small></span></button>
+        })}</div> : <div className="chat-artifact-library-empty">O ChatGPT ainda não devolveu ficheiros em artifacts/.</div>}</section>
+      </aside>
+      <main className="chat-artifact-library-preview">{selectedFile ? <><header><div><span className={`bundle-kind-label bundle-tone-${selectedPresentation?.tone || 'response'}`}>{selectedPresentation?.label || 'Resposta'}</span><strong>{baseName(selectedPath)}</strong><small>{selectedPath} · {formatBytes(selectedFile.entry.size)}</small></div><a href={api.artifactEntryURL(sessionId, selectedFile.bundle.id, selectedPath, true)} download title={`Descarregar ${selectedPath}`}><Icon name="download" size={12}/> Descarregar</a></header><div><ArtifactPreview path={selectedPath} size={selectedFile.entry.size} url={selectedURL}/></div></> : <div className="artifact-preview-empty"><Icon name="file" size={28}/><strong>Sem ficheiro selecionado</strong><span>Os artefactos devolvidos pelo ChatGPT aparecem aqui para pré-visualização e download.</span></div>}</main>
+    </div>
+    {selectedBundle && <BundleExplorer sessionId={sessionId} bundle={selectedBundle} bundles={bundles} requestLineages={requestLineages} onBundle={setSelectedBundle} onClose={() => setSelectedBundle(undefined)}/>}
+  </section>
+}
+
+function sameReturnedArtifact(left: ReturnedArtifactRef, right: ReturnedArtifactRef) {
+  return left.bundle.id === right.bundle.id && left.entry.path === right.entry.path
 }
 
 function isReturnedArtifactEntry(entry: ArtifactEntry) {
