@@ -235,9 +235,35 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
     await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledWith('chat-1', 'req_pending123'))
   })
 
+
+  it('does not report success when the desktop still sees positively active conversation transport', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValue({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', confirmationRequired: false, reason: 'transport_active' })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" />)
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+    expect(await screen.findByText(/ainda tem transporte de conversa ativo/)).toBeTruthy()
+    expect(screen.queryByText(/Continuação manual enviada/)).toBeNull()
+  })
+
+  it('keeps the manual continuation single-flight in the renderer while the IPC request is pending', async () => {
+    const desktop = bridge()
+    let resolveContinuation: ((value: { ok: boolean; cacheKey: string; requestId: string; reason: string }) => void) | undefined
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockImplementation(() => new Promise<{ ok: boolean; cacheKey: string; requestId: string; reason: string }>((resolve) => { resolveContinuation = resolve }))
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" />)
+    const button = screen.getByRole('button', { name: 'Retomar pedido' }) as HTMLButtonElement
+    button.click()
+    await waitFor(() => expect(button.disabled).toBe(true))
+    button.click()
+    expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledTimes(1)
+    resolveContinuation?.({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', reason: 'submitted' })
+    await waitFor(() => expect(button.disabled).toBe(false))
+  })
+
   it('requires explicit confirmation before overriding an ambiguous processing control', async () => {
     const desktop = bridge()
-    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValueOnce({ ok: false, confirmationRequired: true }).mockResolvedValue({ ok: true })
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValueOnce({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', confirmationRequired: true, reason: 'transport_stale' }).mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', reason: 'submitted' })
     window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" />)
     screen.getByRole('button', { name: 'Retomar pedido' }).click()

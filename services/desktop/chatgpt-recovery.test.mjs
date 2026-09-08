@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   chatGPTStalledRecoveryPrompt,
+  classifyChatGPTConversationTransport,
   chooseChatGPTRecoveryAction,
   commitChatGPTRecoveryAction,
   createChatGPTRecoveryState,
@@ -9,7 +10,57 @@ import {
   isRecoverableChatGPTNetworkError,
   noteChatGPTRecoveryFault,
   noteChatGPTRecoveryProgress,
+  reconcileChatGPTConversationTransport,
+  recordChatGPTConversationTransport,
 } from './chatgpt-recovery.mjs'
+
+
+test('conversation transport tracker distinguishes active, stale, and idle without trusting a timeout alone', () => {
+  const requests = new Map()
+  recordChatGPTConversationTransport(requests, 'request-1', 3, 'before', 1_000)
+
+  const active = classifyChatGPTConversationTransport(requests, {
+    generation: 3,
+    loading: false,
+    surfaceReady: true,
+    thinking: true,
+    lastConversationActivity: 1_000,
+  }, 10 * 60_000, { staleMs: 30_000 })
+  assert.equal(active.state, 'active')
+  assert.deepEqual(active.activeRequestIds, ['request-1'])
+
+  const stale = classifyChatGPTConversationTransport(requests, {
+    generation: 3,
+    loading: false,
+    surfaceReady: true,
+    thinking: false,
+    lastConversationActivity: 1_000,
+  }, 40_000, { staleMs: 30_000 })
+  assert.equal(stale.state, 'stale')
+  assert.deepEqual(stale.staleRequestIds, ['request-1'])
+  reconcileChatGPTConversationTransport(requests, stale)
+  assert.equal(requests.size, 0)
+
+  const idle = classifyChatGPTConversationTransport(requests, { generation: 3, surfaceReady: true, thinking: false }, 50_000)
+  assert.equal(idle.state, 'idle')
+})
+
+test('conversation transport completion/error and navigation generations reconcile orphaned requests categorically', () => {
+  const requests = new Map()
+  recordChatGPTConversationTransport(requests, 'completed', 4, 'before', 1_000)
+  recordChatGPTConversationTransport(requests, 'completed', 4, 'completed', 2_000)
+  assert.equal(requests.has('completed'), false)
+
+  recordChatGPTConversationTransport(requests, 'failed', 4, 'before', 3_000)
+  recordChatGPTConversationTransport(requests, 'failed', 4, 'error', 4_000)
+  assert.equal(requests.has('failed'), false)
+
+  recordChatGPTConversationTransport(requests, 'old-generation', 4, 'before', 5_000)
+  const navigated = classifyChatGPTConversationTransport(requests, { generation: 5 }, 5_001)
+  assert.equal(navigated.state, 'stale')
+  reconcileChatGPTConversationTransport(requests, navigated)
+  assert.equal(requests.size, 0)
+})
 
 test('recoverable socket and internet errors request a bounded reload first', () => {
   const state = createChatGPTRecoveryState(1_000)

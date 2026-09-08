@@ -15,7 +15,7 @@ import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUse
 import { buildBundleName, safeChatId } from './bundlename.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
-import { chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress } from './chatgpt-recovery.mjs'
+import { chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
@@ -88,6 +88,7 @@ const BUNDLE_COMPLETION_GRACE_MS = 4_000
 const BUNDLE_CONTINUATION_BASE_MS = 5_000
 const MAX_BUNDLE_CONTINUATIONS = 1
 const PROCESSING_SIGNAL_GRACE_MS = 15_000
+const CONVERSATION_TRANSPORT_STALE_MS = 30_000
 const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
@@ -139,7 +140,7 @@ function activeChatGPTEntry(windowState) {
 // background throttling either way; only the remote page's own idle
 // timers/rAF slow down once nothing here is waiting on it.
 function chatGPTEntryNeedsSupervision(key, entry) {
-  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.activeConversationRequests.size > 0 || expectedChatGPTBundles.has(key))
+  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.conversationRequests.size > 0 || expectedChatGPTBundles.has(key))
 }
 
 function chatGPTEntryIsActiveVisible(key, entry) {
@@ -378,8 +379,9 @@ function noteChatGPTNetworkActivity(details, phase = 'network') {
   if (conversationTransport) entry.lastConversationActivity = now
   const requestKey = String(details?.id ?? '')
   if (conversationTransport && requestKey) {
-    if (phase === 'before') entry.activeConversationRequests.add(requestKey)
-    else if (phase === 'completed' || phase === 'error') entry.activeConversationRequests.delete(requestKey)
+    recordChatGPTConversationTransport(entry.conversationRequests, requestKey, entry.conversationTransportGeneration, phase, now)
+    if (phase === 'before') entry.staleConversationRequestIds.clear()
+    else if (phase === 'completed' || phase === 'error') entry.staleConversationRequestIds.delete(requestKey)
   }
   const expected = expectedChatGPTBundles.get(key)
   if (expected?.recovery && conversationTransport) {
@@ -1124,12 +1126,21 @@ async function loadOwnedChatGPTURL(cacheKey, entry, value, reason = 'navigate') 
   return operation
 }
 
+function advanceChatGPTConversationTransportGeneration(entry) {
+  entry.conversationTransportGeneration = Number(entry.conversationTransportGeneration || 0) + 1
+  const classification = classifyChatGPTConversationTransport(entry.conversationRequests, {
+    generation: entry.conversationTransportGeneration,
+  })
+  reconcileChatGPTConversationTransport(entry.conversationRequests, classification)
+  entry.staleConversationRequestIds.clear()
+}
+
 function createChatGPTView(cacheKey, windowState) {
   if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT view without an owning Wharness window')
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
   view.setVisible(false)
-  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), activeConversationRequests: new Set(), healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', affinity: createChatGPTAffinityTracker() }
+  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', affinity: createChatGPTAffinityTracker() }
   chatgptViews.set(cacheKey, entry)
   windowState.window.contentView.addChildView(view)
 
@@ -1145,6 +1156,7 @@ function createChatGPTView(cacheKey, windowState) {
     routeChatGPTNavigation(entry, undefined, url)
     return { action: 'deny' }
   })
+  wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) advanceChatGPTConversationTransportGeneration(entry) })
   wc.on('will-navigate', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('will-redirect', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('did-start-loading', () => { entry.loading = true; entry.loadingSince = Date.now(); entry.loadingFaultNoted = false; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
@@ -2059,8 +2071,21 @@ async function pollExpectedChatGPTDownloadKey(key) {
       }
       const processingSignalActive = completion?.thinking === true
         || Boolean(expected.processingAbsentSince && now - expected.processingAbsentSince < PROCESSING_SIGNAL_GRACE_MS)
+      const transport = classifyChatGPTConversationTransport(entry.conversationRequests, {
+        generation: entry.conversationTransportGeneration,
+        loading: entry.loading,
+        surfaceReady: completion?.composerReady === true,
+        thinking: processingSignalActive,
+        lastConversationActivity: entry.lastConversationActivity,
+      }, now, { staleMs: CONVERSATION_TRANSPORT_STALE_MS })
+      if (transport.state === 'stale') for (const requestId of transport.staleRequestIds) entry.staleConversationRequestIds.add(requestId)
+      reconcileChatGPTConversationTransport(entry.conversationRequests, transport)
       const lastMeaningfulProgress = Math.max(Number(entry.lastConversationActivity || 0), Number(expected.recovery?.lastProgressAt || 0))
-      if (completion?.thinking === true && completion?.composerReady === true && entry.activeConversationRequests.size === 0 && now - lastMeaningfulProgress >= PROCESSING_STALE_ATTENTION_MS) {
+      if (transport.state === 'stale' && completion?.composerReady === true && processingSignalActive === false) {
+        setChatGPTHumanAction(key, 'stalled', 'O transporte de conversa registado ficou sem atividade e a superfície está ociosa. Confirme a conversa ou use “Retomar pedido”.', 'stale-conversation-transport')
+        return
+      }
+      if (completion?.thinking === true && completion?.composerReady === true && transport.state !== 'active' && now - lastMeaningfulProgress >= PROCESSING_STALE_ATTENTION_MS) {
         setChatGPTHumanAction(key, 'stalled', 'O controlo de processamento continua visível, mas não existe atividade de rede nem progresso estrutural recente. O Wharness não interrompeu a tarefa; confirme a conversa ou use “Retomar pedido”.', 'ambiguous-processing-control')
         return
       }
@@ -2079,7 +2104,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
         humanActionRequired: entry.humanAction?.active === true,
         awaitingConversationAffinity: isChatGPTAffinityAwaitingSettlement(entry.affinity)
           && now - expected.armedAt < CHATGPT_AFFINITY_RECOVERY_GRACE_MS,
-        transportActive: entry.activeConversationRequests.size > 0,
+        transportActive: transport.state === 'active',
       }, now)
       if (recoveryAction) {
         await performChatGPTRecoveryAction(key, expected, entry, recoveryAction, completion)
@@ -2558,10 +2583,34 @@ function registerIPC() {
     if (!expected || expected.requestId !== requestId) throw new Error('O pedido pendente não está supervisionado nesta conversa.')
     const { entry } = ensureChatGPTView(key, windowState)
     const { wc } = requireOwnedChatGPTEntry(key, entry)
-    if (entry.loading || entry.activeConversationRequests.size > 0) throw new Error('O ChatGPT ainda está a processar este pedido.')
-    const completion = await wc.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
-    if (completion?.thinking === true && request?.force !== true) return { ok: false, cacheKey: key, requestId, confirmationRequired: true }
-    if (expected.manualContinuationInFlight) throw new Error('Já existe uma continuação manual em curso.')
+    if (expected.manualContinuationInFlight) return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'continuation_in_flight' }
+
+    const completion = entry.loading
+      ? { thinking: false, composerReady: false, assistantCount: expected.assistantBaseline }
+      : await wc.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
+    const transport = classifyChatGPTConversationTransport(entry.conversationRequests, {
+      generation: entry.conversationTransportGeneration,
+      loading: entry.loading,
+      surfaceReady: completion?.composerReady === true,
+      thinking: completion?.thinking === true,
+      lastConversationActivity: entry.lastConversationActivity,
+    }, Date.now(), { staleMs: CONVERSATION_TRANSPORT_STALE_MS })
+    if (transport.state === 'stale') for (const staleRequestId of transport.staleRequestIds) entry.staleConversationRequestIds.add(staleRequestId)
+    reconcileChatGPTConversationTransport(entry.conversationRequests, transport)
+    const staleTransport = transport.state === 'stale' || entry.staleConversationRequestIds.size > 0
+
+    if (entry.loading) return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'surface_loading' }
+    if (transport.state === 'active') return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'transport_active' }
+    if ((staleTransport || completion?.thinking === true) && request?.force !== true) {
+      return {
+        ok: false,
+        cacheKey: key,
+        requestId,
+        confirmationRequired: true,
+        reason: staleTransport ? 'transport_stale' : 'processing_ambiguous',
+      }
+    }
+
     expected.manualContinuationInFlight = true
     try {
       const prompt = chatGPTStalledRecoveryPrompt(requestId, expected.filename, expected.originalPrompt)
@@ -2572,8 +2621,9 @@ function registerIPC() {
       expected.settledAt = 0
       expected.lastDOMClick = 0
       expected.recovery = createChatGPTRecoveryState(Date.now())
+      entry.staleConversationRequestIds.clear()
       clearChatGPTHumanAction(key, 'continuação manual enviada')
-      return { ok: true, cacheKey: key, requestId, confirmationRequired: false }
+      return { ok: true, cacheKey: key, requestId, confirmationRequired: false, reason: 'submitted' }
     } finally {
       expected.manualContinuationInFlight = false
     }
