@@ -64,6 +64,7 @@ func main() {
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
+	service.SetRuntimeInstanceID(cfg.InstanceID)
 	stopArtifacts := configureArtifactStore(cfg, service)
 	defer stopArtifacts()
 	service.SetRemoteStorageConnector(remoteinput.NewRcloneConnector())

@@ -431,6 +431,7 @@ type Session struct {
 	AutomationMode          AutomationMode       `json:"automation_mode"`
 	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
+	WharnexInstanceID       string               `json:"wharnex_instance_id,omitempty"`
 	SelfEvolutionActivation string               `json:"self_evolution_activation,omitempty"`
 	ResolvedEvidenceIDs     map[string]time.Time `json:"resolved_evidence_ids,omitempty"`
 	EvidenceReviewIDs       []string             `json:"evidence_review_ids,omitempty"`

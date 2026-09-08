@@ -175,8 +175,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       <nav className="agent-direct-chatgpt-tab" aria-label="ChatGPT direto">
         <button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')} title="ChatGPT" aria-label="ChatGPT"><Icon name="chatgpt" size={15}/></button>
       </nav>
-      {session.self_evolution && <div className="agent-commandbar-center">
-        <span className="self-evolution-badge"><Icon name="refresh" size={13}/> WHX · AUTO-EVOLUÇÃO</span>
+      {(session.self_evolution || session.wharnex_instance_id) && <div className="agent-commandbar-center">
+        <span className="self-evolution-badge"><Icon name="refresh" size={13}/>{session.self_evolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${session.wharnex_instance_id}`}</span>
       </div>}
       <div className="agent-command-actions">
         {attentionItems.length > 0 && <div className="agent-attention-cluster" ref={attentionClusterRef}>

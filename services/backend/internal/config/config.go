@@ -29,6 +29,7 @@ type Config struct {
 	MaxBundleBytes    int64
 	AllowLocalSandbox bool
 	FrontendOrigin    string
+	InstanceID        string
 	StateFile         string
 	RemoteStorage     RemoteStorageConfig
 	Tunnel            TunnelConfig
@@ -98,6 +99,7 @@ func Load() Config {
 	return Config{
 		Addr:              env("HARNESS_ADDR", "127.0.0.1:8080"),
 		FrontendOrigin:    env("HARNESS_FRONTEND_ORIGIN", "http://127.0.0.1:5173"),
+		InstanceID:        env("HARNESS_INSTANCE_ID", ""),
 		DatabaseURL:       strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),
 		Planner:           env("HARNESS_PLANNER", "manual"),
 		Sandbox:           env("HARNESS_SANDBOX", "docker"),

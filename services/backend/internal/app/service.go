@@ -100,7 +100,10 @@ type Service struct {
 	executionQueue          *projectExecutionQueue
 	artifactStore           ArtifactObjectStore
 	artifactRetentionDays   atomic.Int64
+	runtimeInstanceID       string
 }
+
+func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
 
 func (s *Service) SetRemoteInputStore(store RemoteInputStore) {
 	s.remoteInputs = store
@@ -213,6 +216,9 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		automationMode = domain.AutomationModeAuto
 	}
 	selfEvolution := s.selfEvolution.IsProject(projectPath)
+	if legacySelfOpenForbidden(s.runtimeInstanceID, selfEvolution) {
+		return domain.Session{}, errors.New("the legacy Wharnex instance cannot open itself as a project")
+	}
 	if selfEvolution && executionMode == domain.ExecutionModeUnprotected {
 		executionMode = domain.ExecutionModeProtected
 	}
@@ -246,7 +252,10 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
 		return domain.Session{}, err
 	}
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, ChatTransportMode: domain.ChatTransportModeScraper, SelfEvolution: selfEvolution, State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, ChatTransportMode: domain.ChatTransportModeScraper, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	if selfEvolution {
+		item.WharnexInstanceID = ""
+	}
 	if err := s.store.Put(item); err != nil {
 		return domain.Session{}, fmt.Errorf("persist session: %w", err)
 	}

@@ -177,6 +177,7 @@ export type Session = {
   automation_mode: AutomationMode
   chat_transport_mode?: ChatTransportMode
   self_evolution?: boolean
+	wharnex_instance_id?: string
   self_evolution_activation?: 'restart_pending' | 'restart_scheduled'
   state: string
   created_at: string
