@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../lib/api'
-import type { Session } from '../types'
+import type { HarnessEvent, Session } from '../types'
 import { AgentWorkspace } from './AgentWorkspace'
 
 // Monaco has no usable DOM/worker environment under jsdom; every other test
@@ -328,6 +328,26 @@ describe('AgentWorkspace', () => {
     expect(onHumanAction).toHaveBeenCalledTimes(1)
     rerender(<AgentWorkspace {...props(current, { notice, nonce: 1, onAction: onHumanAction }).element.props} attentionSessions={{ 'chat-1': current }} chatgptHumanActions={{ 'chat-1': notice }} />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Engine' }).className).toContain('active'))
+  })
+
+  it('pulses the inactive execution tab while a command is running', () => {
+    const view = props()
+    const started: HarnessEvent = { id: 'evt-started', session_id: 'ses-agent', type: 'command.started', timestamp: '2026-09-08T15:30:00.000Z', data: { run_id: 'run-1', argv: ['npm', 'test'], cwd: 'services/frontend' } }
+    const completed: HarnessEvent = { id: 'evt-completed', session_id: 'ses-agent', type: 'command.completed', timestamp: '2026-09-08T15:30:01.000Z', data: { run_id: 'run-1', argv: ['npm', 'test'], cwd: 'services/frontend', exit_code: 0, success: true } }
+    const workspace = (events: HarnessEvent[]) => <AgentWorkspace
+      {...view.element.props}
+      inspectorProps={{ ...view.element.props.inspectorProps, events }}
+    />
+    const rendered = render(workspace([started]))
+    expect(screen.getByRole('button', { name: 'Execução' }).className).toContain('execution-pulse')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Execução' }))
+    expect(screen.getByRole('button', { name: 'Execução' }).className).not.toContain('execution-pulse')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Plano' }))
+    expect(screen.getByRole('button', { name: 'Execução' }).className).toContain('execution-pulse')
+    rendered.rerender(workspace([started, completed]))
+    expect(screen.getByRole('button', { name: 'Execução' }).className).not.toContain('execution-pulse')
   })
 
   it('focuses the execution inspector when an external recovery action requests logs', async () => {
