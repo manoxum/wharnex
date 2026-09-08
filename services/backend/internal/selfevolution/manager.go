@@ -510,6 +510,16 @@ func gitCommitIsAncestor(root, ancestor string) bool {
 	if ancestor == "" {
 		return false
 	}
+	repoCmd := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel")
+	repoCmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	repoOutput, err := repoCmd.Output()
+	if err != nil {
+		return false
+	}
+	repoRoot, err := canonicalPath(strings.TrimSpace(string(repoOutput)))
+	if err != nil || repoRoot != root {
+		return false
+	}
 	cmd := exec.Command("git", "-C", root, "merge-base", "--is-ancestor", ancestor, "HEAD")
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	return cmd.Run() == nil

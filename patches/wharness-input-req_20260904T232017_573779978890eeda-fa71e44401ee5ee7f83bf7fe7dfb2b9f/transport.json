@@ -1,6 +1,0 @@
-{
-  "context_included": true,
-  "prompt": "prompt/wharness-planner-prompt.md",
-  "protocol": "wharness.remote-input/v1",
-  "request_id": "req_20260904T232017_573779978890eeda"
-}

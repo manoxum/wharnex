@@ -180,7 +180,14 @@ func TestPrepareRepairsPendingMetadataAfterProjectRootMove(t *testing.T) {
 }
 
 func TestPrepareRefusesMovedMetadataWithoutGitLineageProof(t *testing.T) {
-	root := fakeRoot(t)
+	outer := t.TempDir()
+	mustGitCommand(t, outer, "init", "-q")
+	mustWrite(t, filepath.Join(outer, "host.txt"), "host\n", 0o644)
+	mustGitCommand(t, outer, "add", "host.txt")
+	mustGitCommand(t, outer, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "outer repository")
+
+	root := filepath.Join(outer, "nested-wharness")
+	populateFakeRoot(t, root)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
 	manager := New(root)
 	first, err := manager.Prepare("ses-one", "plan-one", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"})
@@ -193,8 +200,7 @@ func TestPrepareRefusesMovedMetadataWithoutGitLineageProof(t *testing.T) {
 	}
 	first.ReleaseStage()
 
-	movedParent := t.TempDir()
-	movedRoot := filepath.Join(movedParent, "wharnex")
+	movedRoot := filepath.Join(outer, "moved-wharness")
 	if err := os.Rename(root, movedRoot); err != nil {
 		t.Fatal(err)
 	}
@@ -386,6 +392,12 @@ func mustGitCommand(t *testing.T, dir string, args ...string) {
 func fakeRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	populateFakeRoot(t, root)
+	return root
+}
+
+func populateFakeRoot(t *testing.T, root string) {
+	t.Helper()
 	mustWrite(t, filepath.Join(root, "Makefile"), "all:\n\t@true\n", 0o644)
 	mustWrite(t, filepath.Join(root, "services", "backend", "go.mod"), "module example.invalid/fake\n", 0o644)
 	mustWrite(t, filepath.Join(root, "services", "desktop", "package.json"), "{}\n", 0o644)
@@ -393,7 +405,6 @@ func fakeRoot(t *testing.T) string {
 	mustWrite(t, filepath.Join(root, "scripts", "start.sh"), "#!/usr/bin/env sh\nexit 0\n", 0o755)
 	mustWrite(t, filepath.Join(root, "scripts", "stop.sh"), "#!/usr/bin/env sh\nexit 0\n", 0o755)
 	mustWrite(t, filepath.Join(root, "scripts", "stack.sh"), "#!/usr/bin/env sh\nexit 0\n", 0o755)
-	return root
 }
 
 func mustWrite(t *testing.T, path, content string, mode os.FileMode) {
