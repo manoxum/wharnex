@@ -29,6 +29,7 @@ import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmat
 import { hasRecordedRequest } from './lib/requestDispatch'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
+const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
 
 function requestAlreadyRecorded(projectPath: string, chatId: string, requestId: string, phases?: Parameters<typeof hasRecordedRequest>[2]) {
   return hasRecordedRequest(loadChat(projectPath, chatId), requestId, phases)
@@ -2071,7 +2072,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
   const taskInFlight = requestChainActive(session) || restartModalOpen || recoveryBlocksActiveChat
   const restartPending = isRestartPending(session)
   return <main className="workspace-root">
-    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
+    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} instanceID={INSTANCE_ID} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
     {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery

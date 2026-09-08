@@ -35,6 +35,7 @@ TUNNEL_IMAGE="wharness-tunnel:$PROJECT"
 # not both try to bind 127.0.0.1:8080/5173.
 HTTP_PORT=${WHARNESS_HTTP_PORT:-8080}
 WEB_PORT=${WHARNESS_WEB_PORT:-5173}
+INSTANCE_ID=${WHARNESS_INSTANCE_ID:-}
 
 require_docker() {
   command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharness service stack.' >&2; exit 1; }
@@ -98,6 +99,7 @@ ensure_credentials() {
     printf 'WHARNESS_MINIO_ROOT_PASSWORD=%s\n' "$minio_password"
     printf 'WHARNESS_HTTP_PORT=%s\n' "$HTTP_PORT"
     printf 'WHARNESS_WEB_PORT=%s\n' "$WEB_PORT"
+    printf 'WHARNESS_INSTANCE_ID=%s\n' "$INSTANCE_ID"
   } >"$stack_env_tmp"
   mv -f "$stack_env_tmp" "$STACK_ENV"
   chmod 600 "$STACK_ENV"

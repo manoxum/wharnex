@@ -139,6 +139,7 @@ services:
       context: ./services/frontend
       args:
         VITE_API_URL: "http://127.0.0.1:${WHARNESS_HTTP_PORT:-8080}"
+        VITE_WHARNESS_INSTANCE_ID: "${WHARNESS_INSTANCE_ID:-}"
     restart: unless-stopped
     ports:
       - "127.0.0.1:${WHARNESS_WEB_PORT:-5173}:80"

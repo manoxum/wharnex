@@ -207,6 +207,8 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .mode-switch button.active { background: #f0f2eb; color: #1e211c; box-shadow: 0 1px 5px rgba(0,0,0,.2); font-weight: 600; }
 
 .workspace-switches { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+.instance-badge { min-width: 0; height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid hsl(var(--instance-hue) 55% 54% / .82); border-radius: 999px; background: hsl(var(--instance-hue) 54% 24% / .84); color: hsl(var(--instance-hue) 78% 84%); box-shadow: inset 0 1px hsl(var(--instance-hue) 65% 85% / .13); font: 700 calc(9px * var(--ui-font-scale))/1 var(--mono-font-family); letter-spacing: .055em; text-transform: uppercase; white-space: nowrap; }
+.instance-badge-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: hsl(var(--instance-hue) 88% 72%); box-shadow: 0 0 0 3px hsl(var(--instance-hue) 82% 66% / .16); }
 .workspace-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .icon-button { width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; }
 .icon-button:hover { background: rgba(128,132,122,.14); }
