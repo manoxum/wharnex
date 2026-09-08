@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
-import type { Session } from '../types'
+import type { HarnessEvent, Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import type { ChatViewportStore } from './useProgressiveChatHistory'
 import { Inspector, type InspectorTab } from './Inspector'
@@ -73,6 +73,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
   const attentionItems = useMemo(() => collectAttentionItems(chatProps.chats, attentionSessions, chatgptHumanActions), [attentionSessions, chatProps.chats, chatgptHumanActions])
   const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
+  const executionCommandRunning = useMemo(() => hasRunningExecutionCommand(inspectorProps.events), [inspectorProps.events])
   useEffect(() => {
     if (!attentionPopoverOpen) return
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -148,7 +149,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
 
   function surfaceTabClass(target: AttentionTarget) {
     const tone = attentionTone(target)
-    return [inspectorTab === target ? 'active' : '', tone ? `attention-pulse attention-${tone}` : ''].filter(Boolean).join(' ')
+    const executionPulse = target === 'terminal' && inspectorTab !== 'terminal' && executionCommandRunning && !tone
+    return [inspectorTab === target ? 'active' : '', tone ? `attention-pulse attention-${tone}` : '', executionPulse ? 'execution-pulse' : ''].filter(Boolean).join(' ')
   }
 
   function beginResize(event: React.PointerEvent<HTMLButtonElement>) {
@@ -230,6 +232,20 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
     <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
     <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} /></div>
   </section>
+}
+
+function hasRunningExecutionCommand(events: HarnessEvent[]) {
+  const running = new Set<string>()
+  for (const event of events) {
+    const started = event.type === 'command.started' || event.type === 'host_dependency_repair.command_started'
+    const completed = event.type === 'command.completed' || event.type === 'host_dependency_repair.command_completed'
+    if (!started && !completed) continue
+    const runID = typeof event.data.run_id === 'string' ? event.data.run_id : ''
+    if (!runID) continue
+    if (started) running.add(runID)
+    else running.delete(runID)
+  }
+  return running.size > 0
 }
 
 function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
