@@ -225,18 +225,24 @@ type ExecutionBundleInfo struct {
 	Files    []string `json:"files"`
 	Patches  []string `json:"patches"`
 	SHA256   string   `json:"sha256"`
-	// ProjectKnowledgeUpdate is the raw content of an optional knowledge.md
-	// at the bundle root, if present. Purely a transport-level field: the
-	// service layer decides whether a given response is even allowed to
-	// act on it (only inside the dedicated knowledge_review response
-	// branch), never this parser.
+	// CumulativeSummary is the response bundle's summary.md. It is staged
+	// throughout one Main Request and only surfaced after that Main Request
+	// reaches its real terminal boundary (for changes: successful host Apply).
+	CumulativeSummary string `json:"cumulative_summary,omitempty"`
+	// ProjectKnowledgeCandidate is the v2 catalog returned with an ordinary
+	// planner response. Wharnex stages it while the Main Request is in flight
+	// and commits it only at that request's terminal boundary.
+	ProjectKnowledgeCandidate *ProjectKnowledgeCandidate `json:"project_knowledge_candidate,omitempty"`
+	// ProjectKnowledgeUpdate is the legacy optional knowledge.md payload kept
+	// only so an already-pending pre-v2 knowledge_review can still finish after
+	// an upgrade. New requests use knowledge/index.json plus one Markdown file
+	// per knowledge record and never schedule a knowledge_review round.
 	ProjectKnowledgeUpdate string `json:"project_knowledge_update,omitempty"`
 }
 
-// ProjectKnowledge is the incremental, ChatGPT-authored knowledge source for
-// one project. It is a full-document replacement on every update, never a
-// diff: Version/UpdatedAt/UpdatedByRequestID exist for audit, not history —
-// only the latest content is retained.
+// ProjectKnowledge is the legacy single-document projection retained for API
+// and migration compatibility. New storage is ProjectKnowledgeCatalog, where
+// every knowledge item is an independent record.
 type ProjectKnowledge struct {
 	ProjectPath        string    `json:"project_path"`
 	Content            string    `json:"content"`
@@ -245,7 +251,44 @@ type ProjectKnowledge struct {
 	UpdatedByRequestID string    `json:"updated_by_request_id,omitempty"`
 }
 
+// ProjectKnowledgeEntry is one durable, independently versioned knowledge
+// record. ID is stable across edits so the planner can update, split, merge,
+// deduplicate, or remove records without treating the catalog as one blob.
+type ProjectKnowledgeEntry struct {
+	ID                 string    `json:"id"`
+	Content            string    `json:"content"`
+	Version            int       `json:"version"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	UpdatedByRequestID string    `json:"updated_by_request_id,omitempty"`
+}
+
+// ProjectKnowledgeCatalog is the current per-project catalog. Revision changes
+// whenever any record is committed and is what lets another parallel chat
+// detect that its next request must refresh/re-enable knowledge sharing.
+type ProjectKnowledgeCatalog struct {
+	ProjectPath        string                  `json:"project_path"`
+	Revision           int64                   `json:"revision"`
+	Entries            []ProjectKnowledgeEntry `json:"entries"`
+	UpdatedAt          time.Time               `json:"updated_at"`
+	UpdatedByRequestID string                  `json:"updated_by_request_id,omitempty"`
+}
+
 const (
+	KnowledgeCandidateReplace = "replace"
+	KnowledgeCandidateOverlay = "overlay"
+)
+
+// ProjectKnowledgeCandidate is planner-authored catalog state from one
+// response. replace is allowed only when the request received the catalog;
+// overlay carries only newly learned/changed records when sharing was off.
+type ProjectKnowledgeCandidate struct {
+	BaseRevision int64                   `json:"base_revision"`
+	Mode         string                  `json:"mode"`
+	Entries      []ProjectKnowledgeEntry `json:"entries"`
+}
+
+const (
+	KnowledgeProtocolV2   = "harness.knowledge/v2"
 	KnowledgeStateNone    = "none"
 	KnowledgeStatePresent = "present"
 )
@@ -254,11 +297,23 @@ const (
 // planner request. It is server-only session state so every transport can use
 // exactly the same document/version/hash that was embedded in the prompt.
 type RequestKnowledgeSnapshot struct {
-	State              string `json:"state"`
-	Content            string `json:"content,omitempty"`
-	Version            int    `json:"version,omitempty"`
-	SHA256             string `json:"sha256,omitempty"`
-	UpdatedByRequestID string `json:"updated_by_request_id,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	State    string `json:"state"`
+	// Content/Version remain as a read-compatible projection for an already
+	// pending legacy request. New v2 transports use Entries/Revision.
+	Content            string                  `json:"content,omitempty"`
+	Version            int                     `json:"version,omitempty"`
+	SHA256             string                  `json:"sha256,omitempty"`
+	UpdatedByRequestID string                  `json:"updated_by_request_id,omitempty"`
+	Revision           int64                   `json:"revision,omitempty"`
+	SharingEnabled     bool                    `json:"sharing_enabled"`
+	Entries            []ProjectKnowledgeEntry `json:"entries,omitempty"`
+	// BaseEntries is the durable catalog at Revision, before any staged
+	// candidate from this Main Request is overlaid for transport. It is kept
+	// only in Wharnex session persistence so terminal reconciliation can retain
+	// deletions/edits across repair/workflow rounds without sending hidden
+	// records when chat sharing is off.
+	BaseEntries []ProjectKnowledgeEntry `json:"base_entries,omitempty"`
 }
 
 type ExecutionResult struct {
@@ -456,11 +511,20 @@ type Session struct {
 	// folded into State, or the session would need to "restore" its real
 	// state once the review round resolves, which is unnecessary risk for
 	// what is a best-effort side round.
-	PendingKnowledgeReviewRequestID string               `json:"pending_knowledge_review_request_id,omitempty"`
-	LastBundle                      *ExecutionBundleInfo `json:"last_bundle,omitempty"`
-	LastTurn                        *AgentTurn           `json:"last_turn,omitempty"`
-	RepairAttempt                   int                  `json:"repair_attempt,omitempty"`
-	RepairParentPlanID              string               `json:"repair_parent_plan_id,omitempty"`
+	PendingKnowledgeReviewRequestID string `json:"pending_knowledge_review_request_id,omitempty"`
+	// KnowledgeSharingEnabled is per-chat. nil is treated as true so sessions
+	// persisted before v2 start in the safe/default sharing-on state.
+	KnowledgeSharingEnabled            *bool                      `json:"knowledge_sharing_enabled,omitempty"`
+	KnowledgeLastSeenRevision          int64                      `json:"knowledge_last_seen_revision,omitempty"`
+	PendingKnowledgeRootRequestID      string                     `json:"-"`
+	PendingKnowledgeCandidateRequestID string                     `json:"-"`
+	PendingKnowledgeCandidate          *ProjectKnowledgeCandidate `json:"-"`
+	PendingKnowledgeSummary            string                     `json:"-"`
+	LastMainRequestSummary             string                     `json:"last_main_request_summary,omitempty"`
+	LastBundle                         *ExecutionBundleInfo       `json:"last_bundle,omitempty"`
+	LastTurn                           *AgentTurn                 `json:"last_turn,omitempty"`
+	RepairAttempt                      int                        `json:"repair_attempt,omitempty"`
+	RepairParentPlanID                 string                     `json:"repair_parent_plan_id,omitempty"`
 	// ConflictAttempt counts automatic rounds requesting resolution of the
 	// SAME IntegrationConflict.ID (a real Git merge conflict or a ChangeSet
 	// replay conflict). Distinct from RepairAttempt, which already measures

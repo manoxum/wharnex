@@ -84,6 +84,8 @@ export const api = {
     request<Session>(`/api/sessions/${id}/automation-mode`, { method: 'PUT', body: JSON.stringify({ automation_mode: automationMode }) }),
   setChatTransportMode: (id: string, chatTransportMode: ChatTransportMode) =>
     request<Session>(`/api/sessions/${id}/chat-transport-mode`, { method: 'PUT', body: JSON.stringify({ chat_transport_mode: chatTransportMode }) }),
+  setKnowledgeSharing: (id: string, enabled: boolean) =>
+    request<Session>(`/api/sessions/${id}/knowledge-sharing`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   setChatId: (id: string, chatId: string) =>
     request<Session>(`/api/sessions/${id}/chat-id`, { method: 'PUT', body: JSON.stringify({ chat_id: chatId }) }),
   archiveChat: (id: string) => request<Session>(`/api/sessions/${id}/archive`, { method: 'POST', body: '{}' }),

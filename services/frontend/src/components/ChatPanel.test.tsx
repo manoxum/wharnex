@@ -177,6 +177,19 @@ describe('ChatPanel', () => {
   })
 
 
+  it('exposes a per-chat project knowledge toggle in the composer', async () => {
+    const onKnowledgeSharing = vi.fn()
+    render(
+      <ChatPanel session={{ ...session, knowledge_sharing_enabled: false }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onKnowledgeSharing={onKnowledgeSharing} {...chatActions} />,
+    )
+    const button = screen.getByRole('button', { name: 'Conhecimento do projeto' })
+    expect(button.getAttribute('aria-pressed')).toBe('false')
+    expect(button.querySelector('svg')).toBeTruthy()
+    fireEvent.click(button)
+    await waitFor(() => expect(onKnowledgeSharing).toHaveBeenCalledWith(true))
+  })
+
+
   it('renders the new-chat control as an icon-only plus button', () => {
     render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,

@@ -59,6 +59,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
 	mux.HandleFunc("POST /api/sessions/{id}/archive", a.archiveChat)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
@@ -692,6 +693,21 @@ func (a *API) chatTransportMode(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetChatTransportMode(r.PathValue("id"), body.ChatTransportMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "chat_transport_mode_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) knowledgeSharing(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetKnowledgeSharingEnabled(r.PathValue("id"), body.Enabled)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "knowledge_sharing_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

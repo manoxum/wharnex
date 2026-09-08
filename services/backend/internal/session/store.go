@@ -26,10 +26,14 @@ type persistenceEnvelope struct {
 // exposing them through the public domain.Session JSON representation.
 type persistedSession struct {
 	domain.Session
-	RequestContextArchives  map[string]string                          `json:"_request_context_archives,omitempty"`
-	RequestKnowledge        map[string]domain.RequestKnowledgeSnapshot `json:"_request_knowledge,omitempty"`
-	ArtifactObjectKeys      map[string]string                          `json:"_artifact_object_keys,omitempty"`
-	ArchivePackageObjectKey string                                     `json:"_archive_package_object_key,omitempty"`
+	RequestContextArchives             map[string]string                          `json:"_request_context_archives,omitempty"`
+	RequestKnowledge                   map[string]domain.RequestKnowledgeSnapshot `json:"_request_knowledge,omitempty"`
+	PendingKnowledgeRootRequestID      string                                     `json:"_pending_knowledge_root_request_id,omitempty"`
+	PendingKnowledgeCandidateRequestID string                                     `json:"_pending_knowledge_candidate_request_id,omitempty"`
+	PendingKnowledgeCandidate          *domain.ProjectKnowledgeCandidate          `json:"_pending_knowledge_candidate,omitempty"`
+	PendingKnowledgeSummary            string                                     `json:"_pending_knowledge_summary,omitempty"`
+	ArtifactObjectKeys                 map[string]string                          `json:"_artifact_object_keys,omitempty"`
+	ArchivePackageObjectKey            string                                     `json:"_archive_package_object_key,omitempty"`
 }
 
 func persistSession(item domain.Session) persistedSession {
@@ -39,7 +43,12 @@ func persistSession(item domain.Session) persistedSession {
 			keys[artifact.ID] = artifact.ObjectKey
 		}
 	}
-	stored := persistedSession{Session: item, RequestContextArchives: item.RequestContextArchives, RequestKnowledge: item.RequestKnowledge, ArtifactObjectKeys: keys}
+	stored := persistedSession{
+		Session: item, RequestContextArchives: item.RequestContextArchives, RequestKnowledge: item.RequestKnowledge,
+		PendingKnowledgeRootRequestID: item.PendingKnowledgeRootRequestID, PendingKnowledgeCandidateRequestID: item.PendingKnowledgeCandidateRequestID,
+		PendingKnowledgeCandidate: item.PendingKnowledgeCandidate, PendingKnowledgeSummary: item.PendingKnowledgeSummary,
+		ArtifactObjectKeys: keys,
+	}
 	if item.ArchivePackage != nil {
 		stored.ArchivePackageObjectKey = item.ArchivePackage.ObjectKey
 	}
@@ -50,6 +59,10 @@ func restoreSession(item persistedSession) domain.Session {
 	result := item.Session
 	result.RequestContextArchives = item.RequestContextArchives
 	result.RequestKnowledge = item.RequestKnowledge
+	result.PendingKnowledgeRootRequestID = item.PendingKnowledgeRootRequestID
+	result.PendingKnowledgeCandidateRequestID = item.PendingKnowledgeCandidateRequestID
+	result.PendingKnowledgeCandidate = item.PendingKnowledgeCandidate
+	result.PendingKnowledgeSummary = item.PendingKnowledgeSummary
 	for index := range result.Artifacts {
 		result.Artifacts[index].ObjectKey = item.ArtifactObjectKeys[result.Artifacts[index].ID]
 	}
@@ -69,6 +82,9 @@ type Store struct {
 	// store (see cmd/harness/main.go), where harness_project_knowledge is
 	// authoritative instead. Lazily initialized: see knowledge.go.
 	knowledge map[string]domain.ProjectKnowledge
+	// knowledgeCatalogs is the v2 in-memory fallback. Postgres persists the
+	// same model in harness_project_knowledge_state/entries.
+	knowledgeCatalogs map[string]domain.ProjectKnowledgeCatalog
 }
 
 func NewStore() *Store { return &Store{items: make(map[string]domain.Session)} }

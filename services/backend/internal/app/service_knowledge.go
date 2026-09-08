@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
+	"kernl.local/harness/backend/internal/projectknowledge"
 	"kernl.local/harness/backend/internal/session"
 )
 
@@ -27,27 +29,70 @@ func knowledgeDigest(content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func knowledgeCatalogDigest(entries []domain.ProjectKnowledgeEntry) string {
+	entries = append([]domain.ProjectKnowledgeEntry(nil), entries...)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
+	hash := sha256.New()
+	for _, entry := range entries {
+		_, _ = hash.Write([]byte(entry.ID))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(strings.TrimSpace(entry.Content)))
+		_, _ = hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func knowledgeProjection(entries []domain.ProjectKnowledgeEntry) string {
+	entries = append([]domain.ProjectKnowledgeEntry(nil), entries...)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		parts = append(parts, "## "+entry.ID+"\n\n"+strings.TrimSpace(entry.Content))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func knowledgeSharingEnabled(item domain.Session) bool {
+	return item.KnowledgeSharingEnabled == nil || *item.KnowledgeSharingEnabled
+}
+
 func knowledgeManifest(snapshot domain.RequestKnowledgeSnapshot) map[string]any {
-	path := ""
-	if snapshot.State == domain.KnowledgeStatePresent {
-		path = "knowledge/project.md"
+	entries := make([]map[string]any, 0, len(snapshot.Entries))
+	for _, entry := range snapshot.Entries {
+		entries = append(entries, map[string]any{
+			"id": entry.ID, "path": "knowledge/" + entry.ID + ".md", "version": entry.Version,
+			"sha256": knowledgeDigest(strings.TrimSpace(entry.Content)), "updated_by_request_id": entry.UpdatedByRequestID,
+		})
 	}
 	return map[string]any{
-		"state": snapshot.State, "path": path, "version": snapshot.Version,
-		"sha256": snapshot.SHA256, "updated_by_request_id": snapshot.UpdatedByRequestID,
+		"protocol": snapshot.Protocol, "state": snapshot.State, "sharing_enabled": snapshot.SharingEnabled, "revision": snapshot.Revision,
+		"sha256": snapshot.SHA256, "updated_by_request_id": snapshot.UpdatedByRequestID, "entries": entries,
 	}
 }
 
 func validateRequestKnowledgeSnapshot(snapshot domain.RequestKnowledgeSnapshot) error {
+	if snapshot.Revision < 0 || snapshot.Version < 0 {
+		return errors.New("knowledge revision is invalid")
+	}
 	switch snapshot.State {
 	case domain.KnowledgeStateNone:
-		if snapshot.Content != "" || snapshot.Version != 0 || snapshot.SHA256 != "" || snapshot.UpdatedByRequestID != "" {
-			return errors.New("knowledge state none contains document metadata")
+		if len(snapshot.Entries) != 0 || snapshot.SHA256 != "" {
+			return errors.New("knowledge state none contains catalog entries")
 		}
 		return nil
 	case domain.KnowledgeStatePresent:
+		if len(snapshot.Entries) > 0 {
+			if !snapshot.SharingEnabled || snapshot.SHA256 == "" {
+				return errors.New("knowledge state present is incomplete")
+			}
+			if knowledgeCatalogDigest(snapshot.Entries) != snapshot.SHA256 {
+				return errors.New("knowledge catalog sha256 does not match request snapshot")
+			}
+			return nil
+		}
+		// Compatibility for a request persisted before the v2 catalog existed.
 		if strings.TrimSpace(snapshot.Content) == "" || snapshot.Version < 1 || snapshot.SHA256 == "" {
-			return errors.New("knowledge state present is incomplete")
+			return errors.New("legacy knowledge state present is incomplete")
 		}
 		if knowledgeDigest(snapshot.Content) != snapshot.SHA256 {
 			return errors.New("knowledge content sha256 does not match request snapshot")
@@ -58,38 +103,121 @@ func validateRequestKnowledgeSnapshot(snapshot domain.RequestKnowledgeSnapshot) 
 	}
 }
 
+func effectivePendingKnowledge(item domain.Session, catalog domain.ProjectKnowledgeCatalog) []domain.ProjectKnowledgeEntry {
+	candidate := item.PendingKnowledgeCandidate
+	if candidate == nil {
+		return append([]domain.ProjectKnowledgeEntry(nil), catalog.Entries...)
+	}
+	if candidate.Mode == domain.KnowledgeCandidateReplace {
+		if candidate.BaseRevision == catalog.Revision {
+			return append([]domain.ProjectKnowledgeEntry(nil), candidate.Entries...)
+		}
+		if snapshot, ok := item.RequestKnowledge[item.PendingKnowledgeCandidateRequestID]; ok {
+			return reconcileKnowledgeCandidate(*candidate, snapshot.Entries, catalog)
+		}
+	}
+	merged := make(map[string]domain.ProjectKnowledgeEntry, len(catalog.Entries)+len(candidate.Entries))
+	for _, entry := range catalog.Entries {
+		merged[entry.ID] = entry
+	}
+	for _, entry := range candidate.Entries {
+		merged[entry.ID] = entry
+	}
+	out := make([]domain.ProjectKnowledgeEntry, 0, len(merged))
+	for _, entry := range merged {
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 func (s *Service) loadRequestKnowledge(sessionID, projectPath string) (domain.RequestKnowledgeSnapshot, error) {
-	item, ok, err := s.store.GetProjectKnowledge(projectPath)
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.RequestKnowledgeSnapshot{}, err
+	}
+	catalog, err := s.loadProjectKnowledgeCatalog(sessionID, projectPath)
 	if err != nil {
 		if s.bus != nil {
 			s.bus.Publish(sessionID, "knowledge.load_failed", map[string]any{"error": err.Error()})
 		}
 		return domain.RequestKnowledgeSnapshot{}, fmt.Errorf("load project knowledge: %w", err)
 	}
-	if !ok {
-		snapshot := domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}
-		if s.bus != nil {
-			s.bus.Publish(sessionID, "knowledge.loaded", map[string]any{"state": snapshot.State})
-		}
-		return snapshot, nil
+	sharing := knowledgeSharingEnabled(item)
+	forcedRefresh := catalog.Revision > item.KnowledgeLastSeenRevision
+	if forcedRefresh {
+		sharing = true
+		value := true
+		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+			current.KnowledgeSharingEnabled = &value
+			return nil
+		})
 	}
+	entries := effectivePendingKnowledge(item, catalog)
 	snapshot := domain.RequestKnowledgeSnapshot{
-		State: domain.KnowledgeStatePresent, Content: item.Content, Version: item.Version,
-		SHA256: knowledgeDigest(item.Content), UpdatedByRequestID: item.UpdatedByRequestID,
+		Protocol: domain.KnowledgeProtocolV2, Revision: catalog.Revision, SharingEnabled: sharing,
+		BaseEntries: append([]domain.ProjectKnowledgeEntry(nil), catalog.Entries...),
+	}
+	if sharing && len(entries) > 0 {
+		snapshot.State = domain.KnowledgeStatePresent
+		snapshot.Entries = entries
+		snapshot.SHA256 = knowledgeCatalogDigest(entries)
+		snapshot.Content = knowledgeProjection(entries)
+		snapshot.Version = int(catalog.Revision)
+		snapshot.UpdatedByRequestID = catalog.UpdatedByRequestID
+	} else {
+		snapshot.State = domain.KnowledgeStateNone
 	}
 	if err := validateRequestKnowledgeSnapshot(snapshot); err != nil {
-		if s.bus != nil {
-			s.bus.Publish(sessionID, "knowledge.load_failed", map[string]any{"error": err.Error(), "version": item.Version})
-		}
 		return domain.RequestKnowledgeSnapshot{}, err
 	}
 	if s.bus != nil {
-		s.bus.Publish(sessionID, "knowledge.loaded", map[string]any{"state": snapshot.State, "version": snapshot.Version, "sha256": snapshot.SHA256, "updated_by_request_id": snapshot.UpdatedByRequestID})
+		s.bus.Publish(sessionID, "knowledge.loaded", map[string]any{
+			"state": snapshot.State, "sharing_enabled": sharing, "revision": catalog.Revision,
+			"entries": len(snapshot.Entries), "forced_refresh": forcedRefresh, "sha256": snapshot.SHA256,
+		})
 	}
 	return snapshot, nil
 }
 
+func (s *Service) loadProjectKnowledgeCatalog(sessionID, projectPath string) (domain.ProjectKnowledgeCatalog, error) {
+	// The project-side files are the collaboration surface. Read the DB first
+	// and the files second on every CAS attempt: if another chat commits between
+	// those reads, CAS fails and the next iteration observes both fresh states
+	// instead of writing an older file snapshot back over the newer catalog.
+	for attempt := 0; attempt < 3; attempt++ {
+		current, ok, err := s.store.GetProjectKnowledgeCatalog(projectPath)
+		if err != nil {
+			return domain.ProjectKnowledgeCatalog{}, err
+		}
+		if !ok {
+			current = domain.ProjectKnowledgeCatalog{ProjectPath: projectPath, Entries: []domain.ProjectKnowledgeEntry{}}
+		}
+		fileEntries, filesPresent, err := projectknowledge.Load(projectPath)
+		if err != nil {
+			return domain.ProjectKnowledgeCatalog{}, fmt.Errorf("read %s: %w", projectknowledge.DirectoryName, err)
+		}
+		if !filesPresent || (ok && sameKnowledgeCatalog(fileEntries, current.Entries)) {
+			return current, nil
+		}
+		saved, err := s.store.CompareAndSwapProjectKnowledgeCatalog(projectPath, fileEntries, "project-file-sync", current.Revision)
+		if err == nil {
+			if s.bus != nil {
+				s.bus.Publish(sessionID, "knowledge.files_imported", map[string]any{"revision": saved.Revision, "entries": len(saved.Entries), "path": projectknowledge.DirectoryName})
+			}
+			return saved, nil
+		}
+		if !errors.Is(err, session.ErrProjectKnowledgeConflict) {
+			return domain.ProjectKnowledgeCatalog{}, err
+		}
+	}
+	return domain.ProjectKnowledgeCatalog{}, session.ErrProjectKnowledgeConflict
+}
+
 func withPlannerKnowledge(request planner.Request, snapshot domain.RequestKnowledgeSnapshot) planner.Request {
+	request.KnowledgeEntries = append([]domain.ProjectKnowledgeEntry(nil), snapshot.Entries...)
+	request.KnowledgeRevision = snapshot.Revision
+	request.KnowledgeSharingEnabled = snapshot.SharingEnabled
 	request.KnowledgeSource = snapshot.Content
 	request.KnowledgeVersion = snapshot.Version
 	request.KnowledgeSHA256 = snapshot.SHA256
@@ -102,6 +230,9 @@ func recordRequestKnowledge(item *domain.Session, requestID string, snapshot dom
 		item.RequestKnowledge = map[string]domain.RequestKnowledgeSnapshot{}
 	}
 	item.RequestKnowledge[requestID] = snapshot
+	if snapshot.SharingEnabled && snapshot.Revision > item.KnowledgeLastSeenRevision {
+		item.KnowledgeLastSeenRevision = snapshot.Revision
+	}
 }
 
 func requestKnowledgeSnapshot(item domain.Session, requestID string) (domain.RequestKnowledgeSnapshot, error) {

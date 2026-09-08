@@ -3,6 +3,8 @@ package executionbundle
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"slices"
 	"strings"
 	"testing"
@@ -236,5 +238,39 @@ func TestParseWorkflowTurnRequiresPlan(t *testing.T) {
 	})
 	if _, err := Parse("wharness-bundle-req_12345678.zip", raw); err == nil {
 		t.Fatal("expected workflow plan requirement")
+	}
+}
+
+func TestParseRejectsKnowledgeFilesWithoutV2Index(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md":           "# Answer\n",
+		"turn.json":           `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Concluído.","outcome":{"status":"completed","retryable":false}}`,
+		"knowledge/orphan.md": "orphan",
+	})
+	if _, err := Parse("wharness-bundle-req_12345678.zip", raw); err == nil || !strings.Contains(err.Error(), "require knowledge/index.json") {
+		t.Fatalf("expected indexed-knowledge requirement, got %v", err)
+	}
+}
+
+func TestParseKnowledgeV2CatalogAndSummary(t *testing.T) {
+	content := []byte("Use the dedicated file input to preserve the canonical bundle filename.\n")
+	digest := sha256.Sum256(content)
+	raw := zipBytes(t, map[string]string{
+		"README.md":                   "# Answer\n",
+		"turn.json":                   `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Concluído.","outcome":{"status":"completed","retryable":false}}`,
+		"summary.md":                  "Resumo cumulativo desta Main Request.",
+		"knowledge/index.json":        `{"protocol":"harness.knowledge/v2","base_revision":4,"mode":"replace","entries":[{"id":"desktop-upload","file":"knowledge/desktop-upload.md","sha256":"` + hex.EncodeToString(digest[:]) + `"}]}`,
+		"knowledge/desktop-upload.md": string(content),
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Info.CumulativeSummary != "Resumo cumulativo desta Main Request." {
+		t.Fatalf("unexpected summary: %q", parsed.Info.CumulativeSummary)
+	}
+	candidate := parsed.Info.ProjectKnowledgeCandidate
+	if candidate == nil || candidate.BaseRevision != 4 || candidate.Mode != domain.KnowledgeCandidateReplace || len(candidate.Entries) != 1 || candidate.Entries[0].ID != "desktop-upload" {
+		t.Fatalf("unexpected v2 knowledge candidate: %#v", candidate)
 	}
 }

@@ -1,56 +1,57 @@
 package session
 
 import (
-	"context"
-	"database/sql"
 	"errors"
-	"time"
+	"sort"
+	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
 )
 
 var ErrProjectKnowledgeConflict = errors.New("project knowledge version conflict")
 
-// GetProjectKnowledge returns the current incremental knowledge document for
-// a project, if one has ever been recorded. The bool is false when nothing
-// has been saved yet, which is the common case and not an error.
+// GetProjectKnowledge preserves the v1 single-document API as a deterministic
+// projection of the v2 record catalog. New code should use
+// GetProjectKnowledgeCatalog so record identity is not lost.
 func (s *Store) GetProjectKnowledge(projectPath string) (domain.ProjectKnowledge, bool, error) {
-	if s.db != nil {
-		return s.postgresGetProjectKnowledge(projectPath)
+	catalog, ok, err := s.GetProjectKnowledgeCatalog(projectPath)
+	if err != nil || !ok {
+		return domain.ProjectKnowledge{}, ok, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	item, ok := s.knowledge[projectPath]
-	return item, ok, nil
+	entries := append([]domain.ProjectKnowledgeEntry(nil), catalog.Entries...)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
+	content := ""
+	if len(entries) == 1 && entries[0].ID == "legacy-project-knowledge" {
+		content = strings.TrimSpace(entries[0].Content)
+	} else {
+		parts := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			parts = append(parts, "## "+entry.ID+"\n\n"+strings.TrimSpace(entry.Content))
+		}
+		content = strings.Join(parts, "\n\n")
+	}
+	return domain.ProjectKnowledge{
+		ProjectPath: projectPath, Content: content, Version: int(catalog.Revision),
+		UpdatedAt: catalog.UpdatedAt, UpdatedByRequestID: catalog.UpdatedByRequestID,
+	}, true, nil
 }
 
-// CompareAndSwapProjectKnowledge replaces the full curated document only when
-// its current version matches expectedVersion. expectedVersion=0 means the
-// caller observed no document. This prevents concurrent reviews from silently
-// overwriting knowledge learned by another session.
+// CompareAndSwapProjectKnowledge is a compatibility adapter for pre-v2 tests,
+// API clients, and an already-pending legacy knowledge_review response. The
+// incoming document becomes one legacy record in the catalog.
 func (s *Store) CompareAndSwapProjectKnowledge(projectPath, content, requestID string, expectedVersion int) (domain.ProjectKnowledge, error) {
-	if s.db != nil {
-		return s.postgresCompareAndSwapProjectKnowledge(projectPath, content, requestID, expectedVersion)
+	catalog, err := s.CompareAndSwapProjectKnowledgeCatalog(projectPath, []domain.ProjectKnowledgeEntry{{ID: "legacy-project-knowledge", Content: content}}, requestID, int64(expectedVersion))
+	if err != nil {
+		return domain.ProjectKnowledge{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.knowledge == nil {
-		s.knowledge = make(map[string]domain.ProjectKnowledge)
+	item, _, err := s.GetProjectKnowledge(projectPath)
+	if err != nil {
+		return domain.ProjectKnowledge{}, err
 	}
-	current, ok := s.knowledge[projectPath]
-	if (!ok && expectedVersion != 0) || (ok && current.Version != expectedVersion) {
-		return domain.ProjectKnowledge{}, ErrProjectKnowledgeConflict
-	}
-	updated := domain.ProjectKnowledge{
-		ProjectPath: projectPath, Content: content, Version: expectedVersion + 1,
-		UpdatedAt: time.Now().UTC(), UpdatedByRequestID: requestID,
-	}
-	s.knowledge[projectPath] = updated
-	return updated, nil
+	item.Version = int(catalog.Revision)
+	return item, nil
 }
 
-// AppendProjectKnowledge is retained for narrow callers. New review ingestion
-// uses CompareAndSwapProjectKnowledge so stale writers cannot lose knowledge.
 func (s *Store) AppendProjectKnowledge(projectPath, content, requestID string) (domain.ProjectKnowledge, error) {
 	current, ok, err := s.GetProjectKnowledge(projectPath)
 	if err != nil {
@@ -61,45 +62,4 @@ func (s *Store) AppendProjectKnowledge(projectPath, content, requestID string) (
 		expected = current.Version
 	}
 	return s.CompareAndSwapProjectKnowledge(projectPath, content, requestID, expected)
-}
-
-func (s *Store) postgresGetProjectKnowledge(projectPath string) (domain.ProjectKnowledge, bool, error) {
-	var item domain.ProjectKnowledge
-	err := s.db.QueryRowContext(context.Background(),
-		`SELECT project_path, content, version, updated_at, updated_by_request_id FROM harness_project_knowledge WHERE project_path = $1`,
-		projectPath,
-	).Scan(&item.ProjectPath, &item.Content, &item.Version, &item.UpdatedAt, &item.UpdatedByRequestID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return domain.ProjectKnowledge{}, false, nil
-		}
-		return domain.ProjectKnowledge{}, false, err
-	}
-	return item, true, nil
-}
-
-func (s *Store) postgresCompareAndSwapProjectKnowledge(projectPath, content, requestID string, expectedVersion int) (domain.ProjectKnowledge, error) {
-	var item domain.ProjectKnowledge
-	var err error
-	if expectedVersion == 0 {
-		err = s.db.QueryRowContext(context.Background(), `
-INSERT INTO harness_project_knowledge (project_path, content, version, updated_at, updated_by_request_id)
-VALUES ($1, $2, 1, now(), $3)
-ON CONFLICT (project_path) DO NOTHING
-RETURNING project_path, content, version, updated_at, updated_by_request_id`,
-			projectPath, content, requestID,
-		).Scan(&item.ProjectPath, &item.Content, &item.Version, &item.UpdatedAt, &item.UpdatedByRequestID)
-	} else {
-		err = s.db.QueryRowContext(context.Background(), `
-UPDATE harness_project_knowledge
-SET content = $2, version = version + 1, updated_at = now(), updated_by_request_id = $3
-WHERE project_path = $1 AND version = $4
-RETURNING project_path, content, version, updated_at, updated_by_request_id`,
-			projectPath, content, requestID, expectedVersion,
-		).Scan(&item.ProjectPath, &item.Content, &item.Version, &item.UpdatedAt, &item.UpdatedByRequestID)
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return domain.ProjectKnowledge{}, ErrProjectKnowledgeConflict
-	}
-	return item, err
 }

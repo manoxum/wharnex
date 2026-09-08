@@ -1328,6 +1328,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         })
       } else {
         appendChatItem(targetChat, updated.project_path, bundleItem)
+        if (updated.last_main_request_summary?.trim() && updated.last_main_request_summary.trim() !== bundleItem.text.trim()) {
+          appendChatItem(targetChat, updated.project_path, {
+            id: crypto.randomUUID(), role: 'harness', source: 'chatgpt', presentation: 'message', createdAt: new Date().toISOString(),
+            text: updated.last_main_request_summary.trim(), meta: 'Resumo cumulativo da Main Request',
+          })
+        }
       }
       if (knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview)) {
         const change = buildAppliedChangeSummary(updated)
@@ -1743,6 +1749,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const change = waitingForKnowledgeReview ? undefined : buildAppliedChangeSummary(updated)
       setItems((current) => [...current,
         { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: waitingForKnowledgeReview ? (updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.') : (updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.'), meta: waitingForKnowledgeReview ? 'Host aplicado · revisão final' : (updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado') },
+        ...(!waitingForKnowledgeReview && updated.last_main_request_summary?.trim() ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'chatgpt' as const, presentation: 'message' as const, createdAt: new Date().toISOString(), text: updated.last_main_request_summary.trim(), meta: 'Resumo cumulativo da Main Request' }] : []),
         ...(change ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, createdAt: change.appliedAt, text: 'Alterações e comandos aplicados ao host.', change }] : []),
       ])
 	} catch (e) {
@@ -1919,6 +1926,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setSession(updated); setChatTransportMode(next)
       if (isDesktop() && activeChatId) { try { await desktopBridge()?.chatgpt.setTransportMode(activeChatId, next) } catch { /* best-effort defense in depth; the primary guard is never calling preparePrompt while manual */ } }
       setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'manual' ? 'Modo Manual ativado para este chat. O Wharness deixa de interagir com o ChatGPT — copie o prompt e entregue o bundle de resposta manualmente.' : 'Modo Scraper ativado para este chat. O Wharness volta a interagir diretamente com o ChatGPT.', meta: next === 'manual' ? 'Manual' : 'Scraper' }])
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function changeKnowledgeSharing(enabled: boolean) {
+    if (!session || busy || (session.knowledge_sharing_enabled !== false) === enabled) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.setKnowledgeSharing(session.id, enabled)
+      setSession(updated)
+      setItems((current) => [...current, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: enabled
+          ? 'Conhecimento do projeto ligado para este chat. O próximo pedido incluirá o catálogo incremental atual em ficheiros separados.'
+          : 'Conhecimento do projeto desligado para este chat. O catálogo existente deixa de ser enviado até reativação ou até existir uma revisão mais recente criada por outro chat.',
+        meta: enabled ? 'Conhecimento ligado' : 'Conhecimento desligado',
+      }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -2167,7 +2190,7 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
           artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
           artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
           requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
-          onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onChatTransportMode: changeChatTransportMode, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
+          onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
           onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
           onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
           onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),

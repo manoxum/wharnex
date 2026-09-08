@@ -9,6 +9,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"kernl.local/harness/backend/internal/domain"
 )
 
 func TestProjectKnowledgeRoundTripsAndIncrementsVersion(t *testing.T) {
@@ -158,5 +160,32 @@ func TestProjectKnowledgeCompareAndSwapRejectsStaleVersion(t *testing.T) {
 	}
 	if _, err := store.CompareAndSwapProjectKnowledge("/workspace/demo", "lost update", "req-stale-2", 1); !errors.Is(err, ErrProjectKnowledgeConflict) {
 		t.Fatalf("expected stale update conflict, got %v", err)
+	}
+}
+
+func TestProjectKnowledgeCatalogStoresIndependentRecords(t *testing.T) {
+	store := NewStore()
+	first, err := store.CompareAndSwapProjectKnowledgeCatalog("/workspace/demo", []domain.ProjectKnowledgeEntry{
+		{ID: "apply-order", Content: "Persist knowledge only after host Apply succeeds."},
+		{ID: "desktop-upload", Content: "Use the dedicated file input to preserve bundle names."},
+	}, "req-1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Revision != 1 || len(first.Entries) != 2 {
+		t.Fatalf("unexpected first catalog: %#v", first)
+	}
+	if first.Entries[0].Version != 1 || first.Entries[1].Version != 1 {
+		t.Fatalf("each entry must have its own version: %#v", first.Entries)
+	}
+
+	second, err := store.CompareAndSwapProjectKnowledgeCatalog("/workspace/demo", []domain.ProjectKnowledgeEntry{
+		{ID: "apply-order", Content: "Persist knowledge and surface the cumulative summary only after host Apply succeeds."},
+	}, "req-2", first.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Revision != 2 || len(second.Entries) != 1 || second.Entries[0].Version != 2 {
+		t.Fatalf("independent edit/delete did not persist correctly: %#v", second)
 	}
 }
