@@ -140,6 +140,70 @@ func TestPrepareRepairsVerifiedPendingTransactionMetadataIdentity(t *testing.T) 
 	}
 }
 
+func TestPrepareRepairsPendingMetadataAfterProjectRootMove(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "tracked source")
+	manager := New(root)
+	first, err := manager.Prepare("ses-one", "plan-one", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-one\n", 0o644)
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_pending", "first build ready"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	movedParent := t.TempDir()
+	movedRoot := filepath.Join(movedParent, "wharnex")
+	if err := os.Rename(root, movedRoot); err != nil {
+		t.Fatal(err)
+	}
+	movedManager := New(movedRoot)
+	second, err := movedManager.Prepare("ses-two", "plan-two", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-after-one\n+after-two\n"})
+	if err != nil {
+		t.Fatalf("a moved checkout with the captured Git baseline should repair its stale root, got %v", err)
+	}
+	defer second.Release()
+	if second.ID != first.ID {
+		t.Fatalf("expected moved batch %s to be retained, got %s", first.ID, second.ID)
+	}
+	repaired, err := second.readMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.Root != movedManager.Root() {
+		t.Fatalf("expected repaired root %q, got %q", movedManager.Root(), repaired.Root)
+	}
+}
+
+func TestPrepareRefusesMovedMetadataWithoutGitLineageProof(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	first, err := manager.Prepare("ses-one", "plan-one", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-one\n", 0o644)
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_pending", "first build ready"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	movedParent := t.TempDir()
+	movedRoot := filepath.Join(movedParent, "wharnex")
+	if err := os.Rename(root, movedRoot); err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(movedRoot).Prepare("ses-two", "plan-two", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-after-one\n+after-two\n"})
+	if !errors.Is(err, ErrTransactionMetadataMismatch) {
+		t.Fatalf("expected fail-closed metadata mismatch without Git lineage proof, got %v", err)
+	}
+}
+
 func TestPrepareRefusesUnsafePendingTransactionMetadataRepair(t *testing.T) {
 	root := fakeRoot(t)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)

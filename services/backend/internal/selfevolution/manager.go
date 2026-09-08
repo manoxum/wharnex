@@ -449,8 +449,7 @@ func (m *Manager) repairTransactionMetadata(status Status, tx Transaction) (tran
 	if !extendablePendingPhase(status.Phase) {
 		return transactionMetadata{}, fmt.Errorf("%w: phase %s is not safe for automatic identity repair", ErrTransactionMetadataMismatch, status.Phase)
 	}
-	metadataRoot, err := canonicalPath(metadata.Root)
-	if err != nil || metadataRoot != m.root {
+	if !m.retainedMetadataRootMatches(metadata) {
 		return transactionMetadata{}, fmt.Errorf("%w: retained metadata root does not resolve to the active Wharness root", ErrTransactionMetadataMismatch)
 	}
 	memberFound := false
@@ -482,6 +481,38 @@ func (m *Manager) repairTransactionMetadata(status Status, tx Transaction) (tran
 	}
 	m.logRecovery(fmt.Sprintf("metadata_repaired transaction=%s previous_transaction=%s phase=%s session=%s plan=%s", sanitizeLabel(tx.ID), sanitizeLabel(previousID), sanitizeLabel(status.Phase), sanitizeLabel(status.SessionID), sanitizeLabel(status.PlanID)))
 	return metadata, nil
+}
+
+func (m *Manager) retainedMetadataRootMatches(metadata transactionMetadata) bool {
+	metadataRoot, err := canonicalPath(metadata.Root)
+	if err == nil {
+		return metadataRoot == m.root
+	}
+
+	// A project-root rename moves .harness together with the checkout while
+	// transaction.json necessarily retains the old absolute root. Allow that
+	// one recoverable shape only when the former root is actually gone and the
+	// transaction's captured Git baseline is still an ancestor of this active
+	// checkout. Existing-but-different roots, non-Git legacy transactions and
+	// unrelated repositories remain fail-closed.
+	storedRoot := filepath.Clean(strings.TrimSpace(metadata.Root))
+	if !errors.Is(err, os.ErrNotExist) || !filepath.IsAbs(storedRoot) || metadata.PreTransactionSHA == "" {
+		return false
+	}
+	if _, statErr := os.Stat(storedRoot); !errors.Is(statErr, os.ErrNotExist) {
+		return false
+	}
+	return gitCommitIsAncestor(m.root, metadata.PreTransactionSHA)
+}
+
+func gitCommitIsAncestor(root, ancestor string) bool {
+	ancestor = strings.TrimSpace(ancestor)
+	if ancestor == "" {
+		return false
+	}
+	cmd := exec.Command("git", "-C", root, "merge-base", "--is-ancestor", ancestor, "HEAD")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	return cmd.Run() == nil
 }
 
 func validateRetainedTransactionArtifacts(tx Transaction) error {
