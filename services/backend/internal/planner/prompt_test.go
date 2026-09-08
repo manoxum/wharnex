@@ -209,10 +209,18 @@ func TestBuildManualPromptKnowledgeReviewStatesWhenNoKnowledgeExistsYet(t *testi
 	}
 }
 
-func TestBuildManualPromptRequiresCommitMessageForChangePlans(t *testing.T) {
+func TestBuildManualPromptRequiresUsefulCommitMessageForChangePlans(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-commit", Message: "update UI"})
 	for _, want := range []string{
-		"commit_message",
+		"COMMIT MESSAGE QUALITY — REQUIRED FOR CHANGE PLANS",
+		"permanent developer-facing Git history",
+		"ACTUAL delivered patch",
+		"feat for a new capability or behavior",
+		"fix for a bug/corrective patch",
+		"Do not default to chore",
+		"what was implemented or corrected",
+		"Wharness-verified change",
+		"fix(auth): preserve session during concurrent token refresh",
 		"Wharness commits your verified patch to its own integration branch",
 		"becomes the real commit message in the project's Git history",
 	} {

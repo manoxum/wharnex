@@ -15,6 +15,7 @@
     "request_id": {"type": "string", "minLength": 1},
     "status": {"enum": ["ready", "blocked"]},
     "summary": {"type": "string"},
+    "commit_message": {"type": "string", "minLength": 1, "maxLength": 500, "description": "Planner-authored Conventional Commits subject for change plans. It must classify the dominant change and describe the concrete implemented or corrected technical outcome; workflow plans omit it."},
     "risk": {"enum": ["low", "medium", "high"]},
     "requires_approval": {"type": "boolean"},
     "operations": {

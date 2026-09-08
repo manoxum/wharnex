@@ -73,11 +73,19 @@ EXECUTION RULES FOR CHANGE:
 - For every CHANGE, turn.message MUST contain a concise Markdown section ## TODO with a checklist of the implementation units. Mark items [x] when included in the delivered bundle and leave [ ] only for intentionally deferred work, explaining why. This checklist is the user-visible progress contract.
 - If the request cannot be safely fulfilled, return blocked and explain briefly.
 
+COMMIT MESSAGE QUALITY — REQUIRED FOR CHANGE PLANS:
+- commit_message is permanent developer-facing Git history, not transport metadata. Write it from the ACTUAL delivered patch after the implementation is designed; do not merely paraphrase the user request or plan summary.
+- Use the Conventional Commits type that matches the dominant change: feat for a new capability or behavior, fix for a bug/corrective patch, refactor for behavior-preserving restructuring, perf for performance, docs for documentation, test for tests, build for build/dependency work, ci for automation, and chore only when no more specific technical type applies. Do not default to chore just because the change is internal.
+- Add a meaningful scope when the affected subsystem is clear, then state the implemented technical outcome in human-readable language. Prefer messages such as feat(chat): preserve project affinity across window restores or fix(auth): keep the session valid during concurrent token refresh.
+- The description MUST say what was implemented or corrected and where/for whom it matters. Prefer behavior/outcome language over file names, task bookkeeping, or implementation mechanics.
+- Never emit placeholder or low-information messages such as update files, apply patch, requested changes, implement task, miscellaneous fixes, Wharness-verified change, or a bare request/plan id. A corrective patch still needs the concrete bug or behavior it fixes.
+- When one patch contains several tightly related edits, summarize the primary coherent outcome instead of listing files. Keep the subject concise but technically specific; one useful line is preferred over vague brevity.
+
 EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 - The top-level key is exactly "protocol", NEVER "schema".
 - protocol MUST equal "harness.execution/v1".
 - Include every top-level key: protocol, plan_id, request_id, status, summary, risk, requires_approval, operations, verification.
-- For a change plan, also include commit_message: a short Git commit message (Conventional-Commits style, e.g. "fix: ...", "feat: ...") summarizing exactly what this patch does. Wharness commits your verified patch to its own integration branch using this message verbatim (after trimming), then merges that branch into the host — this is not optional decoration, it becomes the real commit message in the project's Git history. Omit it (or leave empty) for workflow, which never reaches the host.
+- For a change plan, also include commit_message following COMMIT MESSAGE QUALITY above. It MUST classify the change accurately and describe the concrete implemented outcome, not merely say that files or a patch were updated. Wharness commits your verified patch to its own integration branch using this message verbatim (after trimming), then merges that branch into the host — this is not optional decoration, it becomes the real commit message in the project's Git history. Omit it (or leave empty) for workflow, which never reaches the host.
 - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
 - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
 - The execution-plan payload contains JSON only. In manual Desktop mode the plan metadata belongs inside plan.json in the requested ZIP bundle, not inline in the chat.
@@ -96,7 +104,7 @@ Exact change-plan shape:
   "request_id": "<REQUEST ID FROM WHARNESS>",
   "status": "ready",
   "summary": "short summary",
-  "commit_message": "fix: short imperative summary of this patch (change plans only)",
+  "commit_message": "fix(auth): preserve session during concurrent token refresh",
   "risk": "low|medium|high",
   "requires_approval": false,
   "operations": [

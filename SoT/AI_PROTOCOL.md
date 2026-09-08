@@ -54,6 +54,12 @@ Every request iteration records its immutable `request_id`, `root_request_id`, o
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
+## Commit-history communication
+
+Every `change` execution plan MUST carry a planner-authored `commit_message` that is useful permanent Git history, not a transport label. The planner MUST derive it from the actual delivered patch and classify the dominant change with an accurate Conventional Commits type: `feat` for new behavior/capability, `fix` for a bug or corrective patch, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, or `chore` only when no more specific type applies. A meaningful subsystem scope SHOULD be included when clear.
+
+The subject MUST state the concrete implemented or corrected technical outcome in human-readable language. Messages that only describe process or bookkeeping — for example `update files`, `apply patch`, `requested changes`, `implement task`, `miscellaneous fixes`, `Wharness-verified change`, or a request/plan identifier — are protocol-quality failures even if they are syntactically valid Git subjects. For a multi-file but coherent change, describe the primary behavior/outcome rather than enumerating filenames. The message is used in the real integration commit, so technical specificity is preferred over artificial brevity.
+
 ## Command representation
 
 Commands are argv arrays, for example:
