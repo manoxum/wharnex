@@ -129,6 +129,7 @@ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Bui
 	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
+	service.normalizeKnowledgeReviewSessions()
 	service.normalizeFailureKinds()
 	service.reconcileSelfEvolutionStatus()
 	return service

@@ -1515,9 +1515,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	const dedicatedURL = surface?.url && !sameChatGPTConversation(surface.url, targetChat.chatgptUrl) ? surface.url : undefined
 	const targetURL = dedicatedConflict ? dedicatedURL : targetChat.chatgptUrl
     const transport = targetChat.transport || globalTransport
+    const continuationRequestId = promptSession.pending_knowledge_review_request_id || promptSession.last_request_id || ''
     const prepared = await bridge.chatgpt.preparePrompt({
 	  cacheKey, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetURL, sessionId: promptSession.id,
-      requestId: promptSession.last_request_id || '', attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
+      requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
       projectFiles: [],
 	  contextSha256: promptSession.context.manifest.sha256, lastContextSha256: dedicatedConflict ? undefined : targetChat.lastContextSha256,
 	  lastContextChatgptUrl: dedicatedConflict ? undefined : targetChat.lastContextChatgptUrl, includeContext: dedicatedConflict || continuationArtifacts.context, preferCurrentConversation: false,
