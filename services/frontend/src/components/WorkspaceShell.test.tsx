@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../lib/api'
 import { loadBoundProjects, saveBoundActiveProject, saveBoundProjects } from '../lib/projectBindings'
-import { WorkspaceShell } from './WorkspaceShell'
+import { ShellChrome, WorkspaceShell } from './WorkspaceShell'
 
 describe('WorkspaceShell project actions', () => {
   beforeEach(() => { localStorage.clear(); delete window.wharnessDesktop })
@@ -22,6 +22,13 @@ describe('WorkspaceShell project actions', () => {
     expect(screen.getByRole('menu')).toBeTruthy()
     fireEvent.pointerDown(document.body)
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('places the instance identifier before the Editor and Agent selector', () => {
+    render(<ShellChrome instanceID="legacy" projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    const badge = screen.getByLabelText('Instância: legacy')
+    const editor = screen.getByRole('button', { name: 'Editor' })
+    expect(Boolean(badge.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
 
   it('answers a loaded project readiness handshake with its current activation state', async () => {

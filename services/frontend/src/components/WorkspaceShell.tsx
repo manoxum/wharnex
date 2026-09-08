@@ -9,10 +9,12 @@ import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
 import { ErrorToast } from './ErrorToast'
 import { TunnelOverviewModal } from './TunnelOverviewModal'
+import { InstanceBadge } from './InstanceBadge'
 
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 
 const MAX_BOUND_PROJECTS = 12
+const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
 
 export function WorkspaceShell() {
   const [config, setConfig] = useState<AppConfig>()
@@ -130,12 +132,12 @@ export function WorkspaceShell() {
   }
 
   if (!projects.length) return <div className="desktop-shell-root">
-    <ShellChrome projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => void chooseAndBind()} onNewWindow={() => void desktopBridge()?.windows.open()} />
+    <ShellChrome instanceID={INSTANCE_ID} projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => void chooseAndBind()} onNewWindow={() => void desktopBridge()?.windows.open()} />
     <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={busy} onStart={bindProject} onCreate={createProject} onClone={cloneProject} />
   </div>
 
   return <main className="desktop-shell-root">
-    <ShellChrome projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => void chooseAndBind()} onNewWindow={() => void desktopBridge()?.windows.open()} />
+    <ShellChrome instanceID={INSTANCE_ID} projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => void chooseAndBind()} onNewWindow={() => void desktopBridge()?.windows.open()} />
     <ErrorToast open={Boolean(error)} message={error} shell onDismiss={() => setError(undefined)} />
     <section className="bound-project-stage">
       {projects.map((projectPath) => <iframe
@@ -150,7 +152,8 @@ export function WorkspaceShell() {
   </main>
 }
 
-function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, onSettings, onUnbind, onBind, onNewWindow }: {
+export function ShellChrome({ instanceID, projects, activeProject, mode, busy, onActivate, onMode, onSettings, onUnbind, onBind, onNewWindow }: {
+  instanceID?: string
   projects: string[]; activeProject: string; busy: boolean
   mode: WorkspaceMode
   onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onSettings: () => void; onUnbind: () => void; onBind: () => void; onNewWindow: () => void
@@ -172,6 +175,7 @@ function ShellChrome({ projects, activeProject, mode, busy, onActivate, onMode, 
 
   return <header className="multi-project-bar">
     <div className="multi-project-brand"><div className="brand-mark">WHX</div><strong>Wharnex</strong></div>
+    <InstanceBadge instanceID={instanceID} />
     {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button></div>}
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {projects.map((projectPath) => <button key={projectPath} className={projectPath === activeProject ? 'active' : ''} onClick={() => onActivate(projectPath)} title={projectPath}><Icon name="workspace" size={13}/><span>{projectName(projectPath)}</span></button>)}

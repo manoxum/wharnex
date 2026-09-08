@@ -1485,7 +1485,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 /* Multi-window / multi-project workspace shell */
 .desktop-shell-root { position: relative; width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 43px minmax(0, 1fr); overflow: hidden; background: var(--app-bg, #eceee7); }
-.multi-project-bar { min-width: 0; height: 43px; padding: 0 9px; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; }
+.multi-project-bar { min-width: 0; height: 43px; padding: 0 9px; display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; }
 .multi-project-brand { display: flex; align-items: center; gap: 7px; color: #30352d; font-size: calc(10px * var(--ui-font-scale)); }
 .multi-project-brand .brand-mark { width: 23px; height: 23px; font-size: calc(10px * var(--ui-font-scale)); }
 .project-quick-switch { min-width: 0; height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: thin; }
@@ -1514,7 +1514,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .shell-toast { top: 51px; right: 12px; }
 .restart-scope-actions { flex-wrap: wrap; }
 @media (max-width: 980px) {
-  .multi-project-bar { grid-template-columns: auto auto minmax(0, 1fr); }
+  .multi-project-bar { grid-template-columns: auto auto auto minmax(0, 1fr); }
   .multi-project-actions { display: none; }
 }
 
