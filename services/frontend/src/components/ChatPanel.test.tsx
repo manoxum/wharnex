@@ -240,6 +240,14 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(onResendPendingRequest).toHaveBeenCalledWith('req-new'))
   })
 
+  it('does not offer same-request resend after a terminal planner failure bundle', () => {
+    render(
+      <ChatPanel session={{ ...session, last_request_id: 'req-failed', pending_manual_request_ids: [], state: 'failed' }} items={[{ id: 'failed-result-1', role: 'harness', source: 'wharness', presentation: 'notice', text: 'O planner não concluiu o pedido.', meta: 'Pedido não concluído · pode ser repetido', iteration: { id: 'iteration-failed', requestId: 'req-failed', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onRetryTransportFailure={async () => undefined} onResendPendingRequest={async () => undefined} {...chatActions} />,
+    )
+    expect(screen.getByRole('button', { name: 'Retomar pedido' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Reenviar request' })).toBeNull()
+  })
+
   it('does not offer to resend a notice whose request has already been superseded', () => {
     render(
       <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-new'], state: 'awaiting_plan' }} items={[{ id: 'auto-recovery-old', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Recuperação automática preparada.', meta: 'Recuperação automática preparada · req-new', iteration: { id: 'iteration-3', requestId: 'req-old', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onResendPendingRequest={async () => undefined} {...chatActions} />,

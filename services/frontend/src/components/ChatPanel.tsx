@@ -291,7 +291,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
 
     <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
       {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar anteriores</button></div>}
-      {visibleItems.map((item) => <ChatItemView key={item.id} item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />)}
+      {visibleItems.map((item) => <ChatItemView key={item.id} item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) && canResendPreparedRequest(item) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />)}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharness</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
     </div>
@@ -489,10 +489,17 @@ function artifactLabel(kind: ChatArtifactKind) { return kind === 'context' ? 'co
 function noticeIcon(item: ChatItem) { return item.turnKind === 'blocked' ? 'shield' : item.turnKind === 'workflow' ? 'terminal' : item.turnKind === 'change' ? 'apply' : item.iteration?.phase === 'failed' ? 'shield' : 'bridge' as const }
 function isPolicyBlockedNotice(item: ChatItem) { return item.meta?.includes('Policy bloqueada') || item.text.includes('bloqueado pela Policy') }
 function isTransportFailureNotice(item: ChatItem) { return item.meta?.includes('Falha de comunicação') || item.meta?.includes('Falha de protocolo') || item.meta?.includes('Pedido não concluído') }
-// A notice may reference a request that has since been superseded/cancelled;
-// "Reenviar request"/"Cancelar pedido" must only ever act on the session's
-// still-live request, never rebind a stale id (mirrors sessionHasPendingRequest in App.tsx).
-function isLivePendingRequest(session: Session, requestId: string) { return session.last_request_id === requestId || Boolean(session.pending_manual_request_ids?.includes(requestId)) }
+function canResendPreparedRequest(item: ChatItem) { return item.iteration?.phase === 'outbound' || item.iteration?.phase === 'prepared' || item.iteration?.phase === 'submitted' }
+// A notice may reference a request that has since been superseded/cancelled.
+// A present pending-request list is authoritative: once the backend removes a
+// delivered request from it, last_request_id is historical provenance only.
+// Legacy sessions without that field fall back to the states that can still
+// own a live remote request.
+function isLivePendingRequest(session: Session, requestId: string) {
+  if (session.pending_manual_request_ids) return session.pending_manual_request_ids.includes(requestId)
+  if (session.last_request_id !== requestId) return false
+  return ['awaiting_plan', 'workflow_pending', 'repair_pending', 'baseline_update_pending', 'conflict_resolution_pending', 'failed'].includes(session.state)
+}
 
 function latestTodoSnapshot(items: ChatItem[]) {
   for (let index = items.length - 1; index >= 0; index -= 1) {
