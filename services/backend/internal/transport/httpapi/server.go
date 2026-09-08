@@ -519,8 +519,7 @@ func (a *API) artifactEntry(w http.ResponseWriter, r *http.Request) {
 		contentType = http.DetectContentType(data)
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, no-store")
+	applyPreviewSecurityHeaders(w, contentType)
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(data))
 }
 
@@ -1151,8 +1150,7 @@ func (a *API) previewFile(w http.ResponseWriter, r *http.Request) {
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, no-store")
+	applyPreviewSecurityHeaders(w, contentType)
 	http.ServeContent(w, r, info.Name(), info.ModTime(), handle)
 }
 

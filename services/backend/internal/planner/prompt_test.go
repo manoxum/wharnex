@@ -233,3 +233,21 @@ func TestBuildManualPromptRequiresUsefulCommitMessageForChangePlans(t *testing.T
 		}
 	}
 }
+
+func TestBuildManualPromptAdvertisesRenderableResultArtifacts(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-artifacts", Message: "generate a preview"})
+	for _, want := range []string{
+		"LOCAL RENDERABLE ARTIFACT CAPABILITY",
+		"artifacts/<filename>",
+		"images, audio, video, PDF",
+		"sandboxed HTML/iframe documents",
+		"Markdown, text/source-code files",
+		"Office documents via safe text extraction",
+		"inline/local chat presentation",
+		"non-executable presentation data only",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("renderable artifact prompt missing %q", want)
+		}
+	}
+}

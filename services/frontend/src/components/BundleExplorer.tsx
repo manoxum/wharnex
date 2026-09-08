@@ -29,6 +29,32 @@ export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages =
   </section>{selected && <BundleExplorer sessionId={sessionId} bundle={selected} bundles={bundles} requestLineages={requestLineages} onBundle={setSelected} onClose={() => setSelected(undefined)}/>}</>
 }
 
+export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }: { sessionId: string; artifacts?: ArtifactRecord[]; requestId: string }) {
+  const bundle = useMemo(() => artifacts.filter((item) => isTransportBundleArtifact(item) && item.direction === 'output' && item.request_id === requestId).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0], [artifacts, requestId])
+  const [entries, setEntries] = useState<ArtifactEntry[]>([])
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!bundle) { setEntries([]); setError(''); return }
+    let alive = true
+    setEntries([]); setError('')
+    void api.artifactEntries(sessionId, bundle.id).then((result) => { if (alive) setEntries(result.entries.filter(isReturnedArtifactEntry)) }).catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível abrir os artefactos devolvidos.') })
+    return () => { alive = false }
+  }, [bundle, sessionId])
+  if (!bundle || (!entries.length && !error)) return null
+  return <section className="returned-artifact-gallery" aria-label="Artefactos devolvidos pelo ChatGPT">
+    <header><span><Icon name="file" size={12}/></span><div><strong>Artefactos devolvidos</strong><small>{entries.length} {entries.length === 1 ? 'ficheiro renderizável' : 'ficheiros renderizáveis'}</small></div></header>
+    {error ? <div className="composer-error">{error}</div> : <div className="returned-artifact-list">{entries.map((entry) => <article className="returned-artifact-card" key={entry.path}>
+      <div className="returned-artifact-heading"><div><strong>{baseName(entry.path)}</strong><small>{formatBytes(entry.size)}</small></div><a href={api.artifactEntryURL(sessionId, bundle.id, entry.path, true)} download title={`Descarregar ${entry.path}`}><Icon name="download" size={12}/> Descarregar</a></div>
+      <div className="returned-artifact-preview"><ArtifactPreview path={entry.path} size={entry.size} url={api.artifactEntryURL(sessionId, bundle.id, entry.path)}/></div>
+    </article>)}</div>}
+  </section>
+}
+
+function isReturnedArtifactEntry(entry: ArtifactEntry) {
+  const clean = entry.path.replace(/^\/+/, '')
+  return !entry.dir && clean.startsWith('artifacts/') && clean.length > 'artifacts/'.length
+}
+
 function BundleExplorer({ sessionId, bundle, bundles, requestLineages, onBundle, onClose }: { sessionId: string; bundle: ArtifactRecord; bundles: ArtifactRecord[]; requestLineages: RequestLineages; onBundle: (bundle: ArtifactRecord) => void; onClose: () => void }) {
   const [entries, setEntries] = useState<ArtifactEntry[]>([]); const [currentDir, setCurrentDir] = useState(''); const [path, setPath] = useState(''); const [loading, setLoading] = useState(false); const [error, setError] = useState('')
   useEffect(() => { let alive = true; setLoading(true); setError(''); setCurrentDir(''); setPath(''); void api.artifactEntries(sessionId, bundle.id).then((result) => { if (alive) setEntries(result.entries) }).catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível abrir o bundle.') }).finally(() => { if (alive) setLoading(false) }); return () => { alive = false } }, [bundle.id, sessionId])
