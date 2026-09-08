@@ -2627,15 +2627,27 @@ function registerIPC() {
     const windowState = trustedSender(event)
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const requestId = String(request?.requestId || '').trim()
-    const expected = expectedChatGPTBundles.get(key)
-    if (!expected || expected.requestId !== requestId) throw new Error('O pedido pendente não está supervisionado nesta conversa.')
+    let expected = expectedChatGPTBundles.get(key)
+    if (!expected || expected.requestId !== requestId) {
+      return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'not_supervised' }
+    }
     const { entry } = ensureChatGPTView(key, windowState)
     const { wc } = requireOwnedChatGPTEntry(key, entry)
     if (expected.manualContinuationInFlight) return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'continuation_in_flight' }
 
-    const completion = entry.loading
-      ? { thinking: false, composerReady: false, assistantCount: expected.assistantBaseline }
-      : await wc.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
+    if (entry.loading || wc.isLoading()) {
+      try {
+        await waitForChatGPTSurfaceReady(key, entry)
+      } catch {
+        return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'surface_loading' }
+      }
+      expected = expectedChatGPTBundles.get(key)
+      if (!expected || expected.requestId !== requestId) {
+        return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'not_supervised' }
+      }
+    }
+
+    const completion = await wc.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
     const transport = classifyChatGPTConversationTransport(entry.conversationRequests, {
       generation: entry.conversationTransportGeneration,
       loading: entry.loading,

@@ -11,7 +11,7 @@ function bridge() {
     platform: 'linux', projects: { pickDirectory: vi.fn() },
     chatgpt: {
       show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
-      navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn().mockResolvedValue({ ok: true }), stopConversation: vi.fn().mockResolvedValue({ ok: true, state: 'stopped' }),
+      navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn().mockResolvedValue({ ok: true }), resumeExpectedBundle: vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', expectedFilename: 'bundle.zip' }), stopConversation: vi.fn().mockResolvedValue({ ok: true, state: 'stopped' }),
       state: vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1' }), release: vi.fn().mockResolvedValue({ ok: true, released: true }), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
       onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
       onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
@@ -235,6 +235,25 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
     await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledWith('chat-1', 'req_pending123'))
   })
 
+
+  it('re-arms lost desktop supervision before continuing a durable pending request', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.continueExpectedBundle = vi.fn()
+      .mockResolvedValueOnce({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', confirmationRequired: false, reason: 'not_supervised' })
+      .mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', confirmationRequired: false, reason: 'submitted' })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" pendingRequestId="req_pending123" sessionId="ses-1" recoveryBootstrap="bootstrap" />)
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+    await waitFor(() => expect(desktop.chatgpt.resumeExpectedBundle).toHaveBeenCalledWith({
+      cacheKey: 'chat-1',
+      sessionId: 'ses-1',
+      requestId: 'req_pending123',
+      url: 'https://chatgpt.com/c/right',
+      recoveryBootstrap: 'bootstrap',
+    }))
+    await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(/Continuação manual enviada/)).toBeTruthy()
+  })
 
   it('does not report success when the desktop still sees positively active conversation transport', async () => {
     const desktop = bridge()

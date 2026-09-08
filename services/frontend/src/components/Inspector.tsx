@@ -268,6 +268,8 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
           chatTitle={surface?.title || liveChat.title}
           chatgptUrl={surface?.url || liveChat.chatgptUrl}
           pendingRequestId={isActive ? (session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]) : undefined}
+          sessionId={isActive ? session.id : undefined}
+          recoveryBootstrap={isActive ? session.last_manual_prompt : undefined}
           onChatGPTURL={onChatGPTURL}
           onActivity={onChatGPTActivity}
           onTransportFailure={onTransportFailure}
