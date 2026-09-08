@@ -209,11 +209,11 @@ sync_go() {
   service="$ROOT/services/backend"
   stamp="$CACHE_DIR/backend.sha256"
   fingerprint=$(go_fingerprint)
-  if [ "${WHARNESS_DEPS_FORCE:-0}" != "1" ] && stamp_matches "$stamp" "$fingerprint"; then
+  if [ "${WHARNESS_DEPS_FORCE:-0}" != "1" ] && stamp_matches "$stamp" "$fingerprint" && (cd "$service" && GOPROXY=off GOFLAGS=-mod=readonly go mod download -json >/dev/null 2>&1); then
     printf '[deps] backend: cache hit; go mod download skipped\n'
     return
   fi
-  printf '[deps] backend: dependency metadata changed; hydrating Go module cache\n'
+  printf '[deps] backend: metadata changed or module cache incomplete; hydrating Go module cache\n'
   (cd "$service" && go mod download)
   write_stamp "$stamp" "$fingerprint"
 }

@@ -428,6 +428,37 @@ func TestNetworkGoModDownloadUnlocksFollowingOfflineVerification(t *testing.T) {
 	}
 }
 
+func TestNetworkGoModDownloadPersistsAcrossFreshWorkspaces(t *testing.T) {
+	persistentCache := t.TempDir()
+	firstTarget := t.TempDir()
+	firstCache := filepath.Join(firstTarget, ".kernl", "go-mod")
+	modulePath := filepath.Join("example.invalid", "cached@v1.0.0", "module.go")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(firstCache, modulePath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(firstCache, modulePath), []byte("package cached\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	first := Workspace{Path: firstTarget, GoModuleCachePath: persistentCache}
+	download := domain.CommandSpec{Argv: []string{"go", "mod", "download"}, Cwd: ".", Network: true}
+	if err := markNetworkGoDependenciesReady(first, download); err != nil {
+		t.Fatal(err)
+	}
+
+	secondTarget := t.TempDir()
+	second := Workspace{Path: secondTarget, SourcePath: t.TempDir(), GoModuleCachePath: persistentCache}
+	if err := prepareCommandDependencies(second, download); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(secondTarget, ".kernl", "go-mod", modulePath))
+	if err != nil {
+		t.Fatalf("a fresh sandbox did not reuse the approved private Go cache: %v", err)
+	}
+	if string(data) != "package cached\n" {
+		t.Fatalf("persisted module content = %q", data)
+	}
+}
+
 func TestPreparedGoDependenciesSupportOfflineVerification(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go is not installed")

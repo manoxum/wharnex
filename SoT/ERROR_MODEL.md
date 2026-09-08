@@ -14,7 +14,7 @@ A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set c
 
 | `failure_kind` | Meaning | Recovery |
 | --- | --- | --- |
-| `offline_go_module_cache` | Host Go module cache can't satisfy the build list under `GOPROXY=off`. | Human-approved, narrowly scoped network grant for the eligible Go commands (`RetryDependencyNetwork`; see `SANDBOX_MODEL.md`). |
+| `offline_go_module_cache` | Neither the Wharness-owned private Go cache nor the host compatibility cache can satisfy the build list under `GOPROXY=off`. | Human-approved, narrowly scoped network grant for the eligible Go commands (`RetryDependencyNetwork`; see `SANDBOX_MODEL.md`). |
 | `host_dependency_state` | Host-only npm/node dependency defect discovered after Protected verification already passed (e.g. the npm optional-dependency bug, npm/cli#4828). | Fixed, human-approved reinstall recipe run directly on host (`RetryHostDependencyRepair`; see `SANDBOX_MODEL.md`). |
 | `host_build_toolchain_mismatch` | Host's own toolchain (e.g. Node running a self-evolution build) can't satisfy a pinned dependency's engine requirement. | None — no source patch changes the host's installed runtime. Manual host upgrade only. |
 | `self_evolution_transaction_busy` | Another self-evolution transaction currently owns the activation lock. | Retry Apply once the other transaction clears — the verified candidate is retained. |

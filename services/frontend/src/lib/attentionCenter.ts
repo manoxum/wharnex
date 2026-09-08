@@ -1,5 +1,6 @@
 import type { Session } from '../types'
 import type { WorkspaceChat } from './workspaceMemory'
+import { executionNeedsAttention } from './executionRecovery'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
@@ -60,7 +61,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   if (session.integration_conflict) {
     items.push(item(chat, 'integration-conflict', 'danger', 'Conflito de integração', `${session.integration_conflict.paths.length || 1} ficheiro(s) precisam de resolução antes de continuar.`, 'chatgpt'))
   }
-  if (session.interrupted_execution) {
+  if (executionNeedsAttention(session)) {
     const status = session.interrupted_execution.status || 'awaiting_decision'
     items.push(item(chat, 'interrupted-execution', 'danger', 'Execução interrompida', `Plano ${session.interrupted_execution.plan_id} · ${status}.`, 'terminal'))
   }

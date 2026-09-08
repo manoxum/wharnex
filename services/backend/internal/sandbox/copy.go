@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
@@ -233,7 +234,7 @@ func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec)
 	if workspace.SourcePath == "" {
 		return nil
 	}
-	if requiresLocalGoDependencies(command.Argv) {
+	if requiresLocalGoDependencies(command.Argv) || (command.Network && hydratesGoDependencies(command.Argv)) {
 		if err := prepareGoDependencies(workspace, command); err != nil {
 			return err
 		}
@@ -304,9 +305,16 @@ type goModuleDownload struct {
 // to the host: GOFLAGS=-mod=readonly turns any attempt to update go.mod into
 // a hard error instead of a silent host mutation.
 func goModuleInventoryCommand(moduleRoot string) *exec.Cmd {
+	return goModuleInventoryCommandFromCache(moduleRoot, "")
+}
+
+func goModuleInventoryCommandFromCache(moduleRoot, cacheRoot string) *exec.Cmd {
 	cmd := exec.Command("go", "mod", "download", "-json")
 	cmd.Dir = moduleRoot
 	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=readonly")
+	if cacheRoot != "" {
+		cmd.Env = append(cmd.Env, "GOMODCACHE="+cacheRoot)
+	}
 	return cmd
 }
 
@@ -321,10 +329,15 @@ func truncateForError(s string, limit int) string {
 }
 
 func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) error {
+	targetCache := filepath.Join(workspace.Path, ".kernl", "go-mod")
 	if command.Network {
 		// A network-approved command resolves modules inside the isolated runner.
-		// Do not require the host's offline cache before that container can start.
-		return os.MkdirAll(filepath.Join(workspace.Path, ".kernl", "go-mod"), 0o755)
+		// Seed it from the Wharness-owned cache when available, but never require
+		// either that cache or the host cache before the container can start.
+		if err := os.MkdirAll(targetCache, 0o755); err != nil {
+			return err
+		}
+		return mergeGoModuleCache(workspace.GoModuleCachePath, targetCache)
 	}
 	sourceCwd, err := safeRelativePath(workspace.SourcePath, command.Cwd)
 	if err != nil {
@@ -334,10 +347,20 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 	if !ok {
 		return nil
 	}
-	targetCache := filepath.Join(workspace.Path, ".kernl", "go-mod")
 	marker := filepath.Join(targetCache, ".wharness-ready")
 	if _, err := os.Stat(marker); err == nil {
 		return nil
+	}
+	if workspace.GoModuleCachePath != "" {
+		if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, workspace.GoModuleCachePath, "private Wharness Go module cache"); err == nil {
+			return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
+		}
+		// A failed private-cache attempt may have copied a prefix before finding
+		// an incomplete entry. Discard only this fresh sandbox cache before
+		// falling back to the host compatibility source.
+		if err := os.RemoveAll(targetCache); err != nil {
+			return fmt.Errorf("reset incomplete private Go module cache: %w", err)
+		}
 	}
 	cacheOutput, err := exec.Command("go", "env", "GOMODCACHE").Output()
 	if err != nil {
@@ -347,7 +370,20 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 	if hostCache == "" || !filepath.IsAbs(hostCache) {
 		return fmt.Errorf("%w: host GOMODCACHE is unavailable", ErrOfflineDependenciesUnavailable)
 	}
-	cmd := goModuleInventoryCommand(moduleRoot)
+	if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, hostCache, "host Go module cache"); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(targetCache, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
+}
+
+func hydrateGoDependenciesFromCache(moduleRoot, targetCache, sourceCache, cacheLabel string) error {
+	if info, err := os.Stat(sourceCache); err != nil || !info.IsDir() {
+		return fmt.Errorf("%w: %s is unavailable", ErrOfflineDependenciesUnavailable, cacheLabel)
+	}
+	cmd := goModuleInventoryCommandFromCache(moduleRoot, sourceCache)
 	output, downloadErr := cmd.Output()
 	decoder := json.NewDecoder(strings.NewReader(string(output)))
 	modules := make([]goModuleDownload, 0)
@@ -359,7 +395,7 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 			return fmt.Errorf("%w: decode cached Go module inventory: %v", ErrOfflineDependenciesUnavailable, err)
 		}
 		if module.Error != "" {
-			return fmt.Errorf("%w: %s: %s; this module is in the project's build list but missing from the host Go module cache — run `go mod download` in %s while the host has network access", ErrOfflineDependenciesUnavailable, module.Path, module.Error, moduleRoot)
+			return fmt.Errorf("%w: %s: %s; this module is in the project's build list but missing from the %s", ErrOfflineDependenciesUnavailable, module.Path, module.Error, cacheLabel)
 		}
 		if module.Dir != "" {
 			modules = append(modules, module)
@@ -373,21 +409,21 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 		} else {
 			detail = fmt.Sprintf(": %v", downloadErr)
 		}
-		return fmt.Errorf("%w: the project's Go build list could not be resolved from the host module cache (GOPROXY=off)%s; run `go mod download` in %s while the host has network access", ErrOfflineDependenciesUnavailable, detail, moduleRoot)
+		return fmt.Errorf("%w: the project's Go build list could not be resolved from the %s (GOPROXY=off)%s", ErrOfflineDependenciesUnavailable, cacheLabel, detail)
 	}
 	for _, module := range modules {
-		rel, err := filepath.Rel(hostCache, module.Dir)
+		rel, err := filepath.Rel(sourceCache, module.Dir)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("%w: cached module %s escaped GOMODCACHE", ErrOfflineDependenciesUnavailable, module.Path)
 		}
-		if err := copyDependencyTree(module.Dir, filepath.Join(targetCache, rel), hostCache, targetCache); err != nil {
+		if err := copyDependencyTree(module.Dir, filepath.Join(targetCache, rel), sourceCache, targetCache); err != nil {
 			return fmt.Errorf("%w: copy cached Go module %s: %v", ErrOfflineDependenciesUnavailable, module.Path, err)
 		}
 		for _, cachedFile := range []string{module.Info, module.GoMod, module.Zip, module.Zip + "hash"} {
 			if cachedFile == "" {
 				continue
 			}
-			fileRel, err := filepath.Rel(hostCache, cachedFile)
+			fileRel, err := filepath.Rel(sourceCache, cachedFile)
 			if err != nil || fileRel == ".." || strings.HasPrefix(fileRel, ".."+string(filepath.Separator)) {
 				return fmt.Errorf("%w: cached metadata for %s escaped GOMODCACHE", ErrOfflineDependenciesUnavailable, module.Path)
 			}
@@ -400,11 +436,10 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 			}
 		}
 	}
-	if err := os.MkdirAll(targetCache, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
+	return nil
 }
+
+var goModuleCacheMergeMu sync.Mutex
 
 func markNetworkGoDependenciesReady(workspace Workspace, command domain.CommandSpec) error {
 	if !command.Network || !hydratesGoDependencies(command.Argv) {
@@ -414,7 +449,70 @@ func markNetworkGoDependenciesReady(workspace Workspace, command domain.CommandS
 	if err := os.MkdirAll(targetCache, 0o755); err != nil {
 		return err
 	}
+	if workspace.GoModuleCachePath != "" {
+		goModuleCacheMergeMu.Lock()
+		err := mergeGoModuleCache(targetCache, workspace.GoModuleCachePath)
+		goModuleCacheMergeMu.Unlock()
+		if err != nil {
+			return fmt.Errorf("persist private Go module cache: %w", err)
+		}
+	}
 	return os.WriteFile(filepath.Join(targetCache, ".wharness-ready"), []byte("network-approved module cache ready\n"), 0o600)
+}
+
+// mergeGoModuleCache copies only immutable, missing cache entries. Go module
+// cache paths are content/version addressed, so an existing path is never
+// overwritten. The per-execution readiness marker is intentionally excluded:
+// every fresh sandbox validates its current build list before running offline.
+func mergeGoModuleCache(source, destination string) error {
+	if source == "" || destination == "" || filepath.Clean(source) == filepath.Clean(destination) {
+		return nil
+	}
+	info, err := os.Stat(source)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return errors.New("Go module cache source is not a directory")
+	}
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return errors.New("Go module cache entry escaped its root")
+		}
+		if rel == ".wharness-ready" {
+			return nil
+		}
+		target := destination
+		if rel != "." {
+			target = filepath.Join(destination, rel)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("Go module cache symlink is not allowed: %s", rel)
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		fileInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !fileInfo.Mode().IsRegular() {
+			return nil
+		}
+		if _, err := os.Lstat(target); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return copyFile(path, target, fileInfo.Mode().Perm())
+	})
 }
 
 func nearestGoModuleRoot(sourceRoot, start string) (string, bool) {
