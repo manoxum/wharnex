@@ -168,9 +168,12 @@ func TestBuildManualPromptKnowledgeReviewIsAnswerOnlyAndDistinctFromNormalContra
 	const requestID = "req_20260907T010000_knowledgereview01"
 	prompt := BuildManualPrompt(Request{
 		RequestID: requestID, PlanningMode: "knowledge_review",
-		Message:                `[{"type":"execution.started","data":{"plan_id":"plan-1"}}]`,
-		KnowledgeSource:        "- Existing learning.",
-		ExpectedBundleFilename: "whx_bundle_res_chat1_" + requestID + ".zip",
+		Message:                     `[{"type":"execution.started","data":{"plan_id":"plan-1"}}]`,
+		KnowledgeSource:             "- Existing learning.",
+		KnowledgeVersion:            3,
+		KnowledgeSHA256:             strings.Repeat("a", 64),
+		KnowledgeUpdatedByRequestID: "req_20260906T220000_knowledgebase01",
+		ExpectedBundleFilename:      "whx_bundle_res_chat1_" + requestID + ".zip",
 	})
 	for _, want := range []string{
 		"WHX KNOWLEDGE REVIEW",
@@ -186,6 +189,7 @@ func TestBuildManualPromptKnowledgeReviewIsAnswerOnlyAndDistinctFromNormalContra
 		"knowledge.md",
 		"full document, never a diff",
 		"Existing learning",
+		"Knowledge identity: version=3 sha256=" + strings.Repeat("a", 64) + " updated_by_request_id=req_20260906T220000_knowledgebase01",
 		requestID,
 		"whx_bundle_res_chat1_" + requestID + ".zip",
 	} {
