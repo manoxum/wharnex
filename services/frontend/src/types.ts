@@ -237,7 +237,17 @@ export type ArtifactRecord = {
 }
 
 export type ArtifactEntry = { path: string; size: number; dir: boolean }
-export type ArtifactSettings = { retention_days: number }
+export type ArtifactSettings = { retention_days: number; bundle_window_limit: number }
+export type BundleQuota = {
+  window_hours: number
+  limit: number
+  sent: number
+  received: number
+  total: number
+  warning: boolean
+  window_start: string
+  window_end: string
+}
 
 export type HarnessEvent = {
   id: string

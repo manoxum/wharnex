@@ -100,6 +100,7 @@ type Service struct {
 	executionQueue          *projectExecutionQueue
 	artifactStore           ArtifactObjectStore
 	artifactRetentionDays   atomic.Int64
+	bundleWindowLimit       atomic.Int64
 	runtimeInstanceID       string
 }
 

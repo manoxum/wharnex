@@ -34,6 +34,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
   const [storageBusy, setStorageBusy] = useState(false)
   const [resetConfirm, setResetConfirm] = useState('')
   const [artifactRetentionDays, setArtifactRetentionDays] = useState(30)
+  const [bundleWindowLimit, setBundleWindowLimit] = useState(80)
   const [uiPreferences, setUIPreferences] = useState<UIPreferences>(() => loadUIPreferences())
   const [activeSection, setActiveSection] = useState<SettingsSection>('context')
 
@@ -58,7 +59,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
       setInspectionError(messageOf(error, 'Não foi possível inspecionar o contexto'))
     })
     api.storage().then((value) => { if (alive) setBackendStorage(value) }).catch(() => {})
-    api.artifactSettings().then((value) => { if (alive) setArtifactRetentionDays(value.retention_days) }).catch(() => {})
+    api.artifactSettings().then((value) => { if (alive) { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) } }).catch(() => {})
     const bridge = desktopBridge()
     if (bridge) bridge.data.storage().then((value) => { if (alive) setDesktopStorage(value) }).catch(() => {})
     return () => { alive = false }
@@ -222,7 +223,11 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
           </div>
           <div className="browser-session-actions">
             <div><strong>Retenção de artefactos no MinIO</strong><span>Bundles e ficheiros trocados são removidos automaticamente depois deste período. O padrão é 30 dias.</span></div>
-            <div><input type="number" min={1} max={3650} value={artifactRetentionDays} onChange={(event) => setArtifactRetentionDays(Math.max(1, Math.min(3650, Number(event.target.value) || 30)))} style={{ width: 92 }}/><span> dias </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays).then((value) => setArtifactRetentionDays(value.retention_days)).catch((error) => onError(messageOf(error, 'Falha ao guardar retenção')))}>Guardar</button></div>
+            <div><input type="number" min={1} max={3650} value={artifactRetentionDays} onChange={(event) => setArtifactRetentionDays(Math.max(1, Math.min(3650, Number(event.target.value) || 30)))} style={{ width: 92 }}/><span> dias </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar retenção')))}>Guardar</button></div>
+          </div>
+          <div className="browser-session-actions">
+            <div><strong>Quota de bundles do ChatGPT</strong><span>Janela móvel de 3 horas. O Wharness mede bundles enviados e recebidos em todos os chats; o limite configurável aplica-se aos enviados e gera apenas alerta, sem bloquear novos pedidos.</span></div>
+            <div><input aria-label="Máximo de bundles enviados em 3 horas" type="number" min={1} max={10000} value={bundleWindowLimit} onChange={(event) => setBundleWindowLimit(Math.max(1, Math.min(10000, Number(event.target.value) || 80)))} style={{ width: 92 }}/><span> envios / 3 h </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar quota de bundles')))}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
             <div><strong>Sessão do navegador interno</strong><span>O ficheiro exportado pode conter uma sessão autenticada. Trate-o como segredo.</span></div>

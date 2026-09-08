@@ -27,7 +27,8 @@ type ArtifactObjectStore interface {
 }
 
 type ArtifactSettings struct {
-	RetentionDays int `json:"retention_days"`
+	RetentionDays     int `json:"retention_days"`
+	BundleWindowLimit int `json:"bundle_window_limit"`
 }
 
 func (s *Service) SetArtifactStore(store ArtifactObjectStore, retentionDays int) {
@@ -50,7 +51,7 @@ func (s *Service) ArtifactSettings() ArtifactSettings {
 	if days < 1 {
 		days = defaultArtifactRetentionDays
 	}
-	return ArtifactSettings{RetentionDays: days}
+	return ArtifactSettings{RetentionDays: days, BundleWindowLimit: s.BundleWindowLimit()}
 }
 
 func (s *Service) PersistArtifact(ctx context.Context, sessionID, requestID, direction, kind, name, contentType string, raw []byte) (domain.ArtifactRecord, error) {

@@ -49,6 +49,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/remote-storage/connections/check", a.checkRemoteStorage)
 	mux.HandleFunc("GET /api/artifact-settings", a.artifactSettings)
 	mux.HandleFunc("PUT /api/artifact-settings", a.updateArtifactSettings)
+	mux.HandleFunc("GET /api/bundle-quota", a.bundleQuota)
 	mux.HandleFunc("GET /api/storage", a.storage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
 	mux.HandleFunc("POST /api/projects/create", a.createProject)
@@ -372,23 +373,32 @@ func (a *API) artifactSettings(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) updateArtifactSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		RetentionDays int `json:"retention_days"`
+		RetentionDays     int `json:"retention_days"`
+		BundleWindowLimit int `json:"bundle_window_limit"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	document := config.ArtifactSettingsDocument{Version: 1, RetentionDays: body.RetentionDays}
+	if body.BundleWindowLimit < 1 {
+		body.BundleWindowLimit = a.service.BundleWindowLimit()
+	}
+	document := config.ArtifactSettingsDocument{Version: 1, RetentionDays: body.RetentionDays, BundleWindowLimit: body.BundleWindowLimit}
 	if err := config.SaveArtifactSettings(a.cfg.Artifacts, document); err != nil {
 		writeError(w, http.StatusBadRequest, "artifact_settings_invalid", err.Error())
 		return
 	}
 	a.service.SetArtifactRetentionDays(body.RetentionDays)
+	a.service.SetBundleWindowLimit(body.BundleWindowLimit)
 	before := time.Now().UTC().Add(-time.Duration(body.RetentionDays) * 24 * time.Hour)
 	if err := a.service.CleanupArtifacts(r.Context(), before); err != nil {
 		writeError(w, http.StatusInternalServerError, "artifact_cleanup_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, a.service.ArtifactSettings())
+}
+
+func (a *API) bundleQuota(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, a.service.BundleQuota(time.Now().UTC()))
 }
 
 func (a *API) artifacts(w http.ResponseWriter, r *http.Request) {

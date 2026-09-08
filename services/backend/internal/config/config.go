@@ -47,8 +47,9 @@ type ArtifactStorageConfig struct {
 }
 
 type ArtifactSettingsDocument struct {
-	Version       int `json:"version"`
-	RetentionDays int `json:"retention_days"`
+	Version           int `json:"version"`
+	RetentionDays     int `json:"retention_days"`
+	BundleWindowLimit int `json:"bundle_window_limit"`
 }
 
 type RemoteStorageConfig struct {
@@ -428,7 +429,7 @@ func envBool(key string, fallback bool) bool {
 }
 
 func ReadArtifactSettings(cfg ArtifactStorageConfig) (ArtifactSettingsDocument, error) {
-	defaults := ArtifactSettingsDocument{Version: 1, RetentionDays: 30}
+	defaults := ArtifactSettingsDocument{Version: 1, RetentionDays: 30, BundleWindowLimit: 80}
 	raw, err := os.ReadFile(cfg.SettingsFile)
 	if errors.Is(err, os.ErrNotExist) {
 		return defaults, nil
@@ -442,15 +443,28 @@ func ReadArtifactSettings(cfg ArtifactStorageConfig) (ArtifactSettingsDocument, 
 	if err := decoder.Decode(&document); err != nil {
 		return ArtifactSettingsDocument{}, fmt.Errorf("decode artifact settings: %w", err)
 	}
-	if document.Version != 1 || document.RetentionDays < 1 || document.RetentionDays > 3650 {
-		return ArtifactSettingsDocument{}, errors.New("artifact settings require version 1 and retention_days between 1 and 3650")
+	if document.BundleWindowLimit == 0 {
+		document.BundleWindowLimit = 80
+	}
+	if err := validateArtifactSettings(document); err != nil {
+		return ArtifactSettingsDocument{}, err
 	}
 	return document, nil
 }
 
-func SaveArtifactSettings(cfg ArtifactStorageConfig, document ArtifactSettingsDocument) error {
+func validateArtifactSettings(document ArtifactSettingsDocument) error {
 	if document.Version != 1 || document.RetentionDays < 1 || document.RetentionDays > 3650 {
 		return errors.New("artifact settings require version 1 and retention_days between 1 and 3650")
+	}
+	if document.BundleWindowLimit < 1 || document.BundleWindowLimit > 10000 {
+		return errors.New("artifact settings require bundle_window_limit between 1 and 10000")
+	}
+	return nil
+}
+
+func SaveArtifactSettings(cfg ArtifactStorageConfig, document ArtifactSettingsDocument) error {
+	if err := validateArtifactSettings(document); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(cfg.SettingsFile), 0o700); err != nil {
 		return fmt.Errorf("create artifact settings directory: %w", err)

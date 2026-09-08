@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ArtifactEntry, ArtifactRecord, Session } from '../types'
+import type { ArtifactEntry, ArtifactRecord, BundleQuota, Session } from '../types'
 import { api } from '../lib/api'
 import { formatBytes } from '../lib/desktop'
 import { parseBundleName, parseBundleNameWithDuplicateSuffix } from '../lib/bundlename'
@@ -15,10 +15,20 @@ export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages =
   const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
   const counts = useMemo(() => ({ input: bundles.filter((item) => item.direction === 'input').length, output: bundles.filter((item) => item.direction === 'output').length }), [bundles])
   const [selected, setSelected] = useState<ArtifactRecord>()
+  const [quota, setQuota] = useState<BundleQuota>()
+  useEffect(() => {
+    if (!bundles.length) { setQuota(undefined); return }
+    let alive = true
+    const refresh = () => { void api.bundleQuota().then((value) => { if (alive) setQuota(value) }).catch(() => {}) }
+    refresh()
+    const timer = window.setInterval(refresh, 60_000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [bundles.length])
   if (!bundles.length) return null
-  const summaryLabel = `Abrir galeria completa: ${bundles.length} ${bundles.length === 1 ? 'bundle' : 'bundles'}, ${counts.input} ${counts.input === 1 ? 'enviado' : 'enviados'}, ${counts.output} ${counts.output === 1 ? 'recebido' : 'recebidos'}`
-  return <><section className="bundle-exchange-bar" aria-label="Galeria de bundles trocados com o ChatGPT">
-    <button className="bundle-exchange-summary" type="button" onClick={() => setSelected(bundles[0])} title={summaryLabel} aria-label={summaryLabel}><span className="bundle-exchange-icon"><Icon name="folder" size={13}/></span><span className="bundle-exchange-stats"><b title="Total">{bundles.length}</b><i title="Enviados">↑{counts.input}</i><i title="Recebidos">↓{counts.output}</i></span></button>
+  const baseSummaryLabel = `Abrir galeria completa: ${bundles.length} ${bundles.length === 1 ? 'bundle' : 'bundles'}, ${counts.input} ${counts.input === 1 ? 'enviado' : 'enviados'}, ${counts.output} ${counts.output === 1 ? 'recebido' : 'recebidos'}`
+  const summaryLabel = quota ? `${baseSummaryLabel}. Conta 3 h: ${quota.sent}/${quota.limit} enviados, ${quota.received} recebidos${quota.warning ? '. Limite atingido; novos pedidos continuam permitidos.' : '.'}` : baseSummaryLabel
+  return <><section className={`bundle-exchange-bar ${quota?.warning ? 'bundle-quota-warning' : ''}`} aria-label="Galeria de bundles trocados com o ChatGPT">
+    <button className="bundle-exchange-summary" type="button" onClick={() => setSelected(bundles[0])} title={summaryLabel} aria-label={baseSummaryLabel}><span className="bundle-exchange-icon"><Icon name="folder" size={13}/></span><span className="bundle-exchange-stats"><b title="Total">{bundles.length}</b><i title="Enviados">↑{counts.input}</i><i title="Recebidos">↓{counts.output}</i>{quota && <span className={`bundle-quota-indicator ${quota.warning ? 'warning' : ''}`} title={`Conta ChatGPT · janela móvel de ${quota.window_hours} h · ${quota.sent}/${quota.limit} enviados · ${quota.received} recebidos`} aria-label={`Quota ChatGPT em ${quota.window_hours} horas: ${quota.sent} de ${quota.limit} enviados e ${quota.received} recebidos${quota.warning ? '. Limite atingido; novos pedidos continuam permitidos.' : '.'}`} role={quota.warning ? 'status' : undefined} aria-live={quota.warning ? 'polite' : undefined}>3h ↑{quota.sent}/{quota.limit} ↓{quota.received}</span>}</span></button>
     <div className="bundle-exchange-list">{bundles.slice(0, 3).map((bundle) => {
       const presentation = bundlePresentation(bundle, requestLineages)
       return <button key={bundle.id} className={`bundle-card bundle-tone-${presentation.tone}`} type="button" onClick={() => setSelected(bundle)} title={`Explorar ${bundle.name}`}>
