@@ -44,10 +44,29 @@ describe('attention center', () => {
     expect(approvalItems).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Aprovação necessária', action: 'approve-execution' })]))
 
     const offline = session('ses-chat-1')
+    offline.state = 'failed'
     offline.failure_kind = 'offline_go_module_cache'
-    offline.last_repair_error = 'Planner reported failed: offline_host_go_module_cache'
+    offline.last_repair_error = 'offline sandbox dependencies unavailable: github.com/jackc/pgpassfile'
+    offline.plan = { protocol: 'harness.execution/v1', plan_id: 'plan-offline', request_id: 'req-offline', status: 'ready', summary: 'Build', risk: 'low', requires_approval: false, operations: [], verification: [] }
+    offline.last_execution = { plan_id: 'plan-offline', success: false, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] }
     const offlineItems = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': offline })
     expect(offlineItems).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Dependências precisam de rede', action: 'retry-dependency-network' })]))
+  })
+
+  it('does not offer network retry for a planner-reported offline_go_module_cache that never carries a plan', () => {
+    // Per SoT/AI_PROTOCOL.md, a `blocked`/`failed` planner turn never carries a
+    // plan, so RetryDependencyNetwork (which requires a coherent failed plan +
+    // matching last_execution) can never recover this case. The generic
+    // blocked-turn item should surface instead, not a retry action doomed to
+    // fail with "dependency network recovery requires the currently failed plan".
+    const blockedNoPlan = session('ses-chat-1')
+    blockedNoPlan.state = 'failed'
+    blockedNoPlan.failure_kind = 'offline_go_module_cache'
+    blockedNoPlan.last_repair_error = 'Planner reported failed: offline_host_go_module_cache'
+    blockedNoPlan.last_turn = { protocol: 'harness.turn/v1', request_id: 'req-blocked', kind: 'blocked', message: 'O build list Go não pode ser resolvido com GOPROXY=off.' }
+    const items = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': blockedNoPlan })
+    expect(items).not.toEqual(expect.arrayContaining([expect.objectContaining({ action: 'retry-dependency-network' })]))
+    expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Pedido bloqueado' })]))
   })
 
   it('turns persisted self-evolution metadata blocks into one retry action', () => {

@@ -234,6 +234,7 @@ describe('AgentWorkspace', () => {
     blocked.state = 'failed'
     blocked.failure_kind = 'offline_go_module_cache'
     blocked.last_repair_error = 'offline sandbox dependencies unavailable: module lookup disabled by GOPROXY=off'
+    blocked.last_execution = { plan_id: blocked.plan!.plan_id, success: false, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] }
     const blockedView = props(blocked)
     rendered.rerender(<AgentWorkspace {...blockedView.element.props} attentionSessions={{ 'chat-1': blocked }} />)
     fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
@@ -256,18 +257,40 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Permitir rede e repetir' })).toBeNull()
   })
 
-  it('surfaces the dependency-network action for a planner-reported infrastructure failure', () => {
-    // The structured failure kind, not error prose, makes this recoverable.
+  it('surfaces the dependency-network action for a planner-reported infrastructure failure with a coherent failed plan', () => {
+    // The structured failure kind, not error prose, makes this recoverable —
+    // but only once a coherent failed plan/last_execution pair backs it (see
+    // the "never has a plan" test below for the case where it does not).
     const plannerReported = session()
     plannerReported.state = 'failed'
     plannerReported.failure_kind = 'offline_go_module_cache'
     plannerReported.last_repair_error = 'Planner reported failed: offline_host_go_module_cache: Os gates Go obrigatórios não puderam iniciar.'
+    plannerReported.last_execution = { plan_id: plannerReported.plan!.plan_id, success: false, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] }
     const view = props(plannerReported)
     render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': plannerReported }} />)
     fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
     const retry = screen.getByRole('button', { name: 'Permitir rede e repetir' })
     fireEvent.click(retry)
     expect(view.onRetryDependencyNetwork).toHaveBeenCalledTimes(1)
+  })
+
+  it('never offers the dependency-network action for a planner-reported failure without a plan', () => {
+    // Per SoT/AI_PROTOCOL.md a blocked/failed planner turn never carries a
+    // plan, so RetryDependencyNetwork's "requires the currently failed plan"
+    // guard can never be satisfied here — offering the button would promise a
+    // recovery the backend always rejects.
+    const plannerReported = session()
+    plannerReported.state = 'failed'
+    plannerReported.failure_kind = 'offline_go_module_cache'
+    plannerReported.last_repair_error = 'Planner reported failed: offline_host_go_module_cache: Os gates Go obrigatórios não puderam iniciar.'
+    plannerReported.plan = undefined
+    plannerReported.policy = undefined
+    plannerReported.last_turn = { protocol: 'harness.turn/v1', request_id: 'req-blocked', kind: 'blocked', message: 'O build list Go não pode ser resolvido com GOPROXY=off.' }
+    const view = props(plannerReported)
+    render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': plannerReported }} />)
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    expect(screen.queryByRole('button', { name: 'Permitir rede e repetir' })).toBeNull()
+    expect(screen.getByText('Pedido bloqueado')).toBeTruthy()
   })
 
   it('shows a non-actionable toolchain alert inside the popover', () => {
