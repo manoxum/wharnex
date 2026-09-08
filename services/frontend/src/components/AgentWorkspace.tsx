@@ -13,7 +13,8 @@ import { loadChat } from '../lib/workspaceMemory'
 import { MarkdownContent } from './MarkdownContent'
 import { promptDialog } from '../lib/appDialog'
 import { desktopWindowScope } from '../lib/projectBindings'
-import { collectAttentionItems, type AttentionItem } from '../lib/attentionCenter'
+import { collectAttentionItems, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
+import { AttentionPopover } from './AttentionPopover'
 
 type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
@@ -62,14 +63,29 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [drawer, setDrawer] = useState<Drawer>('')
+  const [attentionPopoverOpen, setAttentionPopoverOpen] = useState(false)
   const [previewPath, setPreviewPath] = useState<string>()
   const workspaceRef = useRef<HTMLElement>(null)
+  const attentionClusterRef = useRef<HTMLDivElement>(null)
   const chatViewportStoreRef = useRef<ChatViewportStore>(new Map())
   const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
   const archived = chatProps.archivedChats || []
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
   const attentionItems = useMemo(() => collectAttentionItems(chatProps.chats, attentionSessions, chatgptHumanActions), [attentionSessions, chatProps.chats, chatgptHumanActions])
   const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
+  useEffect(() => {
+    if (!attentionPopoverOpen) return
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!attentionClusterRef.current?.contains(event.target as Node)) setAttentionPopoverOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setAttentionPopoverOpen(false) }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [attentionPopoverOpen])
   useEffect(() => {
     if (!chatgptAttentionNonce) return
     setDrawer('')
@@ -87,24 +103,6 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const pendingBlocked = Boolean(session.pending_manual_request_ids?.length || ['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'conflict_resolution_pending'].includes(session.state))
   const canApply = Boolean(!direct && pendingCount && !pendingBlocked && session.last_turn?.kind !== 'workflow')
   const canReject = canApply || Boolean(!direct && pendingCount && session.integration_conflict)
-  // Keyed on the backend's own closed-set classification, never on error
-  // prose: a planner-reported infrastructure failure carries different text
-  // ("Planner reported failed: offline_host_go_module_cache: ...") than a
-  // sandbox-raised one, but both set the same failure_kind.
-  const dependencyNetworkBlocked = session.failure_kind === 'offline_go_module_cache'
-  // No Wharness-grantable action fixes this one: the host's own Node.js is
-  // older than what a pinned dependency's postinstall (observed: Electron)
-  // requires, so there is nothing to "approve and retry" here. Show an
-  // informative notice instead of a retry affordance.
-  const hostToolchainBlocked = session.failure_kind === 'host_build_toolchain_mismatch'
-  const hostDependencyBlocked = session.failure_kind === 'host_dependency_state'
-  // Both of these are local coordination hiccups (another self-evolution
-  // transaction held the lock, or a host compare-and-swap lost a race) that
-  // the backend already stopped from consuming a ChatGPT repair round — the
-  // verified candidate itself is untouched and still pending. Framing this
-  // as "candidate verified, just retry Apply" instead of a generic failure
-  // stops the user from returning it to ChatGPT unnecessarily.
-  const hostApplyRetryBlocked = session.failure_kind === 'self_evolution_transaction_busy' || session.failure_kind === 'host_integration_race'
 
   function openInspector(tab: InspectorTab) {
     setInspectorTab(tab)
@@ -113,9 +111,44 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   function toggleDrawer(next: Exclude<Drawer, ''>) { setDrawer((current) => current === next ? '' : next) }
 
   async function openAttention(item: AttentionItem) {
+    setAttentionPopoverOpen(false)
+    if (item.id.endsWith(':chatgpt-human-action') && item.chatId === chatProps.activeChatId && chatgptHumanAction?.active && onChatGPTHumanAction) {
+      onChatGPTHumanAction()
+      return
+    }
     if (item.chatId !== chatProps.activeChatId) await chatProps.onSelectChat(item.chatId)
     if (item.target) setInspectorTab(item.target)
     setDrawer('')
+  }
+
+  async function runAttentionAction(item: AttentionItem) {
+    if (item.chatId !== chatProps.activeChatId || !item.action) return
+    setAttentionPopoverOpen(false)
+    switch (item.action) {
+      case 'approve-execution': await inspectorProps.onExecute(true); return
+      case 'retry-dependency-network': await inspectorProps.onRetryDependencyNetwork?.(); return
+      case 'repair-host-dependency': await inspectorProps.onRetryHostDependencyRepair?.(); return
+      case 'retry-host-apply':
+      case 'apply-host': await inspectorProps.onApply(); return
+    }
+  }
+
+  function openAllAttention() {
+    setAttentionPopoverOpen(false)
+    setDrawer('attention')
+  }
+
+  function attentionTone(target: AttentionTarget): AttentionTone | undefined {
+    const tones = attentionItems.filter((item) => item.chatId === chatProps.activeChatId && item.target === target).map((item) => item.tone)
+    if (tones.includes('danger')) return 'danger'
+    if (tones.includes('warning')) return 'warning'
+    if (tones.includes('success')) return 'success'
+    return undefined
+  }
+
+  function surfaceTabClass(target: AttentionTarget) {
+    const tone = attentionTone(target)
+    return [inspectorTab === target ? 'active' : '', tone ? `attention-pulse attention-${tone}` : ''].filter(Boolean).join(' ')
   }
 
   function beginResize(event: React.PointerEvent<HTMLButtonElement>) {
@@ -145,19 +178,20 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       {session.self_evolution && <div className="agent-commandbar-center">
         <span className="self-evolution-badge"><Icon name="refresh" size={13}/> WHX · AUTO-EVOLUÇÃO</span>
       </div>}
-      <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
-        <button className={inspectorTab === 'plan' ? 'active' : ''} onClick={() => openInspector('plan')} title="Plano" aria-label="Plano"><Icon name="plan" size={15}/></button>
-        <button className={inspectorTab === 'terminal' ? 'active' : ''} onClick={() => openInspector('terminal')} title="Execução" aria-label="Execução"><Icon name="terminal" size={15}/></button>
-        <button className={inspectorTab === 'chatgpt' ? 'active' : ''} onClick={() => openInspector('chatgpt')} title={session.integration_conflict ? 'Conflito Engine' : 'Engine'} aria-label={session.integration_conflict ? 'Conflito Engine' : 'Engine'}><Icon name="agent" size={15}/></button>
-      </nav>
       <div className="agent-command-actions">
-        {attentionItems.length > 0 && <button type="button" className={`agent-attention-summary ${urgentAttentionCount ? 'urgent' : ''}`} onClick={() => toggleDrawer('attention')} aria-label={`Centro de notificações, ${attentionItems.length} alerta(s)`} title="Alertas de todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionItems.length} {attentionItems.length === 1 ? 'alerta' : 'alertas'}</b><small>{urgentAttentionCount ? `${urgentAttentionCount} urgente(s)` : 'atenção global'}</small></span></button>}
-        {chatgptHumanAction?.active && <button type="button" className="agent-human-action-button" onClick={onChatGPTHumanAction} disabled={!onChatGPTHumanAction || (busy && chatgptHumanAction.cacheKey !== chatProps.activeChatId)} title={chatgptHumanAction.message} aria-label="Ação humana necessária no ChatGPT"><Icon name="shield" size={13}/><span>Ação no ChatGPT</span></button>}
+        {attentionItems.length > 0 && <div className="agent-attention-cluster" ref={attentionClusterRef}>
+          <button type="button" className={`agent-attention-summary ${urgentAttentionCount ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-label={`Centro de notificações, ${attentionItems.length} alerta(s), ${urgentAttentionCount} urgente(s)`} title="Alertas de todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionItems.length} {attentionItems.length === 1 ? 'alerta' : 'alertas'}</b><small>{urgentAttentionCount} {urgentAttentionCount === 1 ? 'urgente' : 'urgentes'}</small></span></button>
+          {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention}/>}
+        </div>}
         {session.policy && <span className={`agent-policy-icon ${session.policy.allowed ? '' : 'blocked'}`} title={session.policy.allowed ? `Policy autorizada · risco ${session.policy.risk}` : 'Policy bloqueada'} aria-label={session.policy.allowed ? `Policy autorizada, risco ${session.policy.risk}` : 'Policy bloqueada'}><Icon name="shield" size={14}/></span>}
-        {hostApplyRetryBlocked && canApply ? <button type="button" className="agent-approval-callout dependency host-apply-retry" disabled={busy} onClick={() => void inspectorProps.onApply()} title="A alteração já passou a verificação; a aplicação anterior falhou por uma disputa local temporária (outra transação de auto-evolução, ou uma corrida de escrita no host), não por um defeito na alteração. O Wharness já não gasta pedidos de reparação ao ChatGPT neste tipo de falha." aria-label="Candidato verificado — repetir aplicação no host"><Icon name="apply" size={15}/><span><b>Candidato verificado</b><small>Repetir aplicação</small></span><Icon name="play" size={13}/></button> : hostToolchainBlocked ? <span className="agent-approval-callout dependency host-toolchain" role="status" title="O Node.js instalado no host é mais antigo do que o exigido pela dependência fixada (Electron). Não há correção via patch: atualize o Node do host ou baixe a versão do Electron em services/desktop/package.json." aria-label="Build do host bloqueado por incompatibilidade de toolchain"><Icon name="network" size={15}/><span><b>Build do host bloqueado</b><small>Node do host incompatível — sem correção via ChatGPT</small></span></span> : hostDependencyBlocked && inspectorProps.onRetryHostDependencyRepair ? <button type="button" className="agent-approval-callout dependency host-dependency-repair" disabled={busy} onClick={() => void inspectorProps.onRetryHostDependencyRepair?.()} title="A mesma verificação passou na sandbox Protected, mas falhou no host por uma dependência npm nativa/opcional ausente em node_modules (bug conhecido do npm). O Wharness roda, direto no host e sem sudo: rm -rf node_modules; rm -f package-lock.json; npm install — e repete o Apply automaticamente se a build voltar a passar. Nenhum patch é enviado ao ChatGPT para este erro de ambiente." aria-label="Reinstalar dependências do host e repetir"><Icon name="network" size={15}/><span><b>Dependências do host incompletas</b><small>Reinstalar node_modules</small></span><Icon name="play" size={13}/></button> : dependencyNetworkBlocked && inspectorProps.onRetryDependencyNetwork ? <button type="button" className="agent-approval-callout dependency" disabled={busy} onClick={() => void inspectorProps.onRetryDependencyNetwork?.()} aria-label="Permitir rede restrita e repetir"><Icon name="network" size={15}/><span><b>Dependências bloqueadas</b><small>Permitir rede e repetir</small></span><Icon name="play" size={13}/></button> : canExecute && needsApproval ? <button type="button" className="agent-approval-callout" disabled={busy} onClick={() => void inspectorProps.onExecute(true)} aria-label={executeLabel}><Icon name="shield" size={15}/><span><b>Aprovação necessária</b><small>Risco {session.policy?.risk || 'alto'}</small></span><Icon name="play" size={13}/></button> : canExecute && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}
+        {canExecute && !needsApproval && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}
         {canReject && <button type="button" className="agent-command-icon reject" disabled={busy} onClick={() => void inspectorProps.onRejectPendingChanges?.()} aria-label={session.integration_conflict ? 'Cancelar resolução e rejeitar alterações' : 'Rejeitar alterações verificadas'} title={session.integration_conflict ? 'Cancelar conflito e rejeitar a candidata' : 'Rejeitar alterações verificadas'}><Icon name="trash" size={14}/></button>}
-        {canApply && <button type="button" className="agent-host-apply-button" disabled={busy} onClick={() => void inspectorProps.onApply()} aria-label={`Aplicar alterações verificadas no host${pendingCount > 1 ? ` (${pendingCount})` : ''}`} title="Alterações verificadas e prontas para entrar no host"><Icon name="apply" size={15}/><span><b>Aplicar no host</b><small>{pendingCount === 1 ? '1 candidata verificada' : `${pendingCount} candidatas verificadas`}</small></span><Icon name="arrow-right" size={13}/></button>}
       </div>
+      <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
+        <button className={surfaceTabClass('plan')} onClick={() => openInspector('plan')} title="Plano" aria-label="Plano"><Icon name="plan" size={15}/></button>
+        <button className={surfaceTabClass('terminal')} onClick={() => openInspector('terminal')} title="Execução" aria-label="Execução"><Icon name="terminal" size={15}/></button>
+        <button className={surfaceTabClass('chatgpt')} onClick={() => openInspector('chatgpt')} title={session.integration_conflict ? 'Conflito Engine' : 'Engine'} aria-label={session.integration_conflict ? 'Conflito Engine' : 'Engine'}><Icon name="agent" size={15}/></button>
+      </nav>
     </header>
 
     <nav className="agent-chat-switcher" aria-label="Conversas do Harness">
@@ -171,7 +205,6 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
     </nav>
 
     <aside className="agent-activity-bar" aria-label="Ferramentas do Agent">
-      <button type="button" className={drawer === 'attention' ? 'active attention' : 'attention'} onClick={() => toggleDrawer('attention')} aria-label="Centro de notificações" title="Alertas que precisam de atenção em todos os chats"><Icon name="bell" size={18}/>{attentionItems.length > 0 && <b className={urgentAttentionCount ? 'urgent' : ''}>{attentionItems.length}</b>}</button>
       <button type="button" className={drawer === 'archive' ? 'active' : ''} onClick={() => toggleDrawer('archive')} aria-label="Chats arquivados" title="Chats arquivados"><Icon name="folder" size={18}/>{archived.length > 0 && <b>{archived.length}</b>}</button>
       <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggleDrawer('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
       <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggleDrawer('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>

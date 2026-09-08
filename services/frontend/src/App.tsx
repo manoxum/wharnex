@@ -1268,8 +1268,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
               ? (submission.restart_required ? 'Bundle validado. O plano foi verificado na sandbox, aplicado ao próprio Wharness e reconstruído no host. O reinício aguarda confirmação.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
               : pendingApproval
                 ? (updated.failure_kind === 'offline_go_module_cache'
-                  ? 'Bundle validado. A execução automática pausou porque a verificação Go precisa do cache de módulos, que ainda não está hidratado offline. Use "Dependências bloqueadas" acima para permitir rede restrita e repetir.'
-                  : `Bundle validado. A execução automática pausou porque este plano precisa da sua aprovação explícita${policyReason ? ` (${policyReason})` : ''}. Use "Aprovação necessária" acima para continuar.`)
+                  ? 'Bundle validado. A execução automática pausou porque a verificação Go precisa do cache de módulos, que ainda não está hidratado offline. Abra o resumo de alertas e use "Permitir rede e repetir" para continuar.'
+                  : `Bundle validado. A execução automática pausou porque este plano precisa da sua aprovação explícita${policyReason ? ` (${policyReason})` : ''}. Abra o resumo de alertas e use "Aprovar e executar" para continuar.`)
                 : submission.auto_executed
                   ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
                   : 'Bundle ZIP importado e plano validado.'
