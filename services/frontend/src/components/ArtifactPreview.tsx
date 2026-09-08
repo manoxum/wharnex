@@ -21,7 +21,7 @@ export function ArtifactPreview({ path, url, size }: { path: string; url: string
   if (kind === 'image') return <div className="artifact-media-preview"><img src={url} alt={path} loading="lazy" /></div>
   if (kind === 'audio') return <div className="artifact-media-preview"><audio src={url} controls preload="metadata" /></div>
   if (kind === 'video') return <div className="artifact-media-preview"><video src={url} controls preload="metadata" /></div>
-  if (kind === 'pdf' || kind === 'html') return <iframe className="artifact-document-frame" src={url} title={`Pré-visualização de ${path}`} sandbox={kind === 'html' ? '' : undefined} />
+  if (kind === 'pdf' || kind === 'html') return <iframe className="artifact-document-frame" src={url} title={`Pré-visualização de ${path}`} sandbox={kind === 'html' ? '' : undefined} referrerPolicy="no-referrer" loading="lazy" />
   if (kind === 'binary') return <PreviewEmpty title="Formato sem pré-visualização segura" text={`${size.toLocaleString('pt-PT')} bytes · descarregue para abrir no programa apropriado.`} />
   if (loading) return <div className="artifact-preview-empty"><span className="spinner"/>A abrir por stream…</div>
   if (error) return <div className="artifact-preview-empty composer-error">{error}</div>
@@ -50,7 +50,8 @@ async function streamText(url: string, signal: AbortSignal) {
 }
 
 function previewKind(path: string) {
-  const extension = path.split('.').pop()?.toLowerCase() || ''
+  const name = path.split('/').pop()?.toLowerCase() || ''
+  const extension = name.split('.').pop() || ''
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'].includes(extension)) return 'image'
   if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(extension)) return 'audio'
   if (['mp4', 'webm', 'ogv', 'mov', 'm4v'].includes(extension)) return 'video'
@@ -58,6 +59,7 @@ function previewKind(path: string) {
   if (['html', 'htm'].includes(extension)) return 'html'
   if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'].includes(extension)) return 'office'
   if (['md', 'mdx', 'markdown'].includes(extension)) return 'markdown'
-  if (['txt', 'json', 'jsonl', 'yaml', 'yml', 'toml', 'xml', 'csv', 'tsv', 'js', 'jsx', 'ts', 'tsx', 'go', 'py', 'sh', 'css', 'scss', 'sql', 'diff', 'patch', 'log', 'ini', 'env', 'conf'].includes(extension)) return 'text'
+  if (['dockerfile', 'makefile', 'justfile', 'procfile'].includes(name)) return 'text'
+  if (['txt', 'json', 'jsonl', 'yaml', 'yml', 'toml', 'xml', 'csv', 'tsv', 'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'go', 'py', 'pyi', 'sh', 'bash', 'zsh', 'fish', 'css', 'scss', 'sass', 'less', 'sql', 'diff', 'patch', 'log', 'ini', 'env', 'conf', 'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'rs', 'rb', 'java', 'kt', 'kts', 'cs', 'php', 'swift', 'lua', 'r', 'dart', 'vue', 'svelte', 'graphql', 'gql', 'proto'].includes(extension)) return 'text'
   return 'binary'
 }

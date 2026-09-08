@@ -54,6 +54,14 @@ Every request iteration records its immutable `request_id`, `root_request_id`, o
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
+## Renderable result artifacts
+
+A manual response bundle MAY carry user-facing, non-executable files under `artifacts/`. This directory is a presentation channel, not an execution channel: `turn.json`, `plan.json`, patches, approvals, commands, secrets, and any reasoning required to understand the result remain in their normal structured locations.
+
+Wharnex advertises this local capability to the planner. Files under `artifacts/` are discovered from the already validated response bundle and MAY be presented inline beside the correlated result in the local chat. The local renderer supports images, audio, video, PDF, Markdown, text/source-code files, sandboxed HTML rendered through an iframe, and Office documents through safe text extraction; unsupported formats retain a download fallback. Nested paths under `artifacts/` are permitted.
+
+Renderable HTML remains untrusted. The browser iframe is sandboxed, preview responses use restrictive CSP/referrer/resource headers, and essential presentation SHOULD be self-contained instead of depending on scripts, forms, top navigation, credentials, or remote network resources. Artifact presentation MUST NOT weaken bundle validation, host Policy, project-root containment, or the distinction between conversational output and executable `change` plans.
+
 ## Commit-history communication
 
 Every `change` execution plan MUST carry a planner-authored `commit_message` that is useful permanent Git history, not a transport label. The planner MUST derive it from the actual delivered patch and classify the dominant change with an accurate Conventional Commits type: `feat` for new behavior/capability, `fix` for a bug or corrective patch, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, or `chore` only when no more specific type applies. A meaningful subsystem scope SHOULD be included when clear.

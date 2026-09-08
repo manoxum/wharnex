@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ArtifactRecord } from '../types'
-import { BundleExchangeBar } from './BundleExplorer'
+import { BundleExchangeBar, ReturnedArtifactGallery } from './BundleExplorer'
 
 const mocks = vi.hoisted(() => ({ artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })) }))
 vi.mock('../lib/api', () => ({ api: {
@@ -85,6 +85,28 @@ describe('BundleExchangeBar', () => {
     expect(screen.getAllByText('Pedido · resumo final').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Resposta').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Resumo final').length).toBeGreaterThan(0)
+  })
+
+  it('renders user-facing files from artifacts/ in the matching response bundle', async () => {
+    const requestId = 'req_20260905T230000_4444444444444444'
+    const bundle: ArtifactRecord = {
+      id: 'response-artifacts', request_id: requestId, direction: 'output', kind: 'bundle', name: `whx_bundle_res_chat-1_${requestId}.zip`, content_type: 'application/zip',
+      size: 4096, sha256: 'd'.repeat(64), created_at: '2026-09-05T23:00:00Z', expires_at: '2026-10-05T23:00:00Z', bundle: true, entry_count: 3,
+    }
+    mocks.artifactEntries.mockResolvedValueOnce({ entries: [
+      { path: 'turn.json', size: 42, dir: false },
+      { path: 'artifacts/preview.png', size: 512, dir: false },
+      { path: 'artifacts/report.md', size: 256, dir: false },
+    ] })
+
+    render(<ReturnedArtifactGallery sessionId="ses_1" artifacts={[bundle]} requestId={requestId} />)
+
+    expect(await screen.findByText('Artefactos devolvidos')).toBeTruthy()
+    expect(screen.getByText('preview.png')).toBeTruthy()
+    expect(screen.getByText('report.md')).toBeTruthy()
+    expect(screen.queryByText('turn.json')).toBeNull()
+    expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'response-artifacts')
+    expect(document.querySelector('img')?.getAttribute('src')).toContain('artifacts%2Fpreview.png')
   })
 
 })
