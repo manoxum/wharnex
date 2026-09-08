@@ -12,6 +12,15 @@ describe('App policy-repair recovery', () => {
 	expect(source).toMatch(/void transportPlannerContinuation\(session, targetChat\)\.catch/)
   })
 
+  it('dispatches a prepared repair immediately after a manual host Apply failure', () => {
+    const applyStart = source.indexOf('async function apply()')
+    const applyEnd = source.indexOf('async function retryDependencyNetwork()', applyStart)
+    const applyBody = source.slice(applyStart, applyEnd)
+
+    expect(applyBody).toMatch(/latest\.state === 'repair_pending'/)
+    expect(applyBody).toMatch(/await submitRepairPrompt\(latest, targetChat\)/)
+  })
+
   it('sends each repair request only once across app lifetimes and exposes a delivery failure', () => {
     expect(source).toMatch(/const requestId = failedSession\.last_request_id \|\| ''/)
     expect(source).toMatch(/requestAlreadyRecorded\(failedSession\.project_path, targetChat\.id, requestId, \['repair', 'prepared', 'submitted'\]\)/)

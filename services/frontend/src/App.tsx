@@ -1702,7 +1702,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		const latest = await api.getSession(session.id)
 		setSession(latest); setManualPrompt(latest.last_manual_prompt || '')
 		const targetChat = chats.find((chat) => chat.id === activeChatId)
-		if (latest.state === 'conflict_resolution_pending' && latest.last_manual_prompt && targetChat) await submitConflictPrompt(latest, targetChat)
+		if (latest.state === 'conflict_resolution_pending' && latest.last_manual_prompt && targetChat) {
+		  await submitConflictPrompt(latest, targetChat)
+		} else if (latest.state === 'repair_pending' && latest.last_manual_prompt && targetChat) {
+		  await submitRepairPrompt(latest, targetChat)
+		}
 	  } catch { /* retain the original Apply error */ }
 	} finally { setBusy(false) }
   }
