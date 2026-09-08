@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+func TestDependencyCacheDefaultsBesideSessionState(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "state", "sessions.json")
+	t.Setenv("HARNESS_STATE_FILE", stateFile)
+	t.Setenv("HARNESS_DEPENDENCY_CACHE_DIR", "")
+	cfg := Load()
+	if cfg.DependencyCacheDir != filepath.Join(filepath.Dir(stateFile), "dependency-cache") {
+		t.Fatalf("dependency cache dir = %q", cfg.DependencyCacheDir)
+	}
+}
+
 func TestLoadRemoteStorageInstancesAllowsSeveralAccountsOfSameProvider(t *testing.T) {
 	t.Setenv("WHARNESS_TEST_REMOTE_AUTH", "Bearer private")
 	file := filepath.Join(t.TempDir(), "remote-storage.json")

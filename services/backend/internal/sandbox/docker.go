@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -14,11 +15,25 @@ import (
 	"kernl.local/harness/backend/internal/ids"
 )
 
-type DockerRunner struct{ image string }
+type DockerRunner struct {
+	image              string
+	dependencyCacheDir string
+}
 
 func NewDockerRunner(image string) *DockerRunner { return &DockerRunner{image: image} }
+func NewDockerRunnerWithDependencyCache(image, cacheDir string) *DockerRunner {
+	return &DockerRunner{image: image, dependencyCacheDir: filepath.Clean(cacheDir)}
+}
 func (r *DockerRunner) Prepare(_ context.Context, projectRoot string) (Workspace, error) {
-	return copyProject(projectRoot)
+	workspace, err := copyProject(projectRoot)
+	if err != nil {
+		return Workspace{}, err
+	}
+	if r.dependencyCacheDir != "" && r.dependencyCacheDir != "." {
+		projectKey := fmt.Sprintf("%x", sha256.Sum256([]byte(filepath.Clean(workspace.SourcePath))))
+		workspace.GoModuleCachePath = filepath.Join(r.dependencyCacheDir, "go-mod", projectKey)
+	}
+	return workspace, nil
 }
 func (r *DockerRunner) Cleanup(workspace Workspace) error { return os.RemoveAll(workspace.Path) }
 

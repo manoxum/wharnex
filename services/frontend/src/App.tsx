@@ -27,6 +27,7 @@ import { projectFileReferenceSuffix } from './lib/projectFileReferences'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
 import { hasRecordedRequest } from './lib/requestDispatch'
+import { executionNeedsAttention } from './lib/executionRecovery'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
@@ -849,7 +850,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }))
       return { chat, session: candidate }
     })).then((candidates) => {
-      if (!cancelled) setInterruptedExecutions(candidates.filter((candidate) => Boolean(candidate.session.interrupted_execution)))
+      if (!cancelled) setInterruptedExecutions(candidates.filter((candidate) => executionNeedsAttention(candidate.session)))
     }).catch((resumeError) => console.warn('pending ChatGPT supervision recovery failed', messageOf(resumeError)))
     return () => { cancelled = true }
   }, [chats, session])

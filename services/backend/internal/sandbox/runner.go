@@ -10,8 +10,9 @@ import (
 var ErrOfflineDependenciesUnavailable = errors.New("offline sandbox dependencies unavailable")
 
 type Workspace struct {
-	Path       string
-	SourcePath string
+	Path              string
+	SourcePath        string
+	GoModuleCachePath string
 }
 
 type Runner interface {

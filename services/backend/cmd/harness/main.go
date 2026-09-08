@@ -60,7 +60,7 @@ func main() {
 		}
 		runner = sandbox.NewLocalRunner()
 	} else {
-		runner = sandbox.NewDockerRunner(cfg.RunnerImage)
+		runner = sandbox.NewDockerRunnerWithDependencyCache(cfg.RunnerImage, cfg.DependencyCacheDir)
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)

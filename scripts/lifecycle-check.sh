@@ -189,6 +189,10 @@ if ! grep -Fq -- '--prefer-offline' "$DEPS_CACHE" || ! grep -Fq -- '--no-audit' 
   echo 'lifecycle regression: npm hydration must reuse cache without audit/funding network work' >&2
   exit 1
 fi
+if ! grep -Fq 'GOPROXY=off GOFLAGS=-mod=readonly go mod download -json' "$DEPS_CACHE"; then
+  echo 'lifecycle regression: a Go dependency fingerprint hit must still prove the module cache is complete offline' >&2
+  exit 1
+fi
 if printf '%s\n' "$deps_block" | grep -Eq 'npm[[:space:]]+install'; then
   echo 'lifecycle regression: make deps must not unconditionally run npm install' >&2
   exit 1

@@ -30,7 +30,7 @@ describe('App ChatGPT affinity ownership', () => {
     expect(source).toMatch(/api\.getSession\(chat\.sessionId\)/)
     expect(source).toMatch(/pendingBundleRequestIDs\(candidate\)/)
     expect(source).toMatch(/bridge\.chatgpt\.resumeExpectedBundle\(\{/)
-    expect(source).toMatch(/resumeExpectedBundle\(\{ cacheKey, requestId, url/)
+    expect(source).toMatch(/resumeExpectedBundle\(\{ cacheKey, sessionId: candidate\.id, requestId, url/)
   })
 
   it('owns bundle imports at workspace level so inactive chats continue automatically', () => {

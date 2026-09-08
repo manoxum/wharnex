@@ -35,6 +35,13 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).toContain('Ação humana necessária no ChatGPT')
   })
 
+  it('does not announce a live execution as interrupted after switching chats', () => {
+    const running = session('ses-chat-2')
+    running.interrupted_execution = { plan_id: 'plan-running', requested_at: '2026-09-08T18:20:00.000Z', approved: false, status: 'running' }
+    const items = collectAttentionItems([chat('chat-2', 'Em execução')], { 'chat-2': running })
+    expect(items.map((entry) => entry.title)).not.toContain('Execução interrompida')
+  })
+
   it('maps approval and dependency recovery alerts to their popup actions', () => {
     const approval = session('ses-chat-1')
     approval.state = 'planned'
