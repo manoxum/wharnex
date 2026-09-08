@@ -99,6 +99,35 @@ func hostApplicablePendingChanges(changes []domain.PendingHostChange) []domain.P
 	return filtered
 }
 
+// normalizePendingHostChanges makes the public/session state use the same
+// candidate set as ApplyToHost. This also materializes the legacy implicit
+// verified-plan fallback, so the frontend never advertises a raw count that
+// Apply later filters to zero (or misses a valid legacy candidate entirely).
+func (s *Service) normalizePendingHostChanges() {
+	for _, item := range s.store.List() {
+		effective := hostApplicablePendingChanges(pendingHostChanges(item))
+		if pendingHostChangesEqual(item.PendingHostChanges, effective) {
+			continue
+		}
+		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
+			current.PendingHostChanges = append([]domain.PendingHostChange(nil), effective...)
+			return nil
+		})
+	}
+}
+
+func pendingHostChangesEqual(left, right []domain.PendingHostChange) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Plan.PlanID != right[index].Plan.PlanID {
+			return false
+		}
+	}
+	return true
+}
+
 func pendingPatchCount(changes []domain.PendingHostChange) int {
 	total := 0
 	for index := range changes {

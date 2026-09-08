@@ -35,6 +35,18 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).toContain('Ação humana necessária no ChatGPT')
   })
 
+  it('does not duplicate a ChatGPT transport block with a speculative GPT repair', () => {
+    const blocked = session('ses-chat-1')
+    blocked.state = 'failed'
+    blocked.last_repair_error = 'the transport failed while preparing the prompt'
+    const items = collectAttentionItems(
+      [chat('chat-1', 'Principal')],
+      { 'chat-1': blocked },
+      { 'chat-1': { cacheKey: 'chat-1', active: true, kind: 'transport', message: 'Retome o ChatGPT para continuar.' } },
+    )
+    expect(items.map((entry) => entry.title)).toEqual(['Ação humana necessária no ChatGPT'])
+  })
+
   it('does not announce a live execution as interrupted after switching chats', () => {
     const running = session('ses-chat-2')
     running.interrupted_execution = { plan_id: 'plan-running', requested_at: '2026-09-08T18:20:00.000Z', approved: false, status: 'running' }
@@ -51,6 +63,17 @@ describe('attention center', () => {
     failed.last_execution = { plan_id: 'plan-failed', success: false, error: 'tests still fail', started_at: '2026-09-08T18:20:00.000Z', completed_at: '2026-09-08T18:20:01.000Z', commands: [] }
     const items = collectAttentionItems([chat('chat-2', 'Falhou')], { 'chat-2': failed })
     expect(items.find((entry) => entry.title === 'Erro reparável com GPT')?.action).toBe('repair-with-gpt')
+  })
+
+  it('routes a remote transport failure to request retry instead of GPT source repair', () => {
+    const failed = session('ses-chat-2')
+    failed.state = 'failed'
+    failed.failure_kind = 'remote_input_transport'
+    failed.last_request_id = 'req-transport'
+    failed.last_repair_error = 'Remote input communication failed'
+    const items = collectAttentionItems([chat('chat-2', 'Transporte')], { 'chat-2': failed })
+    expect(items).toEqual([expect.objectContaining({ title: 'Falha na ligação ao ChatGPT', action: 'retry-transport', requestId: 'req-transport' })])
+    expect(items.map((entry) => entry.title)).not.toContain('Erro reparável com GPT')
   })
 
   it('maps approval and dependency recovery alerts to their popup actions', () => {
@@ -116,5 +139,19 @@ describe('attention center', () => {
     }]
     const items = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': current })
     expect(items).toEqual([expect.objectContaining({ title: 'Aplicação ao host pronta para repetir', action: 'retry-host-apply' })])
+  })
+
+  it('never presents a stale host baseline as a green ready-to-apply candidate', () => {
+    const current = session('ses-chat-1')
+    current.state = 'failed'
+    current.failure_kind = 'stale_host_baseline'
+    current.pending_host_changes = [{
+      plan: { protocol: 'harness.execution/v1', plan_id: 'plan-stale', request_id: 'req-stale', status: 'ready', summary: 'Mudança', risk: 'low', requires_approval: false, operations: [], verification: [] },
+      execution: { plan_id: 'plan-stale', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
+      verified_at: '2026-09-07T10:00:01.000Z',
+    }]
+    const items = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': current })
+    expect(items).toEqual([expect.objectContaining({ title: 'Candidata precisa de nova validação', tone: 'warning', action: 'retry-host-apply' })])
+    expect(items.map((entry) => entry.title)).not.toContain('Alterações prontas para o host')
   })
 })

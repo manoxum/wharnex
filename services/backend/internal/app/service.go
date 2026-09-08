@@ -131,6 +131,7 @@ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Bui
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
 	service.normalizeFailureKinds()
+	service.normalizePendingHostChanges()
 	service.reconcileSelfEvolutionStatus()
 	return service
 }

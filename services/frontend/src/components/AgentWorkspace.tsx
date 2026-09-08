@@ -13,7 +13,7 @@ import { loadChat } from '../lib/workspaceMemory'
 import { MarkdownContent } from './MarkdownContent'
 import { promptDialog } from '../lib/appDialog'
 import { desktopWindowScope } from '../lib/projectBindings'
-import { collectAttentionItems, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
+import { ATTENTION_ACTION_LABEL, collectAttentionItems, sessionCanApplyHost, sessionHostResolutionBlocked, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { AttentionPopover } from './AttentionPopover'
 
 type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'fifo' | 'evolution' | ProjectActivityKind | ''
@@ -73,6 +73,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
   const attentionItems = useMemo(() => collectAttentionItems(chatProps.chats, attentionSessions, chatgptHumanActions), [attentionSessions, chatProps.chats, chatgptHumanActions])
   const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
+  const activeCommandAttention = attentionItems.find((item) => item.chatId === chatProps.activeChatId && item.action && item.action !== 'apply-host')
   const executionCommandRunning = useMemo(() => hasRunningExecutionCommand(inspectorProps.events), [inspectorProps.events])
   useEffect(() => {
     if (!attentionPopoverOpen) return
@@ -101,9 +102,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
   const pendingCount = session.pending_host_changes?.length || 0
-  const pendingBlocked = Boolean(session.pending_manual_request_ids?.length || ['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'conflict_resolution_pending'].includes(session.state))
-  const canApply = Boolean(!direct && pendingCount && !pendingBlocked && session.last_turn?.kind !== 'workflow')
-  const canReject = canApply || Boolean(!direct && pendingCount && session.integration_conflict)
+  const canApply = sessionCanApplyHost(session)
+  const canReject = Boolean(!direct && pendingCount && (!sessionHostResolutionBlocked(session) || session.integration_conflict))
 
   function openInspector(tab: InspectorTab) {
     setInspectorTab(tab)
@@ -134,6 +134,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
         if (detail !== undefined) await chatProps.onRepairWithGPT?.(detail)
         return
       }
+      case 'retry-transport': await chatProps.onRetryTransportFailure?.(item.requestId || ''); return
       case 'retry-host-apply':
       case 'apply-host': await inspectorProps.onApply(); return
     }
@@ -192,6 +193,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
         </div>}
         {session.policy && <span className={`agent-policy-icon ${session.policy.allowed ? '' : 'blocked'}`} title={session.policy.allowed ? `Policy autorizada · risco ${session.policy.risk}` : 'Policy bloqueada'} aria-label={session.policy.allowed ? `Policy autorizada, risco ${session.policy.risk}` : 'Policy bloqueada'}><Icon name="shield" size={14}/></span>}
         {canExecute && !needsApproval && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}
+        {canApply && activeCommandAttention?.action !== 'retry-host-apply' && <button type="button" className="agent-command-icon apply" disabled={busy} onClick={() => void inspectorProps.onApply()} aria-label="Aplicar alterações verificadas no host" title={`Aplicar ${pendingCount > 1 ? `${pendingCount} alterações verificadas` : 'alteração verificada'} no host`}><Icon name="apply" size={15}/>{pendingCount > 1 && <b>{pendingCount}</b>}</button>}
+        {activeCommandAttention?.action && <button type="button" className={`agent-command-icon attention ${activeCommandAttention.tone}`} disabled={busy} onClick={() => void runAttentionAction(activeCommandAttention)} aria-label={`Ação disponível: ${ATTENTION_ACTION_LABEL[activeCommandAttention.action]}`} title={`${activeCommandAttention.title} · ${ATTENTION_ACTION_LABEL[activeCommandAttention.action]}`}><Icon name={activeCommandAttention.action.includes('host') ? 'apply' : activeCommandAttention.action.includes('dependency') || activeCommandAttention.action === 'retry-transport' ? 'network' : 'play'} size={15}/></button>}
         {canReject && <button type="button" className="agent-command-icon reject" disabled={busy} onClick={() => void inspectorProps.onRejectPendingChanges?.()} aria-label={session.integration_conflict ? 'Cancelar resolução e rejeitar alterações' : 'Rejeitar alterações verificadas'} title={session.integration_conflict ? 'Cancelar conflito e rejeitar a candidata' : 'Rejeitar alterações verificadas'}><Icon name="trash" size={14}/></button>}
       </div>
       <nav className="agent-surface-tabs" aria-label="Áreas do Agent">

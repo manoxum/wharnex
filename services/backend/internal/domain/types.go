@@ -109,6 +109,11 @@ const (
 	// cancellation of the owning request context. It is a transport/lifecycle
 	// interruption, not evidence that the model-generated source is defective.
 	FailureKindExecutionCanceled = "execution_context_canceled"
+
+	// FailureKindRemoteInputTransport marks a terminal failure to obtain or
+	// validate the remote ChatGPT result. The project source did not fail, so
+	// recovery is a fresh transport request rather than a source repair turn.
+	FailureKindRemoteInputTransport = "remote_input_transport"
 )
 
 type ExecutionMode string

@@ -125,6 +125,9 @@ func sessionFailureKind(item domain.Session) string {
 	if item.FailureKind != "" {
 		return item.FailureKind
 	}
+	if strings.HasPrefix(item.LastRepairError, "Remote input communication failed:") {
+		return domain.FailureKindRemoteInputTransport
+	}
 	sentinel := sandbox.ErrOfflineDependenciesUnavailable.Error()
 	if strings.Contains(item.LastRepairError, sentinel) {
 		return domain.FailureKindOfflineGoModuleCache

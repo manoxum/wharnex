@@ -600,7 +600,7 @@ func TestRemoteInputFailureEndsPendingRequestAndClosesChannel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.State != "failed" || containsString(updated.PendingManualRequestIDs, prompted.LastRequestID) || !strings.Contains(updated.LastRepairError, "bundle download timed out") {
+	if updated.State != "failed" || updated.FailureKind != domain.FailureKindRemoteInputTransport || containsString(updated.PendingManualRequestIDs, prompted.LastRequestID) || !strings.Contains(updated.LastRepairError, "bundle download timed out") {
 		t.Fatalf("remote failure left the request active: %#v", updated)
 	}
 	remote.mu.Lock()

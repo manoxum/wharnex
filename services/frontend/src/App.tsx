@@ -94,7 +94,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   const restartPresentationKey = restartConfirmationKey(session)
   const activeConflictKey = session?.integration_conflict && activeChatId ? conflictChatGPTCacheKey(activeChatId, session.integration_conflict.id) : ''
-  const chatgptHumanAction = chatgptHumanActions[activeConflictKey] || chatgptHumanActions[activeChatId] || Object.values(chatgptHumanActions)[0]
+  const chatgptHumanAction = chatgptHumanActions[activeConflictKey] || chatgptHumanActions[activeChatId]
   const activeBusy = busy || Boolean(busyChats[activeChatId])
 
   useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
@@ -609,6 +609,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         restored = await api.createSession(session.project_path, executionMode, automationMode)
         const next = chats.map((chat) => chat.id === chatId ? { ...chat, sessionId: restored.id } : chat)
         persistChats(restored.project_path, next)
+        setChats(next)
       }
       activeChatIdRef.current = chatId; setActiveChatId(chatId); setSession(restored); setEvents([])
       setManualPrompt(restored.last_manual_prompt || ''); setChatTransportMode(restored.chat_transport_mode || 'scraper')

@@ -4,7 +4,16 @@ import { executionNeedsAttention } from './executionRecovery'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
-export type AttentionAction = 'approve-execution' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-host-apply' | 'apply-host'
+export type AttentionAction = 'approve-execution' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-transport' | 'retry-host-apply' | 'apply-host'
+export const ATTENTION_ACTION_LABEL: Record<AttentionAction, string> = {
+  'approve-execution': 'Aprovar e executar',
+  'retry-dependency-network': 'Permitir rede e repetir',
+  'repair-host-dependency': 'Reinstalar dependências e repetir',
+  'repair-with-gpt': 'Corrigir com GPT',
+  'retry-transport': 'Repetir pedido',
+  'retry-host-apply': 'Repetir aplicação',
+  'apply-host': 'Aplicar no host',
+}
 export type AttentionItem = {
   id: string
   chatId: string
@@ -14,6 +23,7 @@ export type AttentionItem = {
   tone: AttentionTone
   target?: AttentionTarget
   action?: AttentionAction
+  requestId?: string
 }
 
 export type AttentionHumanAction = {
@@ -28,8 +38,17 @@ const PENDING_RESOLUTION_STATES = new Set([
   'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending',
 ])
 
-const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'host_integration_race'])
+const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'stale_host_baseline', 'host_integration_race'])
 const APPLY_BLOCKING_FAILURES = new Set(['offline_go_module_cache', 'host_build_toolchain_mismatch', 'host_dependency_state', ...APPLY_RETRY_FAILURES])
+
+export function sessionHostResolutionBlocked(session: Session) {
+  return Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || PENDING_RESOLUTION_STATES.has(session.state) || session.last_turn?.kind === 'workflow')
+}
+
+export function sessionCanApplyHost(session: Session) {
+  const pendingCount = session.pending_host_changes?.length || 0
+  return session.execution_mode !== 'unprotected' && pendingCount > 0 && !sessionHostResolutionBlocked(session) && !APPLY_BLOCKING_FAILURES.has(session.failure_kind || '')
+}
 
 export function collectAttentionItems(
   chats: WorkspaceChat[],
@@ -53,8 +72,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   if (!session) return items
 
   const pendingCount = session.pending_host_changes?.length || 0
-  const pendingResolutionBlocked = Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || PENDING_RESOLUTION_STATES.has(session.state))
-  const canApply = session.execution_mode !== 'unprotected' && pendingCount > 0 && !pendingResolutionBlocked && session.last_turn?.kind !== 'workflow'
+  const canApply = sessionCanApplyHost(session)
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
   let failureAlertAdded = false
 
@@ -67,6 +85,12 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   }
 
   switch (session.failure_kind) {
+    case 'remote_input_transport':
+      if (!humanAction?.active && session.state === 'failed') {
+        items.push(item(chat, 'remote-input-transport', 'warning', 'Falha na ligação ao ChatGPT', 'O projeto não falhou. Repita o pedido usando o contexto atual.', 'chatgpt', 'retry-transport', session.last_request_id))
+      }
+      failureAlertAdded = true
+      break
     case 'host_build_toolchain_mismatch':
       items.push(item(chat, 'host-toolchain', 'danger', 'Build do host bloqueado', 'A toolchain do host é incompatível com a dependência fixada; requer intervenção local.', 'terminal'))
       failureAlertAdded = true
@@ -101,10 +125,19 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
         failureAlertAdded = true
       }
       break
+    case 'stale_host_baseline':
+      if (pendingCount) {
+        items.push(item(chat, 'host-apply-retry', 'warning', 'Candidata precisa de nova validação', 'O host mudou desde a verificação. Reveja a candidata retida e tente a integração novamente.', 'plan', 'retry-host-apply'))
+        failureAlertAdded = true
+      }
+      break
   }
 
-  const repairableFailure = !session.failure_kind && session.state === 'failed' && Boolean(session.last_repair_error || (session.last_execution?.success === false && session.last_execution.error))
-  const preparedRepair = !session.failure_kind && session.state === 'repair_pending' && Boolean(session.last_manual_prompt)
+  // A live Desktop human-action block already names the real transport or
+  // authentication problem. A second GPT-repair card would describe the same
+  // stopped request as a source defect and offer a competing recovery.
+  const repairableFailure = !humanAction?.active && !session.failure_kind && session.state === 'failed' && Boolean(session.last_repair_error || (session.last_execution?.success === false && session.last_execution.error))
+  const preparedRepair = !humanAction?.active && !session.failure_kind && session.state === 'repair_pending' && Boolean(session.last_manual_prompt)
   if (!failureAlertAdded && (repairableFailure || preparedRepair)) {
     items.push(item(chat, 'gpt-repair', 'warning', preparedRepair ? 'Correção GPT pronta para enviar' : 'Erro reparável com GPT', preparedRepair ? 'A correção automática foi preparada; pode reenviá-la manualmente e acrescentar um detalhe.' : 'A tentativa automática terminou; pode iniciar uma correção manual e acrescentar um detalhe.', 'chatgpt', 'repair-with-gpt'))
     failureAlertAdded = true
@@ -132,8 +165,8 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   return items
 }
 
-function item(chat: WorkspaceChat, suffix: string, tone: AttentionTone, title: string, detail: string, target?: AttentionTarget, action?: AttentionAction): AttentionItem {
-  return { id: `${chat.id}:${suffix}`, chatId: chat.id, chatTitle: chat.title, title, detail, tone, target, action }
+function item(chat: WorkspaceChat, suffix: string, tone: AttentionTone, title: string, detail: string, target?: AttentionTarget, action?: AttentionAction, requestId?: string): AttentionItem {
+  return { id: `${chat.id}:${suffix}`, chatId: chat.id, chatTitle: chat.title, title, detail, tone, target, action, requestId }
 }
 
 function attentionRank(tone: AttentionTone) {

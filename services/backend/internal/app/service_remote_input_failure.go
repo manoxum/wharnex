@@ -55,6 +55,7 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 		current.PlannerInFlight = false
 		current.State = "failed"
 		current.LastRepairError = "Remote input communication failed: " + reason
+		current.FailureKind = domain.FailureKindRemoteInputTransport
 		return nil
 	})
 	if err != nil {

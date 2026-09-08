@@ -1,20 +1,12 @@
-import type { AttentionAction, AttentionItem } from '../lib/attentionCenter'
+import { ATTENTION_ACTION_LABEL, type AttentionAction, type AttentionItem } from '../lib/attentionCenter'
 import { Icon } from './Icon'
-
-const ACTION_LABEL: Record<AttentionAction, string> = {
-  'approve-execution': 'Aprovar e executar',
-  'retry-dependency-network': 'Permitir rede e repetir',
-  'repair-host-dependency': 'Reinstalar dependências e repetir',
-  'repair-with-gpt': 'Corrigir com GPT',
-  'retry-host-apply': 'Repetir aplicação',
-  'apply-host': 'Aplicar no host',
-}
 
 const ACTION_ICON: Record<AttentionAction, 'play' | 'network' | 'apply'> = {
   'approve-execution': 'play',
   'retry-dependency-network': 'network',
   'repair-host-dependency': 'network',
   'repair-with-gpt': 'play',
+  'retry-transport': 'network',
   'retry-host-apply': 'apply',
   'apply-host': 'apply',
 }
@@ -40,7 +32,7 @@ export function AttentionPopover({ items, activeChatId, busy, onOpen, onAction, 
           <span className="agent-attention-popover-copy"><small>{item.chatTitle}{item.chatId === activeChatId ? ' · chat atual' : ''}</small><strong>{item.title}</strong><span>{item.detail}</span></span>
           <Icon name="arrow-right" size={13}/>
         </button>
-        {item.action && item.chatId === activeChatId && <button type="button" className="agent-attention-popover-action" disabled={busy} onClick={() => void onAction(item)} aria-label={ACTION_LABEL[item.action]}><Icon name={ACTION_ICON[item.action]} size={13}/>{ACTION_LABEL[item.action]}</button>}
+        {item.action && item.chatId === activeChatId && <button type="button" className="agent-attention-popover-action" disabled={busy} onClick={() => void onAction(item)} aria-label={ATTENTION_ACTION_LABEL[item.action]}><Icon name={ACTION_ICON[item.action]} size={13}/>{ATTENTION_ACTION_LABEL[item.action]}</button>}
       </article>)}
     </div>
     <footer><button type="button" onClick={onOpenAll}><Icon name="bell" size={13}/> Ver todos os alertas <Icon name="arrow-right" size={12}/></button></footer>
