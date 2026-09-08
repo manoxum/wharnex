@@ -48,7 +48,7 @@ Required entries for `workflow`:
 
 Required entries for `change`:
 
-- `plan.json`: `harness.execution/v1` metadata, including a mandatory `commit_message`: a short Git commit message (Conventional-Commits style) summarizing what the patch does. It becomes the real Git commit that integrates this candidate into the host (see the Git-native host integration section below) after sanitization and an appended `Request-Id`/`Plan-Id` trailer; a `workflow` (command-only) plan does not require it. `apply_patch` operations SHOULD use `patch_file` instead of embedding a diff string.
+- `plan.json`: `harness.execution/v1` metadata, including a mandatory `commit_message` for `change`: useful permanent Git history derived from the actual patch. It MUST use the most accurate Conventional Commits type (`feat` for new capability/behavior, `fix` for a bug or corrective patch, then `refactor`, `perf`, `docs`, `test`, `build`, `ci`, or `chore` only when nothing more specific applies), SHOULD include a meaningful subsystem scope, and MUST state the concrete implemented/corrected outcome rather than generic process text such as `update files`, `apply patch`, `requested changes`, or `Wharness-verified change`. It becomes the real Git commit that integrates this candidate into the host (see the Git-native host integration section below) after sanitization and appended `Request-Id`/`Plan-Id` trailers; a `workflow` (command-only) plan does not require it. `apply_patch` operations SHOULD use `patch_file` instead of embedding a diff string.
 - `README.md`: human explanation of the user problem, solution, affected files, operations, verification, risks, and expected result.
 - `patches/*.patch`: raw UTF-8 standard unified diffs referenced by `patch_file`.
 
