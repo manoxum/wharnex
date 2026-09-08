@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	ErrBusy                    = errors.New("another Wharness self-evolution transaction is already active")
-	ErrSelfEvolutionInProgress = errors.New("a Wharness self-evolution restart is already in progress")
+	ErrBusy                            = errors.New("another Wharness self-evolution transaction is already active")
+	ErrSelfEvolutionInProgress         = errors.New("a Wharness self-evolution restart is already in progress")
+	errTransactionDirectoryUnavailable = errors.New("self-evolution transaction directory is unavailable")
 	// ErrHostBuildToolchainMismatch marks a BuildHost failure that no source
 	// patch can fix: the host's installed toolchain (observed: Node.js) is
 	// older than a pinned dependency's engine requirement (observed:
@@ -154,9 +155,11 @@ func (m *Manager) Prepare(sessionID, planID string, patches []string) (Transacti
 	stageLockPath := filepath.Join(base, "stage.lock")
 	if err := acquireActiveLock(lockPath); err == nil {
 		if status, statusErr := m.LastStatus(); statusErr == nil && extendablePendingPhase(status.Phase) {
-			if _, txErr := m.transactionFromStatus(status); txErr == nil {
-				return m.extendPendingBatch(base, lockPath, stageLockPath, sessionID, planID, patches)
+			tx, extendErr := m.extendPendingBatch(base, lockPath, stageLockPath, sessionID, planID, patches)
+			if extendErr != nil {
+				_ = os.Remove(lockPath)
 			}
+			return tx, extendErr
 		}
 		if err := acquireLock(stageLockPath); err != nil {
 			_ = os.Remove(lockPath)
@@ -178,6 +181,9 @@ func (m *Manager) Prepare(sessionID, planID string, patches []string) (Transacti
 		return m.Prepare(sessionID, planID, patches)
 	}
 	if _, txErr := m.transactionFromStatus(status); txErr != nil {
+		if !errors.Is(txErr, errTransactionDirectoryUnavailable) {
+			return Transaction{}, txErr
+		}
 		// The status file still claims a fail-closed phase (e.g.
 		// rollback_failed) that is meant to hold the batch lock for manual
 		// recovery, but the transaction directory it points to no longer
@@ -263,6 +269,14 @@ func (m *Manager) extendPendingBatch(base, lockPath, stageLockPath, sessionID, p
 		return Transaction{}, ErrBusy
 	}
 	tx, err := m.transactionFromStatus(latest)
+	if errors.Is(err, ErrTransactionMetadataMismatch) {
+		metadata, repairErr := m.repairTransactionMetadata(latest, tx)
+		if repairErr != nil {
+			return Transaction{}, repairErr
+		}
+		tx.PreTransactionSHA = metadata.PreTransactionSHA
+		err = nil
+	}
 	if err != nil {
 		return Transaction{}, err
 	}
@@ -410,16 +424,78 @@ func (m *Manager) transactionFromStatus(status Status) (Transaction, error) {
 	dir := filepath.Join(m.root, ".harness", "self-evolution", transactionName)
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		return Transaction{}, errors.New("self-evolution transaction directory is unavailable")
+		return Transaction{}, errTransactionDirectoryUnavailable
 	}
 	tx := Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: filepath.Join(m.root, ".harness", "self-evolution", "active.lock")}
 	// Best-effort: an older transaction created before PreTransactionSHA
 	// existed simply rolls back without the overlap safety check below,
-	// exactly like before this field was introduced.
-	if metadata, metaErr := tx.readMetadata(); metaErr == nil {
+	// exactly like before this field was introduced. Identity mismatches are
+	// surfaced to the caller; extension is the only path that repairs them,
+	// after it owns the short-lived stage lock.
+	metadata, metaErr := tx.readMetadata()
+	if metaErr == nil {
 		tx.PreTransactionSHA = metadata.PreTransactionSHA
+	} else if errors.Is(metaErr, ErrTransactionMetadataMismatch) {
+		return tx, metaErr
 	}
 	return tx, nil
+}
+
+func (m *Manager) repairTransactionMetadata(status Status, tx Transaction) (transactionMetadata, error) {
+	metadata, err := tx.readMetadataUnchecked()
+	if err != nil {
+		return transactionMetadata{}, fmt.Errorf("%w: cannot read retained metadata: %v", ErrTransactionMetadataMismatch, err)
+	}
+	if !extendablePendingPhase(status.Phase) {
+		return transactionMetadata{}, fmt.Errorf("%w: phase %s is not safe for automatic identity repair", ErrTransactionMetadataMismatch, status.Phase)
+	}
+	metadataRoot, err := canonicalPath(metadata.Root)
+	if err != nil || metadataRoot != m.root {
+		return transactionMetadata{}, fmt.Errorf("%w: retained metadata root does not resolve to the active Wharness root", ErrTransactionMetadataMismatch)
+	}
+	memberFound := false
+	for _, pending := range metadata.Plans {
+		if pending.SessionID == status.SessionID && pending.PlanID == status.PlanID {
+			memberFound = true
+			break
+		}
+	}
+	if status.SessionID == "" || status.PlanID == "" || !memberFound {
+		return transactionMetadata{}, fmt.Errorf("%w: status member is absent from retained pending-plan metadata", ErrTransactionMetadataMismatch)
+	}
+	if err := validateRetainedTransactionArtifacts(tx); err != nil {
+		return transactionMetadata{}, fmt.Errorf("%w: %v", ErrTransactionMetadataMismatch, err)
+	}
+	previousID := metadata.TransactionID
+	if previousID != "" && previousID != tx.ID {
+		previousName := "txn-" + previousID
+		if sanitizeLabel(previousName) == previousName {
+			if info, statErr := os.Stat(filepath.Join(m.root, ".harness", "self-evolution", previousName)); statErr == nil && info.IsDir() {
+				return transactionMetadata{}, fmt.Errorf("%w: retained metadata names another transaction directory that still exists", ErrTransactionMetadataMismatch)
+			}
+		}
+	}
+	metadata.TransactionID = tx.ID
+	metadata.Root = m.root
+	if err := tx.saveMetadata(metadata); err != nil {
+		return transactionMetadata{}, fmt.Errorf("%w: persist verified identity repair: %v", ErrTransactionMetadataMismatch, err)
+	}
+	m.logRecovery(fmt.Sprintf("metadata_repaired transaction=%s previous_transaction=%s phase=%s session=%s plan=%s", sanitizeLabel(tx.ID), sanitizeLabel(previousID), sanitizeLabel(status.Phase), sanitizeLabel(status.SessionID), sanitizeLabel(status.PlanID)))
+	return metadata, nil
+}
+
+func validateRetainedTransactionArtifacts(tx Transaction) error {
+	for _, name := range []string{"source-backup.json", "rollback.sh", "worker.sh", "start-known-good.sh", "stop-known-good.sh", "stack-known-good.sh"} {
+		info, err := os.Lstat(filepath.Join(tx.Dir, name))
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("retained transaction artifact %s is unavailable", name)
+		}
+	}
+	info, err := os.Stat(filepath.Join(tx.Dir, "runtime"))
+	if err != nil || !info.IsDir() {
+		return errors.New("retained transaction runtime snapshot is unavailable")
+	}
+	return nil
 }
 
 func (m *Manager) TransactionForStatus(status Status) (Transaction, error) {

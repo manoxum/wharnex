@@ -50,6 +50,25 @@ describe('attention center', () => {
     expect(offlineItems).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Dependências precisam de rede', action: 'retry-dependency-network' })]))
   })
 
+  it('turns persisted self-evolution metadata blocks into one retry action', () => {
+    const current = session('ses-chat-1')
+    current.state = 'failed'
+    current.failure_kind = 'self_evolution_transaction_metadata_mismatch'
+    current.last_turn = {
+      protocol: 'harness.turn/v1', request_id: 'req-stuck', kind: 'blocked',
+      message: 'prepare Wharness self-evolution transaction: self-evolution transaction metadata does not match transaction',
+    }
+    current.pending_host_changes = [{
+      plan: { protocol: 'harness.execution/v1', plan_id: 'plan-1', request_id: 'req-1', status: 'ready', summary: 'Mudança', risk: 'low', requires_approval: false, operations: [], verification: [] },
+      execution: { plan_id: 'plan-1', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
+      verified_at: '2026-09-07T10:00:01.000Z',
+    }]
+    const items = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': current })
+    expect(items).toEqual([expect.objectContaining({ title: 'Aplicação ao host pronta para repetir', tone: 'warning', action: 'retry-host-apply' })])
+    expect(items.map((entry) => entry.title)).not.toContain('Pedido bloqueado')
+    expect(items.map((entry) => entry.title)).not.toContain('Alterações prontas para o host')
+  })
+
   it('does not duplicate a generic host-apply alert when retry/apply recovery is the real action', () => {
     const current = session('ses-chat-1')
     current.failure_kind = 'host_integration_race'

@@ -88,6 +88,12 @@ const (
 	// clears; asking the model for another source patch cannot resolve it.
 	FailureKindSelfEvolutionBusy = "self_evolution_transaction_busy"
 
+	// FailureKindSelfEvolutionMetadata marks a retained self-evolution batch
+	// whose transaction.json identity disagrees with the runtime status that
+	// references its directory. This is local recovery state, not a source
+	// defect, so a new planner repair round cannot resolve it.
+	FailureKindSelfEvolutionMetadata = "self_evolution_transaction_metadata_mismatch"
+
 	// FailureKindStaleHostBaseline marks a retained legacy candidate that could
 	// not be safely replayed/reverified on the current host baseline. Wharness
 	// must preserve the candidate for explicit retry/review rather than spend a

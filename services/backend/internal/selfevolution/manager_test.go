@@ -91,6 +91,92 @@ func TestTransactionLockRejectsConcurrentSelfEvolution(t *testing.T) {
 	}
 }
 
+func TestPrepareRepairsVerifiedPendingTransactionMetadataIdentity(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	firstPatch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"
+	first, err := manager.Prepare("ses-one", "plan-one", []string{firstPatch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after-one\n", 0o644)
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_pending", "first build ready"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	metadata, err := first.readMetadataUnchecked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata.TransactionID = "stale-transaction-id"
+	if err := first.saveMetadata(metadata); err != nil {
+		t.Fatal(err)
+	}
+
+	secondPatch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-after-one\n+after-two\n"
+	second, err := manager.Prepare("ses-two", "plan-two", []string{secondPatch})
+	if err != nil {
+		t.Fatalf("verified pending metadata should repair conservatively, got %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("expected repaired batch %s, got %s", first.ID, second.ID)
+	}
+	repaired, err := second.readMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.TransactionID != first.ID || repaired.Root != manager.Root() {
+		t.Fatalf("unexpected repaired metadata: %#v", repaired)
+	}
+	log, err := os.ReadFile(filepath.Join(root, ".harness", "logs", "self-evolution.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "metadata_repaired") || !strings.Contains(string(log), first.ID) {
+		t.Fatalf("expected metadata repair audit line, got %q", string(log))
+	}
+}
+
+func TestPrepareRefusesUnsafePendingTransactionMetadataRepair(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	first, err := manager.Prepare("ses-one", "plan-one", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_pending", "first build ready"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	metadata, err := first.readMetadataUnchecked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata.TransactionID = "wrong-id"
+	metadata.Root = t.TempDir()
+	if err := first.saveMetadata(metadata); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = manager.Prepare("ses-two", "plan-two", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-two\n"})
+	if !errors.Is(err, ErrTransactionMetadataMismatch) {
+		t.Fatalf("expected fail-closed metadata mismatch, got %v", err)
+	}
+	retained, readErr := first.readMetadataUnchecked()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if retained.TransactionID != "wrong-id" || retained.Root == manager.Root() {
+		t.Fatalf("unsafe metadata must not be rewritten: %#v", retained)
+	}
+}
+
 func TestPendingBatchAcceptsSequentialHostChangesAndKeepsOriginalRollbackBaseline(t *testing.T) {
 	root := fakeRoot(t)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)

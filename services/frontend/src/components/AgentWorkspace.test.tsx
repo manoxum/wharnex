@@ -296,7 +296,7 @@ describe('AgentWorkspace', () => {
   })
 
   it('offers retry-apply from the alert popover for local coordination blocks', () => {
-    for (const failureKind of ['self_evolution_transaction_busy', 'host_integration_race'] as const) {
+    for (const failureKind of ['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'host_integration_race'] as const) {
       const blocked = session()
       blocked.state = 'failed'
       blocked.failure_kind = failureKind

@@ -30,15 +30,16 @@ var offlineGoModuleCacheReasonCodes = map[string]bool{
 }
 
 var nonRepairablePlannerReasonCodes = map[string]string{
-	"host_build_toolchain_mismatch":   domain.FailureKindHostBuildToolchain,
-	"host_toolchain_mismatch":         domain.FailureKindHostBuildToolchain,
-	"host_dependency_state":           domain.FailureKindHostDependencyState,
-	"self_evolution_transaction_busy": domain.FailureKindSelfEvolutionBusy,
-	"self_evolution_busy":             domain.FailureKindSelfEvolutionBusy,
-	"stale_pending_baseline":          domain.FailureKindStaleHostBaseline,
-	"stale_host_baseline":             domain.FailureKindStaleHostBaseline,
-	"host_integration_race":           domain.FailureKindHostIntegrationRace,
-	"integration_race":                domain.FailureKindHostIntegrationRace,
+	"host_build_toolchain_mismatch":                domain.FailureKindHostBuildToolchain,
+	"host_toolchain_mismatch":                      domain.FailureKindHostBuildToolchain,
+	"host_dependency_state":                        domain.FailureKindHostDependencyState,
+	"self_evolution_transaction_busy":              domain.FailureKindSelfEvolutionBusy,
+	"self_evolution_busy":                          domain.FailureKindSelfEvolutionBusy,
+	"self_evolution_transaction_metadata_mismatch": domain.FailureKindSelfEvolutionMetadata,
+	"stale_pending_baseline":                       domain.FailureKindStaleHostBaseline,
+	"stale_host_baseline":                          domain.FailureKindStaleHostBaseline,
+	"host_integration_race":                        domain.FailureKindHostIntegrationRace,
+	"integration_race":                             domain.FailureKindHostIntegrationRace,
 }
 
 // classifyExecutionFailure derives a domain.FailureKind from a Wharness
@@ -56,6 +57,9 @@ func classifyExecutionFailure(cause error) string {
 	}
 	if errors.Is(cause, selfevolution.ErrBusy) {
 		return domain.FailureKindSelfEvolutionBusy
+	}
+	if errors.Is(cause, selfevolution.ErrTransactionMetadataMismatch) {
+		return domain.FailureKindSelfEvolutionMetadata
 	}
 	if errors.Is(cause, ErrStaleHostBaseline) {
 		return domain.FailureKindStaleHostBaseline
@@ -98,6 +102,9 @@ func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {
 	}
 	if strings.Contains(message, strings.ToLower(selfevolution.ErrBusy.Error())) {
 		return domain.FailureKindSelfEvolutionBusy
+	}
+	if strings.Contains(message, strings.ToLower(selfevolution.ErrTransactionMetadataMismatch.Error())) {
+		return domain.FailureKindSelfEvolutionMetadata
 	}
 	if strings.Contains(message, "host apply blocked by stale baseline") {
 		return domain.FailureKindStaleHostBaseline
@@ -146,6 +153,9 @@ func sessionFailureKind(item domain.Session) string {
 		if strings.Contains(legacyDetail, strings.ToLower(selfevolution.ErrBusy.Error())) {
 			return domain.FailureKindSelfEvolutionBusy
 		}
+		if strings.Contains(legacyDetail, "self_evolution_transaction_metadata_mismatch") || strings.Contains(legacyDetail, strings.ToLower(selfevolution.ErrTransactionMetadataMismatch.Error())) {
+			return domain.FailureKindSelfEvolutionMetadata
+		}
 		if strings.Contains(legacyDetail, "host apply blocked by stale baseline") || strings.Contains(legacyDetail, "stale_pending_baseline") {
 			return domain.FailureKindStaleHostBaseline
 		}
@@ -163,6 +173,24 @@ func sessionFailureKind(item domain.Session) string {
 // with its prose. The two fields must never be cleared independently, or a
 // stale FailureKind can outlive the LastRepairError that justified it (or
 // vice versa) and mislead the next recovery decision.
+func (s *Service) normalizeFailureKinds() {
+	for _, item := range s.store.List() {
+		if item.State != "failed" || item.FailureKind != "" {
+			continue
+		}
+		kind := sessionFailureKind(item)
+		if kind == "" {
+			continue
+		}
+		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
+			if current.State == "failed" && current.FailureKind == "" {
+				current.FailureKind = kind
+			}
+			return nil
+		})
+	}
+}
+
 func clearSessionFailure(current *domain.Session) {
 	current.LastRepairError = ""
 	current.FailureKind = ""
