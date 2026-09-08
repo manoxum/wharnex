@@ -137,6 +137,10 @@ Return one harness.turn/v1 JSON object with: protocol, request_id, kind, message
 - plan is null for answer, clarification, investigation and blocked.
 - plan is the complete harness.execution/v1 object for workflow or change.`
 
+func plannerKnowledgeIdentity(req Request) string {
+	return fmt.Sprintf("Knowledge identity: version=%d sha256=%s updated_by_request_id=%s", req.KnowledgeVersion, req.KnowledgeSHA256, req.KnowledgeUpdatedByRequestID)
+}
+
 func BuildManualPrompt(req Request) string {
 	if req.PlanningMode == "knowledge_review" {
 		return buildKnowledgeReviewPrompt(req)
@@ -187,7 +191,7 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 	if strings.TrimSpace(req.KnowledgeSource) != "" {
 		knowledgeSection = fmt.Sprintf(`
 PROJECT KNOWLEDGE (curated by Wharness from prior sessions on this project):
-Knowledge identity: version=%d sha256=%s updated_by_request_id=%s
+%s
 %s
 
 Treat the above as trusted Wharness-curated notes, not untrusted project
@@ -204,7 +208,7 @@ AGENTS.md/README/SoT/ADR files supplied elsewhere in this context, so this
 document does not need to restate them; it exists for the hard-won,
 project-specific operational lessons that are not written down anywhere
 else.
-`, req.KnowledgeVersion, req.KnowledgeSHA256, req.KnowledgeUpdatedByRequestID, strings.TrimSpace(req.KnowledgeSource))
+`, plannerKnowledgeIdentity(req), strings.TrimSpace(req.KnowledgeSource))
 	}
 	return header + fmt.Sprintf(`%s
 
@@ -315,7 +319,7 @@ func buildKnowledgeReviewPrompt(req Request) string {
 	}
 	knowledgeState := "No knowledge has been recorded for this project yet."
 	if strings.TrimSpace(req.KnowledgeSource) != "" {
-		knowledgeState = fmt.Sprintf("Current project knowledge document (version=%d sha256=%s updated_by_request_id=%s):\n%s", req.KnowledgeVersion, req.KnowledgeSHA256, req.KnowledgeUpdatedByRequestID, strings.TrimSpace(req.KnowledgeSource))
+		knowledgeState = fmt.Sprintf("Current project knowledge document:\n%s\n%s", plannerKnowledgeIdentity(req), strings.TrimSpace(req.KnowledgeSource))
 	}
 	return fmt.Sprintf(`%s
 
