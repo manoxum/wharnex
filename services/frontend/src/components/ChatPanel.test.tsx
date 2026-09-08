@@ -214,6 +214,28 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(onRetryTransportFailure).toHaveBeenCalledWith('req-123'))
   })
 
+  it('offers manual GPT correction on a repairable failure with optional operator guidance', async () => {
+    const onRepairWithGPT = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={{ ...session, state: 'failed', last_repair_error: 'tests still fail' }} items={[{ id: 'failure-1', role: 'harness', source: 'wharness', presentation: 'notice', text: 'A execução falhou.', meta: 'Execução falhou', iteration: { id: 'iteration-failure', requestId: 'req-failure', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} canRepairWithGPT onRepairWithGPT={onRepairWithGPT} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Corrigir com GPT' }))
+    const detail = await screen.findByRole('textbox', { name: 'Detalhe opcional' })
+    fireEvent.change(detail, { target: { value: 'Considere o fixture Windows.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar para correção' }))
+    await waitFor(() => expect(onRepairWithGPT).toHaveBeenCalledWith('Considere o fixture Windows.'))
+  })
+
+  it('puts the restricted dependency recovery beside its expanded failure', async () => {
+    const onRetryDependencyNetwork = vi.fn(async () => undefined)
+    render(
+      <ChatPanel session={{ ...session, state: 'failed', failure_kind: 'offline_go_module_cache', last_repair_error: 'module lookup disabled by GOPROXY=off' }} items={[{ id: 'dependency-failure', role: 'harness', source: 'wharness', presentation: 'notice', text: 'A execução falhou.', meta: 'Execução falhou', iteration: { id: 'iteration-dependency', requestId: 'req-dependency', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} canRetryDependencyNetwork onRetryDependencyNetwork={onRetryDependencyNetwork} {...chatActions} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Permitir rede e repetir' }))
+    await waitFor(() => expect(onRetryDependencyNetwork).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('button', { name: 'Corrigir com GPT' })).toBeNull()
+  })
+
 	it('timestamps WHX notices, links their request, and allows cancelling the active request', async () => {
 		const onCancelPendingRequest = vi.fn(async () => undefined)
 		render(<ChatPanel session={{ ...session, state: 'failed', last_request_id: 'req-123' }} items={[{ id: 'failure', role: 'harness', source: 'wharness', presentation: 'notice', createdAt: '2026-09-06T11:00:00Z', text: 'Falhou.', iteration: { id: 'iteration-1', requestId: 'req-123', phase: 'failed', artifacts: [] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCancelPendingRequest={onCancelPendingRequest} {...chatActions}/>)

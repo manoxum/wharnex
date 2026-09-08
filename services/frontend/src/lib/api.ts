@@ -86,6 +86,8 @@ export const api = {
     request<Session>(`/api/sessions/${id}/chat-transport-mode`, { method: 'PUT', body: JSON.stringify({ chat_transport_mode: chatTransportMode }) }),
   setChatId: (id: string, chatId: string) =>
     request<Session>(`/api/sessions/${id}/chat-id`, { method: 'PUT', body: JSON.stringify({ chat_id: chatId }) }),
+  archiveChat: (id: string) => request<Session>(`/api/sessions/${id}/archive`, { method: 'POST', body: '{}' }),
+  restoreChat: (id: string) => request<Session>(`/api/sessions/${id}/restore`, { method: 'POST', body: '{}' }),
   message: (id: string, message: string, planningMode: ChatRequestMode = 'direct') =>
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
       method: 'POST', body: JSON.stringify({ message, planning_mode: planningMode }),
@@ -95,6 +97,7 @@ export const api = {
   executionBundle: (id: string, filename: string, contentBase64: string) =>
     request<BundleSubmission>(`/api/sessions/${id}/execution-bundle`, { method: 'POST', body: JSON.stringify({ filename, content_base64: contentBase64 }) }),
   retryPolicyRepair: (id: string) => request<Session>(`/api/sessions/${id}/policy-repair`, { method: 'POST', body: '{}' }),
+  requestFailureRepair: (id: string, detail = '') => request<Session>(`/api/sessions/${id}/failure-repair`, { method: 'POST', body: JSON.stringify({ detail }) }),
   retryFailedRequest: (id: string) => request<Session>(`/api/sessions/${id}/failed-request/retry`, { method: 'POST', body: '{}' }),
 	cancelPendingRequest: (id: string) => request<Session>(`/api/sessions/${id}/request/cancel`, { method: 'POST', body: '{}' }),
 	remoteInputFailure: (id: string, requestId: string, reason: string, kind: 'transport' | 'bundle_validation' = 'transport') => request<Session>(`/api/sessions/${id}/remote-input/failures`, { method: 'POST', body: JSON.stringify({ request_id: requestId, reason, kind }) }),

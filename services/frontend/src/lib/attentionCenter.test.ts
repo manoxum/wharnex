@@ -42,6 +42,17 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).not.toContain('Execução interrompida')
   })
 
+  it('keeps a manual GPT fallback after automatic repair stops', () => {
+    const failed = session('ses-chat-2')
+    failed.state = 'failed'
+    failed.plan = undefined
+    failed.policy = undefined
+    failed.last_repair_error = 'tests still fail'
+    failed.last_execution = { plan_id: 'plan-failed', success: false, error: 'tests still fail', started_at: '2026-09-08T18:20:00.000Z', completed_at: '2026-09-08T18:20:01.000Z', commands: [] }
+    const items = collectAttentionItems([chat('chat-2', 'Falhou')], { 'chat-2': failed })
+    expect(items.find((entry) => entry.title === 'Erro reparável com GPT')?.action).toBe('repair-with-gpt')
+  })
+
   it('maps approval and dependency recovery alerts to their popup actions', () => {
     const approval = session('ses-chat-1')
     approval.state = 'planned'

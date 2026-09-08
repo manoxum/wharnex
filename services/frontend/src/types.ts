@@ -218,6 +218,16 @@ export type Session = {
   interrupted_execution?: { plan_id: string; requested_at: string; approved: boolean; status?: 'awaiting_decision' | 'running' | 'resuming' | 'failed_retryable'; last_error?: string }
   remote_recovery_attempt?: number
 	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'evidence' | 'conflict' | 'knowledge_review'; created_at: string }>
+  /** Set the instant a chat's session is archived; null once restored. Set
+   *  together, restore is a pure state flip (api.restoreChat) while it is
+   *  still within the grace window (see compacted_at). */
+  archived_at?: string
+  /** Set once the passive compaction sweep has folded this session's
+   *  artifacts/events/context archives into archive_package (ADR-0031).
+   *  While set, api.restoreChat performs the slower extract-and-restore
+   *  path instead of a plain state flip. */
+  compacted_at?: string
+  archive_package?: { sha256: string; size: number; entry_count: number; created_at: string }
 }
 
 

@@ -311,6 +311,13 @@ func (s *Service) DeleteSession(sessionID string) error {
 				}
 			}
 		}
+		// An already-compacted chat has no per-artifact objects left (see
+		// chat_archive_compaction.go) — only its single package remains.
+		if item.ArchivePackage != nil {
+			if err := s.artifactStore.Delete(ctx, item.ArchivePackage.ObjectKey); err != nil {
+				return fmt.Errorf("delete chat archive package: %w", err)
+			}
+		}
 	}
 	if err := s.store.Delete(sessionID); err != nil {
 		return err
@@ -929,6 +936,10 @@ func (s *Service) RetryFailedRequest(ctx context.Context, sessionID string) (dom
 }
 
 func (s *Service) retryFailedRequest(ctx context.Context, sessionID string, automatic bool) (domain.Session, error) {
+	return s.retryFailedRequestWithGuidance(ctx, sessionID, automatic, "")
+}
+
+func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID string, automatic bool, guidance string) (domain.Session, error) {
 	current, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.Session{}, err
@@ -940,6 +951,9 @@ func (s *Service) retryFailedRequest(ctx context.Context, sessionID string, auto
 		return domain.Session{}, errors.New("another request is already pending")
 	}
 	message := "FRESH REQUEST RECOVERY\n\nRetry the most recent failed task from the current project context. Treat the previous plan as diagnostic history only: do not reuse its stale baseline or request id. Preserve the original user goal and produce a new protocol-valid result."
+	if clean := truncateRepairText(guidance, 4000); clean != "" {
+		message += "\n\nOPTIONAL OPERATOR GUIDANCE:\n" + clean
+	}
 	_, updated, err := s.SubmitMessageWithMode(ctx, sessionID, message, current.LastRequestMode)
 	if err != nil {
 		return updated, err
@@ -1736,7 +1750,66 @@ func (s *Service) TriggerApplyFailureRepair(ctx context.Context, sessionID strin
 	return item, nil
 }
 
+// RequestFailureRepair is the explicit operator fallback for a repairable
+// execution failure. It can resend an already prepared repair after Desktop
+// transport failed, or start a fresh manual repair cycle after the bounded
+// automatic attempts were exhausted. Infrastructure failures stay on their
+// dedicated local recovery paths and never become source-patch requests.
+func (s *Service) RequestFailureRepair(ctx context.Context, sessionID, guidance string) (domain.Session, error) {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	if kind := sessionFailureKind(current); kind != "" {
+		return current, fmt.Errorf("failure %s requires its dedicated local recovery action", kind)
+	}
+	cleanGuidance := truncateRepairText(guidance, 4000)
+	if current.State == "repair_pending" && strings.TrimSpace(current.LastManualPrompt) != "" {
+		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+			item.LastManualPrompt = appendOperatorRepairGuidance(item.LastManualPrompt, cleanGuidance)
+			return nil
+		})
+		if updateErr != nil {
+			return current, updateErr
+		}
+		s.bus.Publish(sessionID, "repair.manual_prompt_ready", map[string]any{"request_id": updated.LastRequestID, "reused": true, "has_guidance": cleanGuidance != ""})
+		return updated, nil
+	}
+	if current.State != "failed" || current.LastExecution == nil || current.LastExecution.Success {
+		if current.State == "failed" && strings.TrimSpace(current.LastRepairError) != "" && current.LastExecution == nil {
+			return s.retryFailedRequestWithGuidance(ctx, sessionID, false, cleanGuidance)
+		}
+		return current, errors.New("no repairable failure is available")
+	}
+	if current.PlannerInFlight || len(current.PendingManualRequestIDs) > 0 {
+		return current, errors.New("another planner request is already pending")
+	}
+	cause := strings.TrimSpace(current.LastRepairError)
+	if cause == "" {
+		cause = strings.TrimSpace(current.LastExecution.Error)
+	}
+	if cause == "" {
+		cause = "execution failed without a diagnostic message"
+	}
+	return s.prepareRepairRequestWithOptions(ctx, sessionID, *current.LastExecution, errors.New(cause), true, cleanGuidance)
+}
+
+func appendOperatorRepairGuidance(prompt, guidance string) string {
+	if guidance == "" {
+		return prompt
+	}
+	addition := "OPTIONAL OPERATOR GUIDANCE:\n" + guidance
+	if strings.Contains(prompt, addition) {
+		return prompt
+	}
+	return strings.TrimSpace(prompt) + "\n\n" + addition
+}
+
 func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.Session, error) {
+	return s.prepareRepairRequestWithOptions(ctx, sessionID, result, cause, false, "")
+}
+
+func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error, manual bool, guidance string) (domain.Session, error) {
 	current, err := s.store.Get(sessionID)
 	if err != nil {
 		return current, err
@@ -1759,7 +1832,7 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 		s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "plan_id": result.PlanID})
 		return updated, nil
 	}
-	if current.RepairAttempt >= maxAutoRepairAttempts {
+	if !manual && current.RepairAttempt >= maxAutoRepairAttempts {
 		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": current.RepairAttempt, "plan_id": result.PlanID})
 		return current, nil
 	}
@@ -1770,8 +1843,8 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 	}
 	requestID := ids.New("req")
 	attempt := refreshed.RepairAttempt + 1
-	repairMessage := buildRepairMessage(refreshed, result, cause, attempt)
-	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
+	repairMessage := buildRepairMessage(refreshed, result, cause, attempt, manual, guidance)
+	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID, "manual": manual})
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
 	if err != nil {
 		return refreshed, err
@@ -1851,9 +1924,20 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 	return updated, nil
 }
 
-func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt int) string {
+func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt int, manual bool, guidance string) string {
+	requestHeading := fmt.Sprintf("AUTOMATIC REPAIR REQUEST — attempt %d of %d", attempt, maxAutoRepairAttempts)
+	if manual {
+		requestHeading = fmt.Sprintf("MANUAL GPT REPAIR REQUEST — operator requested after %d automatic attempt(s)", item.RepairAttempt)
+	}
+	operatorGuidance := ""
+	if clean := truncateRepairText(guidance, 4000); clean != "" {
+		operatorGuidance = "\n\nOPTIONAL OPERATOR GUIDANCE:\n" + clean
+	}
 	if strings.HasPrefix(cause.Error(), "policy denied plan:") {
-		return fmt.Sprintf(`AUTOMATIC POLICY REPAIR REQUEST — attempt %d of %d
+		if !manual {
+			requestHeading = fmt.Sprintf("AUTOMATIC POLICY REPAIR REQUEST — attempt %d of %d", attempt, maxAutoRepairAttempts)
+		}
+		return fmt.Sprintf(`%s
 
 The previous execution bundle was rejected by the Wharness Policy Engine BEFORE any operation was executed.
 Do not ask to relax, bypass, disable, or work around the Policy Engine. Produce a replacement plan for the SAME user intent using only operations and verification commands that are permitted by Wharness policy.
@@ -1862,7 +1946,7 @@ BLOCKED PLAN ID: %s
 POLICY REASONS:
 %s
 
-Use the current Wharness project context as authoritative. Replace denied commands with safe project-local alternatives where possible. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, result.PlanID, truncateRepairText(strings.TrimPrefix(cause.Error(), "policy denied plan:"), 12000))
+Use the current Wharness project context as authoritative. Replace denied commands with safe project-local alternatives where possible. Return the corrected plan through the normal Wharness file-first delivery contract.%s`, requestHeading, result.PlanID, truncateRepairText(strings.TrimPrefix(cause.Error(), "policy denied plan:"), 12000), operatorGuidance)
 	}
 	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharness context."
 	if len(item.PendingHostChanges) > 0 {
@@ -1875,7 +1959,7 @@ Use the current Wharness project context as authoritative. Replace denied comman
 	for index, command := range result.Commands {
 		fmt.Fprintf(&diagnostics, "\n[%d] %s (exit %d, success=%t)\n%s\n", index+1, strings.Join(command.Argv, " "), command.ExitCode, command.Success, truncateRepairText(commandResultDiagnostic(command), 6000))
 	}
-	return fmt.Sprintf(`AUTOMATIC REPAIR REQUEST — attempt %d of %d
+	return fmt.Sprintf(`%s
 
 The previous execution plan failed and Wharness captured the failure automatically.
 Do not repeat the failed plan unchanged. Produce a corrected replacement plan for the SAME user intent.
@@ -1890,7 +1974,7 @@ CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
 
 %s
 
-Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharness file-first delivery contract.`, attempt, maxAutoRepairAttempts, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges))
+Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharness file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
 }
 
 func truncateRepairText(value string, limit int) string {

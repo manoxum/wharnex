@@ -5,6 +5,7 @@ const ACTION_LABEL: Record<AttentionAction, string> = {
   'approve-execution': 'Aprovar e executar',
   'retry-dependency-network': 'Permitir rede e repetir',
   'repair-host-dependency': 'Reinstalar dependências e repetir',
+  'repair-with-gpt': 'Corrigir com GPT',
   'retry-host-apply': 'Repetir aplicação',
   'apply-host': 'Aplicar no host',
 }
@@ -13,6 +14,7 @@ const ACTION_ICON: Record<AttentionAction, 'play' | 'network' | 'apply'> = {
   'approve-execution': 'play',
   'retry-dependency-network': 'network',
   'repair-host-dependency': 'network',
+  'repair-with-gpt': 'play',
   'retry-host-apply': 'apply',
   'apply-host': 'apply',
 }

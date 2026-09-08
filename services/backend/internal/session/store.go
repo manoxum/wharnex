@@ -26,9 +26,10 @@ type persistenceEnvelope struct {
 // exposing them through the public domain.Session JSON representation.
 type persistedSession struct {
 	domain.Session
-	RequestContextArchives map[string]string                          `json:"_request_context_archives,omitempty"`
-	RequestKnowledge       map[string]domain.RequestKnowledgeSnapshot `json:"_request_knowledge,omitempty"`
-	ArtifactObjectKeys     map[string]string                          `json:"_artifact_object_keys,omitempty"`
+	RequestContextArchives  map[string]string                          `json:"_request_context_archives,omitempty"`
+	RequestKnowledge        map[string]domain.RequestKnowledgeSnapshot `json:"_request_knowledge,omitempty"`
+	ArtifactObjectKeys      map[string]string                          `json:"_artifact_object_keys,omitempty"`
+	ArchivePackageObjectKey string                                     `json:"_archive_package_object_key,omitempty"`
 }
 
 func persistSession(item domain.Session) persistedSession {
@@ -38,7 +39,11 @@ func persistSession(item domain.Session) persistedSession {
 			keys[artifact.ID] = artifact.ObjectKey
 		}
 	}
-	return persistedSession{Session: item, RequestContextArchives: item.RequestContextArchives, RequestKnowledge: item.RequestKnowledge, ArtifactObjectKeys: keys}
+	stored := persistedSession{Session: item, RequestContextArchives: item.RequestContextArchives, RequestKnowledge: item.RequestKnowledge, ArtifactObjectKeys: keys}
+	if item.ArchivePackage != nil {
+		stored.ArchivePackageObjectKey = item.ArchivePackage.ObjectKey
+	}
+	return stored
 }
 
 func restoreSession(item persistedSession) domain.Session {
@@ -47,6 +52,9 @@ func restoreSession(item persistedSession) domain.Session {
 	result.RequestKnowledge = item.RequestKnowledge
 	for index := range result.Artifacts {
 		result.Artifacts[index].ObjectKey = item.ArtifactObjectKeys[result.Artifacts[index].ID]
+	}
+	if result.ArchivePackage != nil {
+		result.ArchivePackage.ObjectKey = item.ArchivePackageObjectKey
 	}
 	return result
 }

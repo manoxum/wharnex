@@ -129,6 +129,11 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       case 'approve-execution': await inspectorProps.onExecute(true); return
       case 'retry-dependency-network': await inspectorProps.onRetryDependencyNetwork?.(); return
       case 'repair-host-dependency': await inspectorProps.onRetryHostDependencyRepair?.(); return
+      case 'repair-with-gpt': {
+        const detail = await promptDialog({ title: 'Corrigir erro com GPT', message: 'Pode acrescentar um detalhe para orientar a correção ou deixar em branco.', inputLabel: 'Detalhe opcional', placeholder: 'Ex.: verifique também o comportamento no Windows', confirmLabel: 'Enviar para correção', tone: 'warning' })
+        if (detail !== undefined) await chatProps.onRepairWithGPT?.(detail)
+        return
+      }
       case 'retry-host-apply':
       case 'apply-host': await inspectorProps.onApply(); return
     }
