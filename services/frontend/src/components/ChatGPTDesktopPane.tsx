@@ -7,13 +7,15 @@ import { confirmDialog } from '../lib/appDialog'
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
 
-export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
+export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, recoveryBootstrap, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
   suspended?: boolean
   busy: boolean
   chatId: string
   chatTitle: string
   chatgptUrl?: string
   pendingRequestId?: string
+  sessionId?: string
+  recoveryBootstrap?: string
   onChatGPTURL: (url: string) => boolean
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
@@ -214,6 +216,21 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     setManualContinuationBusy(true)
     try {
       let result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
+      if (!result.ok && result.reason === 'not_supervised') {
+        const conversation = chatgptConversationURL(chatgptUrl || state.url)
+        if (!sessionId || !conversation) {
+          setNotice(manualContinuationFailure(result.reason))
+          return
+        }
+        await bridge.chatgpt.resumeExpectedBundle({
+          cacheKey: chatId,
+          sessionId,
+          requestId: pendingRequestId,
+          url: conversation,
+          recoveryBootstrap: recoveryBootstrap || '',
+        })
+        result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
+      }
       if (result.confirmationRequired) {
         const staleTransport = result.reason === 'transport_stale'
         const confirmed = await confirmDialog({
@@ -293,6 +310,7 @@ function manualContinuationFailure(reason?: string) {
   if (reason === 'transport_active') return 'O ChatGPT ainda tem transporte de conversa ativo; o pedido não foi interrompido.'
   if (reason === 'surface_loading') return 'A conversa ChatGPT ainda está a carregar. Aguarde a estabilização antes de retomar.'
   if (reason === 'continuation_in_flight') return 'Já existe uma continuação manual deste pedido em curso.'
+  if (reason === 'not_supervised') return 'A supervisão local deste pedido ainda não foi restaurada nesta conversa.'
   return 'O pedido não foi retomado porque o estado remoto ainda não permite uma continuação segura.'
 }
 
