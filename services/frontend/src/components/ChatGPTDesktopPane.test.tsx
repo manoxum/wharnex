@@ -265,6 +265,15 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
     expect(screen.queryByText(/Continuação manual enviada/)).toBeNull()
   })
 
+  it('surfaces a failed continuation preparation instead of reporting a silent retry', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValue({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', confirmationRequired: false, reason: 'continuation_failed' })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" />)
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+    expect(await screen.findByText(/continuação não pôde ser preparada/i)).toBeTruthy()
+  })
+
   it('keeps the manual continuation single-flight in the renderer while the IPC request is pending', async () => {
     const desktop = bridge()
     let resolveContinuation: ((value: { ok: boolean; cacheKey: string; requestId: string; reason: string }) => void) | undefined

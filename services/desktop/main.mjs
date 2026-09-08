@@ -2025,7 +2025,10 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
   const prompt = chatGPTStalledRecoveryPrompt(expected.requestId, expected.filename, expected.originalPrompt)
   try {
     await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, prompt, expected.filename, [], expected.liveTunnels || [])
-  } catch { return false }
+  } catch (error) {
+    escalateChatGPTContinuationFailure(key, expected, error, 'automatic-recovery')
+    return true
+  }
   await wait(80)
   const submission = await submitChatGPTDraft(key)
   commitChatGPTRecoveryAction(expected.recovery, action, now)
@@ -2035,6 +2038,15 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
   console.warn(`[chatgpt-recovery] prompt key=${key} request=${expected.requestId} accepted=${Boolean(submission?.accepted)}`)
   sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: 'O ChatGPT continuou parado após a recarga. O Wharness enviou uma instrução automática para retomar o pedido original e concluir a entrega.', capturedAt: new Date().toISOString() })
   return true
+}
+
+function escalateChatGPTContinuationFailure(key, expected, error, source) {
+  const detail = String(error instanceof Error ? error.message : error || 'erro desconhecido').slice(0, 500)
+  if (expected?.recovery) {
+    commitChatGPTRecoveryAction(expected.recovery, { type: 'human', reason: 'continuation-preparation', detail }, Date.now())
+  }
+  setChatGPTHumanAction(key, 'transport', `Não foi possível preparar a continuação do pedido: ${detail}`, source)
+  console.warn(`[chatgpt-recovery] continuation-failed key=${key} request=${expected?.requestId || '-'} source=${source} error=${detail}`)
 }
 
 async function pollExpectedChatGPTDownloadKey(key) {
@@ -2608,7 +2620,12 @@ function registerIPC() {
     const { wc } = requireOwnedChatGPTEntry(key, entry)
     if (windowState.activeChatGPTKey !== key) entry.view.setVisible(false)
     syncChatGPTAffinityURL(key, entry, conversation)
-    armExpectedChatGPTBundle(key, requestId, 0, request?.recoveryBootstrap, [], '', request?.sessionId)
+    // The renderer can reconstruct a durable pending request only from the
+    // backend's complete last_manual_prompt. Preserve it as originalPrompt as
+    // well as recoveryBootstrap: every later continuation must repeat the
+    // request-scoped knowledge identity/content validated by the input bundle.
+    const recoveryPrompt = String(request?.recoveryBootstrap || '')
+    armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId)
     const expected = expectedChatGPTBundles.get(key)
     expected.rehydrating = true
     expected.recoveryEligibleAt = Number.POSITIVE_INFINITY
@@ -2674,7 +2691,12 @@ function registerIPC() {
     expected.manualContinuationInFlight = true
     try {
       const prompt = chatGPTStalledRecoveryPrompt(requestId, expected.filename, expected.originalPrompt)
-      await fillBundledChatGPTComposer(key, entry, expected.sessionId, requestId, prompt, expected.filename, [], expected.liveTunnels || [])
+      try {
+        await fillBundledChatGPTComposer(key, entry, expected.sessionId, requestId, prompt, expected.filename, [], expected.liveTunnels || [])
+      } catch (error) {
+        escalateChatGPTContinuationFailure(key, expected, error, 'manual-continuation')
+        return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'continuation_failed' }
+      }
       await wait(80)
       await submitChatGPTDraft(key)
       expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion?.assistantCount) || 0)

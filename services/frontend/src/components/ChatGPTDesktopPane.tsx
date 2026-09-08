@@ -310,6 +310,7 @@ function manualContinuationFailure(reason?: string) {
   if (reason === 'transport_active') return 'O ChatGPT ainda tem transporte de conversa ativo; o pedido não foi interrompido.'
   if (reason === 'surface_loading') return 'A conversa ChatGPT ainda está a carregar. Aguarde a estabilização antes de retomar.'
   if (reason === 'continuation_in_flight') return 'Já existe uma continuação manual deste pedido em curso.'
+  if (reason === 'continuation_failed') return 'A continuação não pôde ser preparada. Consulte o alerta do ChatGPT e tente novamente depois de corrigir a causa indicada.'
   if (reason === 'not_supervised') return 'A supervisão local deste pedido ainda não foi restaurada nesta conversa.'
   return 'O pedido não foi retomado porque o estado remoto ainda não permite uma continuação segura.'
 }
