@@ -2,41 +2,69 @@
 
 ## Status
 
-Accepted for Wharness v1.2.28; amended for v1.2.46.3.
+Accepted for Wharness v1.2.28; superseded in-place by the record-catalog protocol (`harness.knowledge/v2`).
 
 ## Decision
 
-Each project MAY accumulate one incremental knowledge document, authored by the planner across sessions, stored by Wharnex as `domain.ProjectKnowledge` in `harness_project_knowledge` (Postgres, keyed by `project_path`) — never as a file inside the project's own tree.
+Project knowledge is a first-class Wharnex artifact with two synchronized representations: shareable project files under `.wharnex/knowledge/` and local catalog metadata in the Wharnex database. Each knowledge item is one Markdown file (`.wharnex/knowledge/<id>.md`) and one independent `domain.ProjectKnowledgeEntry` database record. `.wharnex/knowledge/catalog.json` is only a small protocol/index marker so an intentionally empty catalog is representable. Postgres stores catalog revision metadata in `harness_project_knowledge_state` and one row per item in `harness_project_knowledge_entries`; the former single-document `harness_project_knowledge` table is retained only as a migration source/compatibility projection.
 
-A file in the project tree was rejected: it would be picked up by ordinary context assembly, scanned as project content and therefore subject to the prompt-injection trust rule, and could only ever be the raw text a request happened to contain rather than a controlled full-document replacement. Backend-side storage, injected programmatically, matches the pattern already used for other Wharnex-authored content handed to the planner (manifests, contracts) rather than the pattern for content scanned from the project.
+Knowledge exists for operational/procedural learning: proven host/build/apply sequencing, repair causes, conflict patterns, transport gotchas, and other hard-won behavior that improves later answers or changes. Normative rules remain in `AGENTS.md`, `SoT/*.md`, ADRs, and other project context and SHOULD NOT be duplicated as knowledge.
 
-The document travels only as an optional `knowledge.md` file at the response bundle root, never as a JSON field on `turn.json`. This avoids the escaping problem a large free-form Markdown/code document would have as a JSON string (the same problem patches already have), and follows the existing precedent of `README.md`/`patches/*.patch` as bundle files. When present, it is always the complete replacement document, never a diff.
+## Request delivery and per-chat control
 
-The knowledge document can only be updated at the close of a task: after a `change` is verified and applied to the host, Wharnex sends one additional best-effort answer-only round (`knowledge_review`) carrying that task's full event history and the current document, and asks whether anything is worth retaining. The planner is never obligated to answer with an update. This is enforced structurally, not by convention: the bundle parser extracts `knowledge.md` whenever present (pure transport), but the service layer only ever reads and persists `ProjectKnowledgeUpdate` inside the response-ingestion branch gated on `RequestLineage.Kind == "knowledge_review"`. A `knowledge.md` attached to any other response is parsed but never read by anything.
+Every chat has a `knowledge_sharing_enabled` switch. New sessions default to enabled. When enabled, a request freezes the current catalog revision and attaches every record separately as `knowledge/<id>.md`; the planner prompt contains only the catalog identity/instructions, not the record bodies. The planner MUST inspect/search and actively use relevant entries before producing an answer, workflow, or change.
 
-The `knowledge_review` round never mutates session state, plan, policy, or execution result. The apply that triggered it already succeeded and is the outcome the user sees; introducing a second "in-review" state would require restoring the real state afterward, for no benefit. A dedicated `PendingKnowledgeReviewRequestID` field marks it instead, independent of `state`, mirrored in the frontend by a dispatch effect keyed on that same field rather than on `state`.
+The chat composer exposes this switch. Disabling it suppresses delivery of the existing catalog for that chat, but does not prevent the planner from returning new learning discovered during the current Main Request. Because the collaboration copy is project-editable, knowledge is active advisory evidence rather than privileged instructions: embedded directives cannot override the user request, `AGENTS.md`, SoT/security policy, or higher-priority instructions. If another chat commits a newer catalog revision, the next request in any stale chat automatically re-enables sharing and sends the refreshed catalog. `knowledge_last_seen_revision` makes that refresh deterministic.
 
-## Amendment — delivery scope and content priority (v1.2.46.3)
+Before freezing a request snapshot, Wharnex reads `.wharnex/knowledge/`. A changed project-file catalog is imported into the local database as a new catalog revision, so knowledge pulled or edited by another developer becomes visible to open chats and triggers the same stale-chat refresh behavior as knowledge produced locally. The managed knowledge subtree is excluded from ordinary project context to avoid duplicate delivery and is transported only through this knowledge protocol.
 
-The original v1 delivery rule sent the document only in the first request of a new chat, on the theory that a single ChatGPT conversation already retains everything said in it. In practice several derived-request kinds never included it at all regardless of chat position — automatic repair, workflow continuation, and both conflict-resolution paths (`service_changeset.go`, `service_gitintegration.go`) built their planner requests without `KnowledgeSource` — so a prior operational lesson about why a change failed to apply was systematically absent from exactly the requests most likely to repeat that failure. A long chat can also drift far enough, across many repair/workflow rounds, that content from its first message is no longer effectively in front of the model.
+Request snapshots are immutable and record the catalog revision, sharing state, digest, and the exact entries attached to that request. Direct ZIP, remote one-shot, live-channel, and Desktop transports preserve those entries as separate files.
 
-`KnowledgeSource` is now attached to every planner request for a project that has a recorded document: the first request of a chat, every automatic repair round, every workflow-continuation round, both conflict-resolution rounds, and the closing `knowledge_review` round itself. The trade-off is accepted deliberately: repeating a bounded, full-replacement document (capped at 256 KiB, see `AUTOMATION_BUNDLE.md`) on later turns of the same chat costs some prompt size, but a missed operational lesson costs an entire failed apply/repair cycle instead.
+## Response protocol during a Main Request
 
-This amendment also narrows what the document is expected to contain. Normative rules — coding standards, architecture invariants, protocol contracts — already reach the model as ordinary project content (`AGENTS.md`, `README.md`, `SoT/*.md`, `adr/*.md`) on every request; restating them in `knowledge.md` would only waste the space this document exists for. Both the `PROJECT KNOWLEDGE` prompt section and the `knowledge_review` round's authoring instructions now direct the planner toward procedural/operational knowledge instead: what specifically made a change in this project fail to apply, need a repair round, or hit a conflict — self-evolution/build/apply gotchas, sequencing or companion-file requirements, a rejected patch and why — the kind of hard-won lesson that is not written down as a rule anywhere else. The planner is also asked to prune superseded content rather than only append, so the document does not grow unbounded.
+Every planner response in a Main Request carries two cumulative artifacts:
 
-## Scope (v1)
+- `summary.md`: the cumulative user-facing summary of what the current Main Request has handled so far;
+- `knowledge/index.json` using `harness.knowledge/v2`, plus one `knowledge/<id>.md` per returned record.
 
-- Transport: manual/Desktop ChatGPT delivery only. The OpenAI API provider adapter is not wired to this round.
-- No dedicated Settings UI to view/edit/reset the document.
-- No version history: only the latest content and a version counter are retained, not prior revisions.
+`knowledge/index.json` contains `base_revision`, `mode`, and indexed records with exact SHA-256 values. When the request received the current catalog, the planner returns `mode=replace` and the complete desired catalog. It may create, edit, delete, deduplicate, merge/reconcile, or split records. When sharing was disabled, the planner returns `mode=overlay` and may contribute only current-task learning; it cannot delete unseen records.
+
+Each successive response for the same Main Request repeats the current cumulative summary and knowledge candidate, refining them as new execution evidence appears. Wharnex stages only the most recent candidate/summary for that Main Request; response arrival alone never mutates durable project knowledge.
+
+## Terminal commit boundary
+
+Wharnex commits staged knowledge only when the Main Request reaches its real terminal boundary. For a change, that boundary is successful host Apply (including successful self-evolution host integration). At that point Wharnex:
+
+1. reconciles the staged candidate against the current catalog using compare-and-swap semantics;
+2. writes the reconciled catalog to `.wharnex/knowledge/`, one Markdown file per knowledge item, removing superseded managed Markdown records and updating the catalog marker;
+3. persists each resulting knowledge item as an independent database record and records the new catalog revision only when the catalog actually changed;
+4. stores and surfaces the cumulative `summary.md`;
+5. then presents structured applied-change information.
+
+The project files are the collaboration surface and the database is the local indexed/versioned mirror. Project-file writes use real directories, regular files, bounded IDs/content, and atomic replacement; symlinked managed paths fail closed. Ordinary execution-plan patches are forbidden from targeting `.wharnex/knowledge/`, so planner-generated knowledge can change that subtree only through the validated knowledge response protocol at the terminal commit boundary.
+
+No new `knowledge_review` request is scheduled in the v2 flow. This removes the previous extra ChatGPT round because the latest bundle already contains both the cumulative summary and the latest knowledge candidate.
+
+## Concurrent chats
+
+The response candidate is based on the immutable request revision, while the durable catalog may have advanced in another chat. Reconciliation is fail-safe:
+
+- unchanged records may be deleted or replaced as requested;
+- concurrent records absent from the old request are preserved;
+- a candidate edit does not overwrite a different concurrent edit silently; both versions are retained under distinct IDs so a later refreshed planner request can reconcile them deliberately;
+- a no-op candidate does not create a new catalog revision.
+
+A stale chat therefore receives the newer catalog on its next request and is automatically switched back to sharing-on for that refresh.
+
+## Compatibility
+
+Pre-v2 sessions may still contain `PendingKnowledgeReviewRequestID` and legacy `knowledge.md` responses. That ingestion path remains only to let an already-pending legacy review finish safely after upgrade. New Main Requests never schedule it. The legacy `ProjectKnowledge` API remains a deterministic single-document projection over the catalog (and preserves raw semantics for the one migrated `legacy-project-knowledge` record).
 
 ## Consequences
 
-- A knowledge-store outage never blocks an ordinary request: `knowledgeContentForProject` swallows errors and returns empty content.
-- Every derived request already carries a `RequestLineage`; `knowledge_review` is simply one more recognized kind (`requestKindKnowledgeReview`), parented on the task's main request, reusing `expectedResponseBundleFilenameForDerivedRequest` and the existing bundle-name/chat-id scheme unchanged.
-- The mandatory final report (files changed and why, summary, next steps, knowledge captured) is delivered as the round's `turn.message`, which the existing chat-rendering path already displays as an ordinary ChatGPT message — no new frontend rendering was needed for it.
-- Since the v1.2.46.3 amendment, the document reaches the model on every request for the project, not only the first of a chat, and is framed as operational/procedural knowledge rather than a place to restate normative rules already available elsewhere in context.
-
-## Transport and terminal-learning amendment
-
-Incremental knowledge is now part of request protocol state rather than prompt-only context. Each request freezes one knowledge version and reuses it across prompt and transport materialization. Read failures fail closed. Terminal knowledge review runs for both success and terminal failure/block, with deterministic retention of integration/repair/conflict/apply evidence. Knowledge persistence uses compare-and-swap; stale review output is reconciled in a bounded follow-up instead of replacing newer knowledge.
+- Knowledge is independently addressable, searchable, versioned, and transportable instead of one growing blob.
+- Developers can share retained learning through project-owned `.wharnex/knowledge/*.md` files; local Wharnex databases import and version those records independently.
+- Planner instructions make knowledge an active required reasoning input rather than decorative context.
+- Turning sharing off is chat-local, while cross-chat catalog freshness wins on the next request.
+- Knowledge learned during a failed/unapplied change is staged but not committed as durable project truth.
+- Catalog size remains bounded and every file/index digest is validated before staging.

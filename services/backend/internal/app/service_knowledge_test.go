@@ -12,6 +12,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	manualplanner "kernl.local/harness/backend/internal/planner/manual"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/projectknowledge"
 	"kernl.local/harness/backend/internal/session"
 )
 
@@ -23,6 +24,7 @@ func makeKnowledgeReviewAnswerBundle(t *testing.T, requestID, message, knowledge
 		"README.md": "# Knowledge review\n",
 		"turn.json": `{"protocol":"harness.turn/v1","request_id":"` + requestID + `","kind":"answer","message":"` + message + `","outcome":{"status":"completed","retryable":false}}`,
 	}
+	addV2ResponseArtifacts(entries, "Resumo cumulativo da resposta de teste.")
 	if knowledgeMd != "" {
 		entries["knowledge.md"] = knowledgeMd
 	}
@@ -192,13 +194,7 @@ func TestKnowledgeMdOutsideTheReviewBranchIsStructurallyIgnored(t *testing.T) {
 	}
 }
 
-func TestSubmitMessageIncludesKnowledgeSourceOnEveryRequest(t *testing.T) {
-	// Repair rounds, workflow continuations and conflict-resolution rounds
-	// are exactly where a prior operational lesson (what made a change fail
-	// to apply on this host before) matters most, and a long chat can drift
-	// far enough that the first-message-only content is no longer front of
-	// mind. The knowledge document is therefore sent with every request on
-	// the project, not only the first one of a new chat.
+func TestSubmitMessageAttachesKnowledgeCatalogOnEveryEnabledRequest(t *testing.T) {
 	root := t.TempDir()
 	store := session.NewStore()
 	if _, err := store.AppendProjectKnowledge(root, "- Prior learning from an earlier chat.", "req-earlier"); err != nil {
@@ -210,20 +206,254 @@ func TestSubmitMessageIncludesKnowledgeSourceOnEveryRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, _, err := service.SubmitMessage(context.Background(), started.ID, "Primeira pergunta neste chat.")
+	first, firstSession, err := service.SubmitMessage(context.Background(), started.ID, "Primeira pergunta neste chat.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(first.ManualPrompt, "PROJECT KNOWLEDGE") || !strings.Contains(first.ManualPrompt, "Prior learning from an earlier chat") {
-		t.Fatalf("expected the first request of a new chat to include the project's knowledge source")
+	if !strings.Contains(first.ManualPrompt, "harness.knowledge/v2") || strings.Contains(first.ManualPrompt, "Prior learning from an earlier chat") {
+		t.Fatal("the prompt must require active knowledge use without inlining knowledge content")
+	}
+	firstSnapshot := firstSession.RequestKnowledge[firstSession.LastRequestID]
+	if !firstSnapshot.SharingEnabled || len(firstSnapshot.Entries) != 1 || !strings.Contains(firstSnapshot.Entries[0].Content, "Prior learning") {
+		t.Fatalf("expected separate knowledge entry on first request: %#v", firstSnapshot)
 	}
 
-	second, _, err := service.SubmitMessage(context.Background(), started.ID, "Segunda pergunta no mesmo chat.")
+	second, secondSession, err := service.SubmitMessage(context.Background(), started.ID, "Segunda pergunta no mesmo chat.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(second.ManualPrompt, "PROJECT KNOWLEDGE") || !strings.Contains(second.ManualPrompt, "Prior learning from an earlier chat") {
-		t.Fatal("a later request in the same chat must still include the project's knowledge source")
+	secondSnapshot := secondSession.RequestKnowledge[secondSession.LastRequestID]
+	if !strings.Contains(second.ManualPrompt, "harness.knowledge/v2") || !secondSnapshot.SharingEnabled || len(secondSnapshot.Entries) != 1 {
+		t.Fatalf("later enabled request must still attach the catalog: %#v", secondSnapshot)
+	}
+}
+
+func TestExplicitKnowledgeDisableAcknowledgesCurrentRevision(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	if _, err := store.CompareAndSwapProjectKnowledgeCatalog(root, []domain.ProjectKnowledgeEntry{{ID: "existing-learning", Content: "Conhecimento já existente."}}, "req-existing", 0); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := service.SetKnowledgeSharingEnabled(started.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.KnowledgeLastSeenRevision != 1 {
+		t.Fatalf("disable must acknowledge the current catalog revision, got %d", disabled.KnowledgeLastSeenRevision)
+	}
+	result, current, err := service.SubmitMessage(context.Background(), started.ID, "Pedido sem conhecimento")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := current.RequestKnowledge[current.LastRequestID]
+	if snapshot.SharingEnabled || len(snapshot.Entries) != 0 || !strings.Contains(result.ManualPrompt, "sharing=off") {
+		t.Fatalf("explicit disable was overridden without a newer revision: %#v", snapshot)
+	}
+}
+
+func TestParallelKnowledgeRevisionReenablesSharingOnNextRequest(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.SubmitMessage(context.Background(), started.ID, "Primeiro pedido"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetKnowledgeSharingEnabled(started.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwapProjectKnowledgeCatalog(root, []domain.ProjectKnowledgeEntry{{ID: "parallel-learning", Content: "Aprendizagem criada noutro chat."}}, "req-parallel", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	result, current, err := service.SubmitMessage(context.Background(), started.ID, "Pedido seguinte")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := current.RequestKnowledge[current.LastRequestID]
+	if !snapshot.SharingEnabled || len(snapshot.Entries) != 1 || !strings.Contains(result.ManualPrompt, "sharing=on") {
+		t.Fatalf("a newer project revision must re-enable and attach knowledge: %#v", snapshot)
+	}
+	if current.KnowledgeSharingEnabled == nil || !*current.KnowledgeSharingEnabled {
+		t.Fatal("forced refresh must visibly re-enable the per-chat toggle")
+	}
+}
+
+func TestProjectKnowledgeFilesAreImportedBeforePlanning(t *testing.T) {
+	root := t.TempDir()
+	if err := projectknowledge.Save(root, []domain.ProjectKnowledgeEntry{{ID: "shared-learning", Content: "Conhecimento partilhado por outro developer."}}); err != nil {
+		t.Fatal(err)
+	}
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, current, err := service.SubmitMessage(context.Background(), started.ID, "Usar conhecimento partilhado")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := current.RequestKnowledge[current.LastRequestID]
+	if !snapshot.SharingEnabled || len(snapshot.Entries) != 1 || snapshot.Entries[0].ID != "shared-learning" {
+		t.Fatalf("filesystem knowledge was not attached: %#v", snapshot)
+	}
+	if strings.Contains(result.ManualPrompt, "Conhecimento partilhado por outro developer") {
+		t.Fatal("filesystem knowledge content must stay in its separate request file")
+	}
+	catalog, ok, err := store.GetProjectKnowledgeCatalog(root)
+	if err != nil || !ok || catalog.Revision != 1 || len(catalog.Entries) != 1 {
+		t.Fatalf("filesystem catalog was not mirrored into separate DB records: ok=%v err=%v catalog=%#v", ok, err, catalog)
+	}
+}
+
+func TestCommitPendingKnowledgeWritesShareableProjectFiles(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := "req-terminal-knowledge"
+	if _, err := store.Update(started.ID, func(item *domain.Session) error {
+		item.LastRequestID = requestID
+		recordRequestLineage(item, requestID, "", requestKindStandard)
+		recordRequestKnowledge(item, requestID, domain.RequestKnowledgeSnapshot{Protocol: domain.KnowledgeProtocolV2, State: domain.KnowledgeStateNone, SharingEnabled: true})
+		item.PendingKnowledgeRootRequestID = requestID
+		item.PendingKnowledgeCandidate = &domain.ProjectKnowledgeCandidate{BaseRevision: 0, Mode: domain.KnowledgeCandidateReplace, Entries: []domain.ProjectKnowledgeEntry{{ID: "apply-order", Content: "Persistir depois do Apply."}}}
+		item.PendingKnowledgeSummary = "Resumo cumulativo."
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := service.commitPendingKnowledge(started.ID, requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed.LastMainRequestSummary != "Resumo cumulativo." {
+		t.Fatalf("summary not committed: %q", committed.LastMainRequestSummary)
+	}
+	entries, present, err := projectknowledge.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || len(entries) != 1 || entries[0].ID != "apply-order" || !strings.Contains(entries[0].Content, "depois do Apply") {
+		t.Fatalf("shareable project knowledge was not written: present=%v entries=%#v", present, entries)
+	}
+	catalog, ok, err := store.GetProjectKnowledgeCatalog(root)
+	if err != nil || !ok || len(catalog.Entries) != 1 || catalog.Entries[0].ID != "apply-order" {
+		t.Fatalf("DB knowledge record was not committed: ok=%v err=%v catalog=%#v", ok, err, catalog)
+	}
+}
+
+func TestCommitPendingKnowledgeUsesCandidateSourceSnapshotDuringParallelChange(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	baseCatalog, err := store.CompareAndSwapProjectKnowledgeCatalog(root, []domain.ProjectKnowledgeEntry{{ID: "apply-order", Content: "old"}}, "req-base", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sourceRequest = "req-source-knowledge"
+	const terminalRequest = "req-terminal-continuation"
+	if _, err := store.Update(started.ID, func(item *domain.Session) error {
+		recordRequestLineage(item, sourceRequest, "", requestKindStandard)
+		recordRequestLineage(item, terminalRequest, sourceRequest, requestKindRepair)
+		recordRequestKnowledge(item, sourceRequest, domain.RequestKnowledgeSnapshot{Protocol: domain.KnowledgeProtocolV2, State: domain.KnowledgeStatePresent, SharingEnabled: true, Revision: baseCatalog.Revision, Entries: append([]domain.ProjectKnowledgeEntry(nil), baseCatalog.Entries...), SHA256: knowledgeCatalogDigest(baseCatalog.Entries)})
+		item.PendingKnowledgeRootRequestID = sourceRequest
+		item.PendingKnowledgeCandidateRequestID = sourceRequest
+		item.PendingKnowledgeCandidate = &domain.ProjectKnowledgeCandidate{BaseRevision: baseCatalog.Revision, Mode: domain.KnowledgeCandidateReplace, Entries: []domain.ProjectKnowledgeEntry{{ID: "apply-order", Content: "improved"}}}
+		item.PendingKnowledgeSummary = "Resumo."
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	parallel, err := store.CompareAndSwapProjectKnowledgeCatalog(root, []domain.ProjectKnowledgeEntry{{ID: "apply-order", Content: "old"}, {ID: "parallel-learning", Content: "keep me"}}, "req-parallel", baseCatalog.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Update(started.ID, func(item *domain.Session) error {
+		recordRequestKnowledge(item, terminalRequest, domain.RequestKnowledgeSnapshot{Protocol: domain.KnowledgeProtocolV2, State: domain.KnowledgeStatePresent, SharingEnabled: true, Revision: parallel.Revision, Entries: append([]domain.ProjectKnowledgeEntry(nil), parallel.Entries...), SHA256: knowledgeCatalogDigest(parallel.Entries)})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.commitPendingKnowledge(started.ID, terminalRequest); err != nil {
+		t.Fatal(err)
+	}
+	final, ok, err := store.GetProjectKnowledgeCatalog(root)
+	if err != nil || !ok {
+		t.Fatalf("read final catalog: ok=%v err=%v", ok, err)
+	}
+	got := knowledgeEntryMap(final.Entries)
+	if got["apply-order"].Content != "improved" || got["parallel-learning"].Content != "keep me" {
+		t.Fatalf("source snapshot reconciliation lost parallel knowledge: %#v", final.Entries)
+	}
+}
+
+func TestCommitPendingKnowledgePreservesDeletionAcrossCumulativeRounds(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	baseCatalog, err := store.CompareAndSwapProjectKnowledgeCatalog(root, []domain.ProjectKnowledgeEntry{
+		{ID: "drop-me", Content: "superseded"},
+		{ID: "keep-me", Content: "keep"},
+	}, "req-base", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const derivedRequest = "req-derived-cumulative"
+	if _, err := store.Update(started.ID, func(item *domain.Session) error {
+		recordRequestLineage(item, derivedRequest, "req-main", requestKindRepair)
+		recordRequestKnowledge(item, derivedRequest, domain.RequestKnowledgeSnapshot{
+			Protocol: domain.KnowledgeProtocolV2, State: domain.KnowledgeStatePresent, SharingEnabled: true,
+			Revision: baseCatalog.Revision,
+			// The derived request received the already-staged view, where drop-me
+			// is absent, while BaseEntries preserves the durable revision baseline.
+			Entries:     []domain.ProjectKnowledgeEntry{{ID: "keep-me", Content: "keep"}},
+			BaseEntries: append([]domain.ProjectKnowledgeEntry(nil), baseCatalog.Entries...),
+			SHA256:      knowledgeCatalogDigest([]domain.ProjectKnowledgeEntry{{ID: "keep-me", Content: "keep"}}),
+		})
+		item.PendingKnowledgeRootRequestID = "req-main"
+		item.PendingKnowledgeCandidateRequestID = derivedRequest
+		item.PendingKnowledgeCandidate = &domain.ProjectKnowledgeCandidate{BaseRevision: baseCatalog.Revision, Mode: domain.KnowledgeCandidateReplace, Entries: []domain.ProjectKnowledgeEntry{
+			{ID: "keep-me", Content: "keep"}, {ID: "new-learning", Content: "new"},
+		}}
+		item.PendingKnowledgeSummary = "Resumo cumulativo."
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.commitPendingKnowledge(started.ID, derivedRequest); err != nil {
+		t.Fatal(err)
+	}
+	final, ok, err := store.GetProjectKnowledgeCatalog(root)
+	if err != nil || !ok {
+		t.Fatalf("read final catalog: ok=%v err=%v", ok, err)
+	}
+	got := knowledgeEntryMap(final.Entries)
+	if _, exists := got["drop-me"]; exists {
+		t.Fatalf("cumulative delete was lost across derived round: %#v", final.Entries)
+	}
+	if got["keep-me"].Content != "keep" || got["new-learning"].Content != "new" {
+		t.Fatalf("unexpected final catalog: %#v", final.Entries)
 	}
 }
 

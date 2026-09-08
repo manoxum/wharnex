@@ -228,7 +228,7 @@ func validatePatchPath(value string) error {
 	lower := strings.ToLower(filepath.ToSlash(clean))
 	base := filepath.Base(lower)
 	safeEnvTemplate := base == ".env.example" || base == ".env.sample" || base == ".env.template"
-	blocked := lower == ".env" || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
+	blocked := lower == ".env" || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || lower == ".wharnex/knowledge" || strings.HasPrefix(lower, ".wharnex/knowledge/") || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
 	if blocked {
 		return fmt.Errorf("sensitive patch path denied: %s", path)
 	}

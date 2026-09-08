@@ -8,6 +8,10 @@ import (
 )
 
 func contextExclusion(rel string, isDir bool, legacyPatterns []string, cfg projectconfig.ContextConfig) (reason, rule string, ignored bool) {
+	clean := strings.TrimPrefix(filepathSlash(rel), "./")
+	if clean == ".wharnex/knowledge" || strings.HasPrefix(clean, ".wharnex/knowledge/") {
+		return "Wharnex project knowledge is transported separately", "project-knowledge", true
+	}
 	if ShouldIgnore(rel, isDir) {
 		return "mandatory security/context exclusion", "mandatory", true
 	}

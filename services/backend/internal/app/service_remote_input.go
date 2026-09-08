@@ -218,12 +218,22 @@ func (s *Service) releaseSupersededRemoteInputLeases(sessionID string, pending [
 func remoteInputShape(contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, attachments, artifacts []decodedRemoteFile) (int, int64, error) {
 	count := 2 + len(attachments) + len(artifacts) // transport manifest + prompt
 	if knowledge.State == domain.KnowledgeStatePresent {
-		count++
+		if len(knowledge.Entries) == 0 {
+			count++ // legacy single-document snapshot
+		} else {
+			count += len(knowledge.Entries)
+		}
 	}
 	if len(request.ProjectFiles) > 0 {
 		count++
 	}
-	largest := max(int64(len(request.Prompt)), int64(len(knowledge.Content)))
+	largest := int64(len(request.Prompt))
+	for _, entry := range knowledge.Entries {
+		largest = max(largest, int64(len(entry.Content)))
+	}
+	if len(knowledge.Entries) == 0 {
+		largest = max(largest, int64(len(knowledge.Content))) // legacy snapshot
+	}
 	if request.IncludeContext {
 		info, err := os.Stat(contextPath)
 		if err != nil {
@@ -314,7 +324,15 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 		writeErr = writeZipBytes(archive, "prompt/wharness-planner-prompt.md", []byte(request.Prompt))
 	}
 	if writeErr == nil && knowledge.State == domain.KnowledgeStatePresent {
-		writeErr = writeZipBytes(archive, "knowledge/project.md", []byte(knowledge.Content))
+		if len(knowledge.Entries) == 0 {
+			writeErr = writeZipBytes(archive, "knowledge/project.md", []byte(knowledge.Content))
+		} else {
+			for _, entry := range knowledge.Entries {
+				if writeErr == nil {
+					writeErr = writeZipBytes(archive, "knowledge/"+entry.ID+".md", []byte(strings.TrimSpace(entry.Content)))
+				}
+			}
+		}
 	}
 	if writeErr == nil && request.IncludeContext {
 		writeErr = writeContextDirectory(archive, contextPath)

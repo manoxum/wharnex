@@ -46,7 +46,35 @@ CREATE TABLE IF NOT EXISTS harness_project_knowledge (
     version integer NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT now(),
     updated_by_request_id text NOT NULL DEFAULT ''
-);`
+);
+CREATE TABLE IF NOT EXISTS harness_project_knowledge_state (
+    project_path text PRIMARY KEY,
+    revision bigint NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    updated_by_request_id text NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS harness_project_knowledge_entries (
+    project_path text NOT NULL,
+    knowledge_id text NOT NULL,
+    content text NOT NULL,
+    version integer NOT NULL DEFAULT 1,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    updated_by_request_id text NOT NULL DEFAULT '',
+    PRIMARY KEY (project_path, knowledge_id)
+);
+CREATE INDEX IF NOT EXISTS harness_project_knowledge_entries_project_idx
+    ON harness_project_knowledge_entries (project_path, knowledge_id);
+INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, version, updated_at, updated_by_request_id)
+SELECT legacy.project_path, 'legacy-project-knowledge', legacy.content, GREATEST(legacy.version, 1), legacy.updated_at, legacy.updated_by_request_id
+FROM harness_project_knowledge AS legacy
+WHERE btrim(legacy.content) <> ''
+  AND NOT EXISTS (SELECT 1 FROM harness_project_knowledge_state AS state WHERE state.project_path=legacy.project_path)
+ON CONFLICT (project_path, knowledge_id) DO NOTHING;
+INSERT INTO harness_project_knowledge_state (project_path, revision, updated_at, updated_by_request_id)
+SELECT project_path, GREATEST(version, 1), updated_at, updated_by_request_id
+FROM harness_project_knowledge
+WHERE btrim(content) <> ''
+ON CONFLICT (project_path) DO NOTHING;`
 
 func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Store, error) {
 	if databaseURL == "" {
