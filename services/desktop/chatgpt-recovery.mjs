@@ -1,6 +1,67 @@
 const DEFAULT_SILENT_MS = 30_000
 const DEFAULT_RELOAD_SETTLE_MS = 15_000
 const DEFAULT_ACTION_COOLDOWN_MS = 5_000
+const DEFAULT_TRANSPORT_STALE_MS = 30_000
+
+export function recordChatGPTConversationTransport(requests, requestKey, generation, phase = 'before', now = Date.now()) {
+  if (!(requests instanceof Map)) return requests
+  const key = String(requestKey || '').trim()
+  if (!key) return requests
+  if (phase === 'completed' || phase === 'error') {
+    requests.delete(key)
+    return requests
+  }
+  if (phase !== 'before') return requests
+  const observedAt = finiteTime(now)
+  requests.set(key, {
+    startedAt: observedAt,
+    lastObservedAt: observedAt,
+    generation: finiteGeneration(generation),
+  })
+  return requests
+}
+
+export function classifyChatGPTConversationTransport(requests, snapshot = {}, now = Date.now(), options = {}) {
+  const current = finiteTime(now)
+  const generation = finiteGeneration(snapshot.generation)
+  const staleMs = boundedDuration(options.staleMs, DEFAULT_TRANSPORT_STALE_MS)
+  const lastConversationActivity = finiteOptionalTime(snapshot.lastConversationActivity)
+  const structuralIdle = snapshot.loading !== true && snapshot.surfaceReady === true && snapshot.thinking !== true
+  const activeRequestIds = []
+  const staleRequestIds = []
+
+  if (requests instanceof Map) {
+    for (const [requestId, metadata] of requests.entries()) {
+      const requestGeneration = finiteGeneration(metadata?.generation)
+      if (requestGeneration !== generation) {
+        staleRequestIds.push(String(requestId))
+        continue
+      }
+      const lastObservedAt = Math.max(
+        finiteOptionalTime(metadata?.lastObservedAt),
+        finiteOptionalTime(metadata?.startedAt),
+        lastConversationActivity,
+      )
+      if (structuralIdle && lastObservedAt > 0 && current - lastObservedAt >= staleMs) {
+        staleRequestIds.push(String(requestId))
+        continue
+      }
+      activeRequestIds.push(String(requestId))
+    }
+  }
+
+  return {
+    state: activeRequestIds.length ? 'active' : staleRequestIds.length ? 'stale' : 'idle',
+    activeRequestIds,
+    staleRequestIds,
+  }
+}
+
+export function reconcileChatGPTConversationTransport(requests, classification) {
+  if (!(requests instanceof Map)) return requests
+  for (const requestId of classification?.staleRequestIds || []) requests.delete(requestId)
+  return requests
+}
 
 export function createChatGPTRecoveryState(now = Date.now()) {
   const startedAt = finiteTime(now)
@@ -201,6 +262,16 @@ export function chatGPTStalledRecoveryPrompt(requestId, filename, originalPrompt
     ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this recovery bundle:\n\n${original}`
     : ''
   return `WHARNESS PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request without restarting or changing scope.${repeated}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharness file-first contract. Finish with the file attachment only.`
+}
+
+function finiteGeneration(value) {
+  const number = Number(value)
+  return Number.isInteger(number) && number >= 0 ? number : 0
+}
+
+function finiteOptionalTime(value) {
+  const number = Number(value)
+  return Number.isFinite(number) && number >= 0 ? number : 0
 }
 
 function finiteTime(value) {

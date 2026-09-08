@@ -70,7 +70,7 @@ interface WharnessDesktopBridge {
     openExternal(url?: string): Promise<{ ok: boolean }>
     resumeEmbedded(cacheKey: string): Promise<DesktopChatGPTState>
     resumeExpectedBundle(request: { cacheKey: string; sessionId: string; requestId: string; url: string; recoveryBootstrap?: string }): Promise<{ ok: boolean; cacheKey: string; requestId: string; expectedFilename: string }>
-    continueExpectedBundle(cacheKey: string, requestId: string, options?: { force?: boolean }): Promise<{ ok: boolean; cacheKey: string; requestId: string; confirmationRequired?: boolean }>
+    continueExpectedBundle(cacheKey: string, requestId: string, options?: { force?: boolean }): Promise<{ ok: boolean; cacheKey: string; requestId: string; confirmationRequired?: boolean; reason?: string }>
     pickBundle(request: { requestId: string }): Promise<{ cancelled: boolean; filename?: string; requestId?: string; contentBase64?: string; bytes?: number; sourceFilename?: string; normalizedFilename?: boolean }>
     onState(callback: (state: DesktopChatGPTState) => void): () => void
     onExternalAuth(callback: (state: DesktopExternalAuthState) => void): () => void

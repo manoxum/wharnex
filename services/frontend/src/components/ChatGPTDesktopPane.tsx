@@ -35,6 +35,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const [linkReady, setLinkReady] = useState(false)
   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
   const [overlayBlocked, setOverlayBlocked] = useState(false)
+  const [manualContinuationBusy, setManualContinuationBusy] = useState(false)
   const [controlsExpanded, setControlsExpanded] = useState(() => {
     try { return window.localStorage.getItem(CHATGPT_CONTROLS_KEY) === '1' } catch { return false }
   })
@@ -209,20 +210,32 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   }
 
   async function continuePendingRequest() {
-    if (!bridge || !pendingRequestId) return
+    if (!bridge || !pendingRequestId || manualContinuationBusy) return
+    setManualContinuationBusy(true)
     try {
-      const result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
+      let result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
       if (result.confirmationRequired) {
+        const staleTransport = result.reason === 'transport_stale'
         const confirmed = await confirmDialog({
           title: 'O estado de processamento é ambíguo',
-          message: 'O ChatGPT ainda mostra um controlo de processamento, mas esse sinal pode estar desatualizado. Confirme apenas se verificou que a tarefa realmente parou.',
+          message: staleTransport
+            ? 'O Wharness detetou um transporte antigo sem atividade enquanto a conversa parece ociosa. Confirme apenas se verificou que a tarefa realmente parou.'
+            : 'O ChatGPT ainda mostra um controlo de processamento, mas esse sinal pode estar desatualizado. Confirme apenas se verificou que a tarefa realmente parou.',
           tone: 'warning', confirmLabel: 'Continuar mesmo assim', cancelLabel: 'Aguardar',
         })
         if (!confirmed) return
-        await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId, { force: true })
+        result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId, { force: true })
+      }
+      if (!result.ok) {
+        setNotice(manualContinuationFailure(result.reason))
+        return
       }
       setNotice(`Continuação manual enviada para ${pendingRequestId}.`)
-    } catch (error) { setNotice(error instanceof Error ? error.message : 'Não foi possível retomar o pedido.') }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Não foi possível retomar o pedido.')
+    } finally {
+      setManualContinuationBusy(false)
+    }
   }
 
   async function stopPendingRequest() {
@@ -270,10 +283,17 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     </div>}
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
-    {pendingRequestId && <div className="chatgpt-link-warning"><span>Pedido {pendingRequestId} sob supervisão.</span><button className="text-button" disabled={busy} onClick={() => void continuePendingRequest()}>Retomar pedido</button>{onCancelPendingRequest && <button className="text-button danger" disabled={busy} onClick={() => void stopPendingRequest()}>Parar pedido</button>}</div>}
+    {pendingRequestId && <div className="chatgpt-link-warning"><span>Pedido {pendingRequestId} sob supervisão.</span><button className="text-button" disabled={busy || manualContinuationBusy} onClick={() => void continuePendingRequest()}>Retomar pedido</button>{onCancelPendingRequest && <button className="text-button danger" disabled={busy} onClick={() => void stopPendingRequest()}>Parar pedido</button>}</div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
     <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharness retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
   </div>
+}
+
+function manualContinuationFailure(reason?: string) {
+  if (reason === 'transport_active') return 'O ChatGPT ainda tem transporte de conversa ativo; o pedido não foi interrompido.'
+  if (reason === 'surface_loading') return 'A conversa ChatGPT ainda está a carregar. Aguarde a estabilização antes de retomar.'
+  if (reason === 'continuation_in_flight') return 'Já existe uma continuação manual deste pedido em curso.'
+  return 'O pedido não foi retomado porque o estado remoto ainda não permite uma continuação segura.'
 }
 
 function safeHost(value: string) { try { return new URL(value).host } catch { return 'chatgpt.com' } }
