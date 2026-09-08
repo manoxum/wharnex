@@ -52,6 +52,42 @@ app.commandLine.appendSwitch('disable-ipv6')
 const SAFE_ATTACHMENT_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'])
 const MAX_ATTACHMENT_THUMBNAIL_SOURCE_BYTES = 8 * 1024 * 1024
 
+// An unhandled exception/rejection in this main process otherwise crashes the
+// whole Electron app instantly with no trace. Logging keeps the process (and
+// every open window) alive so a single bad async path degrades instead of
+// killing the app.
+process.on('uncaughtException', (error) => {
+  console.error('[main-process-fault] uncaughtException', error)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[main-process-fault] unhandledRejection', reason)
+})
+
+// Electron's default userData directory is derived only from package.json's
+// `name`, so two independent Wharnex checkouts collide on the same profile
+// (shared LevelDB storage, shared ChatGPT partition) unless one of them opts
+// into an isolated path here.
+const customUserDataDir = String(process.env.WHARNESS_DESKTOP_USER_DATA_DIR || '').trim()
+if (customUserDataDir) {
+  if (!path.isAbsolute(customUserDataDir)) throw new Error('WHARNESS_DESKTOP_USER_DATA_DIR must be an absolute path')
+  app.setPath('userData', path.normalize(customUserDataDir))
+}
+// Without a single-instance lock, a second launch against the same userData
+// directory runs a second full Chromium profile alongside the first,
+// corrupting shared on-disk storage and doubling memory pressure. A genuine
+// second launch now quits immediately and hands off to the running instance.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0] || mainWindow
+    if (!win) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  })
+}
+
 let mainWindow
 let chatgptViews = new Map()
 const chatGPTAuthBrowsers = new Map()
@@ -2276,6 +2312,10 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   desktopWindows.set(id, state)
   mainWindow = win
 
+  const target = new URL(FRONTEND_URL)
+  target.searchParams.set('wharnessWindow', id)
+  target.searchParams.set('wharnessRuntime', FRONTEND_RUNTIME_TOKEN)
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isHTTPS(url)) void shell.openExternal(url)
     return { action: 'deny' }
@@ -2284,6 +2324,17 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     try { if (new URL(url).origin !== FRONTEND_ORIGIN) event.preventDefault() }
     catch { event.preventDefault() }
   })
+  // The trusted local frontend renderer previously had no crash recovery at
+  // all: a GPU/OOM-triggered renderer death left a permanently blank window
+  // with no diagnostic trace, indistinguishable from the whole app crashing.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`[frontend-renderer] window=${id} gone reason=${details.reason} exitCode=${details.exitCode}`)
+    if (!quitting && details.reason !== 'clean-exit') {
+      void win.loadURL(target.href).catch((error) => console.error(`[frontend-renderer] reload failed window=${id} error=${error?.message || 'unknown'}`))
+    }
+  })
+  win.webContents.on('unresponsive', () => console.error(`[frontend-renderer] window=${id} unresponsive`))
+  win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
   win.on('closed', () => {
@@ -2294,9 +2345,6 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     if (!quitting) persistWindowLayout()
   })
 
-  const target = new URL(FRONTEND_URL)
-  target.searchParams.set('wharnessWindow', id)
-  target.searchParams.set('wharnessRuntime', FRONTEND_RUNTIME_TOKEN)
   void win.loadURL(target.href)
   if (!quitting && persistLayout) persistWindowLayout()
   return state

@@ -6,8 +6,13 @@ STATE_DIR="$ROOT/.harness/state"
 DATA_DIR="$ROOT/.harness/postgres/data"
 ENV_FILE="$STATE_DIR/postgres.env"
 IMAGE=${WHARNESS_POSTGRES_IMAGE:-postgres:17-alpine}
-ROOT_ID=$(printf '%s' "$ROOT" | sha256sum | cut -c1-12)
-CONTAINER="wharness-postgres-$ROOT_ID"
+[ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
+# Must stay byte-for-byte consistent with scripts/stack.sh's PROJECT/LEGACY_CONTAINER
+# formula: this legacy container's name/ownership label is compared against it.
+PROJECT=${WHARNESS_COMPOSE_PROJECT_NAME:-}
+[ -n "$PROJECT" ] || PROJECT=$(basename "$ROOT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')
+[ -n "$PROJECT" ] || PROJECT="wharness-project"
+CONTAINER="wharness-postgres-$PROJECT"
 
 require_docker() {
   command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharness PostgreSQL database.' >&2; exit 1; }

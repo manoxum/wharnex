@@ -84,6 +84,7 @@ services:
       HOME: "${WHARNESS_HOME}"
       TMPDIR: "${WHARNESS_BRIDGE_DIR}/tmp"
       HARNESS_ADDR: ":8080"
+      HARNESS_FRONTEND_ORIGIN: "http://127.0.0.1:${WHARNESS_WEB_PORT:-5173}"
       HARNESS_PLANNER: "${HARNESS_PLANNER:-manual}"
       HARNESS_SANDBOX: "docker"
       HARNESS_RUNNER_IMAGE: "${HARNESS_RUNNER_IMAGE:-kernl-runner:local}"
@@ -109,7 +110,7 @@ services:
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.6-sol}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${WHARNESS_HTTP_PORT:-8080}:8080"
     volumes:
       - "${WHARNESS_HOME}:${WHARNESS_HOME}"
       - "${WHARNESS_STATE_DIR}:${WHARNESS_STATE_DIR}"
@@ -137,10 +138,10 @@ services:
     build:
       context: ./services/frontend
       args:
-        VITE_API_URL: "http://127.0.0.1:8080"
+        VITE_API_URL: "http://127.0.0.1:${WHARNESS_HTTP_PORT:-8080}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5173:80"
+      - "127.0.0.1:${WHARNESS_WEB_PORT:-5173}:80"
     depends_on:
       backend:
         condition: service_healthy

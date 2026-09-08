@@ -8,19 +8,33 @@ STACK_ENV="$STATE_DIR/stack.env"
 POSTGRES_ENV="$STATE_DIR/postgres.env"
 LEGACY_DATA="$ROOT/.harness/postgres/data"
 POSTGRES_IMAGE=${WHARNESS_POSTGRES_IMAGE:-postgres:17-alpine}
-ROOT_ID=$(printf '%s' "$ROOT" | sha256sum | cut -c1-12)
-PROJECT="wharness-$ROOT_ID"
-POSTGRES_VOLUME="wharness-postgres-$ROOT_ID"
-TUNNEL_VOLUME="wharness-tunnel-$ROOT_ID"
-MINIO_VOLUME="wharness-minio-$ROOT_ID"
-LEGACY_CONTAINER="wharness-postgres-$ROOT_ID"
+# Optional per-checkout overrides (compose project name, ports). Gitignored,
+# so two checkouts of this repo can each pin their own values without
+# colliding when run concurrently.
+[ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
+# The Compose project identity used to be a SHA-256 hash of the absolute repo
+# path, which made every checkout's resources (`wharness-<hash>`) opaque and
+# gave two checkouts no way to choose their own name. It now comes from an
+# explicit override or, by default, the checkout's own folder name, so
+# `docker ps`/`docker compose ls` read as the project itself.
+PROJECT=${WHARNESS_COMPOSE_PROJECT_NAME:-}
+[ -n "$PROJECT" ] || PROJECT=$(basename "$ROOT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')
+[ -n "$PROJECT" ] || PROJECT="wharness-project"
+POSTGRES_VOLUME="wharness-postgres-$PROJECT"
+TUNNEL_VOLUME="wharness-tunnel-$PROJECT"
+MINIO_VOLUME="wharness-minio-$PROJECT"
+LEGACY_CONTAINER="wharness-postgres-$PROJECT"
 MIGRATION_MARKER="$STATE_DIR/stack-postgres-migrated-v1"
 POSTGRES_RECONCILE_MARKER="$STATE_DIR/stack-postgres-reconciled-v2"
-LEGACY_RECOVERY_CONTAINER="wharness-postgres-recovery-$ROOT_ID"
+LEGACY_RECOVERY_CONTAINER="wharness-postgres-recovery-$PROJECT"
 TUNNEL_MIGRATION_MARKER="$STATE_DIR/stack-tunnel-state-migrated-v1"
-BACKEND_IMAGE="wharness-backend:$ROOT_ID"
-FRONTEND_IMAGE="wharness-frontend:$ROOT_ID"
-TUNNEL_IMAGE="wharness-tunnel:$ROOT_ID"
+BACKEND_IMAGE="wharness-backend:$PROJECT"
+FRONTEND_IMAGE="wharness-frontend:$PROJECT"
+TUNNEL_IMAGE="wharness-tunnel:$PROJECT"
+# Host ports are also per-checkout: two checkouts running concurrently must
+# not both try to bind 127.0.0.1:8080/5173.
+HTTP_PORT=${WHARNESS_HTTP_PORT:-8080}
+WEB_PORT=${WHARNESS_WEB_PORT:-5173}
 
 require_docker() {
   command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharness service stack.' >&2; exit 1; }
@@ -67,7 +81,7 @@ ensure_credentials() {
   stack_env_tmp=$(mktemp "$STATE_DIR/stack.env.tmp.XXXXXX")
   {
     printf 'COMPOSE_PROJECT_NAME=%s\n' "$PROJECT"
-    printf 'WHARNESS_STACK_ID=%s\n' "$ROOT_ID"
+    printf 'WHARNESS_STACK_ID=%s\n' "$PROJECT"
     printf 'WHARNESS_ROOT=%s\n' "$ROOT"
     printf 'WHARNESS_HOME=%s\n' "$HOME"
     printf 'WHARNESS_UID=%s\n' "$(id -u)"
@@ -82,6 +96,8 @@ ensure_credentials() {
     printf 'WHARNESS_TUNNEL_API_TOKEN=%s\n' "$token"
     printf 'WHARNESS_MINIO_ROOT_USER=%s\n' "$minio_user"
     printf 'WHARNESS_MINIO_ROOT_PASSWORD=%s\n' "$minio_password"
+    printf 'WHARNESS_HTTP_PORT=%s\n' "$HTTP_PORT"
+    printf 'WHARNESS_WEB_PORT=%s\n' "$WEB_PORT"
   } >"$stack_env_tmp"
   mv -f "$stack_env_tmp" "$STACK_ENV"
   chmod 600 "$STACK_ENV"
@@ -226,7 +242,7 @@ reconcile_legacy_postgres_if_needed() {
   [ -f "$POSTGRES_RECONCILE_MARKER" ] && return 0
   [ -f "$LEGACY_DATA/PG_VERSION" ] || return 0
 
-  dump="$BRIDGE_DIR/tmp/legacy-postgres-reconcile-$ROOT_ID-$$.sql"
+  dump="$BRIDGE_DIR/tmp/legacy-postgres-reconcile-$PROJECT-$$.sql"
   rm -f "$dump"
   if ! legacy_source_start; then
     legacy_source_stop

@@ -105,7 +105,21 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", a.terminal)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
-	return cors(mux)
+	return cors(mux, allowedOrigins(cfg.FrontendOrigin))
+}
+
+// allowedOrigins is the fixed localhost/127.0.0.1:5173 pair every checkout
+// accepted historically, plus this instance's own configured frontend origin
+// (HARNESS_FRONTEND_ORIGIN) — needed because two checkouts of this repo can
+// each run their frontend on a different loopback port to stay isolated.
+func allowedOrigins(configured string) []string {
+	origins := []string{"http://localhost:5173", "http://127.0.0.1:5173"}
+	for _, origin := range origins {
+		if origin == configured {
+			return origins
+		}
+	}
+	return append(origins, configured)
 }
 
 func (a *API) health(w http.ResponseWriter, _ *http.Request) {
@@ -1257,12 +1271,15 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
-func cors(next http.Handler) http.Handler {
+func cors(next http.Handler, allowed []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
+		for _, candidate := range allowed {
+			if origin == candidate {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				break
+			}
 		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")

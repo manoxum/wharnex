@@ -7,6 +7,8 @@ LOG_DIR="$ROOT/.harness/logs"
 PID_FILE="$RUN_DIR/coordinator.pid"
 LOG_FILE="$LOG_DIR/desktop.log"
 BUILD_STAMP="$ROOT/.harness/build-success"
+# Optional per-checkout overrides (Electron profile dir, etc). Gitignored.
+[ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -73,6 +75,14 @@ fi
 # start updates only the application containers while preserving tunnel/DB.
 WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" ensure
 
+# stack.sh ensure just (re)wrote these; read back the ports actually applied
+# for this checkout instead of assuming the 8080/5173 defaults, so two
+# checkouts on different ports each wait on and report their own.
+HTTP_PORT=$(sed -n 's/^WHARNESS_HTTP_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
+WEB_PORT=$(sed -n 's/^WHARNESS_WEB_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
+[ -n "$HTTP_PORT" ] || HTTP_PORT=8080
+[ -n "$WEB_PORT" ] || WEB_PORT=5173
+
 : > "$LOG_FILE"
 (
   cd "$ROOT/services/desktop"
@@ -82,6 +92,9 @@ WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" ensure
     WHARNESS_ROOT="$ROOT" \
     WHARNESS_RUNTIME_DIR="$RUN_DIR" \
     WHARNESS_SERVICES_MODE=stack \
+    WHARNESS_API_URL="http://127.0.0.1:$HTTP_PORT" \
+    WHARNESS_FRONTEND_URL="http://127.0.0.1:$WEB_PORT" \
+    WHARNESS_DESKTOP_USER_DATA_DIR="${WHARNESS_DESKTOP_USER_DATA_DIR:-}" \
     WHARNESS_RUNNER_IMAGE="${WHARNESS_RUNNER_IMAGE:-kernl-runner:local}" \
     WHARNESS_OZONE_PLATFORM="${WHARNESS_OZONE_PLATFORM:-auto}" \
     WHARNESS_LINUX_SANDBOX_MODE="${WHARNESS_LINUX_SANDBOX_MODE:-}" \
@@ -105,12 +118,12 @@ while [ "$i" -lt 120 ]; do
     alive "$ep" && electron_ok=1 || true
   fi
   if [ "$electron_ok" -eq 1 ] && \
-     curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 && \
-     curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
+     curl -fsS "http://127.0.0.1:$HTTP_PORT/api/health" >/dev/null 2>&1 && \
+     curl -fsS "http://127.0.0.1:$WEB_PORT/" >/dev/null 2>&1; then
     printf 'Wharness Desktop started.\n'
     printf '  coordinator: %s\n' "$pid"
-    printf '  backend:     http://127.0.0.1:8080 (Compose)\n'
-    printf '  frontend:    http://127.0.0.1:5173 (Compose)\n'
+    printf '  backend:     http://127.0.0.1:%s (Compose)\n' "$HTTP_PORT"
+    printf '  frontend:    http://127.0.0.1:%s (Compose)\n' "$WEB_PORT"
     printf '  logs:        %s\n' "$LOG_FILE"
     exit 0
   fi

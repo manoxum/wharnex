@@ -13,6 +13,11 @@ const runtimeDir = path.resolve(process.env.WHARNESS_RUNTIME_DIR || path.join(pr
 const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
 const children = new Map()
 const servicesMode = process.env.WHARNESS_SERVICES_MODE || 'local'
+// Two checkouts running concurrently each pin their own backend/frontend
+// ports (see scripts/start.sh); default to the historical 8080/5173 for a
+// bare `npm run dev` invocation outside that wrapper.
+const apiURL = process.env.WHARNESS_API_URL || 'http://127.0.0.1:8080'
+const frontendURL = process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173'
 let shuttingDown = false
 // A detached Electron child does not reliably keep Node's event loop alive on
 // every Linux launcher/runtime combination. The coordinator must remain the
@@ -110,12 +115,12 @@ function frontendCommand() {
 async function main() {
   if (servicesMode === 'stack') {
     await Promise.all([
-      waitFor('http://127.0.0.1:8080/api/health', 'stack backend'),
-      waitFor('http://127.0.0.1:5173', 'stack frontend'),
+      waitFor(`${apiURL}/api/health`, 'stack backend'),
+      waitFor(frontendURL, 'stack frontend'),
     ])
   } else {
-    if (await ready('http://127.0.0.1:8080/api/health')) throw new Error('An untracked process already owns Wharness backend port 8080. Stop that verified Wharness process before starting.')
-    if (await ready('http://127.0.0.1:5173')) throw new Error('An untracked process already owns Wharness frontend port 5173. Stop that verified Wharness process before starting.')
+    if (await ready(`${apiURL}/api/health`)) throw new Error(`An untracked process already owns Wharness backend ${apiURL}. Stop that verified Wharness process before starting.`)
+    if (await ready(frontendURL)) throw new Error(`An untracked process already owns Wharness frontend ${frontendURL}. Stop that verified Wharness process before starting.`)
 
     const backend = backendCommand()
     run('backend', backend.command, backend.args, backendDir, {
@@ -132,6 +137,10 @@ async function main() {
 
   const desktopEnv = desktopRuntimeEnvironment()
   const launch = electronLaunchArguments(process.platform, desktopEnv)
+  // Electron's default userData directory is derived only from package.json's
+  // `name`, so two checkouts of this repo collide on the same profile unless
+  // one opts into its own via this native Electron/Chromium switch.
+  if (desktopEnv.WHARNESS_DESKTOP_USER_DATA_DIR) launch.args.push(`--user-data-dir=${desktopEnv.WHARNESS_DESKTOP_USER_DATA_DIR}`)
   const desktopBinary = resolveElectronBinary(electronPath, desktopEnv)
   if (process.platform === 'linux') {
     console.log(`Electron Linux sandbox: mode=${desktopEnv.WHARNESS_LINUX_SANDBOX_MODE || 'default'}`)

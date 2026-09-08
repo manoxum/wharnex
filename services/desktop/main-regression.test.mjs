@@ -708,3 +708,35 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   assert.match(register, /recentlyDeliveredChatGPTBundleRequestId\(validated\.requestId\)/)
   assert.match(register, /markChatGPTBundleRequestDelivered\(validated\.requestId\)/)
 })
+
+test('an uncaught main-process exception or rejection is logged instead of silently crashing the whole app', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /process\.on\('uncaughtException', \(error\) => \{\s*console\.error\('\[main-process-fault\] uncaughtException', error\)/)
+  assert.match(source, /process\.on\('unhandledRejection', \(reason\) => \{\s*console\.error\('\[main-process-fault\] unhandledRejection', reason\)/)
+})
+
+test('a second launch against the same userData profile hands off to the running instance instead of running two Chromium profiles at once', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const lockStart = source.indexOf('const customUserDataDir =')
+  const lockEnd = source.indexOf('\nlet mainWindow', lockStart)
+  assert.notEqual(lockStart, -1)
+  const lockBlock = source.slice(lockStart, lockEnd)
+  assert.match(lockBlock, /if \(!path\.isAbsolute\(customUserDataDir\)\) throw new Error\('WHARNESS_DESKTOP_USER_DATA_DIR must be an absolute path'\)/)
+  assert.match(lockBlock, /app\.setPath\('userData', path\.normalize\(customUserDataDir\)\)/)
+  assert.match(lockBlock, /if \(!app\.requestSingleInstanceLock\(\)\) \{\s*app\.quit\(\)/)
+  assert.match(lockBlock, /app\.on\('second-instance', \(\) => \{/)
+})
+
+test('a dead main-frame renderer in the trusted window reloads the frontend instead of leaving a permanently blank window', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const createStart = source.indexOf('function createWindow(')
+  const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
+  assert.notEqual(createStart, -1)
+  const create = source.slice(createStart, registerStart)
+  const targetIndex = create.indexOf("target.searchParams.set('wharnessRuntime', FRONTEND_RUNTIME_TOKEN)")
+  const renderProcessGoneIndex = create.indexOf("win.webContents.on('render-process-gone'")
+  assert.notEqual(targetIndex, -1)
+  assert.notEqual(renderProcessGoneIndex, -1)
+  assert.ok(targetIndex < renderProcessGoneIndex, 'target URL must be built before the crash handler closes over it')
+  assert.match(create, /if \(!quitting && details\.reason !== 'clean-exit'\) \{\s*void win\.loadURL\(target\.href\)/)
+})
