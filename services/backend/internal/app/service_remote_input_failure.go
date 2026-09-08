@@ -9,8 +9,9 @@ import (
 )
 
 // FailRemoteInputRequest ends a request that cannot obtain its required remote
-// input. It is terminal by design: leaving it pending would make the chat look
-// as though ChatGPT were still working and would prevent a fresh publication.
+// input. Ordinary requests are terminal; a post-terminal knowledge_review is a
+// best-effort side round and must never rewrite the task's already-successful
+// state when its delivery fails.
 func (s *Service) FailRemoteInputRequest(ctx context.Context, sessionID, requestID, reason string) (domain.Session, error) {
 	return s.FailRemoteInputRequestWithKind(ctx, sessionID, requestID, reason, "transport")
 }
@@ -28,13 +29,27 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 	if requestID == "" || reason == "" || len(reason) > 512 {
 		return domain.Session{}, errors.New("remote input failure requires a request id and bounded reason")
 	}
+	knowledgeReviewFailure := false
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		// A durable session restored after a Desktop/backend restart can retain
 		// the active request id while the transient pending-id slice is absent.
 		// Permit only that exact current id; never let an older request close a
-		// newer session.
-		if !containsString(current.PendingManualRequestIDs, requestID) && current.LastRequestID != requestID {
+		// newer session. knowledge_review has a separate durable request id, so
+		// its lineage/pending marker is also an admissible restored identity.
+		pending := containsString(current.PendingManualRequestIDs, requestID)
+		isKnowledgeReview := knowledgeReviewRequest(*current, requestID)
+		if !pending && current.LastRequestID != requestID && !isKnowledgeReview {
 			return errors.New("remote input request is not pending")
+		}
+		if isKnowledgeReview {
+			knowledgeReviewFailure = true
+			current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, requestID)
+			if current.PendingKnowledgeReviewRequestID == requestID {
+				current.PendingKnowledgeReviewRequestID = ""
+				current.LastManualPrompt = ""
+			}
+			current.PlannerInFlight = false
+			return nil
 		}
 		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, requestID)
 		current.PlannerInFlight = false
@@ -44,6 +59,12 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 	})
 	if err != nil {
 		return domain.Session{}, err
+	}
+	if knowledgeReviewFailure {
+		s.releaseRemoteInputLease(sessionID, requestID)
+		s.closeRemoteInputChannel(sessionID, "knowledge_review_delivery_failed")
+		s.bus.Publish(sessionID, "knowledge.review_delivery_failed", map[string]any{"request_id": requestID, "reason": reason, "kind": kind})
+		return updated, nil
 	}
 	s.closeRemoteInputChannel(sessionID, "transport_failed")
 	s.bus.Publish(sessionID, "remote_input.failed", map[string]any{"request_id": requestID, "reason": reason, "kind": kind})
