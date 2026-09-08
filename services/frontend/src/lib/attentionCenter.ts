@@ -75,8 +75,17 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
       failureAlertAdded = true
       break
     case 'offline_go_module_cache':
-      items.push(item(chat, 'dependency-network', 'warning', 'Dependências precisam de rede', 'A execução está parada até autorizar a tentativa restrita com rede.', 'plan', 'retry-dependency-network'))
-      failureAlertAdded = true
+      // RetryDependencyNetwork only recovers a failure raised by Wharness's
+      // own sandbox execution of a plan (see service_dependency_network.go);
+      // per SoT/AI_PROTOCOL.md a `blocked`/`failed` planner turn can never
+      // carry a plan, so a planner-reported offline_go_module_cache never has
+      // one either. Only offer the retry action when a coherent failed plan
+      // actually exists — otherwise leave failureAlertAdded unset so the
+      // generic blocked-turn item below surfaces the planner's own message.
+      if (session.plan && session.last_execution?.plan_id === session.plan.plan_id) {
+        items.push(item(chat, 'dependency-network', 'warning', 'Dependências precisam de rede', 'A execução está parada até autorizar a tentativa restrita com rede.', 'plan', 'retry-dependency-network'))
+        failureAlertAdded = true
+      }
       break
     case 'self_evolution_transaction_metadata_mismatch':
       if (pendingCount) {
