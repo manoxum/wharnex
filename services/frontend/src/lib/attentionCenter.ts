@@ -27,7 +27,7 @@ const PENDING_RESOLUTION_STATES = new Set([
   'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending',
 ])
 
-const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'host_integration_race'])
+const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'host_integration_race'])
 const APPLY_BLOCKING_FAILURES = new Set(['offline_go_module_cache', 'host_build_toolchain_mismatch', 'host_dependency_state', ...APPLY_RETRY_FAILURES])
 
 export function collectAttentionItems(
@@ -55,6 +55,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   const pendingResolutionBlocked = Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || PENDING_RESOLUTION_STATES.has(session.state))
   const canApply = session.execution_mode !== 'unprotected' && pendingCount > 0 && !pendingResolutionBlocked && session.last_turn?.kind !== 'workflow'
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
+  let failureAlertAdded = false
 
   if (session.integration_conflict) {
     items.push(item(chat, 'integration-conflict', 'danger', 'Conflito de integração', `${session.integration_conflict.paths.length || 1} ficheiro(s) precisam de resolução antes de continuar.`, 'chatgpt'))
@@ -67,16 +68,28 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   switch (session.failure_kind) {
     case 'host_build_toolchain_mismatch':
       items.push(item(chat, 'host-toolchain', 'danger', 'Build do host bloqueado', 'A toolchain do host é incompatível com a dependência fixada; requer intervenção local.', 'terminal'))
+      failureAlertAdded = true
       break
     case 'host_dependency_state':
       items.push(item(chat, 'host-dependency', 'warning', 'Dependências do host incompletas', 'Reinstale as dependências do host e repita a aplicação verificada.', 'terminal', 'repair-host-dependency'))
+      failureAlertAdded = true
       break
     case 'offline_go_module_cache':
       items.push(item(chat, 'dependency-network', 'warning', 'Dependências precisam de rede', 'A execução está parada até autorizar a tentativa restrita com rede.', 'plan', 'retry-dependency-network'))
+      failureAlertAdded = true
+      break
+    case 'self_evolution_transaction_metadata_mismatch':
+      if (pendingCount) {
+        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; o estado transacional local será validado e reparado com segurança antes do novo Apply.', 'plan', 'retry-host-apply'))
+        failureAlertAdded = true
+      }
       break
     case 'self_evolution_transaction_busy':
     case 'host_integration_race':
-      if (pendingCount) items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu o Apply anterior.', 'plan', 'retry-host-apply'))
+      if (pendingCount) {
+        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu o Apply anterior.', 'plan', 'retry-host-apply'))
+        failureAlertAdded = true
+      }
       break
   }
 
@@ -95,7 +108,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   }
   if (session.last_turn?.kind === 'clarification') {
     items.push(item(chat, 'clarification', 'warning', 'Resposta necessária', session.last_turn.message || 'O pedido aguarda um esclarecimento para continuar.'))
-  } else if (session.last_turn?.kind === 'blocked' && !(session.plan && session.policy && !session.policy.allowed)) {
+  } else if (session.last_turn?.kind === 'blocked' && !(session.plan && session.policy && !session.policy.allowed) && !failureAlertAdded) {
     items.push(item(chat, 'turn-blocked', 'danger', 'Pedido bloqueado', session.last_turn.message || 'O pedido não pode continuar sem intervenção.'))
   }
 

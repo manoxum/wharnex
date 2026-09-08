@@ -40,6 +40,7 @@ func TestLocalCoordinationFailuresNeverClassifyAsSourceRepair(t *testing.T) {
 		want string
 	}{
 		{"self evolution busy", selfevolution.ErrBusy, domain.FailureKindSelfEvolutionBusy},
+		{"self evolution metadata", selfevolution.ErrTransactionMetadataMismatch, domain.FailureKindSelfEvolutionMetadata},
 		{"host dependency state", errHostDependencyState, domain.FailureKindHostDependencyState},
 		{"stale host baseline", ErrStaleHostBaseline, domain.FailureKindStaleHostBaseline},
 		{"integration race", ErrHostIntegrationRace, domain.FailureKindHostIntegrationRace},
@@ -55,11 +56,12 @@ func TestLocalCoordinationFailuresNeverClassifyAsSourceRepair(t *testing.T) {
 
 func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 	cases := map[string]string{
-		"host_build_toolchain_mismatch":   domain.FailureKindHostBuildToolchain,
-		"host_dependency_state":           domain.FailureKindHostDependencyState,
-		"self_evolution_transaction_busy": domain.FailureKindSelfEvolutionBusy,
-		"stale_pending_baseline":          domain.FailureKindStaleHostBaseline,
-		"host_integration_race":           domain.FailureKindHostIntegrationRace,
+		"host_build_toolchain_mismatch":                domain.FailureKindHostBuildToolchain,
+		"host_dependency_state":                        domain.FailureKindHostDependencyState,
+		"self_evolution_transaction_busy":              domain.FailureKindSelfEvolutionBusy,
+		"self_evolution_transaction_metadata_mismatch": domain.FailureKindSelfEvolutionMetadata,
+		"stale_pending_baseline":                       domain.FailureKindStaleHostBaseline,
+		"host_integration_race":                        domain.FailureKindHostIntegrationRace,
 	}
 	for reason, want := range cases {
 		outcome := &domain.TurnOutcome{Status: domain.TurnOutcomeFailed, ReasonCode: reason, Retryable: true}
@@ -180,6 +182,7 @@ func TestLegacyFailureKindRecognizesPersistedPingPongCauses(t *testing.T) {
 		want   string
 	}{
 		{selfevolution.ErrBusy.Error(), domain.FailureKindSelfEvolutionBusy},
+		{"Planner reported failed: self_evolution_transaction_metadata_mismatch: Protected verification passed, but Host Apply cannot start because persisted metadata is inconsistent.", domain.FailureKindSelfEvolutionMetadata},
 		{"Planner reported failed: host_dependency_state: node_modules incomplete", domain.FailureKindHostDependencyState},
 		{"host apply blocked by stale baseline: old vs new", domain.FailureKindStaleHostBaseline},
 		{ErrHostIntegrationRace.Error() + ": external write race", domain.FailureKindHostIntegrationRace},
@@ -193,6 +196,30 @@ func TestLegacyFailureKindRecognizesPersistedPingPongCauses(t *testing.T) {
 				t.Fatalf("sessionFailureKind(%q)=%q want %q", tc.detail, got, tc.want)
 			}
 		}
+	}
+}
+
+func TestServiceStartupBackfillsPersistedSelfEvolutionMetadataFailure(t *testing.T) {
+	store := session.NewStore()
+	item := domain.Session{
+		ID:              "ses-stuck-metadata",
+		ProjectPath:     t.TempDir(),
+		State:           "failed",
+		LastRepairError: "Planner reported failed: self_evolution_transaction_metadata_mismatch: Protected verification passed, but Host Apply cannot start because persisted metadata is inconsistent.",
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	_ = NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	updated, err := store.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.FailureKind != domain.FailureKindSelfEvolutionMetadata {
+		t.Fatalf("failure kind = %q", updated.FailureKind)
+	}
+	if updated.LastRepairError != item.LastRepairError {
+		t.Fatalf("startup normalization must preserve diagnostic prose: %q", updated.LastRepairError)
 	}
 }
 

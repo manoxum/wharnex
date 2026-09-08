@@ -19,6 +19,10 @@ type sourceBackup struct {
 	Mode    uint32 `json:"mode,omitempty"`
 }
 
+// ErrTransactionMetadataMismatch marks retained self-evolution state whose
+// transaction.json identity disagrees with the transaction referenced by status.
+var ErrTransactionMetadataMismatch = errors.New("self-evolution transaction metadata does not match transaction")
+
 type transactionMetadata struct {
 	TransactionID string        `json:"transaction_id"`
 	Root          string        `json:"root"`
@@ -200,6 +204,17 @@ func (tx Transaction) PendingPlans() ([]PendingPlan, error) {
 }
 
 func (tx Transaction) readMetadata() (transactionMetadata, error) {
+	metadata, err := tx.readMetadataUnchecked()
+	if err != nil {
+		return transactionMetadata{}, err
+	}
+	if metadata.TransactionID != tx.ID || metadata.Root != tx.Root {
+		return transactionMetadata{}, fmt.Errorf("%w: metadata transaction=%s root=%s, expected transaction=%s root=%s", ErrTransactionMetadataMismatch, metadata.TransactionID, metadata.Root, tx.ID, tx.Root)
+	}
+	return metadata, nil
+}
+
+func (tx Transaction) readMetadataUnchecked() (transactionMetadata, error) {
 	data, err := os.ReadFile(filepath.Join(tx.Dir, "transaction.json"))
 	if err != nil {
 		return transactionMetadata{}, err
@@ -207,9 +222,6 @@ func (tx Transaction) readMetadata() (transactionMetadata, error) {
 	var metadata transactionMetadata
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return transactionMetadata{}, fmt.Errorf("read self-evolution transaction metadata: %w", err)
-	}
-	if metadata.TransactionID != tx.ID || metadata.Root != tx.Root {
-		return transactionMetadata{}, errors.New("self-evolution transaction metadata does not match transaction")
 	}
 	return metadata, nil
 }
@@ -219,7 +231,28 @@ func (tx Transaction) saveMetadata(metadata transactionMetadata) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(tx.Dir, "transaction.json"), append(raw, '\n'), 0o600)
+	temp, err := os.CreateTemp(tx.Dir, ".transaction-*.json")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0o600); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if _, err := temp.Write(append(raw, '\n')); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, filepath.Join(tx.Dir, "transaction.json"))
 }
 
 func (tx Transaction) writeRollback(backups []sourceBackup) error {
