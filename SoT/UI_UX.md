@@ -211,3 +211,9 @@ Orchestrator has two primary pages backed by one project-scoped state source:
 All new task records are created as `PENDING`; backend readiness may immediately promote an eligible manual task to `READY`. Drag/drop is an interaction convenience only: every drop is validated by the backend. `DOING` is entered through **Iniciar no Agent**, never by a direct client-side state update. A task in `REVIEW` represents completed Agent execution awaiting human/project review, not final completion.
 
 When the configured planner is manual, Overview shows the generated Orchestrator prompt, a copy action and a JSON import field. Only a validated `harness.orchestrator-plan/v1` response becomes a draft plan.
+
+## Language preferences and Markdown translation
+
+System settings expose an **Idioma** section with one interface-language selector and a multi-select set of Markdown translation targets. Version 1 exposes only Português, English and Français. At least one translation target stays enabled, and the interface selection is persisted globally and applied to the browser document locale so language-aware browser/accessibility behavior follows the configured locale. The settings contract is extensible for additional languages in later versions.
+
+Every session-owned viewer that renders a Markdown file/document MUST use the shared translation surface. The viewer keeps the original document as its source, offers a target selector populated only from globally enabled translation languages, and starts translation explicitly. While translating it exposes a bounded loading state; provider/configuration errors are inline and do not replace or mutate the original. Once translated, the viewer identifies the active translated language and offers an immediate return to the original view. Translation is presentation state only: no file save, artifact mutation, bundle rewrite or project-knowledge update occurs as a side effect.

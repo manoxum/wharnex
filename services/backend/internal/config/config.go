@@ -17,25 +17,27 @@ import (
 )
 
 type Config struct {
-	Addr               string
-	DatabaseURL        string
-	Planner            string
-	Sandbox            string
-	RunnerImage        string
-	OpenAIAPIKey       string
-	OpenAIModel        string
-	OpenAIBaseURL      string
-	MaxContextBytes    int64
-	MaxBundleBytes     int64
-	AllowLocalSandbox  bool
-	FrontendOrigin     string
-	InstanceID         string
-	StateFile          string
-	DependencyCacheDir string
-	RemoteStorage      RemoteStorageConfig
-	Tunnel             TunnelConfig
-	Artifacts          ArtifactStorageConfig
-	ChatArchive        ChatArchiveConfig
+	Addr                 string
+	DatabaseURL          string
+	Planner              string
+	Sandbox              string
+	RunnerImage          string
+	OpenAIAPIKey         string
+	OpenAIModel          string
+	OpenAIUtilityModel   string
+	OpenAIBaseURL        string
+	MaxContextBytes      int64
+	MaxBundleBytes       int64
+	AllowLocalSandbox    bool
+	FrontendOrigin       string
+	InstanceID           string
+	StateFile            string
+	LanguageSettingsFile string
+	DependencyCacheDir   string
+	RemoteStorage        RemoteStorageConfig
+	Tunnel               TunnelConfig
+	Artifacts            ArtifactStorageConfig
+	ChatArchive          ChatArchiveConfig
 }
 
 type ArtifactStorageConfig struct {
@@ -109,21 +111,23 @@ func Load() Config {
 		IndexFile:     remoteIndexFile(stateFile),
 	}
 	return Config{
-		Addr:               env("HARNESS_ADDR", "127.0.0.1:8080"),
-		FrontendOrigin:     env("HARNESS_FRONTEND_ORIGIN", "http://127.0.0.1:5173"),
-		InstanceID:         env("HARNESS_INSTANCE_ID", ""),
-		DatabaseURL:        strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),
-		Planner:            env("HARNESS_PLANNER", "manual"),
-		Sandbox:            env("HARNESS_SANDBOX", "docker"),
-		RunnerImage:        env("HARNESS_RUNNER_IMAGE", "kernl-runner:local"),
-		OpenAIAPIKey:       os.Getenv("OPENAI_API_KEY"),
-		OpenAIModel:        env("OPENAI_MODEL", "gpt-5.6-sol"),
-		OpenAIBaseURL:      env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-		MaxContextBytes:    envInt64("HARNESS_MAX_CONTEXT_BYTES", 4*1024*1024),
-		MaxBundleBytes:     envInt64("HARNESS_MAX_BUNDLE_BYTES", 128*1024*1024),
-		AllowLocalSandbox:  envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
-		StateFile:          stateFile,
-		DependencyCacheDir: env("HARNESS_DEPENDENCY_CACHE_DIR", filepath.Join(filepath.Dir(stateFile), "dependency-cache")),
+		Addr:                 env("HARNESS_ADDR", "127.0.0.1:8080"),
+		FrontendOrigin:       env("HARNESS_FRONTEND_ORIGIN", "http://127.0.0.1:5173"),
+		InstanceID:           env("HARNESS_INSTANCE_ID", ""),
+		DatabaseURL:          strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),
+		Planner:              env("HARNESS_PLANNER", "manual"),
+		Sandbox:              env("HARNESS_SANDBOX", "docker"),
+		RunnerImage:          env("HARNESS_RUNNER_IMAGE", "kernl-runner:local"),
+		OpenAIAPIKey:         os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:          env("OPENAI_MODEL", "gpt-5.6-sol"),
+		OpenAIUtilityModel:   env("OPENAI_UTILITY_MODEL", env("OPENAI_MODEL", "gpt-5.6-sol")),
+		OpenAIBaseURL:        env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+		MaxContextBytes:      envInt64("HARNESS_MAX_CONTEXT_BYTES", 4*1024*1024),
+		MaxBundleBytes:       envInt64("HARNESS_MAX_BUNDLE_BYTES", 128*1024*1024),
+		AllowLocalSandbox:    envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
+		StateFile:            stateFile,
+		LanguageSettingsFile: filepath.Join(filepath.Dir(stateFile), "language-settings.json"),
+		DependencyCacheDir:   env("HARNESS_DEPENDENCY_CACHE_DIR", filepath.Join(filepath.Dir(stateFile), "dependency-cache")),
 		Artifacts: ArtifactStorageConfig{
 			Endpoint:     env("HARNESS_ARTIFACT_ENDPOINT", "http://minio:9000"),
 			AccessKey:    env("HARNESS_ARTIFACT_ACCESS_KEY", "wharness"),

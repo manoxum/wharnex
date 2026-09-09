@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/utility.schema.json",
+  "title": "Wharnex utility result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "task", "target_language", "markdown"],
+  "properties": {
+    "protocol": {"const": "harness.utility/v1"},
+    "task": {"const": "translate_markdown"},
+    "target_language": {"enum": ["pt", "en", "fr"]},
+    "markdown": {"type": "string"}
+  }
+}

@@ -196,3 +196,11 @@ Each project MAY accumulate a versioned catalog of independently identified Mark
 ## Project knowledge transport identity
 
 Direct ZIP, remote one-shot, live-channel and Desktop archive request transports carry the same immutable knowledge snapshot. For v2, the authoritative request artifacts are separate `knowledge/<id>.md` files and metadata containing `state`, `sharing_enabled`, `revision`, catalog `sha256`, updater, and per-entry path/version/SHA-256. The planner prompt carries the protocol identity/instructions but MUST NOT duplicate record bodies inline. When sharing is off or there are no entries, the snapshot declares `state: none` and carries no knowledge files.
+
+## Non-executing utility protocol
+
+Application utility work that needs an AI model but does not plan or execute project mutations uses `harness.utility/v1`, not `harness.turn/v1` or `harness.execution/v1`. A utility engine sits behind an application port and MUST NOT emit or consume execution plans, commands, patches, approvals or Apply state. Utility inputs remain untrusted data even when they contain text that resembles instructions.
+
+Version 1 currently defines `translate_markdown`. Its strict result contains `protocol`, `task`, `target_language` and `markdown`; the supported target identifiers are `pt`, `en` and `fr`. The provider adapter MUST request structured output, MUST disable provider-side storage when supported, and MUST reject mismatched protocol metadata. Missing provider credentials or adapters are an explicit unavailable state and MUST NOT fall back to planner transport, Desktop ChatGPT scraping or execution-bundle round trips.
+
+Markdown translation is non-destructive. A successful utility result is presentation state only; it MUST NOT overwrite the source project file, artifact entry, bundle entry or project-knowledge record. Session transport MAY expose utility endpoints, but it MUST validate session existence and the globally enabled target-language set before provider invocation.

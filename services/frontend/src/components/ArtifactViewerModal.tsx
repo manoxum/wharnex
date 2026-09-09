@@ -83,7 +83,7 @@ export function ArtifactViewerModal({ sessionId, bundleId, items, initialIndex, 
       <div className="artifact-viewer-stage">
         {definition.kind === 'image'
           ? <img src={url} alt={item.alt || item.label || item.path} style={{ transform: `scale(${zoom}) rotate(${rotation}deg) scaleX(${flipX}) scaleY(${flipY})`, filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) grayscale(${grayscale}%)` }}/>
-          : <ArtifactPreview path={item.path} size={item.size} url={url} kind={item.kind} mode={mode} wrap={wrap}/>}
+          : <ArtifactPreview sessionId={sessionId} path={item.path} size={item.size} url={url} kind={item.kind} mode={mode} wrap={wrap}/>}
       </div>
     </section>
   </div>

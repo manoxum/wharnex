@@ -22,6 +22,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/utility"
 )
 
 type API struct {
@@ -51,6 +52,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/remote-storage/connections/check", a.checkRemoteStorage)
 	mux.HandleFunc("GET /api/artifact-settings", a.artifactSettings)
 	mux.HandleFunc("PUT /api/artifact-settings", a.updateArtifactSettings)
+	mux.HandleFunc("GET /api/language-settings", a.languageSettings)
+	mux.HandleFunc("PUT /api/language-settings", a.updateLanguageSettings)
 	mux.HandleFunc("GET /api/bundle-quota", a.bundleQuota)
 	mux.HandleFunc("GET /api/storage", a.storage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
@@ -113,6 +116,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/file", a.readFile)
 	mux.HandleFunc("GET /api/sessions/{id}/file/preview", a.previewFile)
 	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
+	mux.HandleFunc("POST /api/sessions/{id}/translate-markdown", a.translateMarkdown)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", a.terminal)
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/overview", a.orchestratorOverview)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/propose", a.orchestratorProposePlan)
@@ -442,6 +446,70 @@ func (a *API) updateArtifactSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a.service.ArtifactSettings())
+}
+
+func (a *API) languageSettings(w http.ResponseWriter, _ *http.Request) {
+	document, err := config.ReadLanguageSettings(a.cfg.LanguageSettingsFile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "language_settings_read_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (a *API) updateLanguageSettings(w http.ResponseWriter, r *http.Request) {
+	var document config.LanguageSettingsDocument
+	if !decodeJSON(w, r, &document) {
+		return
+	}
+	if err := config.SaveLanguageSettings(a.cfg.LanguageSettingsFile, document); err != nil {
+		writeError(w, http.StatusBadRequest, "language_settings_invalid", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (a *API) translateMarkdown(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
+	var body struct {
+		TargetLanguage string `json:"target_language"`
+		Markdown       string `json:"markdown"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_translation_request", err.Error())
+		return
+	}
+	settings, err := config.ReadLanguageSettings(a.cfg.LanguageSettingsFile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "language_settings_read_failed", err.Error())
+		return
+	}
+	allowed := false
+	for _, language := range settings.TranslationLanguages {
+		if language == body.TargetLanguage {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		writeError(w, http.StatusBadRequest, "translation_language_disabled", "target language is not enabled in language settings")
+		return
+	}
+	result, err := a.service.TranslateMarkdown(r.Context(), r.PathValue("id"), utility.LanguageCode(body.TargetLanguage), body.Markdown)
+	if err != nil {
+		switch {
+		case errors.Is(err, session.ErrNotFound):
+			writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+		case errors.Is(err, utility.ErrUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "utility_unavailable", "Markdown translation requires OPENAI_API_KEY")
+		default:
+			writeError(w, http.StatusBadGateway, "translation_failed", err.Error())
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *API) bundleQuota(w http.ResponseWriter, _ *http.Request) {

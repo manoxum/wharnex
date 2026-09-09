@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import type { ProjectKnowledge, Session } from '../types'
 import { Icon } from './Icon'
-import { MarkdownContent } from './MarkdownContent'
+import { TranslatableMarkdown } from './TranslatableMarkdown'
 import { splitKnowledgeSections } from './projectKnowledgeSections'
 
 export function ProjectKnowledgeDrawer({ session, onClose }: { session: Session; onClose: () => void }) {
@@ -49,7 +49,7 @@ export function ProjectKnowledgeDrawer({ session, onClose }: { session: Session;
       </nav>
       <article className="project-knowledge-content">
         {error && <div className="project-knowledge-inline-error">{error}</div>}
-        <MarkdownContent markdown={selectedMarkdown}/>
+        <TranslatableMarkdown sessionId={session.id} markdown={selectedMarkdown}/>
       </article>
     </div>}
   </section>
