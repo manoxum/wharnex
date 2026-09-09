@@ -71,4 +71,13 @@ Quando este sintoma reaparecer, tratar primeiro como ausência de materializaç�
 
 No Desktop multi-project, cada projeto normal é renderizado como `embeddedProject`, por isso `App.tsx` omite deliberadamente `WorkspaceTopbar`. Um indicador global colocado apenas nesse topbar não fica visível no uso normal do modo Agent.
 
-A quota móvel de bundles usa o snapshot global de `api.bundleQuota()`: pedidos enviados ao ChatGPT são mostrados como bundles entregues e contam para a pressão contra o limite configurado, enquanto respostas recebidas são contadas separadamente. O limite continua a ser apenas informativo e nunca bloqueia novos pedidos. Para garantir visibilidade no layout embedded, o Agent deve manter o medidor na sua própria command bar, com polling baixo de 60 segundos e refresh imediato quando muda a metadata de artefactos da sessão.
+A quota móvel de bundles usa o snapshot global de `api.bundleQuota()`: pedidos enviados ao ChatGPT contam para a pressão contra o limite configurado, enquanto respostas recebidas são contadas separadamente. O limite continua a ser apenas informativo e nunca bloqueia novos pedidos. Para garantir visibilidade no layout embedded, o Agent mantém o mesmo polling baixo de 60 segundos e refresh imediato quando muda a metadata de artefactos da sessão, mas a command bar deve mostrar apenas os contadores compactos `↑ enviados` e `↓ recebidos`; janela, limite, progresso e warning ficam na superfície global de quota.
+
+## Overlays do Engine no Desktop multi-project
+
+A superfície ChatGPT do Engine é uma `WebContentsView` nativa e pode ficar acima do DOM normal. No Desktop multi-project, o projeto corre num iframe same-origin dentro de `WorkspaceShell`, por isso observar apenas modais do documento do projeto não basta: menus/popovers e modais do shell pai também precisam bloquear temporariamente a view nativa. A pane deve observar blockers nos dois documentos, esconder a `WebContentsView` enquanto qualquer um estiver ativo e mostrá-la novamente quando desaparecer, sem destruir a afinidade da conversa.
+## Fast Refresh e helpers testáveis em componentes React
+
+Na reparação do polimento do Agent/Engine, o patch funcional passou `git diff --check` e `npm run typecheck`, mas `npm run lint --max-warnings=0` bloqueou porque `ChatGPTDesktopPane.tsx` exportava também o helper `chatGPTOverlayDocuments`. A regra `react-refresh/only-export-components` está ativa como warning e, com `--max-warnings=0`, qualquer warning é terminal.
+
+A correção preserva o comportamento e move seletores/helpers de overlay para `services/frontend/src/lib/chatGPTOverlay.ts`; o componente volta a exportar apenas `ChatGPTDesktopPane`, e o teste importa o helper a partir da biblioteca. Para futuros componentes React neste frontend, helpers não-componentes que precisem ser exportados/testados devem preferencialmente viver em módulos `lib/` dedicados em vez de serem exportados do ficheiro `.tsx` do componente.
