@@ -84,6 +84,8 @@ export const api = {
     request<Session>(`/api/sessions/${id}/automation-mode`, { method: 'PUT', body: JSON.stringify({ automation_mode: automationMode }) }),
   setChatTransportMode: (id: string, chatTransportMode: ChatTransportMode) =>
     request<Session>(`/api/sessions/${id}/chat-transport-mode`, { method: 'PUT', body: JSON.stringify({ chat_transport_mode: chatTransportMode }) }),
+  setKnowledgeSharing: (id: string, enabled: boolean) =>
+    request<Session>(`/api/sessions/${id}/knowledge-sharing`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   setChatId: (id: string, chatId: string) =>
     request<Session>(`/api/sessions/${id}/chat-id`, { method: 'PUT', body: JSON.stringify({ chat_id: chatId }) }),
   archiveChat: (id: string) => request<Session>(`/api/sessions/${id}/archive`, { method: 'POST', body: '{}' }),
@@ -99,7 +101,7 @@ export const api = {
   retryPolicyRepair: (id: string) => request<Session>(`/api/sessions/${id}/policy-repair`, { method: 'POST', body: '{}' }),
   requestFailureRepair: (id: string, detail = '') => request<Session>(`/api/sessions/${id}/failure-repair`, { method: 'POST', body: JSON.stringify({ detail }) }),
   retryFailedRequest: (id: string) => request<Session>(`/api/sessions/${id}/failed-request/retry`, { method: 'POST', body: '{}' }),
-	cancelPendingRequest: (id: string) => request<Session>(`/api/sessions/${id}/request/cancel`, { method: 'POST', body: '{}' }),
+	cancelPendingRequest: (id: string, requestId: string) => request<Session>(`/api/sessions/${id}/request/cancel`, { method: 'POST', body: JSON.stringify({ request_id: requestId }) }),
 	remoteInputFailure: (id: string, requestId: string, reason: string, kind: 'transport' | 'bundle_validation' = 'transport') => request<Session>(`/api/sessions/${id}/remote-input/failures`, { method: 'POST', body: JSON.stringify({ request_id: requestId, reason, kind }) }),
   execute: (id: string, approved: boolean) =>
     request<{ session: Session; result: ExecutionResult }>(`/api/sessions/${id}/execute`, {

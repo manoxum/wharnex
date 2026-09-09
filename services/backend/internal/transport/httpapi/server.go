@@ -59,6 +59,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
 	mux.HandleFunc("POST /api/sessions/{id}/archive", a.archiveChat)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
@@ -697,6 +698,21 @@ func (a *API) chatTransportMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) knowledgeSharing(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetKnowledgeSharingEnabled(r.PathValue("id"), body.Enabled)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "knowledge_sharing_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (a *API) message(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Message      string `json:"message"`
@@ -927,7 +943,13 @@ func (a *API) discardInterruptedExecution(w http.ResponseWriter, r *http.Request
 }
 
 func (a *API) cancelPendingRequest(w http.ResponseWriter, r *http.Request) {
-	item, err := a.service.CancelPendingRequest(r.PathValue("id"))
+	var body struct {
+		RequestID string `json:"request_id"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.CancelPendingRequestByID(r.PathValue("id"), body.RequestID)
 	if err != nil {
 		writeError(w, http.StatusConflict, "request_cancel_unavailable", err.Error())
 		return

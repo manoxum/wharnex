@@ -31,6 +31,7 @@ func TestValidateRejectsRenameTraversalAndSensitivePaths(t *testing.T) {
 	cases := []string{
 		"diff --git a/a.txt b/../../etc/passwd\nrename from a.txt\nrename to ../../etc/passwd\n",
 		"--- a/x\n+++ b/.env\n@@ -0,0 +1 @@\n+SECRET=x\n",
+		"--- /dev/null\n+++ b/.wharnex/knowledge/manual.md\n@@ -0,0 +1 @@\n+managed by response protocol\n",
 		"diff --git \"a/x\" \"b/y\"\n",
 	}
 	for _, patch := range cases {

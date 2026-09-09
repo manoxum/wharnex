@@ -163,7 +163,7 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: /Rejeitar alterações verificadas/ })).toBeNull()
   })
 
-  it('keeps verified host Apply inside the alert popover and highlights Plano', () => {
+  it('keeps verified host Apply available after opening its alert and highlights Plano', () => {
     const ready = session()
     ready.state = 'verified'
     ready.pending_host_changes = [{
@@ -173,7 +173,7 @@ describe('AgentWorkspace', () => {
     }]
     const view = props(ready)
     render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': ready }} />)
-    expect(screen.queryByRole('button', { name: 'Aplicar alterações verificadas no host' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Aplicar alterações verificadas no host' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Plano' }).className).toContain('attention-success')
     fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
     expect(screen.getByRole('dialog', { name: 'Alertas ativos' })).toBeTruthy()
@@ -204,6 +204,50 @@ describe('AgentWorkspace', () => {
     expect(screen.getByRole('region', { name: 'Centro de notificações' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Paralelo.*Alterações prontas para o host/ }))
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
+  })
+
+  it('keeps an inactive chat action visible and routes it to the owning chat', async () => {
+    const current = session()
+    const parallel = session()
+    parallel.id = 'ses-parallel'
+    parallel.state = 'verified'
+    parallel.pending_host_changes = [{
+      plan: { ...parallel.plan!, plan_id: 'plan-parallel', request_id: 'req-parallel' },
+      execution: { plan_id: 'plan-parallel', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
+      verified_at: '2026-09-07T10:00:01.000Z',
+    }]
+    const view = props(current)
+    render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir Paralelo para Aplicar no host' }))
+    await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
+    expect(view.onApply).not.toHaveBeenCalled()
+  })
+
+  it('exposes the owning chat recovery action after navigating from a global transport alert', async () => {
+    const current = session()
+    const parallel = session()
+    parallel.id = 'ses-parallel'
+    parallel.state = 'failed'
+    parallel.failure_kind = 'remote_input_transport'
+    parallel.last_request_id = 'req-transport'
+    parallel.last_repair_error = 'Remote input communication failed'
+    const view = props(current)
+    const retry = vi.fn(async () => undefined)
+    const rendered = render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} chatProps={{ ...view.element.props.chatProps, onRetryTransportFailure: retry }} />)
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Paralelo.*Falha na ligação ao ChatGPT/ }))
+    await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
+
+    rendered.rerender(<AgentWorkspace
+      {...view.element.props}
+      session={parallel}
+      attentionSessions={{ 'chat-1': current, 'chat-2': parallel }}
+      chatProps={{ ...view.element.props.chatProps, session: parallel, activeChatId: 'chat-2', onRetryTransportFailure: retry }}
+      inspectorProps={{ ...view.element.props.inspectorProps, session: parallel }}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ação disponível: Repetir pedido' }))
+    expect(retry).toHaveBeenCalledWith('req-transport')
   })
 
   it('uses each popover alert as a link to its owning chat and surface', async () => {
@@ -474,7 +518,7 @@ describe('AgentWorkspace', () => {
   it('opens the project knowledge explorer from the left activity rail', async () => {
     vi.spyOn(api, 'projectKnowledge').mockResolvedValue({ knowledge: { project_path: '/workspace/wharness', content: '# Arquitetura\n\n- API local.', version: 2, updated_at: '2026-09-07T10:00:00.000Z', updated_by_request_id: 'req-review' } })
     render(props().element)
-    fireEvent.click(screen.getByRole('button', { name: 'Conhecimento do projeto' }))
+    fireEvent.click(screen.getByTitle('Conhecimento adquirido'))
     expect(await screen.findByRole('navigation', { name: 'Tópicos do conhecimento' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Arquitetura' })).toBeTruthy()
   })

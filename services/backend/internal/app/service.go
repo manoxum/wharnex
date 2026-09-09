@@ -130,7 +130,9 @@ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Bui
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
+	service.normalizeOrphanedManualRequests()
 	service.normalizeFailureKinds()
+	service.normalizePendingHostChanges()
 	service.reconcileSelfEvolutionStatus()
 	return service
 }
@@ -253,7 +255,8 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
 		return domain.Session{}, err
 	}
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, ChatTransportMode: domain.ChatTransportModeScraper, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	knowledgeSharing := true
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if selfEvolution {
 		item.WharnexInstanceID = ""
 	}
@@ -290,6 +293,9 @@ func (s *Service) SetChatID(sessionID, chatID string) (domain.Session, error) {
 		return domain.Session{}, fmt.Errorf("invalid chat_id %q", chatID)
 	}
 	return s.store.Update(sessionID, func(item *domain.Session) error {
+		if item.ChatID != "" && item.ChatID != chatID {
+			return fmt.Errorf("session is already owned by chat_id %q", item.ChatID)
+		}
 		item.ChatID = chatID
 		return nil
 	})
@@ -418,6 +424,16 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
+	if refreshed, clearErr := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.PendingKnowledgeRootRequestID = ""
+		current.PendingKnowledgeCandidateRequestID = ""
+		current.PendingKnowledgeCandidate = nil
+		current.PendingKnowledgeSummary = ""
+		current.LastMainRequestSummary = ""
+		return nil
+	}); clearErr == nil {
+		item = refreshed
+	}
 	// Capture one immutable knowledge identity for this request. Transport
 	// materialization later reuses this exact snapshot instead of reading the
 	// mutable project knowledge again.
@@ -555,12 +571,9 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 			}
 		}
 	}
-	if result.Plan == nil && result.ManualPrompt == "" && result.Turn != nil {
-		s.triggerKnowledgeReview(ctx, sessionID)
-		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-			updated = reviewed
-		}
-	}
+	// v2 knowledge is carried inside every ordinary response bundle and no
+	// longer schedules a post-terminal knowledge_review. Provider-only turns
+	// have no file bundle, so there is nothing to stage/commit here.
 	return result, updated, nil
 }
 
@@ -624,6 +637,16 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if filenameRequestID == "" || filenameRequestID != parsed.Turn.RequestID {
 		return BundleSubmission{}, ErrExecutionBundleRequestMismatch
 	}
+	if filepath.Base(filename) != expectedResponseBundleFilename(current, parsed.Turn.RequestID) {
+		return BundleSubmission{}, fmt.Errorf("%w: expected %q", ErrExecutionBundleRequestMismatch, expectedResponseBundleFilename(current, parsed.Turn.RequestID))
+	}
+	// Renderer/network acknowledgement can be lost after the bundle has been
+	// committed. The retained Desktop inbox must be able to replay the exact
+	// bytes without executing or applying the plan twice.
+	if current.LastBundle != nil && bundleFilenameRequestID(current.LastBundle.Filename) == parsed.Turn.RequestID && current.LastBundle.SHA256 == parsed.Info.SHA256 {
+		s.bus.Publish(sessionID, "bundle.duplicate_acknowledged", map[string]any{"request_id": parsed.Turn.RequestID, "sha256": parsed.Info.SHA256})
+		return BundleSubmission{Session: current}, nil
+	}
 	if !containsString(current.PendingManualRequestIDs, parsed.Turn.RequestID) {
 		return BundleSubmission{}, fmt.Errorf("%w: %q", ErrExecutionBundleNotPending, parsed.Turn.RequestID)
 	}
@@ -644,6 +667,12 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	// ingestKnowledgeReviewResponse.
 	if lineage, ok := current.RequestLineages[parsed.Turn.RequestID]; ok && lineage.Kind == requestKindKnowledgeReview {
 		return s.ingestKnowledgeReviewResponse(ctx, sessionID, parsed)
+	}
+	if err := s.stageResponseKnowledge(sessionID, parsed); err != nil {
+		return BundleSubmission{}, fmt.Errorf("stage response knowledge: %w", err)
+	}
+	if refreshed, getErr := s.store.Get(sessionID); getErr == nil {
+		current = refreshed
 	}
 	if parsed.Turn.Outcome != nil && parsed.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
 		outcome := parsed.Turn.Outcome
@@ -680,10 +709,6 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			} else {
 				s.bus.Publish(sessionID, "turn.auto_recovery_failed", map[string]any{"replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode, "error": retryErr.Error()})
 			}
-		}
-		s.triggerKnowledgeReview(ctx, sessionID)
-		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-			updated = reviewed
 		}
 		return BundleSubmission{Session: updated, AutoError: updated.LastRepairError}, nil
 	}
@@ -803,9 +828,10 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
 		s.closeRemoteInputChannel(sessionID, "request.terminal")
 		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": parsed.Turn.RequestID, "kind": parsed.Turn.Kind, "transport": "zip_bundle"})
-		s.triggerKnowledgeReview(ctx, sessionID)
-		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-			updated = reviewed
+		if committed, commitErr := s.commitPendingKnowledge(sessionID, parsed.Turn.RequestID); commitErr != nil {
+			return BundleSubmission{}, commitErr
+		} else {
+			updated = committed
 		}
 		return BundleSubmission{Session: updated}, nil
 	}
@@ -1482,9 +1508,10 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 		}
 		s.closeRemoteInputChannel(sessionID, "request.completed")
-		s.triggerKnowledgeReview(ctx, sessionID)
-		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-			updated = reviewed
+		if committed, commitErr := s.commitPendingKnowledge(sessionID, item.Plan.RequestID); commitErr == nil {
+			updated = committed
+		} else {
+			s.bus.Publish(sessionID, "knowledge.commit_failed", map[string]any{"error": commitErr.Error(), "request_id": item.Plan.RequestID})
 		}
 	}
 	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
@@ -1655,10 +1682,6 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
 		s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": result.PlanID, "error": cause.Error(), "scope": "go_dependency_commands"})
 		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "dependency_network_approval": true})
-		s.triggerKnowledgeReview(ctx, sessionID)
-		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-			updated = reviewed
-		}
 		return result, updated, cause
 	}
 
@@ -1726,12 +1749,6 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	}
 
 	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": updated.State == "repair_pending", "repair_attempt": updated.RepairAttempt})
-	if updated.State != "repair_pending" && updated.State != "conflict_resolution_pending" {
-		s.triggerKnowledgeReview(ctx, sessionID)
-		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-			updated = reviewed
-		}
-	}
 	return result, updated, cause
 }
 
@@ -2429,9 +2446,10 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 		}
 		s.closeRemoteInputChannel(sessionID, "request.completed")
-		s.triggerKnowledgeReview(ctx, sessionID)
-		if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-			updated = reviewed
+		if committed, commitErr := s.commitPendingKnowledge(sessionID, item.LastRequestID); commitErr != nil {
+			s.bus.Publish(sessionID, "knowledge.commit_failed", map[string]any{"error": commitErr.Error(), "request_id": item.LastRequestID})
+		} else {
+			updated = committed
 		}
 		return updated, nil
 	}
@@ -2445,9 +2463,10 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		s.bus.Publish(sessionID, "context.refresh_after_apply_failed", map[string]any{"error": refreshErr.Error()})
 	}
 	s.closeRemoteInputChannel(sessionID, "request.completed")
-	s.triggerKnowledgeReview(ctx, sessionID)
-	if reviewed, reviewErr := s.store.Get(sessionID); reviewErr == nil {
-		updated = reviewed
+	if committed, commitErr := s.commitPendingKnowledge(sessionID, item.LastRequestID); commitErr != nil {
+		s.bus.Publish(sessionID, "knowledge.commit_failed", map[string]any{"error": commitErr.Error(), "request_id": item.LastRequestID})
+	} else {
+		updated = committed
 	}
 	return updated, nil
 }

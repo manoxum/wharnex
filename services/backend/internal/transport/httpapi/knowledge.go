@@ -46,7 +46,16 @@ func (a *API) requestKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.bus != nil {
-		a.bus.Publish(current.ID, "knowledge.attached", map[string]any{"request_id": requestID, "transport": "desktop_archive", "state": snapshot.State, "version": snapshot.Version, "sha256": snapshot.SHA256})
+		a.bus.Publish(current.ID, "knowledge.attached", map[string]any{
+			"request_id": requestID, "transport": "desktop_archive", "state": snapshot.State,
+			"sharing_enabled": snapshot.SharingEnabled, "revision": snapshot.Revision,
+			"entry_count": len(snapshot.Entries), "sha256": snapshot.SHA256,
+		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"knowledge": snapshot})
+	// BaseEntries is reconciliation-only server state. In particular, when the
+	// user disabled sharing it must never hitch a ride in the Desktop archive
+	// response and bypass that choice.
+	transportSnapshot := snapshot
+	transportSnapshot.BaseEntries = nil
+	writeJSON(w, http.StatusOK, map[string]any{"knowledge": transportSnapshot})
 }

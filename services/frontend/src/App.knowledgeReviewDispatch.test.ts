@@ -28,11 +28,11 @@ describe('App knowledge-review dispatch', () => {
     expect(body).not.toContain('includes(session.state)')
   })
 
-  it('uses the pending knowledge-review request identity when transporting its continuation', () => {
+  it('uses the one authoritative pending request identity when transporting a continuation', () => {
     const start = source.indexOf('async function transportPlannerContinuation')
     const end = source.indexOf('async function submitConflictPrompt', start)
     const body = source.slice(start, end)
-    expect(body).toContain("const continuationRequestId = promptSession.pending_knowledge_review_request_id || promptSession.last_request_id || ''")
+    expect(body).toContain('const continuationRequestId = activePendingRequestId(promptSession)')
     expect(body).toContain('requestId: continuationRequestId')
     expect(body).not.toContain("requestId: promptSession.last_request_id || ''")
   })

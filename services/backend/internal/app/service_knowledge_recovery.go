@@ -91,7 +91,14 @@ func (s *Service) normalizeKnowledgeReviewSessions() {
 		snapshot, snapshotErr := requestKnowledgeSnapshot(item, requestID)
 		promptNeedsRepair := snapshotErr == nil && !knowledgeReviewPromptMatches(item, requestID, snapshot)
 		pendingMissing := !containsString(item.PendingManualRequestIDs, requestID)
-		if !restoreTask && !promptNeedsRepair && !pendingMissing {
+		overlappedMainRequest := false
+		for _, pendingID := range item.PendingManualRequestIDs {
+			if strings.TrimSpace(pendingID) != "" && pendingID != requestID {
+				overlappedMainRequest = true
+				break
+			}
+		}
+		if !restoreTask && !promptNeedsRepair && !pendingMissing && !overlappedMainRequest {
 			continue
 		}
 
@@ -103,7 +110,7 @@ func (s *Service) normalizeKnowledgeReviewSessions() {
 				snapshotErr = err
 			}
 		}
-		discardReview := snapshotErr != nil
+		discardReview := snapshotErr != nil || overlappedMainRequest
 		_, err := s.store.Update(item.ID, func(current *domain.Session) error {
 			if current.PendingKnowledgeReviewRequestID != requestID {
 				return nil
@@ -130,8 +137,43 @@ func (s *Service) normalizeKnowledgeReviewSessions() {
 		}
 		data := map[string]any{"request_id": requestID, "task_state_restored": restoreTask, "prompt_regenerated": rebuiltPrompt != "", "review_discarded": discardReview}
 		if discardReview {
-			data["reason"] = snapshotErr.Error()
+			if overlappedMainRequest {
+				data["reason"] = "legacy knowledge review overlapped an active main request and shared one prompt slot"
+			} else {
+				data["reason"] = snapshotErr.Error()
+			}
 		}
 		s.bus.Publish(item.ID, "knowledge.review_recovered", data)
+	}
+}
+
+// normalizeOrphanedManualRequests closes legacy request chains whose only
+// prompt was erased by an overlapping side review. Replaying an unknown or
+// mismatched prompt is unsafe; retaining a phantom pending ID deadlocks every
+// future request. The operator can use the ordinary fresh-request recovery.
+func (s *Service) normalizeOrphanedManualRequests() {
+	for _, item := range s.store.List() {
+		if len(item.PendingManualRequestIDs) == 0 || strings.TrimSpace(item.LastManualPrompt) != "" || item.PendingKnowledgeReviewRequestID != "" {
+			continue
+		}
+		_, err := s.store.Update(item.ID, func(current *domain.Session) error {
+			if len(current.PendingManualRequestIDs) == 0 || strings.TrimSpace(current.LastManualPrompt) != "" || current.PendingKnowledgeReviewRequestID != "" {
+				return nil
+			}
+			current.PendingManualRequestIDs = nil
+			current.PlannerInFlight = false
+			if state, ok := recoverPostApplyState(*current); ok {
+				current.State = state
+				clearSessionFailure(current)
+				return nil
+			}
+			current.State = "failed"
+			current.FailureKind = domain.FailureKindRemoteInputTransport
+			current.LastRepairError = remoteInputFailurePrefix + "o pedido pendente legado perdeu a sua entrada; repita-o como um pedido novo"
+			return nil
+		})
+		if err == nil {
+			s.bus.Publish(item.ID, "request.orphan_recovered", map[string]any{"request_ids": item.PendingManualRequestIDs})
+		}
 	}
 }

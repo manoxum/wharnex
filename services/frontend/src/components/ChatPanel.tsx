@@ -12,6 +12,7 @@ import { ChangeDiffEditor } from './ChangeDiffEditor'
 import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
 import { useProgressiveChatHistory, type ChatViewportStore } from './useProgressiveChatHistory'
 import { promptDialog } from '../lib/appDialog'
+import { activePendingRequestId } from '../lib/pendingRequest'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
@@ -20,7 +21,7 @@ function clampComposerHeight(height: number) {
   return Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)))
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -35,7 +36,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   chatTransportMode?: ChatTransportMode
   attachmentsEnabled?: boolean
   preparedAttachmentCount?: number
-  failedPromptDelivery?: 'retry' | 'attention'
+  failedPromptDelivery?: { kind: 'retry' | 'attention' | 'storage'; requestId: string }
   artifactSelection?: ChatArtifactSelection
   artifactRequired?: Partial<Record<ChatArtifactKind, boolean>>
   artifactContent?: Partial<Record<ChatArtifactKind, string>>
@@ -49,6 +50,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onExecutionMode?: (mode: ExecutionMode) => void
   onAutomationMode?: (mode: AutomationMode) => void
   onChatTransportMode?: (mode: ChatTransportMode) => void
+  onKnowledgeSharing?: (enabled: boolean) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
   onRequestMode?: (mode: ChatRequestMode) => void
   onChatTransport?: (transport?: TransportOptions) => void
@@ -63,7 +65,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onRejectPlan?: (item: ChatItem) => void
   onConfirmPrepared?: () => Promise<void>
   onDismissPrepared?: () => void
-  onRetryPreparedDelivery?: () => Promise<void>
+  onRetryPreparedDelivery?: (requestId?: string) => Promise<void>
   onOpenFile?: (path: string) => void
   onRevertChange?: (item: ChatItem) => Promise<void>
   onReprocessPolicyBlock?: () => Promise<void>
@@ -106,6 +108,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const currentExecutionMode = executionMode || session.execution_mode || 'protected'
   const currentAutomationMode = automationMode || session.automation_mode || 'manual'
   const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
+  const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
   const effectiveTransport = chatTransport || globalTransport
   const composerRef = useRef<HTMLFormElement>(null)
   const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
@@ -309,7 +312,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       <div ref={endRef}/>
     </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
 
-    {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.()}><Icon name="refresh" size={14}/> {failedPromptDelivery === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
+    {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery.kind === 'storage' ? 'Armazenamento local sem espaço' : failedPromptDelivery.kind === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery.kind === 'storage' ? 'O bundle foi preservado, mas o backend não consegue guardá-lo. Liberte espaço no disco e tente a ingestão novamente.' : failedPromptDelivery.kind === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.(failedPromptDelivery.requestId)}><Icon name="refresh" size={14}/> {failedPromptDelivery.kind === 'storage' ? 'Tentar após liberar espaço' : failedPromptDelivery.kind === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
     {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>{preparedAttachmentCount} item(ns) de entrada preparados. O contexto é incluído automaticamente apenas quando necessário.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}
 
     {queueOpen && queuedRequests.length > 0 && <QueuePanel requests={queuedRequests} editingId={editingQueueId} editingText={editingQueueText} onEditing={(id, text) => { setEditingQueueId(id); setEditingQueueText(text) }} onEditingText={setEditingQueueText} onSave={() => { if (editingQueueId && editingQueueText.trim()) onQueueEdit?.(editingQueueId, editingQueueText.trim()); setEditingQueueId('') }} onCancel={() => setEditingQueueId('')} onMove={onQueueMove} onRemove={onQueueRemove} onMerge={onQueueMerge} onPromote={onQueuePromote} onClose={() => setQueueOpen(false)} />}
@@ -356,6 +359,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <button type="button" className={attachments.length ? 'composer-round-action selected' : 'composer-round-action'} disabled={!attachmentsEnabled || Boolean(preparedAttachmentCount)} onClick={() => fileInputRef.current?.click()} title={attachmentsEnabled ? `Ficheiros do utilizador${attachments.length ? ` · ${attachments.length} selecionado(s)` : ''}` : 'Anexos diretos requerem o Desktop com planner manual'} aria-label="Anexar ficheiros"><Icon name="file" size={12}/>{attachments.length > 0 && <b>{attachments.length}</b>}</button>
           <span className="composer-action-divider" />
           <span className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
+          <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/></button>
           <span className="composer-mode-group" role="group" aria-label="Proteção de execução">
             <button type="button" className={`composer-round-action mode-protected ${currentExecutionMode === 'protected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode} aria-pressed={currentExecutionMode === 'protected'} aria-label="Protected" title="Protected · executar e verificar primeiro na sandbox" onClick={() => onExecutionMode?.('protected')}><Icon name="shield" size={12}/></button>
             <button type="button" className={`composer-round-action mode-unprotected ${currentExecutionMode === 'unprotected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode || Boolean(session.self_evolution)} aria-pressed={currentExecutionMode === 'unprotected'} aria-label="Unprotected" title={session.self_evolution ? 'Unprotected indisponível · auto-evolução do Wharness é sempre Protected' : 'Unprotected · executar diretamente no projeto real'} onClick={() => onExecutionMode?.('unprotected')}><Icon name="external" size={12}/></button>
@@ -526,9 +530,7 @@ function canResendPreparedRequest(item: ChatItem) { return item.iteration?.phase
 // Legacy sessions without that field fall back to the states that can still
 // own a live remote request.
 function isLivePendingRequest(session: Session, requestId: string) {
-  if (session.pending_manual_request_ids) return session.pending_manual_request_ids.includes(requestId)
-  if (session.last_request_id !== requestId) return false
-  return ['awaiting_plan', 'workflow_pending', 'repair_pending', 'baseline_update_pending', 'conflict_resolution_pending', 'failed'].includes(session.state)
+  return activePendingRequestId(session) === requestId
 }
 
 function latestTodoSnapshot(items: ChatItem[]) {

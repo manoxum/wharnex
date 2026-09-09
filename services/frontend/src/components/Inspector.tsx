@@ -11,6 +11,8 @@ import { MarkdownContent } from './MarkdownContent'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { buildExecutionTimeline } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
+import { sessionCanApplyHost, sessionHostResolutionBlocked } from '../lib/attentionCenter'
+import { activePendingRequestId } from '../lib/pendingRequest'
 
 export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
@@ -52,9 +54,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
   const pendingCount = session.pending_host_changes?.length || 0
-  const pendingResolutionBlocked = Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || ['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state))
-  const canApply = Boolean(!direct && pendingCount && !pendingResolutionBlocked && session.last_turn?.kind !== 'workflow')
-  const canReject = canApply || Boolean(!direct && pendingCount && session.integration_conflict)
+  const canApply = sessionCanApplyHost(session)
+  const canReject = Boolean(!direct && pendingCount && (!sessionHostResolutionBlocked(session) || session.integration_conflict))
   const desktop = isDesktop()
 
   async function copy(text: string) { await navigator.clipboard.writeText(text) }
@@ -267,7 +268,7 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
           chatId={surface?.cacheKey || liveChat.id}
           chatTitle={surface?.title || liveChat.title}
           chatgptUrl={surface?.url || liveChat.chatgptUrl}
-          pendingRequestId={isActive ? (session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]) : undefined}
+          pendingRequestId={isActive ? activePendingRequestId(session) : undefined}
           sessionId={isActive ? session.id : undefined}
           recoveryBootstrap={isActive ? session.last_manual_prompt : undefined}
           onChatGPTURL={onChatGPTURL}

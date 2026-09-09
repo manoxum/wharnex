@@ -38,3 +38,8 @@ export function requestIdFromBundleName(filename: string): string {
   if (!parsed) return ''
   return parsed.subrequestId || parsed.requestId
 }
+
+export function expectedResponseBundleName(prompt: string, requestId: string): string {
+  const matches = String(prompt || '').match(/whx_bundle_res_[A-Za-z0-9_-]+\.zip/g) || []
+  return matches.find((name) => requestIdFromBundleName(name) === requestId) || ''
+}

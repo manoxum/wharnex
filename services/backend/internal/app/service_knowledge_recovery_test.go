@@ -136,7 +136,7 @@ func TestStartupRepairsLegacyKnowledgeReviewPromptAndFailedState(t *testing.T) {
 	if recovered.PendingKnowledgeReviewRequestID != reviewID || !containsString(recovered.PendingManualRequestIDs, reviewID) {
 		t.Fatalf("startup did not re-arm the knowledge review identity: %#v", recovered)
 	}
-	identity := "Knowledge identity: version=1 sha256=" + snapshot.SHA256
+	identity := "Knowledge identity: revision=1 entries=1 sha256=" + snapshot.SHA256
 	if !strings.Contains(recovered.LastManualPrompt, identity) || !strings.Contains(recovered.LastManualPrompt, strings.TrimSpace(snapshot.Content)) {
 		t.Fatalf("startup did not regenerate canonical knowledge identity/content: %q", recovered.LastManualPrompt)
 	}
@@ -159,5 +159,27 @@ func TestRecoverPostApplyStatePreservesSelfEvolutionActivation(t *testing.T) {
 	state, ok := recoverPostApplyState(item)
 	if !ok || state != "restart_pending" {
 		t.Fatalf("recoverPostApplyState = %q, %v; want restart_pending, true", state, ok)
+	}
+}
+
+func TestStartupClosesLegacyMainRequestWhosePromptWasOverwrittenByKnowledgeReview(t *testing.T) {
+	store := session.NewStore()
+	store.Put(domain.Session{
+		ID: "ses-overlap", ProjectPath: t.TempDir(), State: "awaiting_plan", LastRequestID: "req-main",
+		PendingManualRequestIDs: []string{"req-main", "req-review"}, PendingKnowledgeReviewRequestID: "req-review",
+		LastManualPrompt: "WHX KNOWLEDGE REVIEW", RequestLineages: map[string]domain.RequestLineage{
+			"req-review": {RequestID: "req-review", RootRequestID: "req-main", Kind: requestKindKnowledgeReview},
+		},
+	})
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	recovered, err := service.GetSession("ses-overlap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.State != "failed" || len(recovered.PendingManualRequestIDs) != 0 || recovered.PendingKnowledgeReviewRequestID != "" || recovered.LastManualPrompt != "" {
+		t.Fatalf("legacy overlapping request remained ambiguous: %#v", recovered)
+	}
+	if recovered.FailureKind != domain.FailureKindRemoteInputTransport || !strings.Contains(recovered.LastRepairError, "repita-o como um pedido novo") {
+		t.Fatalf("legacy overlap did not become an actionable fresh retry: %#v", recovered)
 	}
 }

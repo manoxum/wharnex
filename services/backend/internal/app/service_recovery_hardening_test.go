@@ -33,6 +33,36 @@ func TestHostApplicablePendingChangesDropsVerificationOnlyPlans(t *testing.T) {
 	}
 }
 
+func TestLegacyRemoteInputFailureIsClassifiedAsTransportNotSourceRepair(t *testing.T) {
+	item := domain.Session{LastRepairError: "Remote input communication failed: bundle download timed out"}
+	if got := sessionFailureKind(item); got != domain.FailureKindRemoteInputTransport {
+		t.Fatalf("sessionFailureKind()=%q want %q", got, domain.FailureKindRemoteInputTransport)
+	}
+}
+
+func TestServiceStartupNormalizesThePendingHostCandidateExposedToClients(t *testing.T) {
+	store := session.NewStore()
+	patch := "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
+	item := domain.Session{
+		ID: "ses-pending-normalization", ProjectPath: t.TempDir(), State: "verified",
+		PendingHostChanges: []domain.PendingHostChange{
+			{Plan: domain.ExecutionPlan{PlanID: "verify-only", Verification: []domain.CommandSpec{appCommand("false")}}},
+			{Plan: domain.ExecutionPlan{PlanID: "patch", Operations: []domain.Operation{{Type: "apply_patch", Patch: patch}}}},
+		},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	_ = NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	updated, err := store.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.PendingHostChanges) != 1 || updated.PendingHostChanges[0].Plan.PlanID != "patch" {
+		t.Fatalf("public pending candidate was not normalized: %#v", updated.PendingHostChanges)
+	}
+}
+
 func TestLocalCoordinationFailuresNeverClassifyAsSourceRepair(t *testing.T) {
 	cases := []struct {
 		name string

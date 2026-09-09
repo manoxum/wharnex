@@ -99,8 +99,12 @@ export async function submitWithRetry({
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     await beforeAttempt(attempt)
     const accepted = beginSubmission()
+    // Attach rejection handling before dispatch: if an asynchronous DOM
+    // dispatch fails, its still-pending observation must not become an
+    // unhandled rejection when the next attempt supersedes it.
+    void accepted.catch(() => undefined)
     try {
-      submit()
+      await submit()
       return await accepted
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))

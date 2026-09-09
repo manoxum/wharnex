@@ -155,6 +155,22 @@ export type AgentTurn = {
   outcome?: { status: 'completed' | 'failed' | 'partial'; reason_code?: string; message?: string; retryable: boolean }
 }
 
+export type ProjectKnowledgeEntry = {
+  id: string
+  content: string
+  version: number
+  updated_at: string
+  updated_by_request_id?: string
+}
+
+export type ProjectKnowledgeCatalog = {
+  project_path: string
+  revision: number
+  entries: ProjectKnowledgeEntry[]
+  updated_at: string
+  updated_by_request_id?: string
+}
+
 export type ProjectKnowledge = {
   project_path: string
   content: string
@@ -176,6 +192,9 @@ export type Session = {
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
   chat_transport_mode?: ChatTransportMode
+  knowledge_sharing_enabled?: boolean
+  knowledge_last_seen_revision?: number
+  last_main_request_summary?: string
   self_evolution?: boolean
 	wharnex_instance_id?: string
   self_evolution_activation?: 'restart_pending' | 'restart_scheduled'

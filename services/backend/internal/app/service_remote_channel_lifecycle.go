@@ -157,10 +157,10 @@ func buildRemoteContextUpdateResources(dir string, item domain.Session, state *r
 		return nil, err
 	}
 	knowledgeURL := ""
-	if state.knowledge.State == domain.KnowledgeStatePresent {
+	if state.knowledge.State == domain.KnowledgeStatePresent && len(state.knowledge.Entries) == 0 {
 		knowledgeURL = resourceURL("files/knowledge/" + state.knowledge.SHA256)
 	}
-	document := remoteChannelDocument{Protocol: "wharness.remote-channel/v2", RootRequestID: state.rootRequestID, ActiveRequestID: state.activeRequest, Generation: state.generation, ContextSHA256: item.Context.Manifest.SHA256, Prompt: resourceURL("prompt.md"), FileMap: resourceURL("file-map.json"), DiffCheck: resourceURL("diff-check.json"), Hash: resourceURL("hash.txt"), Events: resourceURL("events"), BundleContract: resourceURL("bundle-contract.json"), Status: "active", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), FinalCheckMessage: remoteFinalDiffCheckInstruction, Knowledge: knowledgeURL, KnowledgeState: state.knowledge.State, KnowledgeVersion: state.knowledge.Version, KnowledgeSHA256: state.knowledge.SHA256}
+	document := remoteChannelDocument{Protocol: "wharness.remote-channel/v2", RootRequestID: state.rootRequestID, ActiveRequestID: state.activeRequest, Generation: state.generation, ContextSHA256: item.Context.Manifest.SHA256, Prompt: resourceURL("prompt.md"), FileMap: resourceURL("file-map.json"), DiffCheck: resourceURL("diff-check.json"), Hash: resourceURL("hash.txt"), Events: resourceURL("events"), BundleContract: resourceURL("bundle-contract.json"), Status: "active", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), FinalCheckMessage: remoteFinalDiffCheckInstruction, Knowledge: knowledgeURL, KnowledgeState: state.knowledge.State, KnowledgeVersion: state.knowledge.Version, KnowledgeRevision: state.knowledge.Revision, KnowledgeSHA256: state.knowledge.SHA256}
 	if err := writeRemoteChannelJSON(statePath, document); err != nil {
 		return nil, err
 	}

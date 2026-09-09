@@ -85,8 +85,16 @@ func buildRemoteFileMapResources(dir, contextPath string, manifest domain.Contex
 		return nil, nil, err
 	}
 	if knowledge.State == domain.KnowledgeStatePresent {
-		if err := addBytes("knowledge", "knowledge/project.md", []byte(knowledge.Content), true); err != nil {
-			return nil, nil, err
+		if len(knowledge.Entries) == 0 {
+			if err := addBytes("knowledge", "knowledge/project.md", []byte(knowledge.Content), true); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			for _, entry := range knowledge.Entries {
+				if err := addBytes("knowledge", "knowledge/"+entry.ID+".md", []byte(strings.TrimSpace(entry.Content)), true); err != nil {
+					return nil, nil, err
+				}
+			}
 		}
 	}
 	for _, file := range manifest.Files {

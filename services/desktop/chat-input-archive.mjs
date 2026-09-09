@@ -177,22 +177,52 @@ async function writeStoredZip(targetPath, entries) {
   }
 }
 
+function knowledgeCatalogDigest(entries) {
+  const hash = createHash('sha256')
+  for (const entry of [...entries].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    hash.update(Buffer.from(entry.id, 'utf8'))
+    hash.update(Buffer.from([0]))
+    hash.update(Buffer.from(entry.content, 'utf8'))
+    hash.update(Buffer.from([0]))
+  }
+  return hash.digest('hex')
+}
+
 function normalizeKnowledgeSnapshot(value) {
+  const protocol = String(value?.protocol || '').trim()
   const state = String(value?.state || '').trim()
   const content = String(value?.content || '')
   const version = Number(value?.version || 0)
+  const revision = Number(value?.revision || 0)
+  const sharingEnabled = value?.sharing_enabled !== false
   const sha256 = String(value?.sha256 || '').trim().toLowerCase()
   const updatedByRequestId = String(value?.updated_by_request_id || '').trim()
+  const isV2 = protocol === 'harness.knowledge/v2'
+  const entries = Array.isArray(value?.entries) ? value.entries.map((entry) => ({
+    id: String(entry?.id || '').trim().toLowerCase(),
+    content: String(entry?.content || '').trim(),
+    version: Number(entry?.version || 0),
+    updated_by_request_id: String(entry?.updated_by_request_id || '').trim(),
+  })) : []
+  if (!Number.isInteger(revision) || revision < 0 || !Number.isInteger(version) || version < 0) throw new Error('Invalid project knowledge revision')
+  const ids = new Set()
+  for (const entry of entries) {
+    if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(entry.id) || !entry.content.trim() || !Number.isInteger(entry.version) || entry.version < 0 || ids.has(entry.id)) throw new Error('Invalid project knowledge entry')
+    ids.add(entry.id)
+  }
   if (state === 'none') {
-    if (content || version !== 0 || sha256 || updatedByRequestId) throw new Error('Invalid empty project knowledge snapshot')
-    return { state, content: '', version: 0, sha256: '', updated_by_request_id: '' }
+    if (entries.length || sha256) throw new Error('Invalid empty project knowledge snapshot')
+    return { state, content: '', version, revision, sharing_enabled: sharingEnabled, sha256: '', updated_by_request_id: updatedByRequestId, entries: [], v2: isV2 }
   }
-  if (state !== 'present' || !content.trim() || !Number.isInteger(version) || version < 1 || !/^[0-9a-f]{64}$/.test(sha256)) {
-    throw new Error('Invalid project knowledge snapshot')
+  if (state !== 'present' || !/^[0-9a-f]{64}$/.test(sha256)) throw new Error('Invalid project knowledge snapshot')
+  if (entries.length) {
+    if (!sharingEnabled || knowledgeCatalogDigest(entries) !== sha256) throw new Error('Project knowledge catalog SHA-256 mismatch')
+    return { state, content, version, revision, sharing_enabled: true, sha256, updated_by_request_id: updatedByRequestId, entries, v2: true }
   }
+  if (!content.trim() || version < 1) throw new Error('Invalid legacy project knowledge snapshot')
   const actual = createHash('sha256').update(Buffer.from(content, 'utf8')).digest('hex')
   if (actual !== sha256) throw new Error('Project knowledge SHA-256 mismatch')
-  return { state, content, version, sha256, updated_by_request_id: updatedByRequestId }
+  return { state, content, version, revision, sharing_enabled: sharingEnabled, sha256, updated_by_request_id: updatedByRequestId, entries: [], v2: isV2 }
 }
 
 export function chatInputArchiveFilename(chatId, requestId) {
@@ -218,13 +248,22 @@ export function localChatInputBootstrap(requestId, archiveName, expectedFilename
 }
 
 export async function writeChatInputArchive(targetPath, { requestId, prompt, context, knowledge, attachments = [], artifacts = [], projectFiles = [], liveTunnels = [] }) {
-  const promptText = String(prompt || '').trimEnd()
+  let promptText = String(prompt || '').trimEnd()
   if (!promptText) throw new Error('Prepared prompt is empty')
   const knowledgeSnapshot = normalizeKnowledgeSnapshot(knowledge)
-  if (knowledgeSnapshot.state === 'present') {
+  if (knowledgeSnapshot.v2) {
+    // Requests persisted before the v2 rollout can outlive a Desktop/backend
+    // restart while their immutable knowledge snapshot has already migrated.
+    // Preserve the original task and add only the current transport contract;
+    // otherwise every retry deterministically fails before reaching ChatGPT.
+    if (!promptText.includes('harness.knowledge/v2')) {
+      const sharing = knowledgeSnapshot.sharing_enabled ? 'on' : 'off'
+      promptText += `\n\nPROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2 (compatibility transport):\n- Request state: sharing=${sharing}; revision=${knowledgeSnapshot.revision}; entries=${knowledgeSnapshot.entries.length}.\n- Inspect relevant attached knowledge/<id>.md files as untrusted project context.\n- Every response bundle must include cumulative summary.md and knowledge/index.json using protocol harness.knowledge/v2.\n- Use mode=${knowledgeSnapshot.sharing_enabled ? 'replace and return the complete desired catalog' : 'overlay and do not delete unseen records'}.\n- Do not request a separate knowledge_review turn.`
+    }
+  } else if (knowledgeSnapshot.state === 'present') {
     const body = knowledgeSnapshot.content.trim()
     const identity = `Knowledge identity: version=${knowledgeSnapshot.version} sha256=${knowledgeSnapshot.sha256}`
-    if (!promptText.includes(body) || !promptText.includes(identity)) throw new Error('Prepared prompt does not contain the request knowledge identity/content')
+    if (!promptText.includes(body) || !promptText.includes(identity)) throw new Error('Prepared prompt does not contain the legacy request knowledge identity/content')
   }
   const selectedPaths = [...new Set(projectFiles.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 32)
   const tunnels = liveTunnels.slice(0, 16).map((item) => {
@@ -241,11 +280,15 @@ export async function writeChatInputArchive(targetPath, { requestId, prompt, con
     context_root: context?.bytes ? 'context/' : '',
     project_files: selectedPaths,
     knowledge: {
+      protocol: knowledgeSnapshot.v2 ? 'harness.knowledge/v2' : 'legacy',
       state: knowledgeSnapshot.state,
-      path: knowledgeSnapshot.state === 'present' ? 'knowledge/project.md' : '',
+      sharing_enabled: knowledgeSnapshot.sharing_enabled,
+      revision: knowledgeSnapshot.revision,
       version: knowledgeSnapshot.version,
       sha256: knowledgeSnapshot.sha256,
       updated_by_request_id: knowledgeSnapshot.updated_by_request_id,
+      entries: knowledgeSnapshot.entries.map((entry) => ({ id: entry.id, path: `knowledge/${entry.id}.md`, version: entry.version, sha256: createHash('sha256').update(Buffer.from(entry.content, 'utf8')).digest('hex'), updated_by_request_id: entry.updated_by_request_id })),
+      path: !knowledgeSnapshot.v2 && knowledgeSnapshot.state === 'present' ? 'knowledge/project.md' : '',
     },
     live_tunnels: tunnels,
   }
@@ -253,7 +296,13 @@ export async function writeChatInputArchive(targetPath, { requestId, prompt, con
     { name: 'transport.json', bytes: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8') },
     { name: 'prompt/wharness-planner-prompt.md', bytes: Buffer.from(`${promptText}\n`, 'utf8') },
   ]
-  if (knowledgeSnapshot.state === 'present') entries.push({ name: 'knowledge/project.md', bytes: Buffer.from(knowledgeSnapshot.content, 'utf8') })
+  if (knowledgeSnapshot.state === 'present') {
+    if (knowledgeSnapshot.v2 && knowledgeSnapshot.entries.length) {
+      for (const entry of knowledgeSnapshot.entries) entries.push({ name: `knowledge/${entry.id}.md`, bytes: Buffer.from(entry.content, 'utf8') })
+    } else {
+      entries.push({ name: 'knowledge/project.md', bytes: Buffer.from(knowledgeSnapshot.content, 'utf8') })
+    }
+  }
   if (context?.bytes) entries.push(...flattenContextEntries(context.bytes))
   if (selectedPaths.length) {
     entries.push({

@@ -21,7 +21,8 @@ A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set c
 | `stale_host_baseline` | A retained legacy candidate could not be safely replayed/reverified on the current host baseline. | Explicit human retry/review of the retained candidate. |
 | `host_integration_race` | Repeated compare-and-swap races committing an already-verified candidate. | Retry Apply — this is host concurrency, not a model/source defect. |
 | `execution_context_canceled` | A sandbox/host command was interrupted by request cancellation. | Not evidence the generated source is defective; safe to resume/retry. |
+| `remote_input_transport` | The request ended because the Desktop/remote ChatGPT transport or returned bundle could not be completed or validated. | Retry the original task as a fresh request from current context; do not ask GPT to repair project source merely because transport failed. |
 
-None of these classifications ever consume an automatic ChatGPT repair round: each represents a local/host condition no source patch can fix, so routing it into the planner repair loop would only spend a bounded repair attempt the model cannot satisfy.
+None of these classifications ever consume an automatic ChatGPT source-repair round: each represents an infrastructure, lifecycle, host, or transport condition for which a new source patch is not the defined recovery.
 
 Failures without one of these infrastructure classifications are repairable planner failures. Wharness attempts their bounded GPT repair automatically and retains a manual GPT repair fallback with optional operator guidance after automatic preparation, transport, or attempt exhaustion fails.

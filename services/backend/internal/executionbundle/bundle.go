@@ -20,7 +20,7 @@ import (
 const (
 	MaxBundleBytes    = 16 << 20
 	maxExpandedBytes  = 32 << 20
-	maxEntries        = 128
+	maxEntries        = 256
 	maxKnowledgeBytes = 256 << 10
 )
 
@@ -124,6 +124,14 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 	if len(knowledgeBytes) > maxKnowledgeBytes {
 		return Parsed{}, errors.New("knowledge.md exceeds 256 KiB limit")
 	}
+	summaryBytes := files["summary.md"]
+	if len(summaryBytes) > 256<<10 {
+		return Parsed{}, errors.New("summary.md exceeds 256 KiB limit")
+	}
+	knowledgeCandidate, err := parseKnowledgeCandidate(files)
+	if err != nil {
+		return Parsed{}, err
+	}
 	turn, hasTurn, err := parseTurn(files["turn.json"])
 	if err != nil {
 		return Parsed{}, err
@@ -215,6 +223,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 	return Parsed{Plan: plan, Info: domain.ExecutionBundleInfo{
 		Filename: path.Base(filename), README: string(readmeBytes), Files: listed,
 		Patches: patches, SHA256: hex.EncodeToString(digest[:]),
+		CumulativeSummary: strings.TrimSpace(string(summaryBytes)), ProjectKnowledgeCandidate: knowledgeCandidate,
 		ProjectKnowledgeUpdate: string(knowledgeBytes),
 	}, Turn: turn}, nil
 }

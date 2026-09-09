@@ -99,6 +99,35 @@ func hostApplicablePendingChanges(changes []domain.PendingHostChange) []domain.P
 	return filtered
 }
 
+// normalizePendingHostChanges makes the public/session state use the same
+// candidate set as ApplyToHost. This also materializes the legacy implicit
+// verified-plan fallback, so the frontend never advertises a raw count that
+// Apply later filters to zero (or misses a valid legacy candidate entirely).
+func (s *Service) normalizePendingHostChanges() {
+	for _, item := range s.store.List() {
+		effective := hostApplicablePendingChanges(pendingHostChanges(item))
+		if pendingHostChangesEqual(item.PendingHostChanges, effective) {
+			continue
+		}
+		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
+			current.PendingHostChanges = append([]domain.PendingHostChange(nil), effective...)
+			return nil
+		})
+	}
+}
+
+func pendingHostChangesEqual(left, right []domain.PendingHostChange) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Plan.PlanID != right[index].Plan.PlanID {
+			return false
+		}
+	}
+	return true
+}
+
 func pendingPatchCount(changes []domain.PendingHostChange) int {
 	total := 0
 	for index := range changes {
@@ -200,16 +229,28 @@ func (s *Service) RejectPendingHostChanges(sessionID string) (domain.Session, er
 // preserving durable history and any already verified Protected candidate.
 // It makes the conversation available for a new main request.
 func (s *Service) CancelPendingRequest(sessionID string) (domain.Session, error) {
+	return s.CancelPendingRequestByID(sessionID, "")
+}
+
+// CancelPendingRequestByID rejects stale UI actions before releasing the
+// session-wide request chain. A session has one active planner chain; clearing
+// only one of several legacy pending identifiers would leave Desktop and the
+// backend supervising different requests.
+func (s *Service) CancelPendingRequestByID(sessionID, requestedID string) (domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return item, err
 	}
-	requestID := item.LastRequestID
+	requestID := activePendingRequestID(item)
 	if requestID == "" || (len(item.PendingManualRequestIDs) == 0 && !item.PlannerInFlight && item.State != "failed" && item.State != "repair_pending" && item.State != "conflict_resolution_pending") {
 		return item, errors.New("there is no active request to cancel")
 	}
+	if requestedID = strings.TrimSpace(requestedID); requestedID != "" && requestedID != requestID {
+		return item, fmt.Errorf("request %s is no longer the active request", requestedID)
+	}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.PendingManualRequestIDs = nil
+		current.PendingKnowledgeReviewRequestID = ""
 		current.LastManualPrompt = ""
 		current.PlannerInFlight = false
 		current.InterruptedExecution = nil
@@ -237,4 +278,19 @@ func (s *Service) CancelPendingRequest(sessionID string) (domain.Session, error)
 	s.closeRemoteInputChannel(sessionID, "request.cancelled")
 	s.bus.Publish(sessionID, "request.cancelled", map[string]any{"request_id": requestID, "pending_changes_preserved": len(updated.PendingHostChanges)})
 	return updated, nil
+}
+
+func activePendingRequestID(item domain.Session) string {
+	if requestID := strings.TrimSpace(item.PendingKnowledgeReviewRequestID); requestID != "" && containsString(item.PendingManualRequestIDs, requestID) {
+		return requestID
+	}
+	if requestID := strings.TrimSpace(item.LastRequestID); requestID != "" && (containsString(item.PendingManualRequestIDs, requestID) || len(item.PendingManualRequestIDs) == 0) {
+		return requestID
+	}
+	for index := len(item.PendingManualRequestIDs) - 1; index >= 0; index-- {
+		if requestID := strings.TrimSpace(item.PendingManualRequestIDs[index]); requestID != "" {
+			return requestID
+		}
+	}
+	return ""
 }

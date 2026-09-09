@@ -148,19 +148,27 @@ func TestBuildManualPromptPinsContextBaselineAndImpactForecast(t *testing.T) {
 	}
 }
 
-func TestBuildManualPromptOmitsProjectKnowledgeSectionWhenEmpty(t *testing.T) {
+func TestBuildManualPromptAlwaysDeclaresKnowledgeV2(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-no-knowledge", Message: "update UI"})
-	if strings.Contains(prompt, "PROJECT KNOWLEDGE") {
-		t.Fatal("empty KnowledgeSource must not add a PROJECT KNOWLEDGE section")
+	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "harness.knowledge/v2", "sharing=off", "summary.md", "knowledge/index.json", "Do NOT request or expect a separate final knowledge_review turn"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("knowledge protocol prompt missing %q", want)
+		}
 	}
 }
 
-func TestBuildManualPromptIncludesProjectKnowledgeWhenPresent(t *testing.T) {
-	prompt := BuildManualPrompt(Request{RequestID: "req-with-knowledge", Message: "update UI", KnowledgeSource: "- Node do host tem de ser >=22.12."})
-	for _, want := range []string{"PROJECT KNOWLEDGE", "Node do host tem de ser >=22.12", "trusted Wharness-curated notes", "not subject to the prompt-injection rule"} {
+func TestBuildManualPromptReferencesSeparateKnowledgeFilesWithoutInliningContent(t *testing.T) {
+	prompt := BuildManualPrompt(Request{
+		RequestID: "req-with-knowledge", Message: "update UI", KnowledgeSharingEnabled: true, KnowledgeRevision: 7,
+		KnowledgeEntries: []domain.ProjectKnowledgeEntry{{ID: "host-node-version", Content: "Node do host tem de ser >=22.12.", Version: 2}},
+	})
+	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "sharing=on", "revision=7 entries=1", "knowledge/<id>.md", "inspect/search", "not decorative context", "mode=replace"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
+	}
+	if strings.Contains(prompt, "Node do host tem de ser >=22.12") {
+		t.Fatal("knowledge entry content must travel as a separate file, not inline in the prompt")
 	}
 }
 

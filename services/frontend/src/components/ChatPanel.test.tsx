@@ -177,6 +177,19 @@ describe('ChatPanel', () => {
   })
 
 
+  it('exposes a per-chat project knowledge toggle in the composer', async () => {
+    const onKnowledgeSharing = vi.fn()
+    render(
+      <ChatPanel session={{ ...session, knowledge_sharing_enabled: false }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onKnowledgeSharing={onKnowledgeSharing} {...chatActions} />,
+    )
+    const button = screen.getByRole('button', { name: 'Conhecimento do projeto' })
+    expect(button.getAttribute('aria-pressed')).toBe('false')
+    expect(button.querySelector('svg')).toBeTruthy()
+    fireEvent.click(button)
+    await waitFor(() => expect(onKnowledgeSharing).toHaveBeenCalledWith(true))
+  })
+
+
   it('renders the new-chat control as an icon-only plus button', () => {
     render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
@@ -236,15 +249,15 @@ describe('ChatPanel', () => {
     expect(screen.queryByRole('button', { name: 'Corrigir com GPT' })).toBeNull()
   })
 
-	it('timestamps WHX notices, links their request, and allows cancelling the active request', async () => {
-		const onCancelPendingRequest = vi.fn(async () => undefined)
-		render(<ChatPanel session={{ ...session, state: 'failed', last_request_id: 'req-123' }} items={[{ id: 'failure', role: 'harness', source: 'wharness', presentation: 'notice', createdAt: '2026-09-06T11:00:00Z', text: 'Falhou.', iteration: { id: 'iteration-1', requestId: 'req-123', phase: 'failed', artifacts: [] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCancelPendingRequest={onCancelPendingRequest} {...chatActions}/>)
-		expect(screen.getByText('WHX')).toBeTruthy()
-		expect(document.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-06T11:00:00Z')
-		expect(screen.getByRole('link', { name: 'Pedido req-123' }).getAttribute('href')).toBe('#request-req-123')
-		fireEvent.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
-		await waitFor(() => expect(onCancelPendingRequest).toHaveBeenCalledWith('req-123'))
-	})
+  it('timestamps WHX notices, links their request, and allows cancelling the active request', async () => {
+    const onCancelPendingRequest = vi.fn(async () => undefined)
+    render(<ChatPanel session={{ ...session, state: 'awaiting_plan', last_request_id: 'req-123', pending_manual_request_ids: ['req-123'] }} items={[{ id: 'failure', role: 'harness', source: 'wharness', presentation: 'notice', createdAt: '2026-09-06T11:00:00Z', text: 'Falhou.', iteration: { id: 'iteration-1', requestId: 'req-123', phase: 'failed', artifacts: [] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCancelPendingRequest={onCancelPendingRequest} {...chatActions} />)
+    expect(screen.getByText('WHX')).toBeTruthy()
+    expect(document.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-06T11:00:00Z')
+    expect(screen.getByRole('link', { name: 'Pedido req-123' }).getAttribute('href')).toBe('#request-req-123')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
+    await waitFor(() => expect(onCancelPendingRequest).toHaveBeenCalledWith('req-123'))
+  })
 
   it('does not allow an old failed request to be repeated while another request is active', () => {
     render(
@@ -366,20 +379,20 @@ describe('ChatPanel', () => {
   it('offers a retry when ChatGPT could not receive a prepared prompt', async () => {
     const onRetryPreparedDelivery = vi.fn(async () => undefined)
     render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery="retry" onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery={{ kind: 'retry', requestId: 'req-retry' }} onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Tentar entregar novamente' }))
-    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledWith('req-retry'))
   })
 
   it('labels the retry as a post-attention retry when the ChatGPT composer needs human attention', async () => {
     const onRetryPreparedDelivery = vi.fn(async () => undefined)
     render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery="attention" onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} failedPromptDelivery={{ kind: 'attention', requestId: 'req-attention' }} onSend={async () => undefined} onRetryPreparedDelivery={onRetryPreparedDelivery} {...chatActions} />,
     )
     expect(screen.getByText('Ação necessária no ChatGPT')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Tentar depois de resolver' }))
-    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledWith('req-attention'))
   })
 
   it('shows remote context generation progress while an enriched ZIP is being published', () => {

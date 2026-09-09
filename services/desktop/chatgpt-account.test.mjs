@@ -15,3 +15,12 @@ test('account scripts remain typed and avoid assistant response selectors', () =
     assert.doesNotMatch(script, /localStorage|cookie/)
   }
 })
+
+test('stop action confirms idle only from a usable composer and otherwise stays ambiguous', () => {
+  const script = chatGPTStopConversationScript()
+  assert.match(script, /querySelectorAll/)
+  assert.match(script, /state: 'stopping'/)
+  assert.match(script, /composers\.some\(usable\) \? \{ ok: true, state: 'idle' \} : \{ ok: false, state: 'surface-unavailable' \}/)
+  assert.match(script, /aria-disabled/)
+  assert.match(script, /visibility/)
+})
