@@ -105,6 +105,75 @@ Every host write performs per-path compare-and-swap against the value observed d
 
 A true merge conflict preserves all pending candidates and creates exactly one `harness.conflict/v1` focused resolution request. That request may write only the conflicting paths. Its result replaces only the conflicted mutations; unrelated verified mutations remain queued. Repeated global baseline repair for a merge conflict is forbidden.
 
+## Request-base-rooted integration (v1.3.2)
+
+Every planner request anchors the exact host tree its context was snapshotted
+from, as a real commit parented on the host's HEAD, under
+`refs/wharnex/base/<request_id>`. The context bundle is what the model reads;
+this commit is what the model's patch is authored against.
+
+Capture is non-invasive. Staging happens in a private temporary index, so the
+host's index, HEAD, current branch and working tree are never touched and an
+operator with a half-staged change is unaffected. Content is exactly what
+`git add -A` stages: tracked plus untracked, minus everything `.gitignore`
+excludes. The anchor lives outside `refs/heads`/`refs/tags`, so `git branch`,
+`git tag` and a default `git log` are unchanged. Anchors are bounded per
+session and released as they age out; the underlying commits then become
+unreachable and are reclaimed by ordinary Git garbage collection.
+
+Protected execution roots the candidate's integration branch at that base and
+applies the plan's patch there. Applying a patch to the tree it was authored
+against succeeds by construction, however far the host has advanced in the
+meantime. The candidate's commit therefore descends from the request base,
+which gives the eventual host merge a meaningful merge-base: real divergence
+becomes an ordinary three-way merge, resolved with no model turn whenever the
+changes are genuinely compatible.
+
+Whether two changes can be combined is decided by that merge, never by
+impact-file, line-range or column overlap. `impact_files` remains a scheduling
+forecast; the authoritative write set is still derived from the validated
+patch.
+
+Capture and rooting are both best effort. A repository with no commit yet, or
+any Git refusal, degrades to executing against the host's current tree rather
+than failing the user's request.
+
+An advisory preflight (`git merge-tree`) may run before a merge reaches the
+host, so a merge already known to be doomed never mutates it and never leaves a
+pre-merge snapshot commit behind for a merge that did not happen. It compares
+against the host's real current content, including uncommitted state, because
+the real merge commits that state first. A Git build that cannot answer yields
+"unknown", never "clean"; the atomic merge remains authoritative.
+
+## Persistent integration race (v1.3.2)
+
+On the legacy compare-and-swap path, a race means the host's value for a path
+changed between staging and writing. Retrying is correct for the first few
+attempts, because an unrelated one-off write can lose to a restage. Once the
+same path has raced through every attempt, the candidate and the host have
+genuinely diverged there and Apply is non-convergent: it replays the same diff
+against the same host and observes the same mismatch indefinitely.
+
+Such a race is escalated to the same bounded `harness.conflict/v1` resolution a
+detected conflict uses, scoped to the racing paths, with the host's current
+content as CURRENT. It is not reported as an indefinitely retryable condition.
+A race that cannot be attributed to an owning candidate keeps its previous
+classification instead of becoming a conflict with no BASE/RESULT to resolve
+against.
+
+## Execution concurrency (v1.3.2)
+
+Per-project execution concurrency defaults to one and is adjustable at runtime
+from the workspace queue view or through
+`WHARNESS_PROJECT_EXECUTION_CONCURRENCY`. Lowering it never interrupts work
+already running: the project admits nothing new until it drains under the new
+limit. Raising it admits plans already waiting, not only later submissions.
+
+The ceiling is deliberately small. Each concurrent runner claims a full
+container memory allowance plus a complete project clone, so raising it trades
+queueing delay — which is recoverable — for out-of-disk and out-of-memory
+failures, which are classified as unrepairable by any source patch.
+
 ## Orchestrator task scheduling (v1.4)
 
 Orchestrator tasks use the persisted lifecycle `PENDING -> READY -> DOING -> REVIEW -> COMPLETE -> ARCHIVED`, but transitions are not strictly linear. Reopening completed/review work is supported and invalidates downstream dependency evidence. A separate condition describes dependency, plan approval, manual pause, missing context, approval, conflict, failed run or stale dependency blocking.

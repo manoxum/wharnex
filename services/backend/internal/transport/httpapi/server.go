@@ -36,6 +36,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
+	mux.HandleFunc("GET /api/execution-concurrency", a.executionConcurrency)
+	mux.HandleFunc("PUT /api/execution-concurrency", a.updateExecutionConcurrency)
 	mux.HandleFunc("GET /api/tunnel-config", a.tunnelConfig)
 	mux.HandleFunc("PUT /api/tunnel-config", a.updateTunnelConfig)
 	mux.HandleFunc("GET /api/tunnel/providers", a.tunnelProviders)
@@ -143,6 +145,36 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.tunnelStatus()})
+}
+
+// executionConcurrency exposes how many plans one project may verify at a
+// time, so the workspace queue view can present the limit it is queueing
+// against instead of leaving the operator to infer it from behavior.
+func (a *API) executionConcurrency(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"concurrency": a.service.ExecutionConcurrency(),
+		"max":         a.service.MaxExecutionConcurrency(),
+	})
+}
+
+// updateExecutionConcurrency applies a new limit at runtime. Work already
+// running is never interrupted by lowering it: the project simply admits
+// nothing new until it drains under the new limit.
+func (a *API) updateExecutionConcurrency(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Concurrency int `json:"concurrency"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if payload.Concurrency < 1 {
+		writeError(w, http.StatusBadRequest, "invalid_concurrency", "concurrency must be at least 1")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"concurrency": a.service.SetExecutionConcurrency(payload.Concurrency),
+		"max":         a.service.MaxExecutionConcurrency(),
+	})
 }
 
 func (a *API) tunnelStatus() app.RemoteInputStatus {

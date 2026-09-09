@@ -345,11 +345,41 @@ func changeSetPaths(set domain.ChangeSet) []string {
 }
 
 type conflictCapsule struct {
-	Protocol        string                `json:"protocol"`
-	ConflictID      string                `json:"conflict_id"`
-	CurrentRevision string                `json:"current_revision"`
-	OriginalPlanIDs []string              `json:"original_plan_ids"`
-	Files           []conflictCapsuleFile `json:"files"`
+	Protocol        string   `json:"protocol"`
+	ConflictID      string   `json:"conflict_id"`
+	CurrentRevision string   `json:"current_revision"`
+	OriginalPlanIDs []string `json:"original_plan_ids"`
+	// Intent carries why each side of the collision exists. Three versions of
+	// a file say what differs; only intent says which reconciliation is
+	// correct, so a resolver without it can do no better than guess textually.
+	Intent *conflictCapsuleIntent `json:"intent,omitempty"`
+	Files  []conflictCapsuleFile  `json:"files"`
+}
+
+// conflictCapsuleIntent describes the purpose of both colliding sides and how
+// many times this same conflict has already been attempted.
+type conflictCapsuleIntent struct {
+	// OurGoal is the colliding candidate's own planner-authored purpose.
+	OurGoal string `json:"our_goal,omitempty"`
+	// OurCommitMessage is the Conventional Commits subject the plan declared.
+	OurCommitMessage string `json:"our_commit_message,omitempty"`
+	// IncomingChanges are the already-integrated changes this candidate
+	// collides with, newest first, each stating its own purpose.
+	IncomingChanges []conflictCapsuleChange `json:"incoming_changes,omitempty"`
+	// Attempt/MaxAttempts make the remaining budget explicit so the resolver
+	// can tell a first attempt from the last one and choose a decisively
+	// simpler reconciliation rather than repeating a strategy that has already
+	// failed. Exhausting the budget stops automatic resolution.
+	Attempt     int `json:"attempt"`
+	MaxAttempts int `json:"max_attempts"`
+	// PreviousAttempts records what earlier rounds of THIS conflict already
+	// tried, so the resolver can see it is circling rather than converging.
+	PreviousAttempts []string `json:"previous_attempts,omitempty"`
+}
+
+type conflictCapsuleChange struct {
+	Commit  string `json:"commit"`
+	Purpose string `json:"purpose"`
 }
 
 type conflictCapsuleFile struct {

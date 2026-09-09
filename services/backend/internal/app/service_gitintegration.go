@@ -96,7 +96,13 @@ func planIDForIntegrationBranch(pending []domain.PendingHostChange, branch strin
 // applied patch onto its own integration branch and pushes that branch into
 // the host's own .git (never a remote — see PushBranchToHost). Returns ""
 // for a command-only plan with no patch, which has nothing to commit.
-func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath string) (branch, commitSHA string, err error) {
+// baseRootedBranch is non-empty when the workspace was already repointed at
+// the request's own base and that branch opened there (see
+// prepareBaseRootedWorkspace). In that case the branch exists and is checked
+// out already, so committing must not try to create it a second time — and
+// must not re-root it at the host's newer tip, which is exactly the parentage
+// this whole mechanism exists to avoid.
+func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath, baseRootedBranch string) (branch, commitSHA string, err error) {
 	patchFiles := actualPatchFiles(plan)
 	if len(patchFiles) == 0 {
 		return "", "", nil
@@ -104,7 +110,11 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 	message := sanitizeCommitMessage(plan.CommitMessage, plan.Summary)
 	message = fmt.Sprintf("%s\n\nRequest-Id: %s\nPlan-Id: %s", message, plan.RequestID, plan.PlanID)
 	branch = integrationBranchName(plan.RequestID)
-	commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message, patchFiles)
+	if strings.TrimSpace(baseRootedBranch) == branch {
+		commitSHA, err = sandbox.CommitBaseRootedPatch(ctx, workspacePath, message, patchFiles)
+	} else {
+		commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message, patchFiles)
+	}
 	if err != nil {
 		return "", "", err
 	}
@@ -145,6 +155,14 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			continue
 		}
 		s.bus.Publish(sessionID, "integration.merge_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "branch": branch})
+		// Ask Git whether this merge can succeed before letting it touch the
+		// host at all. A doomed merge would otherwise still commit the host's
+		// dirty tree as a pre-merge snapshot on its way to aborting, leaving a
+		// bookkeeping commit behind for a merge that never happened.
+		if conflict, preflightErr := sandbox.PreflightMergeIntoHost(ctx, projectPath, branch); preflightErr == nil && conflict != nil {
+			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": pending[index].Plan.PlanID, "branch": branch, "paths": conflict.Paths})
+			return mergedBranches, preMergeSHA, pending[index].Plan.PlanID, conflict
+		}
 		if _, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch); mergeErr != nil {
 			return mergedBranches, preMergeSHA, pending[index].Plan.PlanID, mergeErr
 		}
@@ -209,7 +227,12 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 			Base: truncateRepairText(base, 24000), Current: truncateRepairText(current, 24000), Result: truncateRepairText(result, 24000),
 		})
 	}
-	capsule := conflictCapsule{Protocol: "harness.conflict/v1", ConflictID: conflictID, CurrentRevision: item.Context.Manifest.SHA256, OriginalPlanIDs: []string{failedPlanID}, Files: files}
+	capsule := conflictCapsule{
+		Protocol: "harness.conflict/v1", ConflictID: conflictID, CurrentRevision: item.Context.Manifest.SHA256,
+		OriginalPlanIDs: []string{failedPlanID},
+		Intent:          s.buildConflictIntent(ctx, item, repoPath, conflict, paths),
+		Files:           files,
+	}
 	capsuleJSON, err := json.MarshalIndent(capsule, "", "  ")
 	if err != nil {
 		return item, err
@@ -226,7 +249,10 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, item.LastRequestID),
 	}, knowledgeSnapshot, item.ProjectPath))
-	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, CreatedAt: time.Now().UTC()}
+	// Carry forward what this round tried, so the next round of the same
+	// conflict can see the shape of the loop rather than restarting blind.
+	history := appendConflictAttempt(intentHistory(item), conflictAttemptRecord(item, paths))
+	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, AttemptHistory: history, CreatedAt: time.Now().UTC()}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)

@@ -119,6 +119,26 @@ Source mutation uses unified diff text in `apply_patch` operations. Paths must b
 
 Change plans MAY declare `read_files` and `barrier_files`. They are bounded relative paths and scheduling/verification evidence only; Wharness derives the authoritative write set from the validated patch result. A conflict-resolution request contains one `harness.conflict/v1` capsule with bounded BASE/CURRENT/RESULT data and hashes. Its returned change plan MUST cover every conflicting path and MUST NOT modify any path outside that capsule. A conflict turn never broadens or repeats the original task.
 
+The planner MUST NOT be asked to declare which lines or columns a patch will touch, and MUST NOT rely on such a declaration being honoured. Hunk ranges are derivable exactly from the diff itself, so a restated range is an untrusted field that can only drift from the patch it describes. Whether two changes can be combined is decided by a real three-way merge, not by range or file overlap.
+
+### Conflict intent
+
+A `harness.conflict/v1` capsule carries an `intent` object alongside its file
+data. BASE/CURRENT/RESULT describe *what* differs; `intent` describes *why*
+each side exists, which is what determines the correct reconciliation:
+
+- `our_goal` and `our_commit_message`: the colliding candidate's own declared purpose;
+- `incoming_changes`: the already-integrated changes it collides with, newest first, each carrying the Conventional Commits subject its own plan authored under "Commit-history communication" above — which is why that field being meaningful is load bearing rather than cosmetic;
+- `attempt`, `max_attempts` and `previous_attempts`: the remaining bounded budget and what earlier rounds of this same conflict already tried.
+
+A resolution MUST preserve the purpose of both sides. Discarding the incoming
+change's behavior to make a file merge is a protocol-quality failure even when
+the result is syntactically valid. When `previous_attempts` shows the same
+reconciliation strategy failing repeatedly, the planner SHOULD choose a
+decisively different and simpler one rather than refine the failing approach;
+exhausting the budget stops automatic resolution and hands the collision to a
+human.
+
 ## Trust hierarchy
 
 1. Harness policy/system protocol, including the Wharness-measured local execution environment.

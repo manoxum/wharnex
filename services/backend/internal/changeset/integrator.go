@@ -39,6 +39,23 @@ type Journal struct {
 	entries []journalEntry
 }
 
+// ExternalWriteRaceError reports that a compare-and-swap write found a value
+// the host did not have when the integration was staged — someone else wrote
+// that path in between.
+//
+// The path is carried structurally rather than only in the message because the
+// caller has to act on it: a race that keeps recurring on the same path is not
+// a transient collision that another identical retry can win, it is a real
+// divergence between the candidate and a host that has moved on, and it must
+// be escalated to a focused conflict resolution naming exactly this path.
+type ExternalWriteRaceError struct {
+	Path string
+}
+
+func (e *ExternalWriteRaceError) Error() string {
+	return fmt.Sprintf("external write race on %s", e.Path)
+}
+
 type journalEntry struct {
 	write    Write
 	previous fileValue
@@ -268,7 +285,7 @@ func Commit(root string, prepared Prepared) (Journal, error) {
 		}
 		if current.exists != write.ExpectedExists || hashValue(current) != write.ExpectedSHA256 || (current.exists && current.mode.Perm() != write.ExpectedMode.Perm()) {
 			journal.Outcome = domain.IntegrationRetryableRace
-			return rollback(root, journal, fmt.Errorf("external write race on %s", write.Path))
+			return rollback(root, journal, &ExternalWriteRaceError{Path: write.Path})
 		}
 		if err := replaceFile(root, write.Path, write.ResultExists, write.Content, write.Mode); err != nil {
 			return rollback(root, journal, err)

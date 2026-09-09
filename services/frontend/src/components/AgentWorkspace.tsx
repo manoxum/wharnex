@@ -244,7 +244,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={() => setDrawer('')}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={activityChats} currentSession={session} activeChatId={chatProps.activeChatId} onClose={() => setDrawer('')}/> : null}
-      {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={() => setDrawer('')}/> : null}
+      {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={() => setDrawer('')} onError={onError}/> : null}
       {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={onAnalyzeEvolution || (async () => undefined)} onClose={() => setDrawer('')}/> : null}
     </aside>}
 
@@ -293,9 +293,58 @@ function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, on
   </section>
 }
 
-function ExecutionQueueDrawer({ items, onClose }: { items: ExecutionFIFOItem[]; onClose: () => void }) {
+// ExecutionConcurrencyControl exposes how many plans one project may verify at
+// the same time. It is deliberately presented next to the queue it governs, so
+// the ordered list and the limit that produces it are read together.
+//
+// Raising it is not free: each concurrent runner claims a full container
+// memory allowance plus a complete project clone, so the cost is stated rather
+// than left for the operator to discover through an out-of-disk failure.
+function ExecutionConcurrencyControl({ onError }: { onError?: (message: string) => void }) {
+  const [concurrency, setConcurrency] = useState<number>()
+  const [max, setMax] = useState(1)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    api.executionConcurrency()
+      .then((value) => { if (active) { setConcurrency(value.concurrency); setMax(value.max) } })
+      .catch(() => { /* the queue itself stays usable without the knob */ })
+    return () => { active = false }
+  }, [])
+
+  const apply = async (next: number) => {
+    setBusy(true)
+    try {
+      const value = await api.updateExecutionConcurrency(next)
+      setConcurrency(value.concurrency)
+      setMax(value.max)
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : 'Não foi possível alterar a concorrência')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (concurrency === undefined) return null
+  return <div className="execution-queue-concurrency">
+    <label htmlFor="execution-concurrency">Execuções simultâneas por projeto</label>
+    <div>
+      <input id="execution-concurrency" type="number" min={1} max={max} value={concurrency} disabled={busy}
+        onChange={(event) => {
+          const next = Number(event.target.value)
+          if (Number.isFinite(next) && next >= 1 && next <= max) void apply(next)
+        }}/>
+      <small>máx. {max}</small>
+    </div>
+    <small>Cada execução simultânea reserva um clone completo do projeto e a memória de um contentor. Baixar o valor nunca interrompe execuções já em curso.</small>
+  </div>
+}
+
+function ExecutionQueueDrawer({ items, onClose, onError }: { items: ExecutionFIFOItem[]; onClose: () => void; onError?: (message: string) => void }) {
   return <section className="execution-queue-drawer" aria-label="Fila FIFO de execução">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Concorrência</span><strong>Fila FIFO de execução</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar fila"><Icon name="close" size={13}/></button></header>
+    <ExecutionConcurrencyControl onError={onError}/>
     <div className="execution-queue-summary"><b>{items.length}</b><span>{items.length === 1 ? 'execução coordenada' : 'execuções coordenadas'}</span></div>
     <div className="execution-queue-list">{items.length ? items.map((item, index) => <article key={item.key}><span className={`queue-position ${item.status}`}>{item.status === 'running' || (index === 0 && item.status === 'submitting') ? 'ATIVA' : String(item.position || index + 1).padStart(2, '0')}</span><div><strong>{item.chatTitle}</strong><code>{item.planId}</code><small>{item.status === 'queued' ? 'Em espera, ordem preservada' : 'Em execução exclusiva'}</small></div></article>) : <div className="agent-drawer-empty">A fila está livre. Novas execuções aparecerão aqui, em ordem de chegada.</div>}</div>
   </section>

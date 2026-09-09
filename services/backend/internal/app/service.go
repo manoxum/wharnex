@@ -500,6 +500,13 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if err != nil {
 		return planner.Result{}, item, err
 	}
+	// Anchor the exact host tree this request is planned against, alongside the
+	// context snapshot that describes it. A patch the model writes from here is
+	// authored for this tree, so recording it now is what lets execution apply
+	// that patch to the tree it was written for however far the host advances
+	// before the plan comes back.
+	baseCommit := s.captureRequestBase(ctx, sessionID, item.ProjectPath, requestID)
+	var releasedBases []string
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
@@ -508,11 +515,13 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		recordRequestLineage(current, requestID, parentRequestID, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		recordRequestContext(current, requestID, item.Context)
+		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		return nil
 	}); err != nil {
 		return planner.Result{}, item, err
 	}
+	s.releaseRequestBaseRefs(ctx, sessionID, item.ProjectPath, releasedBases)
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA, "planning_mode": planningMode, "parent_request_id": parentRequestID})
 	expectedFilename := expectedResponseBundleFilename(item, requestID)
 	if parentRequestID != "" {
@@ -1430,6 +1439,21 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	}
 	bindExecutionDependencySource(&workspace, item, reconcileFromArchive)
 	defer runner.Cleanup(workspace)
+	// Root this candidate's integration branch at the tree its patch was
+	// actually authored against, before anything is applied. Without this the
+	// patch is applied to whatever the host has drifted to since the request
+	// was planned, and an ordinary concurrent edit anywhere in the same file
+	// makes `git apply` fail outright — a dead end that consumed an AI repair
+	// round and could not be recovered by retrying. Rooted here the patch
+	// applies by construction, and genuine divergence surfaces later as a
+	// normal three-way merge, which Git resolves without a model turn whenever
+	// the changes are actually compatible.
+	baseRootedBranch := ""
+	if !unprotected && !reconcileFromArchive {
+		if branch, _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, item.Plan, workspace.Path); rooted {
+			baseRootedBranch = branch
+		}
+	}
 	pendingForExecution := item.PendingHostChanges
 	if item.IntegrationConflict != nil && item.IntegrationConflict.RequestID == item.Plan.RequestID {
 		// Preserve the original conflicted mutations durably until the focused
@@ -1550,7 +1574,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 				s.bus.Publish(sessionID, "changeset.verified", map[string]any{"changeset_id": canonicalChangeSet.ID, "plan_id": item.Plan.PlanID, "files": changeSetPaths(*canonicalChangeSet)})
 			}
 		} else {
-			integrationBranch, integrationCommit, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path)
+			integrationBranch, integrationCommit, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path, baseRootedBranch)
 			if err != nil {
 				return s.failExecution(ctx, sessionID, result, fmt.Errorf("commit verified patch to integration branch: %w", err))
 			}
@@ -2434,6 +2458,18 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		if commitErr != nil {
 			if raceExhausted {
+				// A race that survived every restage is not a transient
+				// collision another identical retry can win: the candidate and
+				// the host have genuinely diverged on this path, and replaying
+				// the same diff against the same host reproduces it forever.
+				// Escalate to the same bounded focused resolution a detected
+				// conflict uses, with the host's current content as CURRENT, so
+				// there is a way out instead of an endless retry affordance.
+				if updated, escalated, escalateErr := s.escalateExhaustedIntegrationRace(ctx, sessionID, item, pending, commitErr); escalateErr != nil {
+					return item, abortPreparedTransaction(escalateErr)
+				} else if escalated {
+					return updated, abortPreparedTransaction(fmt.Errorf("%w: %v", ErrIntegrationConflict, commitErr))
+				}
 				commitErr = fmt.Errorf("%w: %v", ErrHostIntegrationRace, commitErr)
 			}
 			_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
