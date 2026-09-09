@@ -1,0 +1,113 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+
+	"kernl.local/harness/backend/internal/app"
+	"kernl.local/harness/backend/internal/orchestrator"
+)
+
+func (a *API) orchestratorOverview(w http.ResponseWriter, r *http.Request) {
+	overview, err := a.service.OrchestratorOverview(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_overview_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) orchestratorProposePlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Objective string `json:"objective"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.ProposeOrchestratorPlan(r.Context(), r.PathValue("id"), body.Objective)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_plan_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (a *API) orchestratorImportPlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RequestID string                `json:"request_id"`
+		Proposal  orchestrator.Proposal `json:"proposal"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, (2<<20)+1))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_import_invalid", err.Error())
+		return
+	}
+	result, err := a.service.ImportOrchestratorProposal(r.Context(), r.PathValue("id"), body.RequestID, body.Proposal)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_import_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (a *API) orchestratorApprovePlan(w http.ResponseWriter, r *http.Request) {
+	overview, err := a.service.ApproveOrchestratorPlan(r.Context(), r.PathValue("id"), r.PathValue("plan_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_approve_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) orchestratorCreateTask(w http.ResponseWriter, r *http.Request) {
+	var body app.OrchestratorTaskInput
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	task, err := a.service.CreateOrchestratorTask(r.Context(), r.PathValue("id"), body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_task_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, task)
+}
+
+func (a *API) orchestratorTransitionTask(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Status orchestrator.TaskStatus `json:"status"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(string(body.Status)) == "" {
+		writeError(w, http.StatusBadRequest, "orchestrator_transition_invalid", "status is required")
+		return
+	}
+	task, err := a.service.TransitionOrchestratorTask(r.Context(), r.PathValue("id"), r.PathValue("task_id"), body.Status)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_transition_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) orchestratorStartTask(w http.ResponseWriter, r *http.Request) {
+	result, err := a.service.StartOrchestratorTask(r.Context(), r.PathValue("id"), r.PathValue("task_id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_start_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (a *API) orchestratorTaskRuns(w http.ResponseWriter, r *http.Request) {
+	runs, err := a.service.OrchestratorTaskRuns(r.Context(), r.PathValue("id"), r.PathValue("task_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_runs_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+}

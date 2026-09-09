@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/orchestrator"
 )
 
 type Request struct {
@@ -46,6 +47,7 @@ type Request struct {
 
 type Result struct {
 	Plan               *domain.ExecutionPlan
+	OrchestratorPlan   *orchestrator.Proposal
 	Turn               *domain.AgentTurn
 	ManualPrompt       string
 	ProviderResponseID string

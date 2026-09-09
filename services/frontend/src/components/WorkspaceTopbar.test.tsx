@@ -54,4 +54,22 @@ describe('WorkspaceTopbar self-evolution', () => {
     expect((screen.getByRole('button', { name: 'Reinício pendente' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('exposes Orchestrator as a first-class workspace mode', () => {
+    const onMode = vi.fn()
+    render(<WorkspaceTopbar
+      session={session()}
+      mode="orchestrator"
+      executionMode="protected"
+      automationMode="auto"
+      busy={false}
+      onMode={onMode}
+      onSettings={vi.fn()}
+      onClose={vi.fn()}
+    />)
+    const orchestrator = screen.getByRole('button', { name: 'Orchestrator' })
+    expect(orchestrator.className).toContain('active')
+    orchestrator.click()
+    expect(onMode).toHaveBeenCalledWith('orchestrator')
+  })
+
 })

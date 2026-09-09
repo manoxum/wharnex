@@ -104,3 +104,11 @@ Host Apply is serialized only for the short integration phase per canonical proj
 Every host write performs per-path compare-and-swap against the value observed during staging and uses replace semantics. A race triggers at most three restage attempts; Wharness never overwrites an unexpected external value. The integration journal rolls back only values still owned by Wharness. Protocol, policy, transport, verification, race, and merge-conflict outcomes remain distinct.
 
 A true merge conflict preserves all pending candidates and creates exactly one `harness.conflict/v1` focused resolution request. That request may write only the conflicting paths. Its result replaces only the conflicted mutations; unrelated verified mutations remain queued. Repeated global baseline repair for a merge conflict is forbidden.
+
+## Orchestrator task scheduling (v1.4)
+
+Orchestrator tasks use the persisted lifecycle `PENDING -> READY -> DOING -> REVIEW -> COMPLETE -> ARCHIVED`, but transitions are not strictly linear. Reopening completed/review work is supported and invalidates downstream dependency evidence. A separate condition describes dependency, plan approval, manual pause, missing context, approval, conflict, failed run or stale dependency blocking.
+
+Generated tasks are persisted as `PENDING` until their plan is approved. The backend readiness evaluator, never the frontend, promotes an unblocked dependency-satisfied task to `READY`. `DOING` can only be entered by the Orchestrator Start action; a running task cannot be manually moved while its Agent run owns it.
+
+V1 has one real mutation slot per project. Start fails while another project task is `DOING`. The created Agent Session also enters the existing canonical-project execution FIFO, so Orchestrator does not weaken ADR-0025 admission, Policy, sandbox, verification, integration, Apply or recovery semantics. `parallelizable` is advisory planning metadata in V1 and does not increase execution concurrency.

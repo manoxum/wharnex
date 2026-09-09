@@ -72,7 +72,7 @@ export function WorkspaceShell() {
       }
       if (event.data?.type === 'wharness:workspace-mode') {
         const projectPath = String(event.data.projectPath || '')
-        const mode = event.data.mode === 'editor' ? 'editor' : event.data.mode === 'agent' ? 'agent' : undefined
+        const mode = event.data.mode === 'editor' ? 'editor' : event.data.mode === 'agent' ? 'agent' : event.data.mode === 'orchestrator' ? 'orchestrator' : undefined
         if (projectPath && mode) setProjectModes((current) => ({ ...current, [projectPath]: mode }))
       }
     }
@@ -176,7 +176,7 @@ export function ShellChrome({ instanceID, projects, activeProject, mode, busy, o
   return <header className="multi-project-bar">
     <div className="multi-project-brand"><div className="brand-mark">WHX</div><strong>Wharnex</strong></div>
     <InstanceBadge instanceID={instanceID} />
-    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button></div>}
+    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={14}/> Orchestrator</button></div>}
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {projects.map((projectPath) => <button key={projectPath} className={projectPath === activeProject ? 'active' : ''} onClick={() => onActivate(projectPath)} title={projectPath}><Icon name="workspace" size={13}/><span>{projectName(projectPath)}</span></button>)}
     </nav>

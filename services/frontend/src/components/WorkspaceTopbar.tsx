@@ -30,6 +30,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       <div className="mode-switch" role="group" aria-label="Modo do workspace">
         <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
         <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>
+        <button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={15}/> Orchestrator</button>
       </div>
     </div>
     <div className="workspace-status">
