@@ -40,3 +40,26 @@ are committed to the durable resolution ledger only after verified host Apply.
 The tunnel provider pool is configured by
 `schemas/tunnel-provider-config.schema.json`. Storage drivers use the separate
 `schemas/remote-storage-config.schema.json` and do not participate in ChatGPT transport.
+
+
+## Artifact presentation manifest
+
+Renderable response files remain under `artifacts/`. When several related files benefit from comparison or navigation, a response may also include `metadata/artifact-presentation.json`:
+
+    {
+      "protocol": "harness.artifact-presentation/v1",
+      "galleries": [
+        {
+          "id": "results",
+          "title": "Results",
+          "layout": "grid",
+          "sizing": "adaptive",
+          "items": [
+            { "path": "artifacts/chart.png", "label": "Chart", "description": "Primary result" },
+            { "path": "artifacts/report.md", "label": "Report" }
+          ]
+        }
+      ]
+    }
+
+The v1 manifest is presentation-only. Paths and optional `preview_path` must resolve to real same-bundle `artifacts/` entries. Wharnex derives MIME, size, preview kind and toolbar capabilities from validated files; the manifest cannot enable execution or relax sandboxing. Supported layouts are `auto`, `grid`, `masonry`, and `strip`; supported sizing modes are `uniform` and `adaptive`. Missing or invalid manifests fall back to the automatic artifact gallery.

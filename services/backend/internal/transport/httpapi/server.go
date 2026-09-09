@@ -95,6 +95,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/artifacts", a.persistArtifact)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}", a.artifactDownload)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entries", a.artifactEntries)
+	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/presentation", a.artifactPresentation)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entry", a.artifactEntry)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)

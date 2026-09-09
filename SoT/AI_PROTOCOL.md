@@ -62,6 +62,14 @@ Wharnex advertises this local capability to the planner. Files under `artifacts/
 
 Renderable HTML remains untrusted. The browser iframe is sandboxed, preview responses use restrictive CSP/referrer/resource headers, and essential presentation SHOULD be self-contained instead of depending on scripts, forms, top navigation, credentials, or remote network resources. Artifact presentation MUST NOT weaken bundle validation, host Policy, project-root containment, or the distinction between conversational output and executable `change` plans.
 
+### Declarative artifact galleries
+
+A response bundle MAY include `metadata/artifact-presentation.json` with protocol `harness.artifact-presentation/v1`. The manifest is optional, declarative, and non-executable. It groups real same-bundle files under `artifacts/` into one or more galleries and MAY provide labels, descriptions, alt text, a same-bundle preview path, and layout/sizing hints.
+
+Wharnex MUST validate every referenced path against actual ZIP entries, reject traversal/absolute/remote references, bound gallery/item/text counts, and ignore model-supplied attempts to control MIME, headers, sandbox permissions, or viewer capabilities. MIME, size, preview kind, and available tools are derived from Wharnex-owned inspection. Missing or invalid presentation metadata MUST degrade to the safe automatic artifact gallery without hiding valid artifacts.
+
+Supported v1 layout hints are `auto`, `grid`, `masonry`, and `strip`; sizing hints are `uniform` and `adaptive`. These are presentation hints rather than renderer commands. `turn.message` remains the complete primary conversational result even when a gallery is present.
+
 ## Commit-history communication
 
 Every `change` execution plan MUST carry a planner-authored `commit_message` that is useful permanent Git history, not a transport label. The planner MUST derive it from the actual delivered patch and classify the dominant change with an accurate Conventional Commits type: `feat` for new behavior/capability, `fix` for a bug or corrective patch, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, or `chore` only when no more specific type applies. A meaningful subsystem scope SHOULD be included when clear.
