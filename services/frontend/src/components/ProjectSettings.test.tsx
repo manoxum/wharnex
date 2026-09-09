@@ -12,7 +12,7 @@ vi.mock('../lib/api', () => ({
     updateProjectConfig: vi.fn(),
     storage: vi.fn(),
     clearStorage: vi.fn(),
-    artifactSettings: vi.fn().mockResolvedValue({ retention_days: 30 }),
+    artifactSettings: vi.fn().mockResolvedValue({ retention_days: 30, bundle_window_limit: 80 }),
     updateArtifactSettings: vi.fn(),
     remoteStorageConfig: vi.fn(),
     updateRemoteStorageConfig: vi.fn(),
@@ -80,6 +80,24 @@ describe('ProjectSettings loading', () => {
     expect(slider.getAttribute('max')).toBe('1.6')
     expect(slider.getAttribute('value')).toBe('1')
     expect(screen.getByText(/reduza até 40% ou amplie até 160%/i)).toBeTruthy()
+  })
+
+  it('edits the global three-hour bundle quota without enabling a hard block', async () => {
+    vi.mocked(api.projectConfig).mockResolvedValue({
+      version: 1,
+      project: { name: 'demo' },
+      context: { auto_exclude: true, max_file_bytes: 2097152, include: [], exclude: [] },
+    })
+    vi.mocked(api.updateArtifactSettings).mockResolvedValue({ retention_days: 30, bundle_window_limit: 96 })
+    render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Dados locais/i }))
+    const input = await screen.findByRole('spinbutton', { name: /Máximo de bundles enviados em 3 horas/i })
+    fireEvent.change(input, { target: { value: '96' } })
+    const quotaSection = screen.getByText('Quota de bundles do ChatGPT').closest('.browser-session-actions')
+    fireEvent.click(quotaSection!.querySelector('button')!)
+    await waitFor(() => expect(api.updateArtifactSettings).toHaveBeenCalledWith(30, 96))
+    expect(screen.getByText(/gera apenas alerta, sem bloquear novos pedidos/i)).toBeTruthy()
   })
 
 })

@@ -3,14 +3,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ArtifactRecord } from '../types'
 import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
 
-const mocks = vi.hoisted(() => ({ artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })) }))
+const mocks = vi.hoisted(() => ({ artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })), bundleQuota: vi.fn(async () => ({ window_hours: 3, limit: 80, sent: 12, received: 11, total: 23, warning: false, window_start: '2026-09-08T15:00:00Z', window_end: '2026-09-08T18:00:00Z' })) }))
 vi.mock('../lib/api', () => ({ api: {
   artifactEntries: mocks.artifactEntries,
+  bundleQuota: mocks.bundleQuota,
   artifactURL: (_sessionId: string, artifactId: string) => `/artifact/${artifactId}`,
   artifactEntryURL: (_sessionId: string, artifactId: string, path: string) => `/artifact/${artifactId}/entry?path=${encodeURIComponent(path)}`,
 } }))
 
-afterEach(() => { cleanup(); mocks.artifactEntries.mockClear() })
+afterEach(() => { cleanup(); mocks.artifactEntries.mockClear(); mocks.bundleQuota.mockClear() })
 
 describe('BundleExchangeBar', () => {
   it('shows exchange metadata and opens the bundle file explorer', async () => {
@@ -47,6 +48,19 @@ describe('BundleExchangeBar', () => {
     expect(summary.textContent).toBe('1↑1↓0')
     expect(summary.querySelector('.bundle-exchange-stats b')?.textContent).toBe('1')
     expect(screen.queryByText('Todos')).toBeNull()
+  })
+
+  it('shows the rolling account quota and warns without blocking at the configured limit', async () => {
+    mocks.bundleQuota.mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 80, received: 77, total: 157, warning: true, window_start: '2026-09-08T15:00:00Z', window_end: '2026-09-08T18:00:00Z' })
+    const requestId = 'req_20260905T220000_1234567890abcdef'
+    const bundle: ArtifactRecord = {
+      id: 'quota-bundle', request_id: requestId, direction: 'input', kind: 'bundle', name: `whx_bundle_req_chat-1_${requestId}.zip`, content_type: 'application/zip',
+      size: 1024, sha256: 'a'.repeat(64), created_at: '2026-09-05T22:00:00Z', expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1,
+    }
+    render(<BundleExchangeBar sessionId="ses_1" artifacts={[bundle]} />)
+    expect(await screen.findByText('3h ↑80/80 ↓77')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('80/80')
+    expect(screen.getByRole('status', { name: /novos pedidos continuam permitidos/i })).toBeTruthy()
   })
 
   it('assigns a distinct visual category to every request/response bundle stage', async () => {

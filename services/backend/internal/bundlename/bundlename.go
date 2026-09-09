@@ -40,6 +40,7 @@ const idSegment = `req_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}`
 var ChatIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
 
 var namePattern = regexp.MustCompile(`^whx_bundle_(req|res)_([A-Za-z0-9-]{1,128})_(` + idSegment + `)(?:_(` + idSegment + `))?\.zip$`)
+var duplicateNamePattern = regexp.MustCompile(`^whx_bundle_(req|res)_([A-Za-z0-9-]{1,128})_(` + idSegment + `)(?:_(` + idSegment + `))? ?\([1-9][0-9]{0,3}\)\.zip$`)
 
 // Name is a parsed bundle filename.
 type Name struct {
@@ -63,6 +64,16 @@ func Build(kind Kind, chatID, requestID, subrequestID string) string {
 // name that does not match the scheme exactly.
 func Parse(filename string) (Name, bool) {
 	m := namePattern.FindStringSubmatch(filename)
+	if m == nil {
+		return Name{}, false
+	}
+	return Name{Kind: Kind(m[1]), ChatID: m[2], RequestID: m[3], SubrequestID: m[4]}, true
+}
+
+// ParseWithDuplicateSuffix accepts the browser duplicate-download suffix
+// appended before .zip while preserving the canonical parsed identity.
+func ParseWithDuplicateSuffix(filename string) (Name, bool) {
+	m := duplicateNamePattern.FindStringSubmatch(filename)
 	if m == nil {
 		return Name{}, false
 	}
