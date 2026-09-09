@@ -4,11 +4,11 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTSubmit, submitWithRetry } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTSubmit, submitWithRetry } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript } from './chatgpt-dom.mjs'
-import { chatGPTChooseConversationActionScript, chatGPTCommitConversationTitleScript, chatGPTCreateProjectScript, chatGPTFindProjectScript, chatGPTHideSidebarScript, chatGPTOpenConversationMenuScript, chatGPTSelectProjectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
+import { chatGPTCommitConversationTitleScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
@@ -1606,38 +1606,77 @@ async function hideChatGPTSidebar(key, entry) {
   return runChatGPTAccountAction('hide-sidebar', { key }, () => runChatGPTAccountScript(key, entry, 'hide-sidebar', chatGPTHideSidebarScript()))
 }
 
-async function chooseChatGPTConversationAction(key, entry, action) {
+// A hidden owned view is never given bounds by the window layout, which leaves
+// its renderer with a zero-sized viewport: every getBoundingClientRect collapses
+// to the origin and a native click would land nowhere. Account automation runs
+// on background views (maintenance jobs), so give such a view a real layout
+// viewport without ever making it visible.
+function ensureChatGPTLayoutViewport(entry) {
+  const bounds = entry.view.getBounds?.() || { width: 0, height: 0 }
+  if (bounds.width >= 640 && bounds.height >= 480) return false
+  entry.view.setBounds({ x: 0, y: 0, width: 1280, height: 900 })
+  return true
+}
+
+// Locates a control with a typed script and commits it with a trusted native
+// click. ChatGPT's Radix menu items ignore synthetic HTMLElement.click(), so
+// "locate, then click for real" is the only reliable shape for these controls.
+async function commitChatGPTAccountControl(key, entry, stage, script, { attempts = 4 } = {}) {
+  let located = { ok: false, state: 'action-unavailable' }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+    located = await runChatGPTAccountScript(key, entry, stage, script)
+    if (located.ok && located.rect) break
+  }
+  if (!located.ok || !located.rect) return located
+  const { wc } = requireOwnedChatGPTEntry(key, entry)
+  dispatchChatGPTPointerClick(wc, located.rect)
+  return located
+}
+
+async function chooseChatGPTConversationAction(key, entry, action, conversationId = '') {
   const providerAction = action === 'move-project' ? 'move-conversation' : `${action}-conversation`
   return runChatGPTAccountAction(providerAction, { key }, async () => {
-    const opened = await runChatGPTAccountScript(key, entry, `${action}-menu`, chatGPTOpenConversationMenuScript(action))
+    const opened = await runChatGPTAccountScript(key, entry, `${action}-menu`, chatGPTOpenConversationMenuScript(conversationId))
     if (!opened.ok) return opened
-    // The menu's own open animation can still be in flight at the single
-    // fixed settle wait below, leaving its items not yet visible/attached —
-    // retry a few times instead of failing on the first miss.
-    let chosen = { ok: false, state: 'action-unavailable' }
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-      chosen = await runChatGPTAccountScript(key, entry, action, chatGPTChooseConversationActionScript(action))
-      if (chosen.ok) break
-    }
-    return chosen
+    return commitChatGPTAccountControl(key, entry, action, chatGPTMenuItemRectScript(action))
   })
 }
 
-async function ensureChatGPTProject(key, entry, projectName) {
+// Idempotent by construction: the account's own project inventory decides
+// whether the name already exists before anything is created, and an
+// already-present project is matched case-insensitively so "Wharnex" never
+// creates a sibling of "wharnex". Creation is confirmed by re-reading the same
+// inventory, and a confirmation that finds more than one match is reported as a
+// duplicate rather than silently accepted.
+async function ensureChatGPTProject(key, entry, projectName, conversationId = '') {
   const name = normalizeChatGPTProjectName(projectName)
   return runChatGPTAccountAction('ensure-project', { key, projectName: name }, async () => {
-    let found = await runChatGPTAccountScript(key, entry, 'find-project', chatGPTFindProjectScript(name))
-    if (found.ok) return { ...found, project: name }
-    let created = await runChatGPTAccountScript(key, entry, 'create-project', chatGPTCreateProjectScript(name))
-    if (created.state === 'create-dialog-opened') {
-      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-      created = await runChatGPTAccountScript(key, entry, 'commit-project', chatGPTCreateProjectScript(name))
-    }
-    if (!created.ok) return created
+    const opened = await runChatGPTAccountScript(key, entry, 'move-project-menu', chatGPTOpenConversationMenuScript(conversationId))
+    if (!opened.ok) return opened
+    const submenu = await commitChatGPTAccountControl(key, entry, 'move-project', chatGPTMenuItemRectScript('move-project'))
+    if (!submenu.ok) return submenu
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-    found = await runChatGPTAccountScript(key, entry, 'confirm-project', chatGPTFindProjectScript(name))
-    return found.ok ? { ok: true, state: 'created', project: name } : { ok: false, state: 'project-not-confirmed' }
+
+    const existing = await runChatGPTAccountScript(key, entry, 'find-project', chatGPTProjectItemRectScript(name))
+    if (existing.ok) return { ok: true, state: 'exists', project: name, duplicates: existing.duplicates || 1, href: existing.href || '' }
+
+    const create = await commitChatGPTAccountControl(key, entry, 'new-project', chatGPTMenuItemRectScript('new-project'))
+    if (!create.ok) return { ok: false, state: 'create-project-unavailable', project: name }
+    await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 3)
+    const staged = await commitChatGPTAccountControl(key, entry, 'commit-project', chatGPTNewProjectDialogScript(name), { attempts: 6 })
+    if (!staged.ok) return { ok: false, state: staged.state, project: name }
+    await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 4)
+
+    const reopened = await runChatGPTAccountScript(key, entry, 'confirm-menu', chatGPTOpenConversationMenuScript(conversationId))
+    if (!reopened.ok) return { ok: false, state: 'project-not-confirmed', project: name }
+    const reSubmenu = await commitChatGPTAccountControl(key, entry, 'confirm-move-project', chatGPTMenuItemRectScript('move-project'))
+    if (!reSubmenu.ok) return { ok: false, state: 'project-not-confirmed', project: name }
+    await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+    const confirmed = await runChatGPTAccountScript(key, entry, 'confirm-project', chatGPTProjectItemRectScript(name))
+    if (!confirmed.ok) return { ok: false, state: 'project-not-confirmed', project: name }
+    if ((confirmed.duplicates || 1) > 1) console.warn(`[chatgpt-account] duplicate remote project detected name=${name} count=${confirmed.duplicates}`)
+    return { ok: true, state: 'created', project: name, duplicates: confirmed.duplicates || 1, href: confirmed.href || '' }
   })
 }
 
@@ -1652,22 +1691,33 @@ async function organizeChatGPTConversation(cacheKey, projectName, title, expecte
         if (!sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'organize-conversation')
         await waitForChatGPTSurfaceReady(key, entry)
       }
+      ensureChatGPTLayoutViewport(entry)
+      const conversationId = chatGPTConversationID(entry.view.webContents.getURL())
       const shown = await runChatGPTAccountScript(key, entry, 'show-sidebar', chatGPTShowSidebarScript())
       if (!shown.ok) return shown
       if (shown.state === 'opening') await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-      const project = await ensureChatGPTProject(key, entry, projectName)
+
+      // ensureChatGPTProject leaves the "Move to project" submenu open with the
+      // wanted project present, so selecting it is the very next click.
+      const project = await ensureChatGPTProject(key, entry, projectName, conversationId)
       if (!project.ok) return { ok: false, state: project.state, project: project.project || normalizeChatGPTProjectName(projectName) }
-      const move = await chooseChatGPTConversationAction(key, entry, 'move-project')
-      if (!move.ok) return { ok: false, state: move.state, project: project.project }
-      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-      const selected = await runChatGPTAccountScript(key, entry, 'select-project', chatGPTSelectProjectScript(project.project))
+      const selected = await commitChatGPTAccountControl(key, entry, 'select-project', chatGPTProjectItemRectScript(project.project))
       if (!selected.ok) return { ok: false, state: selected.state, project: project.project }
-      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-      const rename = await chooseChatGPTConversationAction(key, entry, 'rename')
+      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 3)
+
+      const rename = await chooseChatGPTConversationAction(key, entry, 'rename', conversationId)
       if (!rename.ok) return { ok: false, state: rename.state, project: project.project }
       await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-      const renamed = await runChatGPTAccountScript(key, entry, 'commit-title', chatGPTCommitConversationTitleScript(title))
-      return { ok: Boolean(renamed.ok), state: renamed.state, project: project.project, title: normalizeWHXTitle(title) }
+      // The rename control is an inline sidebar input, not a dialog: stage the
+      // value, then commit it with a trusted Enter the same way the composer is
+      // submitted, and confirm from the row's own label.
+      const staged = await runChatGPTAccountScript(key, entry, 'commit-title', chatGPTCommitConversationTitleScript(title))
+      if (!staged.ok) return { ok: false, state: staged.state, project: project.project }
+      const { wc } = requireOwnedChatGPTEntry(key, entry)
+      dispatchChatGPTAccountKey(wc, 'Enter')
+      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 3)
+      const committed = await runChatGPTAccountScript(key, entry, 'confirm-title', chatGPTConversationTitleScript(conversationId))
+      return { ok: Boolean(committed.ok), state: committed.ok ? 'renamed' : committed.state, project: project.project, title: normalizeWHXTitle(title) }
     } finally {
       entry.accountOperationActive = false
       await hideChatGPTSidebar(key, entry).catch(() => undefined)
@@ -1690,7 +1740,12 @@ async function suggestChatGPTConversationTitle(cacheKey, expectedURL = '') {
 
 async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
   const key = sanitizeChatCacheKey(cacheKey)
-  const entry = chatgptViews.get(key)
+  // A released view plus a known conversation URL is the normal shape of the
+  // deferred retry: the chat was already archived locally and its renderer torn
+  // down. Recreating the owned view is the only way to actually reach the
+  // conversation, and reporting "view-not-live" as success would silently
+  // retire a remote archive that never happened.
+  const entry = chatgptViews.get(key) || (expectedURL ? ensureChatGPTView(key).entry : undefined)
   if (!entry) return { ok: true, state: 'view-not-live' }
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
@@ -1699,10 +1754,17 @@ async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
       const target = expectedURL ? requireTrustedChatGPTURL(expectedURL) : ''
       if (target && !sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'archive-conversation')
       await waitForChatGPTSurfaceReady(key, entry)
+      ensureChatGPTLayoutViewport(entry)
+      const conversationId = chatGPTConversationID(entry.view.webContents.getURL())
       const stopped = await runChatGPTAccountAction('stop-conversation', { key }, () => runChatGPTAccountScript(key, entry, 'stop', chatGPTStopConversationScript()))
       if (stopped.state === 'stopping') await wait(750)
-      const archived = await chooseChatGPTConversationAction(key, entry, 'archive')
+      // The archive control lives in the sidebar history row's own menu, so the
+      // sidebar has to be open before the conversation's trigger exists.
+      const shown = await runChatGPTAccountScript(key, entry, 'show-sidebar', chatGPTShowSidebarScript())
+      if (shown.state === 'opening') await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 2)
+      const archived = await chooseChatGPTConversationAction(key, entry, 'archive', conversationId)
       if (archived.ok) releaseChatGPTView(key, windowStateForEntry(entry))
+      else await hideChatGPTSidebar(key, entry).catch(() => undefined)
       return archived
     } finally {
       entry.accountOperationActive = false
@@ -2681,10 +2743,9 @@ function registerIPC() {
     const windowState = trustedSender(event)
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const target = requireTrustedChatGPTURL(request?.url || CHATGPT_URL)
-    // Navigation originates only from a mounted, unsuspended ChatGPT pane.
-    // Make it atomic with presentation so a loaded remote view cannot remain
-    // hidden behind the local placeholder when a preceding `show` IPC raced.
-    windowState.chatgptVisible = true
+    // Navigation may already be in flight when a blocking Wharness overlay
+    // hides the native WebContentsView. Preserve that visibility decision here:
+    // only the explicit show IPC may make the remote view visible again.
     const entry = activateChatGPTView(key, request?.bounds, windowState)
     const wc = entry.view.webContents
     const current = wc.getURL()
