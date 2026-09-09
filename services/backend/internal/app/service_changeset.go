@@ -404,7 +404,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := conflictPaths(conflicts)
-	if continuing && item.ConflictAttempt >= maxAutoRepairAttempts {
+	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
 	planIDs := make([]string, 0)
@@ -455,6 +455,9 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 		} else {
 			current.ConflictAttempt++
 		}
+		if current.AutomationMode == domain.AutomationModeAuto {
+			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
+		}
 		current.IntegrationConflict = &resolution
 		current.LastRequestID = requestID
 		current.LastManualPrompt = prompt
@@ -472,7 +475,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 }
 
 // exhaustConflictResolution stops an automatic conflict-resolution loop that
-// has already spent maxAutoRepairAttempts rounds on the SAME conflict ID
+// has already spent the selected effort budget on the SAME conflict ID
 // without converging, instead of preparing yet another automatic prompt.
 // Shared by prepareConflictResolution (ChangeSet path) and
 // prepareConflictResolutionFromMerge (Git merge path) — both call this the

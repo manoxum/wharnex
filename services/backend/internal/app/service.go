@@ -63,8 +63,6 @@ type BundleSubmission struct {
 	RemoteRecoveryPrepared bool                    `json:"remote_recovery_prepared,omitempty"`
 }
 
-const maxAutoRepairAttempts = 3
-
 // maxRetainedProjectRevisions bounds the self-observed baseline history a
 // session keeps (domain.Session.ProjectRevisions). canFastForwardBaseline
 // walks this history to reconcile a pending plan against external filesystem
@@ -237,8 +235,12 @@ func (s *Service) UpdateProjectConfig(sessionID string, cfg projectconfig.Config
 	return stored, updated, nil
 }
 
-func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string, executionMode domain.ExecutionMode, automationMode domain.AutomationMode) (domain.Session, error) {
+func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string, executionMode domain.ExecutionMode, automationMode domain.AutomationMode, requestedEffort ...domain.EffortLevel) (domain.Session, error) {
 	id := ids.New("ses")
+	effortLevel := domain.EffortLevelMedium
+	if len(requestedEffort) > 0 && requestedEffort[0] != "" {
+		effortLevel = requestedEffort[0]
+	}
 	if executionMode == "" {
 		executionMode = domain.ExecutionModeProtected
 	}
@@ -257,6 +259,9 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	}
 	if !domain.ValidAutomationMode(automationMode) {
 		return domain.Session{}, fmt.Errorf("unsupported automation mode %q", automationMode)
+	}
+	if !domain.ValidEffortLevel(effortLevel) {
+		return domain.Session{}, fmt.Errorf("unsupported effort level %q", effortLevel)
 	}
 	if automationMode == domain.AutomationModeAuto && executionMode != domain.ExecutionModeProtected {
 		return domain.Session{}, errors.New("auto mode requires protected execution mode")
@@ -283,14 +288,14 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		return domain.Session{}, err
 	}
 	knowledgeSharing := true
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if selfEvolution {
 		item.WharnexInstanceID = ""
 	}
 	if err := s.store.Put(item); err != nil {
 		return domain.Session{}, fmt.Errorf("persist session: %w", err)
 	}
-	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode, "self_evolution": selfEvolution})
+	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode, "effort_level": effortLevel, "self_evolution": selfEvolution})
 	return item, nil
 }
 
@@ -388,6 +393,21 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 	}
 	s.resetDevspace(sessionID)
 	s.bus.Publish(sessionID, "execution.mode_changed", map[string]any{"execution_mode": mode})
+	return item, nil
+}
+
+func (s *Service) SetEffortLevel(sessionID string, level domain.EffortLevel) (domain.Session, error) {
+	if !domain.ValidEffortLevel(level) {
+		return domain.Session{}, fmt.Errorf("unsupported effort level %q", level)
+	}
+	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.EffortLevel = level
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.bus.Publish(sessionID, "effort.level_changed", map[string]any{"effort_level": level})
 	return item, nil
 }
 
@@ -502,6 +522,8 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			current.PendingKnowledgeCandidate = nil
 			current.PendingKnowledgeSummary = ""
 			current.LastMainRequestSummary = ""
+			current.AutomationAttempt = 1
+			current.ImprovementAttempt = 0
 			return nil
 		}); clearErr == nil {
 			item = refreshed
@@ -1141,7 +1163,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		return BundleSubmission{Session: current, AutoError: err.Error()}
 	}
 	result := BundleSubmission{Session: current}
-	for attempt := 0; attempt <= maxAutoRepairAttempts; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if current.Plan == nil || current.Policy == nil || !current.Policy.Allowed || current.Plan.Status != "ready" {
 			return result
 		}
@@ -1202,9 +1224,21 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		result.RestartScheduled = false
 		result.Session = applied
 		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport, "restart_required": result.RestartRequired})
+		if !result.RestartRequired && shouldContinueImprovement(applied) {
+			improved, improveErr := s.prepareImprovementRequest(ctx, sessionID, applied, planID)
+			if improveErr != nil {
+				result.AutoError = improveErr.Error()
+				return result
+			}
+			result.Session = improved
+			if improved.State == "planned" && improved.Plan != nil && improved.Plan.PlanID != planID {
+				current = improved
+				continue
+			}
+			result.RepairPrepared = improved.State == "repair_pending" && improved.LastManualPrompt != ""
+		}
 		return result
 	}
-	return result
 }
 
 func turnState(kind domain.TurnKind) string {
@@ -1891,7 +1925,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	}
 
 	if updated.IntegrationConflict != nil && updated.Plan != nil && updated.IntegrationConflict.RequestID == updated.Plan.RequestID {
-		if updated.RepairAttempt < maxAutoRepairAttempts {
+		if effortAttemptAvailable(updated) {
 			conflict := updated.IntegrationConflict
 			if retried, retryErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
 				updated = retried
@@ -2020,8 +2054,8 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "plan_id": result.PlanID})
 		return updated, nil
 	}
-	if !manual && current.RepairAttempt >= maxAutoRepairAttempts {
-		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": current.RepairAttempt, "plan_id": result.PlanID})
+	if !manual && !effortAttemptAvailable(current) {
+		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": automaticAttemptsSpent(current), "plan_id": result.PlanID, "effort_level": normalizeEffortLevel(current.EffortLevel)})
 		return current, nil
 	}
 
@@ -2031,8 +2065,12 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 	}
 	requestID := ids.New("req")
 	attempt := refreshed.RepairAttempt + 1
-	repairMessage := buildRepairMessage(refreshed, result, cause, attempt, manual, guidance)
-	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID, "manual": manual})
+	automationAttempt := automaticAttemptsSpent(refreshed)
+	if !manual {
+		automationAttempt++
+	}
+	repairMessage := buildRepairMessage(refreshed, result, cause, attempt, automationAttempt, manual, guidance)
+	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "automation_attempt": automationAttempt, "failed_plan_id": result.PlanID, "manual": manual, "effort_level": normalizeEffortLevel(refreshed.EffortLevel)})
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
 	if err != nil {
 		return refreshed, err
@@ -2069,6 +2107,9 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastRepairError = cause.Error()
 		item.RepairAttempt = attempt
+		if !manual {
+			item.AutomationAttempt = automationAttempt
+		}
 		item.LastTurn = planned.Turn
 		if item.RepairParentPlanID == "" {
 			item.RepairParentPlanID = result.PlanID
@@ -2112,10 +2153,10 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 	return updated, nil
 }
 
-func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt int, manual bool, guidance string) string {
-	requestHeading := fmt.Sprintf("AUTOMATIC REPAIR REQUEST — attempt %d of %d", attempt, maxAutoRepairAttempts)
+func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt, automationAttempt int, manual bool, guidance string) string {
+	requestHeading := "AUTOMATIC REPAIR REQUEST — " + effortAttemptLabel(item, automationAttempt) + " · effort " + string(normalizeEffortLevel(item.EffortLevel))
 	if manual {
-		requestHeading = fmt.Sprintf("MANUAL GPT REPAIR REQUEST — operator requested after %d automatic attempt(s)", item.RepairAttempt)
+		requestHeading = fmt.Sprintf("MANUAL GPT REPAIR REQUEST — operator requested after %d autonomous attempt(s)", automaticAttemptsSpent(item))
 	}
 	operatorGuidance := ""
 	if clean := truncateRepairText(guidance, 4000); clean != "" {
@@ -2123,7 +2164,7 @@ func buildRepairMessage(item domain.Session, result domain.ExecutionResult, caus
 	}
 	if strings.HasPrefix(cause.Error(), "policy denied plan:") {
 		if !manual {
-			requestHeading = fmt.Sprintf("AUTOMATIC POLICY REPAIR REQUEST — attempt %d of %d", attempt, maxAutoRepairAttempts)
+			requestHeading = "AUTOMATIC POLICY REPAIR REQUEST — " + effortAttemptLabel(item, automationAttempt) + " · effort " + string(normalizeEffortLevel(item.EffortLevel))
 		}
 		return fmt.Sprintf(`%s
 

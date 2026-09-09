@@ -43,6 +43,11 @@ The workflow is bounded to six local rounds per original user turn. The final co
 
 Command failure in a workflow is evidence, not an automatic repair trigger. Automatic repair remains specific to a requested `change` plan.
 
+### Effort level and autonomous iteration budget
+Every Main Request carries one user-selected `effort_level`: `low`, `medium`, `high`, `extra_high`, `max`, `ultra`, or `loop`. The level is a hard ceiling for autonomous AI resolution attempts across the request chain, including the initial attempt and subsequent automatic repair/conflict rounds: Low=1, Medium=3, High=6, Extra High=10, Max=15, Ultra=30, while Loop has no numeric ceiling. Manual operator-triggered repair is outside this automatic budget. The selected value MUST be included in planner/provider prompts so the model can optimize cost/benefit inside the available budget rather than blindly consuming it.
+
+`extra_high`, `max`, `ultra`, and `loop` also enable continuous improvement after a successful host integration. Each post-success round consumes the same automatic-attempt budget and MUST stay scoped to the original user goal. The planner MUST stop with a terminal `answer` and no change plan when no material, safe, cost-effective improvement remains or no safe automated solution exists. Loop therefore means unbounded opportunity to iterate, not permission for an infinite busy-loop or cosmetic churn.
+
 ## AI output rule
 
 The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; `plan` is an approval proposal in `turn.message` and carries no execution plan or patches; all remaining kinds also carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
@@ -51,7 +56,7 @@ Every new `harness.turn/v1` result MUST include an `outcome` object with `status
 
 The recovery surface for a non-completed outcome MUST preserve the original goal and offer a new request path. The user can edit the recovery prompt, add context/files, enable another configured transport, or repeat the request. In Auto, a `retryable=true` terminal outcome MAY prepare exactly one bounded fresh-request recovery automatically. A retry is a new correlated request and never silently reclassifies the failed result as successful.
 
-Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `repair`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
+Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `repair`, `improvement`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 

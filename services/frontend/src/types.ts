@@ -138,6 +138,7 @@ export type ContextInspection = {
 
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
+export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'
 /** Scraper: Desktop drives the embedded ChatGPT DOM directly, as it always
  *  has. Manual: Desktop never touches that DOM — the prompt is only shown
  *  for copy/paste and a response bundle is only imported by explicit human
@@ -191,6 +192,9 @@ export type Session = {
   chat_id?: string
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
+  effort_level?: EffortLevel
+  automation_attempt?: number
+  improvement_attempt?: number
   chat_transport_mode?: ChatTransportMode
   knowledge_sharing_enabled?: boolean
   knowledge_last_seen_revision?: number
@@ -236,7 +240,7 @@ export type Session = {
   artifacts?: ArtifactRecord[]
   interrupted_execution?: { plan_id: string; requested_at: string; approved: boolean; status?: 'awaiting_decision' | 'running' | 'resuming' | 'failed_retryable'; last_error?: string }
   remote_recovery_attempt?: number
-	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'evidence' | 'conflict' | 'knowledge_review'; created_at: string }>
+	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'improvement' | 'evidence' | 'conflict' | 'knowledge_review'; created_at: string }>
   /** Set the instant a chat's session is archived; null once restored. Set
    *  together, restore is a pure state flip (api.restoreChat) while it is
    *  still within the grace window (see compacted_at). */
