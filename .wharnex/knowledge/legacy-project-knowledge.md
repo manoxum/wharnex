@@ -81,3 +81,7 @@ A superfície ChatGPT do Engine é uma `WebContentsView` nativa e pode ficar aci
 Na reparação do polimento do Agent/Engine, o patch funcional passou `git diff --check` e `npm run typecheck`, mas `npm run lint --max-warnings=0` bloqueou porque `ChatGPTDesktopPane.tsx` exportava também o helper `chatGPTOverlayDocuments`. A regra `react-refresh/only-export-components` está ativa como warning e, com `--max-warnings=0`, qualquer warning é terminal.
 
 A correção preserva o comportamento e move seletores/helpers de overlay para `services/frontend/src/lib/chatGPTOverlay.ts`; o componente volta a exportar apenas `ChatGPTDesktopPane`, e o teste importa o helper a partir da biblioteca. Para futuros componentes React neste frontend, helpers não-componentes que precisem ser exportados/testados devem preferencialmente viver em módulos `lib/` dedicados em vez de serem exportados do ficheiro `.tsx` do componente.
+
+## Portais React e escopo de consulta nos testes
+
+Quando um modal passa a ser renderizado com `createPortal(..., document.body)`, testes de React Testing Library que validam elementos internos do modal não podem continuar a procurá-los em `view.container`: esse container contém apenas a árvore original do `render`. Use `document.querySelector` ou queries de `screen` para o conteúdo portaled. Caso contrário, a funcionalidade pode estar correta e a verificação falhar com um seletor `null`.
