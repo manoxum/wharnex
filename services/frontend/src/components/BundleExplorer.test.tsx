@@ -1,17 +1,27 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ArtifactRecord } from '../types'
+import type { ArtifactPresentation, ArtifactRecord } from '../types'
 import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
 
-const mocks = vi.hoisted(() => ({ artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })), bundleQuota: vi.fn(async () => ({ window_hours: 3, limit: 80, sent: 12, received: 11, total: 23, warning: false, window_start: '2026-09-08T15:00:00Z', window_end: '2026-09-08T18:00:00Z' })) }))
+const mocks = vi.hoisted(() => ({
+  artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })),
+  artifactPresentation: vi.fn(async (): Promise<ArtifactPresentation> => ({ protocol: 'harness.artifact-presentation/v1', fallback: true, galleries: [] as ArtifactPresentation['galleries'] })),
+  bundleQuota: vi.fn(async () => ({ window_hours: 3, limit: 80, sent: 12, received: 11, total: 23, warning: false, window_start: '2026-09-08T15:00:00Z', window_end: '2026-09-08T18:00:00Z' })),
+}))
 vi.mock('../lib/api', () => ({ api: {
   artifactEntries: mocks.artifactEntries,
+  artifactPresentation: mocks.artifactPresentation,
   bundleQuota: mocks.bundleQuota,
   artifactURL: (_sessionId: string, artifactId: string) => `/artifact/${artifactId}`,
   artifactEntryURL: (_sessionId: string, artifactId: string, path: string) => `/artifact/${artifactId}/entry?path=${encodeURIComponent(path)}`,
 } }))
 
-afterEach(() => { cleanup(); mocks.artifactEntries.mockClear(); mocks.bundleQuota.mockClear() })
+afterEach(() => {
+  cleanup()
+  mocks.artifactEntries.mockClear()
+  mocks.artifactPresentation.mockClear()
+  mocks.bundleQuota.mockClear()
+})
 
 describe('BundleExchangeBar', () => {
   it('shows exchange metadata and opens the bundle file explorer', async () => {
@@ -135,19 +145,23 @@ describe('BundleExchangeBar', () => {
       id: 'response-artifacts', request_id: requestId, direction: 'output', kind: 'bundle', name: `whx_bundle_res_chat-1_${requestId}.zip`, content_type: 'application/zip',
       size: 4096, sha256: 'd'.repeat(64), created_at: '2026-09-05T23:00:00Z', expires_at: '2026-10-05T23:00:00Z', bundle: true, entry_count: 3,
     }
-    mocks.artifactEntries.mockResolvedValueOnce({ entries: [
-      { path: 'turn.json', size: 42, dir: false },
-      { path: 'artifacts/preview.png', size: 512, dir: false },
-      { path: 'artifacts/report.md', size: 256, dir: false },
-    ] })
+    mocks.artifactPresentation.mockResolvedValueOnce({
+      protocol: 'harness.artifact-presentation/v1', fallback: false, galleries: [{
+        id: 'mixed', title: 'Resultados', description: 'Conteúdo misto', layout: 'grid', sizing: 'adaptive', items: [
+          { path: 'artifacts/preview.png', label: 'Pré-visualização', description: 'Imagem gerada', size: 512, content_type: 'image/png', kind: 'image' },
+          { path: 'artifacts/report.md', size: 256, content_type: 'text/markdown', kind: 'markdown' },
+        ],
+      }],
+    })
 
     render(<ReturnedArtifactGallery sessionId="ses_1" artifacts={[bundle]} requestId={requestId} />)
 
     expect(await screen.findByText('Artefactos devolvidos')).toBeTruthy()
-    expect(screen.getByText('preview.png')).toBeTruthy()
+    expect(screen.getByText('Resultados')).toBeTruthy()
+    expect(screen.getByText('Pré-visualização')).toBeTruthy()
     expect(screen.getByText('report.md')).toBeTruthy()
-    expect(screen.queryByText('turn.json')).toBeNull()
-    expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'response-artifacts')
+    expect(screen.getByText('Imagem gerada')).toBeTruthy()
+    expect(mocks.artifactPresentation).toHaveBeenCalledWith('ses_1', 'response-artifacts')
     expect(document.querySelector('img')?.getAttribute('src')).toContain('artifacts%2Fpreview.png')
   })
 

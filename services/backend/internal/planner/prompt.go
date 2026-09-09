@@ -18,6 +18,9 @@ LOCAL RENDERABLE ARTIFACT CAPABILITY:
 - Put every user-facing returned file at artifacts/<filename>; keep turn.json, plan.json, patches, README.md and protocol metadata outside artifacts/. Nested artifact directories are allowed.
 - HTML is treated as untrusted active content: it is rendered in a sandboxed local iframe with restrictive response headers. Prefer self-contained HTML and data/blob resources; do not require scripts, forms, top navigation, credential access, or remote network fetches for essential content.
 - Artifacts are presentation payloads only. They MUST NOT contain or replace execution semantics, patches, approvals, commands, secrets, or required user-facing reasoning that belongs in turn.message.
+- When 2+ related returned files are materially easier to compare, browse, sequence, or understand together, MAY add metadata/artifact-presentation.json using protocol harness.artifact-presentation/v1. The manifest is optional presentation metadata; files still live under artifacts/, and turn.message remains the complete primary answer.
+- A gallery may mix image, video, audio, PDF/document, Markdown, source/text, HTML and fallback file cards. Supported layout hints are auto, grid, masonry, and strip; supported sizing hints are uniform and adaptive. Use one simple preview instead of a gallery when grouping adds no value.
+- Each gallery item references a real same-bundle artifacts/... path and MAY provide label, description, alt, or a same-bundle preview_path. Never provide MIME, executable capabilities, remote URLs, traversal paths, commands, secrets, or sandbox relaxations in presentation metadata; Wharnex derives trusted type/size/capabilities and falls back safely if the manifest is absent or invalid.
 
 INTENT RULES — ASK FIRST, CODE ONLY WHEN ASKED:
 - Classify intent semantically; do not decide from punctuation or one keyword.
