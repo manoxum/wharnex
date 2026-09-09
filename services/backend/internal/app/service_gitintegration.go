@@ -108,8 +108,18 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 	if err != nil {
 		return "", "", err
 	}
-	if err := sandbox.PushBranchToHost(ctx, workspacePath, projectPath, branch); err != nil {
-		return "", "", err
+	// Creating the commit happens entirely inside the disposable sandbox, but
+	// the push writes a ref into the host's own .git. That is the only
+	// host-facing mutation in the whole verification phase, so it — and
+	// nothing longer — is what must be serialized per project. Holding the
+	// project lock only here is what lets two chats verify concurrently
+	// without racing each other's ref updates.
+	pushLock := s.projectApplyLock(projectPath)
+	pushLock.Lock()
+	pushErr := sandbox.PushBranchToHost(ctx, workspacePath, projectPath, branch)
+	pushLock.Unlock()
+	if pushErr != nil {
+		return "", "", pushErr
 	}
 	s.bus.Publish(sessionID, "integration.branch_committed", map[string]any{"plan_id": plan.PlanID, "branch": branch, "commit": commitSHA})
 	return branch, commitSHA, nil

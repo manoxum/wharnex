@@ -628,7 +628,13 @@ test('each Harness chat owns a dedicated ChatGPT WebContentsView and DOM IPC sta
   assert.match(preload, /paste: \(cacheKey\).*\{ cacheKey \}/)
   assert.match(preload, /release: \(cacheKey\).*\{ cacheKey \}/)
   assert.match(source, /wharness:chatgpt:release/)
-  assert.match(source, /publishBundleDownload\(\{ cacheKey: sourceCacheKey, filename/)
+  // A bundle download is published under the cacheKey of the chat that
+  // actually OWNS the request, never merely the surface that downloaded it.
+  // deliveryCacheKey is sourceCacheKey for the ordinary case and blank for a
+  // cross-request bundle, which the renderer then routes by request id — the
+  // stronger form of the same key-scoping invariant.
+  assert.match(source, /const deliveryCacheKey = bundleCandidate\.unrouted \? '' : sourceCacheKey/)
+  assert.match(source, /publishBundleDownload\(\{ cacheKey: deliveryCacheKey, filename/)
   assert.match(source, /publishPlanDownload\(\{ cacheKey: sourceCacheKey, filename/)
 })
 

@@ -40,6 +40,9 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 	"stale_host_baseline":                          domain.FailureKindStaleHostBaseline,
 	"host_integration_race":                        domain.FailureKindHostIntegrationRace,
 	"integration_race":                             domain.FailureKindHostIntegrationRace,
+	"sandbox_resource_exhausted":                   domain.FailureKindSandboxResourceExhausted,
+	"sandbox_disk_full":                            domain.FailureKindSandboxResourceExhausted,
+	"artifact_storage_full":                        domain.FailureKindArtifactStorageFull,
 }
 
 // classifyExecutionFailure derives a domain.FailureKind from a Wharness
@@ -70,7 +73,30 @@ func classifyExecutionFailure(cause error) string {
 	if errors.Is(cause, context.Canceled) {
 		return domain.FailureKindExecutionCanceled
 	}
+	// A resource fault can also reach us as a plain wrapped error (e.g. the
+	// runner failing to create the workspace build cache) rather than through
+	// a recorded command result, so the textual check backs up
+	// detectResourceExhaustion's structured scan of the execution result.
+	if sandbox.IsResourceExhaustionDiagnostic(cause.Error()) {
+		return domain.FailureKindSandboxResourceExhausted
+	}
+	if isArtifactStorageFullDiagnostic(cause.Error()) {
+		return domain.FailureKindArtifactStorageFull
+	}
 	return ""
+}
+
+// isArtifactStorageFullDiagnostic recognizes the local object store refusing
+// a write for lack of space. MinIO reports this as XMinioStorageFull; the
+// generic phrasings cover an S3-compatible store or a plain filesystem
+// backend. Archival is bookkeeping, so this classification exists to name the
+// operator's remedy — never to discard a verified result.
+func isArtifactStorageFullDiagnostic(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "xminiostoragefull") ||
+		strings.Contains(lower, "storage backend has reached its minimum free") ||
+		strings.Contains(lower, "quotaexceeded") ||
+		strings.Contains(lower, "no space left on device")
 }
 
 // classifyPlannerOutcomeFailure derives a domain.FailureKind from a planner
@@ -167,6 +193,9 @@ func sessionFailureKind(item domain.Session) string {
 		}
 		if strings.Contains(legacyDetail, context.Canceled.Error()) {
 			return domain.FailureKindExecutionCanceled
+		}
+		if sandbox.IsResourceExhaustionDiagnostic(legacyDetail) {
+			return domain.FailureKindSandboxResourceExhausted
 		}
 	}
 	return ""

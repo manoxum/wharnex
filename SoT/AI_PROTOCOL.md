@@ -86,6 +86,22 @@ Commands are argv arrays, for example:
 
 The model must never return `bash -c`, `sh -c`, command substitution, pipes, redirects, or chained shell syntax.
 
+`timeout_seconds` is mandatory and bounded by the protocol validator's published range. A value that is missing, zero, negative, or above the ceiling is a transport mistake, not a semantic choice: Wharness repairs it to the documented default or clamps it to the ceiling, publishes `plan.budgets_normalized` naming each adjustment, and validates the plan unchanged. This stays inside the narrow manual-transport normalization rule — it touches no argv, path, cwd, exit code, network flag, or other security-relevant field. It is a safety net, not the mechanism: the accepted range travels to the planner in the environment manifest below.
+
+## Local execution environment
+
+Every planner request carries a `LOCAL EXECUTION ENVIRONMENT` section holding a Wharness-measured `wharness.environment/v1` document (see `SoT/SANDBOX_MODEL.md` for what it contains and how it is produced). It ranks with harness policy in the trust hierarchy: it is measured from the real machine and the real container, and it overrides any assumption the model holds about a generic Linux host or anything project content claims about available tooling.
+
+The protocol requires the planner to:
+
+- select every operation and verification executable from the published `tools` inventory — an executable absent from it is not installed, and proposing it fails the command with exit code 127;
+- never propose an executable in `policy.denied_executables`;
+- keep every command inside the published `budgets`, whose violation is a protocol error that discards the entire bundle including a correct patch;
+- size verification against the published container limits, host memory and free disk, preferring narrow targeted tests over a whole-repository race or parallel build when headroom is small, because a device-full or out-of-memory failure is an infrastructure fault that no source patch repairs and for which Wharness will not request a repair;
+- treat `network=false` as implying `GOPROXY=off` against a Wharness-owned module cache, so dependencies that are neither vendored nor cached are unavailable and a package-manager install is not a valid workaround.
+
+The manifest is descriptive. It never grants a capability, and a plan is still evaluated by the policy engine, the protocol validator and the runner exactly as before.
+
 ## Patch representation
 
 Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown fences and proprietary patch dialects are invalid.
@@ -94,7 +110,7 @@ Change plans MAY declare `read_files` and `barrier_files`. They are bounded rela
 
 ## Trust hierarchy
 
-1. Harness policy/system protocol.
+1. Harness policy/system protocol, including the Wharness-measured local execution environment.
 2. Explicit normative documents selected by the harness.
 3. User request.
 4. Wharness-generated workflow observations as execution evidence.

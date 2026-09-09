@@ -66,7 +66,14 @@ func (s *Service) stageResponseKnowledge(sessionID string, parsed executionbundl
 	rootID := knowledgeReviewRoot(current, parsed.Turn.RequestID)
 	if candidate != nil {
 		if candidate.BaseRevision != snapshot.Revision {
-			return fmt.Errorf("knowledge candidate base_revision %d does not match request revision %d", candidate.BaseRevision, snapshot.Revision)
+			// Pure concurrency: a peer chat committed knowledge while this
+			// request was in flight, so the candidate was authored against an
+			// older catalog. Applying a stale `replace` would delete entries
+			// the planner never saw, so the candidate is still refused — but
+			// as a distinguishable, non-protocol condition, because the
+			// caller must keep the response bundle's executable payload
+			// rather than discard a verified change over catalog drift.
+			return &knowledgeRevisionConflictError{Candidate: candidate.BaseRevision, Current: snapshot.Revision}
 		}
 		if snapshot.SharingEnabled && candidate.Mode != domain.KnowledgeCandidateReplace {
 			return errors.New("knowledge response must use replace mode when the request received the catalog")
@@ -183,4 +190,17 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 		s.bus.Publish(sessionID, "main_request.summary_ready", map[string]any{"request_id": terminalRequestID, "root_request_id": rootID, "summary": summary})
 	}
 	return updated, err
+}
+
+// knowledgeRevisionConflictError marks a knowledge candidate that was authored
+// against a catalog revision a peer chat has since superseded. It is a
+// concurrency outcome, not a planner protocol violation, and it must never
+// invalidate the response bundle it travelled with.
+type knowledgeRevisionConflictError struct {
+	Candidate int64
+	Current   int64
+}
+
+func (e *knowledgeRevisionConflictError) Error() string {
+	return fmt.Sprintf("knowledge candidate base_revision %d does not match request revision %d", e.Candidate, e.Current)
 }

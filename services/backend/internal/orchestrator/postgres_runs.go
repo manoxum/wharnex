@@ -24,7 +24,9 @@ func (s *Store) postgresListRuns(ctx context.Context, taskID string) ([]TaskRun,
 		return nil, fmt.Errorf("list orchestrator task runs: %w", err)
 	}
 	defer rows.Close()
-	var runs []TaskRun
+	// Non-nil so an empty history marshals as [] rather than null; the task
+	// detail view iterates this array without a null guard.
+	runs := make([]TaskRun, 0)
 	for rows.Next() {
 		var payload []byte
 		if err := rows.Scan(&payload); err != nil {

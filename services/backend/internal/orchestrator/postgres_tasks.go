@@ -14,7 +14,9 @@ func (s *Store) postgresListTasks(ctx context.Context, projectPath string) ([]Ta
 		return nil, fmt.Errorf("list orchestrator tasks: %w", err)
 	}
 	defer rows.Close()
-	var tasks []Task
+	// Non-nil for the same reason as postgresListPlans: this array is
+	// consumed directly by the frontend and must never marshal as null.
+	tasks := make([]Task, 0)
 	for rows.Next() {
 		var payload []byte
 		if err := rows.Scan(&payload); err != nil {
@@ -90,7 +92,8 @@ func (s *Store) postgresDependencies(ctx context.Context, taskID string) ([]stri
 		return nil, fmt.Errorf("read orchestrator dependencies: %w", err)
 	}
 	defer rows.Close()
-	var result []string
+	// Non-nil: depends_on is read directly by the graph/Kanban views.
+	result := make([]string, 0)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {

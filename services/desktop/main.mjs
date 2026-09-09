@@ -11,7 +11,7 @@ import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExp
 import { chatGPTChooseConversationActionScript, chatGPTCommitConversationTitleScript, chatGPTCreateProjectScript, chatGPTFindProjectScript, chatGPTHideSidebarScript, chatGPTOpenConversationMenuScript, chatGPTSelectProjectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
-import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
@@ -827,8 +827,13 @@ function publishPlanDownloadError(message, filename = '', cacheKey = '') {
   sendToChatGPTKey(cacheKey, 'wharness:chatgpt:plan-download-error', { message, filename, cacheKey })
 }
 
-function publishBundleDownload(payload) {
-  sendToChatGPTKey(payload?.cacheKey || '', 'wharness:chatgpt:bundle-downloaded', payload)
+// routingKey is the live surface used only to reach a mounted window; the
+// payload's own cacheKey states which chat actually owns the bundle. They
+// differ for a cross-request bundle: it must be delivered (the renderer routes
+// it by request id across every chat in the workspace) without being
+// attributed to the surface that happened to download it.
+function publishBundleDownload(payload, routingKey = '') {
+  sendToChatGPTKey(routingKey || payload?.cacheKey || '', 'wharness:chatgpt:bundle-downloaded', payload)
 }
 
 function publishBundleDownloadError(message, filename = '', cacheKey = '') {
@@ -859,13 +864,30 @@ function registerChatGPTPlanDownloads(chatSession) {
     try {
       bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '', sourceCacheKey || '', expectedBundle?.filename || '')
     } catch (error) {
-      item.cancel()
-      publishBundleDownloadError(error instanceof Error ? error.message : String(error), sourceFilename, sourceCacheKey)
-      return
+      if (error instanceof BundleOwnershipError && error.requestId && error.filename) {
+        // The name is a valid Wharness response bundle; it simply belongs to
+        // another request or chat in this workspace — the normal shape of
+        // running several chats at once. Cancelling it discarded completed
+        // model work and reported a spurious transport failure against the
+        // unrelated newer request. Accept the bytes into the durable inbox
+        // with no cacheKey and let the workspace-wide router deliver them to
+        // whichever chat actually owns that request id.
+        bundleCandidate = { requestId: error.requestId, filename: error.filename, normalized: path.basename(sourceFilename) !== error.filename, unrouted: true }
+        console.warn(`[chatgpt-bundle-download] cross-request bundle accepted for routing file=${error.filename} request=${error.requestId}`)
+      } else {
+        item.cancel()
+        publishBundleDownloadError(error instanceof Error ? error.message : String(error), sourceFilename, sourceCacheKey)
+        return
+      }
     }
     if (bundleCandidate) {
       const filename = bundleCandidate.filename
       const bundleRequestId = bundleCandidate.requestId
+      // An unrouted bundle must never be attributed to the surface that
+      // happened to download it: that surface owns a different request, and
+      // publishing under its key is exactly how a late bundle used to
+      // terminate an unrelated in-flight request.
+      const deliveryCacheKey = bundleCandidate.unrouted ? '' : sourceCacheKey
       if (pendingChatGPTBundleDeliveries.has(bundleRequestId)) {
         item.cancel()
         console.warn(`[chatgpt-bundle-download] awaiting-ack duplicate-cancelled file=${filename} request=${bundleRequestId}`)
@@ -905,7 +927,7 @@ function registerChatGPTPlanDownloads(chatSession) {
         const live = expectedBundle?.key ? expectedChatGPTBundles.get(expectedBundle.key) : undefined
         if (live && live.requestId === expectedBundle.requestId) live.downloadInFlight = false
         if (state !== 'completed') {
-          if (state !== 'cancelled') publishBundleDownloadError(`Download do bundle terminou em estado ${state}.`, filename, sourceCacheKey)
+          if (state !== 'cancelled') publishBundleDownloadError(`Download do bundle terminou em estado ${state}.`, filename, deliveryCacheKey)
           return
         }
         let retainedForAcknowledgement = false
@@ -922,12 +944,12 @@ function registerChatGPTPlanDownloads(chatSession) {
             retainedForAcknowledgement = true
             return
           }
-          pendingChatGPTBundleDeliveries.set(validated.requestId, { cacheKey: sourceCacheKey, filename, filePath: savePath })
+          pendingChatGPTBundleDeliveries.set(validated.requestId, { cacheKey: deliveryCacheKey, filename, filePath: savePath })
           retainedForAcknowledgement = true
-          publishBundleDownload({ cacheKey: sourceCacheKey, filename, requestId: validated.requestId, contentBase64: bytes.toString('base64'), bytes: bytes.byteLength, sourceFilename, normalizedFilename: bundleCandidate.normalized })
+          publishBundleDownload({ cacheKey: deliveryCacheKey, filename, requestId: validated.requestId, contentBase64: bytes.toString('base64'), bytes: bytes.byteLength, sourceFilename, normalizedFilename: bundleCandidate.normalized, unrouted: Boolean(bundleCandidate.unrouted) }, sourceCacheKey)
           console.log(`[chatgpt-bundle-download] awaiting-ack file=${filename} bytes=${bytes.byteLength}`)
         } catch (error) {
-          publishBundleDownloadError(error instanceof Error ? error.message : String(error), filename, sourceCacheKey)
+          publishBundleDownloadError(error instanceof Error ? error.message : String(error), filename, deliveryCacheKey)
         } finally {
           if (!retainedForAcknowledgement) try { await rm(savePath, { force: true }) } catch { /* best effort temp cleanup */ }
         }

@@ -103,7 +103,19 @@ type pendingIntegrationReplayConflict struct {
 func (e *pendingIntegrationReplayConflict) Error() string { return e.conflict.Error() }
 func (e *pendingIntegrationReplayConflict) Unwrap() error { return e.conflict }
 
-func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID, hostProjectPath string, runner sandbox.Runner, workspace sandbox.Workspace, pending []domain.PendingHostChange, skipPlanID string, result *domain.ExecutionResult) error {
+// replayPendingChangeSets rebuilds this session's already-verified, not yet
+// applied candidates inside a fresh verification sandbox so the new plan is
+// verified on top of them.
+//
+// sharedHostAncestry says whether the workspace is a real clone of the host
+// (the normal case) or was rebuilt from an immutable archived request base. An
+// archive-based workspace has a synthetic root commit and NO ancestor in
+// common with the host, so a pending candidate's integration branch cannot be
+// merged into it: git refuses with "refusing to merge unrelated histories",
+// which stranded a real session in a repair loop that could never succeed.
+// Without shared ancestry the candidate is replayed as its own commit diff
+// instead — same content, no common ancestor required.
+func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID, hostProjectPath string, runner sandbox.Runner, workspace sandbox.Workspace, pending []domain.PendingHostChange, skipPlanID string, sharedHostAncestry bool, result *domain.ExecutionResult) error {
 	for index := range pending {
 		change := pending[index]
 		if change.Plan.PlanID == skipPlanID {
@@ -121,6 +133,18 @@ func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID, hostPr
 				return fmt.Errorf("replay pending ChangeSet %s: %w", change.ChangeSet.ID, err)
 			}
 			s.bus.Publish(sessionID, "changeset.replayed", map[string]any{"changeset_id": change.ChangeSet.ID, "target": "sandbox-pending", "files": changeSetPaths(*change.ChangeSet)})
+			continue
+		}
+		if change.IntegrationBranch != "" && !sharedHostAncestry {
+			// No common ancestor exists between this workspace and the host,
+			// so a merge is impossible by construction. Replay the candidate's
+			// verified commit as a plain diff through the normal patch
+			// strategy (which already falls back to --3way/--recount). This
+			// keeps the same content without pretending the two histories are
+			// related.
+			if err := s.replayIntegrationCommitAsPatch(ctx, sessionID, hostProjectPath, runner, workspace, change, result); err != nil {
+				return err
+			}
 			continue
 		}
 		if change.IntegrationBranch != "" {
@@ -151,18 +175,8 @@ func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID, hostPr
 			s.bus.Publish(sessionID, "integration.branch_replayed", map[string]any{"branch": change.IntegrationBranch, "plan_id": change.Plan.PlanID, "target": "sandbox-pending"})
 			continue
 		}
-		for _, patch := range planPatches(&change.Plan) {
-			if err := protocol.ValidatePatchPaths(patch); err != nil {
-				return fmt.Errorf("replay pending plan %s: %w", change.Plan.PlanID, err)
-			}
-			commandResult, runErr := runner.ApplyPatch(ctx, workspace, patch)
-			result.Commands = append(result.Commands, commandResult)
-			if runErr != nil || !commandResult.Success {
-				if runErr == nil {
-					runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
-				}
-				return fmt.Errorf("replay pending plan %s: %w", change.Plan.PlanID, runErr)
-			}
+		if err := s.replayPlanPatches(ctx, runner, workspace, change, result); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -571,4 +585,68 @@ func conflictSurfaceKey(sessionID, conflictID string) string {
 		value = value[:128]
 	}
 	return value
+}
+
+// replayIntegrationCommitAsPatch reproduces a pending Git-native candidate
+// inside a workspace that shares no history with the host. The candidate's
+// commit still lives in the host's own object database (PushBranchToHost put
+// it there at verification time), so its diff is read from there and applied
+// through the runner's normal patch strategy.
+//
+// A candidate whose commit the host no longer has — the branch was pruned, or
+// the pending record predates the Git-native path — falls back to the plan's
+// own recorded patches, which is exactly what the legacy replay tail does.
+func (s *Service) replayIntegrationCommitAsPatch(ctx context.Context, sessionID, hostProjectPath string, runner sandbox.Runner, workspace sandbox.Workspace, change domain.PendingHostChange, result *domain.ExecutionResult) error {
+	commit := strings.TrimSpace(change.IntegrationCommit)
+	if commit == "" || !sandbox.HasCommit(ctx, hostProjectPath, commit) {
+		s.bus.Publish(sessionID, "integration.branch_replay_downgraded", map[string]any{
+			"branch": change.IntegrationBranch, "plan_id": change.Plan.PlanID,
+			"reason": "the verified integration commit is no longer present in the host repository; replaying the plan's own patches instead",
+		})
+		return s.replayPlanPatches(ctx, runner, workspace, change, result)
+	}
+	patch, err := sandbox.CommitDiff(ctx, hostProjectPath, commit)
+	if err != nil {
+		return fmt.Errorf("read pending integration commit %s as patch: %w", commit, err)
+	}
+	if strings.TrimSpace(patch) == "" {
+		// An empty diff means the candidate changed nothing reachable from
+		// this base; there is nothing to replay and nothing to fail on.
+		return nil
+	}
+	if err := protocol.ValidatePatchPaths(patch); err != nil {
+		return fmt.Errorf("replay pending integration commit %s: %w", commit, err)
+	}
+	commandResult, runErr := runner.ApplyPatch(ctx, workspace, patch)
+	result.Commands = append(result.Commands, commandResult)
+	if runErr != nil || !commandResult.Success {
+		if runErr == nil {
+			runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
+		}
+		return fmt.Errorf("replay pending integration commit %s: %w", commit, runErr)
+	}
+	s.bus.Publish(sessionID, "integration.branch_replayed", map[string]any{
+		"branch": change.IntegrationBranch, "plan_id": change.Plan.PlanID,
+		"commit": commit, "target": "sandbox-pending", "strategy": "commit_diff",
+	})
+	return nil
+}
+
+// replayPlanPatches is the legacy replay tail, extracted so the Git-native
+// downgrade path above can reuse it verbatim instead of duplicating it.
+func (s *Service) replayPlanPatches(ctx context.Context, runner sandbox.Runner, workspace sandbox.Workspace, change domain.PendingHostChange, result *domain.ExecutionResult) error {
+	for _, patch := range planPatches(&change.Plan) {
+		if err := protocol.ValidatePatchPaths(patch); err != nil {
+			return fmt.Errorf("replay pending plan %s: %w", change.Plan.PlanID, err)
+		}
+		commandResult, runErr := runner.ApplyPatch(ctx, workspace, patch)
+		result.Commands = append(result.Commands, commandResult)
+		if runErr != nil || !commandResult.Success {
+			if runErr == nil {
+				runErr = fmt.Errorf("patch failed: %s", strings.TrimSpace(commandResult.Stderr))
+			}
+			return fmt.Errorf("replay pending plan %s: %w", change.Plan.PlanID, runErr)
+		}
+	}
+	return nil
 }

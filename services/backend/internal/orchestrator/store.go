@@ -183,7 +183,9 @@ func (s *Store) ListRuns(ctx context.Context, taskID string) ([]TaskRun, error) 
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]TaskRun(nil), s.runs[taskID]...), nil
+	// make(...) rather than append onto a nil slice: an empty run history must
+	// marshal as [] like every other orchestrator collection.
+	return append(make([]TaskRun, 0, len(s.runs[taskID])), s.runs[taskID]...), nil
 }
 
 func clonePlan(plan Plan) Plan {

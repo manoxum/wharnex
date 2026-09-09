@@ -48,7 +48,11 @@ func (s *Store) postgresListPlans(ctx context.Context, projectPath string) ([]Pl
 		return nil, fmt.Errorf("list orchestrator plans: %w", err)
 	}
 	defer rows.Close()
-	var plans []Plan
+	// Non-nil so an empty project marshals as [] rather than null. The
+	// frontend types this field as a real array and calls .filter on it
+	// directly; a null crashed the whole workspace render on any project with
+	// no orchestrator plans yet.
+	plans := make([]Plan, 0)
 	for rows.Next() {
 		var payload []byte
 		if err := rows.Scan(&payload); err != nil {

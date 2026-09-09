@@ -17,7 +17,6 @@ package sandboxenv
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -186,12 +185,3 @@ func (m Manifest) Render() string {
 // a `go test -race ./...` of this repository exhausted a 512 MB scratch
 // filesystem, so a headroom under roughly two of those is worth flagging.
 const lowDiskWarningMB = 1536
-
-func sortedKeys(values map[string]bool) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}

@@ -268,3 +268,47 @@ func DeleteHostBranch(ctx context.Context, hostPath, branch string) error {
 	}
 	return nil
 }
+
+// CommitDiff returns a verified integration commit's own change as a raw
+// unified diff, taken against its first parent.
+//
+// It exists for the one case the Git-native integration path cannot use a
+// merge: a verification sandbox rebuilt from an immutable archived request
+// base has a synthetic root commit and therefore shares NO ancestry with the
+// host. Fetching a pending candidate's branch into such a workspace and
+// merging it fails with "refusing to merge unrelated histories" — a real
+// production failure that stranded a session in an unrecoverable repair loop.
+// Replaying that candidate as its own diff reproduces the same content
+// without requiring a common ancestor.
+//
+// A root commit (no parent) is diffed against the empty tree, so a repository
+// whose only commit is the candidate still replays correctly.
+func CommitDiff(ctx context.Context, repoPath, commitSHA string) (string, error) {
+	commitSHA = strings.TrimSpace(commitSHA)
+	if commitSHA == "" {
+		return "", errors.New("commit sha is required")
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath,
+		"show", "--format=", "--no-color", "--patch", "--first-parent", commitSHA)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", fmt.Errorf("read commit %s as diff: %s", commitSHA, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return "", fmt.Errorf("read commit %s as diff: %w", commitSHA, err)
+	}
+	return string(output), nil
+}
+
+// HasCommit reports whether repoPath's object database contains commitSHA.
+// Used to decide whether a pending candidate can be replayed from the host's
+// own history at all before attempting either integration strategy.
+func HasCommit(ctx context.Context, repoPath, commitSHA string) bool {
+	if strings.TrimSpace(commitSHA) == "" {
+		return false
+	}
+	_, err := runGit(ctx, repoPath, "cat-file", "-e", commitSHA+"^{commit}")
+	return err == nil
+}

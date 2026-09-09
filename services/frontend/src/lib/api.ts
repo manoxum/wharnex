@@ -47,6 +47,19 @@ async function requestDownload(path: string, body: unknown): Promise<{ blob: Blo
   return { blob: await response.blob(), filename }
 }
 
+// A Go backend marshals an empty slice as null unless it was explicitly
+// allocated. The orchestrator views call .filter/.map on these arrays
+// directly, so a single null took down the entire workspace render on any
+// project with no plans yet. The backend now always emits [], and this keeps
+// an older or partially deployed backend from being able to crash the app.
+export function normalizeOrchestratorOverview(overview: OrchestratorOverview): OrchestratorOverview {
+  return {
+    ...overview,
+    plans: Array.isArray(overview?.plans) ? overview.plans : [],
+    tasks: Array.isArray(overview?.tasks) ? overview.tasks.map((task) => ({ ...task, depends_on: Array.isArray(task?.depends_on) ? task.depends_on : [] })) : [],
+  }
+}
+
 export const api = {
   url: API_URL,
   config: () => request<AppConfig>('/api/config'),
@@ -133,10 +146,10 @@ export const api = {
     }),
   terminal: (id: string, command: CommandSpec, target: TerminalTarget = 'sandbox', confirmHost = false) => request<CommandResult>(`/api/sessions/${id}/terminal?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(command) }),
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
-  orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`),
+  orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`).then(normalizeOrchestratorOverview),
   proposeOrchestratorPlan: (id: string, objective: string) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/propose`, { method: 'POST', body: JSON.stringify({ objective }) }),
   importOrchestratorPlan: (id: string, requestId: string, proposal: OrchestratorProposal) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/import`, { method: 'POST', body: JSON.stringify({ request_id: requestId, proposal }) }),
-  approveOrchestratorPlan: (id: string, planId: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/approve`, { method: 'POST', body: '{}' }),
+  approveOrchestratorPlan: (id: string, planId: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/approve`, { method: 'POST', body: '{}' }).then(normalizeOrchestratorOverview),
   createOrchestratorTask: (id: string, input: { plan_id?: string; title: string; description?: string; acceptance_criteria?: string[]; priority?: OrchestratorPriority; depends_on?: string[]; capability?: string }) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks`, { method: 'POST', body: JSON.stringify(input) }),
   transitionOrchestratorTask: (id: string, taskId: string, status: OrchestratorTaskStatus) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/transition`, { method: 'POST', body: JSON.stringify({ status }) }),
   startOrchestratorTask: (id: string, taskId: string) => request<OrchestratorRunResult>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/start`, { method: 'POST', body: '{}' }),

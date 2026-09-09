@@ -680,8 +680,19 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		}
 	}
 	if s.artifactStore != nil {
+		// Archiving the response bundle is bookkeeping for the chat file
+		// library, not a precondition for executing a verified plan. A full
+		// or unreachable object store used to reject the bundle outright,
+		// throwing away a complete, valid change (observed in production as
+		// XMinioStorageFull). Record the archival failure, classify it so the
+		// operator sees the real remedy, and continue ingesting the plan.
 		if _, err := s.PersistArtifact(ctx, sessionID, parsed.Turn.RequestID, "output", "bundle", filename, "application/zip", raw); err != nil {
-			return BundleSubmission{}, fmt.Errorf("persist execution bundle: %w", err)
+			degraded := "persist execution bundle: " + err.Error()
+			s.bus.Publish(sessionID, "artifact.persist_degraded", map[string]any{
+				"request_id": parsed.Turn.RequestID, "name": filename, "error": degraded,
+				"storage_full": isArtifactStorageFullDiagnostic(err.Error()),
+				"impact":       "the bundle was accepted and will execute; only its archived copy is missing",
+			})
 		}
 	}
 	// A knowledge_review response never carries a plan and is never subject
@@ -692,8 +703,20 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if lineage, ok := current.RequestLineages[parsed.Turn.RequestID]; ok && lineage.Kind == requestKindKnowledgeReview {
 		return s.ingestKnowledgeReviewResponse(ctx, sessionID, parsed)
 	}
+	// Project knowledge is auxiliary learning metadata staged alongside the
+	// result; it is committed only at the real terminal boundary. Its most
+	// common failure is a pure concurrency artefact — a peer chat advanced the
+	// catalog revision while this request was in flight, so the returned
+	// candidate declares a base_revision that no longer matches. Rejecting the
+	// whole bundle for that discarded a complete verified change over a
+	// bookkeeping mismatch. Skip the staging instead and keep the payload.
 	if err := s.stageResponseKnowledge(sessionID, parsed); err != nil {
-		return BundleSubmission{}, fmt.Errorf("stage response knowledge: %w", err)
+		var revisionConflict *knowledgeRevisionConflictError
+		s.bus.Publish(sessionID, "knowledge.stage_skipped", map[string]any{
+			"request_id": parsed.Turn.RequestID, "error": err.Error(),
+			"reason": knowledgeStageSkipReason(errors.As(err, &revisionConflict)),
+			"impact": "the response bundle was accepted; only its knowledge candidate and cumulative summary were not staged for this round",
+		})
 	}
 	if refreshed, getErr := s.store.Get(sessionID); getErr == nil {
 		current = refreshed
@@ -1357,7 +1380,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		pendingForExecution = retireConflictingMutations(pendingForExecution, item.IntegrationConflict)
 	}
 	if !unprotected {
-		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, &result); replayErr != nil {
+		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, !reconcileFromArchive, &result); replayErr != nil {
 			return s.failExecution(ctx, sessionID, result, replayErr)
 		}
 	}
@@ -1709,6 +1732,24 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 		return result, updated, cause
 	}
 
+	// The sandbox ran out of disk, memory or file descriptors. The generated
+	// source is not implicated and a repair round provably cannot help (the
+	// retry fails identically), so classify it, keep the verified-so-far
+	// candidate, and hand the operator a host-side remedy instead.
+	if evidence, exhausted := detectResourceExhaustion(result); exhausted {
+		updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+			current.FailureKind = domain.FailureKindSandboxResourceExhausted
+			current.LastRepairError = "sandbox resource exhausted while running " + evidence.commandLine() + ": " + evidence.Diagnostic
+			return nil
+		})
+		s.bus.Publish(sessionID, "sandbox.resource_exhausted", map[string]any{
+			"plan_id": result.PlanID, "argv": evidence.Argv, "cwd": evidence.Cwd,
+			"exit_code": evidence.ExitCode, "diagnostic": evidence.Diagnostic,
+		})
+		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "failure_kind": domain.FailureKindSandboxResourceExhausted})
+		return result, updated, cause
+	}
+
 	var replayConflict *pendingChangeSetReplayConflict
 	if errors.As(cause, &replayConflict) {
 		conflicted, conflictErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, replayConflict.conflicts)
@@ -1999,6 +2040,12 @@ Use the current Wharness project context as authoritative. Replace denied comman
 	var diagnostics strings.Builder
 	for index, command := range result.Commands {
 		fmt.Fprintf(&diagnostics, "\n[%d] %s (exit %d, success=%t)\n%s\n", index+1, strings.Join(command.Argv, " "), command.ExitCode, command.Success, truncateRepairText(commandResultDiagnostic(command), 6000))
+	}
+	// A missing executable reads like an ordinary failure in raw output, and
+	// a planner handed only that output tends to re-read the source instead of
+	// swapping the tool. Name the real cause so the repair targets it.
+	if evidence, missing := detectMissingExecutable(result); missing {
+		modeNote += fmt.Sprintf("\n\nROOT CAUSE — MISSING EXECUTABLE: %q is NOT installed in the Protected runner image, so %q exited 127 before doing any work. This is not a source defect: do not modify project code to chase it. Replace that command with one built from the executables listed in the request's LOCAL EXECUTION ENVIRONMENT tools inventory, or drop the check.", evidence.executableName(), evidence.commandLine())
 	}
 	return fmt.Sprintf(`%s
 
@@ -3074,4 +3121,14 @@ func (s *Service) resetDevspace(sessionID string) {
 	if ok {
 		_ = s.runner.Cleanup(workspace)
 	}
+}
+
+// knowledgeStageSkipReason separates the two ways knowledge staging is skipped
+// so the UI can present catalog drift (routine, self-correcting on the next
+// round) differently from a planner that returned a malformed catalog.
+func knowledgeStageSkipReason(revisionConflict bool) string {
+	if revisionConflict {
+		return "concurrent_catalog_revision"
+	}
+	return "invalid_knowledge_payload"
 }
