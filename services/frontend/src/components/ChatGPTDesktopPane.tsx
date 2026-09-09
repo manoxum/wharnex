@@ -5,6 +5,7 @@ import { StatusPill } from './StatusPill'
 import { confirmDialog } from '../lib/appDialog'
 import { expectedResponseBundleName } from '../lib/bundlename'
 import { errorMessage } from '../lib/errorMessage'
+import { CHATGPT_OVERLAY_SELECTOR, chatGPTOverlayDocuments } from '../lib/chatGPTOverlay'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
@@ -125,12 +126,16 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   }, [bridge, applyDesktopState])
 
   useEffect(() => {
-    const selector = '[role="dialog"][aria-modal="true"], [data-chatgpt-overlay-blocker="true"]'
-    const sync = () => setOverlayBlocked(Boolean(document.querySelector(selector)))
+    const documents = chatGPTOverlayDocuments(window)
+    const sync = () => setOverlayBlocked(documents.some((target) => Boolean(target.querySelector(CHATGPT_OVERLAY_SELECTOR))))
     sync()
-    const observer = new MutationObserver(sync)
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'aria-hidden'] })
-    return () => observer.disconnect()
+    const observers = documents.flatMap((target) => {
+      if (!target.body) return []
+      const observer = new MutationObserver(sync)
+      observer.observe(target.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'aria-hidden', 'aria-modal', 'data-chatgpt-overlay-blocker'] })
+      return [observer]
+    })
+    return () => observers.forEach((observer) => observer.disconnect())
   }, [])
 
   useEffect(() => {

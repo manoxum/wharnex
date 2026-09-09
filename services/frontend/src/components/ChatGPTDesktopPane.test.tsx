@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import { chatGPTOverlayDocuments } from '../lib/chatGPTOverlay'
 
 class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
 const state = { url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'embedded' as const, authWindowOpen: false, authenticated: false }
@@ -114,6 +115,15 @@ describe('ChatGPTDesktopPane', () => {
     const before = vi.mocked(desktop.chatgpt.show).mock.calls.length
     dialog.remove()
     await waitFor(() => expect(vi.mocked(desktop.chatgpt.show).mock.calls.length).toBeGreaterThan(before))
+  })
+
+  it('includes blocking overlays owned by the same-origin parent WorkspaceShell', () => {
+    const projectDocument = document.implementation.createHTMLDocument('project')
+    const shellDocument = document.implementation.createHTMLDocument('shell')
+    const shellWindow = { document: shellDocument } as unknown as Window
+    const projectWindow = { document: projectDocument, parent: shellWindow } as unknown as Window
+
+    expect(chatGPTOverlayDocuments(projectWindow)).toEqual([projectDocument, shellDocument])
   })
 
   it('synchronizes the native view bounds immediately after mounting', async () => {
