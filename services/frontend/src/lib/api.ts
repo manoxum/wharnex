@@ -109,6 +109,10 @@ export const api = {
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
       method: 'POST', body: JSON.stringify({ message, planning_mode: planningMode }),
     }),
+  approvePlan: (id: string, requestId: string) =>
+    request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/approve`, { method: 'POST', body: '{}' }),
+  rejectPlan: (id: string, requestId: string) =>
+    request<Session>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/reject`, { method: 'POST', body: '{}' }),
   manualPlan: (id: string, rawJSON: string) =>
     request<Session>(`/api/sessions/${id}/manual-plan`, { method: 'POST', body: rawJSON }),
   executionBundle: (id: string, filename: string, contentBase64: string) =>

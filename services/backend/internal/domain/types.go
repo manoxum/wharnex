@@ -14,6 +14,7 @@ const (
 	TurnKindAnswer        TurnKind = "answer"
 	TurnKindClarification TurnKind = "clarification"
 	TurnKindInvestigation TurnKind = "investigation"
+	TurnKindPlan          TurnKind = "plan"
 	TurnKindWorkflow      TurnKind = "workflow"
 	TurnKindChange        TurnKind = "change"
 	TurnKindBlocked       TurnKind = "blocked"
@@ -21,7 +22,7 @@ const (
 
 func ValidTurnKind(kind TurnKind) bool {
 	switch kind {
-	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindWorkflow, TurnKindChange, TurnKindBlocked:
+	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindPlan, TurnKindWorkflow, TurnKindChange, TurnKindBlocked:
 		return true
 	default:
 		return false

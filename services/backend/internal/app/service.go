@@ -423,11 +423,55 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 }
 
 func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message, planningMode string) (planner.Result, domain.Session, error) {
+	return s.submitPlannerRequest(ctx, sessionID, message, planningMode, "", requestKindStandard)
+}
+
+func (s *Service) SubmitPlanApproval(ctx context.Context, sessionID, parentRequestID string) (planner.Result, domain.Session, error) {
+	parentRequestID = strings.TrimSpace(parentRequestID)
+	if parentRequestID == "" {
+		return planner.Result{}, domain.Session{}, errors.New("plan request_id is required")
+	}
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return planner.Result{}, domain.Session{}, err
+	}
+	if current.LastRequestID != parentRequestID || current.State != "awaiting_plan_approval" || current.LastTurn == nil || current.LastTurn.RequestID != parentRequestID || current.LastTurn.Kind != domain.TurnKindPlan || current.LastTurn.Outcome == nil || current.LastTurn.Outcome.Status != domain.TurnOutcomeCompleted {
+		return planner.Result{}, current, errors.New("plan approval requires the latest pending completed plan proposal")
+	}
+	message := fmt.Sprintf("PLAN APPROVAL CONTINUATION\nParent request: %s\nThe user approved the following plan proposal. Implement exactly this approved scope now.\n\n%s", parentRequestID, current.LastTurn.Message)
+	return s.submitPlannerRequest(ctx, sessionID, message, "approve_plan", parentRequestID, requestKindPlanApproval)
+}
+
+func (s *Service) RejectPlan(sessionID, requestID string) (domain.Session, error) {
+	requestID = strings.TrimSpace(requestID)
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	if requestID == "" || current.LastRequestID != requestID || current.State != "awaiting_plan_approval" || current.LastTurn == nil || current.LastTurn.RequestID != requestID || current.LastTurn.Kind != domain.TurnKindPlan {
+		return domain.Session{}, errors.New("plan rejection requires the latest pending plan proposal")
+	}
+	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
+		item.State = "plan_rejected"
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.closeRemoteInputChannel(sessionID, "plan.rejected")
+	s.bus.Publish(sessionID, "plan.proposal_rejected", map[string]any{"request_id": requestID})
+	if committed, commitErr := s.commitPendingKnowledge(sessionID, requestID); commitErr == nil {
+		updated = committed
+	}
+	return updated, nil
+}
+
+func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, planningMode, parentRequestID, requestKind string) (planner.Result, domain.Session, error) {
 	planningMode = strings.ToLower(strings.TrimSpace(planningMode))
 	if planningMode == "" {
 		planningMode = "direct"
 	}
-	if planningMode != "direct" && planningMode != "plan_first" {
+	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" {
 		return planner.Result{}, domain.Session{}, fmt.Errorf("unsupported planning mode %q", planningMode)
 	}
 	item, err := s.refreshContext(sessionID)
@@ -437,15 +481,17 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
-	if refreshed, clearErr := s.store.Update(sessionID, func(current *domain.Session) error {
-		current.PendingKnowledgeRootRequestID = ""
-		current.PendingKnowledgeCandidateRequestID = ""
-		current.PendingKnowledgeCandidate = nil
-		current.PendingKnowledgeSummary = ""
-		current.LastMainRequestSummary = ""
-		return nil
-	}); clearErr == nil {
-		item = refreshed
+	if parentRequestID == "" {
+		if refreshed, clearErr := s.store.Update(sessionID, func(current *domain.Session) error {
+			current.PendingKnowledgeRootRequestID = ""
+			current.PendingKnowledgeCandidateRequestID = ""
+			current.PendingKnowledgeCandidate = nil
+			current.PendingKnowledgeSummary = ""
+			current.LastMainRequestSummary = ""
+			return nil
+		}); clearErr == nil {
+			item = refreshed
+		}
 	}
 	// Capture one immutable knowledge identity for this request. Transport
 	// materialization later reuses this exact snapshot instead of reading the
@@ -459,7 +505,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		current.LastRequestMode = planningMode
 		current.PlannerInFlight = true
 		current.RemoteRecoveryAttempt = 0
-		recordRequestLineage(current, requestID, "", requestKindStandard)
+		recordRequestLineage(current, requestID, parentRequestID, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		recordRequestContext(current, requestID, item.Context)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
@@ -467,8 +513,12 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	}); err != nil {
 		return planner.Result{}, item, err
 	}
-	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA})
-	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)}, knowledgeSnapshot, item.ProjectPath))
+	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA, "planning_mode": planningMode, "parent_request_id": parentRequestID})
+	expectedFilename := expectedResponseBundleFilename(item, requestID)
+	if parentRequestID != "" {
+		expectedFilename = expectedResponseBundleFilenameForDerivedRequest(item, requestID, parentRequestID)
+	}
+	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedFilename}, knowledgeSnapshot, item.ProjectPath))
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -547,7 +597,9 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		return planner.Result{}, item, err
 	}
 	s.releaseSupersededRemoteInputLeases(sessionID, updated.PendingManualRequestIDs)
-	s.closeSupersededRemoteInputChannel(sessionID, requestID)
+	if parentRequestID == "" {
+		s.closeSupersededRemoteInputChannel(sessionID, requestID)
+	}
 	if result.Plan != nil {
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": result.Plan.PlanID, "allowed": updated.Policy.Allowed, "requires_approval": updated.Policy.RequiresApproval, "risk": updated.Policy.Risk})
 	} else if result.ManualPrompt != "" {
@@ -818,8 +870,8 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		}
 	}
 	if current.LastRequestMode == "plan_first" && parsed.Turn.RequestID == current.LastRequestID {
-		if parsed.Plan != nil || parsed.Turn.Kind == domain.TurnKindChange || parsed.Turn.Kind == domain.TurnKindWorkflow {
-			return BundleSubmission{}, errors.New("plan-first request must return a terminal proposal without plan.json; implementation requires explicit user approval")
+		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
+			return BundleSubmission{}, errors.New("plan-first request must return kind=plan without plan.json; implementation requires explicit user approval")
 		}
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
@@ -873,12 +925,16 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			return BundleSubmission{}, updateErr
 		}
 		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
-		s.closeRemoteInputChannel(sessionID, "request.terminal")
+		if parsed.Turn.Kind != domain.TurnKindPlan {
+			s.closeRemoteInputChannel(sessionID, "request.terminal")
+		}
 		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": parsed.Turn.RequestID, "kind": parsed.Turn.Kind, "transport": "zip_bundle"})
-		if committed, commitErr := s.commitPendingKnowledge(sessionID, parsed.Turn.RequestID); commitErr != nil {
-			return BundleSubmission{}, commitErr
-		} else {
-			updated = committed
+		if parsed.Turn.Kind != domain.TurnKindPlan {
+			if committed, commitErr := s.commitPendingKnowledge(sessionID, parsed.Turn.RequestID); commitErr != nil {
+				return BundleSubmission{}, commitErr
+			} else {
+				updated = committed
+			}
 		}
 		return BundleSubmission{Session: updated}, nil
 	}
@@ -1126,6 +1182,8 @@ func turnState(kind domain.TurnKind) string {
 		return "awaiting_clarification"
 	case domain.TurnKindInvestigation:
 		return "investigated"
+	case domain.TurnKindPlan:
+		return "awaiting_plan_approval"
 	case domain.TurnKindWorkflow:
 		return "workflow_planned"
 	case domain.TurnKindBlocked:

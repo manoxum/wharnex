@@ -1000,6 +1000,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const prompt = response.manual_prompt || response.session.last_manual_prompt || ''
       const turn = response.session.last_turn || response.turn
       const requestId = response.session.last_request_id || turn?.request_id || ''
+      const immediatePlanProposal = turn?.kind === 'plan'
       const deliveryKey = `${response.session.id}:${requestId}:${targetChat.id}`
       const ownsLiveDelivery = Boolean(prompt && requestId && isDesktop() && response.session.chat_transport_mode !== 'manual')
       if (ownsLiveDelivery) livePromptDeliveryKeysRef.current.add(deliveryKey)
@@ -1008,7 +1009,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (activeChatIdRef.current === targetChat.id) setManualPrompt(prompt)
       if (requestId) {
         mutateChatItems(targetChat, response.session.project_path, (current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, 'outbound', selectedArtifactKinds(artifacts)) } : item))
-        updateWorkspaceChat(targetChat.id, response.session.project_path, { requestMode, pendingPlan: requestMode === 'plan_first' ? { requestId, originalMessage: message } : undefined })
+        updateWorkspaceChat(targetChat.id, response.session.project_path, { requestMode, pendingPlan: requestMode === 'plan_first' || immediatePlanProposal ? { requestId, originalMessage: message } : undefined })
       }
       let draftCount = 0
       let autoSubmitted = false
@@ -1063,7 +1064,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       appendChatItem(targetChat, response.session.project_path, {
         id: crypto.randomUUID(), role: 'harness',
         source: immediateConversationalTurn ? 'chatgpt' : 'wharness',
-        presentation: immediateConversationalTurn ? 'message' : 'notice',
+        presentation: immediatePlanProposal ? 'plan' : (immediateConversationalTurn ? 'message' : 'notice'),
         createdAt: new Date().toISOString(),
         text: immediatePlannerFailure
           ? `${turn?.message || 'O planner não concluiu o pedido.'}\n\n${turn?.outcome?.message || response.session.last_repair_error || ''}\n\nPode corrigir o prompt, acrescentar contexto/anexos, ativar outro transporte ou repetir o pedido.`
@@ -1084,6 +1085,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
               : 'Prompt do planner preparado. No ChatGPT, gere o bundle ZIP solicitado e clique em Download; o Desktop irá importá-lo automaticamente.',
         meta: immediatePlannerFailure ? `Pedido não concluído · ${turn?.outcome?.retryable ? 'pode ser repetido' : 'requer intervenção'}` : (immediateConversationalTurn ? turnMeta(turn!.kind) : (response.session.state === 'applied' ? 'AUTO · Host aplicado' : (response.session.plan ? `Plano ${response.session.plan.plan_id}` : (autoSubmitted ? `${draftCount} item(ns) de entrada transportados · aguardando resultado ZIP` : (draftCount ? `${draftCount} item(ns) de entrada preparados · aguardando confirmação` : 'Aguardando resultado externo'))))),
         turnKind: turn?.kind,
+        approval: immediatePlanProposal && requestId ? { status: 'pending', requestId, originalMessage: message } : undefined,
         iteration: immediatePlannerFailure && requestId ? iterationRef(requestId, 'failed', ['error'], targetChat.chatgptUrl) : undefined,
       })
     } catch (e) {
@@ -1355,10 +1357,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
                   ? (submission.auto_error ? `Bundle validado e execução automática iniciada, mas falhou: ${submission.auto_error}` : 'Bundle validado e executado automaticamente na sandbox.')
                   : 'Bundle ZIP importado e plano validado.'
       const conversational = updated.last_turn && updated.last_turn.kind !== 'change' && updated.last_turn.kind !== 'workflow'
-      const isPlanProposal = Boolean(conversational && targetChat.pendingPlan?.requestId === updated.last_turn?.request_id)
+      const isPlanProposal = updated.last_turn?.kind === 'plan'
+      const planRequestId = isPlanProposal ? (updated.last_turn?.request_id || requestId) : ''
+      if (isPlanProposal && planRequestId) {
+        updateWorkspaceChat(targetChat.id, updated.project_path, { pendingPlan: { requestId: planRequestId, originalMessage: targetChat.pendingPlan?.originalMessage }, requestMode: 'direct' })
+      }
       const bundleItem: ChatItem = {
         id: crypto.randomUUID(), role: 'harness', source: plannerFailed || submission.policy_blocked || submission.workflow_executed || pendingApproval ? 'wharness' : 'chatgpt', presentation: plannerFailed ? 'notice' : (isPlanProposal ? 'plan' : (submission.policy_blocked || submission.workflow_executed || pendingApproval ? 'notice' : 'message')), createdAt: new Date().toISOString(), text: plannerFailed ? `${updated.last_turn?.message || 'O ChatGPT não concluiu o pedido.'}\n\n${updated.last_turn?.outcome?.message || updated.last_repair_error || ''}\n\nPode corrigir o prompt, acrescentar contexto/anexos, ativar outro transporte ou repetir o pedido.` : (submission.policy_blocked || pendingApproval ? autoText : (submission.workflow_executed ? `${autoText}${updated.last_turn?.message ? `\n\n${updated.last_turn.message}` : ''}` : (conversational ? updated.last_turn!.message : (updated.last_turn?.message || updated.plan?.summary || autoText)))),
-        approval: isPlanProposal && targetChat.pendingPlan ? { status: 'pending', requestId: targetChat.pendingPlan.requestId, originalMessage: targetChat.pendingPlan.originalMessage } : undefined,
+        approval: isPlanProposal && planRequestId ? { status: 'pending', requestId: planRequestId, originalMessage: targetChat.pendingPlan?.originalMessage } : undefined,
         meta: plannerFailed
           ? `Pedido não concluído · ${updated.last_turn?.outcome?.retryable ? 'pode ser repetido' : 'requer intervenção'}`
 		  : submission.remote_recovery_prepared
@@ -2184,19 +2190,49 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function approvePlanProposal(item: ChatItem) {
-    if (!item.approval || item.approval.status !== 'pending') return
+    if (!session || !item.approval || item.approval.status !== 'pending') return
     const active = chats.find((chat) => chat.id === activeChatId)
     if (!active) return
-    setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'approved' } } : entry))
-    updateChat({ pendingPlan: undefined, requestMode: 'direct' })
-    await send(`Plano aprovado. Implemente agora o plano proposto para o pedido original: ${item.approval.originalMessage}
-
-Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bundle canónico de implementação.`, [], [], { context: true, prompt: true, result: false, error: false }, 'direct')
+    setBusy(true); setError(undefined)
+    let approvalCreated = false
+    try {
+      const response = await api.approvePlan(session.id, item.approval.requestId)
+      approvalCreated = true
+      setSession(response.session); setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+      setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'approved' } } : entry))
+      updateChat({ pendingPlan: undefined, requestMode: 'direct' })
+      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) {
+        const prepared = await transportPlannerContinuation(response.session, active)
+        appendChatItem(active, response.session.project_path, {
+          id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: prepared.submitted ? 'A aprovação foi enviada como continuação vinculada ao plano anterior.' : 'A continuação de aprovação foi preparada no ChatGPT.',
+          meta: 'Plan approval · continuação vinculada',
+          iteration: response.session.last_request_id ? iterationRef(response.session.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['prompt'], prepared.conversationUrl || active.chatgptUrl) : undefined,
+        })
+      } else {
+        appendChatItem(active, response.session.project_path, {
+          id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: 'A aprovação foi registada como continuação vinculada ao plano anterior. O prompt de implementação está preparado para envio manual.',
+          meta: 'Plan approval · envio manual',
+        })
+      }
+    } catch (cause) {
+      setError(messageOf(cause))
+      if (!approvalCreated) {
+        setItems((current) => current.map((entry) => entry.id === item.id && entry.approval?.status === 'approved' ? { ...entry, approval: { ...entry.approval, status: 'pending' } } : entry))
+      }
+    } finally { setBusy(false) }
   }
 
-  function rejectPlanProposal(item: ChatItem) {
-    setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'rejected' } } : entry))
-    updateChat({ pendingPlan: undefined, requestMode: 'direct' })
+  async function rejectPlanProposal(item: ChatItem) {
+    if (!session || !item.approval || item.approval.status !== 'pending') return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.rejectPlan(session.id, item.approval.requestId)
+      setSession(updated)
+      setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'rejected' } } : entry))
+      updateChat({ pendingPlan: undefined, requestMode: 'direct' })
+    } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
   function changeRequestMode(mode: ChatRequestMode) { updateChat({ requestMode: mode }) }
@@ -2337,7 +2373,7 @@ function contextArtifact(session: Session) {
 function requestChainActive(session: Session) {
   if (session.planner_in_flight || session.pending_manual_request_ids?.length) return true
   if (session.self_evolution_activation === 'restart_scheduled') return true
-  return new Set(['awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending', 'restart_scheduled']).has(session.state)
+  return new Set(['awaiting_plan', 'awaiting_plan_approval', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending', 'restart_scheduled']).has(session.state)
 }
 
 function buildAppliedChangeSummary(session: Session) {
@@ -2366,6 +2402,7 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
     case 'answer': return 'Resposta · sem alterações'
     case 'clarification': return 'Aguardando esclarecimento'
     case 'investigation': return 'Análise · sem alterações'
+    case 'plan': return 'Plano proposto · aguarda aprovação'
     case 'workflow': return 'Workflow local · sandbox Protected'
     case 'blocked': return 'Pedido bloqueado'
     default: return 'Plano de mudança'

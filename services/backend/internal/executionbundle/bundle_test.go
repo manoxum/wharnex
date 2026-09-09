@@ -162,6 +162,20 @@ func TestParseAcceptsFailedChangeOutcomeWithoutExecutionPlan(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsPlanProposalWithoutExecutionPlan(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Plan proposal\nAwaiting explicit approval.\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"plan","message":"## TODO\n- [ ] Implementar depois da aprovação.","outcome":{"status":"completed","retryable":false}}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
+		t.Fatalf("unexpected plan proposal bundle: %#v", parsed)
+	}
+}
+
 func TestParseChangeTurnRequiresMatchingPlan(t *testing.T) {
 	entries := map[string]string{
 		"README.md": "# Change\n",

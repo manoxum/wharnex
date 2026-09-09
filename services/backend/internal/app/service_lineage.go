@@ -8,6 +8,7 @@ import (
 
 const (
 	requestKindStandard        = "standard"
+	requestKindPlanApproval    = "plan_approval"
 	requestKindRepair          = "repair"
 	requestKindEvidence        = "evidence"
 	requestKindConflict        = "conflict"

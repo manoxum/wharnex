@@ -204,7 +204,7 @@ func executionFormat(requestID, baselineSHA256 string) map[string]any {
 		"properties": map[string]any{
 			"protocol":   map[string]any{"type": "string", "const": domain.TurnProtocolV1},
 			"request_id": map[string]any{"type": "string", "const": requestID},
-			"kind":       map[string]any{"type": "string", "enum": []string{"answer", "clarification", "investigation", "workflow", "change", "blocked"}},
+			"kind":       map[string]any{"type": "string", "enum": []string{"answer", "clarification", "investigation", "plan", "workflow", "change", "blocked"}},
 			"message":    map[string]any{"type": "string"},
 			"outcome": map[string]any{
 				"type": "object", "additionalProperties": false,

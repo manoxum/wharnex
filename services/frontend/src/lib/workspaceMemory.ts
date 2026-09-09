@@ -35,7 +35,7 @@ export type WorkspaceChat = {
   artifactSelection?: Partial<ChatArtifactSelection>
   requestMode?: ChatRequestMode
   transport?: TransportOptions
-  pendingPlan?: { requestId: string; originalMessage: string }
+  pendingPlan?: { requestId: string; originalMessage?: string }
   conflictSurfaces?: Record<string, { cacheKey: string; url?: string; resolvedAt?: string }>
   purpose?: 'standard' | 'self-evolution'
   createdAt: string
