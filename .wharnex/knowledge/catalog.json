@@ -1,6 +1,7 @@
 {
   "protocol": "harness.knowledge/v2",
   "entries": [
+    "agent-queue-composer-drafts",
     "artifact-presentation-galleries",
     "brand-identity-system",
     "knowledge-sharing-toggle",

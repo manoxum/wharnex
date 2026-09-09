@@ -43,9 +43,17 @@ describe('App ChatGPT affinity ownership', () => {
     expect(source).toMatch(/title: 'Autorizar nova vinculação ChatGPT\?'/)
   })
 
-  it('organizes the first remote conversation and archives it before local removal', () => {
+  it('organizes the first remote conversation and attempts the remote archive', () => {
     expect(source).toMatch(/firstRequest, chatTitle: generatedChatTitle, projectName: chatGPTProjectName\(projectPath\)/)
     expect(source).toMatch(/bridge\.chatgpt\.archiveConversation\(chatId, target\.chatgptUrl\)/)
-    expect(source).toMatch(/A conversa local não foi arquivada porque o arquivo remoto não pôde ser confirmado/)
+  })
+
+  // Closing a chat is a local decision: an unavailable remote control must not
+  // be able to hold the chat open. The unconfirmed remote archive is parked as
+  // durable state for the retry job instead of aborting the local archive.
+  it('never blocks the local archive on an unconfirmed remote archive', () => {
+    expect(source).not.toMatch(/A conversa local não foi arquivada/)
+    expect(source).toMatch(/remoteArchive = \{ state: remote\.ok \? 'archived' : 'pending'/)
+    expect(source).toMatch(/archiveStoredChat\(projectPath, chatId, remoteArchive\)/)
   })
 })

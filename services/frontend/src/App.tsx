@@ -17,8 +17,13 @@ import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
   loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
-  conflictChatGPTCacheKey, enabledTunnelIds, loadTransportOptions, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type TransportOptions, type WorkspaceChat,
+  conflictChatGPTCacheKey, enabledTunnelIds, loadTransportOptions, recordRemoteArchiveAttempt, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
+
+// Background chat maintenance runs rarely on purpose: it drives real ChatGPT
+// account operations, and those are serialized against the user's own work.
+const CHAT_MAINTENANCE_INTERVAL_MS = 5 * 60_000
+import { dueChatNaming, dueRemoteArchives } from './lib/chatMaintenance'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
@@ -90,6 +95,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const repairDispatchRef = useRef(new Set<string>())
   const chatIdBackfillRef = useRef(new Set<string>())
   const creatingChatRef = useRef(false)
+  // Mirrors `busy` for the background maintenance interval, whose closure would
+  // otherwise keep reading the value captured when the interval was installed.
+  const busyRef = useRef(false)
   // Keep strict typecheck stable when a concurrent restage temporarily separates this ref from its consumer.
   void chatIdBackfillRef
   const resumedBundleKeysRef = useRef(new Set<string>())
@@ -107,6 +115,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const activeBusy = busy || Boolean(busyChats[activeChatId])
 
   useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
+  useEffect(() => { busyRef.current = busy }, [busy])
 
   useEffect(() => {
     if (!session || !activeChatId) return
@@ -471,11 +480,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const projectPath = session.project_path
       const bridge = desktopBridge()
+      // Closing a chat is the user's own local decision. The remote ChatGPT
+      // archive is an account operation on a surface whose controls Wharnex
+      // does not own; a refusal there used to abort the local archive and left
+      // the user unable to close the chat at all. The local archive is
+      // authoritative and always proceeds; an unconfirmed remote archive is
+      // parked as durable pending state for the retry job to finish later.
+      let remoteArchive: RemoteArchive = { state: 'not-applicable', attempts: 0 }
       if (bridge && target.chatgptUrl) {
-        const remote = await bridge.chatgpt.archiveConversation(chatId, target.chatgptUrl)
-        if (!remote.ok) throw new Error(`A conversa local não foi arquivada porque o arquivo remoto não pôde ser confirmado (${remote.state}).`)
+        try {
+          const remote = await bridge.chatgpt.archiveConversation(chatId, target.chatgptUrl)
+          remoteArchive = { state: remote.ok ? 'archived' : 'pending', attempts: 1, lastState: remote.state, lastAttemptAt: new Date().toISOString() }
+        } catch (cause) {
+          remoteArchive = { state: 'pending', attempts: 1, lastState: messageOf(cause).slice(0, 200), lastAttemptAt: new Date().toISOString() }
+        }
       }
-      const moved = archiveStoredChat(projectPath, chatId)
+      const moved = archiveStoredChat(projectPath, chatId, remoteArchive)
       setExecutionFIFO((current) => current.filter((item) => item.chatId !== chatId))
       // Best-effort: the local transcript archive above stays authoritative
       // and is never blocked on this. It only gives the backend a trigger
@@ -593,10 +613,73 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         if (renamed && !renamed.ok) throw new Error(`O nome local não foi alterado porque o ChatGPT não confirmou a renomeação (${renamed.state}).`)
       }
       const updatedAt = new Date().toISOString()
-      setChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt } : chat); saveWorkspaceChats(session.project_path, next); return next })
-      setArchivedChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt } : chat); saveArchivedWorkspaceChats(session.project_path, next); return next })
+      // An explicitly chosen title is definitive: the background naming job
+      // must never revisit and overwrite it.
+      const naming: ChatNaming = { state: 'definitive', attempts: (target.naming?.attempts || 0) + 1, lastAttemptAt: updatedAt, projectAssigned: true }
+      setChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt, naming } : chat); saveWorkspaceChats(session.project_path, next); return next })
+      setArchivedChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt, naming } : chat); saveArchivedWorkspaceChats(session.project_path, next); return next })
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
+
+  // Background chat maintenance. These jobs finish work that a user action
+  // deliberately did not block on: an unconfirmed remote archive, and a chat
+  // still carrying the provisional title derived from its first prompt. They
+  // run one item per tick, never touch the chat the user is looking at, and
+  // stay silent — a failure is durable state for the next tick, not an error
+  // toast interrupting unrelated work.
+  const maintenanceRunningRef = useRef(false)
+  useEffect(() => {
+    if (!session || !isDesktop()) return
+    const projectPath = session.project_path
+
+    async function runMaintenance() {
+      if (maintenanceRunningRef.current || busyRef.current) return
+      maintenanceRunningRef.current = true
+      try {
+        const bridge = desktopBridge()
+        if (!bridge) return
+        const now = Date.now()
+
+        const [pendingArchive] = dueRemoteArchives(loadArchivedWorkspaceChats(projectPath), now)
+        if (pendingArchive?.chatgptUrl) {
+          let outcome = { ok: false, state: 'unavailable' }
+          try { outcome = await bridge.chatgpt.archiveConversation(pendingArchive.id, pendingArchive.chatgptUrl) }
+          catch (cause) { outcome = { ok: false, state: messageOf(cause).slice(0, 120) } }
+          setArchivedChats(recordRemoteArchiveAttempt(projectPath, pendingArchive.id, outcome))
+          if (outcome.ok) try { await bridge.chatgpt.release(pendingArchive.id) } catch { /* the conversation is archived either way */ }
+          return
+        }
+
+        const candidates = dueChatNaming(loadWorkspaceChats(projectPath), now).filter((chat) => chat.id !== activeChatIdRef.current)
+        const [pendingName] = candidates
+        if (!pendingName?.chatgptUrl) return
+        const attempts = (pendingName.naming?.attempts || 0) + 1
+        const lastAttemptAt = new Date().toISOString()
+        let naming: ChatNaming = { state: 'unavailable', attempts, lastAttemptAt }
+        let title = pendingName.title
+        try {
+          const suggestion = await bridge.chatgpt.suggestTitle(pendingName.id, pendingName.chatgptUrl)
+          if (suggestion?.ok && suggestion.title) {
+            const suggested = suggestion.title.replace(/^WHX:\s*/i, '').replace(/\s+/g, ' ').trim().slice(0, 82)
+            if (suggested) {
+              const organized = await bridge.chatgpt.organizeConversation(pendingName.id, chatGPTProjectName(projectPath), suggested, pendingName.chatgptUrl)
+              title = suggested
+              naming = { state: organized?.ok ? 'definitive' : 'unavailable', attempts, lastAttemptAt, projectAssigned: Boolean(organized?.ok) }
+            }
+          }
+        } catch { /* the next tick retries under the same bounded backoff */ }
+        setChats((current) => {
+          const next = current.map((chat) => chat.id === pendingName.id ? { ...chat, title, naming, updatedAt: lastAttemptAt } : chat)
+          saveWorkspaceChats(projectPath, next)
+          return next
+        })
+      } finally { maintenanceRunningRef.current = false }
+    }
+
+    const timer = window.setInterval(() => { void runMaintenance() }, CHAT_MAINTENANCE_INTERVAL_MS)
+    const warmup = window.setTimeout(() => { void runMaintenance() }, 30_000)
+    return () => { window.clearInterval(timer); window.clearTimeout(warmup) }
+  }, [session?.project_path])
 
   async function generateWorkspaceChatTitle(chatId: string) {
     if (!session || !isDesktop()) return

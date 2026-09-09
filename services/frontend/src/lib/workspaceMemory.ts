@@ -25,11 +25,36 @@ export type ActiveWorkspace = {
   automationMode?: AutomationMode
 }
 
+// Remote archival is a best-effort account operation on a surface Wharnex does
+// not own the availability of. It is tracked as durable chat state so a failure
+// parks the chat for a later retry instead of blocking the local archive, which
+// is the authoritative one.
+export type RemoteArchiveState = 'pending' | 'archived' | 'not-applicable'
+
+export type RemoteArchive = {
+  state: RemoteArchiveState
+  attempts: number
+  lastState?: string
+  lastAttemptAt?: string
+}
+
+// Chats start with a title derived locally from the prompt. A definitive title
+// is one the support engine produced (or the user typed), which is what the
+// naming job looks for.
+export type ChatNaming = {
+  state: 'provisional' | 'definitive' | 'unavailable'
+  attempts: number
+  lastAttemptAt?: string
+  projectAssigned?: boolean
+}
+
 export type WorkspaceChat = {
   id: string
   title: string
   sessionId: string
   chatgptUrl?: string
+  remoteArchive?: RemoteArchive
+  naming?: ChatNaming
   lastContextSha256?: string
   lastContextChatgptUrl?: string
   artifactSelection?: Partial<ChatArtifactSelection>
@@ -175,16 +200,36 @@ export function saveChat(projectPath: string, chatId: string, items: ChatItem[])
   try { localStorage.setItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
 }
 
-export function archiveChat(projectPath: string, chatId: string) {
+export function archiveChat(projectPath: string, chatId: string, remoteArchive?: RemoteArchive) {
   const active = loadWorkspaceChats(projectPath)
   const target = active.find((chat) => chat.id === chatId)
   if (!target) return { active, archived: loadArchivedWorkspaceChats(projectPath) }
   const remaining = active.filter((chat) => chat.id !== chatId)
   const archivedAt = new Date().toISOString()
-  const archived = [{ ...target, updatedAt: archivedAt, archivedAt }, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  const moved: WorkspaceChat = { ...target, updatedAt: archivedAt, archivedAt, ...(remoteArchive ? { remoteArchive } : {}) }
+  const archived = [moved, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
   saveWorkspaceChats(projectPath, remaining)
   saveArchivedWorkspaceChats(projectPath, archived)
   return { active: remaining, archived }
+}
+
+// Records the outcome of a remote-archive attempt on an already-archived chat.
+// Kept separate from `archiveChat` because the retry job runs long after the
+// local archive that is authoritative for the user.
+export function recordRemoteArchiveAttempt(projectPath: string, chatId: string, outcome: { ok: boolean; state: string }) {
+  const archived = loadArchivedWorkspaceChats(projectPath)
+  const target = archived.find((chat) => chat.id === chatId)
+  if (!target) return archived
+  const previous = target.remoteArchive
+  const remoteArchive: RemoteArchive = {
+    state: outcome.ok ? 'archived' : 'pending',
+    attempts: (previous?.attempts || 0) + 1,
+    lastState: outcome.state,
+    lastAttemptAt: new Date().toISOString(),
+  }
+  const next = archived.map((chat) => chat.id === chatId ? { ...chat, remoteArchive } : chat)
+  saveArchivedWorkspaceChats(projectPath, next)
+  return next
 }
 
 export function restoreArchivedChat(projectPath: string, chatId: string) {
