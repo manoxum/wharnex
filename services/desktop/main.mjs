@@ -427,7 +427,10 @@ function markChatGPTBundleRequestDelivered(requestId) {
 }
 
 function pendingBundleDirectory() {
-  return path.join(app.getPath('temp'), 'wharness-bundles')
+  // The response inbox is durable request state, not a process-wide scratch
+  // directory. Keeping it below this Desktop instance's userData prevents a
+  // second checkout from replaying or deleting bundles owned by this one.
+  return path.join(app.getPath('userData'), 'pending-chatgpt-bundles-v1')
 }
 
 async function pendingChatGPTBundlePayloads() {

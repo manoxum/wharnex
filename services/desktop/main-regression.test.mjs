@@ -779,6 +779,17 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   assert.match(source.slice(ackStart, ackEnd), /markChatGPTBundleRequestDelivered\(id\)/)
 })
 
+test('the durable response inbox is isolated by Desktop userData instead of shared through host temp', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const directoryStart = source.indexOf('function pendingBundleDirectory()')
+  const directoryEnd = source.indexOf('\nasync function pendingChatGPTBundlePayloads', directoryStart)
+  assert.notEqual(directoryStart, -1)
+  const directory = source.slice(directoryStart, directoryEnd)
+  assert.match(directory, /app\.getPath\('userData'\)/)
+  assert.match(directory, /pending-chatgpt-bundles-v1/)
+  assert.doesNotMatch(directory, /app\.getPath\('temp'\)/)
+})
+
 test('an uncaught main-process exception or rejection is logged instead of silently crashing the whole app', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /process\.on\('uncaughtException', \(error\) => \{\s*console\.error\('\[main-process-fault\] uncaughtException', error\)/)
