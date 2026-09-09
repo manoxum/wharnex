@@ -45,6 +45,50 @@ func TestBundleQuotaCountsCanonicalTransportBundlesAcrossSessions(t *testing.T) 
 	}
 }
 
+func TestBundleQuotaUsesInclusiveThreeHourWindowAndIgnoresFutureBundles(t *testing.T) {
+	now := time.Date(2026, 9, 9, 17, 0, 0, 0, time.UTC)
+	store := session.NewStore()
+	requestID := "req_20260909T140000_3333333333333333"
+	artifacts := []domain.ArtifactRecord{
+		quotaArtifact("boundary", requestID, "input", "whx_bundle_req_chat-a_"+requestID+".zip", now.Add(-3*time.Hour)),
+		quotaArtifact("inside", requestID, "input", "whx_bundle_req_chat-a_"+requestID+".zip", now.Add(-2*time.Hour)),
+		quotaArtifact("outside", requestID, "input", "whx_bundle_req_chat-a_"+requestID+".zip", now.Add(-3*time.Hour-time.Nanosecond)),
+		quotaArtifact("response", requestID, "output", "whx_bundle_res_chat-a_"+requestID+".zip", now.Add(-time.Hour)),
+		quotaArtifact("future", requestID, "input", "whx_bundle_req_chat-a_"+requestID+".zip", now.Add(time.Second)),
+	}
+	if err := store.Put(domain.Session{ID: "ses-boundary", ProjectPath: t.TempDir(), CreatedAt: now, Artifacts: artifacts}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	service.SetBundleWindowLimit(1)
+
+	quota := service.BundleQuota(now)
+	if quota.Sent != 2 || quota.Received != 1 || quota.Total != 3 || !quota.Warning {
+		t.Fatalf("unexpected boundary quota: %#v", quota)
+	}
+}
+
+func TestBundleQuotaReceivedBundlesNeverConsumeTheUploadLimit(t *testing.T) {
+	now := time.Date(2026, 9, 9, 17, 0, 0, 0, time.UTC)
+	store := session.NewStore()
+	requestA := "req_20260909T150000_4444444444444444"
+	requestB := "req_20260909T160000_5555555555555555"
+	artifacts := []domain.ArtifactRecord{
+		quotaArtifact("response-a", requestA, "output", "whx_bundle_res_chat-a_"+requestA+".zip", now.Add(-2*time.Hour)),
+		quotaArtifact("response-b", requestB, "output", "whx_bundle_res_chat-b_"+requestB+".zip", now.Add(-time.Hour)),
+	}
+	if err := store.Put(domain.Session{ID: "ses-responses", ProjectPath: t.TempDir(), CreatedAt: now, Artifacts: artifacts}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	service.SetBundleWindowLimit(1)
+
+	quota := service.BundleQuota(now)
+	if quota.Sent != 0 || quota.Received != 2 || quota.Total != 2 || quota.Warning {
+		t.Fatalf("received bundles must stay informational: %#v", quota)
+	}
+}
+
 func TestBundleWindowLimitDefaultsAndClamps(t *testing.T) {
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
 	if got := service.BundleWindowLimit(); got != 80 {
