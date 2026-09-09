@@ -165,9 +165,13 @@ export async function pasteWithUploadRetry({
 }) {
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    await beforeAttempt(attempt)
-    const upload = beginUpload()
     try {
+      // Composer readiness is part of the attempt. A SPA navigation or a
+      // short network interruption can temporarily unmount it before the
+      // file input is selected; that must consume a bounded retry instead of
+      // escaping the retry loop on the first transient miss.
+      await beforeAttempt(attempt)
+      const upload = beginUpload()
       await paste()
       return await upload
     } catch (error) {

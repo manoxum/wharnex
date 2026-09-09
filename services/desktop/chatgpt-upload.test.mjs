@@ -104,6 +104,35 @@ test('failed ChatGPT upload is pasted again and only resolves after confirmed su
   assert.equal(result.observed, true)
 })
 
+test('a transient composer preparation failure consumes one retry instead of aborting the upload loop', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  let preparationCount = 0
+  let pasteCount = 0
+  const retries = []
+
+  const result = await pasteWithUploadRetry({
+    attempts: 2,
+    beforeAttempt: async () => {
+      preparationCount += 1
+      if (preparationCount === 1) throw new Error('ChatGPT composer DOM was not found before upload')
+    },
+    beginUpload: () => coordinator.expect(43, { startTimeoutMs: 100, completionTimeoutMs: 100 }),
+    paste: async () => {
+      pasteCount += 1
+      const id = `prepared-${pasteCount}`
+      coordinator.onBeforeRequest({ id, webContentsId: 43, url: uploadURL })
+      queueMicrotask(() => coordinator.onCompleted({ id, webContentsId: 43, url: uploadURL, statusCode: 200 }))
+    },
+    wait: async () => {},
+    onRetry: (failure) => retries.push(failure),
+  })
+
+  assert.equal(preparationCount, 2)
+  assert.equal(pasteCount, 1)
+  assert.equal(retries.length, 1)
+  assert.equal(result.observed, true)
+})
+
 test('exhausted upload failures reject instead of permitting submit', async () => {
   const coordinator = new ChatGPTUploadCoordinator()
   let pasteCount = 0
