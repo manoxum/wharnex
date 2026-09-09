@@ -774,6 +774,7 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   assert.match(register, /live\.downloadInFlight = false/)
   assert.match(register, /recentlyDeliveredChatGPTBundleRequestId\(validated\.requestId\)/)
   assert.match(register, /pendingChatGPTBundleDeliveries\.set\(validated\.requestId/)
+  assert.match(poll, /pendingChatGPTBundleDeliveries\.has\(expected\.requestId\)\) return/)
   const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
   const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
   assert.match(source.slice(ackStart, ackEnd), /markChatGPTBundleRequestDelivered\(id\)/)

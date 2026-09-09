@@ -2256,6 +2256,10 @@ async function pollExpectedChatGPTDownloadKey(key) {
   try {
     const expected = expectedChatGPTBundles.get(key)
     if (!expected || hasPendingChatGPTComments(key)) return
+    // Once validated bytes are durable, the backend handoff/ACK is the only
+    // remaining operation. Do not inspect the remote page or submit another
+    // continuation while that local transaction is still settling.
+    if (pendingChatGPTBundleDeliveries.has(expected.requestId)) return
     if (chatgptTransportModes.get(key) === 'manual') { expectedChatGPTBundles.delete(key); return }
     if (now - expected.armedAt > EXPECTED_BUNDLE_TTL_MS) {
       expectedChatGPTBundles.delete(key)
