@@ -54,6 +54,8 @@ Every request iteration records its immutable `request_id`, `root_request_id`, o
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
+`turn.message` is user-facing Markdown, not an execution dump. The planner SHOULD lead with the useful conclusion, keep sections and paragraphs compact, and summarize large logs/diffs/status streams rather than repeating structured execution evidence in prose. CHANGE turns still carry the required `## TODO` checklist, but protocol bookkeeping and raw machine detail belong in their structured bundle fields and dedicated Wharnex views.
+
 ## Renderable result artifacts
 
 A manual response bundle MAY carry user-facing, non-executable files under `artifacts/`. This directory is a presentation channel, not an execution channel: `turn.json`, `plan.json`, patches, approvals, commands, secrets, and any reasoning required to understand the result remain in their normal structured locations.

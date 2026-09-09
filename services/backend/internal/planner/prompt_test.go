@@ -76,6 +76,9 @@ func TestBuildManualPromptMakesAskDistinctFromChange(t *testing.T) {
 		"do not invent a coding task",
 		"Only explicit mutation intent may end in kind=change",
 		"turn.message is the actual response the user will read inside Wharness",
+		"Write polished, human-readable Markdown",
+		"Summarize long logs, execution evidence, patches and repeated status",
+		"do not create a heading for every sentence",
 		"provide the recommendation, analysis, or diagnosis itself",
 	} {
 		if !strings.Contains(prompt, want) {

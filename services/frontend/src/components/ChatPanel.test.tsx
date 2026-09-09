@@ -167,6 +167,27 @@ describe('ChatPanel', () => {
   })
 
 
+  it('prioritizes normative diffs and previews only a bounded changed-file list', () => {
+    const files = [
+      { path: 'services/frontend/src/a.ts', additions: 1, deletions: 0, diff: 'diff a' },
+      { path: 'services/frontend/src/b.ts', additions: 1, deletions: 0, diff: 'diff b' },
+      { path: 'services/frontend/src/c.ts', additions: 1, deletions: 0, diff: 'diff c' },
+      { path: 'services/frontend/src/d.ts', additions: 1, deletions: 0, diff: 'diff d' },
+      { path: 'services/frontend/src/e.ts', additions: 1, deletions: 0, diff: 'diff e' },
+      { path: 'SoT/AI_PROTOCOL.md', additions: 2, deletions: 0, diff: 'diff normative' },
+    ]
+    const view = render(
+      <ChatPanel session={session} items={[{ id: 'change-preview', role: 'harness', source: 'wharness', presentation: 'change', text: 'Aplicado.', change: { planId: 'plan-preview', files, appliedAt: '2026-09-09T18:00:00Z', canRevert: false } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(view.container.querySelectorAll('.change-file-row')).toHaveLength(4)
+    expect(screen.getByText('SoT/AI_PROTOCOL.md')).toBeTruthy()
+    expect(screen.getByText('Normativo')).toBeTruthy()
+    expect(screen.queryByText('services/frontend/src/e.ts')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 2 diffs' }))
+    expect(view.container.querySelectorAll('.change-file-row')).toHaveLength(6)
+    expect(screen.getByText('services/frontend/src/e.ts')).toBeTruthy()
+  })
+
   it('renders actual host commands after the applied diff summary', () => {
     render(
       <ChatPanel session={session} items={[{ id: 'change-1', role: 'harness', source: 'wharness', presentation: 'change', text: 'Alterações e comandos aplicados ao host.', change: { planId: 'plan-1', files: [], hostCommands: [{ argv: ['make', 'build-stage'], cwd: '.', exit_code: 0, stdout: '', stderr: '', success: true, duration_ms: 4321 }], appliedAt: '2026-09-07T10:00:00Z', canRevert: false } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
@@ -215,6 +236,36 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Prioridade' })).toBeTruthy()
     expect(screen.getByText('Perfil Inteligente').tagName).toBe('STRONG')
     expect(screen.queryByText('**Perfil Inteligente**')).toBeNull()
+  })
+
+  it('collapses long Markdown responses behind an explicit preview control', () => {
+    const longBody = `## Resultado\n\n${'Detalhe operacional importante. '.repeat(70)}`
+    render(
+      <ChatPanel session={session} items={[{ id: 'md-long', role: 'harness', source: 'chatgpt', text: longBody }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const toggle = screen.getByRole('button', { name: 'Expandir conteúdo' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('.chat-markdown-disclosure.collapsible:not(.expanded)')).toBeTruthy()
+    fireEvent.click(toggle)
+    expect(screen.getByRole('button', { name: 'Mostrar menos' }).getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelector('.chat-markdown-disclosure.expanded')).toBeTruthy()
+  })
+
+  it('shows only the latest consecutive WHX notice until the ellipsis control is expanded', () => {
+    const view = render(
+      <ChatPanel session={session} items={[
+        { id: 'whx-1', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Primeira atualização.' },
+        { id: 'whx-2', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Segunda atualização.' },
+        { id: 'whx-3', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Última atualização.' },
+      ]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(view.container.querySelectorAll('.chat-notice')).toHaveLength(1)
+    expect(screen.getAllByText('Última atualização.')).toHaveLength(2)
+    const toggle = screen.getByRole('button', { name: 'Mostrar 2 notificações WHX anteriores' })
+    fireEvent.click(toggle)
+    expect(view.container.querySelectorAll('.chat-notice')).toHaveLength(3)
+    expect(screen.getAllByText('Primeira atualização.')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Ocultar notificações WHX anteriores' })).toBeTruthy()
   })
 
   it('offers reprocessing for a persisted policy-blocked notice', async () => {

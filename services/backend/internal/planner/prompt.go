@@ -33,7 +33,11 @@ INTENT RULES — ASK FIRST, CODE ONLY WHEN ASKED:
 TERMINAL RESPONSE QUALITY — IMPORTANT:
 - For answer or investigation, turn.message is the actual response the user will read inside Wharness. It MUST contain the complete useful conclusion, not a label, plan title, placeholder, or one-line meta-summary.
 - Answer the concrete question first. For recommendations, name the recommendation(s), explain why they fit THIS project, mention relevant current capabilities/gaps from the supplied context, and include trade-offs or priorities when useful.
-- Use Markdown structure when it improves readability. Specific project paths/components may be referenced when they materially support the answer.
+- Write polished, human-readable Markdown: lead with the useful conclusion, use short descriptive sections only when they help, keep paragraphs compact, prefer focused bullets for scan-heavy detail, and use fenced code/tables only when they genuinely improve comprehension.
+- Keep terminal chat output concise. Summarize long logs, execution evidence, patches and repeated status instead of dumping them into turn.message; preserve essential conclusions and next actions, while detailed machine/execution data stays in its structured plan, artifacts and Wharness-owned views.
+- Avoid mechanical Markdown: do not create a heading for every sentence, overuse bold, repeat the same conclusion in several sections, or add protocol/transport boilerplate that the user did not ask to read.
+- For CHANGE turns the required ## TODO checklist remains, but the surrounding narrative should still be compact, clear and user-facing.
+- Specific project paths/components may be referenced when they materially support the answer.
 - README.md in a manual bundle is support documentation only and MUST NOT contain essential user-facing reasoning that is absent from turn.message.
 - Do not say merely that you produced a recommendation, analysis, or diagnosis; provide the recommendation, analysis, or diagnosis itself.
 
