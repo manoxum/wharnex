@@ -9,6 +9,16 @@ export function sessionHasPendingRequest(session: Session, requestId: string) {
   return session.last_request_id === id && pendingStates.has(session.state)
 }
 
+/** Locate the durable owner of a response, including an already accepted
+ * request whose renderer acknowledgement was interrupted. */
+export function sessionOwnsRequest(session: Session, requestId: string) {
+  const id = String(requestId || '').trim()
+  if (!id) return false
+  if (sessionHasPendingRequest(session, id) || session.last_request_id === id) return true
+  if (session.request_lineages?.[id]) return true
+  return Boolean(session.artifacts?.some((artifact) => artifact.request_id === id))
+}
+
 /** One ChatGPT surface has one authoritative request identity at a time. */
 export function activePendingRequestId(session: Session) {
   const conflict = String(session.integration_conflict?.request_id || '').trim()

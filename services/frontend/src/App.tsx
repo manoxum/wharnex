@@ -25,7 +25,7 @@ import { confirmDialog } from './lib/appDialog'
 import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 import { projectFileReferenceSuffix } from './lib/projectFileReferences'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
-import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest } from './lib/pendingRequest'
+import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest } from './lib/pendingRequest'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
 import { hasRecordedRequest } from './lib/requestDispatch'
 import { executionNeedsAttention } from './lib/executionRecovery'
@@ -1299,19 +1299,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     let targetChat = chats.find((chat) => chat.id === activeChatId)
     setError(undefined)
     try {
-      if (!sessionHasPendingRequest(targetSession, requestId)) {
+      if (!sessionOwnsRequest(targetSession, requestId)) {
         targetSession = undefined; targetChat = undefined
         for (const chat of chats) {
           if (chat.id === activeChatId) continue
           try {
             const candidate = await api.getSession(chat.sessionId)
-            if (sessionHasPendingRequest(candidate, requestId)) { targetSession = candidate; targetChat = chat; break }
+            if (sessionOwnsRequest(candidate, requestId)) { targetSession = candidate; targetChat = chat; break }
           } catch (error) {
             if (!(error instanceof APIError) || error.status !== 404) throw error
           }
         }
       }
-      if (!targetSession || !targetChat) throw new BundleRoutingError(`O bundle pertence ao pedido ${requestId}, mas esse pedido não está pendente em nenhum Harness Chat deste workspace.`)
+      if (!targetSession || !targetChat) throw new BundleRoutingError(`O bundle pertence ao pedido ${requestId}, mas esse pedido não pertence a nenhum Harness Chat deste workspace.`)
       busyTargetChatId = targetChat.id
       setChatBusy(busyTargetChatId, true)
       setPreparedDrafts((current) => { const next = { ...current }; delete next[targetChat!.id]; return next })

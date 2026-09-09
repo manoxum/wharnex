@@ -27,6 +27,8 @@ describe('App bundle routing', () => {
     expect(clear).toBeGreaterThan(acknowledge)
     expect(body).toContain('await bridge.chatgpt.nackBundle')
     expect(body).toContain('bridge.chatgpt.pendingBundles()')
+    expect(source).toContain('sessionOwnsRequest(targetSession, requestId)')
+    expect(source).toContain('sessionOwnsRequest(candidate, requestId)')
   })
 
   it('falls back to durable request input and retires only an unrecoverable legacy retry', () => {
