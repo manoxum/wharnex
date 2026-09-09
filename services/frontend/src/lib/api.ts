@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, AutomationMode, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -77,6 +77,8 @@ export const api = {
   connectRemoteStorage: (instanceID: string, provider: RemoteStorageProviderID, fields: Record<string, string>) => request<RemoteStorageConnection>('/api/remote-storage/connections', { method: 'POST', body: JSON.stringify({ instance_id: instanceID, provider, fields }) }),
   checkRemoteStorage: (remote: string) => request<{ connected: boolean }>('/api/remote-storage/connections/check', { method: 'POST', body: JSON.stringify({ remote }) }),
   artifactSettings: () => request<ArtifactSettings>('/api/artifact-settings'),
+  languageSettings: () => request<LanguageSettings>('/api/language-settings'),
+  updateLanguageSettings: (settings: LanguageSettings) => request<LanguageSettings>('/api/language-settings', { method: 'PUT', body: JSON.stringify(settings) }),
   updateArtifactSettings: (retentionDays: number, bundleWindowLimit: number) => request<ArtifactSettings>('/api/artifact-settings', { method: 'PUT', body: JSON.stringify({ retention_days: retentionDays, bundle_window_limit: bundleWindowLimit }) }),
   bundleQuota: () => request<BundleQuota>('/api/bundle-quota'),
   artifacts: (id: string) => request<{ artifacts: ArtifactRecord[] }>(`/api/sessions/${id}/artifacts`),
@@ -145,6 +147,7 @@ export const api = {
   deleteWorkspacePath: (id: string, path: string) => request<void>(`/api/sessions/${id}/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   readFile: (id: string, path: string) => request<WorkspaceFile>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
   filePreviewURL: (id: string, path: string) => `${API_URL}/api/sessions/${id}/file/preview?path=${encodeURIComponent(path)}`,
+  translateMarkdown: (id: string, targetLanguage: LanguageCode, markdown: string) => request<MarkdownTranslation>(`/api/sessions/${id}/translate-markdown`, { method: 'POST', body: JSON.stringify({ target_language: targetLanguage, markdown }) }),
   writeFile: (id: string, file: Pick<WorkspaceFile, 'path' | 'content' | 'sha256'>) =>
     request<WorkspaceFile>(`/api/sessions/${id}/file`, {
       method: 'PUT',
