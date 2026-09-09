@@ -279,23 +279,41 @@ function compactEventData(data: Record<string, unknown>) {
 }
 
 const COMPOSER_DRAFT_PREFIX = 'kernl.workspace.composer-draft.v1:'
+const composerFileDrafts = new Map<string, ComposerFileDraft>()
 export type ComposerDraft = { message: string; height: number }
+export type ComposerFileDraft = { attachments: File[]; projectFiles: string[] }
+
+function composerDraftKey(projectPath: string, chatId: string) { return `${projectPath}:${chatId}` }
 
 export function loadComposerDraft(projectPath: string, chatId: string): ComposerDraft {
   try {
-    const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`)
+    const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`)
     const value = raw ? JSON.parse(raw) as Partial<ComposerDraft> : {}
     return { message: typeof value.message === 'string' ? value.message : '', height: normalizeComposerHeight(value.height) }
   } catch { return { message: '', height: 156 } }
 }
 
 export function saveComposerDraft(projectPath: string, chatId: string, draft: ComposerDraft) {
-  try { localStorage.setItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`, JSON.stringify({ message: draft.message.slice(0, 20000), height: normalizeComposerHeight(draft.height) })) } catch { /* best effort */ }
+  try { localStorage.setItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`, JSON.stringify({ message: draft.message.slice(0, 20000), height: normalizeComposerHeight(draft.height) })) } catch { /* best effort */ }
+}
+
+export function loadComposerFileDraft(projectPath: string, chatId: string): ComposerFileDraft {
+  const draft = composerFileDrafts.get(composerDraftKey(projectPath, chatId))
+  return draft ? { attachments: [...draft.attachments], projectFiles: [...draft.projectFiles] } : { attachments: [], projectFiles: [] }
+}
+
+export function saveComposerFileDraft(projectPath: string, chatId: string, draft: ComposerFileDraft) {
+  const key = composerDraftKey(projectPath, chatId)
+  if (!draft.attachments.length && !draft.projectFiles.length) { composerFileDrafts.delete(key); return }
+  composerFileDrafts.set(key, { attachments: [...draft.attachments], projectFiles: [...draft.projectFiles] })
 }
 
 export function clearComposerDraft(projectPath: string, chatId: string) {
-  try { localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`) } catch { /* best effort */ }
+  try { localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`) } catch { /* best effort */ }
+  composerFileDrafts.delete(composerDraftKey(projectPath, chatId))
 }
+
+export function clearEphemeralComposerDrafts() { composerFileDrafts.clear() }
 
 function normalizeComposerHeight(value: unknown) {
   const number = Number(value)
