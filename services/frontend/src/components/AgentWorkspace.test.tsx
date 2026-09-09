@@ -180,10 +180,11 @@ describe('AgentWorkspace', () => {
     render(props().element)
     fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
     const input = await screen.findByLabelText('Execuções simultâneas por projeto')
-    expect((input as HTMLInputElement).value).toBe('1')
+    expect(input.tagName).toBe('SELECT')
+    expect((input as HTMLSelectElement).value).toBe('1')
     fireEvent.change(input, { target: { value: '3' } })
     await waitFor(() => expect(update).toHaveBeenCalledWith(3))
-    await waitFor(() => expect((screen.getByLabelText('Execuções simultâneas por projeto') as HTMLInputElement).value).toBe('3'))
+    await waitFor(() => expect((screen.getByLabelText('Execuções simultâneas por projeto') as HTMLSelectElement).value).toBe('3'))
   })
 
   it('keeps the execution queue usable when the concurrency limit cannot be read', async () => {

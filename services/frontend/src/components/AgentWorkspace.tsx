@@ -330,16 +330,17 @@ function ExecutionConcurrencyControl({ onError }: { onError?: (message: string) 
 
   if (concurrency === undefined) return null
   return <div className="execution-queue-concurrency">
-    <label htmlFor="execution-concurrency">Execuções simultâneas por projeto</label>
-    <div>
-      <input id="execution-concurrency" type="number" min={1} max={max} value={concurrency} disabled={busy}
-        onChange={(event) => {
-          const next = Number(event.target.value)
-          if (Number.isFinite(next) && next >= 1 && next <= max) void apply(next)
-        }}/>
-      <small>máx. {max}</small>
+    <div className="execution-queue-concurrency-copy">
+      <label htmlFor="execution-concurrency">Execuções simultâneas</label>
+      <small>Limite por projeto · cada execução reserva um clone</small>
     </div>
-    <small>Cada execução simultânea reserva um clone completo do projeto e a memória de um contentor. Baixar o valor nunca interrompe execuções já em curso.</small>
+    <div className="execution-queue-concurrency-control">
+      <select id="execution-concurrency" aria-label="Execuções simultâneas por projeto" value={concurrency} disabled={busy}
+        onChange={(event) => void apply(Number(event.target.value))}>
+        {Array.from({ length: max }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}
+      </select>
+      <span>/ {max}</span>
+    </div>
   </div>
 }
 
@@ -357,16 +358,18 @@ function ExecutionQueueDrawer({ items, onClose, onError }: { items: ExecutionFIF
 }
 
 function QueueMetric({ label, value, tone }: { label: string; value: number; tone: 'running' | 'queued' | 'completed' }) {
-  return <div className={`execution-queue-metric ${tone}`}><b>{value}</b><span>{label}</span></div>
+  return <div className={`execution-queue-metric ${tone}`}><i aria-hidden="true"/><span>{label}</span><b>{value}</b></div>
 }
 
 function ExecutionQueueCard({ item }: { item: ExecutionFIFOItem }) {
   const state = executionQueueState(item)
   const timestamp = item.completedAt || item.addedAt
   return <article className={`execution-queue-card ${item.status}`}>
-    <span className="execution-queue-state" aria-label={state.label}><Icon name={state.icon} size={13}/><b>{state.label}</b></span>
-    <div className="execution-queue-copy"><strong>{item.chatTitle}</strong><span><code>{item.planId}</code><time dateTime={new Date(timestamp).toISOString()}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></span><small>{state.detail}</small></div>
-    {item.status === 'queued' && <span className="execution-queue-order" aria-label={`Posição ${item.position || 1} na fila`}>#{String(item.position || 1).padStart(2, '0')}</span>}
+    <div className="execution-queue-copy">
+      <div className="execution-queue-card-heading"><strong>{item.chatTitle}</strong><span className="execution-queue-state" aria-label={state.label}><Icon name={state.icon} size={11}/><b>{state.label}</b></span></div>
+      <span><code>{item.planId}</code><time dateTime={new Date(timestamp).toISOString()}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>{item.status === 'queued' && <i className="execution-queue-order" aria-label={`Posição ${item.position || 1} na fila`}>#{String(item.position || 1).padStart(2, '0')}</i>}</span>
+      <small>{state.detail}</small>
+    </div>
   </article>
 }
 
