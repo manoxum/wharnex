@@ -2743,10 +2743,9 @@ function registerIPC() {
     const windowState = trustedSender(event)
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const target = requireTrustedChatGPTURL(request?.url || CHATGPT_URL)
-    // Navigation originates only from a mounted, unsuspended ChatGPT pane.
-    // Make it atomic with presentation so a loaded remote view cannot remain
-    // hidden behind the local placeholder when a preceding `show` IPC raced.
-    windowState.chatgptVisible = true
+    // Navigation may already be in flight when a blocking Wharness overlay
+    // hides the native WebContentsView. Preserve that visibility decision here:
+    // only the explicit show IPC may make the remote view visible again.
     const entry = activateChatGPTView(key, request?.bounds, windowState)
     const wc = entry.view.webContents
     const current = wc.getURL()

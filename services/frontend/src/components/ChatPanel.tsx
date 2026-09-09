@@ -198,6 +198,16 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     return () => observer.disconnect()
   }, [])
 
+  function persistAttachments(nextAttachments: File[]) {
+    saveComposerFileDraft(session.project_path, activeChatId, { attachments: nextAttachments, projectFiles })
+    setAttachments(nextAttachments)
+  }
+
+  function persistProjectFiles(nextProjectFiles: string[]) {
+    saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles: nextProjectFiles })
+    setProjectFiles(nextProjectFiles)
+  }
+
   function clearComposer() {
     setMessage('')
     setAttachments([])
@@ -229,7 +239,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
 
   function addFiles(files: File[]) {
     const next = addChatAttachments(attachments, files)
-    setAttachments(next.files); setAttachmentError(next.error || '')
+    persistAttachments(next.files); setAttachmentError(next.error || '')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -289,7 +299,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   function selectProjectFile(path: string) {
     if (!fileQuery) return
     setMessage((current) => `${current.slice(0, fileQuery.start)}${current.slice(fileQuery.end)}`)
-    setProjectFiles((current) => [...new Set([...current, path])])
+    persistProjectFiles([...new Set([...projectFiles, path])])
     setFileQuery(undefined)
     window.setTimeout(() => textareaRef.current?.focus(), 0)
   }
@@ -401,8 +411,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
         onKeyDown={resizeComposerFromKeyboard}
       />
       <div className="composer-scroll-area">
-      {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => setAttachments((current) => current.filter((item) => item !== file))}/>)}</div> : null}
-      {projectFiles.length ? <div className="composer-file-references" aria-label="Ficheiros do projeto referenciados">{projectFiles.map((path) => <span className="composer-file-reference-chip" key={path}><Icon name="file" size={11}/><b>{path}</b><button type="button" onClick={() => setProjectFiles((current) => current.filter((item) => item !== path))} aria-label={`Remover referência ${path}`}><Icon name="close" size={9}/></button></span>)}</div> : null}
+      {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
+      {projectFiles.length ? <div className="composer-file-references" aria-label="Ficheiros do projeto referenciados">{projectFiles.map((path) => <span className="composer-file-reference-chip" key={path}><Icon name="file" size={11}/><b>{path}</b><button type="button" onClick={() => persistProjectFiles(projectFiles.filter((item) => item !== path))} aria-label={`Remover referência ${path}`}><Icon name="close" size={9}/></button></span>)}</div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       <div className="composer-editor-shell"><textarea ref={textareaRef} lang="pt-PT" spellCheck autoCorrect="on" autoCapitalize="sentences" disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => updateMessage(event.target.value, event.target.selectionStart)} onClick={(event) => setFileQuery(fileReferenceQuery(event.currentTarget.value, event.currentTarget.selectionStart))} onPaste={pasteFiles} onKeyDown={(event) => {
         if (fileSuggestions.length && event.key === 'Escape') { event.preventDefault(); setFileQuery(undefined); return }

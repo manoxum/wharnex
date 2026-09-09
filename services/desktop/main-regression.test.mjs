@@ -303,12 +303,12 @@ test('desktop disables a broken IPv6 browser route before Electron becomes ready
   assert.ok(switchAt >= 0 && switchAt < readyAt)
 })
 
-test('renderer navigation atomically presents its ChatGPT view with current bounds', async () => {
+test('renderer navigation preserves overlay-driven ChatGPT visibility', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf("ipcMain.handle('wharness:chatgpt:navigate'")
   const end = source.indexOf("ipcMain.handle('wharness:chatgpt:confirm-affinity'", start)
   const navigate = source.slice(start, end)
-  assert.match(navigate, /windowState\.chatgptVisible = true/)
+  assert.doesNotMatch(navigate, /windowState\.chatgptVisible = true/)
   assert.match(navigate, /activateChatGPTView\(key, request\?\.bounds, windowState\)/)
 })
 

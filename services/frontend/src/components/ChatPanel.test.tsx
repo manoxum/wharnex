@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatPanel } from './ChatPanel'
 import type { Session } from '../types'
@@ -419,6 +419,25 @@ describe('ChatPanel', () => {
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="other-chat" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
     )
     expect(other.container.textContent).not.toContain('rascunho.txt')
+  })
+
+  it('persists a selected file before a keyed chat switch can unmount the composer', () => {
+    const file = new File(['draft'], 'troca-imediata.txt', { type: 'text/plain' })
+    const panel = (chatId: string) => (
+      <ChatPanel key={chatId} session={session} items={[]} chats={[]} activeChatId={chatId} busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />
+    )
+    const view = render(panel('chat-a'))
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+
+    act(() => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      view.rerender(panel('chat-b'))
+    })
+    expect(view.container.textContent).not.toContain('troca-imediata.txt')
+
+    view.rerender(panel('chat-a'))
+    expect(view.container.textContent).toContain('troca-imediata.txt')
   })
 
   it('finds eligible project files from @file and turns the selection into a chip', () => {
