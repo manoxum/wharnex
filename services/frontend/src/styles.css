@@ -1584,6 +1584,21 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-commandbar-center .self-evolution-badge { position: static; transform: none; }
 .agent-direct-chatgpt-tab { grid-column: 1; min-width: 0; display: grid; grid-template-columns: 42px; justify-self: start; }
 .agent-command-actions { grid-column: 3; min-width: 44px; padding: 0 7px; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.agent-bundle-quota { width: 190px; height: 32px; padding: 4px 7px 5px; display: grid; grid-template-rows: minmax(0,1fr) 3px; gap: 4px; border: 1px solid #3a4037; border-radius: 8px; background: #20241e; color: #aeb8a7; }
+.agent-bundle-quota.warning { border-color: #6d592f; background: #282216; color: #ddb565; }
+.agent-bundle-quota-copy { min-width: 0; display: grid; grid-template-columns: auto auto minmax(0,1fr); align-items: center; gap: 7px; font-size: calc(7.6px * var(--ui-font-scale)); line-height: 1; }
+.agent-bundle-quota-copy span { color: #7f897a; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.agent-bundle-quota-copy b { color: #e4e9df; font-weight: 750; white-space: nowrap; }
+.agent-bundle-quota-copy i { overflow: hidden; color: #aab4a4; font-style: normal; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.agent-bundle-quota.warning .agent-bundle-quota-copy span, .agent-bundle-quota.warning .agent-bundle-quota-copy i { color: #c6a765; }
+.agent-bundle-quota.warning .agent-bundle-quota-copy b { color: #f0cb7d; }
+.agent-bundle-quota-track { height: 3px; overflow: hidden; display: block; border-radius: 999px; background: #343a31; }
+.agent-bundle-quota-fill { height: 100%; display: block; border-radius: inherit; background: var(--acid); transition: width .18s ease; }
+.agent-bundle-quota.warning .agent-bundle-quota-fill { background: #d3a64a; }
+@media (max-width: 1180px) {
+  .agent-bundle-quota { width: 154px; }
+  .agent-bundle-quota-copy { gap: 5px; font-size: calc(7px * var(--ui-font-scale)); }
+}
 .agent-surface-tabs { grid-column: 4; min-width: 0; display: grid; grid-template-columns: repeat(3, 42px); justify-self: end; border-left: 1px solid #30342d; }
 .agent-direct-chatgpt-tab button, .agent-surface-tabs button { min-width: 0; height: 42px; position: relative; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-right: 1px solid #292d27; border-bottom: 2px solid transparent; background: transparent; color: #7f887a; cursor: pointer; }
 .agent-direct-chatgpt-tab button:hover, .agent-surface-tabs button:hover { background: #20241e; color: #cfd6c8; }
