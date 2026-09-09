@@ -43,6 +43,18 @@ func makeKnowledgeReviewAnswerBundle(t *testing.T, requestID, message, knowledge
 	return out.Bytes()
 }
 
+func TestNewSessionStartsWithKnowledgeSharingEnabled(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.KnowledgeSharingEnabled == nil || !*started.KnowledgeSharingEnabled {
+		t.Fatal("new chats must start with project knowledge sharing enabled")
+	}
+}
+
 func TestTriggerKnowledgeReviewDoesNotMutateStateOrPlan(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
