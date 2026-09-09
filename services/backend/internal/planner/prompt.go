@@ -103,12 +103,25 @@ COMMIT MESSAGE QUALITY — REQUIRED FOR CHANGE PLANS:
 - The description MUST say what was implemented or corrected and where/for whom it matters. Prefer behavior/outcome language over file names, task bookkeeping, or implementation mechanics.
 - Never emit placeholder or low-information messages such as update files, apply patch, requested changes, implement task, miscellaneous fixes, Wharness-verified change, or a bare request/plan id. A corrective patch still needs the concrete bug or behavior it fixes.
 - When one patch contains several tightly related edits, summarize the primary coherent outcome instead of listing files. Keep the subject concise but technically specific; one useful line is preferred over vague brevity.
+- SHAPE: commit_message is a Git message, not a label. The FIRST line is the subject and MUST stay within 72 characters. If the change needs explanation — and any non-trivial change does — add a blank line and then a body. Wharness preserves that body verbatim in the real commit; it is rejected only if the blank separator line is missing.
+- The body answers WHY, which the diff cannot: the concrete symptom or limitation that motivated the change, why this approach was chosen over the obvious alternative, and any consequence a future reader must know (a migration, a behavior change, a deliberately deferred part). Do not restate the diff line by line — a reader can read the diff; they cannot recover your reasoning.
+- Wrap body lines at roughly 72 characters. Short paragraphs and "- " bullet lists are both fine.
+- Wharness REJECTS a change bundle whose commit_message is missing, is not Conventional Commits, exceeds the subject limit, or is a bookkeeping phrase. That rejection happens before sandbox verification, so a weak message costs you the whole round: write it properly the first time.
+- Example of the required shape:
+  fix(auth): keep the session valid during concurrent token refresh
+
+  Two refreshes racing on the same session revoked the older token after
+  the newer one had already been issued, logging the user out mid-request.
+
+  The swap is now atomic, so the losing refresh observes the winner's
+  token instead of revoking it. Sessions issued before this change are
+  unaffected and need no migration.
 
 EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 - The top-level key is exactly "protocol", NEVER "schema".
 - protocol MUST equal "harness.execution/v1".
 - Include every top-level key: protocol, plan_id, request_id, status, summary, risk, requires_approval, operations, verification.
-- For a change plan, also include commit_message following COMMIT MESSAGE QUALITY above. It MUST classify the change accurately and describe the concrete implemented outcome, not merely say that files or a patch were updated. Wharness commits your verified patch to its own integration branch using this message verbatim (after trimming), then merges that branch into the host — this is not optional decoration, it becomes the real commit message in the project's Git history. Omit it (or leave empty) for workflow, which never reaches the host.
+- For a change plan, commit_message is MANDATORY and validated before execution. It MUST classify the change accurately, describe the concrete implemented outcome in a subject of at most 72 characters, and carry a body — after one blank line — explaining why, whenever the change is not self-evident. Wharness commits your verified patch to its own integration branch using this message, then merges that branch into the host, so it becomes the real commit message in the project's Git history. Encode the line breaks as \n inside the JSON string. Omit it (or leave empty) for workflow, which never reaches the host.
 - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
 - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
 - The execution-plan payload contains JSON only. In manual Desktop mode the plan metadata belongs inside plan.json in the requested ZIP bundle, not inline in the chat.
@@ -127,7 +140,7 @@ Exact change-plan shape:
   "request_id": "<REQUEST ID FROM WHARNESS>",
   "status": "ready",
   "summary": "short summary",
-  "commit_message": "fix(auth): preserve session during concurrent token refresh",
+  "commit_message": "fix(auth): preserve session during concurrent token refresh\n\nTwo refreshes racing on one session revoked the older token after the\nnewer one was issued, logging the user out mid-request.\n\nThe swap is now atomic, so the loser observes the winner's token.",
   "risk": "low|medium|high",
   "requires_approval": false,
   "operations": [

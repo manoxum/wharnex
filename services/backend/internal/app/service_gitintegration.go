@@ -10,6 +10,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
+	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
 )
 
@@ -22,9 +23,14 @@ func integrationBranchName(requestID string) string {
 	return "whx/" + requestID
 }
 
-// maxCommitMessageLength bounds a planner-supplied commit message before it
-// becomes a real Git commit message in the project's history.
-const maxCommitMessageLength = 500
+// Bounds applied to planner-supplied text before it becomes a real Git commit
+// message. The subject follows the Git convention the protocol validator also
+// enforces; the body is bounded separately so detail is capped without the cap
+// eating into the subject.
+const (
+	maxCommitSubjectLength = protocol.MaxCommitSubjectLength
+	maxCommitBodyLength    = protocol.MaxCommitMessageBytes
+)
 
 // sanitizeCommitMessage strips control characters and collapses whitespace
 // from planner-supplied text before it is used verbatim as a Git commit
@@ -32,30 +38,69 @@ const maxCommitMessageLength = 500
 // planner text (summary, README.md) elsewhere in this protocol, but load
 // bearing here specifically because this text becomes real, permanent
 // project history, not just a chat message.
+// sanitizeCommitMessage prepares planner-supplied text to become a real Git
+// commit message: a subject line, then an optional body separated by one blank
+// line.
+//
+// The body's line structure is deliberately preserved. Flattening newlines into
+// spaces — as this previously did — made a commit body structurally impossible,
+// so every Wharness commit was a bare subject no matter what the planner wrote,
+// and the reasoning that makes history worth reading was silently discarded.
+// The subject is still collapsed to a single line, because Git treats the first
+// line as the subject and a multi-line one has no meaning.
 func sanitizeCommitMessage(raw, fallback string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		raw = strings.TrimSpace(fallback)
 	}
+	subject, body := splitCommitMessage(stripControlCharacters(raw))
+	subject = strings.Join(strings.Fields(subject), " ")
+	if subject == "" {
+		// Reached only when both the plan's own message and its summary are
+		// empty, which ValidateCommitMessage rejects upstream for any change
+		// bundle. It is labelled as the degradation it is rather than reusing
+		// a subject the protocol itself names as a quality failure.
+		subject = "chore: record verified change with no planner-supplied message"
+	}
+	if len(subject) > maxCommitSubjectLength {
+		subject = strings.TrimSpace(subject[:maxCommitSubjectLength])
+	}
+	if body == "" {
+		return subject
+	}
+	if len(body) > maxCommitBodyLength {
+		body = strings.TrimSpace(body[:maxCommitBodyLength])
+	}
+	return subject + "\n\n" + body
+}
+
+// splitCommitMessage separates the Git subject from its body. Anything after
+// the first line is body; a blank separator line is normalized in.
+func splitCommitMessage(raw string) (subject, body string) {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	parts := strings.SplitN(raw, "\n", 2)
+	subject = strings.TrimSpace(parts[0])
+	if len(parts) == 1 {
+		return subject, ""
+	}
+	return subject, strings.Trim(parts[1], "\n")
+}
+
+// stripControlCharacters removes characters that must never reach a commit
+// message, while keeping the newlines and tabs that carry body structure.
+func stripControlCharacters(raw string) string {
 	var b strings.Builder
 	for _, r := range raw {
 		switch {
 		case r == '\n' || r == '\t':
-			b.WriteRune(' ')
+			b.WriteRune(r)
 		case r < 0x20 || r == 0x7f:
 			// control characters dropped
 		default:
 			b.WriteRune(r)
 		}
 	}
-	clean := strings.Join(strings.Fields(b.String()), " ")
-	if clean == "" {
-		clean = "chore: Wharness-verified change"
-	}
-	if len(clean) > maxCommitMessageLength {
-		clean = strings.TrimSpace(clean[:maxCommitMessageLength])
-	}
-	return clean
+	return b.String()
 }
 
 // allPendingHaveIntegrationBranches reports whether every host-applicable

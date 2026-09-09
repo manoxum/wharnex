@@ -87,6 +87,16 @@ Every `change` execution plan MUST carry a planner-authored `commit_message` tha
 
 The subject MUST state the concrete implemented or corrected technical outcome in human-readable language. Messages that only describe process or bookkeeping — for example `update files`, `apply patch`, `requested changes`, `implement task`, `miscellaneous fixes`, `Wharness-verified change`, or a request/plan identifier — are protocol-quality failures even if they are syntactically valid Git subjects. For a multi-file but coherent change, describe the primary behavior/outcome rather than enumerating filenames. The message is used in the real integration commit, so technical specificity is preferred over artificial brevity.
 
+### Message shape and enforcement
+
+`commit_message` is a Git message, not a label. Its first line is the subject and MUST stay within 72 characters. Anything after it is a body, separated by exactly one blank line, and Wharness preserves that body verbatim in the real commit.
+
+The body answers what a diff cannot: the symptom or limitation that motivated the change, why this approach was chosen over the obvious alternative, and any consequence a future reader must know — a migration, a behavior change, a deliberately deferred part. It MUST NOT restate the diff line by line. A body SHOULD be present whenever the change is not self-evident from its subject.
+
+These rules are enforced, not advisory. A `change` bundle is rejected when `commit_message` is missing, is not Conventional Commits with a type from the accepted set, exceeds the subject limit, omits the blank line before a body, or matches the closed set of forbidden bookkeeping subjects. Validation happens at bundle ingestion, deliberately before Policy and sandbox verification, so a rejected message costs one re-request rather than discarding a fully verified candidate over prose.
+
+Wharness sanitizes the accepted message before it becomes a commit: control characters are stripped and the subject is collapsed to a single line, while the body's own line and paragraph structure is preserved. Wharness MUST NOT flatten a body into its subject, and its own degraded fallback — reachable only when a plan carries neither message nor summary — MUST NOT emit any subject this section forbids.
+
 ## Command representation
 
 Commands are argv arrays, for example:

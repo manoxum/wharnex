@@ -950,6 +950,16 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if err := protocol.Validate(*parsed.Plan); err != nil {
 		return BundleSubmission{}, err
 	}
+	// A change plan's commit_message becomes permanent project history, so its
+	// quality is part of the wire contract rather than a style preference.
+	// Checking it here — at ingestion, before policy and sandbox verification —
+	// means a rejected message costs one re-request; the same rejection at
+	// commit time would discard a fully verified candidate over prose.
+	if parsed.Turn.Kind == domain.TurnKindChange {
+		if err := protocol.ValidateCommitMessage(parsed.Plan.CommitMessage); err != nil {
+			return BundleSubmission{}, err
+		}
+	}
 	if err := validateConflictResolutionPlan(current, parsed.Plan); err != nil {
 		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
 	}
