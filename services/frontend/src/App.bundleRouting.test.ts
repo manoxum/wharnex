@@ -19,6 +19,7 @@ describe('App bundle routing', () => {
     const listener = source.indexOf('const ingest = async (bundle: DesktopBundleDownload) =>')
     expect(listener).toBeGreaterThan(-1)
     const body = source.slice(listener, listener + 2200)
+    const effect = source.slice(listener - 250, listener + 2400)
     const submit = body.indexOf('await submitBundleFileRef.current')
     const acknowledge = body.indexOf('await bridge.chatgpt.ackBundle')
     const clear = body.indexOf('delete next[bundle.cacheKey!]')
@@ -29,6 +30,8 @@ describe('App bundle routing', () => {
     expect(body).toContain('bridge.chatgpt.pendingBundles()')
     expect(source).toContain('sessionOwnsRequest(targetSession, requestId)')
     expect(source).toContain('sessionOwnsRequest(candidate, requestId)')
+    expect(effect).toContain("if (!isDesktop() || !bundleRoutingReadyKey) return")
+    expect(effect).toContain('}, [bundleRoutingReadyKey])')
   })
 
   it('falls back to durable request input and retires only an unrecoverable legacy retry', () => {

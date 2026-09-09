@@ -99,6 +99,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
 
   const restartPresentationKey = restartConfirmationKey(session)
+  const bundleRoutingReadyKey = session ? `${session.project_path}:${chats.map((chat) => `${chat.id}:${chat.sessionId}`).join(',')}` : ''
   const activeConflictKey = session?.integration_conflict && activeChatId ? conflictChatGPTCacheKey(activeChatId, session.integration_conflict.id) : ''
   const chatgptHumanAction = chatgptHumanActions[activeConflictKey] || chatgptHumanActions[activeChatId]
   const activeBusy = busy || Boolean(busyChats[activeChatId])
@@ -817,7 +818,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [recordChatGPTHumanAction])
 
   useEffect(() => {
-    if (!isDesktop()) return
+    if (!isDesktop() || !bundleRoutingReadyKey) return
     const bridge = desktopBridge()
     if (!bridge) return
     const ingest = async (bundle: DesktopBundleDownload) => {
@@ -842,7 +843,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const unsubscribe = bridge.chatgpt.onBundleDownloaded((bundle) => { void ingest(bundle) })
     void bridge.chatgpt.pendingBundles().then((bundles) => { for (const bundle of bundles) void ingest(bundle) }).catch((bundleError) => console.warn('pending bundle recovery failed', messageOf(bundleError)))
     return unsubscribe
-  }, [])
+  }, [bundleRoutingReadyKey])
 
   useEffect(() => {
     if (!isDesktop() || !session || chats.length === 0) return
