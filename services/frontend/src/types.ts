@@ -266,7 +266,20 @@ export type ArtifactRecord = {
 }
 
 export type ArtifactEntry = { path: string; size: number; dir: boolean }
-export type ArtifactSettings = { retention_days: number }
+export type ArtifactPresentationItem = { path: string; preview_path?: string; label?: string; description?: string; alt?: string; size: number; content_type: string; kind: 'image' | 'audio' | 'video' | 'pdf' | 'html' | 'office' | 'markdown' | 'text' | 'binary' }
+export type ArtifactPresentationGallery = { id: string; title?: string; description?: string; layout: 'auto' | 'grid' | 'masonry' | 'strip'; sizing: 'uniform' | 'adaptive'; items: ArtifactPresentationItem[] }
+export type ArtifactPresentation = { protocol: 'harness.artifact-presentation/v1'; fallback: boolean; warning?: string; galleries: ArtifactPresentationGallery[] }
+export type ArtifactSettings = { retention_days: number; bundle_window_limit: number }
+export type BundleQuota = {
+  window_hours: number
+  limit: number
+  sent: number
+  received: number
+  total: number
+  warning: boolean
+  window_start: string
+  window_end: string
+}
 
 export type HarnessEvent = {
   id: string

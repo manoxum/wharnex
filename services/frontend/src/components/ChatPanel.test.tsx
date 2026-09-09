@@ -177,16 +177,24 @@ describe('ChatPanel', () => {
   })
 
 
-  it('exposes a per-chat project knowledge toggle in the composer', async () => {
+  it('exposes the project knowledge toggle and marks only the active state', async () => {
     const onKnowledgeSharing = vi.fn()
-    render(
+    const view = render(
       <ChatPanel session={{ ...session, knowledge_sharing_enabled: false }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onKnowledgeSharing={onKnowledgeSharing} {...chatActions} />,
     )
-    const button = screen.getByRole('button', { name: 'Conhecimento do projeto' })
+    let button = screen.getByRole('button', { name: 'Conhecimento do projeto' })
     expect(button.getAttribute('aria-pressed')).toBe('false')
     expect(button.querySelector('svg')).toBeTruthy()
+    expect(button.querySelector('.artifact-dot')).toBeNull()
     fireEvent.click(button)
     await waitFor(() => expect(onKnowledgeSharing).toHaveBeenCalledWith(true))
+
+    view.rerender(
+      <ChatPanel session={{ ...session, knowledge_sharing_enabled: true }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onKnowledgeSharing={onKnowledgeSharing} {...chatActions} />,
+    )
+    button = screen.getByRole('button', { name: 'Conhecimento do projeto' })
+    expect(button.getAttribute('aria-pressed')).toBe('true')
+    expect(button.querySelector('.artifact-dot')).toBeTruthy()
   })
 
 

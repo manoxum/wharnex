@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactRecord, ArtifactSettings, AutomationMode, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, AutomationMode, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -62,10 +62,12 @@ export const api = {
   connectRemoteStorage: (instanceID: string, provider: RemoteStorageProviderID, fields: Record<string, string>) => request<RemoteStorageConnection>('/api/remote-storage/connections', { method: 'POST', body: JSON.stringify({ instance_id: instanceID, provider, fields }) }),
   checkRemoteStorage: (remote: string) => request<{ connected: boolean }>('/api/remote-storage/connections/check', { method: 'POST', body: JSON.stringify({ remote }) }),
   artifactSettings: () => request<ArtifactSettings>('/api/artifact-settings'),
-  updateArtifactSettings: (retentionDays: number) => request<ArtifactSettings>('/api/artifact-settings', { method: 'PUT', body: JSON.stringify({ retention_days: retentionDays }) }),
+  updateArtifactSettings: (retentionDays: number, bundleWindowLimit: number) => request<ArtifactSettings>('/api/artifact-settings', { method: 'PUT', body: JSON.stringify({ retention_days: retentionDays, bundle_window_limit: bundleWindowLimit }) }),
+  bundleQuota: () => request<BundleQuota>('/api/bundle-quota'),
   artifacts: (id: string) => request<{ artifacts: ArtifactRecord[] }>(`/api/sessions/${id}/artifacts`),
   exportChat: (id: string, input: ChatExportRequest) => requestDownload(`/api/sessions/${id}/chat-export`, input),
   artifactEntries: (id: string, artifactId: string) => request<{ entries: ArtifactEntry[] }>(`/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}/entries`),
+  artifactPresentation: (id: string, artifactId: string) => request<ArtifactPresentation>(`/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}/presentation`),
   persistArtifact: (id: string, input: { request_id: string; direction: 'input' | 'output'; kind: string; filename: string; content_type: string; content_base64: string }) => request<ArtifactRecord>(`/api/sessions/${id}/artifacts`, { method: 'POST', body: JSON.stringify(input) }),
   artifactURL: (id: string, artifactId: string) => `${API_URL}/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}`,
   artifactEntryURL: (id: string, artifactId: string, path: string, download = false) => `${API_URL}/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}/entry?path=${encodeURIComponent(path)}${download ? '&download=1' : ''}`,

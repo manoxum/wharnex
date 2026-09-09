@@ -75,3 +75,17 @@ func TestChatIDPatternRejectsUnderscore(t *testing.T) {
 		t.Fatal("ChatIDPattern must accept a real crypto.randomUUID() shape")
 	}
 }
+
+func TestParseWithDuplicateSuffix(t *testing.T) {
+	name := "whx_bundle_res_" + chatID + "_" + rootReq + " (2).zip"
+	parsed, ok := ParseWithDuplicateSuffix(name)
+	if !ok {
+		t.Fatalf("ParseWithDuplicateSuffix(%q) failed", name)
+	}
+	if parsed.Kind != KindResponse || parsed.ChatID != chatID || parsed.RequestID != rootReq || parsed.SubrequestID != "" {
+		t.Fatalf("unexpected parse result: %#v", parsed)
+	}
+	if _, ok := ParseWithDuplicateSuffix(Build(KindResponse, chatID, rootReq, "")); ok {
+		t.Fatal("canonical name must remain the responsibility of Parse")
+	}
+}

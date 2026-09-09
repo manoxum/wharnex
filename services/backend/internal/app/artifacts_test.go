@@ -91,3 +91,29 @@ func testArtifactZIP(t *testing.T, files map[string]string) []byte {
 	}
 	return buffer.Bytes()
 }
+
+func TestArtifactPresentationNormalizesManifestAndFallback(t *testing.T) {
+	store := session.NewStore()
+	if err := store.Put(domain.Session{ID: "ses_presentation", ProjectPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	objects := &memoryArtifactStore{objects: map[string][]byte{}}
+	service.SetArtifactStore(objects, 30)
+
+	bundle := testArtifactZIP(t, map[string]string{
+		"artifacts/example.md":                "# example",
+		"metadata/artifact-presentation.json": `{"protocol":"harness.artifact-presentation/v1","galleries":[{"id":"docs","title":"Docs","items":[{"path":"artifacts/example.md","label":"Example"}]}]}`,
+	})
+	record, err := service.PersistArtifact(context.Background(), "ses_presentation", "req_12345678", "output", "bundle", "output.zip", "application/zip", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	presentation, err := service.ArtifactPresentation(context.Background(), "ses_presentation", record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if presentation.Fallback || len(presentation.Galleries) != 1 || presentation.Galleries[0].Items[0].Kind != "markdown" {
+		t.Fatalf("unexpected presentation: %+v", presentation)
+	}
+}

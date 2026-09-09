@@ -253,6 +253,10 @@ func TestBuildManualPromptAdvertisesRenderableResultArtifacts(t *testing.T) {
 		"Office documents via safe text extraction",
 		"inline/local chat presentation",
 		"non-executable presentation data only",
+		"metadata/artifact-presentation.json",
+		"harness.artifact-presentation/v1",
+		"auto, grid, masonry, and strip",
+		"Wharnex derives trusted type/size/capabilities",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("renderable artifact prompt missing %q", want)
