@@ -28,6 +28,6 @@ func detectedWharnexInstance(root string) string {
 	return "Wharnex"
 }
 
-func legacySelfOpenForbidden(instanceID string, selfEvolution bool) bool {
-	return selfEvolution && strings.EqualFold(strings.TrimSpace(instanceID), "legacy")
+func statableSelfOpenForbidden(instanceID string, selfEvolution bool) bool {
+	return selfEvolution && strings.EqualFold(strings.TrimSpace(instanceID), "statable")
 }
