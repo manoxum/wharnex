@@ -486,7 +486,7 @@ test('transport IPC keeps hidden views unthrottled for the complete preparation 
   const helperEnd = source.indexOf('\nfunction sendToWindowState', helperStart)
   const helper = source.slice(helperStart, helperEnd)
   assert.match(helper, /transportPreparationCount[\s\S]*reconcileChatGPTThrottle[\s\S]*try[\s\S]*await operation\(\)[\s\S]*finally[\s\S]*transportPreparationCount[\s\S]*reconcileChatGPTThrottle/)
-  for (const channel of ['submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
+  for (const channel of ['resume-expected-bundle', 'submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
     const start = source.indexOf(`ipcMain.handle('wharness:chatgpt:${channel}'`)
     const end = source.indexOf('\n  })', start)
     assert.match(source.slice(start, end), /withChatGPTTransportPreparation/)
@@ -778,6 +778,19 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
   const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
   assert.match(source.slice(ackStart, ackEnd), /markChatGPTBundleRequestDelivered\(id\)/)
+})
+
+test('bundle supervision cannot reload or probe a ChatGPT surface during transport preparation', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
+  const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', pollStart)
+  const poll = source.slice(pollStart, pollEnd)
+  const transportGuard = poll.indexOf('entry?.transportPreparationCount')
+  const recoveryProbe = poll.indexOf('chooseChatGPTRecoveryAction')
+  const domProbe = poll.indexOf('executeJavaScript(chatGPTExpectedDownloadScript')
+  assert.notEqual(transportGuard, -1)
+  assert.ok(transportGuard < recoveryProbe)
+  assert.ok(transportGuard < domProbe)
 })
 
 test('the durable response inbox is isolated by Desktop userData instead of shared through host temp', async () => {

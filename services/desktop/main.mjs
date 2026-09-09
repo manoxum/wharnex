@@ -2267,6 +2267,10 @@ async function pollExpectedChatGPTDownloadKey(key) {
       return
     }
     const entry = chatgptViews.get(key)
+    // Recovery reloads and DOM probes must not race the serialized upload or
+    // prompt preparation currently owning this surface. The next main-process
+    // sweep will resume supervision after the transport boundary is released.
+    if (Number(entry?.transportPreparationCount || 0) > 0) return
     const wc = entry?.view.webContents
     if (!entry || wc?.isDestroyed() || !isTrustedChatGPTOrigin(wc.getURL())) return
     if (entry.humanAction?.active) return
@@ -2834,29 +2838,31 @@ function registerIPC() {
     const conversation = canonicalChatGPTConversationURL(target)
     if (!conversation) throw new Error('Pending bundle recovery requires a concrete trusted ChatGPT conversation URL')
     const { entry } = ensureChatGPTView(key, windowState)
-    const { wc } = requireOwnedChatGPTEntry(key, entry)
-    if (windowState.activeChatGPTKey !== key) entry.view.setVisible(false)
-    syncChatGPTAffinityURL(key, entry, conversation)
-    // The renderer can reconstruct a durable pending request only from the
-    // backend's complete last_manual_prompt. Preserve it as originalPrompt as
-    // well as recoveryBootstrap: every later continuation must repeat the
-    // request-scoped knowledge identity/content validated by the input bundle.
-    const recoveryPrompt = String(request?.recoveryBootstrap || '')
-    const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
-    armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename)
-    const expected = expectedChatGPTBundles.get(key)
-    expected.rehydrating = true
-    expected.recoveryEligibleAt = Number.POSITIVE_INFINITY
-    if (!sameConversationURL(wc.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'resume-expected-bundle')
-    const assistantBaseline = await chatGPTAssistantTurnCount(wc)
-    if (expectedChatGPTBundles.get(key) === expected) {
-      expected.assistantBaseline = assistantBaseline
-      expected.rehydrating = false
-      expected.recoveryEligibleAt = Date.now() + PROCESSING_SIGNAL_GRACE_MS
-      expected.recovery = createChatGPTRecoveryState(Date.now())
-    }
-    void pollExpectedChatGPTDownloadKey(key)
-    return { ok: true, cacheKey: key, requestId, expectedFilename }
+    return withChatGPTTransportPreparation(key, entry, requestId, async () => {
+      const { wc } = requireOwnedChatGPTEntry(key, entry)
+      if (windowState.activeChatGPTKey !== key) entry.view.setVisible(false)
+      syncChatGPTAffinityURL(key, entry, conversation)
+      // The renderer can reconstruct a durable pending request only from the
+      // backend's complete last_manual_prompt. Preserve it as originalPrompt as
+      // well as recoveryBootstrap: every later continuation must repeat the
+      // request-scoped knowledge identity/content validated by the input bundle.
+      const recoveryPrompt = String(request?.recoveryBootstrap || '')
+      const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
+      armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename)
+      const expected = expectedChatGPTBundles.get(key)
+      expected.rehydrating = true
+      expected.recoveryEligibleAt = Number.POSITIVE_INFINITY
+      if (!sameConversationURL(wc.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'resume-expected-bundle')
+      const assistantBaseline = await chatGPTAssistantTurnCount(wc)
+      if (expectedChatGPTBundles.get(key) === expected) {
+        expected.assistantBaseline = assistantBaseline
+        expected.rehydrating = false
+        expected.recoveryEligibleAt = Date.now() + PROCESSING_SIGNAL_GRACE_MS
+        expected.recovery = createChatGPTRecoveryState(Date.now())
+      }
+      void pollExpectedChatGPTDownloadKey(key)
+      return { ok: true, cacheKey: key, requestId, expectedFilename }
+    })
   })
   ipcMain.handle('wharness:chatgpt:continue-expected-bundle', async (event, request) => {
     const windowState = trustedSender(event)

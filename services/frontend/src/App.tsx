@@ -875,7 +875,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const conflict = candidate.integration_conflict?.request_id === requestId ? candidate.integration_conflict : undefined
         const surface = conflict ? chat.conflictSurfaces?.[conflict.id] : undefined
         const cacheKey = surface?.cacheKey || chat.id
-        const url = surface?.url || chat.chatgptUrl
+        // A conflict surface owns a distinct ChatGPT conversation. While its
+        // first submit is still creating that conversation, falling back to
+        // the primary chat URL makes recovery navigate the auxiliary view
+        // away from its new-chat composer in the middle of upload.
+        const url = conflict ? surface?.url : chat.chatgptUrl
         if (!url) return
         const resumeKey = `${candidate.id}:${requestId}:${cacheKey}`
         if (cancelled || resumedBundleKeysRef.current.has(resumeKey) || livePromptDeliveryKeysRef.current.has(resumeKey) || failedPromptDeliveryKeysRef.current.has(resumeKey)) return
