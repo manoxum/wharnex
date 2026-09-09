@@ -7,3 +7,9 @@
 - O sistema final continua a precisar de master lockup, compact lockup, símbolo isolado, micro mark próprio para 16/24/32 px, monocromático e variantes dark/light.
 - Splash/motion deve continuar derivado do comportamento do produto e evitar glitch hacker, chuva de código, cérebro, robô, sparkle de IA e terminal genérico como identidade principal.
 - Nova estratégia: explorar poucos conceitos, mas em **territórios mutuamente exclusivos**, com diferenças reais de tipografia, massa, geometria, dimensionalidade e personalidade.
+
+## Feedback e exploração — 09/09/2026
+
+- O utilizador pediu explicitamente **mais diversidade**, “surpreender”, **menos verde** e **menos W** como recurso dominante.
+- A ronda seguinte deve manter a disciplina de territórios mutuamente exclusivos e pode deslocar monogramas para `NX`, `HX` ou símbolos sem iniciais.
+- Cor deixa de ser assinatura fixa durante exploração: laranja, azul, magenta, violeta, amarelo de segurança e monocromático são válidos quando reforçam o conceito.
