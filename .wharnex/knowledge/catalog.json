@@ -2,10 +2,12 @@
   "protocol": "harness.knowledge/v2",
   "entries": [
     "artifact-presentation-galleries",
+    "brand-identity-system",
     "knowledge-sharing-toggle",
     "legacy-project-knowledge",
     "logo-exploration-31-38",
     "logo-exploration-39-50",
+    "markdown-translation-utility",
     "orchestrator-mode-design",
     "plan-approval-continuations"
   ]
