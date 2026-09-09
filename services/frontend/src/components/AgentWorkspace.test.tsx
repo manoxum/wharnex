@@ -76,21 +76,21 @@ describe('AgentWorkspace', () => {
     expect((secondary.container.querySelector('.agent-workspace') as HTMLElement).style.getPropertyValue('--agent-chat-width')).toBe('')
   })
 
-  it('keeps a visible non-blocking three-hour bundle consumption meter in embedded Agent chrome', async () => {
+  it('keeps only compact sent and received bundle counters in embedded Agent chrome', async () => {
     vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 24, received: 21, total: 45, warning: false, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
     const rendered = render(props().element)
-    expect(await screen.findByRole('group', { name: /Consumo de bundles em 3 horas: 24 entregues ao ChatGPT.*21 recebidos do ChatGPT.*apenas informativo e não bloqueia novos pedidos/i })).toBeTruthy()
-    expect(screen.getByText('Entregues 24/80')).toBeTruthy()
-    expect(screen.getByText('Recebidos 21')).toBeTruthy()
-    expect((rendered.container.querySelector('.agent-bundle-quota-fill') as HTMLElement).style.width).toBe('30%')
+    expect(await screen.findByRole('group', { name: 'Bundles: 24 enviados ao ChatGPT e 21 recebidos do ChatGPT.' })).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑24↓21')
+    expect(rendered.container.querySelector('.agent-bundle-quota-track')).toBeNull()
+    expect(rendered.container.querySelector('.agent-bundle-quota-fill')).toBeNull()
   })
 
-  it('keeps the bundle meter informational when the configured sent limit is reached', async () => {
+  it('does not turn the Agent counters into a quota warning when the configured sent limit is reached', async () => {
     vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 80, received: 76, total: 156, warning: true, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
     const rendered = render(props().element)
-    expect(await screen.findByRole('status', { name: /80 entregues ao ChatGPT.*76 recebidos do ChatGPT.*não bloqueia novos pedidos, mesmo com o limite atingido/i })).toBeTruthy()
-    expect((rendered.container.querySelector('.agent-bundle-quota') as HTMLElement).className).toContain('warning')
-    expect((rendered.container.querySelector('.agent-bundle-quota-fill') as HTMLElement).style.width).toBe('100%')
+    expect(await screen.findByRole('group', { name: 'Bundles: 80 enviados ao ChatGPT e 76 recebidos do ChatGPT.' })).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑80↓76')
+    expect(rendered.container.querySelector('.agent-bundle-quota.warning')).toBeNull()
   })
 
   it('keeps the chat fixed on the left and uses the right-side tabs for the inspector', () => {

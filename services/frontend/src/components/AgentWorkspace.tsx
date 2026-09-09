@@ -200,7 +200,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
         <span className="self-evolution-badge"><Icon name="refresh" size={13}/>{session.self_evolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${session.wharnex_instance_id}`}</span>
       </div>}
       <div className="agent-command-actions">
-        {bundleQuota && <AgentBundleQuotaMeter quota={bundleQuota}/>}
+        {bundleQuota && <AgentBundleCounters quota={bundleQuota}/>}
         {attentionItems.length > 0 && <div className="agent-attention-cluster" ref={attentionClusterRef}>
           <button type="button" className={`agent-attention-summary ${urgentAttentionCount ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-label={`Centro de notificações, ${attentionItems.length} alerta(s), ${urgentAttentionCount} urgente(s)`} title="Alertas de todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionItems.length} {attentionItems.length === 1 ? 'alerta' : 'alertas'}</b><small>{urgentAttentionCount} {urgentAttentionCount === 1 ? 'urgente' : 'urgentes'}</small></span></button>
           {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention}/>}
@@ -256,13 +256,11 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   </section>
 }
 
-function AgentBundleQuotaMeter({ quota }: { quota: BundleQuota }) {
-  const limit = Math.max(1, quota.limit)
-  const pressure = Math.max(0, Math.min(100, (quota.sent / limit) * 100))
-  const detail = `Consumo de bundles em ${quota.window_hours} horas: ${quota.sent} entregues ao ChatGPT de ${quota.limit} configurados e ${quota.received} recebidos do ChatGPT. Estimativa local Wharnex; apenas informativo e não bloqueia novos pedidos${quota.warning ? ', mesmo com o limite atingido' : ''}.`
-  return <div className={`agent-bundle-quota ${quota.warning ? 'warning' : ''}`} role={quota.warning ? 'status' : 'group'} aria-live={quota.warning ? 'polite' : undefined} aria-label={detail} title={detail}>
-    <div className="agent-bundle-quota-copy"><span>{quota.window_hours} h</span><b>Entregues {quota.sent}/{quota.limit}</b><i>Recebidos {quota.received}</i></div>
-    <span className="agent-bundle-quota-track" aria-hidden="true"><span className="agent-bundle-quota-fill" style={{ width: `${pressure}%` }}/></span>
+function AgentBundleCounters({ quota }: { quota: BundleQuota }) {
+  const detail = `Bundles: ${quota.sent} enviados ao ChatGPT e ${quota.received} recebidos do ChatGPT.`
+  return <div className="agent-bundle-counters" role="group" aria-label={detail} title={detail}>
+    <span title="Bundles enviados"><i aria-hidden="true">↑</i><b>{quota.sent}</b></span>
+    <span title="Bundles recebidos"><i aria-hidden="true">↓</i><b>{quota.received}</b></span>
   </div>
 }
 

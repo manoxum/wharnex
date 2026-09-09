@@ -23,7 +23,8 @@ describe('chat header CSS', () => {
     expect(header).toContain('position: sticky')
     expect(header).toContain('top: 0')
     expect(header).toContain('z-index: 12')
-    expect(stream).toContain('overflow: auto')
+    expect(stream).toContain('overflow-x: hidden')
+    expect(stream).toContain('overflow-y: auto')
   })
 
   it('keeps chat export as a compact square icon action', () => {
@@ -54,6 +55,8 @@ describe('composer layout CSS', () => {
 
     expect(composer).toContain('position: relative')
     expect(composer).toContain('resize: none')
+    expect(composer).toContain('border-bottom-color: color-mix')
+    expect(composer).toContain('box-shadow: 0 10px 28px var(--theme-shadow)')
     expect(handle).toContain('top: -6px')
     expect(handle).toContain('left: 0')
     expect(handle).toContain('right: 0')
@@ -74,6 +77,7 @@ describe('composer layout CSS', () => {
     expect(footer).toContain('grid-template-columns: minmax(0, 1fr)')
     expect(footer).toContain('justify-content: stretch')
     expect(footer).toContain('justify-items: stretch')
+    expect(footer).toContain('border-radius: 0 0 14px 14px')
     expect(toolbar).toContain('width: 100%')
     expect(toolbar).toContain('min-width: 0')
     expect(toolbar).toContain('min-height: 31px')
