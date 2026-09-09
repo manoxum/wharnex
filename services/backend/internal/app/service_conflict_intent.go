@@ -28,7 +28,7 @@ const maxConflictIntentChanges = 8
 func (s *Service) buildConflictIntent(ctx context.Context, item domain.Session, repoPath string, conflict *sandbox.MergeConflictError, paths []string) *conflictCapsuleIntent {
 	intent := &conflictCapsuleIntent{
 		Attempt:     item.ConflictAttempt + 1,
-		MaxAttempts: maxAutoRepairAttempts,
+		MaxAttempts: policyForEffort(item.EffortLevel).MaxAttempts,
 	}
 	if item.Plan != nil {
 		intent.OurGoal = strings.TrimSpace(item.Plan.Summary)

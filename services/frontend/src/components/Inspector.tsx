@@ -358,8 +358,8 @@ export function TerminalView({ events }: { events: HarnessEvent[] }) {
   </div>
 }
 
-function executionKindLabel(kind: 'standard' | 'repair' | 'evidence' | 'conflict') {
-	return kind === 'repair' ? 'Resolução de erro' : kind === 'evidence' ? 'Extração de informações' : kind === 'conflict' ? 'Resolução de conflito' : 'Execução principal'
+function executionKindLabel(kind: 'standard' | 'repair' | 'improvement' | 'evidence' | 'conflict') {
+	return kind === 'repair' ? 'Resolução de erro' : kind === 'improvement' ? 'Melhoria contínua' : kind === 'evidence' ? 'Extração de informações' : kind === 'conflict' ? 'Resolução de conflito' : 'Execução principal'
 }
 
 function formatExecutionDate(value: string) {

@@ -22,6 +22,17 @@ LOCAL RENDERABLE ARTIFACT CAPABILITY:
 - A gallery may mix image, video, audio, PDF/document, Markdown, source/text, HTML and fallback file cards. Supported layout hints are auto, grid, masonry, and strip; supported sizing hints are uniform and adaptive. Use one simple preview instead of a gallery when grouping adds no value.
 - Each gallery item references a real same-bundle artifacts/... path and MAY provide label, description, alt, or a same-bundle preview_path. Never provide MIME, executable capabilities, remote URLs, traversal paths, commands, secrets, or sandbox relaxations in presentation metadata; Wharnex derives trusted type/size/capabilities and falls back safely if the manifest is absent or invalid.
 
+EFFORT LEVEL CONTRACT — QUALITY/COST BALANCE:
+- Every request has an EFFORT LEVEL selected by the user. Treat it as a hard budget signal for how much autonomous iteration Wharness is allowed to spend, not as permission to add unrelated scope.
+- low: one resolution attempt only; do not expect or request automatic correction rounds. Prefer the smallest decisive solution.
+- medium: up to 3 total automated resolution attempts. Use retries only when evidence indicates a concrete fix is likely.
+- high: up to 6 total automated resolution attempts. Spend extra rounds on difficult diagnosis, verification, and materially better corrections.
+- extra_high: up to 10 total attempts. After a successful host integration, Wharness may ask for continuous-improvement rounds; propose another change only when it is materially useful for the original problem.
+- max: up to 15 total attempts, with the same post-success continuous-improvement behavior and a stronger bias toward completeness.
+- ultra: up to 30 total attempts, intended for unusually difficult/high-value work; keep every extra round evidence-driven and avoid cosmetic churn.
+- loop: no fixed numeric attempt ceiling. Continue only while there is a concrete unresolved defect or material improvement opportunity; explicitly terminate when further automated work has poor cost/benefit, no safe solution exists, or no meaningful improvement remains.
+- For every level, optimize for the best cost/benefit inside the selected budget. Never consume attempts merely because they are available. A terminal answer that says no further worthwhile improvement remains is preferred over speculative churn.
+
 INTENT RULES — ASK FIRST, CODE ONLY WHEN ASKED:
 - Classify intent semantically; do not decide from punctuation or one keyword.
 - ASK / ADVICE: questions, explanations, architecture discussion, comparisons, recommendations, reviews, brainstorming and requests such as "what do you think", "how does this work", "what should we add" normally produce answer. Give the complete useful answer directly; do not invent a coding task.
@@ -234,6 +245,10 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 	if automationMode == "" {
 		automationMode = "manual"
 	}
+	effortLevel := string(req.EffortLevel)
+	if effortLevel == "" {
+		effortLevel = "medium"
+	}
 	knowledgeState := "sharing=off; no prior knowledge files are attached to this request"
 	if req.KnowledgeSharingEnabled {
 		knowledgeState = fmt.Sprintf("sharing=on; %s; each catalog item is attached separately as knowledge/<id>.md", plannerKnowledgeIdentity(req))
@@ -253,6 +268,7 @@ PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2:
 %s
 REQUEST ID: %s
 AUTOMATION MODE: %s
+EFFORT LEVEL: %s
 SELF-EVOLUTION MODE: %t
 BASELINE CONTEXT SHA256: %s
 USER REQUEST OR WHARNESS CONTINUATION:
@@ -348,7 +364,7 @@ Canonical workflow bundle:
 ├── plan.json
 └── README.md
 
-Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.ExecutionEnvironment, req.RequestID, automationMode, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, knowledgeSection, expectedFilename, expectedFilename, expectedFilename, req.RequestID, req.ContextManifest.SHA256, req.RequestID, expectedFilename, req.RequestID, req.RequestID, expectedFilename, expectedFilename)
+Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.ExecutionEnvironment, req.RequestID, automationMode, effortLevel, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, knowledgeSection, expectedFilename, expectedFilename, expectedFilename, req.RequestID, req.ContextManifest.SHA256, req.RequestID, expectedFilename, req.RequestID, req.RequestID, expectedFilename, expectedFilename)
 }
 
 // buildKnowledgeReviewPrompt is the optional answer-only review after a task

@@ -64,6 +64,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/effort-level", a.effortLevel)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
@@ -708,6 +709,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 		ProjectPath    string                `json:"project_path"`
 		ExecutionMode  domain.ExecutionMode  `json:"execution_mode"`
 		AutomationMode domain.AutomationMode `json:"automation_mode"`
+		EffortLevel    domain.EffortLevel    `json:"effort_level"`
 		ChatID         string                `json:"chat_id"`
 	}
 	if !decodeJSON(w, r, &body) {
@@ -717,7 +719,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_project_path", "project_path is required")
 		return
 	}
-	item, err := a.service.StartSessionWithModes(r.Context(), body.ProjectPath, body.ExecutionMode, body.AutomationMode)
+	item, err := a.service.StartSessionWithModes(r.Context(), body.ProjectPath, body.ExecutionMode, body.AutomationMode, body.EffortLevel)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "session_create_failed", err.Error())
 		return
@@ -799,6 +801,21 @@ func (a *API) automationMode(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetAutomationMode(r.PathValue("id"), body.AutomationMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "automation_mode_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) effortLevel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		EffortLevel domain.EffortLevel `json:"effort_level"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetEffortLevel(r.PathValue("id"), body.EffortLevel)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "effort_level_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

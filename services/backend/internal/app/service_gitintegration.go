@@ -249,7 +249,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := normalizedPaths(conflict.Paths)
-	if continuing && item.ConflictAttempt >= maxAutoRepairAttempts {
+	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
 	files := make([]conflictCapsuleFile, 0, len(paths))
@@ -307,6 +307,9 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 			current.ConflictAttempt = 0
 		} else {
 			current.ConflictAttempt++
+		}
+		if current.AutomationMode == domain.AutomationModeAuto {
+			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
 		}
 		current.IntegrationConflict = &resolution
 		current.LastRequestID = requestID

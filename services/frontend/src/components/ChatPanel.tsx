@@ -1,5 +1,5 @@
 import { Fragment, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
+import type { AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
 import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
@@ -63,7 +63,7 @@ function prioritizedChangeFiles(files: ChatChangeFile[]) {
     .map(({ file }) => file)
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -75,6 +75,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   historyViewportStore?: ChatViewportStore
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
+  effortLevel?: EffortLevel
   chatTransportMode?: ChatTransportMode
   attachmentsEnabled?: boolean
   preparedAttachmentCount?: number
@@ -91,6 +92,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   transportProgress?: string
   onExecutionMode?: (mode: ExecutionMode) => void
   onAutomationMode?: (mode: AutomationMode) => void
+  onEffortLevel?: (level: EffortLevel) => void
   onChatTransportMode?: (mode: ChatTransportMode) => void
   onKnowledgeSharing?: (enabled: boolean) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
@@ -151,6 +153,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const selectedArtifacts: ChatArtifactSelection = artifactSelection || { context: false, prompt: true, result: false, error: false }
   const currentExecutionMode = executionMode || session.execution_mode || 'protected'
   const currentAutomationMode = automationMode || session.automation_mode || 'manual'
+  const currentEffortLevel = effortLevel || session.effort_level || 'medium'
   const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
   const effectiveTransport = chatTransport || globalTransport
@@ -442,6 +445,18 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
             <button type="button" className={`composer-round-action mode-manual ${currentAutomationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
             <button type="button" className={`composer-round-action mode-auto ${currentAutomationMode === 'auto' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto'} aria-label="Auto" title="Auto · mudanças válidas seguem Protected e são aplicadas após verificação" onClick={() => onAutomationMode?.('auto')}><Icon name="agent" size={12}/></button>
           </span>
+          <label className="composer-effort-picker" title="Nível de esforço · limita tentativas automáticas e, a partir de Extra High, ativa melhoria contínua pós-sucesso">
+            <span>Esforço</span>
+            <select aria-label="Nível de esforço" value={currentEffortLevel} disabled={busy || !onEffortLevel} onChange={(event) => onEffortLevel?.(event.target.value as EffortLevel)}>
+              <option value="low">Low · 1</option>
+              <option value="medium">Medium · 3</option>
+              <option value="high">High · 6</option>
+              <option value="extra_high">Extra High · 10</option>
+              <option value="max">Max · 15</option>
+              <option value="ultra">Ultra · 30</option>
+              <option value="loop">Loop · ∞</option>
+            </select>
+          </label>
           <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
             <button type="button" className={`composer-round-action mode-scraper ${currentChatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharness interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
             <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>

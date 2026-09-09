@@ -155,6 +155,27 @@ func ValidAutomationMode(mode AutomationMode) bool {
 	return mode == AutomationModeManual || mode == AutomationModeAuto
 }
 
+type EffortLevel string
+
+const (
+	EffortLevelLow       EffortLevel = "low"
+	EffortLevelMedium    EffortLevel = "medium"
+	EffortLevelHigh      EffortLevel = "high"
+	EffortLevelExtraHigh EffortLevel = "extra_high"
+	EffortLevelMax       EffortLevel = "max"
+	EffortLevelUltra     EffortLevel = "ultra"
+	EffortLevelLoop      EffortLevel = "loop"
+)
+
+func ValidEffortLevel(level EffortLevel) bool {
+	switch level {
+	case EffortLevelLow, EffortLevelMedium, EffortLevelHigh, EffortLevelExtraHigh, EffortLevelMax, EffortLevelUltra, EffortLevelLoop:
+		return true
+	default:
+		return false
+	}
+}
+
 // ChatTransportMode controls whether Wharnex Desktop drives the embedded
 // ChatGPT conversation's DOM directly (Scraper — composer fill, submit, and
 // download interception, as it always has) or never touches that DOM at all
@@ -513,6 +534,7 @@ type Session struct {
 	ProjectPath             string               `json:"project_path"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
+	EffortLevel             EffortLevel          `json:"effort_level"`
 	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
 	WharnexInstanceID       string               `json:"wharnex_instance_id,omitempty"`
@@ -553,6 +575,8 @@ type Session struct {
 	LastBundle                         *ExecutionBundleInfo       `json:"last_bundle,omitempty"`
 	LastTurn                           *AgentTurn                 `json:"last_turn,omitempty"`
 	RepairAttempt                      int                        `json:"repair_attempt,omitempty"`
+	AutomationAttempt                  int                        `json:"automation_attempt,omitempty"`
+	ImprovementAttempt                 int                        `json:"improvement_attempt,omitempty"`
 	RepairParentPlanID                 string                     `json:"repair_parent_plan_id,omitempty"`
 	// ConflictAttempt counts automatic rounds requesting resolution of the
 	// SAME IntegrationConflict.ID (a real Git merge conflict or a ChangeSet

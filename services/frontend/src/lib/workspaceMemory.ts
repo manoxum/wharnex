@@ -1,4 +1,4 @@
-import type { AutomationMode, ChatArtifactSelection, ChatItem, ChatRequestMode, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
+import type { AutomationMode, EffortLevel, ChatArtifactSelection, ChatItem, ChatRequestMode, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
 import { chatgptConversationURL } from './desktop'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
@@ -9,6 +9,7 @@ const CHAT_ITEMS_PREFIX = 'kernl.workspace.chat.v2:'
 const ARCHIVED_CHAT_INDEX_PREFIX = 'kernl.workspace.chats.archived.v1:'
 const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
 const AUTOMATION_MODE_PREFIX = 'kernl.workspace.automation-mode.v1:'
+const EFFORT_LEVEL_PREFIX = 'kernl.workspace.effort-level.v1:'
 const EXECUTION_HISTORY_PREFIX = 'kernl.workspace.execution-history.v1:'
 const LEGACY_TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v2'
 export const TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v3'
@@ -23,6 +24,7 @@ export type ActiveWorkspace = {
   chatId?: string
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
+  effortLevel?: EffortLevel
 }
 
 // Remote archival is a best-effort account operation on a surface Wharnex does
@@ -120,6 +122,17 @@ export function loadAutomationMode(projectPath: string): AutomationMode {
 
 export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
   try { localStorage.setItem(AUTOMATION_MODE_PREFIX + projectPath, mode) } catch { /* storage unavailable/full */ }
+}
+
+export function loadEffortLevel(projectPath: string): EffortLevel {
+  try {
+    const value = localStorage.getItem(EFFORT_LEVEL_PREFIX + projectPath) as EffortLevel | null
+    return value && ['low', 'medium', 'high', 'extra_high', 'max', 'ultra', 'loop'].includes(value) ? value : 'medium'
+  } catch { return 'medium' }
+}
+
+export function saveEffortLevel(projectPath: string, level: EffortLevel) {
+  try { localStorage.setItem(EFFORT_LEVEL_PREFIX + projectPath, level) } catch { /* storage unavailable/full */ }
 }
 
 export function loadTransportOptions(): TransportOptions {
