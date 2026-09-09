@@ -145,7 +145,7 @@ export type AutomationMode = 'manual' | 'auto'
 export type ChatTransportMode = 'scraper' | 'manual'
 export type TerminalTarget = 'sandbox' | 'host'
 
-export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'workflow' | 'change' | 'blocked'
+export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
 export type AgentTurn = {
   protocol: 'harness.turn/v1'
@@ -443,7 +443,7 @@ export type QueuedChatRequest = {
 }
 export type ChatItemSource = 'user' | 'chatgpt' | 'wharness'
 export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | 'change'
-export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage: string; requestId: string }
+export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage?: string; requestId: string }
 export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }
 export type ChatChangeSummary = { planId: string; files: ChatChangeFile[]; hostCommands?: CommandResult[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
 export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }

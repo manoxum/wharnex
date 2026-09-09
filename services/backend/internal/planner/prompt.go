@@ -26,6 +26,7 @@ INTENT RULES — ASK FIRST, CODE ONLY WHEN ASKED:
 - Classify intent semantically; do not decide from punctuation or one keyword.
 - ASK / ADVICE: questions, explanations, architecture discussion, comparisons, recommendations, reviews, brainstorming and requests such as "what do you think", "how does this work", "what should we add" normally produce answer. Give the complete useful answer directly; do not invent a coding task.
 - INVESTIGATE: diagnostics, audits, discovery and evidence gathering produce investigation when the attached context is already sufficient. If decisive local evidence is missing, you MAY request a workflow turn instead of guessing.
+- PLAN: an explicit request to devise, elaborate, propose, or structure an implementation plan produces a plan turn even when Plan first mode is not selected. A plan turn is approval-gated and MUST NOT mutate the project.
 - CHANGE: only an explicit request to implement, fix, create, delete, refactor, configure, migrate or otherwise mutate the project produces change.
 - CLARIFICATION: if a material user decision is genuinely required before answering or changing, ask one concise clarification question.
 - Ambiguous mutation intent defaults to a non-mutating answer/investigation or clarification. Auto mode never upgrades ASK into CHANGE.
@@ -53,8 +54,8 @@ ITERATIVE WORKFLOW RULES:
 - The Wharness workflow is bounded. When a continuation says FINAL WORKFLOW ROUND, you MUST return a terminal answer, investigation, clarification, change, or blocked result and MUST NOT request another workflow turn.
 
 TURN RULES:
-- Valid kinds are answer, clarification, investigation, workflow, change, blocked.
-- answer, clarification, investigation and blocked are terminal conversational outcomes and carry no execution plan.
+- Valid kinds are answer, clarification, investigation, plan, workflow, change, blocked.
+- answer, clarification, investigation, plan and blocked carry no execution plan. A plan is a concrete approval-gated proposal, not an execution plan.
 - workflow and change carry a harness.execution/v1 plan.
 - Only change may contain project patches and become eligible for host Apply.
 - Auto mode automates policy-allowed change plans and bounded Protected workflow steps only.
@@ -153,10 +154,10 @@ PROVIDER TURN OUTPUT — MANDATORY:
 Return one harness.turn/v1 JSON object with: protocol, request_id, kind, message, outcome, plan, plus optional resolved_evidence_ids only for a WHX self-evolution review.
 - protocol is harness.turn/v1.
 - request_id exactly matches the request.
-- kind is answer, clarification, investigation, workflow, change, or blocked.
-- message is the complete user-facing Markdown response for terminal turns; for workflow/change it briefly explains the next step.
+- kind is answer, clarification, investigation, plan, workflow, change, or blocked.
+- message is the complete user-facing Markdown response for answer/clarification/investigation/plan/blocked; for workflow/change it briefly explains the next step.
 - outcome is required: status is completed, failed, or partial; include a short message, optional machine-readable reason_code, and retryable. This reports planner completion only, never host execution.
-- plan is null for answer, clarification, investigation and blocked.
+- plan is null for answer, clarification, investigation, plan and blocked.
 - plan is the complete harness.execution/v1 object for workflow or change.`
 
 func plannerKnowledgeIdentity(req Request) string {
@@ -196,7 +197,12 @@ Before attaching the initial bundle, programmatically re-open the ZIP and verify
 	}
 	if planningMode == "plan_first" {
 		header += `REQUEST STRATEGY: PLAN_FIRST
-This turn is planning-only. Produce a concrete implementation proposal with a ## TODO checklist, affected areas, risks, verification and trade-offs. Return a terminal answer/investigation bundle only: turn.json + README.md, with NO plan.json and NO patches/. Do NOT implement or mutate anything yet. Wharness will present the proposal to the user and a separate approved request will ask for implementation.
+This turn is planning-only. Produce a concrete implementation proposal with a ## TODO checklist, affected areas, risks, verification and trade-offs. Return kind=plan with turn.json + README.md only, with NO plan.json and NO patches/. Do NOT implement or mutate anything yet. Wharness will present the proposal to the user and a linked plan_approval request will continue the same Main Request after approval.
+
+`
+	} else if planningMode == "approve_plan" {
+		header += `REQUEST STRATEGY: APPROVE_PLAN
+The user explicitly approved the plan from the parent request in this same Main Request. Implement that approved proposal now; do not reinterpret this as a new Main Request, do not silently expand scope, and include the required ## TODO checklist in turn.message.
 
 `
 	} else {
@@ -245,6 +251,7 @@ PROJECT MANIFEST:
 INTENT REMINDER:
 - Do not assume this is coding work merely because a project ZIP is attached.
 - If this is a question/advice request and the current context is sufficient, return kind=answer with the COMPLETE useful answer in turn.message and no plan; never return a generic one-line summary such as 'recommendation prepared'.
+- If the user explicitly asks for a plan, return kind=plan even when REQUEST STRATEGY is DIRECT. This is a non-mutating approval proposal and carries no plan.json.
 - If local evidence is genuinely missing AND AUTOMATION MODE is auto, kind=workflow may request a small Protected-sandbox command step; Wharness will return the outputs in the same ChatGPT conversation.
 - If AUTOMATION MODE is manual, do not emit workflow; answer/investigate from current context or ask the user for the needed information.
 - Only explicit mutation intent may end in kind=change.
@@ -276,7 +283,7 @@ ZIP ROOT CONTRACT:
 - For kind=change OR kind=workflow, plan.json MUST exist at ZIP root.
 - For kind=change, patches referenced by patch_file MUST exist under patches/*.patch.
 - For kind=workflow, patches/ MUST NOT exist and plan operations MUST be command-only, network=false.
-- For answer, clarification, investigation and blocked, plan.json and patches/ MUST NOT exist.
+- For answer, clarification, investigation, plan and blocked, plan.json and patches/ MUST NOT exist.
 - Do NOT package modified project source files directly as the execution result. Project mutation is represented only by a change plan.json + referenced raw unified-diff patches.
 - Optional non-executable support material may exist only under docs/, metadata/, or artifacts/.
 - User-facing files intended for inline/local chat presentation MUST be stored under artifacts/. Wharness discovers those entries from the validated response bundle and renders supported media/documents/code locally with download fallback.

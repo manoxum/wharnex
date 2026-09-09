@@ -65,6 +65,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/archive", a.archiveChat)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
+	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/approve", a.approvePlan)
+	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/failures", a.remoteInputFailure)
@@ -727,6 +729,24 @@ func (a *API) knowledgeSharing(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetKnowledgeSharingEnabled(r.PathValue("id"), body.Enabled)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "knowledge_sharing_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) approvePlan(w http.ResponseWriter, r *http.Request) {
+	result, item, err := a.service.SubmitPlanApproval(r.Context(), r.PathValue("id"), r.PathValue("request_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "plan_approval_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
+}
+
+func (a *API) rejectPlan(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RejectPlan(r.PathValue("id"), r.PathValue("request_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "plan_rejection_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

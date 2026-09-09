@@ -14,6 +14,8 @@ export function stateLabel(state?: string) {
     answered: 'Respondido',
     awaiting_clarification: 'Aguardando esclarecimento',
     investigated: 'Analisado',
+    awaiting_plan_approval: 'Plano aguarda aprovação',
+    plan_rejected: 'Plano rejeitado',
     blocked: 'Bloqueado',
     repair_pending: 'Correção em curso',
     baseline_update_pending: 'A adaptar ao novo baseline',

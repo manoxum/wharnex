@@ -13,11 +13,12 @@ Wharness is a project copilot, not a coding-only agent. Every provider result MU
 - `answer`: a complete project-aware answer, recommendation, explanation, comparison, review, brainstorming result, or other ASK outcome;
 - `clarification`: one concise question needed because a material user decision is missing;
 - `investigation`: non-mutating analysis based on evidence already available in the project context;
+- `plan`: a concrete, non-mutating implementation proposal that waits for explicit user approval before any implementation continuation;
 - `workflow`: a non-terminal request for bounded local evidence that Wharness can gather safely before the model decides the next step;
 - `change`: an explicitly requested project mutation;
 - `blocked`: a safe explanation of why the request cannot proceed.
 
-Questions and advice requests SHOULD terminate as `answer` when the attached context is sufficient. Diagnostic/audit requests SHOULD terminate as `investigation` when evidence is sufficient. Project context, Agent mode, or Auto mode MUST NOT by themselves upgrade ASK/INVESTIGATE intent into CHANGE. Ambiguous mutation intent defaults to non-mutation or clarification.
+Questions and advice requests SHOULD terminate as `answer` when the attached context is sufficient. Diagnostic/audit requests SHOULD terminate as `investigation` when evidence is sufficient. An explicit request to devise, elaborate, propose, or structure an implementation plan SHOULD terminate as `plan` even when the composer is in Direct mode. Project context, Agent mode, or Auto mode MUST NOT by themselves upgrade ASK/INVESTIGATE intent into CHANGE. Ambiguous mutation intent defaults to non-mutation or clarification.
 
 ## Iterative workflow turn
 
@@ -34,7 +35,7 @@ A workflow turn carries a normal `harness.execution/v1` plan with stricter seman
 - execution occurs only in a disposable Protected sandbox copy;
 - workflow mutations, if a local tool happens to create any, are discarded and MUST NEVER become host Apply candidates.
 
-After the step, Wharness captures structured argv/cwd/exit/stdout/stderr evidence, refreshes project context, creates a fresh request id, and returns those observations to the same planner conversation. The planner then returns either another materially different `workflow` step or a terminal `answer`, `investigation`, `clarification`, `change`, or `blocked` result.
+After the step, Wharness captures structured argv/cwd/exit/stdout/stderr evidence, refreshes project context, creates a fresh request id, and returns those observations to the same planner conversation. The planner then returns either another materially different `workflow` step or a terminal `answer`, `investigation`, `clarification`, `plan`, `change`, or `blocked` result.
 
 The planner MAY therefore return a `workflow` bundle specifically to request missing local information. Its human explanation states what evidence is needed, while its command-only plan is the complete machine-readable extraction instruction. Wharness classifies this as an **evidence iteration**, executes it locally under the restrictions above, and returns the structured observations to the same Main Request.
 
@@ -44,17 +45,25 @@ Command failure in a workflow is evidence, not an automatic repair trigger. Auto
 
 ## AI output rule
 
-The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; all other kinds carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
+The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; `plan` is an approval proposal in `turn.message` and carries no execution plan or patches; all remaining kinds also carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
 
 Every new `harness.turn/v1` result MUST include an `outcome` object with `status=completed|failed|partial`, `retryable`, an optional stable `reason_code`, and a bounded explanatory `message`. This status reports whether the planner actually completed the requested response; it never claims that Wharness executed, verified, or applied host changes. Only `completed` may carry an execution plan. `failed` and `partial` are terminal protocol results: Wharness stores the turn/bundle, removes it from the pending set, marks the request failed, exposes the reason to the transcript, and MUST NOT send any plan to Policy or execution. Legacy plan-only bundles may synthesize `outcome.status=completed`; a new explicit `turn.json` without `outcome` is invalid.
 
 The recovery surface for a non-completed outcome MUST preserve the original goal and offer a new request path. The user can edit the recovery prompt, add context/files, enable another configured transport, or repeat the request. In Auto, a `retryable=true` terminal outcome MAY prepare exactly one bounded fresh-request recovery automatically. A retry is a new correlated request and never silently reclassifies the failed result as successful.
 
-Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `repair`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
+Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `repair`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
 `turn.message` is user-facing Markdown, not an execution dump. The planner SHOULD lead with the useful conclusion, keep sections and paragraphs compact, and summarize large logs/diffs/status streams rather than repeating structured execution evidence in prose. CHANGE turns still carry the required `## TODO` checklist, but protocol bookkeeping and raw machine detail belong in their structured bundle fields and dedicated Wharnex views.
+
+## Plan proposal and approval continuation
+
+A `plan` turn is deliberately distinct from an executable `change` plan. It contains the concrete proposal the user is approving, including scope, TODO units, risks/trade-offs, and intended verification, but it MUST NOT contain `plan.json`, patches, or project mutations. A `plan_first` composer request forces this outcome, while an explicit semantic request for a plan produces the same outcome even when the composer remains in Direct mode.
+
+Accepting the proposal MUST NOT be submitted through the ordinary Main Request message endpoint. Wharnex creates a fresh derived request with classification `plan_approval`, `parent_request_id` equal to the approved `plan` request, and the same `root_request_id`/Main Request. The approval continuation includes the exact approved proposal as authoritative scope and asks the planner to implement it without silently expanding that scope. Its eventual `workflow`/`change` result remains subject to Policy, Protected execution, verification, and Apply exactly like any other implementation result.
+
+While a plan proposal is waiting for the user, the session is in `awaiting_plan_approval`; the linked transport channel stays associated with the same Main Request. Rejecting the proposal terminates that approval path without mutation and releases the transport channel. Historical plan-first responses created before this protocol addition remain readable, but new `plan_first` responses MUST use `kind=plan`.
 
 ## Renderable result artifacts
 
