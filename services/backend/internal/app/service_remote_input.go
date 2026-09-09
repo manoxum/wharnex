@@ -42,7 +42,10 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	// context monitor publish any edits that happen after planner preparation.
 	// Immutable remote archives still refresh once more below because they have no
 	// live channel capable of carrying a later context delta.
-	item, err := s.store.Get(sessionID)
+	// Context archives are process-local temporary files. A durable pending
+	// request can outlive a backend/container restart, so restore its context
+	// artifacts before publishing either the persisted copy or live resources.
+	item, err := s.EnsureContextArtifacts(sessionID)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}

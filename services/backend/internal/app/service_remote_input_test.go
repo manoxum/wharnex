@@ -548,6 +548,46 @@ func TestRemoteInputChannelReusesMainRequestNamespaceAndRefreshesContext(t *test
 	}
 }
 
+func TestRemoteInputChannelRebuildsMissingContextAfterBackendRestart(t *testing.T) {
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "main.txt"), []byte("current"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 2<<20), manual.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	remote := &capturingChannelStore{}
+	service.SetRemoteInputStore(remote)
+	started, err := service.StartSession(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "inspect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Dir(prompted.Context.ZipPath)); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.PublishRemoteInput(context.Background(), started.ID, RemoteInputRequest{
+		RequestID: prompted.LastRequestID,
+		Prompt:    prompted.LastManualPrompt,
+	})
+	if err != nil {
+		t.Fatalf("publish after lost process-local context: %v", err)
+	}
+	if result.Mode != "tunnel" {
+		t.Fatalf("unexpected remote result: %#v", result)
+	}
+	rebuilt, err := store.Get(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, statErr := os.Stat(rebuilt.Context.ZipPath); statErr != nil || !info.Mode().IsRegular() {
+		t.Fatalf("context archive was not rebuilt: path=%q err=%v", rebuilt.Context.ZipPath, statErr)
+	}
+}
+
 func TestProjectFileReferenceForcesRequestArchiveAndMustBeEligible(t *testing.T) {
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "main.txt"), []byte("hello"), 0o600); err != nil {
