@@ -143,3 +143,11 @@ The proposal contract is `harness.orchestrator-plan/v1` and contains planning me
 Durable Orchestrator Plans, Tasks, dependency edges and TaskRuns are stored project-scoped in PostgreSQL and are independent from chat Session lifecycle. Transport handlers resolve project scope through an existing Session, while the application service and `internal/orchestrator` package own validation, readiness and persistence.
 
 A task Start action creates a normal Agent Session and submits one normal Agent request. All model-produced mutations therefore continue through Policy, Protected verification, ChangeSet integration and Apply. There is no `AI -> Orchestrator -> shell` path.
+
+## Application utility engine
+
+Wharnex has a dedicated non-executing utility boundary for AI-assisted application features such as Markdown translation. `internal/utility.Engine` is an application-facing port whose requests/results use `harness.utility/v1`; infrastructure adapters such as `internal/utility/openai` may call an external model provider, but they do not depend on the planner or execution pipeline.
+
+The utility boundary is intentionally disjoint from `AI -> Plan -> Policy -> Runner -> Apply`. Utility requests cannot carry commands or patches and never create a ChangeSet. The HTTP adapter may invoke it only for an existing Session and applies feature-specific configuration checks before the call. Provider absence is surfaced to the UI as capability unavailability.
+
+Global language preferences are a small state-directory document (`language-settings.json`) owned by the config layer. Version 1 admits only Portuguese, English and French and requires at least one translation target. Frontend Markdown renderers consume those preferences through the HTTP API and hold translated Markdown only in local viewer state, so project/domain persistence continues to contain the original source exclusively.

@@ -29,6 +29,7 @@ import (
 	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
 
@@ -104,6 +105,7 @@ type Service struct {
 	orchestratorMu          sync.Mutex
 	orchestratorLocks       map[string]*sync.Mutex
 	artifactStore           ArtifactObjectStore
+	utilityEngine           utility.Engine
 	environment             *sandboxenv.Prober
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
@@ -111,6 +113,18 @@ type Service struct {
 }
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
+
+func (s *Service) SetUtilityEngine(engine utility.Engine) { s.utilityEngine = engine }
+
+func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, target utility.LanguageCode, markdown string) (utility.Result, error) {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return utility.Result{}, err
+	}
+	if s.utilityEngine == nil {
+		return utility.Result{}, utility.ErrUnavailable
+	}
+	return s.utilityEngine.Execute(ctx, utility.Request{Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown})
+}
 
 func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {
 	if store != nil {

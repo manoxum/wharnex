@@ -26,6 +26,7 @@ import (
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/transport/httpapi"
 	"kernl.local/harness/backend/internal/tunneldaemon"
+	utilityopenai "kernl.local/harness/backend/internal/utility/openai"
 )
 
 func main() {
@@ -73,6 +74,9 @@ func main() {
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
+	if cfg.OpenAIAPIKey != "" {
+		service.SetUtilityEngine(utilityopenai.New(cfg.OpenAIAPIKey, cfg.OpenAIUtilityModel, cfg.OpenAIBaseURL))
+	}
 	service.SetOrchestratorStore(orchestratorStore)
 	service.SetRuntimeInstanceID(cfg.InstanceID)
 	service.SetEnvironmentProber(sandboxenv.NewProber(cfg.RunnerImage, cfg.Sandbox))
