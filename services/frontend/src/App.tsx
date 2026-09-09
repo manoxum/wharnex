@@ -25,10 +25,12 @@ import { confirmDialog } from './lib/appDialog'
 import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 import { projectFileReferenceSuffix } from './lib/projectFileReferences'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
+import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest } from './lib/pendingRequest'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
 import { hasRecordedRequest } from './lib/requestDispatch'
 import { executionNeedsAttention } from './lib/executionRecovery'
 import { errorMessage as messageOf } from './lib/errorMessage'
+import { expectedResponseBundleName } from './lib/bundlename'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
@@ -89,7 +91,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // Keep strict typecheck stable when a concurrent restage temporarily separates this ref from its consumer.
   void chatIdBackfillRef
   const resumedBundleKeysRef = useRef(new Set<string>())
+  const livePromptDeliveryKeysRef = useRef(new Set<string>())
+  const failedPromptDeliveryKeysRef = useRef(new Set<string>())
   const submitBundleFileRef = useRef<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => '')
+  const ingestingBundleKeysRef = useRef(new Set<string>())
   const dismissedRestartKeysRef = useRef(new Set<string>())
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
 
@@ -293,6 +298,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     // validation forever. Backfill it once the mismatch is noticed instead
     // of leaving that session stuck in an unrecoverable repair loop.
     if (!session || !activeChatId || session.chat_id === activeChatId) return
+    if (session.chat_id) {
+      setError(`Associação de chat inconsistente: esta sessão pertence ao chat ${session.chat_id} e não será reatribuída a ${activeChatId}. Reabra o chat original ou crie uma conversa nova.`)
+      return
+    }
     if (chatIdBackfillRef.current.has(session.id)) return
     chatIdBackfillRef.current.add(session.id)
     void api.setChatId(session.id, activeChatId).then((updated) => {
@@ -469,6 +478,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       try { await api.archiveChat(target.sessionId) } catch { /* backend archive state will simply lag; retried on next archive/restore */ }
       const remoteKeys = [chatId, ...Object.values(target.conflictSurfaces || {}).map((surface) => surface.cacheKey)]
       await Promise.allSettled(remoteKeys.map((cacheKey) => bridge?.chatgpt.release(cacheKey)))
+      for (const key of [...resumedBundleKeysRef.current]) if (key.startsWith(`${target.sessionId}:`) || remoteKeys.some((cacheKey) => key.endsWith(`:${cacheKey}`))) resumedBundleKeysRef.current.delete(key)
       setArchivedChats(moved.archived)
       setPreparedDrafts((current) => { const next = { ...current }; delete next[chatId]; return next })
       setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[chatId]; return next })
@@ -810,14 +820,28 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!isDesktop()) return
     const bridge = desktopBridge()
     if (!bridge) return
-    return bridge.chatgpt.onBundleDownloaded((bundle) => {
-      if (bundle.cacheKey) {
-        setPreparedDrafts((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
-        setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
-      }
-      void submitBundleFileRef.current(bundle.contentBase64, bundle.requestId, bundle.filename)
-        .catch((bundleError) => setError(messageOf(bundleError)))
-    })
+    const ingest = async (bundle: DesktopBundleDownload) => {
+      const deliveryKey = `${bundle.requestId}:${bundle.filename}`
+      if (ingestingBundleKeysRef.current.has(deliveryKey)) return
+      ingestingBundleKeysRef.current.add(deliveryKey)
+      try {
+        await submitBundleFileRef.current(bundle.contentBase64, bundle.requestId, bundle.filename)
+        await bridge.chatgpt.ackBundle(bundle.cacheKey || '', bundle.requestId, bundle.filename)
+        for (const key of [...resumedBundleKeysRef.current]) if (key.includes(`:${bundle.requestId}:`)) resumedBundleKeysRef.current.delete(key)
+        for (const key of [...failedPromptDeliveryKeysRef.current]) if (key.includes(`:${bundle.requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)
+        if (bundle.cacheKey) {
+          setPreparedDrafts((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
+          setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
+        }
+      } catch (bundleError) {
+        await bridge.chatgpt.nackBundle(bundle.cacheKey || '', bundle.requestId, bundle.filename).catch(() => undefined)
+        if (bundle.cacheKey) setFailedPromptDeliveries((current) => ({ ...current, [bundle.cacheKey!]: { kind: promptDeliveryFailureKind(messageOf(bundleError)), requestId: bundle.requestId } }))
+        setError(messageOf(bundleError))
+      } finally { ingestingBundleKeysRef.current.delete(deliveryKey) }
+    }
+    const unsubscribe = bridge.chatgpt.onBundleDownloaded((bundle) => { void ingest(bundle) })
+    void bridge.chatgpt.pendingBundles().then((bundles) => { for (const bundle of bundles) void ingest(bundle) }).catch((bundleError) => console.warn('pending bundle recovery failed', messageOf(bundleError)))
+    return unsubscribe
   }, [])
 
   useEffect(() => {
@@ -853,10 +877,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const url = surface?.url || chat.chatgptUrl
         if (!url) return
         const resumeKey = `${candidate.id}:${requestId}:${cacheKey}`
-        if (cancelled || resumedBundleKeysRef.current.has(resumeKey)) return
+        if (cancelled || resumedBundleKeysRef.current.has(resumeKey) || livePromptDeliveryKeysRef.current.has(resumeKey) || failedPromptDeliveryKeysRef.current.has(resumeKey)) return
         resumedBundleKeysRef.current.add(resumeKey)
         try {
-          await bridge.chatgpt.resumeExpectedBundle({ cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap: candidate.last_manual_prompt || '' })
+          const recoveryBootstrap = pendingRequestRecoveryPrompt(candidate, requestId)
+          if (!recoveryBootstrap) return
+          await bridge.chatgpt.resumeExpectedBundle({ cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap, expectedFilename: expectedResponseBundleName(recoveryBootstrap, requestId) })
         } catch (resumeError) {
           resumedBundleKeysRef.current.delete(resumeKey)
           console.warn('pending ChatGPT bundle recovery failed', cacheKey, messageOf(resumeError))
@@ -965,11 +991,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (firstRequest) updateWorkspaceChat(targetChat.id, projectPath, { title: generatedChatTitle })
     try {
       const response = await api.message(targetSession.id, message + attachmentPromptSuffix(attachments) + projectFileReferenceSuffix(projectFiles), requestMode)
-      if (activeChatIdRef.current === targetChat.id) setSession(response.session)
-      updateWorkspaceChat(targetChat.id, response.session.project_path, { sessionId: response.session.id })
       const prompt = response.manual_prompt || response.session.last_manual_prompt || ''
       const turn = response.session.last_turn || response.turn
       const requestId = response.session.last_request_id || turn?.request_id || ''
+      const deliveryKey = `${response.session.id}:${requestId}:${targetChat.id}`
+      const ownsLiveDelivery = Boolean(prompt && requestId && isDesktop() && response.session.chat_transport_mode !== 'manual')
+      if (ownsLiveDelivery) livePromptDeliveryKeysRef.current.add(deliveryKey)
+      if (activeChatIdRef.current === targetChat.id) setSession(response.session)
+      updateWorkspaceChat(targetChat.id, response.session.project_path, { sessionId: response.session.id })
       if (activeChatIdRef.current === targetChat.id) setManualPrompt(prompt)
       if (requestId) {
         mutateChatItems(targetChat, response.session.project_path, (current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, 'outbound', selectedArtifactKinds(artifacts)) } : item))
@@ -980,13 +1009,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       let transportFailure = ''
       if (prompt && isDesktop() && response.session.chat_transport_mode !== 'manual') {
         try {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 240))
           const bridge = desktopBridge()
           if (!bridge) throw new Error('Desktop bridge indisponível')
           if (activeChatIdRef.current === targetChat.id) setTransportProgress('A preparar o bundle ZIP e a publicar apenas os túneis selecionados…')
           const prepared = await bridge.chatgpt.preparePrompt({
             cacheKey: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
             requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: automationMode === 'auto',
+            expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
             contextSha256: response.session.context.manifest.sha256, lastContextSha256: targetChat.lastContextSha256,
             lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0, preferCurrentConversation: true,
@@ -1012,11 +1041,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           updateWorkspaceChat(targetChat.id, response.session.project_path, { artifactSelection: { context: false, result: false, error: false } })
           if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [targetChat.id]: prepared.attachmentCount }))
           setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[targetChat.id]; return next })
+          failedPromptDeliveryKeysRef.current.delete(deliveryKey)
         } catch (prepareError) {
           transportFailure = messageOf(prepareError)
           const failureKind = promptDeliveryFailureKind(transportFailure)
           setFailedPromptDeliveries((current) => ({ ...current, [targetChat.id]: { kind: failureKind, requestId } }))
+          failedPromptDeliveryKeysRef.current.add(deliveryKey)
         } finally {
+          livePromptDeliveryKeysRef.current.delete(deliveryKey)
           if (activeChatIdRef.current === targetChat.id) setTransportProgress('')
         }
       }
@@ -1034,7 +1066,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           : response.session.plan
             ? (turn?.message || response.session.plan.summary)
           : transportFailure
-            ? promptDeliveryFailureKind(transportFailure) === 'attention'
+            ? promptDeliveryFailureKind(transportFailure) === 'storage'
+              ? `O pedido não pôde ser persistido porque o armazenamento local está sem espaço: ${transportFailure}`
+              : promptDeliveryFailureKind(transportFailure) === 'attention'
               ? `O ChatGPT está aberto, mas ainda não expõe um campo de escrita utilizável: ${transportFailure}`
               : `O prompt foi preparado, mas não foi possível montar o rascunho no ChatGPT: ${transportFailure}`
             : autoSubmitted
@@ -1158,7 +1192,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
-      const prepared = await bridge.chatgpt.retryPreparedPrompt({ cacheKey: activeChatId, expectedRequestId: requestId })
+      if (requestId && failedPromptDeliveries[activeChatId]?.kind === 'storage') {
+        const bundle = (await bridge.chatgpt.pendingBundles()).find((candidate) => candidate.requestId === requestId)
+        if (!bundle) throw new Error('O bundle retido já não está disponível no inbox local.')
+        await submitBundleFileRef.current(bundle.contentBase64, bundle.requestId, bundle.filename)
+        await bridge.chatgpt.ackBundle(bundle.cacheKey || activeChatId, bundle.requestId, bundle.filename)
+        setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
+        return
+      }
+      const prepared = await bridge.chatgpt.retryPreparedPrompt({ cacheKey: activeChatId, expectedRequestId: requestId, sessionId: session.id, url: targetChat.chatgptUrl, recoveryPrompt: requestId ? pendingRequestRecoveryPrompt(session, requestId) : session.last_manual_prompt, expectedFilename: requestId ? expectedResponseBundleName(session.last_manual_prompt || '', requestId) : '' })
       if (prepared.alreadyDelivered) {
         setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
         setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
@@ -1173,9 +1215,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text, meta, iteration: requestId ? iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (retryError) {
       const detail = messageOf(retryError)
-      if (detail.includes('Não existe uma entrega de prompt recente')) {
+      if (detail.includes('entrada completa deste pedido não está persistida')) {
         setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
-        setError('A ação de entrega já não corresponde a um rascunho ativo e foi removida. Se o pedido ainda estiver pendente, use “Reenviar request” no respetivo aviso.')
+        setError('A entrada original deste pedido não está disponível para um reenvio seguro. Cancele este pedido e recrie-o para gerar uma nova base completa.')
       } else {
         setError(`Não foi possível repetir a entrega: ${detail}`)
       }
@@ -1553,10 +1595,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	const dedicatedURL = surface?.url && !sameChatGPTConversation(surface.url, targetChat.chatgptUrl) ? surface.url : undefined
 	const targetURL = dedicatedConflict ? dedicatedURL : targetChat.chatgptUrl
     const transport = targetChat.transport || globalTransport
-    const continuationRequestId = promptSession.pending_knowledge_review_request_id || promptSession.last_request_id || ''
+    const continuationRequestId = activePendingRequestId(promptSession)
     const prepared = await bridge.chatgpt.preparePrompt({
 	  cacheKey, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetURL, sessionId: promptSession.id,
       requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
+      expectedFilename: expectedResponseBundleName(text, continuationRequestId),
       projectFiles: [],
 	  contextSha256: promptSession.context.manifest.sha256, lastContextSha256: dedicatedConflict ? undefined : targetChat.lastContextSha256,
 	  lastContextChatgptUrl: dedicatedConflict ? undefined : targetChat.lastContextChatgptUrl, includeContext: dedicatedConflict || continuationArtifacts.context, preferCurrentConversation: false,
@@ -1988,8 +2031,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   async function commentOnActiveTask(message: string, attachments: File[] = []) {
     if (!session) return
     const active = chats.find((chat) => chat.id === activeChatId)
-    const pending = session.pending_manual_request_ids || []
-    const requestId = pending[pending.length - 1] || session.last_request_id || active?.pendingPlan?.requestId || ''
+    const requestId = activePendingRequestId(session) || active?.pendingPlan?.requestId || ''
     if (!active || !requestId) throw new Error('Nenhuma tarefa ChatGPT ativa para comentar.')
     try {
       const bridge = desktopBridge()
@@ -2008,7 +2050,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const active = chats.find((chat) => chat.id === activeChatId)
 	const activeSurfaceKeys = active ? [active.id, ...Object.values(active.conflictSurfaces || {}).map((surface) => surface.cacheKey)] : []
 	if (!active || (activity.cacheKey && !activeSurfaceKeys.includes(activity.cacheKey))) return
-    const requestId = session?.last_request_id || ''
+    const requestId = session ? activePendingRequestId(session) || session.last_request_id || '' : ''
     const thoughtId = `chatgpt-thought:${requestId || active.id}`
     setItems((current) => {
       const without = current.filter((item) => item.id !== thoughtId)
@@ -2092,10 +2134,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		if (!targetChat) return
 		setBusy(true); setError(undefined)
 		try {
-			const updated = await api.cancelPendingRequest(session.id)
+			const updated = await api.cancelPendingRequest(session.id, requestId)
 			setSession(updated); setManualPrompt('')
+			for (const key of [...resumedBundleKeysRef.current]) if (key.includes(`:${requestId}:`)) resumedBundleKeysRef.current.delete(key)
+			for (const key of [...failedPromptDeliveryKeysRef.current]) if (key.includes(`:${requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)
 			appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'O pedido foi cancelado. A conversa está livre para receber um novo pedido principal; alterações Protected já verificadas foram preservadas.', meta: 'Pedido cancelado', iteration: iterationRef(requestId, 'failed', [], targetChat.chatgptUrl) })
-		} catch (cancelError) { setError(messageOf(cancelError)) } finally { setBusy(false) }
+		} catch (cancelError) {
+			setError(messageOf(cancelError))
+			throw cancelError
+		} finally { setBusy(false) }
 	}
 
   async function analyzeEvolutionEvidence(evidenceIds: string[]) {
@@ -2300,14 +2347,9 @@ function appliedSummaryPlan(session: Session) {
   }
 }
 
-function sessionHasPendingRequest(session: Session, requestId: string) {
-  if (session.pending_manual_request_ids?.includes(requestId)) return true
-  if (session.last_request_id !== requestId) return false
-  return new Set(['awaiting_plan', 'workflow_pending', 'repair_pending', 'baseline_update_pending', 'conflict_resolution_pending']).has(session.state)
-}
-
 function pendingBundleRequestIDs(session: Session) {
-  return [...new Set((session.pending_manual_request_ids || []).filter(Boolean))]
+  const requestId = activePendingRequestId(session)
+  return requestId ? [requestId] : []
 }
 
 function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {

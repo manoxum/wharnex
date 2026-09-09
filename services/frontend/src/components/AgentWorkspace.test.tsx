@@ -206,6 +206,24 @@ describe('AgentWorkspace', () => {
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
   })
 
+  it('keeps an inactive chat action visible and routes it to the owning chat', async () => {
+    const current = session()
+    const parallel = session()
+    parallel.id = 'ses-parallel'
+    parallel.state = 'verified'
+    parallel.pending_host_changes = [{
+      plan: { ...parallel.plan!, plan_id: 'plan-parallel', request_id: 'req-parallel' },
+      execution: { plan_id: 'plan-parallel', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
+      verified_at: '2026-09-07T10:00:01.000Z',
+    }]
+    const view = props(current)
+    render(<AgentWorkspace {...view.element.props} attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir Paralelo para Aplicar no host' }))
+    await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
+    expect(view.onApply).not.toHaveBeenCalled()
+  })
+
   it('exposes the owning chat recovery action after navigating from a global transport alert', async () => {
     const current = session()
     const parallel = session()

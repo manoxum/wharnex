@@ -32,7 +32,7 @@ export function AttentionPopover({ items, activeChatId, busy, onOpen, onAction, 
           <span className="agent-attention-popover-copy"><small>{item.chatTitle}{item.chatId === activeChatId ? ' · chat atual' : ''}</small><strong>{item.title}</strong><span>{item.detail}</span></span>
           <Icon name="arrow-right" size={13}/>
         </button>
-        {item.action && item.chatId === activeChatId && <button type="button" className="agent-attention-popover-action" disabled={busy} onClick={() => void onAction(item)} aria-label={ATTENTION_ACTION_LABEL[item.action]}><Icon name={ACTION_ICON[item.action]} size={13}/>{ATTENTION_ACTION_LABEL[item.action]}</button>}
+        {item.action && <button type="button" className="agent-attention-popover-action" disabled={busy} onClick={() => void onAction(item)} aria-label={item.chatId === activeChatId ? ATTENTION_ACTION_LABEL[item.action] : `Abrir ${item.chatTitle} para ${ATTENTION_ACTION_LABEL[item.action]}`}><Icon name={ACTION_ICON[item.action]} size={13}/>{item.chatId === activeChatId ? ATTENTION_ACTION_LABEL[item.action] : `Abrir · ${ATTENTION_ACTION_LABEL[item.action]}`}</button>}
       </article>)}
     </div>
     <footer><button type="button" onClick={onOpenAll}><Icon name="bell" size={13}/> Ver todos os alertas <Icon name="arrow-right" size={12}/></button></footer>

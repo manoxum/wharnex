@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTHumanActionScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chooseChatGPTDownloadCandidate } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTHumanActionScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chooseChatGPTDownloadCandidate, chooseUsableChatGPTDOMCandidate } from './chatgpt-dom.mjs'
 
 test('DOM automation scripts stay narrow and escape user text', () => {
   const fill = chatGPTFillComposerScript('hello ` ${world} </script>')
@@ -41,6 +41,28 @@ test('every generated ChatGPT DOM bridge is valid JavaScript before renderer inj
     chatGPTVisibleActivityScript(),
   ]
   for (const script of scripts) assert.doesNotThrow(() => new Function(script))
+})
+
+test('composer selection ignores stale disabled and hidden candidates', () => {
+  const disabled = { disabled: true, getAttribute: () => null }
+  const ariaDisabled = { disabled: false, getAttribute: (name) => name === 'aria-disabled' ? 'true' : null }
+  const hidden = { disabled: false, hidden: true, getAttribute: () => null }
+  const cssHidden = { disabled: false, getAttribute: () => null }
+  const usable = { disabled: false, getAttribute: () => null }
+  const styleFor = (node) => ({ display: node === cssHidden ? 'none' : 'block', visibility: 'visible' })
+
+  assert.equal(chooseUsableChatGPTDOMCandidate([disabled, ariaDisabled, hidden, cssHidden, usable], styleFor), usable)
+  assert.equal(chooseUsableChatGPTDOMCandidate([disabled, hidden], styleFor), undefined)
+})
+
+test('focus, fill, readiness, health, completion and submit share the usable composer selector', () => {
+  for (const script of [chatGPTFocusComposerScript(), chatGPTFillComposerScript('prompt'), chatGPTComposerReadyScript(), chatGPTHumanActionScript(), chatGPTResponseCompletionScript(0), chatGPTSubmitScript()]) {
+    assert.match(script, /chooseUsableChatGPTDOMCandidate/)
+    assert.match(script, /querySelectorAll/)
+    assert.doesNotMatch(script, /querySelector\(s\)\)\.find\(Boolean\)/)
+  }
+  assert.match(chatGPTFocusComposerScript(), /document\.activeElement === composer/)
+  assert.match(chatGPTFillComposerScript('prompt'), /document\.activeElement !== composer/)
 })
 
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {

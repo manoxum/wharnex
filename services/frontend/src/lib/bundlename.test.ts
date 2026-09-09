@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseBundleName, parseBundleNameWithDuplicateSuffix, requestIdFromBundleName } from './bundlename'
+import { expectedResponseBundleName, parseBundleName, parseBundleNameWithDuplicateSuffix, requestIdFromBundleName } from './bundlename'
 
 const chatId = '9f3a2b1c-uuid-like'
 const rootReq = 'req_20260906T192238_1adfea24039ba474'
@@ -34,5 +34,12 @@ describe('bundlename parsing', () => {
     expect(parseBundleName(name)).toBeNull()
     expect(parseBundleNameWithDuplicateSuffix(name)).toEqual({ kind: 'res', chatId, requestId: rootReq, subrequestId: '' })
     expect(requestIdFromBundleName(name)).toBe(rootReq)
+  })
+
+  it('extracts only the exact response filename for the active request', () => {
+    const expected = `whx_bundle_res_${chatId}_${rootReq}_${derivedId}.zip`
+    const prompt = `Return ${expected}; ignore whx_bundle_res_${chatId}_${rootReq}.zip for this derived turn.`
+    expect(expectedResponseBundleName(prompt, derivedId)).toBe(expected)
+    expect(expectedResponseBundleName(prompt, 'req_20260906T194500_0000000000000000')).toBe('')
   })
 })

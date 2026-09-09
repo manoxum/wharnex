@@ -670,7 +670,7 @@ func TestAutoModeProtocolBundleFailurePreparesExactlyOneFreshRequest(t *testing.
 	}
 }
 
-func TestRemoteInputFailureAcceptsOnlyRestoredCurrentRequest(t *testing.T) {
+func TestRemoteInputFailureRejectsAHistoricalRequestThatIsNoLongerPending(t *testing.T) {
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "main.txt"), []byte("first"), 0o600); err != nil {
 		t.Fatal(err)
@@ -687,8 +687,8 @@ func TestRemoteInputFailureAcceptsOnlyRestoredCurrentRequest(t *testing.T) {
 	if _, err := service.store.Update(started.ID, func(current *domain.Session) error { current.PendingManualRequestIDs = nil; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.FailRemoteInputRequest(context.Background(), started.ID, prompted.LastRequestID, "restored request failed"); err != nil {
-		t.Fatal(err)
+	if _, err := service.FailRemoteInputRequest(context.Background(), started.ID, prompted.LastRequestID, "late transport failure"); err == nil {
+		t.Fatal("accepted a historical request after its pending marker was removed")
 	}
 	if _, err := service.FailRemoteInputRequest(context.Background(), started.ID, "req_other", "must fail"); err == nil {
 		t.Fatal("accepted a non-current restored request")

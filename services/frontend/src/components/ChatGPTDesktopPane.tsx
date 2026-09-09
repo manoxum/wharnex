@@ -3,6 +3,8 @@ import { chatgptConversationURL, desktopBridge, elementBounds, formatBytes, same
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 import { confirmDialog } from '../lib/appDialog'
+import { expectedResponseBundleName } from '../lib/bundlename'
+import { errorMessage } from '../lib/errorMessage'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
@@ -37,7 +39,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const [linkReady, setLinkReady] = useState(false)
   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
   const [overlayBlocked, setOverlayBlocked] = useState(false)
-  const [manualContinuationBusy, setManualContinuationBusy] = useState(false)
+  const [requestAction, setRequestAction] = useState<'resume' | 'stop' | null>(null)
   const [controlsExpanded, setControlsExpanded] = useState(() => {
     try { return window.localStorage.getItem(CHATGPT_CONTROLS_KEY) === '1' } catch { return false }
   })
@@ -212,8 +214,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   }
 
   async function continuePendingRequest() {
-    if (!bridge || !pendingRequestId || manualContinuationBusy) return
-    setManualContinuationBusy(true)
+    if (!bridge || !pendingRequestId || requestAction) return
+    setRequestAction('resume')
     try {
       let result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
       if (!result.ok && result.reason === 'not_supervised') {
@@ -228,6 +230,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
           requestId: pendingRequestId,
           url: conversation,
           recoveryBootstrap: recoveryBootstrap || '',
+          expectedFilename: expectedResponseBundleName(recoveryBootstrap || '', pendingRequestId),
         })
         result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
       }
@@ -249,23 +252,38 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       }
       setNotice(`Continuação manual enviada para ${pendingRequestId}.`)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Não foi possível retomar o pedido.')
+      setNotice(errorMessage(error, 'Não foi possível retomar o pedido.'))
     } finally {
-      setManualContinuationBusy(false)
+      setRequestAction(null)
     }
   }
 
   async function stopPendingRequest() {
-    if (!pendingRequestId || !onCancelPendingRequest) return
+    if (!pendingRequestId || !onCancelPendingRequest || requestAction) return
+    setRequestAction('stop')
     try {
-      const remote = await bridge?.chatgpt.stopConversation(chatId)
+      // The backend owns the request identity. Reject a stale click before
+      // stopping or clearing anything on the remote surface.
       await onCancelPendingRequest(pendingRequestId)
-      setNotice(remote && !remote.ok
-        ? `Pedido ${pendingRequestId} cancelado localmente; confirme a paragem no ChatGPT (${remote.state}).`
-        : `Pedido ${pendingRequestId} parado.`)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Não foi possível parar o pedido.')
+      setNotice(`Não foi possível cancelar o pedido no WHX: ${errorMessage(error)}`)
+      setRequestAction(null)
+      return
     }
+    const [remote, cleanup] = await Promise.allSettled([
+      bridge ? bridge.chatgpt.stopConversation(chatId) : Promise.resolve({ ok: false, state: 'ponte indisponível' }),
+      bridge ? bridge.chatgpt.cancelRequest(chatId, pendingRequestId) : Promise.resolve({ ok: false, cacheKey: chatId, requestId: pendingRequestId, cleared: false }),
+    ])
+    const cleanupFailure = cleanup.status === 'rejected' ? errorMessage(cleanup.reason) : ''
+    if (remote.status === 'rejected' || cleanupFailure) {
+      const details = [remote.status === 'rejected' ? `paragem remota: ${errorMessage(remote.reason)}` : '', cleanupFailure ? `limpeza da supervisão: ${cleanupFailure}` : ''].filter(Boolean).join('; ')
+      setNotice(`Pedido ${pendingRequestId} cancelado no WHX; confirme o ChatGPT (${details}).`)
+    } else if (!remote.value.ok) {
+      setNotice(`Pedido ${pendingRequestId} cancelado localmente; confirme a paragem no ChatGPT (${remote.value.state}).`)
+    } else {
+      setNotice(`Pedido ${pendingRequestId} parado.`)
+    }
+    setRequestAction(null)
   }
 
   const currentConversation = chatgptConversationURL(state.url)
@@ -290,17 +308,21 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       </div>
     </div>
 
-    {(controlsExpanded || !authenticated || Boolean(externalAuth)) && <div className="chatgpt-auth-compact-panel">
+    {(pendingRequestId || controlsExpanded || !authenticated || Boolean(externalAuth)) && <div className="chatgpt-auth-compact-panel">
       {!authenticated && <strong>{externalAuth ? `Autenticação ${externalAuth.provider} em curso` : 'Autenticação necessária'}</strong>}
       <div className="chatgpt-auth-mode-actions" role="group" aria-label="Modo de autenticação ChatGPT">
         <button className={state.authMode === 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('embedded')}>Incorporado</button>
         <button className={state.authMode !== 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('external')}><Icon name="external" size={13}/> Externo</button>
         <button className="text-button" type="button" disabled={busy} onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={13}/> Navegador</button>
       </div>
+      {pendingRequestId && <div className="chatgpt-request-toolbar" role="group" aria-label={`Pedido ${pendingRequestId} sob supervisão`}>
+        <span className="chatgpt-request-chip" title={`Pedido ${pendingRequestId} sob supervisão`}><Icon name="bridge" size={12}/><code>{compactRequestId(pendingRequestId)}</code></span>
+        <button className="text-button" type="button" disabled={busy || Boolean(requestAction)} onClick={() => void continuePendingRequest()}><Icon name="refresh" size={12}/>{requestAction === 'resume' ? 'A retomar…' : 'Retomar pedido'}</button>
+        {onCancelPendingRequest && <button className="text-button danger" type="button" disabled={busy || Boolean(requestAction)} onClick={() => void stopPendingRequest()}><Icon name="close" size={12}/>{requestAction === 'stop' ? 'A parar…' : 'Parar pedido'}</button>}
+      </div>}
     </div>}
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
-    {pendingRequestId && <div className="chatgpt-link-warning"><span>Pedido {pendingRequestId} sob supervisão.</span><button className="text-button" disabled={busy || manualContinuationBusy} onClick={() => void continuePendingRequest()}>Retomar pedido</button>{onCancelPendingRequest && <button className="text-button danger" disabled={busy} onClick={() => void stopPendingRequest()}>Parar pedido</button>}</div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
     <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharness retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
   </div>
@@ -316,4 +338,5 @@ function manualContinuationFailure(reason?: string) {
 }
 
 function safeHost(value: string) { try { return new URL(value).host } catch { return 'chatgpt.com' } }
+function compactRequestId(value: string) { return value.length > 22 ? `${value.slice(0, 19)}…` : value }
 function isChatGPTAuthSurface(value: string) { try { const path = new URL(value).pathname; return path === '/auth' || path.startsWith('/auth/') } catch { return false } }

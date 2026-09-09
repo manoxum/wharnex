@@ -38,7 +38,8 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 		// its lineage/pending marker is also an admissible restored identity.
 		pending := containsString(current.PendingManualRequestIDs, requestID)
 		isKnowledgeReview := knowledgeReviewRequest(*current, requestID)
-		if !pending && current.LastRequestID != requestID && !isKnowledgeReview {
+		inFlight := current.PlannerInFlight && current.LastRequestID == requestID
+		if !pending && !inFlight && !isKnowledgeReview {
 			return errors.New("remote input request is not pending")
 		}
 		if isKnowledgeReview {

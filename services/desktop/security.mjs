@@ -142,7 +142,7 @@ export function wharnessBundleRequestIdFromFilename(value) {
 // and normalizes the latter back to canonical form. expectedChatId/expectedRequestId
 // pin what this specific pending request is allowed to resolve to; a name
 // naming a different chat or request is a hard error, never silently accepted.
-export function canonicalWharnessBundleDownload(value, expectedRequestId = '', mimeType = '', expectedChatId = '') {
+export function canonicalWharnessBundleDownload(value, expectedRequestId = '', mimeType = '', expectedChatId = '', expectedFilename = '') {
   const filename = String(value || '').trim()
   const parsed = parseBundleName(filename)
   if (parsed) {
@@ -159,15 +159,18 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
     // contains '_'): comparing it raw against parsed.chatId would reject
     // every bundle for such a surface, even the one it genuinely belongs to.
     if (expectedChatId && parsed.chatId !== safeChatId(expectedChatId)) {
-      throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o chat ativo é ${safeChatId(expectedChatId)}.`)
+      if (!expectedFilename) throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o chat ativo é ${safeChatId(expectedChatId)}.`)
+      const expectedParsed = parseBundleName(expectedFilename)
+      if (!expectedParsed || parsed.chatId !== expectedParsed.chatId) throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o pedido ativo pertence a ${expectedParsed?.chatId || safeChatId(expectedChatId)}.`)
     }
+    if (expectedFilename && filename !== expectedFilename) throw new Error(`Bundle tem nome ${filename}, mas o protocolo exige ${expectedFilename}.`)
     return { requestId: effectiveRequestId, filename, normalized: false }
   }
 
   const expected = String(expectedRequestId || '').trim()
   if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(expected)) return undefined
   const chatId = safeChatId(expectedChatId)
-  const canonical = buildBundleName('res', chatId, expected)
+  const canonical = expectedFilename || buildBundleName('res', chatId, expected)
   const duplicate = parseBundleNameWithDuplicateSuffix(filename)
   if (duplicate) {
     if (duplicate.kind !== 'res') {
@@ -177,7 +180,8 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
     if (duplicateRequestId !== expected) {
       throw new Error(`Bundle pertence ao pedido ${duplicateRequestId}, mas o pedido ativo é ${expected}.`)
     }
-    if (expectedChatId && duplicate.chatId !== safeChatId(expectedChatId)) {
+    const expectedParsed = parseBundleName(expectedFilename)
+    if (expectedChatId && duplicate.chatId !== safeChatId(expectedChatId) && duplicate.chatId !== expectedParsed?.chatId) {
       throw new Error(`Bundle pertence ao chat ${duplicate.chatId}, mas o chat ativo é ${chatId}.`)
     }
     return { requestId: expected, filename: canonical, normalized: true, sourceFilename: filename }

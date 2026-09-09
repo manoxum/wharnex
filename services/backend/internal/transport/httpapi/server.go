@@ -943,7 +943,13 @@ func (a *API) discardInterruptedExecution(w http.ResponseWriter, r *http.Request
 }
 
 func (a *API) cancelPendingRequest(w http.ResponseWriter, r *http.Request) {
-	item, err := a.service.CancelPendingRequest(r.PathValue("id"))
+	var body struct {
+		RequestID string `json:"request_id"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.CancelPendingRequestByID(r.PathValue("id"), body.RequestID)
 	if err != nil {
 		writeError(w, http.StatusConflict, "request_cancel_unavailable", err.Error())
 		return

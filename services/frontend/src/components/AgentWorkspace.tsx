@@ -123,7 +123,11 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   }
 
   async function runAttentionAction(item: AttentionItem) {
-    if (item.chatId !== chatProps.activeChatId || !item.action) return
+    if (!item.action) return
+    if (item.chatId !== chatProps.activeChatId) {
+      await openAttention(item)
+      return
+    }
     setAttentionPopoverOpen(false)
     switch (item.action) {
       case 'approve-execution': await inspectorProps.onExecute(true); return
@@ -225,7 +229,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
     </aside>
 
     {drawer && <aside className={`agent-drawer ${drawer === 'plans' || drawer === 'executions' ? 'activity-wide' : drawer === 'evolution' ? 'evidence-wide' : drawer === 'knowledge' ? 'knowledge-wide' : drawer === 'attention' ? 'attention-wide' : ''}`}>
-      {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onClose={() => setDrawer('')}/> : null}
+      {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onClose={() => setDrawer('')}/> : null}
       {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archived} busy={busy} onRestore={chatProps.onRestoreChat} onDelete={chatProps.onDeleteArchivedChat} onRename={chatProps.onRenameChat} onGenerate={chatProps.onGenerateChatTitle} onClose={() => setDrawer('')}/> : null}
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={() => setDrawer('')}/> : null}
@@ -256,17 +260,17 @@ function hasRunningExecutionCommand(events: HarnessEvent[]) {
   return running.size > 0
 }
 
-function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
+function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const chatCount = new Set(items.map((item) => item.chatId)).size
   return <section className="attention-center-drawer" aria-label="Centro de notificações">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Atenção global</span><strong>Centro de notificações</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar notificações"><Icon name="close" size={13}/></button></header>
     <div className="attention-center-summary"><span><b>{items.length}</b> {items.length === 1 ? 'alerta ativo' : 'alertas ativos'}</span><span><b>{chatCount}</b> {chatCount === 1 ? 'chat afetado' : 'chats afetados'}</span></div>
     <div className="attention-center-list">
-      {items.length ? items.map((item) => <button type="button" className={`attention-center-item ${item.tone}`} key={item.id} disabled={busy && item.chatId !== activeChatId} onClick={() => void onOpen(item)}>
+      {items.length ? items.map((item) => <article className={`attention-center-item ${item.tone}`} key={item.id}><button type="button" className="attention-center-link" disabled={busy && item.chatId !== activeChatId} onClick={() => void onOpen(item)}>
         <span className="attention-center-marker"><Icon name={item.tone === 'danger' ? 'shield' : item.tone === 'success' ? 'apply' : 'bell'} size={15}/></span>
         <span className="attention-center-copy"><small>{item.chatTitle}{item.chatId === activeChatId ? ' · aberto agora' : ''}</small><strong>{item.title}</strong><span>{item.detail}</span></span>
         <Icon name="arrow-right" size={14}/>
-      </button>) : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>Nada requer atenção</strong><span>Alertas de todos os chats abertos deste projeto aparecerão aqui.</span></div>}
+      </button>{item.action && <button type="button" className="attention-center-action" disabled={busy} onClick={() => void onAction(item)}>{item.chatId === activeChatId ? ATTENTION_ACTION_LABEL[item.action] : `Abrir · ${ATTENTION_ACTION_LABEL[item.action]}`}</button>}</article>) : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>Nada requer atenção</strong><span>Alertas de todos os chats abertos deste projeto aparecerão aqui.</span></div>}
     </div>
   </section>
 }

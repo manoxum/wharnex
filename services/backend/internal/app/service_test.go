@@ -670,6 +670,39 @@ func TestCancelPendingRequestReleasesConversationAndPreservesVerifiedCandidate(t
 	}
 }
 
+func TestCancelPendingRequestRejectsStaleIdentityAndClearsLegacyMarkers(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), sandbox.NewLocalRunner())
+	started, err := service.StartSessionWithModes(context.Background(), t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.store.Update(started.ID, func(current *domain.Session) error {
+		current.LastRequestID = "req-current"
+		current.PendingManualRequestIDs = []string{"req-old", "req-current"}
+		current.PendingKnowledgeReviewRequestID = "req-current"
+		current.LastManualPrompt = "pending"
+		current.State = "awaiting_plan"
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CancelPendingRequestByID(started.ID, "req-old"); err == nil {
+		t.Fatal("expected a stale cancellation to be rejected")
+	}
+	unchanged, _ := service.GetSession(started.ID)
+	if len(unchanged.PendingManualRequestIDs) != 2 {
+		t.Fatalf("stale cancellation mutated the request chain: %#v", unchanged)
+	}
+	cancelled, err := service.CancelPendingRequestByID(started.ID, "req-current")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cancelled.PendingManualRequestIDs) != 0 || cancelled.PendingKnowledgeReviewRequestID != "" || cancelled.LastManualPrompt != "" {
+		t.Fatalf("cancellation left split request state: %#v", cancelled)
+	}
+}
+
 func TestConflictResolutionPlanCannotEscapeCapsule(t *testing.T) {
 	item := domain.Session{IntegrationConflict: &domain.ConflictResolution{RequestID: "req-conflict", Paths: []string{"file.txt"}}}
 	valid := &domain.ExecutionPlan{RequestID: "req-conflict", Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n"}}}
@@ -1476,8 +1509,8 @@ func TestExecutionFailureRepairRequestIncludesProjectKnowledge(t *testing.T) {
 	if err == nil || result.Success {
 		t.Fatalf("expected execution failure, result=%#v err=%v", result, err)
 	}
-	if !strings.Contains(repaired.LastManualPrompt, "PROJECT KNOWLEDGE") || !strings.Contains(repaired.LastManualPrompt, "stack-known-good.sh") {
-		t.Fatalf("expected the automatic repair prompt to include the project's accumulated knowledge, got %q", repaired.LastManualPrompt)
+	if !strings.Contains(repaired.LastManualPrompt, "PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2") || strings.Contains(repaired.LastManualPrompt, "stack-known-good.sh") {
+		t.Fatalf("expected the automatic repair prompt to reference separately attached v2 knowledge without duplicating its content, got %q", repaired.LastManualPrompt)
 	}
 }
 
@@ -2112,6 +2145,9 @@ func TestSetChatIDBackfillsALegacySessionMissingOne(t *testing.T) {
 	if _, err := service.SetChatID(started.ID, "has_underscore"); err == nil {
 		t.Fatal("expected a chat id containing '_' to be rejected: it would make whx_bundle_* names ambiguous to parse")
 	}
+	if _, err := service.SetChatID(started.ID, "different-chat"); err == nil || !strings.Contains(err.Error(), "already owned") {
+		t.Fatalf("expected immutable chat ownership rejection, got %v", err)
+	}
 }
 
 func TestSessionFailureKindFallsBackToLegacyProse(t *testing.T) {
@@ -2241,6 +2277,40 @@ func TestAutoAnswerBundleDoesNotExecuteOrApply(t *testing.T) {
 	}
 	if result.Session.State != "answered" || result.Session.LastTurn == nil || result.Session.LastTurn.Kind != domain.TurnKindAnswer {
 		t.Fatalf("answer was not persisted as a conversational outcome: %#v", result.Session)
+	}
+}
+
+func TestExecutionBundleRequiresAuthoritativeFilenameAndReplaysIdempotently(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err = service.SetChatID(started.ID, "chat-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "Explique o projeto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := makeAnswerBundle(t, prompted.LastRequestID)
+	wrongName := "whx_bundle_res_system_" + prompted.LastRequestID + ".zip"
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, wrongName, bundle); !errors.Is(err, ErrExecutionBundleRequestMismatch) {
+		t.Fatalf("non-authoritative filename error = %v", err)
+	}
+	expectedName := expectedResponseBundleFilename(prompted, prompted.LastRequestID)
+	first, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedName, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedName, bundle)
+	if err != nil {
+		t.Fatalf("ack replay should be idempotent: %v", err)
+	}
+	if second.Session.State != first.Session.State || second.Session.LastBundle == nil || second.Session.LastBundle.SHA256 != first.Session.LastBundle.SHA256 {
+		t.Fatalf("idempotent replay changed the accepted result: first=%#v second=%#v", first.Session, second.Session)
 	}
 }
 

@@ -76,6 +76,44 @@ test('automatic submit rejects after confirmation attempts are exhausted', async
   assert.equal(submitCount, 2)
 })
 
+test('automatic submit preserves an asynchronous DOM dispatch failure', async () => {
+  const coordinator = new ChatGPTSubmitCoordinator()
+  let submitCount = 0
+
+  await assert.rejects(() => submitWithRetry({
+    attempts: 1,
+    beginSubmission: () => coordinator.expect(81, { startTimeoutMs: 20 }),
+    submit: async () => {
+      submitCount += 1
+      throw new Error('DOM submit failed')
+    },
+  }), /DOM submit failed/)
+
+  assert.equal(submitCount, 1)
+})
+
+test('automatic submit awaits asynchronous dispatch before starting a retry', async () => {
+  const order = []
+  let attempt = 0
+  const result = await submitWithRetry({
+    attempts: 2,
+    beforeAttempt: async () => { attempt += 1; order.push(`before-${attempt}`) },
+    beginSubmission: () => attempt === 1
+      ? Promise.reject(new Error('observation timeout'))
+      : Promise.resolve({ accepted: true, requestId: 'async-accepted' }),
+    submit: async () => {
+      const current = attempt
+      order.push(`submit-${current}-start`)
+      await Promise.resolve()
+      order.push(`submit-${current}-end`)
+    },
+    wait: async () => {},
+  })
+
+  assert.deepEqual(result, { accepted: true, requestId: 'async-accepted' })
+  assert.ok(order.indexOf('submit-1-end') < order.indexOf('before-2'))
+})
+
 
 test('automatic submit never replays Enter when request observation times out', async () => {
   const coordinator = new ChatGPTSubmitCoordinator()

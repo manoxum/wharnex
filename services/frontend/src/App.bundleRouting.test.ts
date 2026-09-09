@@ -15,29 +15,37 @@ describe('App bundle routing', () => {
     expect(source.slice(catchBranch, catchBranch + 260)).toContain('Bundle atrasado ou duplicado ignorado.')
   })
 
-  it('retires a stale delivery banner as soon as its bundle reaches the owning chat', () => {
-    const listener = source.indexOf('return bridge.chatgpt.onBundleDownloaded((bundle) =>')
+  it('retires a stale delivery banner only after the backend acknowledges its bundle', () => {
+    const listener = source.indexOf('const ingest = async (bundle: DesktopBundleDownload) =>')
     expect(listener).toBeGreaterThan(-1)
-    const body = source.slice(listener, listener + 700)
-    expect(body).toContain('delete next[bundle.cacheKey!]')
-
-    const owner = source.indexOf('if (!targetSession || !targetChat)')
-    const accepted = source.slice(owner, owner + 850)
-    expect(accepted).toContain('delete next[targetChat!.id]')
+    const body = source.slice(listener, listener + 2200)
+    const submit = body.indexOf('await submitBundleFileRef.current')
+    const acknowledge = body.indexOf('await bridge.chatgpt.ackBundle')
+    const clear = body.indexOf('delete next[bundle.cacheKey!]')
+    expect(submit).toBeGreaterThan(-1)
+    expect(acknowledge).toBeGreaterThan(submit)
+    expect(clear).toBeGreaterThan(acknowledge)
+    expect(body).toContain('await bridge.chatgpt.nackBundle')
+    expect(body).toContain('bridge.chatgpt.pendingBundles()')
   })
 
-  it('removes an expired delivery action instead of leaving an infinite failing retry', () => {
-    const missing = source.indexOf("detail.includes('Não existe uma entrega de prompt recente')")
+  it('falls back to durable request input and retires only an unrecoverable legacy retry', () => {
+    const retry = source.indexOf('async function retryPreparedPromptDelivery')
+    expect(retry).toBeGreaterThan(-1)
+    const end = source.indexOf('\n  async function ', retry + 10)
+    const body = source.slice(retry, end)
+    expect(body).toContain('bridge.chatgpt.retryPreparedPrompt')
+    const missing = body.indexOf("detail.includes('entrada completa deste pedido não está persistida')")
     expect(missing).toBeGreaterThan(-1)
-    expect(source.slice(missing, missing + 430)).toContain('delete next[activeChatId]')
+    expect(body.slice(missing, missing + 500)).toContain('delete next[activeChatId]')
   })
 
   it('does not treat last_request_id as pending after the session reached a terminal state', () => {
-    const helper = source.indexOf('function sessionHasPendingRequest(session: Session, requestId: string)')
+    const helperSource = readFileSync(resolve(process.cwd(), 'src/lib/pendingRequest.ts'), 'utf8')
+    const helper = helperSource.indexOf('export function sessionHasPendingRequest(session: Session, requestId: string)')
     expect(helper).toBeGreaterThan(-1)
-    const body = source.slice(helper, helper + 430)
-    expect(body).toContain("session.last_request_id !== requestId")
-    expect(body).toContain("'awaiting_plan'")
-    expect(body).not.toContain('|| session.last_request_id === requestId')
+    const body = helperSource.slice(helper, helper + 430)
+    expect(helperSource).toContain("'awaiting_plan'")
+    expect(body).toContain('pendingStates.has(session.state)')
   })
 })

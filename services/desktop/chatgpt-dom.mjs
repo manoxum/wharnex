@@ -2,13 +2,33 @@ function encode(value) {
   return JSON.stringify(String(value ?? ''))
 }
 
+export function chooseUsableChatGPTDOMCandidate(candidates, styleFor = (node) => globalThis.getComputedStyle?.(node)) {
+  const seen = new Set()
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    if (!candidate || seen.has(candidate)) continue
+    seen.add(candidate)
+    if (candidate.isConnected === false || candidate.disabled === true || candidate.getAttribute?.('aria-disabled') === 'true') continue
+    if (candidate.hidden === true || candidate.closest?.('[hidden], [aria-hidden="true"], [inert]')) continue
+    const style = styleFor?.(candidate)
+    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') continue
+    return candidate
+  }
+  return undefined
+}
+
+function composerLookupSource() {
+  return `
+    const chooseUsable = ${chooseUsableChatGPTDOMCandidate.toString()};
+    const composerSelectors = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'];
+    const composer = chooseUsable(composerSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]));`
+}
+
 export function chatGPTFocusComposerScript() {
   return `(() => {
-    const selectors = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'];
-    const el = selectors.map((s) => document.querySelector(s)).find(Boolean);
-    if (!el) return false;
-    el.focus();
-    return true;
+    ${composerLookupSource()}
+    if (!composer) return false;
+    composer.focus();
+    return document.activeElement === composer;
   })()`
 }
 
@@ -16,33 +36,35 @@ export function chatGPTFillComposerScript(text) {
   const value = encode(text)
   return `(() => {
     const value = ${value};
-    const selectors = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'];
-    const el = selectors.map((s) => document.querySelector(s)).find(Boolean);
-    if (!el) return false;
-    el.focus();
-    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
-      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    ${composerLookupSource()}
+    if (!composer) return false;
+    composer.focus();
+    if (document.activeElement !== composer) return false;
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+      const proto = composer instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-      if (setter) setter.call(el, value); else el.value = value;
+      if (setter) setter.call(composer, value); else composer.value = value;
     } else {
-      el.textContent = value;
+      composer.textContent = value;
       const range = document.createRange();
-      range.selectNodeContents(el); range.collapse(false);
+      range.selectNodeContents(composer); range.collapse(false);
       const selection = window.getSelection();
       selection?.removeAllRanges(); selection?.addRange(range);
     }
-    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+    composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+    composer.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   })()`
 }
 
 export function chatGPTSubmitScript() {
   return `(() => {
-    const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
+    ${composerLookupSource()}
+    if (!composer) return false;
     const root = composer?.closest('form') || composer?.parentElement?.parentElement || document;
     const selectors = ['button[data-testid="send-button"]','button[type="submit"]'];
-    const button = selectors.map((s) => root.querySelector?.(s) || document.querySelector(s)).find((candidate) => candidate && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true');
+    const localButtons = selectors.flatMap((selector) => [...(root.querySelectorAll?.(selector) || [])]);
+    const button = chooseUsable(localButtons) || chooseUsable(selectors.flatMap((selector) => [...document.querySelectorAll(selector)]));
     if (!button) return false;
     button.click();
     return true;
@@ -116,9 +138,8 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
 
 export function chatGPTComposerReadyScript() {
   return `(() => {
-    const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
-    if (!composer) return false;
-    return !composer.disabled && composer.getAttribute?.('aria-disabled') !== 'true';
+    ${composerLookupSource()}
+    return Boolean(composer);
   })()`
 }
 
@@ -140,12 +161,12 @@ export function chatGPTHumanActionScript() {
     );
     const authentication = /^\\/auth(?:\\/|$)/i.test(path);
     const access = Boolean(firstVisible('[data-testid*="access-denied" i],[data-testid*="blocked" i],[data-testid*="unsupported-browser" i]'));
-    const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
+    ${composerLookupSource()}
     const kind = challenge ? 'verification' : authentication ? 'authentication' : access ? 'access' : '';
     return {
       required: Boolean(kind),
       kind,
-      composerReady: Boolean(composer && !composer.disabled && composer.getAttribute?.('aria-disabled') !== 'true'),
+      composerReady: Boolean(composer),
       pageVisible: document.visibilityState !== 'hidden',
       capturedAt: new Date().toISOString(),
     };
@@ -170,8 +191,8 @@ export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
     const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button[aria-label*="stop generating" i], button[aria-label*="parar de gerar" i]')
       || document.querySelector('.result-streaming, [class*="result-streaming" i]');
     const failed = document.querySelector('[data-testid="conversation-turn-error"] button,button[data-testid="retry-button"],[data-testid="message-error"] button');
-    const composer = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].map((s) => document.querySelector(s)).find(Boolean);
-    const composerReady = Boolean(composer && !composer.disabled && composer.getAttribute?.('aria-disabled') !== 'true');
+    ${composerLookupSource()}
+    const composerReady = Boolean(composer);
     return { assistantCount, thinking: Boolean(stop), failed: Boolean(failed), composerReady, complete: Boolean(assistantCount > baseline && !stop && !failed && composerReady) };
   })()`
 }

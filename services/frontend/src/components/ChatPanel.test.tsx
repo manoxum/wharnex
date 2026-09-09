@@ -249,15 +249,15 @@ describe('ChatPanel', () => {
     expect(screen.queryByRole('button', { name: 'Corrigir com GPT' })).toBeNull()
   })
 
-	it('timestamps WHX notices, links their request, and allows cancelling the active request', async () => {
-		const onCancelPendingRequest = vi.fn(async () => undefined)
-		render(<ChatPanel session={{ ...session, state: 'failed', last_request_id: 'req-123' }} items={[{ id: 'failure', role: 'harness', source: 'wharness', presentation: 'notice', createdAt: '2026-09-06T11:00:00Z', text: 'Falhou.', iteration: { id: 'iteration-1', requestId: 'req-123', phase: 'failed', artifacts: [] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCancelPendingRequest={onCancelPendingRequest} {...chatActions}/>)
-		expect(screen.getByText('WHX')).toBeTruthy()
-		expect(document.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-06T11:00:00Z')
-		expect(screen.getByRole('link', { name: 'Pedido req-123' }).getAttribute('href')).toBe('#request-req-123')
-		fireEvent.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
-		await waitFor(() => expect(onCancelPendingRequest).toHaveBeenCalledWith('req-123'))
-	})
+  it('timestamps WHX notices, links their request, and allows cancelling the active request', async () => {
+    const onCancelPendingRequest = vi.fn(async () => undefined)
+    render(<ChatPanel session={{ ...session, state: 'awaiting_plan', last_request_id: 'req-123', pending_manual_request_ids: ['req-123'] }} items={[{ id: 'failure', role: 'harness', source: 'wharness', presentation: 'notice', createdAt: '2026-09-06T11:00:00Z', text: 'Falhou.', iteration: { id: 'iteration-1', requestId: 'req-123', phase: 'failed', artifacts: [] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCancelPendingRequest={onCancelPendingRequest} {...chatActions} />)
+    expect(screen.getByText('WHX')).toBeTruthy()
+    expect(document.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-06T11:00:00Z')
+    expect(screen.getByRole('link', { name: 'Pedido req-123' }).getAttribute('href')).toBe('#request-req-123')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar pedido' }))
+    await waitFor(() => expect(onCancelPendingRequest).toHaveBeenCalledWith('req-123'))
+  })
 
   it('does not allow an old failed request to be repeated while another request is active', () => {
     render(

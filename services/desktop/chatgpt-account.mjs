@@ -44,10 +44,18 @@ export function chatGPTShowSidebarScript() {
 
 export function chatGPTStopConversationScript() {
   return `(() => {
-    const button = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button[aria-label*="stop generating" i], button[aria-label*="parar de gerar" i]');
-    if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return { ok: true, state: 'idle' };
-    button.click();
-    return { ok: true, state: 'stopping' };
+    const usable = (node) => {
+      if (!node || node.disabled || node.getAttribute?.('aria-disabled') === 'true' || node.hidden || node.closest?.('[hidden], [aria-hidden="true"], [inert]')) return false;
+      const style = globalThis.getComputedStyle?.(node);
+      return style?.display !== 'none' && style?.visibility !== 'hidden' && style?.visibility !== 'collapse';
+    };
+    const stop = [...document.querySelectorAll('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button[aria-label*="stop generating" i], button[aria-label*="parar de gerar" i]')].find(usable);
+    if (stop) {
+      stop.click();
+      return { ok: true, state: 'stopping' };
+    }
+    const composers = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].flatMap((selector) => [...document.querySelectorAll(selector)]);
+    return composers.some(usable) ? { ok: true, state: 'idle' } : { ok: false, state: 'surface-unavailable' };
   })()`
 }
 

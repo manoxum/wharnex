@@ -105,6 +105,25 @@ test('v2 project knowledge is transported as independently named files', async (
   }
 })
 
+test('a persisted pre-v2 prompt is upgraded at the archive boundary without losing its task', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-knowledge-v2-compat-'))
+  try {
+    const requestId = 'req_20260908T193332_legacyv2'
+    const target = path.join(root, chatInputArchiveFilename('chat-v2', requestId))
+    await writeChatInputArchive(target, {
+      requestId,
+      prompt: '# Original pending task\n\nKeep the exact user goal.',
+      knowledge: { state: 'none', protocol: 'harness.knowledge/v2', sharing_enabled: true, revision: 9, sha256: '', entries: [] },
+    })
+    const prompt = storedEntries(await readFile(target)).get('prompt/wharness-planner-prompt.md').toString('utf8')
+    assert.match(prompt, /Original pending task[\s\S]*harness\.knowledge\/v2 \(compatibility transport\)/)
+    assert.match(prompt, /sharing=on; revision=9; entries=0/)
+    assert.match(prompt, /mode=replace/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('local bootstrap points the model at the prompt inside the single archive', () => {
   const requestId = 'req_20260905T083123_example123'
   const archive = chatInputArchiveFilename('chat-1', requestId)

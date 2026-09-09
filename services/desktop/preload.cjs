@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     release: (cacheKey) => invoke('wharness:chatgpt:release', { cacheKey }),
     archiveConversation: (cacheKey, url = '') => invoke('wharness:chatgpt:archive-conversation', { cacheKey, url: String(url || '') }),
     stopConversation: (cacheKey) => invoke('wharness:chatgpt:stop-conversation', { cacheKey }),
+    cancelRequest: (cacheKey, requestId) => invoke('wharness:chatgpt:cancel-request', { cacheKey, requestId }),
     organizeConversation: (cacheKey, projectName, title, url = '') => invoke('wharness:chatgpt:organize-conversation', { cacheKey, projectName: String(projectName || ''), title: String(title || ''), url: String(url || '') }),
     suggestTitle: (cacheKey, url = '') => invoke('wharness:chatgpt:suggest-title', { cacheKey, url: String(url || '') }),
     hideSidebar: (cacheKey) => invoke('wharness:chatgpt:hide-sidebar', { cacheKey }),
@@ -49,6 +50,9 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     resumeExpectedBundle: (request) => invoke('wharness:chatgpt:resume-expected-bundle', request),
     continueExpectedBundle: (cacheKey, requestId, options = {}) => invoke('wharness:chatgpt:continue-expected-bundle', { cacheKey, requestId, force: Boolean(options?.force) }),
     pickBundle: (request) => invoke('wharness:chatgpt:pick-bundle', request),
+    pendingBundles: () => invoke('wharness:chatgpt:pending-bundles'),
+    ackBundle: (cacheKey, requestId, filename) => invoke('wharness:chatgpt:ack-bundle', { cacheKey, requestId, filename }),
+    nackBundle: (cacheKey, requestId, filename) => invoke('wharness:chatgpt:nack-bundle', { cacheKey, requestId, filename }),
     onState: (callback) => {
       if (typeof callback !== 'function') return () => {}
       const handler = (_event, state) => callback(state)

@@ -202,3 +202,24 @@ test('a strict canonical bundle name is accepted for a conflict-resolution surfa
     /chat ativo/,
   )
 })
+
+test('the backend-provided canonical filename is authoritative for generic and strict downloads', () => {
+  const rootRequest = 'req_20260907T150015_22475c9e3adb3473'
+  const requestId = 'req_20260907T151122_32475c9e3adb3474'
+  const expected = `whx_bundle_res_chat-owner_${rootRequest}_${requestId}.zip`
+  assert.deepEqual(canonicalWharnessBundleDownload('download.zip', requestId, 'application/zip', 'local_cache_key', expected), {
+    requestId,
+    filename: expected,
+    normalized: true,
+    sourceFilename: 'download.zip',
+  })
+  assert.deepEqual(canonicalWharnessBundleDownload(expected, requestId, 'application/zip', 'local_cache_key', expected), {
+    requestId,
+    filename: expected,
+    normalized: false,
+  })
+  assert.throws(
+    () => canonicalWharnessBundleDownload(`whx_bundle_res_other_${rootRequest}_${requestId}.zip`, requestId, 'application/zip', 'local_cache_key', expected),
+    /pedido ativo pertence|protocolo exige/,
+  )
+})

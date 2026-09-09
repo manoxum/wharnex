@@ -9,4 +9,8 @@ describe('prompt delivery failure classification', () => {
   it('keeps a retry available for a confirmed upload transport failure', () => {
     expect(promptDeliveryFailureKind('ChatGPT upload failed after 5 attempts: network error')).toBe('retry')
   })
+
+  it('separates local storage exhaustion from a ChatGPT or GPT failure', () => {
+    expect(promptDeliveryFailureKind('XMinioStorageFull: minimum free drive threshold reached')).toBe('storage')
+  })
 })

@@ -28,7 +28,7 @@ test('a failed prompt delivery remains retryable without asking the planner for 
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
-  const retryStart = source.indexOf("async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
+  const retryStart = source.indexOf('async function retryPreparedChatGPTPrompt(request)')
   const retryEnd = source.indexOf('\nasync function attachContextToChatGPT', retryStart)
   assert.match(source.slice(prepareStart, prepareEnd), /retryableChatGPTPrompts\.set\(key, \{ request, preparedAt: Date\.now\(\) \}\)/)
   assert.match(source.slice(retryStart, retryEnd), /return preparePromptForChatGPT\(retryable\.request\)/)
@@ -38,38 +38,32 @@ test('a failed prompt delivery remains retryable without asking the planner for 
 test('observing a submit does not erase the retryable prompt, only a real terminal outcome does', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
-  const retryDeclStart = source.indexOf("\nasync function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
+  const retryDeclStart = source.indexOf('\nasync function retryPersistedChatGPTPrompt(request)')
   const prepareOwnBody = source.slice(prepareStart, retryDeclStart)
   // A conversation POST being observed only confirms transport, not that
   // ChatGPT actually received the composed prompt/attachment — the retry
   // entry must survive that observation so a manual resend stays possible.
   assert.doesNotMatch(prepareOwnBody, /retryableChatGPTPrompts\.delete\(key\)/)
 
-  const downloadStart = source.indexOf('function registerChatGPTPlanDownloads(chatSession)')
-  const downloadEnd = source.indexOf('\nfunction chatGPTKeyForEntry', downloadStart)
-  const downloadBody = source.slice(downloadStart, downloadEnd)
-  assert.match(downloadBody, /const retryable = retryableChatGPTPrompts\.get\(retryKey\)/)
-  assert.match(downloadBody, /retryable\.request\?\.requestId \|\| ''\) === validated\.requestId\) retryableChatGPTPrompts\.delete\(retryKey\)/)
-
-  const pickBundleStart = source.indexOf("ipcMain.handle('wharness:chatgpt:pick-bundle'")
-  const pickBundleEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:paste'", pickBundleStart)
-  const pickBundleBody = source.slice(pickBundleStart, pickBundleEnd)
-  assert.match(pickBundleBody, /retryable\.request\?\.requestId \|\| ''\) === validated\.requestId\) retryableChatGPTPrompts\.delete\(chatId\)/)
+  const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
+  const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
+  assert.match(source.slice(ackStart, ackEnd), /cancelChatGPTRequestState\(key, id\)/)
+  assert.match(source, /pendingChatGPTBundleDeliveries\.set\(validated\.requestId/)
 })
 
 test('resending a prepared prompt refuses to act on a request that has since been superseded', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const retryStart = source.indexOf("async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
+  const retryStart = source.indexOf('async function retryPreparedChatGPTPrompt(request)')
   const retryEnd = source.indexOf('\nasync function attachContextToChatGPT', retryStart)
   const retryBody = source.slice(retryStart, retryEnd)
   assert.match(retryBody, /String\(retryable\.request\?\.requestId \|\| ''\) !== requestId/)
   assert.match(retryBody, /Uma requisição mais recente substituiu esta/)
-  assert.match(source, /return retryPreparedChatGPTPrompt\(request\?\.cacheKey, request\?\.expectedRequestId\)/)
+  assert.match(source, /retryPreparedChatGPTPrompt\(request\)/)
 })
 
 test('retrying delivery after its bundle arrived is idempotent instead of reporting missing prompt state', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const retryStart = source.indexOf("async function retryPreparedChatGPTPrompt(cacheKey, expectedRequestId = '')")
+  const retryStart = source.indexOf('async function retryPreparedChatGPTPrompt(request)')
   const retryEnd = source.indexOf('\nasync function attachContextToChatGPT', retryStart)
   const retryBody = source.slice(retryStart, retryEnd)
   assert.match(source, /const DELIVERED_BUNDLE_DEDUP_TTL_MS = RETRYABLE_PROMPT_TTL_MS/)
@@ -77,13 +71,19 @@ test('retrying delivery after its bundle arrived is idempotent instead of report
   assert.match(retryBody, /alreadyDelivered: true/)
 })
 
-test('a visible ChatGPT page waits briefly for its composer then requires human attention instead of reporting a retryable delivery', async () => {
+test('a visible ChatGPT page performs one bounded composer reload before requiring human attention', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function targetChatGPTComposer(cacheKey')
   const end = source.indexOf('\nasync function waitForChatGPTSurfaceReady', start)
   const target = source.slice(start, end)
   assert.match(target, /for \(let attempt = 0; attempt < 20; attempt \+= 1\)/)
   assert.match(target, /await wait\(250\)/)
+  assert.match(target, /let focused = await focusComposer\(\)/)
+  assert.match(target, /wc\.reload\(\)/)
+  assert.match(target, /await waitForChatGPTSurfaceReady\(key, entry\)/)
+  assert.match(target, /await assertNoHumanGate\('health-after-composer-reload'\)/)
+  assert.match(target, /focused = await focusComposer\(\)/)
+  assert.ok(target.indexOf('wc.reload()') < target.indexOf("setChatGPTHumanAction(key, 'surface'"))
   assert.match(target, /setChatGPTHumanAction\(key, 'surface'/)
   assert.match(target, /throw new Error\(chatGPTHumanActionMessage\('surface'\)\)/)
 })
@@ -99,7 +99,8 @@ test('DOM composer calls retry a transient renderer evaluation failure and retai
   assert.match(helper, /\[chatgpt-dom\] stage=/)
   const targetStart = source.indexOf('async function targetChatGPTComposer(cacheKey')
   const targetEnd = source.indexOf('\nasync function waitForChatGPTSurfaceReady', targetStart)
-  assert.match(source.slice(targetStart, targetEnd), /executeChatGPTDOMScript\(key, entry, 'health'/)
+  assert.match(source.slice(targetStart, targetEnd), /executeChatGPTDOMScript\(key, entry, stage, chatGPTHumanActionScript\(\)\)/)
+  assert.match(source.slice(targetStart, targetEnd), /await assertNoHumanGate\('health'\)/)
   assert.match(source.slice(targetStart, targetEnd), /executeChatGPTDOMScript\(key, entry, 'focus-composer'/)
 })
 
@@ -154,7 +155,7 @@ test('bundle fallback snapshots assistant-turn baseline before each planner subm
   const prepare = source.slice(prepareStart, prepareEnd)
   const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
   const submit = prepare.indexOf('await submitChatGPTDraft(key)')
-  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId)')
+  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename)')
   assert.ok(baseline >= 0 && arm > baseline && submit > arm)
 
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
@@ -379,6 +380,20 @@ test('expected bundle polling rehydrates recoverable ChatGPT transport and stall
   assert.match(recovery, /CHATGPT_AFFINITY_RECOVERY_GRACE_MS/)
 })
 
+test('a failed delivery continuation escalates once instead of looping behind a reset DOM failure counter', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
+  const end = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', start)
+  const poll = source.slice(start, end)
+  const continuation = poll.indexOf('const continuation = `WHARNESS DELIVERY CONTINUATION')
+  const escalation = poll.indexOf("escalateChatGPTContinuationFailure(key, expected, error, 'delivery-continuation')", continuation)
+  const genericCatch = poll.indexOf('expected.domProbeFailures = Number(expected.domProbeFailures || 0) + 1', continuation)
+  assert.notEqual(continuation, -1)
+  assert.ok(escalation > continuation)
+  assert.ok(genericCatch > escalation)
+  assert.match(poll.slice(continuation, genericCatch), /catch \(error\) \{[\s\S]*escalateChatGPTContinuationFailure[\s\S]*return/)
+})
+
 test('pending bundles are resumed in hidden owned views and scanned independently', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const resumeStart = source.indexOf("ipcMain.handle('wharness:chatgpt:resume-expected-bundle'")
@@ -389,7 +404,7 @@ test('pending bundles are resumed in hidden owned views and scanned independentl
   assert.match(resume, /entry\.view\.setVisible\(false\)/)
   assert.match(resume, /armExpectedChatGPTBundle\(key, requestId/)
   assert.match(resume, /const recoveryPrompt = String\(request\?\.recoveryBootstrap \|\| ''\)/)
-  assert.match(resume, /armExpectedChatGPTBundle\(key, requestId, 0, recoveryPrompt, \[\], recoveryPrompt, request\?\.sessionId\)/)
+  assert.match(resume, /armExpectedChatGPTBundle\(key, requestId, 0, recoveryPrompt, \[\], recoveryPrompt, request\?\.sessionId, expectedFilename\)/)
   assert.match(resume, /expected\.rehydrating = true/)
   assert.match(resume, /const assistantBaseline = await chatGPTAssistantTurnCount\(wc\)/)
   assert.match(resume, /expected\.assistantBaseline = assistantBaseline/)
@@ -436,7 +451,9 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   assert.match(needs, /entry\.loading/)
   assert.match(needs, /entry\.humanAction\?\.active/)
   assert.match(needs, /entry\.accountOperationActive/)
+  assert.match(needs, /entry\.transportPreparationCount > 0/)
   assert.match(needs, /entry\.conversationRequests\.size > 0/)
+  assert.match(needs, /pendingChatGPTComments\.has\(key\)/)
   assert.match(needs, /expectedChatGPTBundles\.has\(key\)/)
 
   const reconcileStart = source.indexOf('function reconcileChatGPTThrottle(key, entry)')
@@ -463,6 +480,39 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   assert.match(pollLoop, /reconcileChatGPTThrottle\(key, entry\)/)
 })
 
+test('transport IPC keeps hidden views unthrottled for the complete preparation and restores their idle policy', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helperStart = source.indexOf('async function withChatGPTTransportPreparation(')
+  const helperEnd = source.indexOf('\nfunction sendToWindowState', helperStart)
+  const helper = source.slice(helperStart, helperEnd)
+  assert.match(helper, /transportPreparationCount[\s\S]*reconcileChatGPTThrottle[\s\S]*try[\s\S]*await operation\(\)[\s\S]*finally[\s\S]*transportPreparationCount[\s\S]*reconcileChatGPTThrottle/)
+  for (const channel of ['submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
+    const start = source.indexOf(`ipcMain.handle('wharness:chatgpt:${channel}'`)
+    const end = source.indexOf('\n  })', start)
+    assert.match(source.slice(start, end), /withChatGPTTransportPreparation/)
+  }
+  assert.match(source.slice(source.indexOf('async function flushQueuedChatGPTComments()'), source.indexOf('\nasync function publishRemoteChannelComment')), /withChatGPTTransportPreparation/)
+})
+
+test('request cancellation clears only matching Desktop supervision state and a validated bundle clears stale human attention', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const cancelStart = source.indexOf('function cancelChatGPTRequestState(')
+  const cancelEnd = source.indexOf('\nasync function chatGPTAssistantTurnCount', cancelStart)
+  const cancel = source.slice(cancelStart, cancelEnd)
+  assert.match(cancel, /expected\?\.requestId === id/)
+  assert.match(cancel, /retryable\?\.request\?\.requestId/)
+  assert.match(cancel, /prepared\?\.requestId/)
+  assert.match(cancel, /comment\?\.requestId/)
+  assert.match(cancel, /clearChatGPTHumanAction/)
+  assert.match(source, /wharness:chatgpt:cancel-request/)
+  const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
+  const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
+  const ack = source.slice(ackStart, ackEnd)
+  assert.match(ack, /markChatGPTBundleRequestDelivered\(id\)/)
+  assert.match(ack, /cancelChatGPTRequestState\(key, id\)/)
+  assert.match(source, /wharness:chatgpt:ack-bundle/)
+})
+
 test('desktop ChatGPT state publishes only a boolean authentication result to the renderer', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /authenticated: Boolean\(entry\?\.authenticated\)/)
@@ -476,7 +526,7 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   const comments = source.slice(commentStart, commentEnd)
   assert.match(comments, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
   assert.match(comments, /await submitChatGPTDraft\(key\)/)
-  assert.match(comments, /armExpectedChatGPTBundle\(key, pending\.requestId, assistantBaseline, '', \[\], '', pending\.sessionId\)/)
+  assert.match(comments, /armExpectedChatGPTBundle\(key, pending\.requestId, assistantBaseline, '', \[\], '', pending\.sessionId, expectedFilename\)/)
 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
   const pollEnd = source.indexOf('\nasync function exportBrowserSession', pollStart)
@@ -642,7 +692,7 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
 test('preparePromptForChatGPT disarms a stale expected bundle when the automatic submit itself fails', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
-  const prepareEnd = source.indexOf('\nasync function retryPreparedChatGPTPrompt', prepareStart)
+  const prepareEnd = source.indexOf('\nasync function retryPersistedChatGPTPrompt', prepareStart)
   assert.notEqual(prepareStart, -1)
   assert.notEqual(prepareEnd, -1)
   const prepare = source.slice(prepareStart, prepareEnd)
@@ -723,7 +773,10 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   const register = source.slice(registerStart, registerEnd)
   assert.match(register, /live\.downloadInFlight = false/)
   assert.match(register, /recentlyDeliveredChatGPTBundleRequestId\(validated\.requestId\)/)
-  assert.match(register, /markChatGPTBundleRequestDelivered\(validated\.requestId\)/)
+  assert.match(register, /pendingChatGPTBundleDeliveries\.set\(validated\.requestId/)
+  const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
+  const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
+  assert.match(source.slice(ackStart, ackEnd), /markChatGPTBundleRequestDelivered\(id\)/)
 })
 
 test('an uncaught main-process exception or rejection is logged instead of silently crashing the whole app', async () => {

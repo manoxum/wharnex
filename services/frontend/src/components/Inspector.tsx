@@ -12,6 +12,7 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { buildExecutionTimeline } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
 import { sessionCanApplyHost, sessionHostResolutionBlocked } from '../lib/attentionCenter'
+import { activePendingRequestId } from '../lib/pendingRequest'
 
 export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
@@ -267,7 +268,7 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
           chatId={surface?.cacheKey || liveChat.id}
           chatTitle={surface?.title || liveChat.title}
           chatgptUrl={surface?.url || liveChat.chatgptUrl}
-          pendingRequestId={isActive ? (session.integration_conflict?.request_id || session.pending_manual_request_ids?.[0]) : undefined}
+          pendingRequestId={isActive ? activePendingRequestId(session) : undefined}
           sessionId={isActive ? session.id : undefined}
           recoveryBootstrap={isActive ? session.last_manual_prompt : undefined}
           onChatGPTURL={onChatGPTURL}

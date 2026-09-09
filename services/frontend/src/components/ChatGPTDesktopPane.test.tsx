@@ -11,7 +11,7 @@ function bridge() {
     platform: 'linux', projects: { pickDirectory: vi.fn() },
     chatgpt: {
       show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
-      navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn().mockResolvedValue({ ok: true }), resumeExpectedBundle: vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', expectedFilename: 'bundle.zip' }), stopConversation: vi.fn().mockResolvedValue({ ok: true, state: 'stopped' }),
+      navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn().mockResolvedValue({ ok: true }), resumeExpectedBundle: vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', expectedFilename: 'bundle.zip' }), stopConversation: vi.fn().mockResolvedValue({ ok: true, state: 'stopped' }), cancelRequest: vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', cleared: true }),
       state: vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1' }), release: vi.fn().mockResolvedValue({ ok: true, released: true }), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
       onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
       onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
@@ -33,7 +33,40 @@ describe('ChatGPTDesktopPane', () => {
     render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" onCancelPendingRequest={onCancel} />)
     screen.getByRole('button', { name: 'Parar pedido' }).click()
     await waitFor(() => expect(desktop.chatgpt.stopConversation).toHaveBeenCalledWith('chat-1'))
+    await waitFor(() => expect(desktop.chatgpt.cancelRequest).toHaveBeenCalledWith('chat-1', 'req_pending123'))
     await waitFor(() => expect(onCancel).toHaveBeenCalledWith('req_pending123'))
+  })
+
+  it('still cancels the durable request when the remote stop control fails', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.stopConversation = vi.fn().mockRejectedValue(new Error('remote stop unavailable'))
+    window.wharnessDesktop = desktop
+    const onCancel = vi.fn().mockResolvedValue(undefined)
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" onCancelPendingRequest={onCancel} />)
+
+    screen.getByRole('button', { name: 'Parar pedido' }).click()
+
+    await waitFor(() => expect(onCancel).toHaveBeenCalledWith('req_pending123'))
+    expect(await screen.findByText(/cancelado no WHX/i)).toBeTruthy()
+  })
+
+  it('does not stop the remote conversation when the backend rejects a stale cancel click', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    const onCancel = vi.fn().mockRejectedValue(new Error('request is no longer active'))
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" onCancelPendingRequest={onCancel} />)
+    screen.getByRole('button', { name: 'Parar pedido' }).click()
+    expect(await screen.findByText(/não foi possível cancelar o pedido no WHX/i)).toBeTruthy()
+    expect(desktop.chatgpt.stopConversation).not.toHaveBeenCalled()
+    expect(desktop.chatgpt.cancelRequest).not.toHaveBeenCalled()
+  })
+
+  it('keeps supervised request actions in the Engine toolbar instead of a separate warning row', () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    const { container } = render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" onCancelPendingRequest={async () => undefined} />)
+    const toolbar = container.querySelector('.chatgpt-auth-compact-panel')
+    expect(toolbar?.contains(screen.getByRole('button', { name: 'Retomar pedido' }))).toBe(true)
+    expect(toolbar?.contains(screen.getByRole('button', { name: 'Parar pedido' }))).toBe(true)
+    expect(container.querySelector('.chatgpt-link-warning')?.textContent || '').not.toContain('sob supervisão')
   })
 
   it('re-navigates (silently) every time the same chat/url pane is unsuspended again, so a view that drifted away from its bound conversation while backgrounded self-heals instead of getting stuck', async () => {
@@ -250,6 +283,7 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
       requestId: 'req_pending123',
       url: 'https://chatgpt.com/c/right',
       recoveryBootstrap: 'bootstrap',
+      expectedFilename: '',
     }))
     await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledTimes(2))
     expect(await screen.findByText(/Continuação manual enviada/)).toBeTruthy()

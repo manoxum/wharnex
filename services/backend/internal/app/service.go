@@ -130,6 +130,7 @@ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Bui
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
+	service.normalizeOrphanedManualRequests()
 	service.normalizeFailureKinds()
 	service.normalizePendingHostChanges()
 	service.reconcileSelfEvolutionStatus()
@@ -292,6 +293,9 @@ func (s *Service) SetChatID(sessionID, chatID string) (domain.Session, error) {
 		return domain.Session{}, fmt.Errorf("invalid chat_id %q", chatID)
 	}
 	return s.store.Update(sessionID, func(item *domain.Session) error {
+		if item.ChatID != "" && item.ChatID != chatID {
+			return fmt.Errorf("session is already owned by chat_id %q", item.ChatID)
+		}
 		item.ChatID = chatID
 		return nil
 	})
@@ -632,6 +636,16 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	filenameRequestID := bundleFilenameRequestID(filename)
 	if filenameRequestID == "" || filenameRequestID != parsed.Turn.RequestID {
 		return BundleSubmission{}, ErrExecutionBundleRequestMismatch
+	}
+	if filepath.Base(filename) != expectedResponseBundleFilename(current, parsed.Turn.RequestID) {
+		return BundleSubmission{}, fmt.Errorf("%w: expected %q", ErrExecutionBundleRequestMismatch, expectedResponseBundleFilename(current, parsed.Turn.RequestID))
+	}
+	// Renderer/network acknowledgement can be lost after the bundle has been
+	// committed. The retained Desktop inbox must be able to replay the exact
+	// bytes without executing or applying the plan twice.
+	if current.LastBundle != nil && bundleFilenameRequestID(current.LastBundle.Filename) == parsed.Turn.RequestID && current.LastBundle.SHA256 == parsed.Info.SHA256 {
+		s.bus.Publish(sessionID, "bundle.duplicate_acknowledged", map[string]any{"request_id": parsed.Turn.RequestID, "sha256": parsed.Info.SHA256})
+		return BundleSubmission{Session: current}, nil
 	}
 	if !containsString(current.PendingManualRequestIDs, parsed.Turn.RequestID) {
 		return BundleSubmission{}, fmt.Errorf("%w: %q", ErrExecutionBundleNotPending, parsed.Turn.RequestID)
