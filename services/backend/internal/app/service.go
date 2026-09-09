@@ -25,6 +25,7 @@ import (
 	"kernl.local/harness/backend/internal/projectgit"
 	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
+	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/workspacefs"
@@ -99,6 +100,7 @@ type Service struct {
 	projectApplyLocks       map[string]*sync.Mutex
 	executionQueue          *projectExecutionQueue
 	artifactStore           ArtifactObjectStore
+	environment             *sandboxenv.Prober
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
 	runtimeInstanceID       string
@@ -456,7 +458,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		return planner.Result{}, item, err
 	}
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA})
-	result, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)}, knowledgeSnapshot))
+	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)}, knowledgeSnapshot, item.ProjectPath))
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -470,7 +472,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	if result.ManualPrompt != "" {
 		if latest, latestErr := s.store.Get(sessionID); latestErr == nil && latest.Context.Manifest.SHA256 != requestBaselineSHA {
 			requestBaselineSHA = latest.Context.Manifest.SHA256
-			result.ManualPrompt = planner.BuildManualPrompt(withPlannerKnowledge(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)}, knowledgeSnapshot))
+			result.ManualPrompt = planner.BuildManualPrompt(s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)}, knowledgeSnapshot, latest.ProjectPath))
 		}
 	}
 	enrichPlanConcurrency(result.Plan, requestBaselineSHA)
@@ -588,6 +590,9 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 		return domain.Session{}, fmt.Errorf("decode manual plan: %w", err)
 	}
 	normalizePlanCollections(&plan)
+	if notes := protocol.NormalizeCommandBudgets(&plan); len(notes) > 0 {
+		s.bus.Publish(sessionID, "plan.budgets_normalized", map[string]any{"request_id": plan.RequestID, "adjustments": notes})
+	}
 	enrichPlanConcurrency(&plan, requestBaseline(current, plan.RequestID))
 	currentSHA := strings.TrimSpace(current.Context.Manifest.SHA256)
 	if plan.BaseContextSHA256 != "" && currentSHA != "" && plan.BaseContextSHA256 != currentSHA {
@@ -631,6 +636,14 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		return BundleSubmission{}, err
 	}
 	normalizePlanCollections(parsed.Plan)
+	// A command timeout that is missing, zero or above the accepted ceiling
+	// is a pure transport mistake: rejecting the bundle over it discards a
+	// correct patch and costs a full round trip (observed twice in a row in
+	// production). Repair it narrowly here, before validation, and record
+	// exactly what changed rather than reinterpreting the plan silently.
+	if notes := protocol.NormalizeCommandBudgets(parsed.Plan); len(notes) > 0 {
+		s.bus.Publish(sessionID, "plan.budgets_normalized", map[string]any{"request_id": parsed.Turn.RequestID, "adjustments": notes})
+	}
 	if parsed.Plan != nil {
 		enrichPlanConcurrency(parsed.Plan, requestBaseline(current, parsed.Plan.RequestID))
 	}
@@ -1688,7 +1701,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 
 	var replayConflict *pendingChangeSetReplayConflict
 	if errors.As(cause, &replayConflict) {
-		conflicted, conflictErr := s.prepareConflictResolution(sessionID, updated, updated.PendingHostChanges, replayConflict.conflicts)
+		conflicted, conflictErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, replayConflict.conflicts)
 		if conflictErr != nil {
 			s.bus.Publish(sessionID, "conflict.prepare_failed", map[string]any{"error": conflictErr.Error(), "source": "pending_changeset_replay"})
 		} else {
@@ -1723,7 +1736,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	if updated.IntegrationConflict != nil && updated.Plan != nil && updated.IntegrationConflict.RequestID == updated.Plan.RequestID {
 		if updated.RepairAttempt < maxAutoRepairAttempts {
 			conflict := updated.IntegrationConflict
-			if retried, retryErr := s.prepareConflictResolution(sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
+			if retried, retryErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
 				updated = retried
 				updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 					current.RepairAttempt++
@@ -1868,7 +1881,7 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		return refreshed, err
 	}
 
-	planned, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
+	planned, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
 		Message:                repairMessage,
@@ -1878,7 +1891,7 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		AutomationMode:         refreshed.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(refreshed),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
-	}, knowledgeSnapshot))
+	}, knowledgeSnapshot, refreshed.ProjectPath))
 	if err != nil {
 		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
 	}
@@ -2088,7 +2101,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			return item, fmt.Errorf("stage ChangeSet integration: %w", err)
 		}
 		if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
-			updated, prepareErr := s.prepareConflictResolution(sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+			updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
 			if prepareErr != nil {
 				return item, fmt.Errorf("prepare focused conflict resolution: %w", prepareErr)
 			}
@@ -2295,7 +2308,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				break
 			}
 			if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
-				updated, prepareErr := s.prepareConflictResolution(sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+				updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
 				if prepareErr != nil {
 					return item, abortPreparedTransaction(fmt.Errorf("prepare focused conflict resolution after integration race: %w", prepareErr))
 				}

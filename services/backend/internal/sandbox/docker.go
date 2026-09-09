@@ -79,13 +79,23 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 	if command.Cwd != "" && command.Cwd != "." {
 		containerCwd = "/workspace/" + filepath.ToSlash(filepath.Clean(command.Cwd))
 	}
+	limits := CurrentRunnerLimits()
+	// GOCACHE lives on the workspace bind mount rather than the tmpfs: a
+	// race-instrumented build of a large module writes far more object cache
+	// than any reasonable tmpfs size, and overflowing it fails the request
+	// with "no space left on device" — an infrastructure fault the repair
+	// loop cannot fix. The directory must exist before the read-only-root
+	// container starts, because only /workspace and /tmp are writable.
+	if err := os.MkdirAll(filepath.Join(workspace.Path, ".kernl", "go-build"), 0o700); err != nil {
+		return domain.CommandResult{}, fmt.Errorf("prepare sandbox build cache: %w", err)
+	}
 	args := []string{
 		"run", "--rm", "--read-only", "--network", network,
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-		"--pids-limit", "256", "--memory", "2g", "--cpus", "2",
-		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=512m",
+		"--pids-limit", strconv.Itoa(limits.Pids), "--memory", limits.Memory, "--cpus", limits.CPUs,
+		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=" + limits.TmpfsSize,
 		"--env", "HOME=/tmp/kernl-home", "--env", "XDG_CACHE_HOME=/tmp/cache",
-		"--env", "GOCACHE=/tmp/go-build", "--env", "GOMODCACHE=/workspace/.kernl/go-mod", "--env", "npm_config_cache=/tmp/npm",
+		"--env", "GOCACHE=" + workspaceGoBuildCache, "--env", "GOMODCACHE=/workspace/.kernl/go-mod", "--env", "npm_config_cache=/tmp/npm",
 		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--volume", workspace.Path + ":/workspace:rw",
 		"--workdir", containerCwd,

@@ -21,6 +21,7 @@ import (
 	"kernl.local/harness/backend/internal/policy"
 	"kernl.local/harness/backend/internal/remoteinput"
 	"kernl.local/harness/backend/internal/sandbox"
+	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/transport/httpapi"
 	"kernl.local/harness/backend/internal/tunneldaemon"
@@ -65,6 +66,7 @@ func main() {
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
 	service.SetRuntimeInstanceID(cfg.InstanceID)
+	service.SetEnvironmentProber(sandboxenv.NewProber(cfg.RunnerImage, cfg.Sandbox))
 	stopArtifacts := configureArtifactStore(cfg, service)
 	defer stopArtifacts()
 	stopChatArchive := configureChatArchive(cfg, service)

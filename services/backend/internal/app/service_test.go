@@ -549,7 +549,7 @@ func TestConflictResolutionStopsAfterBoundedAttempts(t *testing.T) {
 	}
 	pendingBefore := len(seeded.PendingManualRequestIDs)
 
-	updated, err := service.prepareConflictResolution(started.ID, seeded, nil, []domain.IntegrationConflictDetail{{Path: "file.txt", Reason: "merge conflict"}})
+	updated, err := service.prepareConflictResolution(context.Background(), started.ID, seeded, nil, []domain.IntegrationConflictDetail{{Path: "file.txt", Reason: "merge conflict"}})
 	if err != nil {
 		t.Fatal(err)
 	}

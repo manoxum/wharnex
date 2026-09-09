@@ -352,7 +352,7 @@ type conflictCapsuleFile struct {
 	Result        string `json:"result"`
 }
 
-func (s *Service) prepareConflictResolution(sessionID string, item domain.Session, pending []domain.PendingHostChange, conflicts []domain.IntegrationConflictDetail) (domain.Session, error) {
+func (s *Service) prepareConflictResolution(ctx context.Context, sessionID string, item domain.Session, pending []domain.PendingHostChange, conflicts []domain.IntegrationConflictDetail) (domain.Session, error) {
 	requestID := ids.New("req")
 	conflictID := ids.New("conflict")
 	continuing := item.IntegrationConflict != nil && strings.TrimSpace(item.IntegrationConflict.ID) != ""
@@ -393,13 +393,13 @@ func (s *Service) prepareConflictResolution(sessionID string, item domain.Sessio
 	if err != nil {
 		return item, err
 	}
-	prompt := planner.BuildManualPrompt(withPlannerKnowledge(planner.Request{
+	prompt := planner.BuildManualPrompt(s.plannerRequest(ctx, planner.Request{
 		SessionID: sessionID, RequestID: requestID, Message: message,
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, item.LastRequestID),
-	}, knowledgeSnapshot))
+	}, knowledgeSnapshot, item.ProjectPath))
 	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: planIDs, Paths: paths, Details: append([]domain.IntegrationConflictDetail(nil), conflicts...), CreatedAt: time.Now().UTC()}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
