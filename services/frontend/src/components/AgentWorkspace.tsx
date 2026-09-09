@@ -16,6 +16,7 @@ import { desktopWindowScope } from '../lib/projectBindings'
 import { ATTENTION_ACTION_LABEL, collectAttentionItems, sessionCanApplyHost, sessionHostResolutionBlocked, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { AttentionPopover } from './AttentionPopover'
 import { api } from '../lib/api'
+import { executionQueueActiveCount, visibleExecutionQueueItems, type ExecutionFIFOItem } from '../lib/executionQueueView'
 
 type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
@@ -43,7 +44,6 @@ function saveAgentChatWidth(width: number) {
   try { localStorage.setItem(agentChatWidthStorageKey(), String(width)) } catch { /* best effort */ }
 }
 
-export type ExecutionFIFOItem = { key: string; chatId: string; chatTitle: string; planId: string; status: 'submitting' | 'queued' | 'running'; position?: number; addedAt: number }
 
 export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSessions = {}, chatgptHumanActions = {}, chatgptHumanAction, chatgptAttentionNonce = 0, inspectorAttention, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat }: {
   session: Session
@@ -77,6 +77,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
   const activeCommandAttention = attentionItems.find((item) => item.chatId === chatProps.activeChatId && item.action && item.action !== 'apply-host')
   const executionCommandRunning = useMemo(() => hasRunningExecutionCommand(inspectorProps.events), [inspectorProps.events])
+  const visibleExecutionFIFO = useMemo(() => visibleExecutionQueueItems(executionFIFO, chatProps.chats.map((chat) => chat.id)), [executionFIFO, chatProps.chats])
+  const activeExecutionCount = useMemo(() => executionQueueActiveCount(visibleExecutionFIFO), [visibleExecutionFIFO])
   useEffect(() => {
     let alive = true
     const refresh = () => { void api.bundleQuota().then((value) => { if (alive) setBundleQuota(value) }).catch(() => {}) }
@@ -234,7 +236,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggleDrawer('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>
       <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggleDrawer('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>
       <button type="button" className={drawer === 'executions' ? 'active' : ''} onClick={() => toggleDrawer('executions')} aria-label="Execuções do projeto" title="Execuções do projeto"><Icon name="terminal" size={18}/></button>
-      <button type="button" className={drawer === 'fifo' ? 'active' : ''} onClick={() => toggleDrawer('fifo')} aria-label="Fila FIFO de execução" title="Fila FIFO de execução"><Icon name="play" size={18}/>{executionFIFO.length > 0 && <b>{executionFIFO.length}</b>}</button>
+      <button type="button" className={drawer === 'fifo' ? 'active' : ''} onClick={() => toggleDrawer('fifo')} aria-label="Fila FIFO de execução" title="Fila FIFO de execução"><Icon name="play" size={18}/>{activeExecutionCount > 0 && <b>{activeExecutionCount}</b>}</button>
       {session.self_evolution && <button type="button" className={drawer === 'evolution' ? 'active' : ''} onClick={() => toggleDrawer('evolution')} aria-label="Logs de auto-evolução" title="Logs e análise de auto-evolução"><Icon name="refresh" size={18}/></button>}
     </aside>
 
@@ -244,7 +246,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={() => setDrawer('')}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={activityChats} currentSession={session} activeChatId={chatProps.activeChatId} onClose={() => setDrawer('')}/> : null}
-      {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={() => setDrawer('')} onError={onError}/> : null}
+      {drawer === 'fifo' ? <ExecutionQueueDrawer items={visibleExecutionFIFO} onClose={() => setDrawer('')} onError={onError}/> : null}
       {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={onAnalyzeEvolution || (async () => undefined)} onClose={() => setDrawer('')}/> : null}
     </aside>}
 
@@ -342,12 +344,38 @@ function ExecutionConcurrencyControl({ onError }: { onError?: (message: string) 
 }
 
 function ExecutionQueueDrawer({ items, onClose, onError }: { items: ExecutionFIFOItem[]; onClose: () => void; onError?: (message: string) => void }) {
+  const running = items.filter((item) => item.status === 'running' || item.status === 'submitting')
+  const waiting = items.filter((item) => item.status === 'queued')
+  const recent = items.filter((item) => item.status === 'completed' || item.status === 'failed')
   return <section className="execution-queue-drawer" aria-label="Fila FIFO de execução">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Concorrência</span><strong>Fila FIFO de execução</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar fila"><Icon name="close" size={13}/></button></header>
+    <header className="agent-drawer-heading"><div><span className="panel-kicker">Execução do projeto</span><strong>Fila FIFO</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar fila"><Icon name="close" size={13}/></button></header>
+    <div className="execution-queue-overview" aria-label="Resumo da fila"><QueueMetric label="Em execução" value={running.length} tone="running"/><QueueMetric label="A aguardar" value={waiting.length} tone="queued"/><QueueMetric label="Recentes" value={recent.length} tone="completed"/></div>
+    <p className="execution-queue-hint">Mostra apenas chats ativos: trabalho em curso, pendente e as 5 últimas execuções terminadas.</p>
     <ExecutionConcurrencyControl onError={onError}/>
-    <div className="execution-queue-summary"><b>{items.length}</b><span>{items.length === 1 ? 'execução coordenada' : 'execuções coordenadas'}</span></div>
-    <div className="execution-queue-list">{items.length ? items.map((item, index) => <article key={item.key}><span className={`queue-position ${item.status}`}>{item.status === 'running' || (index === 0 && item.status === 'submitting') ? 'ATIVA' : String(item.position || index + 1).padStart(2, '0')}</span><div><strong>{item.chatTitle}</strong><code>{item.planId}</code><small>{item.status === 'queued' ? 'Em espera, ordem preservada' : 'Em execução exclusiva'}</small></div></article>) : <div className="agent-drawer-empty">A fila está livre. Novas execuções aparecerão aqui, em ordem de chegada.</div>}</div>
+    <div className="execution-queue-list">{items.length ? items.map((item) => <ExecutionQueueCard key={item.key} item={item}/>) : <div className="agent-drawer-empty">Sem trabalho ativo ou recente. A próxima execução aparecerá aqui assim que entrar na fila.</div>}</div>
   </section>
+}
+
+function QueueMetric({ label, value, tone }: { label: string; value: number; tone: 'running' | 'queued' | 'completed' }) {
+  return <div className={`execution-queue-metric ${tone}`}><b>{value}</b><span>{label}</span></div>
+}
+
+function ExecutionQueueCard({ item }: { item: ExecutionFIFOItem }) {
+  const state = executionQueueState(item)
+  const timestamp = item.completedAt || item.addedAt
+  return <article className={`execution-queue-card ${item.status}`}>
+    <span className="execution-queue-state" aria-label={state.label}><Icon name={state.icon} size={13}/><b>{state.label}</b></span>
+    <div className="execution-queue-copy"><strong>{item.chatTitle}</strong><span><code>{item.planId}</code><time dateTime={new Date(timestamp).toISOString()}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></span><small>{state.detail}</small></div>
+    {item.status === 'queued' && <span className="execution-queue-order" aria-label={`Posição ${item.position || 1} na fila`}>#{String(item.position || 1).padStart(2, '0')}</span>}
+  </article>
+}
+
+function executionQueueState(item: ExecutionFIFOItem): { label: string; detail: string; icon: 'play' | 'check' | 'close' | 'terminal' } {
+  if (item.status === 'running') return { label: 'Em execução', detail: 'Processamento ativo neste momento', icon: 'play' }
+  if (item.status === 'submitting') return { label: 'A iniciar', detail: 'A reservar o próximo slot de execução', icon: 'terminal' }
+  if (item.status === 'queued') return { label: 'Na fila', detail: 'Em espera, com a ordem FIFO preservada', icon: 'terminal' }
+  if (item.status === 'completed') return { label: 'Concluída', detail: 'Execução terminada com sucesso', icon: 'check' }
+  return { label: 'Com erro', detail: 'Execução terminada com falha', icon: 'close' }
 }
 
 function ArchiveDrawer({ projectPath, chats, busy, onRestore, onDelete, onRename, onGenerate, onClose }: {

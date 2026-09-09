@@ -159,7 +159,7 @@ describe('AgentWorkspace', () => {
     const empty = props()
     const rendered = render(empty.element)
     fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
-    expect(screen.getByText(/A fila está livre/)).toBeTruthy()
+    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
     rendered.rerender(<AgentWorkspace
       {...(empty.element.props)}
       executionFIFO={[
@@ -169,7 +169,9 @@ describe('AgentWorkspace', () => {
     />)
     expect(screen.getByText('plan-one')).toBeTruthy()
     expect(screen.getByText('plan-two')).toBeTruthy()
-    expect(screen.getByText('02')).toBeTruthy()
+    expect(screen.getByText('#02')).toBeTruthy()
+    expect(screen.getAllByText('Em execução').length).toBeGreaterThan(0)
+    expect(screen.getByText('Na fila')).toBeTruthy()
   })
 
   it('exposes the per-project execution concurrency next to the queue it governs', async () => {
@@ -188,7 +190,7 @@ describe('AgentWorkspace', () => {
     vi.spyOn(api, 'executionConcurrency').mockRejectedValue(new Error('backend unavailable'))
     render(props().element)
     fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
-    expect(screen.getByText(/A fila está livre/)).toBeTruthy()
+    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
     await waitFor(() => expect(screen.queryByLabelText('Execuções simultâneas por projeto')).toBeNull())
   })
 

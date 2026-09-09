@@ -1,6 +1,6 @@
 import { Fragment, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
-import { clearComposerDraft, loadComposerDraft, saveComposerDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
+import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 import { stateLabel } from '../lib/risk'
@@ -129,11 +129,12 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
+  const initialFileDraft = loadComposerFileDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)
   const [composerHeight, setComposerHeight] = useState(initialDraft.height)
-  const [attachments, setAttachments] = useState<File[]>([])
+  const [attachments, setAttachments] = useState<File[]>(initialFileDraft.attachments)
   const [attachmentError, setAttachmentError] = useState('')
-  const [projectFiles, setProjectFiles] = useState<string[]>([])
+  const [projectFiles, setProjectFiles] = useState<string[]>(initialFileDraft.projectFiles)
   const [fileQuery, setFileQuery] = useState<{ start: number; end: number; query: string }>()
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -166,9 +167,11 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
     const draft = loadComposerDraft(session.project_path, activeChatId)
-    setMessage(draft.message); setComposerHeight(draft.height); setContentView('conversation'); setExpandedWhxNoticeRunId('')
+    const fileDraft = loadComposerFileDraft(session.project_path, activeChatId)
+    setMessage(draft.message); setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles(fileDraft.projectFiles); setAttachmentError(''); setContentView('conversation'); setExpandedWhxNoticeRunId('')
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
+  useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
   useEffect(() => () => {
     if (copiedResetTimerRef.current !== null) window.clearTimeout(copiedResetTimerRef.current)
   }, [])

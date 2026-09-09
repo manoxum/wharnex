@@ -3,7 +3,8 @@ import { api, APIError } from './lib/api'
 import { BundleRoutingError, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
-import { AgentWorkspace, type ExecutionFIFOItem } from './components/AgentWorkspace'
+import { AgentWorkspace } from './components/AgentWorkspace'
+import { executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, type ExecutionFIFOItem } from './lib/executionQueueView'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
@@ -173,10 +174,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             const key = `${id}:${planId}`
             const existing = current.find((item) => item.key === key)
             const next: FrontendExecutionQueueItem = { key, chatId, chatTitle: owner?.title || 'Harness Chat', planId, status, position: Number(parsed.data.position) || existing?.position, addedAt: existing?.addedAt || Date.now() }
-            return [...current.filter((item) => item.key !== key), next].sort(compareExecutionQueueItems)
+            return upsertExecutionQueueItem(current, next)
           })
         } else if (planId && ['execution.completed', 'execution.failed', 'execution.duplicate_blocked'].includes(parsed.type)) {
-          setExecutionFIFO((current) => current.filter((item) => item.key !== `${id}:${planId}`))
+          const terminalStatus = parsed.type === 'execution.completed' ? 'completed' : 'failed'
+          setExecutionFIFO((current) => finishExecutionQueueItem(current, `${id}:${planId}`, terminalStatus))
         }
         setEvents((current) => {
           if (current.some((item) => item.id === parsed.id)) return current
@@ -474,6 +476,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         if (!remote.ok) throw new Error(`A conversa local não foi arquivada porque o arquivo remoto não pôde ser confirmado (${remote.state}).`)
       }
       const moved = archiveStoredChat(projectPath, chatId)
+      setExecutionFIFO((current) => current.filter((item) => item.chatId !== chatId))
       // Best-effort: the local transcript archive above stays authoritative
       // and is never blocked on this. It only gives the backend a trigger
       // to eventually compact this session's own artifacts/logs (ADR-0031).
@@ -1505,12 +1508,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }))) return
     const planId = targetSession.plan?.plan_id || 'unknown-plan'
     const queueKey = `${targetSession.id}:${planId}`
-    setExecutionFIFO((current) => current.some((item) => item.key === queueKey) ? current : [...current, { key: queueKey, chatId: targetChat.id, chatTitle: targetChat.title, planId, status: current.length ? 'queued' : 'submitting', position: current.length + 1, addedAt: Date.now() }])
+    setExecutionFIFO((current) => {
+      const existing = current.find((item) => item.key === queueKey)
+      if (existing && executionQueueIsActive(existing)) return current
+      const activeCount = current.filter(executionQueueIsActive).length
+      return upsertExecutionQueueItem(current, { key: queueKey, chatId: targetChat.id, chatTitle: targetChat.title, planId, status: activeCount ? 'queued' : 'submitting', position: activeCount + 1, addedAt: Date.now() })
+    })
+    let terminalStatus: 'completed' | 'failed' = 'failed'
     setChatBusy(targetChat.id, true); setError(undefined)
     try {
       const response = await api.execute(targetSession.id, approved || direct)
       if (activeChatIdRef.current === targetChat.id) setSession(response.session)
       const ok = response.session.last_execution?.success
+      terminalStatus = ok ? 'completed' : 'failed'
       const warnings = response.session.last_execution?.warnings || []
       if (response.session.last_execution) updateWorkspaceChat(targetChat.id, response.session.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: !ok } })
       if (direct && ok) {
@@ -1536,7 +1546,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       reportChatError(failedSession ? errorArtifact(failedSession) || message : message, 'Execução falhou', targetChat, failedSession?.project_path || targetSession.project_path)
       if (failedSession?.state === 'repair_pending' && failedSession.last_manual_prompt) await submitRepairPrompt(failedSession, targetChat)
     } finally {
-      setExecutionFIFO((current) => current.filter((item) => item.key !== queueKey).map((item, index) => ({ ...item, position: index + 1, status: index === 0 && item.status === 'queued' ? 'submitting' : item.status })))
+      setExecutionFIFO((current) => finishExecutionQueueItem(current, queueKey, terminalStatus))
       setChatBusy(targetChat.id, false)
     }
   }
@@ -2335,12 +2345,6 @@ function canRepairFailureWithGPT(session: Session) {
 function recoveryHumanAction(chat: WorkspaceChat, actions: Record<string, DesktopChatGPTHumanAction>) {
   const keys = [chat.id, ...Object.values(chat.conflictSurfaces || {}).map((surface) => surface.cacheKey)]
   return keys.map((key) => actions[key]).find((action) => action?.active)
-}
-
-function compareExecutionQueueItems(a: { position?: number; addedAt: number }, b: { position?: number; addedAt: number }) {
-  const left = a.position || Number.MAX_SAFE_INTEGER
-  const right = b.position || Number.MAX_SAFE_INTEGER
-  return left === right ? a.addedAt - b.addedAt : left - right
 }
 
 function iterationRef(requestId: string, phase: ChatIterationRef['phase'], artifacts: ChatArtifactKind[], chatgptUrl?: string): ChatIterationRef {
