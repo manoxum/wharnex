@@ -270,6 +270,9 @@ export type ArtifactPresentationItem = { path: string; preview_path?: string; la
 export type ArtifactPresentationGallery = { id: string; title?: string; description?: string; layout: 'auto' | 'grid' | 'masonry' | 'strip'; sizing: 'uniform' | 'adaptive'; items: ArtifactPresentationItem[] }
 export type ArtifactPresentation = { protocol: 'harness.artifact-presentation/v1'; fallback: boolean; warning?: string; galleries: ArtifactPresentationGallery[] }
 export type ArtifactSettings = { retention_days: number; bundle_window_limit: number }
+export type LanguageCode = 'pt' | 'en' | 'fr'
+export type LanguageSettings = { version: 1; interface_language: LanguageCode; translation_languages: LanguageCode[] }
+export type MarkdownTranslation = { protocol: 'harness.utility/v1'; task: 'translate_markdown'; target_language: LanguageCode; markdown: string }
 // ExecutionConcurrency is how many plans one project may verify at a time,
 // plus the ceiling the backend clamps to. Raising it is not free: each
 // concurrent runner claims a full container memory allowance and a complete
