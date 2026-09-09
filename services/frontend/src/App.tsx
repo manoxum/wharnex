@@ -6,6 +6,7 @@ import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace, type ExecutionFIFOItem } from './components/AgentWorkspace'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { EditorWorkspace } from './components/EditorWorkspace'
+import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
 import { WorkspaceShell } from './components/WorkspaceShell'
 import { ProjectSettings } from './components/ProjectSettings'
@@ -274,7 +275,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const handler = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
       if (event.data?.type === 'wharness:project-active') setShellActive(Boolean(event.data.active))
-      if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent')) setMode(event.data.mode)
+      if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent' || event.data.mode === 'orchestrator')) setMode(event.data.mode)
       if (event.data?.type === 'wharness:open-project-settings') setProjectSettingsOpen(true)
     }
     window.addEventListener('message', handler)
@@ -2238,6 +2239,9 @@ Mantenha o escopo aprovado, execute as verificações adequadas e devolva o bund
     <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} onShowInChat={errorChatRef?.message === error ? () => void showErrorInChat() : undefined} />
     <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
       <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
+    </div>
+    <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
+      <OrchestratorWorkspace session={session} onError={setError} />
     </div>
     <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
       {chats.length === 0 ? <div className="agent-empty-workspace">

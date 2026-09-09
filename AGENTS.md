@@ -153,6 +153,16 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - Only the short host merge+verification phase is serialized per canonical project. This internal Git plumbing is Wharness's own execution engine mutating the host it already owns — analogous to Apply writing files without per-file approval — and is a distinct authority from a model-requested `git` command inside a plan's own operations, which still requires explicit user approval per the Git workspace invariant's mutation rule.
 - A candidate reconciled from an immutable archived request base (no Git ancestry shared with the live host — see `SoT/SANDBOX_MODEL.md`) has nothing to branch or merge onto and MUST keep using the legacy canonical base/result `ChangeSet` materialized and integrated via per-file compare-and-swap and conditional rollback instead.
 - Clean disjoint changes require no model turn. A true conflict, from either path, preserves unrelated verified mutations.
+- Replaying an earlier pending candidate into a verification sandbox that shares no Git ancestry with the host (one rebuilt from an immutable archived request base) MUST NOT attempt a branch merge: git refuses unrelated histories, which is neither a conflict nor recoverable. Such a candidate is replayed as the diff of its own verified commit, or, if the host no longer holds that commit, as the plan's recorded patches.
+- The only host-facing mutation in the verification phase is pushing the verified integration branch into the host's `.git`, and that alone is serialized per project. Per-project execution concurrency is an operator setting that defaults to one; raising it MUST NOT be treated as free, because each concurrent runner claims a full container memory allowance and a complete project clone.
+
+## Execution environment disclosure invariant (v1.3.1)
+
+- Every planner request MUST carry a Wharness-measured `wharness.environment/v1` manifest describing the host machine, the Protected container's real limits, the runner image's own executable inventory, the policy engine's closed decision sets, and the protocol validator's numeric budgets. Policy and budget values MUST be read from the engine and validator rather than restated, so the published contract cannot drift from the enforced one.
+- The manifest is descriptive only. It MUST NOT grant a capability or relax a check; policy, protocol validation and the runner remain the sole enforcement points. Measurement MUST be best-effort and time-bounded: an unavailable Docker daemon degrades the section to a warning and never delays or fails a request.
+- The runner image MUST describe its own toolchain through a dedicated inventory entrypoint. Wharness MUST NOT maintain a parallel list of installed tools.
+- An infrastructure or bookkeeping fault MUST NOT consume an automatic AI repair round, and MUST NOT discard a verified executable payload. Artifact archival and project-knowledge staging are auxiliary to a response bundle: their failure is recorded as a structured degradation event and ingestion continues.
+- A repairable environment failure MUST name its root cause in the repair request. A missing executable is reported as such, never as raw command output that invites re-reading unrelated project source.
 
 ## Manual plan transport normalization
 

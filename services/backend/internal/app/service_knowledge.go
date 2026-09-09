@@ -348,13 +348,13 @@ func (s *Service) triggerKnowledgeReviewWithOptions(ctx context.Context, session
 		message += "\n\nCONCURRENT KNOWLEDGE CANDIDATE FROM THE PREVIOUS REVIEW (merge its still-valid operational learning with the current document; do not blindly overwrite newer knowledge):\n" + reconciliationCandidate
 	}
 	requestID := ids.New("req")
-	planned, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
+	planned, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{
 		SessionID: sessionID, RequestID: requestID, Message: message,
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "knowledge_review",
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, item.LastRequestID),
-	}, snapshot))
+	}, snapshot, item.ProjectPath))
 	if err != nil {
 		s.bus.Publish(sessionID, "knowledge.review_prepare_failed", map[string]any{"error": err.Error()})
 		return

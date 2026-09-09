@@ -19,12 +19,14 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
 	"kernl.local/harness/backend/internal/ids"
+	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/policy"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/projectgit"
 	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
+	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/workspacefs"
@@ -98,13 +100,23 @@ type Service struct {
 	applyMu                 sync.Mutex
 	projectApplyLocks       map[string]*sync.Mutex
 	executionQueue          *projectExecutionQueue
+	orchestrator            *orchestrator.Store
+	orchestratorMu          sync.Mutex
+	orchestratorLocks       map[string]*sync.Mutex
 	artifactStore           ArtifactObjectStore
+	environment             *sandboxenv.Prober
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
 	runtimeInstanceID       string
 }
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
+
+func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {
+	if store != nil {
+		s.orchestrator = store
+	}
+}
 
 func (s *Service) SetRemoteInputStore(store RemoteInputStore) {
 	s.remoteInputs = store
@@ -127,7 +139,7 @@ func (s *Service) TunnelProviders() []TunnelProviderDescriptor {
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
 	manager := selfevolution.New(selfevolution.DiscoverRoot())
-	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
@@ -456,7 +468,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		return planner.Result{}, item, err
 	}
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA})
-	result, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)}, knowledgeSnapshot))
+	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)}, knowledgeSnapshot, item.ProjectPath))
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -470,7 +482,7 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	if result.ManualPrompt != "" {
 		if latest, latestErr := s.store.Get(sessionID); latestErr == nil && latest.Context.Manifest.SHA256 != requestBaselineSHA {
 			requestBaselineSHA = latest.Context.Manifest.SHA256
-			result.ManualPrompt = planner.BuildManualPrompt(withPlannerKnowledge(planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)}, knowledgeSnapshot))
+			result.ManualPrompt = planner.BuildManualPrompt(s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: latest.Context.TextPath, ContextManifest: latest.Context.Manifest, PreviousResponseID: latest.LastProviderResponseID, AutomationMode: latest.AutomationMode, SelfEvolution: s.isSelfEvolution(latest), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(latest, requestID)}, knowledgeSnapshot, latest.ProjectPath))
 		}
 	}
 	enrichPlanConcurrency(result.Plan, requestBaselineSHA)
@@ -588,6 +600,9 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 		return domain.Session{}, fmt.Errorf("decode manual plan: %w", err)
 	}
 	normalizePlanCollections(&plan)
+	if notes := protocol.NormalizeCommandBudgets(&plan); len(notes) > 0 {
+		s.bus.Publish(sessionID, "plan.budgets_normalized", map[string]any{"request_id": plan.RequestID, "adjustments": notes})
+	}
 	enrichPlanConcurrency(&plan, requestBaseline(current, plan.RequestID))
 	currentSHA := strings.TrimSpace(current.Context.Manifest.SHA256)
 	if plan.BaseContextSHA256 != "" && currentSHA != "" && plan.BaseContextSHA256 != currentSHA {
@@ -631,6 +646,14 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		return BundleSubmission{}, err
 	}
 	normalizePlanCollections(parsed.Plan)
+	// A command timeout that is missing, zero or above the accepted ceiling
+	// is a pure transport mistake: rejecting the bundle over it discards a
+	// correct patch and costs a full round trip (observed twice in a row in
+	// production). Repair it narrowly here, before validation, and record
+	// exactly what changed rather than reinterpreting the plan silently.
+	if notes := protocol.NormalizeCommandBudgets(parsed.Plan); len(notes) > 0 {
+		s.bus.Publish(sessionID, "plan.budgets_normalized", map[string]any{"request_id": parsed.Turn.RequestID, "adjustments": notes})
+	}
 	if parsed.Plan != nil {
 		enrichPlanConcurrency(parsed.Plan, requestBaseline(current, parsed.Plan.RequestID))
 	}
@@ -657,8 +680,19 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		}
 	}
 	if s.artifactStore != nil {
+		// Archiving the response bundle is bookkeeping for the chat file
+		// library, not a precondition for executing a verified plan. A full
+		// or unreachable object store used to reject the bundle outright,
+		// throwing away a complete, valid change (observed in production as
+		// XMinioStorageFull). Record the archival failure, classify it so the
+		// operator sees the real remedy, and continue ingesting the plan.
 		if _, err := s.PersistArtifact(ctx, sessionID, parsed.Turn.RequestID, "output", "bundle", filename, "application/zip", raw); err != nil {
-			return BundleSubmission{}, fmt.Errorf("persist execution bundle: %w", err)
+			degraded := "persist execution bundle: " + err.Error()
+			s.bus.Publish(sessionID, "artifact.persist_degraded", map[string]any{
+				"request_id": parsed.Turn.RequestID, "name": filename, "error": degraded,
+				"storage_full": isArtifactStorageFullDiagnostic(err.Error()),
+				"impact":       "the bundle was accepted and will execute; only its archived copy is missing",
+			})
 		}
 	}
 	// A knowledge_review response never carries a plan and is never subject
@@ -669,8 +703,20 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if lineage, ok := current.RequestLineages[parsed.Turn.RequestID]; ok && lineage.Kind == requestKindKnowledgeReview {
 		return s.ingestKnowledgeReviewResponse(ctx, sessionID, parsed)
 	}
+	// Project knowledge is auxiliary learning metadata staged alongside the
+	// result; it is committed only at the real terminal boundary. Its most
+	// common failure is a pure concurrency artefact — a peer chat advanced the
+	// catalog revision while this request was in flight, so the returned
+	// candidate declares a base_revision that no longer matches. Rejecting the
+	// whole bundle for that discarded a complete verified change over a
+	// bookkeeping mismatch. Skip the staging instead and keep the payload.
 	if err := s.stageResponseKnowledge(sessionID, parsed); err != nil {
-		return BundleSubmission{}, fmt.Errorf("stage response knowledge: %w", err)
+		var revisionConflict *knowledgeRevisionConflictError
+		s.bus.Publish(sessionID, "knowledge.stage_skipped", map[string]any{
+			"request_id": parsed.Turn.RequestID, "error": err.Error(),
+			"reason": knowledgeStageSkipReason(errors.As(err, &revisionConflict)),
+			"impact": "the response bundle was accepted; only its knowledge candidate and cumulative summary were not staged for this round",
+		})
 	}
 	if refreshed, getErr := s.store.Get(sessionID); getErr == nil {
 		current = refreshed
@@ -1334,7 +1380,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		pendingForExecution = retireConflictingMutations(pendingForExecution, item.IntegrationConflict)
 	}
 	if !unprotected {
-		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, &result); replayErr != nil {
+		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, !reconcileFromArchive, &result); replayErr != nil {
 			return s.failExecution(ctx, sessionID, result, replayErr)
 		}
 	}
@@ -1686,9 +1732,27 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 		return result, updated, cause
 	}
 
+	// The sandbox ran out of disk, memory or file descriptors. The generated
+	// source is not implicated and a repair round provably cannot help (the
+	// retry fails identically), so classify it, keep the verified-so-far
+	// candidate, and hand the operator a host-side remedy instead.
+	if evidence, exhausted := detectResourceExhaustion(result); exhausted {
+		updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+			current.FailureKind = domain.FailureKindSandboxResourceExhausted
+			current.LastRepairError = "sandbox resource exhausted while running " + evidence.commandLine() + ": " + evidence.Diagnostic
+			return nil
+		})
+		s.bus.Publish(sessionID, "sandbox.resource_exhausted", map[string]any{
+			"plan_id": result.PlanID, "argv": evidence.Argv, "cwd": evidence.Cwd,
+			"exit_code": evidence.ExitCode, "diagnostic": evidence.Diagnostic,
+		})
+		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "failure_kind": domain.FailureKindSandboxResourceExhausted})
+		return result, updated, cause
+	}
+
 	var replayConflict *pendingChangeSetReplayConflict
 	if errors.As(cause, &replayConflict) {
-		conflicted, conflictErr := s.prepareConflictResolution(sessionID, updated, updated.PendingHostChanges, replayConflict.conflicts)
+		conflicted, conflictErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, replayConflict.conflicts)
 		if conflictErr != nil {
 			s.bus.Publish(sessionID, "conflict.prepare_failed", map[string]any{"error": conflictErr.Error(), "source": "pending_changeset_replay"})
 		} else {
@@ -1723,7 +1787,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	if updated.IntegrationConflict != nil && updated.Plan != nil && updated.IntegrationConflict.RequestID == updated.Plan.RequestID {
 		if updated.RepairAttempt < maxAutoRepairAttempts {
 			conflict := updated.IntegrationConflict
-			if retried, retryErr := s.prepareConflictResolution(sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
+			if retried, retryErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
 				updated = retried
 				updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 					current.RepairAttempt++
@@ -1868,7 +1932,7 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		return refreshed, err
 	}
 
-	planned, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
+	planned, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
 		Message:                repairMessage,
@@ -1878,7 +1942,7 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		AutomationMode:         refreshed.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(refreshed),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
-	}, knowledgeSnapshot))
+	}, knowledgeSnapshot, refreshed.ProjectPath))
 	if err != nil {
 		return refreshed, fmt.Errorf("prepare repair planner request: %w", err)
 	}
@@ -1976,6 +2040,12 @@ Use the current Wharness project context as authoritative. Replace denied comman
 	var diagnostics strings.Builder
 	for index, command := range result.Commands {
 		fmt.Fprintf(&diagnostics, "\n[%d] %s (exit %d, success=%t)\n%s\n", index+1, strings.Join(command.Argv, " "), command.ExitCode, command.Success, truncateRepairText(commandResultDiagnostic(command), 6000))
+	}
+	// A missing executable reads like an ordinary failure in raw output, and
+	// a planner handed only that output tends to re-read the source instead of
+	// swapping the tool. Name the real cause so the repair targets it.
+	if evidence, missing := detectMissingExecutable(result); missing {
+		modeNote += fmt.Sprintf("\n\nROOT CAUSE — MISSING EXECUTABLE: %q is NOT installed in the Protected runner image, so %q exited 127 before doing any work. This is not a source defect: do not modify project code to chase it. Replace that command with one built from the executables listed in the request's LOCAL EXECUTION ENVIRONMENT tools inventory, or drop the check.", evidence.executableName(), evidence.commandLine())
 	}
 	return fmt.Sprintf(`%s
 
@@ -2088,7 +2158,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			return item, fmt.Errorf("stage ChangeSet integration: %w", err)
 		}
 		if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
-			updated, prepareErr := s.prepareConflictResolution(sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+			updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
 			if prepareErr != nil {
 				return item, fmt.Errorf("prepare focused conflict resolution: %w", prepareErr)
 			}
@@ -2295,7 +2365,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				break
 			}
 			if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
-				updated, prepareErr := s.prepareConflictResolution(sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+				updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
 				if prepareErr != nil {
 					return item, abortPreparedTransaction(fmt.Errorf("prepare focused conflict resolution after integration race: %w", prepareErr))
 				}
@@ -3051,4 +3121,14 @@ func (s *Service) resetDevspace(sessionID string) {
 	if ok {
 		_ = s.runner.Cleanup(workspace)
 	}
+}
+
+// knowledgeStageSkipReason separates the two ways knowledge staging is skipped
+// so the UI can present catalog drift (routine, self-correcting on the next
+// round) differently from a planner that returned a malformed catalog.
+func knowledgeStageSkipReason(revisionConflict bool) string {
+	if revisionConflict {
+		return "concurrent_catalog_revision"
+	}
+	return "invalid_knowledge_payload"
 }

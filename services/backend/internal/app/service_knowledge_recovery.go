@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -47,7 +48,7 @@ func (s *Service) rebuildKnowledgeReviewPrompt(item domain.Session, requestID st
 	if err != nil {
 		return "", fmt.Errorf("marshal knowledge review history: %w", err)
 	}
-	request := withPlannerKnowledge(planner.Request{
+	request := s.plannerRequest(context.Background(), planner.Request{
 		SessionID:              item.ID,
 		RequestID:              requestID,
 		Message:                string(history),
@@ -58,7 +59,7 @@ func (s *Service) rebuildKnowledgeReviewPrompt(item domain.Session, requestID st
 		SelfEvolution:          s.isSelfEvolution(item),
 		PlanningMode:           "knowledge_review",
 		ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID),
-	}, snapshot)
+	}, snapshot, item.ProjectPath)
 	return planner.BuildManualPrompt(request), nil
 }
 

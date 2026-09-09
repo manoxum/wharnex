@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -122,7 +123,7 @@ func classifyGit(command domain.CommandSpec, decision *domain.PolicyDecision) {
 	}
 	for _, raw := range command.Argv[2:] {
 		arg := strings.ToLower(raw)
-		if arg == "--force" || arg == "--force-with-lease" || arg == "-f" || arg == "--hard" || arg == "--delete" {
+		if containsFold(deniedGitFlags, arg) {
 			decision.Allowed = false
 			decision.Risk = "high"
 			decision.Reasons = append(decision.Reasons, "destructive git flag denied in model plan")
@@ -216,4 +217,46 @@ var interactiveDenied = map[string]bool{
 	"mkfs": true, "fdisk": true, "parted": true, "dd": true,
 	"kill": true, "pkill": true, "killall": true,
 	"ssh": true, "scp": true, "sftp": true, "socat": true, "nc": true, "netcat": true,
+}
+
+// deniedGitFlags mirrors the destructive-flag check in classifyGit. It exists
+// as a named set so the environment manifest can publish the exact same list
+// the engine enforces, instead of a hand-maintained copy that can drift.
+var deniedGitFlags = []string{"--force", "--force-with-lease", "-f", "--hard", "--delete"}
+
+func sortedSetKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// DeniedExecutables is the closed set of executables a model plan may never
+// invoke. Published to the planner through the environment manifest so a plan
+// is written against the real policy rather than discovering it via rejection.
+func DeniedExecutables() []string { return sortedSetKeys(denied) }
+
+// ElevatedExecutables run project-defined behavior: allowed, but they raise
+// the plan's risk to at least medium.
+func ElevatedExecutables() []string { return sortedSetKeys(elevated) }
+
+// GitReadOnlySubcommands may run in a model plan with no approval.
+func GitReadOnlySubcommands() []string { return sortedSetKeys(readOnlyGit) }
+
+// GitMutableSubcommands are permitted but require explicit user approval; any
+// other git subcommand is denied outright.
+func GitMutableSubcommands() []string { return sortedSetKeys(mutableGit) }
+
+// DeniedGitFlags are rejected on any git subcommand in a model plan.
+func DeniedGitFlags() []string { return append([]string(nil), deniedGitFlags...) }
+
+func containsFold(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

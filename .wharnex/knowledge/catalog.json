@@ -1,8 +1,11 @@
 {
   "protocol": "harness.knowledge/v2",
   "entries": [
+    "artifact-presentation-galleries",
     "knowledge-sharing-toggle",
     "legacy-project-knowledge",
-    "logo-exploration-31-38"
+    "logo-exploration-31-38",
+    "logo-exploration-39-50",
+    "orchestrator-mode-design"
   ]
 }

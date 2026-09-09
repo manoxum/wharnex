@@ -2,21 +2,51 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
 // projectExecutionQueue is the single scheduling seam for every Agent plan
 // execution. It preserves FIFO ordering within one project while allowing
 // unrelated projects to execute independently.
+//
+// Capacity is one by default, which is the historical behavior. Protected
+// verification itself does not need exclusivity — it runs in an isolated
+// temporary clone, and the only host-facing write (pushing the verified
+// integration branch into the host .git) is serialized separately under the
+// project apply lock. Capacity therefore exists as an operator knob for
+// machines with the disk and RAM headroom to verify two chats at once: each
+// concurrent runner claims a full container memory allowance plus a complete
+// project clone, so raising it on a small machine trades queueing delay for
+// the far worse out-of-disk/out-of-memory failures this codebase already
+// classifies as unrepairable.
 type projectExecutionQueue struct {
+	capacity int
 	mu       sync.Mutex
 	projects map[string]*projectExecutionQueueState
 }
 
 type projectExecutionQueueState struct {
-	active  bool
+	active  int
 	waiters []*executionQueueWaiter
+}
+
+// defaultProjectExecutionConcurrency preserves the original strict FIFO
+// behavior. WHARNESS_PROJECT_EXECUTION_CONCURRENCY raises it.
+const defaultProjectExecutionConcurrency = 1
+
+func projectExecutionConcurrency() int {
+	raw := os.Getenv("WHARNESS_PROJECT_EXECUTION_CONCURRENCY")
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 1 {
+		return defaultProjectExecutionConcurrency
+	}
+	if parsed > 8 {
+		return 8
+	}
+	return parsed
 }
 
 type executionQueueWaiter struct {
@@ -33,7 +63,7 @@ type executionQueueTicket struct {
 }
 
 func newProjectExecutionQueue() *projectExecutionQueue {
-	return &projectExecutionQueue{projects: make(map[string]*projectExecutionQueueState)}
+	return &projectExecutionQueue{capacity: projectExecutionConcurrency(), projects: make(map[string]*projectExecutionQueueState)}
 }
 
 func (q *projectExecutionQueue) acquire(ctx context.Context, projectPath, sessionID string, onQueued ...func(int)) (executionQueueTicket, error) {
@@ -44,8 +74,8 @@ func (q *projectExecutionQueue) acquire(ctx context.Context, projectPath, sessio
 		state = &projectExecutionQueueState{}
 		q.projects[project] = state
 	}
-	if !state.active {
-		state.active = true
+	if state.active < q.capacity {
+		state.active++
 		q.mu.Unlock()
 		return executionQueueTicket{queue: q, project: project, once: &sync.Once{}}, nil
 	}
@@ -94,9 +124,14 @@ func (q *projectExecutionQueue) release(project string) {
 		return
 	}
 	if len(state.waiters) == 0 {
-		delete(q.projects, project)
+		state.active--
+		if state.active <= 0 {
+			delete(q.projects, project)
+		}
 		return
 	}
+	// The released slot transfers directly to the next waiter, so active
+	// stays at its current level rather than dipping and being re-taken.
 	next := state.waiters[0]
 	state.waiters = state.waiters[1:]
 	close(next.ready)

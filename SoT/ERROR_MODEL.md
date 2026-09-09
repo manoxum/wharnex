@@ -22,7 +22,22 @@ A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set c
 | `host_integration_race` | Repeated compare-and-swap races committing an already-verified candidate. | Retry Apply — this is host concurrency, not a model/source defect. |
 | `execution_context_canceled` | A sandbox/host command was interrupted by request cancellation. | Not evidence the generated source is defective; safe to resume/retry. |
 | `remote_input_transport` | The request ended because the Desktop/remote ChatGPT transport or returned bundle could not be completed or validated. | Retry the original task as a fresh request from current context; do not ask GPT to repair project source merely because transport failed. |
+| `sandbox_resource_exhausted` | A Protected command failed because the machine ran out of disk, memory or file descriptors mid-run (for example a linker reporting `no space left on device` during a race-enabled build). Derived from real command output, never from planner text. | Free host resources or narrow the verification set, then retry the retained candidate. The generated source is not implicated and rewriting it cannot help. |
+| `artifact_storage_full` | The local artifact object store refused a write for lack of space (`XMinioStorageFull` or equivalent). | Free object-store space or lower artifact retention. The affected request is **not** failed by this: archival is bookkeeping and the verified result still executes. |
 
 None of these classifications ever consume an automatic ChatGPT source-repair round: each represents an infrastructure, lifecycle, host, or transport condition for which a new source patch is not the defined recovery.
+
+## Auxiliary-payload failures MUST NOT invalidate an executable payload
+
+A response bundle carries a verified executable result plus auxiliary material: the archived copy of the bundle itself and the project-knowledge candidate with its cumulative summary. A defect in the auxiliary material MUST NOT reject the bundle.
+
+- Artifact archival failure publishes `artifact.persist_degraded` and ingestion continues. Only the archived copy is missing.
+- Knowledge staging failure publishes `knowledge.stage_skipped` with a `reason` and ingestion continues. `concurrent_catalog_revision` means a peer chat advanced the catalog while this request was in flight — routine, self-correcting on the next round, and never a planner defect. `invalid_knowledge_payload` means the returned catalog was structurally wrong.
+
+This rule exists because both failures were observed discarding a complete, verified change over bookkeeping that is committed separately and later.
+
+## Repairable failures MUST name their root cause
+
+A missing executable (exit 127 for a binary absent from the runner image) is repairable — the planner can pick another tool — but only when the repair request says so. The repair prompt MUST identify the missing executable explicitly instead of handing over raw output, which invites re-reading project source that was never at fault. The environment manifest (`SoT/SANDBOX_MODEL.md`) publishes the installed inventory so this condition should not arise at all.
 
 Failures without one of these infrastructure classifications are repairable planner failures. Wharness attempts their bounded GPT repair automatically and retains a manual GPT repair fallback with optional operator guidance after automatic preparation, transport, or attempt exhaustion fails.

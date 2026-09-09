@@ -183,7 +183,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	if err != nil {
 		return fmt.Errorf("load knowledge for workflow continuation: %w", err)
 	}
-	planned, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
+	planned, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
 		Message:                message,
@@ -193,7 +193,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 		AutomationMode:         refreshed.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(refreshed),
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(refreshed, requestID, refreshed.LastRequestID),
-	}, knowledgeSnapshot))
+	}, knowledgeSnapshot, refreshed.ProjectPath))
 	if err != nil {
 		return fmt.Errorf("prepare workflow continuation: %w", err)
 	}

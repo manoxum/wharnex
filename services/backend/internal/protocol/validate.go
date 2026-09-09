@@ -10,10 +10,10 @@ import (
 )
 
 func Validate(plan domain.ExecutionPlan) error {
-	if len(plan.Operations) > 100 {
+	if len(plan.Operations) > MaxOperations {
 		return errors.New("too many operations")
 	}
-	if len(plan.Verification) > 50 {
+	if len(plan.Verification) > MaxVerificationCommands {
 		return errors.New("too many verification commands")
 	}
 	if plan.Protocol != domain.ProtocolV1 {
@@ -41,24 +41,24 @@ func Validate(plan domain.ExecutionPlan) error {
 			}
 		}
 	}
-	if len(plan.ImpactFiles) > 256 {
-		return errors.New("impact_files exceeds 256 paths")
+	if len(plan.ImpactFiles) > MaxImpactFiles {
+		return fmt.Errorf("impact_files exceeds %d paths", MaxImpactFiles)
 	}
 	for i, path := range plan.ImpactFiles {
 		if err := validateDeclaredPath(path); err != nil {
 			return fmt.Errorf("impact_files %d: %w", i, err)
 		}
 	}
-	if len(plan.ReadFiles) > 256 {
-		return errors.New("read_files exceeds 256 paths")
+	if len(plan.ReadFiles) > MaxReadFiles {
+		return fmt.Errorf("read_files exceeds %d paths", MaxReadFiles)
 	}
 	for i, path := range plan.ReadFiles {
 		if err := validateDeclaredPath(path); err != nil {
 			return fmt.Errorf("read_files %d: %w", i, err)
 		}
 	}
-	if len(plan.BarrierFiles) > 64 {
-		return errors.New("barrier_files exceeds 64 paths")
+	if len(plan.BarrierFiles) > MaxBarrierFiles {
+		return fmt.Errorf("barrier_files exceeds %d paths", MaxBarrierFiles)
 	}
 	for i, path := range plan.BarrierFiles {
 		if err := validateDeclaredPath(path); err != nil {
@@ -122,14 +122,14 @@ func validateDeclaredPath(value string) error {
 }
 
 func ValidateCommand(command domain.CommandSpec) error {
-	if len(command.Argv) > 128 {
+	if len(command.Argv) > MaxCommandArgs {
 		return errors.New("too many command arguments")
 	}
 	if len(command.Argv) == 0 || strings.TrimSpace(command.Argv[0]) == "" {
 		return errors.New("command argv is required")
 	}
-	if command.TimeoutSeconds < 1 || command.TimeoutSeconds > 1800 {
-		return errors.New("command timeout out of range")
+	if command.TimeoutSeconds < MinCommandTimeoutSeconds || command.TimeoutSeconds > MaxCommandTimeoutSeconds {
+		return fmt.Errorf("command timeout out of range: timeout_seconds must be %d..%d, got %d", MinCommandTimeoutSeconds, MaxCommandTimeoutSeconds, command.TimeoutSeconds)
 	}
 	if len(command.ExpectedExitCodes) == 0 {
 		return errors.New("expected_exit_codes is required")
@@ -157,8 +157,8 @@ func ValidateCommand(command domain.CommandSpec) error {
 }
 
 func ValidatePatchPaths(patch string) error {
-	if len(patch) > 2*1024*1024 {
-		return errors.New("patch exceeds 2 MiB limit")
+	if len(patch) > MaxPatchBytes {
+		return fmt.Errorf("patch exceeds %d byte limit", MaxPatchBytes)
 	}
 	for _, line := range strings.Split(patch, "\n") {
 		trimmed := strings.TrimSpace(line)

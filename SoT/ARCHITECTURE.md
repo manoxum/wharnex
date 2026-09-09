@@ -131,3 +131,15 @@ time, never concurrently, with a short pause between sessions — Go has no
 portable OS thread-priority API, so this bounded, sequential processing is
 the mechanism behind keeping compaction from monopolizing backend resources,
 not an OS-level priority grant.
+
+## Project Orchestrator (v1.4)
+
+Orchestrator is a project-level application capability, not a second executor. Its architectural flow is:
+
+`Objective -> orchestrator proposal -> durable Plan/Task DAG -> approval/readiness -> Agent Session -> existing execution pipeline`
+
+The proposal contract is `harness.orchestrator-plan/v1` and contains planning metadata only. Planner adapters may produce it automatically or as a manual copy/paste prompt, but they MUST NOT use the Orchestrator protocol to execute commands.
+
+Durable Orchestrator Plans, Tasks, dependency edges and TaskRuns are stored project-scoped in PostgreSQL and are independent from chat Session lifecycle. Transport handlers resolve project scope through an existing Session, while the application service and `internal/orchestrator` package own validation, readiness and persistence.
+
+A task Start action creates a normal Agent Session and submits one normal Agent request. All model-produced mutations therefore continue through Policy, Protected verification, ChangeSet integration and Apply. There is no `AI -> Orchestrator -> shell` path.

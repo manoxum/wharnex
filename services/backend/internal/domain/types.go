@@ -114,6 +114,22 @@ const (
 	// validate the remote ChatGPT result. The project source did not fail, so
 	// recovery is a fresh transport request rather than a source repair turn.
 	FailureKindRemoteInputTransport = "remote_input_transport"
+
+	// FailureKindSandboxResourceExhausted marks a Protected command that
+	// failed because the machine ran out of disk, memory or file descriptors
+	// mid-run — observed as a linker reporting "no space left on device"
+	// during a race-enabled test build. The generated source is not implicated
+	// and rewriting it cannot help, so this must never spend a repair round;
+	// recovery is freeing host resources (or narrowing the verification set)
+	// and retrying the retained candidate.
+	FailureKindSandboxResourceExhausted = "sandbox_resource_exhausted"
+
+	// FailureKindArtifactStorageFull marks a response bundle that validated
+	// but could not be archived because the local object store rejected the
+	// write for lack of space. Archival is bookkeeping, never a reason to
+	// discard a verified result, so this classification exists to make the
+	// operator-facing remedy explicit rather than to fail the request.
+	FailureKindArtifactStorageFull = "artifact_storage_full"
 )
 
 type ExecutionMode string

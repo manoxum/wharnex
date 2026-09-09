@@ -394,7 +394,40 @@ export type ProjectProvision = {
   submodules?: string
 }
 
-export type WorkspaceMode = 'editor' | 'agent'
+export type WorkspaceMode = 'editor' | 'agent' | 'orchestrator'
+
+export type OrchestratorPlanStatus = 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
+export type OrchestratorTaskStatus = 'PENDING' | 'READY' | 'DOING' | 'REVIEW' | 'COMPLETE' | 'ARCHIVED'
+export type OrchestratorTaskCondition = 'none' | 'dependency' | 'plan_approval' | 'manual_pause' | 'missing_context' | 'approval' | 'conflict' | 'failed_run' | 'stale_dependency'
+export type OrchestratorPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+export type OrchestratorPlan = {
+  id: string; project_path: string; title: string; objective: string; status: OrchestratorPlanStatus
+  planner_request_id?: string; assumptions?: string[]; created_at: string; updated_at: string
+}
+
+export type OrchestratorTask = {
+  id: string; project_path: string; plan_id?: string; title: string; description?: string; acceptance_criteria?: string[]
+  status: OrchestratorTaskStatus; condition: OrchestratorTaskCondition; priority: OrchestratorPriority; depends_on?: string[]
+  capability?: string; complexity?: string; parallelizable: boolean; impact_files?: string[]; read_files?: string[]; barrier_files?: string[]
+  created_at: string; updated_at: string
+}
+
+export type OrchestratorTaskRun = {
+  id: string; task_id: string; project_path: string; session_id?: string; request_id?: string; execution_plan_id?: string
+  attempt: number; status: string; error?: string; started_at: string; completed_at?: string
+}
+
+export type OrchestratorOverview = { plans: OrchestratorPlan[]; tasks: OrchestratorTask[]; mutation_slots: number; mutation_slots_used: number }
+
+export type OrchestratorProposalTask = {
+  id: string; title: string; description: string; acceptance_criteria: string[]; depends_on: string[]; priority: OrchestratorPriority
+  capability: string; complexity: 'low' | 'medium' | 'high'; parallelizable: boolean; impact_files: string[]; read_files: string[]; barrier_files: string[]
+}
+
+export type OrchestratorProposal = { protocol: 'harness.orchestrator-plan/v1'; title: string; objective: string; assumptions: string[]; tasks: OrchestratorProposalTask[] }
+export type OrchestratorProposalResult = { request_id: string; plan?: OrchestratorPlan; tasks?: OrchestratorTask[]; manual_prompt?: string }
+export type OrchestratorRunResult = { task: OrchestratorTask; run: OrchestratorTaskRun; manual_prompt?: string }
 
 export type ChatArtifactKind = 'context' | 'prompt' | 'result' | 'error'
 export type ChatArtifactSelection = Record<ChatArtifactKind, boolean>

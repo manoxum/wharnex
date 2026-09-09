@@ -137,6 +137,28 @@ export function wharnessBundleRequestIdFromFilename(value) {
   return requestIdFromBundleName(value)
 }
 
+// BundleOwnershipError marks a downloaded bundle whose NAME is a perfectly
+// valid Wharness response bundle, but which belongs to a different request or
+// chat than the surface that produced the download currently expects.
+//
+// This is not corruption and not a security failure: it is the normal outcome
+// of running several chats at once, or of a bundle arriving after its own
+// request was superseded. It used to be handled identically to a malformed
+// name — cancel the download and report a transport error — which threw away
+// completed model work and, worse, surfaced an error against the newer
+// request that had nothing to do with it. Callers distinguish it so the bytes
+// can instead be retained for the workspace-wide router, which already knows
+// how to find the chat that owns a request id.
+export class BundleOwnershipError extends Error {
+  constructor(message, { requestId = '', chatId = '', filename = '' } = {}) {
+    super(message)
+    this.name = 'BundleOwnershipError'
+    this.requestId = requestId
+    this.chatId = chatId
+    this.filename = filename
+  }
+}
+
 // canonicalWharnessBundleDownload accepts either the exact canonical name, or
 // a browser-mangled duplicate-suffix variant "<canonical name minus .zip> (2).zip",
 // and normalizes the latter back to canonical form. expectedChatId/expectedRequestId
@@ -149,7 +171,7 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
     if (parsed.kind !== 'res') return undefined
     const effectiveRequestId = parsed.subrequestId || parsed.requestId
     if (expectedRequestId && effectiveRequestId !== expectedRequestId) {
-      throw new Error(`Bundle pertence ao pedido ${effectiveRequestId}, mas o pedido ativo é ${expectedRequestId}.`)
+      throw new BundleOwnershipError(`Bundle pertence ao pedido ${effectiveRequestId}, mas o pedido ativo é ${expectedRequestId}.`, { requestId: effectiveRequestId, chatId: parsed.chatId, filename })
     }
     // parsed.chatId always comes from a real filename, so it is necessarily
     // already in its sanitized [A-Za-z0-9-]-only form (the naming scheme
@@ -159,9 +181,9 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
     // contains '_'): comparing it raw against parsed.chatId would reject
     // every bundle for such a surface, even the one it genuinely belongs to.
     if (expectedChatId && parsed.chatId !== safeChatId(expectedChatId)) {
-      if (!expectedFilename) throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o chat ativo é ${safeChatId(expectedChatId)}.`)
+      if (!expectedFilename) throw new BundleOwnershipError(`Bundle pertence ao chat ${parsed.chatId}, mas o chat ativo é ${safeChatId(expectedChatId)}.`, { requestId: effectiveRequestId, chatId: parsed.chatId, filename })
       const expectedParsed = parseBundleName(expectedFilename)
-      if (!expectedParsed || parsed.chatId !== expectedParsed.chatId) throw new Error(`Bundle pertence ao chat ${parsed.chatId}, mas o pedido ativo pertence a ${expectedParsed?.chatId || safeChatId(expectedChatId)}.`)
+      if (!expectedParsed || parsed.chatId !== expectedParsed.chatId) throw new BundleOwnershipError(`Bundle pertence ao chat ${parsed.chatId}, mas o pedido ativo pertence a ${expectedParsed?.chatId || safeChatId(expectedChatId)}.`, { requestId: effectiveRequestId, chatId: parsed.chatId, filename })
     }
     if (expectedFilename && filename !== expectedFilename) throw new Error(`Bundle tem nome ${filename}, mas o protocolo exige ${expectedFilename}.`)
     return { requestId: effectiveRequestId, filename, normalized: false }
@@ -178,11 +200,11 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
     }
     const duplicateRequestId = duplicate.subrequestId || duplicate.requestId
     if (duplicateRequestId !== expected) {
-      throw new Error(`Bundle pertence ao pedido ${duplicateRequestId}, mas o pedido ativo é ${expected}.`)
+      throw new BundleOwnershipError(`Bundle pertence ao pedido ${duplicateRequestId}, mas o pedido ativo é ${expected}.`, { requestId: duplicateRequestId, chatId: duplicate.chatId, filename: buildBundleName('res', duplicate.chatId, duplicateRequestId) })
     }
     const expectedParsed = parseBundleName(expectedFilename)
     if (expectedChatId && duplicate.chatId !== safeChatId(expectedChatId) && duplicate.chatId !== expectedParsed?.chatId) {
-      throw new Error(`Bundle pertence ao chat ${duplicate.chatId}, mas o chat ativo é ${chatId}.`)
+      throw new BundleOwnershipError(`Bundle pertence ao chat ${duplicate.chatId}, mas o chat ativo é ${chatId}.`, { requestId: duplicateRequestId, chatId: duplicate.chatId, filename: buildBundleName('res', duplicate.chatId, duplicateRequestId) })
     }
     return { requestId: expected, filename: canonical, normalized: true, sourceFilename: filename }
   }
