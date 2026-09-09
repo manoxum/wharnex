@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
-import type { HarnessEvent, Session } from '../types'
+import type { BundleQuota, HarnessEvent, Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import type { ChatViewportStore } from './useProgressiveChatHistory'
 import { Inspector, type InspectorTab } from './Inspector'
@@ -15,6 +15,7 @@ import { promptDialog } from '../lib/appDialog'
 import { desktopWindowScope } from '../lib/projectBindings'
 import { ATTENTION_ACTION_LABEL, collectAttentionItems, sessionCanApplyHost, sessionHostResolutionBlocked, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { AttentionPopover } from './AttentionPopover'
+import { api } from '../lib/api'
 
 type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
@@ -69,12 +70,20 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const attentionClusterRef = useRef<HTMLDivElement>(null)
   const chatViewportStoreRef = useRef<ChatViewportStore>(new Map())
   const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
+  const [bundleQuota, setBundleQuota] = useState<BundleQuota>()
   const archived = chatProps.archivedChats || []
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
   const attentionItems = useMemo(() => collectAttentionItems(chatProps.chats, attentionSessions, chatgptHumanActions), [attentionSessions, chatProps.chats, chatgptHumanActions])
   const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
   const activeCommandAttention = attentionItems.find((item) => item.chatId === chatProps.activeChatId && item.action && item.action !== 'apply-host')
   const executionCommandRunning = useMemo(() => hasRunningExecutionCommand(inspectorProps.events), [inspectorProps.events])
+  useEffect(() => {
+    let alive = true
+    const refresh = () => { void api.bundleQuota().then((value) => { if (alive) setBundleQuota(value) }).catch(() => {}) }
+    refresh()
+    const timer = window.setInterval(refresh, 60_000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [session.id, session.artifacts?.length])
   useEffect(() => {
     if (!attentionPopoverOpen) return
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -191,6 +200,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
         <span className="self-evolution-badge"><Icon name="refresh" size={13}/>{session.self_evolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${session.wharnex_instance_id}`}</span>
       </div>}
       <div className="agent-command-actions">
+        {bundleQuota && <AgentBundleQuotaMeter quota={bundleQuota}/>}
         {attentionItems.length > 0 && <div className="agent-attention-cluster" ref={attentionClusterRef}>
           <button type="button" className={`agent-attention-summary ${urgentAttentionCount ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-label={`Centro de notificações, ${attentionItems.length} alerta(s), ${urgentAttentionCount} urgente(s)`} title="Alertas de todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionItems.length} {attentionItems.length === 1 ? 'alerta' : 'alertas'}</b><small>{urgentAttentionCount} {urgentAttentionCount === 1 ? 'urgente' : 'urgentes'}</small></span></button>
           {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention}/>}
@@ -244,6 +254,16 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
     <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
     <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} /></div>
   </section>
+}
+
+function AgentBundleQuotaMeter({ quota }: { quota: BundleQuota }) {
+  const limit = Math.max(1, quota.limit)
+  const pressure = Math.max(0, Math.min(100, (quota.sent / limit) * 100))
+  const detail = `Consumo de bundles em ${quota.window_hours} horas: ${quota.sent} entregues ao ChatGPT de ${quota.limit} configurados e ${quota.received} recebidos do ChatGPT. Estimativa local Wharnex; apenas informativo e não bloqueia novos pedidos${quota.warning ? ', mesmo com o limite atingido' : ''}.`
+  return <div className={`agent-bundle-quota ${quota.warning ? 'warning' : ''}`} role={quota.warning ? 'status' : 'group'} aria-live={quota.warning ? 'polite' : undefined} aria-label={detail} title={detail}>
+    <div className="agent-bundle-quota-copy"><span>{quota.window_hours} h</span><b>Entregues {quota.sent}/{quota.limit}</b><i>Recebidos {quota.received}</i></div>
+    <span className="agent-bundle-quota-track" aria-hidden="true"><span className="agent-bundle-quota-fill" style={{ width: `${pressure}%` }}/></span>
+  </div>
 }
 
 function hasRunningExecutionCommand(events: HarnessEvent[]) {

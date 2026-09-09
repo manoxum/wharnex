@@ -56,6 +56,7 @@ describe('AgentWorkspace', () => {
   beforeEach(() => {
     localStorage.clear()
     window.history.replaceState({}, '', '/?wharnessWindow=primary')
+    vi.spyOn(api, 'bundleQuota').mockResolvedValue({ window_hours: 3, limit: 80, sent: 12, received: 10, total: 22, warning: false, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -73,6 +74,23 @@ describe('AgentWorkspace', () => {
     window.history.replaceState({}, '', '/?wharnessWindow=secondary')
     const secondary = render(props().element)
     expect((secondary.container.querySelector('.agent-workspace') as HTMLElement).style.getPropertyValue('--agent-chat-width')).toBe('')
+  })
+
+  it('keeps a visible non-blocking three-hour bundle consumption meter in embedded Agent chrome', async () => {
+    vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 24, received: 21, total: 45, warning: false, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
+    const rendered = render(props().element)
+    expect(await screen.findByRole('group', { name: /Consumo de bundles em 3 horas: 24 entregues ao ChatGPT.*21 recebidos do ChatGPT.*apenas informativo e não bloqueia novos pedidos/i })).toBeTruthy()
+    expect(screen.getByText('Entregues 24/80')).toBeTruthy()
+    expect(screen.getByText('Recebidos 21')).toBeTruthy()
+    expect((rendered.container.querySelector('.agent-bundle-quota-fill') as HTMLElement).style.width).toBe('30%')
+  })
+
+  it('keeps the bundle meter informational when the configured sent limit is reached', async () => {
+    vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 80, received: 76, total: 156, warning: true, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
+    const rendered = render(props().element)
+    expect(await screen.findByRole('status', { name: /80 entregues ao ChatGPT.*76 recebidos do ChatGPT.*não bloqueia novos pedidos, mesmo com o limite atingido/i })).toBeTruthy()
+    expect((rendered.container.querySelector('.agent-bundle-quota') as HTMLElement).className).toContain('warning')
+    expect((rendered.container.querySelector('.agent-bundle-quota-fill') as HTMLElement).style.width).toBe('100%')
   })
 
   it('keeps the chat fixed on the left and uses the right-side tabs for the inspector', () => {
