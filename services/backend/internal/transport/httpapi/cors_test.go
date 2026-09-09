@@ -29,7 +29,7 @@ func TestAllowedOriginsDoesNotDuplicateTheDefaultPort(t *testing.T) {
 func TestCORSReflectsOnlyAllowlistedOrigins(t *testing.T) {
 	handler := cors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), allowedOrigins("http://127.0.0.1:5175"))
 
-	// A checkout running its frontend on a non-default port (e.g. wharnex-legacy
+	// A checkout running its frontend on a non-default port (e.g. wharnex-statable
 	// on 5175) must still receive Access-Control-Allow-Origin, or every fetch()
 	// from that origin fails in-browser as "Failed to fetch".
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)

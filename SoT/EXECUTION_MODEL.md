@@ -63,7 +63,7 @@ The human Host terminal remains a direct argv executor rooted at the real projec
 
 ## Transactional self-evolution (v1.2.23, amended v1.2.34)
 
-The runtime instance identifier is configured through `WHARNESS_INSTANCE_ID`. Opening a different structurally recognized Wharnex checkout is ordinary Protected project work and is labelled as evolution of that instance; it never gains self-evolution authority. The `legacy` runtime identifier MUST refuse to open its own canonical root, preventing a legacy release from self-evolving.
+The runtime instance identifier is configured through `WHARNESS_INSTANCE_ID`. Opening a different structurally recognized Wharnex checkout is ordinary Protected project work and is labelled as evolution of that instance; it never gains self-evolution authority. The `statable` runtime identifier MUST refuse to open its own canonical root, preventing a statable release from self-evolving.
 
 A session is `self_evolution=true` only when its canonical project root is exactly the canonical root of the currently running Wharness instance. A child directory, another checkout, or another worktree is not self-evolution unless it resolves to that exact runtime root.
 

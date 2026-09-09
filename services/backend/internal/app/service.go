@@ -232,8 +232,8 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		automationMode = domain.AutomationModeAuto
 	}
 	selfEvolution := s.selfEvolution.IsProject(projectPath)
-	if legacySelfOpenForbidden(s.runtimeInstanceID, selfEvolution) {
-		return domain.Session{}, errors.New("the legacy Wharnex instance cannot open itself as a project")
+	if statableSelfOpenForbidden(s.runtimeInstanceID, selfEvolution) {
+		return domain.Session{}, errors.New("the statable Wharnex instance cannot open itself as a project")
 	}
 	if selfEvolution && executionMode == domain.ExecutionModeUnprotected {
 		executionMode = domain.ExecutionModeProtected
