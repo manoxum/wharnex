@@ -66,3 +66,9 @@ Nesta tarefa, a primeira execução do plano terminou antes dos gates de Go com 
 A recuperação que funcionou foi autorizar explicitamente a hidratação de dependências para a mesma execução e correr `go mod download` no backend. Depois disso, `go vet` e `go test` dos pacotes afetados passaram sem qualquer alteração adicional ao patch, e o mesmo candidato seguiu para commit, merge e Apply no host.
 
 Quando este sintoma reaparecer, tratar primeiro como ausência de materialização do cache no sandbox: não iniciar repair de código apenas por esse erro. Solicitar/usar a aprovação de rede apropriada para preencher o cache e repetir os mesmos gates antes de concluir que existe regressão no source.
+
+## Visibilidade da quota global de bundles no Agent
+
+No Desktop multi-project, cada projeto normal é renderizado como `embeddedProject`, por isso `App.tsx` omite deliberadamente `WorkspaceTopbar`. Um indicador global colocado apenas nesse topbar não fica visível no uso normal do modo Agent.
+
+A quota móvel de bundles usa o snapshot global de `api.bundleQuota()`: pedidos enviados ao ChatGPT são mostrados como bundles entregues e contam para a pressão contra o limite configurado, enquanto respostas recebidas são contadas separadamente. O limite continua a ser apenas informativo e nunca bloqueia novos pedidos. Para garantir visibilidade no layout embedded, o Agent deve manter o medidor na sua própria command bar, com polling baixo de 60 segundos e refresh imediato quando muda a metadata de artefactos da sessão.
