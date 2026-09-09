@@ -19,6 +19,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
 	"kernl.local/harness/backend/internal/ids"
+	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/policy"
 	"kernl.local/harness/backend/internal/projectconfig"
@@ -98,6 +99,9 @@ type Service struct {
 	applyMu                 sync.Mutex
 	projectApplyLocks       map[string]*sync.Mutex
 	executionQueue          *projectExecutionQueue
+	orchestrator            *orchestrator.Store
+	orchestratorMu          sync.Mutex
+	orchestratorLocks       map[string]*sync.Mutex
 	artifactStore           ArtifactObjectStore
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
@@ -105,6 +109,12 @@ type Service struct {
 }
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
+
+func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {
+	if store != nil {
+		s.orchestrator = store
+	}
+}
 
 func (s *Service) SetRemoteInputStore(store RemoteInputStore) {
 	s.remoteInputs = store
@@ -127,7 +137,7 @@ func (s *Service) TunnelProviders() []TunnelProviderDescriptor {
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
 	manager := selfevolution.New(selfevolution.DiscoverRoot())
-	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()

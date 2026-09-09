@@ -76,3 +76,11 @@ Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tun
 Stack self-evolution MUST NOT execute its restart worker inside the backend container that will be replaced. The backend image MUST contain the local build/control toolchain required by `make build-stage`, and activation MUST be delegated to a detached supervisor container. Application rollout MUST retain the previous backend/frontend image IDs long enough to restore them on failed health checks; tunnel/database containers remain excluded from that rollback boundary.
 
 Runtime state belongs under `.harness/` and must never be committed.
+
+## G10 Orchestrator
+
+- Unit tests MUST cover proposal/DAG validation, cycle rejection and readiness across plan approval/dependency completion.
+- Backend transitions MUST reject unknown states, direct entry into `DOING`, and manual movement of a task whose Agent run is active.
+- Project integration tests SHOULD cover durable Plan/Task/dependency/TaskRun round-trips against PostgreSQL when the Docker-managed test database is available.
+- Frontend tests MUST keep Orchestrator available as a first-class workspace mode and SHOULD cover draft approval, manual planner import, task creation and the four task projections.
+- A task Start regression MUST prove it delegates to the normal Agent execution path and that a second `DOING` task in the same project is refused; it MUST NOT introduce a direct command-execution seam.

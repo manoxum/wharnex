@@ -36,6 +36,9 @@ func New(apiKey, model, baseURL string) *Client {
 }
 
 func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Result, error) {
+	if request.PlanningMode == "orchestrator" {
+		return c.planOrchestrator(ctx, request)
+	}
 	contextKey := request.ContextManifest.SHA256
 	if contextKey == "" {
 		contextKey = request.ContextTextPath

@@ -196,3 +196,16 @@ Execution actions belong to the unified Agent tab bar. The available Execute act
 - On a chat's first remote request, the local title is derived once from the request and the owned ChatGPT conversation is organized under the exact current project name with title `WHX: <local title>`.
 - Account operations prefer a supported official provider capability and otherwise use the typed browser fallback. Private session cookies and undocumented consumer endpoints are not an API transport.
 - The ChatGPT sidebar is collapsed after load and after account work. Local archive requires the owned remote conversation to be stopped when active and remotely archived first; unsupported controls surface an actionable error instead of silently diverging.
+
+## Orchestrator workspace (v1.4)
+
+Wharnex exposes **Orchestrator** beside Editor and Agent as a first-class workspace mode. It is a supervisory/project-planning surface; Agent remains the conversational worker and Editor remains the direct source surface.
+
+Orchestrator has two primary pages backed by one project-scoped state source:
+
+- **Overview** places a ChatGPT-like objective composer centrally with generous top spacing. Submitting an objective generates a structured draft plan; no task may execute until the user approves that plan. The same page shows the single project mutation slot, ready/review/completed metrics and recent active work.
+- **Tasks** offers Kanban, table, list and dependency-graph projections of the same tasks. Users may also create one manual task, optionally associating it with an active plan and existing dependencies. A task detail drawer exposes criteria, dependency ids, run history and valid lifecycle actions.
+
+All new task records are created as `PENDING`; backend readiness may immediately promote an eligible manual task to `READY`. Drag/drop is an interaction convenience only: every drop is validated by the backend. `DOING` is entered through **Iniciar no Agent**, never by a direct client-side state update. A task in `REVIEW` represents completed Agent execution awaiting human/project review, not final completion.
+
+When the configured planner is manual, Overview shows the generated Orchestrator prompt, a copy action and a JSON import field. Only a validated `harness.orchestrator-plan/v1` response becomes a draft plan.

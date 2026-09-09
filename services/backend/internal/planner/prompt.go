@@ -155,6 +155,9 @@ func plannerKnowledgeIdentity(req Request) string {
 }
 
 func BuildManualPrompt(req Request) string {
+	if req.PlanningMode == "orchestrator" {
+		return buildOrchestratorManualPrompt(req)
+	}
 	if req.PlanningMode == "knowledge_review" {
 		return buildKnowledgeReviewPrompt(req)
 	}

@@ -15,6 +15,7 @@ import (
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/config"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
+	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/planner/manual"
 	openaiadapter "kernl.local/harness/backend/internal/planner/openai"
@@ -38,6 +39,13 @@ func main() {
 		log.Fatalf("session store: %v", err)
 	}
 	defer store.Close()
+	orchestratorCtx, orchestratorCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	orchestratorStore, err := orchestrator.NewPostgresStore(orchestratorCtx, cfg.DatabaseURL)
+	orchestratorCancel()
+	if err != nil {
+		log.Fatalf("orchestrator store: %v", err)
+	}
+	defer orchestratorStore.Close()
 	bus := audit.NewPersistentBus(store)
 	builder := contextbundle.NewBuilder(cfg.MaxContextBytes, cfg.MaxBundleBytes)
 	policies := policy.NewEngine()
@@ -64,6 +72,7 @@ func main() {
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
+	service.SetOrchestratorStore(orchestratorStore)
 	service.SetRuntimeInstanceID(cfg.InstanceID)
 	stopArtifacts := configureArtifactStore(cfg, service)
 	defer stopArtifacts()

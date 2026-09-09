@@ -263,3 +263,17 @@ func TestBuildManualPromptAdvertisesRenderableResultArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManualPromptOrchestratorUsesDedicatedPlanningProtocol(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-orchestrator", PlanningMode: "orchestrator", Message: "ship the migration"})
+	for _, want := range []string{"harness.orchestrator-plan/v1", "dependency DAG", "never emit shell commands", "ship the migration", "acceptance_criteria", "depends_on"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("orchestrator prompt missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"CHANGE PLAN CONTRACT", "plan.json", "harness.execution/v1"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("orchestrator prompt must remain separate from execution planning, found %q", forbidden)
+		}
+	}
+}
