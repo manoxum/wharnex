@@ -1,6 +1,6 @@
 # Wharness Desktop
 
-Electron shell that composes the local Wharness frontend and dedicated isolated ChatGPT `WebContentsView` instances, one per live Harness chat, in one native window.
+Electron shell that composes the local Wharness frontend with one visible ChatGPT Supervisor `WebContentsView` and three hidden persistent worker views backed by the durable browser-agent queue.
 
 ## Development start
 
@@ -29,4 +29,4 @@ Result bundles contain `turn.json`. Answers, clarifications, investigations, and
 
 ## Harness chat affinity
 
-Each live Harness chat owns one dedicated remote `WebContentsView` identified by that chat's stable local id. Switching chats hides the previous view and reveals/navigates only the selected chat's own view; Wharness never reassigns a remote renderer from one chat to another. All DOM/input/navigation IPC carries the chat id and the Electron main process rejects ownership mismatches before touching the remote renderer. The shared `persist:wharness-chatgpt` partition exists only to preserve a common authenticated browser session. Permanent local chat deletion explicitly destroys that chat's remote view. Renderer-requested navigation remains restricted to trusted HTTPS `chatgpt.com` origins.
+The authenticated profile owns exactly one human-facing Supervisor view plus three hidden workers. Harness chats persist their provider `conversation_id`; views are execution slots rather than chat-owned state. Switching chats changes only the Supervisor's desired destination, and navigation is deferred/coalesced while a submit/write critical phase is active. Autonomous jobs are leased from the backend queue to workers and can never use the Supervisor. Every remote operation validates its current chat/conversation assignment, and all views share `persist:wharness-chatgpt` only for the authenticated browser session. Renderer-requested navigation remains restricted to trusted HTTPS `chatgpt.com` origins.

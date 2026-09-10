@@ -95,6 +95,11 @@ type Store struct {
 	// workspacechats.go.
 	workspaceChats     map[string][]domain.WorkspaceChat
 	workspaceChatItems map[string][]domain.WorkspaceChatItem
+	// chatAgentTasks is the non-Postgres fallback for the durable browser job
+	// scheduler. Production persists the same records in
+	// harness_chat_agent_tasks.
+	chatAgentTasks    map[string]ChatAgentTask
+	chatAgentProvider ChatAgentProviderState
 }
 
 func NewStore() *Store { return &Store{items: make(map[string]domain.Session)} }

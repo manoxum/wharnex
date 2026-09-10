@@ -1,0 +1,229 @@
+package session
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+)
+
+const (
+	ChatAgentTaskPending   = "PENDING"
+	ChatAgentTaskLeased    = "LEASED"
+	ChatAgentTaskRunning   = "RUNNING"
+	ChatAgentTaskWaiting   = "WAITING"
+	ChatAgentTaskDone      = "DONE"
+	ChatAgentTaskFailed    = "FAILED"
+	ChatAgentTaskAttention = "ATTENTION"
+	ChatAgentTaskCancelled = "CANCELLED"
+)
+
+var (
+	ErrChatAgentTaskNotFound = errors.New("chat agent task not found")
+	ErrChatAgentLeaseOwner   = errors.New("chat agent task lease owner mismatch")
+)
+
+type ChatAgentTask struct {
+	TaskID         string          `json:"task_id"`
+	Type           string          `json:"type"`
+	ProjectID      string          `json:"project_id"`
+	ChatID         string          `json:"chat_id"`
+	SessionID      string          `json:"session_id"`
+	RequestID      string          `json:"request_id"`
+	RootRequestID  string          `json:"root_request_id"`
+	ConversationID string          `json:"conversation_id"`
+	ParentTaskID   string          `json:"parent_task_id"`
+	Priority       int             `json:"priority"`
+	Status         string          `json:"status"`
+	NotBefore      time.Time       `json:"not_before"`
+	Attempt        int             `json:"attempt"`
+	MaxAttempts    int             `json:"max_attempts"`
+	DedupeKey      string          `json:"dedupe_key"`
+	LeaseOwner     string          `json:"lease_owner"`
+	LeaseExpiresAt *time.Time      `json:"lease_expires_at,omitempty"`
+	Payload        json.RawMessage `json:"payload"`
+	LastError      string          `json:"last_error"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+type ChatAgentTaskFilter struct {
+	ChatID    string
+	RequestID string
+	Status    string
+	Limit     int
+}
+
+var chatAgentPriorities = map[string]int{
+	"BOT_WRITE": 0, "RECOVERY_WRITE": 0,
+	"AWAIT_RESPONSE": 1,
+	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
+	"ORGANIZE_CHAT": 2, "RENAME_CHAT": 2,
+	"ARCHIVE_CHAT": 3, "DELETE_CHAT": 3,
+	"DELETE_BUNDLE": 4, "DELETE_TEMP_CHAT": 4,
+}
+
+func newChatAgentTaskID() string {
+	var raw [10]byte
+	if _, err := rand.Read(raw[:]); err == nil {
+		return "cat_" + hex.EncodeToString(raw[:])
+	}
+	return fmt.Sprintf("cat_%d", time.Now().UTC().UnixNano())
+}
+
+func normalizeChatAgentTask(task ChatAgentTask, now time.Time) (ChatAgentTask, error) {
+	task.Type = strings.ToUpper(strings.TrimSpace(task.Type))
+	priority, ok := chatAgentPriorities[task.Type]
+	if !ok {
+		return ChatAgentTask{}, fmt.Errorf("unsupported chat agent task type %q", task.Type)
+	}
+	if strings.TrimSpace(task.ChatID) == "" && strings.TrimSpace(task.ConversationID) == "" {
+		return ChatAgentTask{}, errors.New("chat_id or conversation_id is required")
+	}
+	if task.TaskID == "" {
+		task.TaskID = newChatAgentTaskID()
+	}
+	task.ProjectID = strings.TrimSpace(task.ProjectID)
+	task.ChatID = strings.TrimSpace(task.ChatID)
+	task.SessionID = strings.TrimSpace(task.SessionID)
+	task.RequestID = strings.TrimSpace(task.RequestID)
+	task.RootRequestID = strings.TrimSpace(task.RootRequestID)
+	task.ConversationID = strings.TrimSpace(task.ConversationID)
+	task.ParentTaskID = strings.TrimSpace(task.ParentTaskID)
+	task.DedupeKey = strings.TrimSpace(task.DedupeKey)
+	task.Priority = priority
+	task.Status = ChatAgentTaskPending
+	task.Attempt = 0
+	if task.MaxAttempts <= 0 {
+		task.MaxAttempts = 6
+	}
+	if task.MaxAttempts > 30 {
+		task.MaxAttempts = 30
+	}
+	if task.NotBefore.IsZero() {
+		task.NotBefore = now
+	}
+	if len(task.Payload) == 0 {
+		task.Payload = json.RawMessage(`{}`)
+	}
+	if !json.Valid(task.Payload) {
+		return ChatAgentTask{}, errors.New("chat agent task payload must be valid JSON")
+	}
+	task.LeaseOwner = ""
+	task.LeaseExpiresAt = nil
+	task.LastError = ""
+	task.CreatedAt = now
+	task.UpdatedAt = now
+	return task, nil
+}
+
+func chatAgentTaskActive(status string) bool {
+	switch status {
+	case ChatAgentTaskPending, ChatAgentTaskLeased, ChatAgentTaskRunning, ChatAgentTaskWaiting:
+		return true
+	default:
+		return false
+	}
+}
+
+func chatAgentTaskNeverDedupe(taskType string) bool {
+	switch taskType {
+	case "BOT_WRITE", "RECOVERY_WRITE":
+		return true
+	default:
+		return false
+	}
+}
+
+func chatAgentTaskWriter(taskType string) bool {
+	switch taskType {
+	case "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT":
+		return true
+	default:
+		return false
+	}
+}
+
+func chatAgentTaskAccount(taskType string) bool {
+	switch taskType {
+	case "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_BUNDLE", "DELETE_TEMP_CHAT":
+		return true
+	default:
+		return false
+	}
+}
+
+func chatAgentEffectivePriority(task ChatAgentTask, now time.Time) int {
+	if task.Priority <= 1 {
+		return task.Priority
+	}
+	aged := int(now.Sub(task.CreatedAt) / (15 * time.Minute))
+	value := task.Priority - aged
+	if value < 1 {
+		return 1
+	}
+	return value
+}
+
+func (s *Store) chatAgentFallback() map[string]ChatAgentTask {
+	if s.chatAgentTasks == nil {
+		s.chatAgentTasks = make(map[string]ChatAgentTask)
+	}
+	return s.chatAgentTasks
+}
+
+func (s *Store) EnqueueChatAgentTask(input ChatAgentTask) (ChatAgentTask, error) {
+	task, err := normalizeChatAgentTask(input, time.Now().UTC())
+	if err != nil {
+		return ChatAgentTask{}, err
+	}
+	if s.db != nil {
+		return s.postgresEnqueueChatAgentTask(task)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if task.DedupeKey != "" && !chatAgentTaskNeverDedupe(task.Type) {
+		for _, existing := range s.chatAgentFallback() {
+			if existing.DedupeKey == task.DedupeKey && chatAgentTaskActive(existing.Status) {
+				return existing, nil
+			}
+		}
+	}
+	s.chatAgentFallback()[task.TaskID] = task
+	return task, nil
+}
+
+func (s *Store) ListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask, error) {
+	if s.db != nil {
+		return s.postgresListChatAgentTasks(filter)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]ChatAgentTask, 0, len(s.chatAgentTasks))
+	for _, task := range s.chatAgentTasks {
+		if filter.ChatID != "" && task.ChatID != filter.ChatID {
+			continue
+		}
+		if filter.RequestID != "" && task.RequestID != filter.RequestID {
+			continue
+		}
+		if filter.Status != "" && task.Status != filter.Status {
+			continue
+		}
+		items = append(items, task)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].TaskID < items[j].TaskID
+		}
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	if filter.Limit > 0 && len(items) > filter.Limit {
+		items = items[:filter.Limit]
+	}
+	return items, nil
+}
