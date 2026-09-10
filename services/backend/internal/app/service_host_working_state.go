@@ -56,7 +56,7 @@ func (s *Service) failHostStateBlocked(
 	return updated, abort(fmt.Errorf("%w: %s", ErrHostWorkingStateBlocked, detail))
 }
 
-// ErrSubmoduleWrite marks a change plan whose patch writes inside a Git
+// ErrSubmoduleWrite marks a change plan whose patch set writes inside a Git
 // submodule of the open project.
 var ErrSubmoduleWrite = errors.New("change writes inside a Git submodule, which Wharnex integrates as a pointer rather than as content")
 
