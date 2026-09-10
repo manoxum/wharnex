@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../lib/desktop'
 import { Icon } from './Icon'
 import { directChatGPTKey } from '../lib/directChatGPT'
+import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 
@@ -12,6 +13,7 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
   const key = directChatGPTKey(projectPath)
   const bridge = desktopBridge()
   const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false })
+  const [overlayBlocked, setOverlayBlocked] = useState(false)
 
   const acceptState = useCallback((next: DesktopChatGPTState) => {
     if (!next.cacheKey || next.cacheKey === key) setState(next)
@@ -31,11 +33,13 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
     return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync); unsubscribe(); void bridge.chatgpt.hide(key) }
   }, [acceptState, bridge, key])
 
+  useEffect(() => observeChatGPTOverlayBlockers(window, setOverlayBlocked), [])
+
   useEffect(() => {
     if (!bridge || !hostRef.current) return
-    if (suspended) { void bridge.chatgpt.hide(key); return }
+    if (suspended || overlayBlocked) { void bridge.chatgpt.hide(key); return }
     void bridge.chatgpt.show(elementBounds(hostRef.current), key, state.url || CHATGPT_HOME)
-  }, [bridge, key, state.url, suspended])
+  }, [bridge, key, state.url, suspended, overlayBlocked])
 
   return <section className="direct-chatgpt-shell">
     <header className="direct-chatgpt-toolbar">
