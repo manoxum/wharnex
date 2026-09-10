@@ -85,3 +85,15 @@ A correção preserva o comportamento e move seletores/helpers de overlay para `
 ## Portais React e escopo de consulta nos testes
 
 Quando um modal passa a ser renderizado com `createPortal(..., document.body)`, testes de React Testing Library que validam elementos internos do modal não podem continuar a procurá-los em `view.container`: esse container contém apenas a árvore original do `render`. Use `document.querySelector` ou queries de `screen` para o conteúdo portaled. Caso contrário, a funcionalidade pode estar correta e a verificação falhar com um seletor `null`.
+
+## Reparação de bridge TypeScript após baseline concorrente
+
+Uma repair round pode receber uma baseline mais nova do que a usada pelo candidato que falhou. Nesta tarefa, o primeiro candidato do navegador interno passou os testes Desktop mas o `typecheck` do frontend falhou porque `App.tsx` já chamava `chatgpt.liveKeys` enquanto o tipo efetivo visto naquela execução ainda não expunha a capacidade. A baseline da reparação já continha o handler/preload e a declaração de `liveKeys`, evidenciando avanço concorrente do bridge.
+
+A recuperação correta é rebasear a funcionalidade original sobre a baseline atual, não reproduzir literalmente o diff antigo nem remover a chamada concorrente. Quando uma capacidade está sempre presente no preload e no handler IPC, o contrato TypeScript deve marcá-la como obrigatória e os consumidores devem chamá-la diretamente; isso mantém runtime e tipos sincronizados e faz o `typecheck` detectar drift real do bridge.
+
+## Reparação de contrato de teste após captura de raciocínio visível
+
+Uma restage de integração pode expor uma incompatibilidade latente entre uma mudança concorrente já presente na baseline e um teste antigo, mesmo quando o candidato pendente não toca nessa superfície. Nesta ronda, `chatGPTVisibleActivityScript` já capturava linhas curtas e estruturadas do raciocínio visível usando `node.textContent`, mas `chatgpt-dom.test.mjs` ainda proibia qualquer `textContent`; por isso o gate Desktop falhou apesar de a funcionalidade do navegador interno estar correta.
+
+A correção adequada é alinhar o teste com o contrato atual sem afrouxar a fronteira de segurança: permitir `textContent` apenas como parte da extração limitada da última resposta assistente, afirmar os limites de linhas/comprimento e continuar a rejeitar `innerText`, `aria-label`, cookies, storage e `fetch`. Em repair rounds após concorrência, reproduzir a cadeia pendente contra a baseline atual e distinguir uma expectativa obsoleta de uma regressão real do source antes de alterar produção.

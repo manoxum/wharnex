@@ -404,6 +404,21 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := conflictPaths(conflicts)
+
+	// Same rule as the Git-native merge path: a planner may not patch
+	// Wharnex-managed project state, so a conflict there can never be resolved
+	// by a focused-resolution bundle and must not be sent to one.
+	managed, resolvable := partitionManagedConflictPaths(paths)
+	if len(managed) > 0 {
+		s.bus.Publish(sessionID, "integration.conflict_managed_paths", map[string]any{
+			"paths": managed, "reason": "Wharnex-managed project state is reconciled locally, never by a planner patch",
+		})
+	}
+	if len(resolvable) == 0 {
+		return s.failManagedOnlyConflict(sessionID, item, conflictID, managed)
+	}
+	paths = resolvable
+
 	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
@@ -682,4 +697,48 @@ func (s *Service) replayPlanPatches(ctx context.Context, runner sandbox.Runner, 
 		}
 	}
 	return nil
+}
+
+// partitionManagedConflictPaths splits conflicting paths into the ones Wharnex
+// owns and the ones a planner is allowed to patch.
+//
+// The two sets must never be mixed in one focused-resolution request: a bundle
+// that touches a managed path is rejected by the patch validator before any
+// conflict-specific check runs, so including one makes the whole request
+// unsatisfiable.
+func partitionManagedConflictPaths(paths []string) (managed []string, resolvable []string) {
+	for _, path := range paths {
+		if protocol.IsWharnexManagedPath(path) {
+			managed = append(managed, path)
+			continue
+		}
+		resolvable = append(resolvable, path)
+	}
+	return managed, resolvable
+}
+
+// failManagedOnlyConflict terminates a conflict whose every path is
+// Wharnex-managed.
+//
+// There is no planner turn that can resolve this, so the request stops with an
+// actionable local state instead of being retried against a contradiction. The
+// conflicting knowledge itself is not lost: the records remain in the database
+// and are re-materialized on the next knowledge commit, which is why the
+// remedy is local rather than a model round.
+func (s *Service) failManagedOnlyConflict(sessionID string, item domain.Session, conflictID string, managed []string) (domain.Session, error) {
+	detail := fmt.Sprintf(
+		"integration conflict confined to Wharnex-managed project state (%s); these paths are materialized by Wharnex and are never resolved by a planner patch. Re-run the request against the current host state.",
+		strings.Join(managed, ", "),
+	)
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.State = "conflict_resolution_exhausted"
+		current.LastRepairError = detail
+		current.IntegrationConflict = nil
+		return nil
+	})
+	if err != nil {
+		return updated, err
+	}
+	s.bus.Publish(sessionID, "conflict.managed_paths_only", map[string]any{"conflict_id": conflictID, "paths": managed})
+	return updated, fmt.Errorf("%w: %s", ErrManagedStateConflict, strings.Join(managed, ", "))
 }

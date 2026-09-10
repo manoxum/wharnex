@@ -249,6 +249,27 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := normalizedPaths(conflict.Paths)
+
+	// Wharnex-managed project state (`.wharnex/knowledge/**`) is materialized by
+	// Wharnex, and the patch validator refuses it before any conflict-specific
+	// check can accept it. Asking a planner to resolve a conflict there is a
+	// request that cannot succeed by construction: every bundle it returns is
+	// rejected at ingestion, and the retry reproduces it identically. Such paths
+	// are therefore never handed to a planner.
+	managed, resolvable := partitionManagedConflictPaths(paths)
+	if len(managed) > 0 {
+		s.bus.Publish(sessionID, "integration.conflict_managed_paths", map[string]any{
+			"paths": managed, "reason": "Wharnex-managed project state is reconciled locally, never by a planner patch",
+		})
+	}
+	if len(resolvable) == 0 {
+		// Nothing is left that a planner is even allowed to touch. Stop here
+		// with an actionable local failure instead of burning request after
+		// request on a protocol contradiction.
+		return s.failManagedOnlyConflict(sessionID, item, conflictID, managed)
+	}
+	paths = resolvable
+
 	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}

@@ -41,8 +41,13 @@ var (
 	ErrExecutionBundleRequestMismatch     = errors.New("execution bundle filename/request_id mismatch")
 	ErrExecutionBundleNotPending          = errors.New("execution bundle request_id is not pending for this chat/session")
 	ErrIntegrationConflict                = errors.New("verified changes require focused conflict resolution")
-	ErrStaleHostBaseline                  = errors.New("verified candidate requires host baseline revalidation")
-	ErrHostIntegrationRace                = errors.New("host changed repeatedly during ChangeSet integration")
+	// A conflict confined to Wharnex-managed project state. It is terminal and
+	// local: no planner bundle can resolve it, because the patch validator
+	// refuses that subtree before conflict-specific validation runs. Reporting it
+	// as ErrIntegrationConflict offered a resolution path that cannot exist.
+	ErrManagedStateConflict = errors.New("integration conflict is confined to Wharnex-managed project state and is reconciled locally")
+	ErrStaleHostBaseline    = errors.New("verified candidate requires host baseline revalidation")
+	ErrHostIntegrationRace  = errors.New("host changed repeatedly during ChangeSet integration")
 )
 
 type BundleSubmission struct {
@@ -2306,6 +2311,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
 			updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+			if errors.Is(prepareErr, ErrManagedStateConflict) {
+				return updated, prepareErr
+			}
 			if prepareErr != nil {
 				return item, fmt.Errorf("prepare focused conflict resolution: %w", prepareErr)
 			}
@@ -2474,6 +2482,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 					_ = sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA)
 				}
 				updated, prepareErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, item, item.ProjectPath, failedPlanID, conflict)
+				if errors.Is(prepareErr, ErrManagedStateConflict) {
+					return updated, abortPreparedTransaction(prepareErr)
+				}
 				if prepareErr != nil {
 					return item, abortPreparedTransaction(fmt.Errorf("prepare focused conflict resolution: %w", prepareErr))
 				}

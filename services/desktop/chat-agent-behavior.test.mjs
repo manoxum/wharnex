@@ -85,6 +85,11 @@ test('only https hosts inside the trusted list are accepted', () => {
 // ids and must never be persisted as affinity.
 test('conversation ids come only from a concrete trusted conversation URL', () => {
   assert.equal(conversationIdFromURL(BASE, 'https://chatgpt.com/c/6aa1cb9b-e968-83ea-ab1a-eaaeda5dda4f'), '6aa1cb9b-e968-83ea-ab1a-eaaeda5dda4f')
+  // A conversation moved into a ChatGPT project is served from a project-scoped
+  // path; matching only the root form unbinds it the moment the account
+  // automation files it under the Wharnex project.
+  assert.equal(conversationIdFromURL(BASE, 'https://chatgpt.com/g/g-p-6a9d69a9f3848191ab242df50cbfe9e4-wharnex/c/6aa21a9c-f3bc-83ea-9cba-718a20c1ca25'), '6aa21a9c-f3bc-83ea-9cba-718a20c1ca25')
+  assert.equal(conversationIdFromURL(BASE, 'https://chatgpt.com/c/6aa1cb9b-e968-83ea-ab1a-eaaeda5dda4f?messageId=finalAgentTurnStart'), '6aa1cb9b-e968-83ea-ab1a-eaaeda5dda4f')
   assert.equal(conversationIdFromURL(BASE, 'https://chatgpt.com/c/WEB:pending'), '')
   assert.equal(conversationIdFromURL(BASE, 'https://chatgpt.com/'), '')
   assert.equal(conversationIdFromURL(BASE, 'https://evil.test/c/abc'), '')

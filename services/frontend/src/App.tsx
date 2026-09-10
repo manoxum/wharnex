@@ -73,6 +73,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [restoring, setRestoring] = useState(Boolean(activeAtLoad || embeddedProject))
   const [busy, setBusy] = useState(false)
   const [busyChats, setBusyChats] = useState<Record<string, boolean>>({})
+  // Last known Session per chat. Switching chats is a local navigation — the
+  // transcript, the draft and the tab state all live in localStorage — but it
+  // used to block on a backend round trip (plus up to three mode PATCHes)
+  // before the active chat id even changed, so a click on a tab did nothing
+  // visible until the network answered. A cached session lets the switch land
+  // immediately and revalidate in the background.
+  const sessionCacheRef = useRef<Record<string, Session>>({})
   const [transportProgress, setTransportProgress] = useState('')
   const [chatgptHumanActions, setChatgptHumanActions] = useState<Record<string, DesktopChatGPTHumanAction>>({})
   const [attentionSessions, setAttentionSessions] = useState<Record<string, Session | undefined>>({})
@@ -117,6 +124,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
   useEffect(() => { busyRef.current = busy }, [busy])
+  // Mirror whatever session is on screen into the per-chat cache, so every path
+  // that establishes a session (open, restore, new chat, archive, an update
+  // arriving mid-request) keeps the next switch to that chat instant, without
+  // each of those call sites having to remember to populate it.
+  useEffect(() => { if (session && activeChatId) sessionCacheRef.current[activeChatId] = session }, [session, activeChatId])
 
   useEffect(() => {
     if (!session || !activeChatId) return
@@ -313,6 +325,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     // validation forever. Backfill it once the mismatch is noticed instead
     // of leaving that session stuck in an unrecoverable repair loop.
     if (!session || !activeChatId || session.chat_id === activeChatId) return
+    // While a chat switch is in flight the active chat id has already changed
+    // but the incoming session has not arrived yet, so `session` is still the
+    // previous chat's. That is an expected transient, not an inconsistency:
+    // only judge a session that is actually the one this chat points at.
+    const owner = chats.find((chat) => chat.id === activeChatId)
+    if (owner && owner.sessionId !== session.id) return
     if (session.chat_id) {
       setError(`Associação de chat inconsistente: esta sessão pertence ao chat ${session.chat_id} e não será reatribuída a ${activeChatId}. Reabra o chat original ou crie uma conversa nova.`)
       return
@@ -322,7 +340,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     void api.setChatId(session.id, activeChatId).then((updated) => {
       if (activeChatIdRef.current === activeChatId) setSession(updated)
     }).catch(() => { chatIdBackfillRef.current.delete(session.id) })
-  }, [session, activeChatId])
+  }, [session, activeChatId, chats])
 
   useEffect(() => {
 	if (!session || !['repair_pending', 'conflict_resolution_pending', 'baseline_update_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
@@ -509,6 +527,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       await Promise.allSettled(remoteKeys.map((cacheKey) => bridge?.chatgpt.release(cacheKey)))
       for (const key of [...resumedBundleKeysRef.current]) if (key.startsWith(`${target.sessionId}:`) || remoteKeys.some((cacheKey) => key.endsWith(`:${cacheKey}`))) resumedBundleKeysRef.current.delete(key)
       setArchivedChats(moved.archived)
+      delete sessionCacheRef.current[chatId]
       setPreparedDrafts((current) => { const next = { ...current }; delete next[chatId]; return next })
       setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[chatId]; return next })
       if (chatId !== activeChatId) {
@@ -654,7 +673,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           return
         }
 
-        const candidates = dueChatNaming(loadWorkspaceChats(projectPath), now).filter((chat) => chat.id !== activeChatIdRef.current)
+        // Naming only ever runs against a chat whose remote surface is already
+        // live. Resurrecting a released view costs a full Chromium renderer
+        // plus a navigation on the shared partition, and doing that on a timer
+        // for background chats made switching chats measurably heavier — the
+        // exact resident cost the agent pool exists to remove. Until that pool
+        // owns this traffic, the job stays opportunistic.
+        const liveKeys = new Set((await bridge.chatgpt.liveKeys().catch(() => [])) || [])
+        const candidates = dueChatNaming(loadWorkspaceChats(projectPath), now)
+          .filter((chat) => chat.id !== activeChatIdRef.current)
+          .filter((chat) => liveKeys.has(chat.id))
         const [pendingName] = candidates
         if (!pendingName?.chatgptUrl) return
         const attempts = (pendingName.naming?.attempts || 0) + 1
@@ -697,11 +725,47 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (cause) { setError(messageOf(cause)); setBusy(false) }
   }
 
+  // Applies a restored session to the visible workspace, but only while the
+  // chat it belongs to is still the one on screen. A slow round trip for a chat
+  // the user has already switched away from must never overwrite the chat they
+  // are now looking at.
+  const applyRestoredSession = useCallback((chatId: string, restored: Session) => {
+    sessionCacheRef.current[chatId] = restored
+    if (activeChatIdRef.current !== chatId) return
+    setSession(restored)
+    setManualPrompt(restored.last_manual_prompt || '')
+    setChatTransportMode(restored.chat_transport_mode || 'scraper')
+    setItems((current) => current.length ? current : [welcomeItem(restored)])
+  }, [])
+
   async function selectChat(chatId: string) {
-    if (!session || chatId === activeChatId || busy) return
+    if (!session || chatId === activeChatId) return
     const selected = chats.find((chat) => chat.id === chatId)
     if (!selected) return
-    setBusy(true); setError(undefined)
+    const projectPath = session.project_path
+    setError(undefined)
+
+    // Land the visual switch first, from local state only. Everything the user
+    // perceives on a chat switch — the active tab, the transcript, the composer
+    // draft — is already on this machine.
+    sourceRef.current?.close(); sourceRef.current = null
+    activeChatIdRef.current = chatId
+    setActiveChatId(chatId)
+    setEvents([])
+    setItems(loadChat(projectPath, chatId))
+
+    const cached = sessionCacheRef.current[chatId]
+    if (cached && cached.id === selected.sessionId) {
+      // Known session: show it now and revalidate behind the switch.
+      setSession(cached)
+      setManualPrompt(cached.last_manual_prompt || '')
+      setChatTransportMode(cached.chat_transport_mode || 'scraper')
+      setItems((current) => current.length ? current : [welcomeItem(cached)])
+      connectEvents(cached.id, projectPath, chatId)
+    } else {
+      setChatBusy(chatId, true)
+    }
+
     try {
       let restored: Session
       try {
@@ -709,17 +773,23 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         restored = await syncSessionModes(restored, executionMode, automationMode)
       } catch (error) {
         if (!(error instanceof APIError) || error.status !== 404) throw error
-        restored = await api.createSession(session.project_path, executionMode, automationMode, undefined, effortLevel)
+        restored = await api.createSession(projectPath, executionMode, automationMode, undefined, effortLevel)
+        // The backend canonicalizes the project path, so persist under the path
+        // the replacement session actually reports.
         const next = chats.map((chat) => chat.id === chatId ? { ...chat, sessionId: restored.id } : chat)
         persistChats(restored.project_path, next)
         setChats(next)
       }
-      activeChatIdRef.current = chatId; setActiveChatId(chatId); setSession(restored); setEvents([])
-      setManualPrompt(restored.last_manual_prompt || ''); setChatTransportMode(restored.chat_transport_mode || 'scraper')
-      const chatItems = loadChat(restored.project_path, chatId)
-      setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
-      connectEvents(restored.id, restored.project_path, chatId)
-    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+      const wasCached = Boolean(cached && cached.id === selected.sessionId)
+      applyRestoredSession(chatId, restored)
+      // A cached switch already opened its stream against the same session id;
+      // reopening it would drop and recreate a healthy connection. connectEvents
+      // closes and replaces any stream it finds, so it is the only thing that
+      // needs to run here.
+      if (activeChatIdRef.current === chatId && (!wasCached || restored.id !== cached?.id)) {
+        connectEvents(restored.id, projectPath, chatId)
+      }
+    } catch (e) { setError(messageOf(e)) } finally { setChatBusy(chatId, false) }
   }
 
   const updateWorkspaceChat = useCallback((chatId: string, projectPath: string, patch: Partial<WorkspaceChat>) => {

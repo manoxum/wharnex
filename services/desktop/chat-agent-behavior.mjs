@@ -51,10 +51,35 @@ export const CHATGPT_BEHAVIOR = Object.freeze({
   // `capability-unavailable` instead of clicking something adjacent, and is the
   // data gap the behavior-evolution pass is meant to fill.
   optionalSelectors: {
-    modelPicker: [],
-    modelOption: ['[role="menuitem"]', '[role="menuitemradio"]', '[role="option"]'],
-    effortPicker: [],
-    effortOption: ['[role="menuitem"]', '[role="menuitemradio"]', '[role="option"]'],
+    // ChatGPT exposes model and reasoning effort behind one composer pill. It
+    // carries no testid and no aria-label, so it is identified as the composer
+    // surface's only popup button that is not the (testid-bearing) attach
+    // button. Options are matched by role rather than by class: the class names
+    // in this menu are build-hashed and change on every deploy.
+    modelPicker: ['[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'],
+    modelOption: ['[role="menuitemradio"]'],
+    effortPicker: ['[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'],
+    // The effort control is a slider driven by arrow keys, identified by the
+    // keyboard shortcuts it advertises.
+    effortSlider: ['[role="menuitem"][aria-keyshortcuts]'],
+    effortToggle: ['[role="menuitem"][aria-expanded]'],
+    // Completed reasoning collapses behind a disclosure ("Processou durante
+    // 5m 23s"). Expanding it is what makes the summary rows readable at all,
+    // which is why a retroactive scrape of a finished conversation found
+    // nothing before this was mapped.
+    reasoningDisclosure: ['button[aria-expanded]'],
+    reasoningRow: ['[data-reasoning-row]'],
+  },
+  // Visible reasoning capture. ChatGPT renders short activity summaries above
+  // the answer ("Validou estilos e temas da interface"). Those are useful; the
+  // tool/code blocks interleaved with them are not, and are excluded
+  // structurally rather than by reading what they say.
+  reasoning: {
+    enabled: true,
+    maxRows: 40,
+    maxRowChars: 240,
+    minRowChars: 8,
+    excludeWithin: ['pre', 'code', '.markdown', '[data-message-author-role]'],
   },
   // Menu labels are UI chrome, not user content. They are matched exactly first,
   // then by prefix, and always case-folded.
@@ -64,7 +89,19 @@ export const CHATGPT_BEHAVIOR = Object.freeze({
     delete: ['delete', 'apagar', 'eliminar', 'supprimer', 'löschen'],
     moveToProject: ['move to project', 'mover para projeto', 'mover para o projeto', 'mover al proyecto', 'déplacer vers le projet', 'in projekt verschieben'],
     newProject: ['new project', 'novo projeto', 'nuevo proyecto', 'nouveau projet', 'neues projekt'],
+    // The collapsed reasoning disclosure. Matched by prefix because the label
+    // carries a duration ("Processou durante 5m 23s").
+    reasoningDisclosure: ['processou durante', 'pensou durante', 'thought for', 'reasoned for', 'thinking for', 'razonó durante', 'a réfléchi pendant'],
   },
+  // Reasoning-effort levels as the composer slider presents them, weakest to
+  // strongest. The slider is keyboard-driven, so a target level is reached by
+  // stepping from the level currently shown rather than by clicking a position.
+  effortLevels: [
+    { id: 'instant', labels: ['instantâneo', 'instantaneo', 'instant'] },
+    { id: 'light', labels: ['rápido', 'rapido', 'light', 'fast'] },
+    { id: 'medium', labels: ['médio', 'medio', 'medium', 'standard'] },
+    { id: 'high', labels: ['elevada', 'elevado', 'high', 'alta'] },
+  ],
   timing: {
     settleMs: 350,
     menuSettleMs: 400,
@@ -91,6 +128,7 @@ export const CHATGPT_BEHAVIOR = Object.freeze({
 })
 
 const SELECTOR_KEYS = Object.keys(CHATGPT_BEHAVIOR.selectors)
+const OPTIONAL_SELECTOR_KEYS = Object.keys(CHATGPT_BEHAVIOR.optionalSelectors)
 const LABEL_KEYS = Object.keys(CHATGPT_BEHAVIOR.labels)
 const TIMING_KEYS = Object.keys(CHATGPT_BEHAVIOR.timing)
 
@@ -141,11 +179,36 @@ export function validateBehavior(candidate) {
     timing[key] = Math.round(raw)
   }
 
+  // Optional controls may legitimately be absent (an account with no model
+  // picker), so an empty list here is data, not a defect.
+  const optionalSelectors = {}
+  for (const key of OPTIONAL_SELECTOR_KEYS) {
+    optionalSelectors[key] = selectorList(value.optionalSelectors?.[key] ?? CHATGPT_BEHAVIOR.optionalSelectors[key])
+  }
+
+  const effortLevels = (Array.isArray(value.effortLevels) ? value.effortLevels : CHATGPT_BEHAVIOR.effortLevels)
+    .map((level) => ({
+      id: String(level?.id || '').trim(),
+      labels: (Array.isArray(level?.labels) ? level.labels : []).map((entry) => String(entry || '').trim().toLocaleLowerCase()).filter(Boolean),
+    }))
+    .filter((level) => level.id && level.labels.length)
+  if (!effortLevels.length) errors.push('effortLevels must describe at least one level')
+
+  const reasoning = { ...CHATGPT_BEHAVIOR.reasoning, ...(value.reasoning || {}) }
+  if (!Array.isArray(reasoning.excludeWithin) || !reasoning.excludeWithin.length) {
+    // Without an exclusion set the extractor would pull code blocks into the
+    // visible-reasoning panel, which is exactly what it must not do.
+    errors.push('reasoning.excludeWithin must not be empty')
+  }
+
   if (errors.length) return { ok: false, errors, behavior: undefined }
   return {
     ok: true,
     errors: [],
     behavior: Object.freeze({
+      optionalSelectors: Object.freeze(optionalSelectors),
+      effortLevels: Object.freeze(effortLevels),
+      reasoning: Object.freeze(reasoning),
       schema: BEHAVIOR_SCHEMA,
       provider: String(value.provider).trim(),
       revision: String(value.revision).trim(),
@@ -181,10 +244,18 @@ export function mergeBehavior(base, overlay) {
     // actually loaded, while builtins are retained as the durable fallback.
     selectors[key] = selectorList([...learned, ...(base.selectors?.[key] || [])])
   }
+  // Optional controls are where learning matters most: an unmapped model or
+  // reasoning control is exactly the gap an evolution pass is meant to close.
+  const optionalSelectors = {}
+  for (const key of OPTIONAL_SELECTOR_KEYS) {
+    optionalSelectors[key] = selectorList([...selectorList(overlay.optionalSelectors?.[key] ?? []), ...(base.optionalSelectors?.[key] || [])])
+  }
+
   return validateBehavior({
     ...base,
     ...('timing' in overlay ? { timing: { ...base.timing, ...overlay.timing } } : {}),
     selectors,
+    optionalSelectors,
     labels: { ...base.labels, ...(overlay.labels || {}) },
     revision: String(overlay.revision || base.revision),
     origin: overlay.origin ? String(overlay.origin) : 'learned',
@@ -211,8 +282,11 @@ export function conversationIdFromURL(behavior, url) {
   try {
     const parsed = new URL(String(url || ''))
     if (!isTrustedBehaviorURL(behavior, parsed.href)) return ''
-    if (!parsed.pathname.startsWith(behavior.conversationPath)) return ''
-    const id = parsed.pathname.slice(behavior.conversationPath.length).split('/')[0]
+    // A conversation inside a project is served from `/g/g-p-<project>/c/<id>`,
+    // so the conversation segment is matched wherever it appears rather than
+    // only at the root of the path.
+    const segment = behavior.conversationPath.replace(/^\/|\/$/g, '')
+    const id = new RegExp(`(?:^|/)${segment}/([^/?#]+)`).exec(parsed.pathname)?.[1] || ''
     // ChatGPT's transient creation URLs (`/c/WEB:...`) are not durable ids.
     return /^[A-Za-z0-9-]{8,128}$/.test(id) && !id.includes(':') ? id : ''
   } catch { return '' }

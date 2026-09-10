@@ -30,7 +30,11 @@ const PRELUDE = `
 `
 
 function script(behavior, body) {
-  const context = json({ selectors: behavior.selectors, labels: behavior.labels })
+  const context = json({
+    selectors: behavior.selectors,
+    optionalSelectors: behavior.optionalSelectors,
+    labels: behavior.labels,
+  })
   return `(() => { const __whx = ${context};${PRELUDE}\n${body}\n})()`
 }
 
@@ -39,7 +43,7 @@ export function readinessScript(behavior) {
   return script(behavior, `
     const composer = pick(S.composer);
     const stop = pick(S.stopButton);
-    const error = all(S.errorNotice).length;
+    const error = all(S.errorNotice).filter((n) => String(n.textContent || '').trim().length > 0).length;
     return {
       url: location.href,
       ready: Boolean(composer),
@@ -63,7 +67,11 @@ export function inspectScript(behavior) {
   return script(behavior, `
     const composer = pick(S.composer);
     const stop = pick(S.stopButton);
-    const errors = all(S.errorNotice).map((n) => ({ role: n.getAttribute('role') || '', testid: n.getAttribute('data-testid') || '' }));
+    // An empty alert region is chrome that ChatGPT keeps mounted; only a
+    // notice that actually carries content is evidence of a failure.
+    const errors = all(S.errorNotice)
+      .filter((n) => String(n.textContent || '').trim().length > 0)
+      .map((n) => ({ role: n.getAttribute('role') || '', testid: n.getAttribute('data-testid') || '' }));
     const assistant = all(S.assistantTurn);
     const last = assistant[assistant.length - 1] || null;
     return {
@@ -159,6 +167,89 @@ export function titleEditorScript(behavior, title) {
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
     return { ok: true, state: 'title-staged', rect: rect(input), title: value };
+  `)
+}
+
+/** Locates the collapsed reasoning disclosure so the main process can expand it. */
+export function reasoningDisclosureRectScript(behavior) {
+  return script(behavior, `
+    const wanted = L.reasoningDisclosure || [];
+    const buttons = all(__whx.optionalSelectors.reasoningDisclosure).filter(usable);
+    const target = buttons.find((n) => wanted.some((w) => fold(text(n)).startsWith(w)));
+    if (!target) return { ok: false, state: 'reasoning-disclosure-unavailable' };
+    const expanded = target.getAttribute('aria-expanded') === 'true';
+    const point = rect(target);
+    if (!point) return { ok: false, state: 'reasoning-disclosure-offscreen' };
+    return { ok: true, state: expanded ? 'reasoning-expanded' : 'reasoning-collapsed', expanded, rect: point, label: text(target).slice(0, 120) };
+  `)
+}
+
+/**
+ * Extracts the visible reasoning summary rows.
+ *
+ * "Useful" is decided structurally, never by reading what a row says. A row is
+ * kept when it is a short prose line that is not inside (and does not contain) a
+ * code or markdown region, and is not the answer itself. That is precisely the
+ * difference between "Validou estilos e temas da interface" — which belongs in
+ * the visible-reasoning panel — and the tool/code block sitting beside it, which
+ * does not.
+ */
+export function reasoningRowsScript(behavior) {
+  const config = json(behavior.reasoning)
+  const excluded = json(behavior.reasoning.excludeWithin)
+  return script(behavior, `
+    const cfg = ${config};
+    const banned = ${excluded};
+    if (!cfg.enabled) return { ok: false, state: 'reasoning-disabled' };
+
+    // Reasoning is readable in two different shapes, and only handling one of
+    // them is why a live run appeared to produce nothing. While the model is
+    // still working the steps stream directly into the turn; once it finishes
+    // they collapse behind a "Processou durante …" disclosure.
+    const disclosureLabels = L.reasoningDisclosure || [];
+    const buttons = all(__whx.optionalSelectors.reasoningDisclosure);
+    const disclosure = buttons.find((n) => disclosureLabels.some((w) => fold(text(n)).startsWith(w)));
+
+    let panel = null;
+    let mode = 'live';
+    if (disclosure) {
+      if (disclosure.getAttribute('aria-expanded') !== 'true') return { ok: false, state: 'reasoning-collapsed', rect: rect(disclosure) };
+      const controls = disclosure.getAttribute('aria-controls');
+      panel = (controls && document.getElementById(controls)) || disclosure.parentElement?.parentElement;
+      mode = 'completed';
+    } else {
+      // Live: the steps live inside the newest assistant turn.
+      const turns = all(S.assistantTurn);
+      const last = turns[turns.length - 1];
+      panel = last ? (last.closest('[data-turn-id]') || last.parentElement) : document.querySelector('main');
+    }
+    if (!panel) return { ok: false, state: 'reasoning-panel-unavailable' };
+
+    const isCode = (n) => banned.some((sel) => { try { return n.closest(sel) || n.querySelector(sel) } catch { return false } });
+    const rows = [];
+    const seen = new Set();
+    for (const node of panel.querySelectorAll('*')) {
+      if (rows.length >= cfg.maxRows) break;
+      if (disclosure && (node === disclosure || disclosure.contains(node))) continue;
+      // Only leaf-ish nodes: a wrapper repeats every child's text.
+      if (node.children.length > 1) continue;
+      if (isCode(node)) continue;
+      // Screen-reader-only chrome ("ChatGPT said:") is markup for assistive
+      // technology, not a reasoning step.
+      if (node.closest('.sr-only')) continue;
+      const value = text(node);
+      if (value.length < cfg.minRowChars || value.length > cfg.maxRowChars) continue;
+      if (/^[\\s\\W]*$/.test(value)) continue;
+      const key = fold(value);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(value);
+    }
+    // A wrapper element reports the concatenation of the rows beneath it, which
+    // arrives looking like one very long "thought". Any candidate that strictly
+    // contains another candidate is that wrapper, not a row of its own.
+    const leaves = rows.filter((row) => !rows.some((other) => other !== row && row.includes(other)));
+    return { ok: true, state: 'reasoning-read', label: text(disclosure).slice(0, 120), rows: leaves };
   `)
 }
 

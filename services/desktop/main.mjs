@@ -91,6 +91,7 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow
 let chatgptViews = new Map()
 const chatGPTAuthBrowsers = new Map()
+const internalChatGPTBrowsers = new Map()
 const desktopWindows = new Map()
 const projectWindowRegistry = new ProjectWindowRegistry()
 let quitting = false
@@ -135,6 +136,9 @@ const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
+// How many times a window's frontend renderer may be restarted after a
+// crash before Wharnex stops and asks for human attention.
+const FRONTEND_RENDERER_RESTART_LIMIT = 5
 let chatGPTDownloadPoller
 let recentExpectedDownload
 const chatGPTUploads = new ChatGPTUploadCoordinator()
@@ -479,6 +483,19 @@ function pendingBrowserImportPath() {
   return path.join(app.getPath('userData'), '.wharness-browser-session-import.whbs')
 }
 
+function closeInternalChatGPTBrowserForWindow(windowState) {
+  const browser = internalChatGPTBrowsers.get(windowState?.id)
+  if (!browser) return false
+  internalChatGPTBrowsers.delete(windowState.id)
+  if (!browser.isDestroyed()) browser.close()
+  return true
+}
+
+function closeAllInternalChatGPTBrowsers() {
+  for (const browser of internalChatGPTBrowsers.values()) if (!browser.isDestroyed()) browser.close()
+  internalChatGPTBrowsers.clear()
+}
+
 function closeChatGPTViewsForWindow(windowState) {
   for (const [key, entry] of [...chatgptViews.entries()]) if (entry.ownerWindowId === windowState.id) releaseChatGPTView(key, windowState)
   windowState.activeChatGPTKey = ''
@@ -584,6 +601,9 @@ function setChatGPTBounds(value, windowState) {
   if (!bounds || !entry) return false
   windowState.chatgptBounds = bounds
   entry.view.setBounds(bounds)
+  // Real pane bounds have arrived, so this view is no longer parked and is safe
+  // to show.
+  entry.parkedLayout = false
   return true
 }
 
@@ -1309,7 +1329,7 @@ function createChatGPTView(cacheKey, windowState) {
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
   view.setVisible(false)
-  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', affinity: createChatGPTAffinityTracker() }
+  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: false, affinity: createChatGPTAffinityTracker() }
   chatgptViews.set(cacheKey, entry)
   windowState.window.contentView.addChildView(view)
 
@@ -1364,6 +1384,39 @@ function ensureChatGPTView(cacheKey, windowState) {
   return { key, entry }
 }
 
+// Resident ChatGPT surfaces are capped per window.
+//
+// A view is created lazily the first time a chat is opened and, until now, was
+// never released while that chat stayed open, so a long session that visited
+// many chats accumulated one sandboxed Chromium renderer per chat on the shared
+// authenticated partition. That is the resident cost behind switching feeling
+// progressively heavier, and it is what the pooled agent slots remove
+// structurally (ADR-0038); this cap is the interim bound.
+//
+// Eviction is strictly conservative: never the active view, and never a view
+// Wharness still owns a concrete reason to observe — an expected bundle, a
+// pending human action, an in-flight transport or account operation. Those are
+// exactly the surfaces whose supervision must survive being in the background.
+const MAX_RESIDENT_CHATGPT_VIEWS = 4
+
+function evictIdleChatGPTViews(windowState) {
+  if (!windowState) return 0
+  const owned = [...chatgptViews.entries()].filter(([, entry]) => entry.ownerWindowId === windowState.id)
+  if (owned.length <= MAX_RESIDENT_CHATGPT_VIEWS) return 0
+  const evictable = owned
+    .filter(([key, entry]) => key !== windowState.activeChatGPTKey && !chatGPTEntryNeedsSupervision(key, entry))
+    .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0))
+  let released = 0
+  for (const [key] of evictable) {
+    if (owned.length - released <= MAX_RESIDENT_CHATGPT_VIEWS) break
+    if (releaseChatGPTView(key, windowState)) {
+      released += 1
+      console.log(`[chatgpt-instance] evicted idle key=${key} resident=${owned.length - released}`)
+    }
+  }
+  return released
+}
+
 function activateChatGPTView(cacheKey, bounds, windowState) {
   const resolved = windowState || windowStateForEntry(chatgptViews.get(sanitizeChatCacheKey(cacheKey)))
   const { key, entry } = ensureChatGPTView(cacheKey, resolved)
@@ -1375,9 +1428,17 @@ function activateChatGPTView(cacheKey, bounds, windowState) {
   ownerState.activeChatGPTKey = key
   if (bounds) setChatGPTBounds(bounds, ownerState)
   else if (ownerState.chatgptBounds) entry.view.setBounds(ownerState.chatgptBounds)
-  entry.view.setVisible(ownerState.chatgptVisible && !entry.externalAuthProvider)
+  // A parked view still carries the full-size layout bounds account
+  // automation gave it. Showing it before the renderer reports the real
+  // pane geometry would cover the whole Wharnex window for a frame, which
+  // reads exactly like the project closing and reopening.
+  const parked = entry.parkedLayout === true && !ownerState.chatgptBounds
+  entry.view.setVisible(ownerState.chatgptVisible && !entry.externalAuthProvider && !parked)
   reconcileChatGPTThrottle(key, entry)
   touchChatGPTEntry(entry)
+  // Bound resident surfaces right after the newest one is established, so the
+  // cap is enforced at the only moment the count can grow.
+  evictIdleChatGPTViews(ownerState)
   publishChatGPTState(key)
   return entry
 }
@@ -1611,10 +1672,21 @@ async function hideChatGPTSidebar(key, entry) {
 // to the origin and a native click would land nowhere. Account automation runs
 // on background views (maintenance jobs), so give such a view a real layout
 // viewport without ever making it visible.
-function ensureChatGPTLayoutViewport(entry) {
+function ensureChatGPTLayoutViewport(key, entry) {
+  // Never resize a view the window is actually showing: its bounds belong to
+  // the renderer layout, and overwriting them makes the visible ChatGPT surface
+  // jump while the user is looking at it.
+  const ownerState = windowStateForEntry(entry)
+  if (ownerState?.activeChatGPTKey === key) return false
   const bounds = entry.view.getBounds?.() || { width: 0, height: 0 }
   if (bounds.width >= 640 && bounds.height >= 480) return false
+  // The viewport has to sit inside the window: Electron clips a child view to
+  // its parent, so off-screen bounds collapse the renderer to 0x0 — it stops
+  // laying out and stops accepting trusted input, which is measured behaviour,
+  // not a guess. The size is therefore real and at the origin, and the view is
+  // marked parked so it can never be shown while carrying these bounds.
   entry.view.setBounds({ x: 0, y: 0, width: 1280, height: 900 })
+  entry.parkedLayout = true
   return true
 }
 
@@ -1691,7 +1763,7 @@ async function organizeChatGPTConversation(cacheKey, projectName, title, expecte
         if (!sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'organize-conversation')
         await waitForChatGPTSurfaceReady(key, entry)
       }
-      ensureChatGPTLayoutViewport(entry)
+      ensureChatGPTLayoutViewport(key, entry)
       const conversationId = chatGPTConversationID(entry.view.webContents.getURL())
       const shown = await runChatGPTAccountScript(key, entry, 'show-sidebar', chatGPTShowSidebarScript())
       if (!shown.ok) return shown
@@ -1745,8 +1817,14 @@ async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
   // down. Recreating the owned view is the only way to actually reach the
   // conversation, and reporting "view-not-live" as success would silently
   // retire a remote archive that never happened.
-  const entry = chatgptViews.get(key) || (expectedURL ? ensureChatGPTView(key).entry : undefined)
-  if (!entry) return { ok: true, state: 'view-not-live' }
+  // Only an already-resident surface is driven here. Creating a view purely to
+  // serve a deferred retry meant a create/navigate/destroy cycle on the shared
+  // sandboxed partition, and rapidly cycling sandboxed renderers is what
+  // triggers Electron's "Cannot destructure property 'preloadScripts' of
+  // 'binding.startupData'" crash, which takes the whole frontend down with it.
+  // A retry that finds no live surface stays pending for the next attempt.
+  const entry = chatgptViews.get(key)
+  if (!entry) return { ok: false, state: 'view-not-live' }
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
     reconcileChatGPTThrottle(key, entry)
@@ -1754,7 +1832,7 @@ async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
       const target = expectedURL ? requireTrustedChatGPTURL(expectedURL) : ''
       if (target && !sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'archive-conversation')
       await waitForChatGPTSurfaceReady(key, entry)
-      ensureChatGPTLayoutViewport(entry)
+      ensureChatGPTLayoutViewport(key, entry)
       const conversationId = chatGPTConversationID(entry.view.webContents.getURL())
       const stopped = await runChatGPTAccountAction('stop-conversation', { key }, () => runChatGPTAccountScript(key, entry, 'stop', chatGPTStopConversationScript()))
       if (stopped.state === 'stopping') await wait(750)
@@ -2373,6 +2451,19 @@ async function pollExpectedChatGPTDownloadKey(key) {
         return
       }
 
+      // This request's bundle already arrived. Without this check the poller
+      // kept clicking the same download affordance forever: each click really
+      // downloaded the file again, the will-download handler recognised it as a
+      // duplicate and dropped it, `downloadInFlight` cleared on `done`, and the
+      // next sweep clicked again — a hot loop that re-downloaded the same ZIP
+      // indefinitely while never making progress. Supervision for this request
+      // is finished, so release it rather than merely skipping the click.
+      if (recentlyDeliveredChatGPTBundleRequestId(expected.requestId)) {
+        console.log(`[chatgpt-bundle-dom] already-delivered key=${key} request=${expected.requestId}; releasing expectation`)
+        disarmExpectedChatGPTBundle(key, expected.requestId)
+        return
+      }
+
       // downloadInFlight guards against re-clicking while a prior click's
       // download hasn't reached will-download yet: if ChatGPT takes longer
       // than DOM_DOWNLOAD_RETRY_MS to actually start serving the file, the
@@ -2507,6 +2598,7 @@ async function exportBrowserSession(windowState) {
   const chatSession = session.fromPartition(CHATGPT_PARTITION)
   await chatSession.flushStorageData()
   closeAllChatGPTViews()
+  closeAllInternalChatGPTBrowsers()
   const snapshot = await snapshotBrowserSession(chatGPTPartitionPath())
   const result = await dialog.showSaveDialog(windowState?.window, {
     title: 'Exportar sessão do navegador Wharness',
@@ -2532,6 +2624,7 @@ async function importBrowserSession(windowState) {
   await rm(validationRoot, { recursive: true, force: true })
   await writeFile(pendingBrowserImportPath(), raw, { mode: 0o600 })
   closeAllChatGPTViews()
+  closeAllInternalChatGPTBrowsers()
   setTimeout(() => { app.relaunch(); app.exit(0) }, 500)
   return { cancelled: false, restarting: true, ...restored }
 }
@@ -2548,6 +2641,7 @@ async function applyPendingBrowserSessionImport() {
 async function clearBrowserSession() {
   const authRecords = [...chatGPTAuthBrowsers.values()]
   closeAllChatGPTViews()
+  closeAllInternalChatGPTBrowsers()
   for (const record of authRecords) await closeManagedBrowserAuth(record)
   preparedChatGPTDrafts.clear()
   retryableChatGPTPrompts.clear()
@@ -2595,7 +2689,13 @@ async function clearDesktopWharnessData() {
 function chatGPTConversationID(value) {
   try {
     const trusted = requireTrustedChatGPTURL(value)
-    const id = /^\/c\/([^/]+)/.exec(new URL(trusted).pathname)?.[1] || ''
+    // A conversation that lives inside a ChatGPT project is served from
+    // `/g/g-p-<project>/c/<id>`, not `/c/<id>`. Matching only the root form
+    // meant that moving a conversation into the Wharnex project — which the
+    // account automation does deliberately — silently unbound its affinity and
+    // left account operations unable to address it by id.
+    const { pathname } = new URL(trusted)
+    const id = /(?:^|\/)c\/([^/?#]+)/.exec(pathname)?.[1] || ''
     return /^WEB(?::|%3A)/i.test(id) ? '' : id
   } catch { return '' }
 }
@@ -2609,6 +2709,52 @@ function sameConversationURL(left, right) {
   const a = chatGPTConversationID(left)
   const b = chatGPTConversationID(right)
   return Boolean(a && b && a === b)
+}
+
+function openInternalChatGPTBrowser(windowState, value) {
+  if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot open internal ChatGPT browser without an owning Wharness window')
+  const target = requireTrustedChatGPTURL(value || CHATGPT_URL)
+  const existing = internalChatGPTBrowsers.get(windowState.id)
+  if (existing && !existing.isDestroyed()) {
+    if (existing.webContents.getURL() !== target) void existing.loadURL(target).catch((error) => console.error(`[chatgpt-internal-browser] navigation failed error=${error?.message || 'unknown'}`))
+    existing.show()
+    existing.focus()
+    return { ok: true, reused: true }
+  }
+
+  const browser = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 900,
+    minHeight: 640,
+    title: 'Wharnex · ChatGPT',
+    parent: windowState.window,
+    autoHideMenuBar: true,
+    webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }),
+  })
+  internalChatGPTBrowsers.set(windowState.id, browser)
+  browser.webContents.setUserAgent(CHATGPT_USER_AGENT)
+  browser.webContents.setWindowOpenHandler(({ url }) => {
+    if (isTrustedChatGPTOrigin(url)) {
+      void browser.loadURL(requireTrustedChatGPTURL(url)).catch((error) => console.error(`[chatgpt-internal-browser] popup navigation failed error=${error?.message || 'unknown'}`))
+    } else if (isHTTPS(url)) {
+      void shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+  browser.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedChatGPTOrigin(url)) return
+    event.preventDefault()
+    if (isHTTPS(url)) void shell.openExternal(url)
+  })
+  browser.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`[chatgpt-internal-browser] renderer gone reason=${details.reason} exitCode=${details.exitCode}`)
+  })
+  browser.on('closed', () => {
+    if (internalChatGPTBrowsers.get(windowState.id) === browser) internalChatGPTBrowsers.delete(windowState.id)
+  })
+  void browser.loadURL(target).catch((error) => console.error(`[chatgpt-internal-browser] initial load failed error=${error?.message || 'unknown'}`))
+  return { ok: true, reused: false }
 }
 
 function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true) {
@@ -2644,17 +2790,43 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   // The trusted local frontend renderer previously had no crash recovery at
   // all: a GPU/OOM-triggered renderer death left a permanently blank window
   // with no diagnostic trace, indistinguishable from the whole app crashing.
+  // Renderer-crash recovery is deliberately paced and bounded.
+  //
+  // Reloading the instant the process dies can re-enter the same failure: a
+  // loadURL issued while a previous sandboxed renderer spawn is still settling
+  // is one of the ways Electron produces "Cannot destructure property
+  // 'preloadScripts' of 'binding.startupData'", so an immediate retry can turn
+  // a single crash into a reload loop. Back off, and stop retrying rather than
+  // thrash — a window that will not come back needs a human, not another spin.
+  state.rendererRestarts = 0
+  state.rendererRestartTimer = undefined
   win.webContents.on('render-process-gone', (_event, details) => {
-    console.error(`[frontend-renderer] window=${id} gone reason=${details.reason} exitCode=${details.exitCode}`)
-    if (!quitting && details.reason !== 'clean-exit') {
-      void win.loadURL(target.href).catch((error) => console.error(`[frontend-renderer] reload failed window=${id} error=${error?.message || 'unknown'}`))
+    console.error(`[frontend-renderer] window=${id} gone reason=${details.reason} exitCode=${details.exitCode} restarts=${state.rendererRestarts}`)
+    if (quitting || details.reason === 'clean-exit') return
+    if (state.rendererRestarts >= FRONTEND_RENDERER_RESTART_LIMIT) {
+      console.error(`[frontend-renderer] window=${id} exceeded ${FRONTEND_RENDERER_RESTART_LIMIT} restarts; leaving it stopped for human attention`)
+      return
     }
+    state.rendererRestarts += 1
+    const delay = Math.min(8_000, 500 * (2 ** (state.rendererRestarts - 1)))
+    clearTimeout(state.rendererRestartTimer)
+    state.rendererRestartTimer = setTimeout(() => {
+      if (quitting || win.isDestroyed()) return
+      void win.loadURL(target.href).catch((error) => console.error(`[frontend-renderer] reload failed window=${id} error=${error?.message || 'unknown'}`))
+    }, delay)
+  })
+  // A renderer that stays up long enough to be usable clears the crash budget,
+  // so an unrelated crash weeks later still gets its full allowance.
+  win.webContents.on('did-finish-load', () => {
+    clearTimeout(state.rendererRestartHealthyTimer)
+    state.rendererRestartHealthyTimer = setTimeout(() => { state.rendererRestarts = 0 }, 30_000)
   })
   win.webContents.on('unresponsive', () => console.error(`[frontend-renderer] window=${id} unresponsive`))
   win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
   win.on('closed', () => {
+    closeInternalChatGPTBrowserForWindow(state)
     closeChatGPTViewsForWindow(state)
     releaseWindowProjects(state)
     desktopWindows.delete(id)
@@ -2818,6 +2990,11 @@ function registerIPC() {
   })
   ipcMain.handle('wharness:chatgpt:state', (event, request) => { const windowState = trustedSender(event); return currentChatGPTState(request?.cacheKey, windowState) })
   ipcMain.handle('wharness:chatgpt:release', (event, request) => { const windowState = trustedSender(event); return { ok: true, released: releaseChatGPTView(request?.cacheKey, windowState) } })
+  // The set of chats whose remote surface is already resident. Background
+  // maintenance uses it to stay opportunistic: resurrecting a released view
+  // costs a full Chromium renderer plus a navigation on the shared partition,
+  // which is exactly the resident cost the agent pool exists to remove.
+  ipcMain.handle('wharness:chatgpt:live-keys', (event) => { const windowState = trustedSender(event); return [...chatgptViews.entries()].filter(([, entry]) => entry.ownerWindowId === windowState.id).map(([key]) => key) })
   ipcMain.handle('wharness:chatgpt:archive-conversation', async (event, request) => {
     const windowState = trustedSender(event)
     const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
@@ -2899,6 +3076,10 @@ function registerIPC() {
     const target = requireTrustedChatGPTURL(request?.url || CHATGPT_URL)
     await shell.openExternal(target)
     return { ok: true }
+  })
+  ipcMain.handle('wharness:chatgpt:open-internal', (event, request) => {
+    const windowState = trustedSender(event)
+    return openInternalChatGPTBrowser(windowState, request?.url || CHATGPT_URL)
   })
   ipcMain.handle('wharness:chatgpt:resume-embedded', async (event, request) => {
     const windowState = trustedSender(event)

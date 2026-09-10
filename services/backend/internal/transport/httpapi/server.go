@@ -1116,7 +1116,11 @@ func (a *API) cancelPendingRequest(w http.ResponseWriter, r *http.Request) {
 func (a *API) apply(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.ApplyToHost(r.Context(), r.PathValue("id"))
 	if err != nil {
-		if !errors.Is(err, app.ErrIntegrationConflict) {
+		// A conflict already has its own resolution path, and a conflict confined
+		// to Wharnex-managed state has no planner-resolvable content at all —
+		// starting a repair round for either just spends a request on something
+		// the model cannot fix.
+		if !errors.Is(err, app.ErrIntegrationConflict) && !errors.Is(err, app.ErrManagedStateConflict) {
 			_, _ = a.service.TriggerApplyFailureRepair(r.Context(), r.PathValue("id"), err)
 		}
 		writeError(w, 409, "apply_failed", err.Error())
