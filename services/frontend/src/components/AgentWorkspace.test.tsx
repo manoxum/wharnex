@@ -481,6 +481,15 @@ describe('AgentWorkspace', () => {
     expect(view.onExportChat).toHaveBeenCalledTimes(1)
   })
 
+  it('reopens the latest closed chat directly from the Agent chat switcher', () => {
+    const view = props()
+    render(view.element)
+    const reopen = screen.getByRole('button', { name: 'Reabrir último chat fechado' })
+    expect(reopen.getAttribute('title')).toContain('Diagnóstico antigo')
+    fireEvent.click(reopen)
+    expect(view.onRestore).toHaveBeenCalledWith('arch-1')
+  })
+
   it('opens archived chats from the left activity drawer', () => {
     const view = props()
     render(view.element)

@@ -653,6 +653,22 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(composer.style.height).toBe('420px'))
   })
 
+  it('reopens the latest closed chat directly from the chat switcher', () => {
+    const onRestoreChat = vi.fn(async () => undefined)
+    const archivedChats = [
+      { id: 'arch-latest', title: 'Último fechado', sessionId: 'ses-latest', createdAt: '2026-09-03T12:00:00.000Z', updatedAt: '2026-09-03T15:00:00.000Z' },
+      { id: 'arch-older', title: 'Mais antigo', sessionId: 'ses-older', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' },
+    ]
+    render(
+      <ChatPanel session={session} items={[]} chats={[]} archivedChats={archivedChats} activeChatId="" busy={false} onSend={async () => undefined} onNewChat={chatActions.onNewChat} onSelectChat={chatActions.onSelectChat} onArchiveChat={chatActions.onArchiveChat} onRestoreChat={onRestoreChat} onDeleteArchivedChat={chatActions.onDeleteArchivedChat} />,
+    )
+
+    const reopen = screen.getByRole('button', { name: 'Reabrir último chat fechado' })
+    expect(reopen.getAttribute('title')).toContain('Último fechado')
+    fireEvent.click(reopen)
+    expect(onRestoreChat).toHaveBeenCalledWith('arch-latest')
+  })
+
   it('reopens archived chats from the archive area', () => {
     const onRestoreChat = vi.fn(async () => undefined)
     render(
@@ -660,7 +676,7 @@ describe('ChatPanel', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /Arquivados/ }))
     expect(screen.getByText('Diagnóstico antigo')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Reabrir/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reabrir' }))
     expect(onRestoreChat).toHaveBeenCalledWith('arch-1')
   })
 })
