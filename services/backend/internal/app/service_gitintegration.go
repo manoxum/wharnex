@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/protocol"
@@ -199,22 +200,83 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 		if branch == "" {
 			continue
 		}
-		s.bus.Publish(sessionID, "integration.merge_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "branch": branch})
+		planID := pending[index].Plan.PlanID
+		s.bus.Publish(sessionID, "integration.merge_started", map[string]any{"plan_id": planID, "branch": branch})
 		// Ask Git whether this merge can succeed before letting it touch the
 		// host at all. A doomed merge would otherwise still commit the host's
 		// dirty tree as a pre-merge snapshot on its way to aborting, leaving a
 		// bookkeeping commit behind for a merge that never happened.
-		if conflict, preflightErr := sandbox.PreflightMergeIntoHost(ctx, projectPath, branch); preflightErr == nil && conflict != nil {
-			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": pending[index].Plan.PlanID, "branch": branch, "paths": conflict.Paths})
-			return mergedBranches, preMergeSHA, pending[index].Plan.PlanID, conflict
+		conflict, preflightErr := sandbox.PreflightMergeIntoHost(ctx, projectPath, branch)
+		if preflightErr != nil {
+			// The preflight is advisory, so its failure never blocks a merge —
+			// but it is no longer allowed to be silent. It failing means the
+			// host's shape defeated it, which is worth knowing precisely
+			// because the same measurement underpins request-base rooting.
+			s.bus.Publish(sessionID, "integration.merge_preflight_degraded", map[string]any{"plan_id": planID, "branch": branch, "error": preflightErr.Error()})
+		} else if conflict != nil {
+			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": planID, "branch": branch, "paths": conflict.Paths})
+			return mergedBranches, preMergeSHA, planID, conflict
 		}
-		if _, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch); mergeErr != nil {
-			return mergedBranches, preMergeSHA, pending[index].Plan.PlanID, mergeErr
+		merge, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch)
+		s.publishHostStatePreservation(sessionID, planID, merge.Preservation)
+		if mergeErr != nil {
+			return mergedBranches, preMergeSHA, planID, mergeErr
 		}
+		s.publishSubmoduleSync(sessionID, planID, "merge", merge.SubmoduleSync)
 		mergedBranches = append(mergedBranches, branch)
-		s.bus.Publish(sessionID, "integration.merge_completed", map[string]any{"plan_id": pending[index].Plan.PlanID, "branch": branch})
+		s.bus.Publish(sessionID, "integration.merge_completed", map[string]any{"plan_id": planID, "branch": branch})
 	}
 	return mergedBranches, preMergeSHA, "", nil
+}
+
+// publishHostStatePreservation reports what the pre-merge snapshot could and
+// could not capture of the operator's uncommitted work.
+//
+// The second half matters more than the first. A snapshot that captured
+// nothing, or that deliberately left an embedded repository or a dirty
+// submodule alone, is a correct outcome — but it means the revert path cannot
+// restore those files, so the operator has to know they are outside Wharnex's
+// custody rather than inferring from silence that everything was saved.
+func (s *Service) publishHostStatePreservation(sessionID, planID string, preservation hostrepo.Preservation) {
+	if preservation.Committed {
+		s.bus.Publish(sessionID, "integration.host_state_preserved", map[string]any{
+			"plan_id": planID, "commit": preservation.CommitSHA, "path_count": len(preservation.StagedPaths),
+		})
+	}
+	if len(preservation.LeftInPlace) > 0 || len(preservation.DirtySubmodules) > 0 {
+		s.bus.Publish(sessionID, "integration.host_state_uncaptured", map[string]any{
+			"plan_id":           planID,
+			"embedded_repos":    preservation.LeftInPlace,
+			"dirty_submodules":  preservation.DirtySubmodules,
+			"reason":            "these hold work no superproject commit can capture; the integration leaves them untouched",
+			"revert_restorable": false,
+		})
+	}
+}
+
+// publishSubmoduleSync reports which submodule checkouts were realigned with
+// the commits the superproject now records, and which the operator must
+// update themselves.
+func (s *Service) publishSubmoduleSync(sessionID, planID, phase string, sync hostrepo.SyncResult) {
+	if !sync.Changed() {
+		return
+	}
+	skipped := make([]string, 0, len(sync.Skipped))
+	for _, skip := range sync.Skipped {
+		skipped = append(skipped, skip.String())
+	}
+	s.bus.Publish(sessionID, "integration.submodules_realigned", map[string]any{
+		"plan_id": planID, "phase": phase, "updated": sync.Updated, "skipped": skipped,
+	})
+}
+
+// revertHostMerge undoes this Apply's merges and reports the submodule
+// realignment that undo required, so a revert leaves a host that is genuinely
+// back where it started rather than one Git reports as permanently modified.
+func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projectPath, preMergeSHA string) error {
+	sync, err := sandbox.RevertHostMerge(ctx, projectPath, preMergeSHA)
+	s.publishSubmoduleSync(sessionID, planID, "revert", sync)
+	return err
 }
 
 // deleteIntegrationBranches best-effort cleans up branches after a
@@ -261,6 +323,20 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		s.bus.Publish(sessionID, "integration.conflict_managed_paths", map[string]any{
 			"paths": managed, "reason": "Wharnex-managed project state is reconciled locally, never by a planner patch",
 		})
+	}
+	// A conflicting submodule pointer is likewise unresolvable by a patch: it
+	// is a commit id, and the capsule's BASE/CURRENT/RESULT reads return
+	// nothing for it. Treated exactly like managed state so the planner is
+	// never handed a path whose only possible answer is rejected on arrival.
+	if topology, topologyErr := hostrepo.Inspect(ctx, repoPath); topologyErr == nil && len(topology.Submodules) > 0 {
+		submodulePaths, patchable := partitionSubmoduleConflictPaths(topology, resolvable)
+		if len(submodulePaths) > 0 {
+			managed = append(managed, submodulePaths...)
+			resolvable = patchable
+			s.bus.Publish(sessionID, "integration.conflict_submodule_paths", map[string]any{
+				"paths": submodulePaths, "reason": "a submodule pointer conflict is resolved by choosing a commit in that submodule, never by a patch in this project",
+			})
+		}
 	}
 	if len(resolvable) == 0 {
 		// Nothing is left that a planner is even allowed to touch. Stop here

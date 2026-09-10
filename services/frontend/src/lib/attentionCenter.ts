@@ -38,7 +38,7 @@ const PENDING_RESOLUTION_STATES = new Set([
   'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending',
 ])
 
-const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'stale_host_baseline', 'host_integration_race'])
+const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'stale_host_baseline', 'host_integration_race', 'host_working_state_blocked'])
 const APPLY_BLOCKING_FAILURES = new Set(['offline_go_module_cache', 'host_build_toolchain_mismatch', 'host_dependency_state', ...APPLY_RETRY_FAILURES])
 
 export function sessionHostResolutionBlocked(session: Session) {
@@ -128,6 +128,21 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
     case 'stale_host_baseline':
       if (pendingCount) {
         items.push(item(chat, 'host-apply-retry', 'warning', 'Candidata precisa de nova validação', 'O host mudou desde a verificação. Reveja a candidata retida e tente a integração novamente.', 'plan', 'retry-host-apply'))
+        failureAlertAdded = true
+      }
+      break
+    case 'host_working_state_blocked':
+      // The backend refused to commit on top of a host state where doing so
+      // would damage the operator's own uncommitted work. Its message already
+      // names the exact paths and the single action that clears it, so it is
+      // shown verbatim rather than replaced by a generic phrasing.
+      if (pendingCount) {
+        items.push(item(
+          chat, 'host-apply-retry', 'warning',
+          'Worktree do host precisa de resolução',
+          session.last_repair_error || 'Resolva o estado não commitado do projeto no host e repita a aplicação.',
+          'plan', 'retry-host-apply',
+        ))
         failureAlertAdded = true
       }
       break

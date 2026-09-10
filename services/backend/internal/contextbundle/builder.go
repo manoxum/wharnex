@@ -261,6 +261,15 @@ func ShouldIgnore(rel string, isDir bool) bool {
 	rel = strings.TrimPrefix(filepath.ToSlash(rel), "./")
 	parts := strings.Split(strings.ToLower(rel), "/")
 	base := parts[len(parts)-1]
+	// `.git` is excluded whether it is a directory or a file. In a submodule
+	// and in a linked worktree it is a FILE holding `gitdir: <absolute host
+	// path>`, so admitting it copied a pointer into the host's own repository
+	// metadata straight into a sandbox and into the model's context — a
+	// containment hole and a leak that the directory-only check missed
+	// precisely on the repository shapes where it mattered.
+	if base == ".git" {
+		return true
+	}
 	if isDir {
 		if stringIn(base, mandatoryBlockedDirs) {
 			return true

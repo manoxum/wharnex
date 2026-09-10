@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"kernl.local/harness/backend/internal/hostrepo"
 )
 
 // gitCommitAuthor* mirror the identity already used for the synthetic
@@ -121,39 +123,9 @@ func PushBranchToHost(ctx context.Context, sandboxPath, hostPath, branch string)
 	return nil
 }
 
-// snapshotUncommittedHostState commits any modified/untracked files
-// currently sitting in the host's working tree, so a merge always starts
-// from a clean tree. Without this, a completely unrelated untracked file
-// (e.g. one created after the project's own baseline commit but never
-// staged — whaness.yml on a freshly opened project is the case that
-// surfaced this) makes Git refuse the merge outright with "untracked
-// working tree files would be overwritten", which is not a real conflict
-// at all. A no-op when the tree is already clean. The commit lands BEFORE
-// preMergeSHA is captured, so RevertHostMerge on a later failure never
-// discards a human's own pre-existing uncommitted edits — only the merge
-// this request made on top of them.
-func snapshotUncommittedHostState(ctx context.Context, hostPath string) error {
-	status, err := runGit(ctx, hostPath, "status", "--porcelain")
-	if err != nil {
-		return fmt.Errorf("inspect host working tree: %s", status)
-	}
-	if strings.TrimSpace(status) == "" {
-		return nil
-	}
-	if output, err := runGit(ctx, hostPath, "add", "-A"); err != nil {
-		return fmt.Errorf("stage host working tree before merge: %s", output)
-	}
-	commitArgs := []string{
-		"-c", "user.name=" + gitCommitAuthorName,
-		"-c", "user.email=" + gitCommitAuthorEmail,
-		"-c", "commit.gpgSign=false",
-		"commit", "-q", "-m", "Wharness host snapshot before integration",
-	}
-	if output, err := runGit(ctx, hostPath, commitArgs...); err != nil {
-		return fmt.Errorf("commit host working tree before merge: %s", output)
-	}
-	return nil
-}
+// hostSnapshotMessage labels the commit that preserves an operator's
+// uncommitted host work before an integration merges on top of it.
+const hostSnapshotMessage = "Wharness host snapshot before integration"
 
 // FetchBranchFromHost pulls one branch from the host's own .git directly
 // into repoPath as a plain local branch of the same name (not a
@@ -173,36 +145,76 @@ func FetchBranchFromHost(ctx context.Context, repoPath, hostPath, branch string)
 	return nil
 }
 
+// HostMerge reports everything one integration merge did to the host beyond
+// moving HEAD, so the caller can tell the operator the truth rather than
+// implying a clean, complete integration.
+//
+// PreMergeSHA is the exact commit to revert to. Preservation says what of the
+// operator's uncommitted work the snapshot could hold — and, just as
+// importantly, what it could not. SubmoduleSync says which submodule
+// checkouts were realigned with the commits the superproject now records.
+type HostMerge struct {
+	PreMergeSHA   string
+	Preservation  hostrepo.Preservation
+	SubmoduleSync hostrepo.SyncResult
+}
+
 // MergeBranchOnHost merges branch (already pushed into the host's own repo
 // by PushBranchToHost) into the host's currently checked-out branch, and
 // returns the exact pre-merge HEAD so a failed post-merge verification can
 // be reverted with RevertHostMerge. On a real conflict, the merge is
 // aborted before returning *MergeConflictError — the host working tree is
 // left exactly as it was.
-func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (preMergeSHA string, err error) {
-	if err := snapshotUncommittedHostState(ctx, hostPath); err != nil {
-		return "", err
-	}
-	preMergeSHA, err = CurrentHeadSHA(ctx, hostPath)
+//
+// The host is treated as a repository whose shape must be measured, not
+// assumed. Before anything is mutated it establishes that the operator has no
+// unfinished merge/rebase and no unresolved paths (committing either would
+// damage their work), preserves what a superproject commit can genuinely
+// hold, and refuses to move a submodule pointer out from under uncommitted
+// work. Afterwards it realigns the submodule checkouts the merge moved, which
+// Git itself leaves stale.
+func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge, error) {
+	topology, err := hostrepo.Inspect(ctx, hostPath)
 	if err != nil {
-		return "", err
+		return HostMerge{}, err
 	}
-	mergeArgs := []string{
-		"-c", "user.name=" + gitCommitAuthorName,
-		"-c", "user.email=" + gitCommitAuthorEmail,
-		"-c", "commit.gpgSign=false",
-		"merge", "--no-ff", "--no-edit", branch,
+	preservation, err := hostrepo.Preserve(ctx, hostPath, hostSnapshotMessage)
+	if err != nil {
+		return HostMerge{}, err
 	}
+	if err := hostrepo.GuardDirtySubmodules(ctx, hostPath, branch, preservation.DirtySubmodules); err != nil {
+		return HostMerge{}, err
+	}
+	result := HostMerge{Preservation: preservation}
+	result.PreMergeSHA, err = CurrentHeadSHA(ctx, hostPath)
+	if err != nil {
+		return result, err
+	}
+	// Re-read the submodule pointers here rather than reusing the pre-snapshot
+	// reading: the snapshot may itself have committed a gitlink the operator
+	// moved, and realigning against the older reading would check that
+	// submodule out to where it already is — detaching a branch the operator
+	// deliberately put it on. The baseline must be the merge's own starting
+	// point, so only pointers the merge moves are realigned.
+	preMerge, preMergeErr := hostrepo.Inspect(ctx, hostPath)
+	if preMergeErr != nil {
+		preMerge = topology
+	}
+	mergeArgs := append(hostrepo.InternalGitArgs(topology), "merge", "--no-ff", "--no-edit", branch)
 	if output, mergeErr := runGit(ctx, hostPath, mergeArgs...); mergeErr != nil {
 		conflicted, conflictErr := runGit(ctx, hostPath, "diff", "--name-only", "--diff-filter=U")
 		_, _ = runGit(ctx, hostPath, "merge", "--abort")
 		if conflictErr == nil && strings.TrimSpace(conflicted) != "" {
-			mergeBase, _ := runGit(ctx, hostPath, "merge-base", preMergeSHA, branch)
-			return preMergeSHA, &MergeConflictError{Paths: strings.Fields(conflicted), Branch: branch, HostSHA: preMergeSHA, MergeBaseSHA: mergeBase}
+			mergeBase, _ := runGit(ctx, hostPath, "merge-base", result.PreMergeSHA, branch)
+			return result, &MergeConflictError{Paths: strings.Fields(conflicted), Branch: branch, HostSHA: result.PreMergeSHA, MergeBaseSHA: mergeBase}
 		}
-		return preMergeSHA, fmt.Errorf("merge integration branch: %s", output)
+		return result, fmt.Errorf("merge integration branch: %s", output)
 	}
-	return preMergeSHA, nil
+	// A failed realignment is not a reason to undo a merge that succeeded:
+	// the superproject is correct either way, and the skip list names exactly
+	// what the operator still has to update themselves.
+	result.SubmoduleSync, _ = hostrepo.SyncSubmodules(ctx, hostPath, preMerge.Submodules)
+	return result, nil
 }
 
 // ChangedPathsBetween returns the paths that differ between two commits,
@@ -278,11 +290,22 @@ func CommitsTouching(ctx context.Context, repoPath, fromSHA, toSHA string, paths
 // Safe because preMergeSHA is always the tip this exact request's own merge
 // moved away from, moments earlier — used when post-merge verification
 // fails, so the host is never left in a state that failed its own build.
-func RevertHostMerge(ctx context.Context, hostPath, preMergeSHA string) error {
+//
+// The submodule realignment is not optional bookkeeping. `git reset --hard`
+// restores the superproject's gitlinks but leaves every submodule checkout
+// wherever the merge left it, so a revert without it returns a host that
+// reports itself permanently modified — the exact condition that used to make
+// every subsequent Apply fail before it began.
+func RevertHostMerge(ctx context.Context, hostPath, preMergeSHA string) (hostrepo.SyncResult, error) {
+	before, inspectErr := hostrepo.Inspect(ctx, hostPath)
 	if output, err := runGit(ctx, hostPath, "reset", "--hard", preMergeSHA); err != nil {
-		return fmt.Errorf("revert host merge to %s: %s", preMergeSHA, output)
+		return hostrepo.SyncResult{}, fmt.Errorf("revert host merge to %s: %s", preMergeSHA, output)
 	}
-	return nil
+	if inspectErr != nil {
+		return hostrepo.SyncResult{}, nil
+	}
+	sync, _ := hostrepo.SyncSubmodules(ctx, hostPath, before.Submodules)
+	return sync, nil
 }
 
 // ReadFileAtRef returns a path's content as of a specific commit/ref,

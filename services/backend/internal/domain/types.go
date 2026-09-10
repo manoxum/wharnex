@@ -131,6 +131,18 @@ const (
 	// discard a verified result, so this classification exists to make the
 	// operator-facing remedy explicit rather than to fail the request.
 	FailureKindArtifactStorageFull = "artifact_storage_full"
+
+	// FailureKindHostWorkingStateBlocked marks a verified candidate Wharnex
+	// deliberately refused to integrate because the host working tree is in a
+	// state where committing on top of it would damage the operator's own
+	// uncommitted work: an unfinished merge/rebase, unresolved conflict paths,
+	// or a change that moves the recorded commit of a submodule holding
+	// uncommitted content.
+	//
+	// It is emphatically not a source defect, so it never consumes a repair
+	// round. The candidate is retained and Apply succeeds unchanged once the
+	// operator clears the condition the failure names.
+	FailureKindHostWorkingStateBlocked = "host_working_state_blocked"
 )
 
 type ExecutionMode string

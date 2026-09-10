@@ -47,6 +47,31 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).toEqual(['Ação humana necessária no ChatGPT'])
   })
 
+  it('replaces the apply affordance with the host worktree remedy when integration is refused', () => {
+    // The backend refuses to snapshot a host whose uncommitted state cannot be
+    // committed safely (an unfinished merge, unresolved paths, or work inside a
+    // submodule the change moves). The candidate stays verified, so the card
+    // must carry the operator's own action rather than a GPT repair, and the
+    // plain apply button must not compete with it.
+    const blocked = session('ses-chat-1')
+    blocked.failure_kind = 'host_working_state_blocked'
+    blocked.last_repair_error = 'a merge is in progress; finish or abort the merge (git merge --abort) and apply again'
+    blocked.pending_host_changes = [{
+      plan: { protocol: 'harness.execution/v1', plan_id: 'plan-1', request_id: 'req-1', status: 'ready', summary: 'Mudança', risk: 'low', requires_approval: false, operations: [], verification: [] },
+      execution: { plan_id: 'plan-1', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
+      verified_at: '2026-09-07T10:00:01.000Z',
+    }]
+    const items = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': blocked })
+    const titles = items.map((entry) => entry.title)
+    expect(titles).toContain('Worktree do host precisa de resolução')
+    expect(titles).not.toContain('Alterações prontas para o host')
+    expect(titles).not.toContain('Erro reparável com GPT')
+    expect(items.find((entry) => entry.title === 'Worktree do host precisa de resolução')).toMatchObject({
+      action: 'retry-host-apply',
+      detail: blocked.last_repair_error,
+    })
+  })
+
   it('does not announce a live execution as interrupted after switching chats', () => {
     const running = session('ses-chat-2')
     running.interrupted_execution = { plan_id: 'plan-running', requested_at: '2026-09-08T18:20:00.000Z', approved: false, status: 'running' }

@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
+
+	"kernl.local/harness/backend/internal/hostrepo"
 )
 
 // requestBaseRefPrefix namespaces the refs Wharness anchors a request's base
@@ -75,7 +76,22 @@ func CaptureWorkingTreeCommit(ctx context.Context, repoPath, message string) (co
 		// caller degrades rather than failing the operation outright.
 		return "", err
 	}
-	indexPath, err := os.CreateTemp(filepath.Join(repoPath, ".git"), "wharnex-tmp-index-*")
+	topology, err := hostrepo.Inspect(ctx, repoPath)
+	if err != nil {
+		return "", err
+	}
+	state, err := hostrepo.Working(ctx, repoPath)
+	if err != nil {
+		return "", err
+	}
+	// The temporary index goes in the repository's REAL Git directory, which
+	// is not always <repoPath>/.git: a linked worktree (git worktree add) and
+	// a project root that is itself a submodule both use a `.git` FILE. Writing
+	// through that path failed with "not a directory", and because both callers
+	// treat capture as best effort, the failure was silent — it disabled
+	// request-base rooting and the merge preflight outright on exactly the
+	// repository shapes that need them most.
+	indexPath, err := os.CreateTemp(topology.GitDir, "wharnex-tmp-index-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary index: %w", err)
 	}
@@ -96,7 +112,11 @@ func CaptureWorkingTreeCommit(ctx context.Context, repoPath, message string) (co
 	if output, err := runIsolated("read-tree", head); err != nil {
 		return "", fmt.Errorf("seed temporary index: %s", output)
 	}
-	if output, err := runIsolated("add", "-A"); err != nil {
+	// Embedded repositories are excluded for the same reason the pre-merge
+	// snapshot excludes them: `git add -A` records one as a gitlink, so the
+	// base tree would claim a submodule where the model was shown files, and
+	// a sandbox checked out at that base would find the directory empty.
+	if output, err := runIsolated(hostrepo.StageArgs(state.EmbeddedRepositories)...); err != nil {
 		return "", fmt.Errorf("stage working tree: %s", output)
 	}
 	tree, err := runIsolated("write-tree")

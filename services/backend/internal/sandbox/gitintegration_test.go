@@ -143,11 +143,11 @@ func TestPushAndMergeIntegratesCleanlyWithoutTouchingAnyRemote(t *testing.T) {
 	if err := PushBranchToHost(context.Background(), sandbox, host, "whx/req-2"); err != nil {
 		t.Fatal(err)
 	}
-	preMergeSHA, err := MergeBranchOnHost(context.Background(), host, "whx/req-2")
+	merge, err := MergeBranchOnHost(context.Background(), host, "whx/req-2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preMergeSHA == "" {
+	if merge.PreMergeSHA == "" {
 		t.Fatal("expected a non-empty pre-merge sha")
 	}
 	data, err := os.ReadFile(filepath.Join(host, "hello.txt"))
@@ -158,7 +158,7 @@ func TestPushAndMergeIntegratesCleanlyWithoutTouchingAnyRemote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if head == preMergeSHA {
+	if head == merge.PreMergeSHA {
 		t.Fatal("expected HEAD to advance past the pre-merge commit")
 	}
 
@@ -265,12 +265,13 @@ func TestRevertHostMergeRestoresExactPreMergeState(t *testing.T) {
 	if err := PushBranchToHost(context.Background(), sandbox, host, "whx/req-4"); err != nil {
 		t.Fatal(err)
 	}
-	preMergeSHA, err := MergeBranchOnHost(context.Background(), host, "whx/req-4")
+	merge, err := MergeBranchOnHost(context.Background(), host, "whx/req-4")
 	if err != nil {
 		t.Fatal(err)
 	}
+	preMergeSHA := merge.PreMergeSHA
 	// Simulate a post-merge verification failure on host: revert.
-	if err := RevertHostMerge(context.Background(), host, preMergeSHA); err != nil {
+	if _, err := RevertHostMerge(context.Background(), host, preMergeSHA); err != nil {
 		t.Fatal(err)
 	}
 	head, err := CurrentHeadSHA(context.Background(), host)

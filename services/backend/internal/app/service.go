@@ -18,6 +18,7 @@ import (
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
+	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/planner"
@@ -998,6 +999,12 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	// commit time would discard a fully verified candidate over prose.
 	if parsed.Turn.Kind == domain.TurnKindChange {
 		if err := protocol.ValidateCommitMessage(parsed.Plan.CommitMessage); err != nil {
+			return BundleSubmission{}, err
+		}
+		// A patch writing inside a submodule is checked at the same seam and
+		// for the same reason: it cannot be integrated at all, and every step
+		// between here and that discovery is wasted. See rejectSubmoduleWrites.
+		if err := s.rejectSubmoduleWrites(ctx, sessionID, current.ProjectPath, parsed.Plan); err != nil {
 			return BundleSubmission{}, err
 		}
 	}
@@ -2442,7 +2449,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			// file/build-artifact snapshots, but knows nothing about Git
 			// refs, so HEAD would otherwise keep pointing at the merge
 			// commit while the working tree no longer matches it.
-			if revertErr := sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA); revertErr != nil {
+			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA); revertErr != nil {
 				cause = fmt.Errorf("%w; git revert also failed: %v", cause, revertErr)
 			}
 			if selfEvolution {
@@ -2479,7 +2486,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				// merged cleanly before this one conflicted — all-or-
 				// nothing, matching the legacy ChangeSet path's semantics.
 				if len(mergedIntegrationBranches) > 0 {
-					_ = sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA)
+					_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA)
 				}
 				updated, prepareErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, item, item.ProjectPath, failedPlanID, conflict)
 				if errors.Is(prepareErr, ErrManagedStateConflict) {
@@ -2491,7 +2498,16 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				return updated, abortPreparedTransaction(fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflict.Paths, ", ")))
 			}
 			if len(mergedIntegrationBranches) > 0 {
-				_ = sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA)
+				_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA)
+			}
+			// A refused host state is not a defect in the generated change and
+			// no new patch can resolve it: the operator has an unfinished
+			// merge, unresolved paths, or uncommitted work inside a submodule
+			// the change moves. It is retained, classified, and handed back as
+			// an operator action rather than spent on a repair round.
+			var blocked *hostrepo.BlockedError
+			if errors.As(mergeErr, &blocked) {
+				return s.failHostStateBlocked(sessionID, item, latestPlanID, blocked, abortPreparedTransaction)
 			}
 			return item, abortPreparedTransaction(fmt.Errorf("merge integration branch: %w", mergeErr))
 		}
