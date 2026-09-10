@@ -1,0 +1,9 @@
+# Arquitetura atual do scraper ChatGPT
+
+- O runtime de produção ainda não usa o pool do ADR-0038. `chat-agent-pool.mjs`, `chat-agent-queue.mjs`, `chat-agent-behavior.mjs` e `chat-agent-scripts.mjs` estão aterrados/testados, mas não são importados por `services/desktop/main.mjs`; o ADR continua `Proposed` e a migração está em curso.
+- Hoje cada chat residente conserva uma `WebContentsView` própria, criada lazy e vinculada ao `cacheKey`; `MAX_RESIDENT_CHATGPT_VIEWS=4` limita cada janela e `MAX_RESIDENT_CHAT_PANES=4` limita panes React por workspace. Views ativas ou ainda supervisionadas não são evictadas.
+- Não há listener-agent por chat. Um poller global do Electron roda a cada 2 s e chama `pollExpectedChatGPTDownloads`, `flushQueuedChatGPTComments` e `pollChatGPTVisibleActivity`; a partição ChatGPT e cada renderer acrescentam listeners nativos de rede/download/navegação.
+- O transporte de uma request é exatamente um ZIP físico. O composer recebe um bootstrap curto e o ficheiro é selecionado no `input#upload-files` via CDP `DOM.setFileInputFiles`, preservando o basename. O upload é confirmado observando `/backend-api/files/process_upload_stream`.
+- O submit usa botão DOM com fallback `Enter`, mas só é aceite quando `ChatGPTSubmitCoordinator` observa um POST de conversa. Preparação é serializada por chat através de `chatGPTTransportTails`; chats diferentes podem avançar em paralelo.
+- O Wharnex não usa a prosa final do DOM como resposta autoritativa. Probes leem apenas sinais estruturais, um resumo limitado de raciocínio visível e o affordance de download. O resultado real é `whx_bundle_res_*.zip`, interceptado em `will-download`, validado por filename/request id/protocolo e roteado ao backend por `request_id`.
+- Arquitetura-alvo do ADR-0038: pool de 1 slot mínimo, 3 por defeito, hard max 6; um slot `view`, restantes `worker`; fila global não preemptiva com prioridade `write > account > read` e behavior documents configuráveis.
