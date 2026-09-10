@@ -75,5 +75,5 @@ it('keeps generic audit events inspectable with structured payload and severity'
   expect(entries[0]).toMatchObject({ title: 'transport.failed', badge: 'EVENT', tone: 'fail' })
   expect(entries[0].detail).toContain('request_id=req-main')
   expect(entries[0].output).toContain('[erro] upload timeout')
-  expect(entries[0].output).toContain('\"attempt\": 2')
+  expect(entries[0].output).toContain('"attempt": 2')
 })
