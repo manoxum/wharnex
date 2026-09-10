@@ -1,0 +1,41 @@
+package domain
+
+import "time"
+
+// WorkspaceChat is a chat as the workspace presents it: its title, which
+// backend Session it drives, and which remote conversation it is bound to.
+//
+// This lived only in the browser's localStorage, which is not storage: a
+// single "clear data" wiped every chat title, ordering and conversation
+// binding, while the Sessions and their MinIO artifacts survived untouched in
+// the backend. The chat index is durable state and belongs beside them.
+type WorkspaceChat struct {
+	ID          string     `json:"id"`
+	ProjectPath string     `json:"project_path"`
+	SessionID   string     `json:"session_id"`
+	Title       string     `json:"title"`
+	ChatGPTURL  string     `json:"chatgpt_url,omitempty"`
+	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+
+	// Renderer-owned fields the backend stores but never interprets: artifact
+	// selection, transport options, conflict surfaces, naming/remote-archive
+	// bookkeeping. Keeping them opaque means the frontend can evolve its own
+	// per-chat state without a schema migration for every field.
+	Extra map[string]any `json:"extra,omitempty"`
+}
+
+// WorkspaceChatItem is one entry of a chat transcript.
+//
+// Stored as an opaque payload for the same reason as WorkspaceChat.Extra: the
+// renderer owns the shape of a chat item, and the backend's job is to keep it
+// safe and ordered, not to understand it.
+type WorkspaceChatItem struct {
+	ID        string         `json:"id"`
+	ChatID    string         `json:"chat_id"`
+	CreatedAt time.Time      `json:"created_at"`
+	Payload   map[string]any `json:"payload"`
+}
+
+func (c WorkspaceChat) Archived() bool { return c.ArchivedAt != nil && !c.ArchivedAt.IsZero() }

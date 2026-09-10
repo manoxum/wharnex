@@ -114,9 +114,26 @@ func validateImpactPath(value string) error {
 	return nil
 }
 
+// validateDeclaredPath checks a path a plan merely *declares* — `impact_files`
+// (a scheduling forecast) and `read_files` (what the planner consulted).
+//
+// Secret-like paths stay denied even as a declaration: a plan stating it read
+// `.env` or `.ssh/` is itself the signal to refuse, not just the patch that
+// would follow.
+//
+// Wharnex-managed project knowledge is the one carve-out, because it is not a
+// secret and not something the planner is sneaking access to — Wharnex
+// materializes it itself at the commit boundary, so a plan forecasting that it
+// changes is simply accurate. Denying that forecast rejected whole verified
+// bundles with `impact_files 0: sensitive patch path denied`. The mutation
+// boundary is untouched: an actual patch against those paths is still refused,
+// which is where a write is really decided.
 func validateDeclaredPath(value string) error {
 	if err := validateImpactPath(value); err != nil {
 		return err
+	}
+	if IsWharnexManagedPath(value) {
+		return validatePathShape(value)
 	}
 	return validatePatchPath(value)
 }
@@ -205,7 +222,29 @@ func ValidatePatchPaths(patch string) error {
 	return nil
 }
 
-func validatePatchPath(value string) error {
+// IsWharnexManagedPath reports whether a path is Wharnex-owned project state
+// that the planner may never patch directly.
+//
+// Project knowledge is materialized by Wharnex from the `harness.knowledge/v2`
+// records at the commit boundary; `catalog.json` is metadata derived from those
+// records. A planner patch against this subtree would fight the materializer.
+//
+// Exported because the same rule has to be consulted where a merge conflict is
+// routed: a conflict on one of these paths must be reconciled by Wharnex rather
+// than handed to a planner that the validator would then refuse. The two rules
+// contradicted each other, which produced a request that could never succeed and
+// retried forever.
+func IsWharnexManagedPath(value string) bool {
+	lower := strings.ToLower(filepath.ToSlash(strings.TrimSpace(value)))
+	lower = strings.TrimPrefix(strings.TrimPrefix(lower, "a/"), "b/")
+	lower = filepath.ToSlash(filepath.Clean(lower))
+	return lower == ".wharnex/knowledge" || strings.HasPrefix(lower, ".wharnex/knowledge/")
+}
+
+// validatePathShape enforces the structural rules every path must satisfy,
+// regardless of whether it is being written, read, or merely forecast:
+// traversal, absoluteness, and diff quoting/escaping.
+func validatePathShape(value string) error {
 	path := strings.TrimSpace(value)
 	if path == "/dev/null" {
 		return nil
@@ -225,10 +264,25 @@ func validatePatchPath(value string) error {
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("patch path escapes project: %s", path)
 	}
+	return nil
+}
+
+// validatePatchPath is the mutation boundary: path shape plus the denial of
+// paths a plan may never write.
+func validatePatchPath(value string) error {
+	if err := validatePathShape(value); err != nil {
+		return err
+	}
+	path := strings.TrimSpace(value)
+	if path == "/dev/null" {
+		return nil
+	}
+	path = strings.TrimPrefix(strings.TrimPrefix(path, "a/"), "b/")
+	clean := filepath.Clean(path)
 	lower := strings.ToLower(filepath.ToSlash(clean))
 	base := filepath.Base(lower)
 	safeEnvTemplate := base == ".env.example" || base == ".env.sample" || base == ".env.template"
-	blocked := lower == ".env" || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || lower == ".wharnex/knowledge" || strings.HasPrefix(lower, ".wharnex/knowledge/") || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
+	blocked := lower == ".env" || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || IsWharnexManagedPath(lower) || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
 	if blocked {
 		return fmt.Errorf("sensitive patch path denied: %s", path)
 	}

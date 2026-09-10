@@ -36,6 +36,7 @@ describe('BundleExchangeBar', () => {
     await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'artifact_1'))
     expect(await screen.findByText('turn.json')).toBeTruthy()
     expect(screen.getByText('Bundle inteiro')).toBeTruthy()
+    expect(document.querySelector('.bundle-explorer-backdrop')?.parentElement).toBe(document.body)
   })
   it('ignores auxiliary ZIP artifacts even when legacy metadata marks them as bundles', () => {
     const requestId = 'req_20260905T220000_1234567890abcdef'
@@ -98,7 +99,7 @@ describe('BundleExchangeBar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Abrir galeria completa: 5 bundles, 3 enviados, 2 recebidos' }))
     await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'summary-response'))
-    const selector = view.container.querySelector('.bundle-selector')!
+    const selector = document.querySelector('.bundle-selector')!
     expect(selector.querySelector('.bundle-tone-request-main')).toBeTruthy()
     expect(selector.querySelector('.bundle-tone-request-repair')).toBeTruthy()
     expect(selector.querySelector('.bundle-tone-request-summary')).toBeTruthy()

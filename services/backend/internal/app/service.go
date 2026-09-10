@@ -29,6 +29,7 @@ import (
 	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
 
@@ -40,8 +41,13 @@ var (
 	ErrExecutionBundleRequestMismatch     = errors.New("execution bundle filename/request_id mismatch")
 	ErrExecutionBundleNotPending          = errors.New("execution bundle request_id is not pending for this chat/session")
 	ErrIntegrationConflict                = errors.New("verified changes require focused conflict resolution")
-	ErrStaleHostBaseline                  = errors.New("verified candidate requires host baseline revalidation")
-	ErrHostIntegrationRace                = errors.New("host changed repeatedly during ChangeSet integration")
+	// A conflict confined to Wharnex-managed project state. It is terminal and
+	// local: no planner bundle can resolve it, because the patch validator
+	// refuses that subtree before conflict-specific validation runs. Reporting it
+	// as ErrIntegrationConflict offered a resolution path that cannot exist.
+	ErrManagedStateConflict = errors.New("integration conflict is confined to Wharnex-managed project state and is reconciled locally")
+	ErrStaleHostBaseline    = errors.New("verified candidate requires host baseline revalidation")
+	ErrHostIntegrationRace  = errors.New("host changed repeatedly during ChangeSet integration")
 )
 
 type BundleSubmission struct {
@@ -61,8 +67,6 @@ type BundleSubmission struct {
 	RestartRequired        bool                    `json:"restart_required,omitempty"`
 	RemoteRecoveryPrepared bool                    `json:"remote_recovery_prepared,omitempty"`
 }
-
-const maxAutoRepairAttempts = 3
 
 // maxRetainedProjectRevisions bounds the self-observed baseline history a
 // session keeps (domain.Session.ProjectRevisions). canFastForwardBaseline
@@ -104,6 +108,7 @@ type Service struct {
 	orchestratorMu          sync.Mutex
 	orchestratorLocks       map[string]*sync.Mutex
 	artifactStore           ArtifactObjectStore
+	utilityEngine           utility.Engine
 	environment             *sandboxenv.Prober
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
@@ -111,6 +116,18 @@ type Service struct {
 }
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
+
+func (s *Service) SetUtilityEngine(engine utility.Engine) { s.utilityEngine = engine }
+
+func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, target utility.LanguageCode, markdown string) (utility.Result, error) {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return utility.Result{}, err
+	}
+	if s.utilityEngine == nil {
+		return utility.Result{}, utility.ErrUnavailable
+	}
+	return s.utilityEngine.Execute(ctx, utility.Request{Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown})
+}
 
 func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {
 	if store != nil {
@@ -223,8 +240,12 @@ func (s *Service) UpdateProjectConfig(sessionID string, cfg projectconfig.Config
 	return stored, updated, nil
 }
 
-func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string, executionMode domain.ExecutionMode, automationMode domain.AutomationMode) (domain.Session, error) {
+func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string, executionMode domain.ExecutionMode, automationMode domain.AutomationMode, requestedEffort ...domain.EffortLevel) (domain.Session, error) {
 	id := ids.New("ses")
+	effortLevel := domain.EffortLevelMedium
+	if len(requestedEffort) > 0 && requestedEffort[0] != "" {
+		effortLevel = requestedEffort[0]
+	}
 	if executionMode == "" {
 		executionMode = domain.ExecutionModeProtected
 	}
@@ -243,6 +264,9 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	}
 	if !domain.ValidAutomationMode(automationMode) {
 		return domain.Session{}, fmt.Errorf("unsupported automation mode %q", automationMode)
+	}
+	if !domain.ValidEffortLevel(effortLevel) {
+		return domain.Session{}, fmt.Errorf("unsupported effort level %q", effortLevel)
 	}
 	if automationMode == domain.AutomationModeAuto && executionMode != domain.ExecutionModeProtected {
 		return domain.Session{}, errors.New("auto mode requires protected execution mode")
@@ -269,14 +293,14 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		return domain.Session{}, err
 	}
 	knowledgeSharing := true
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if selfEvolution {
 		item.WharnexInstanceID = ""
 	}
 	if err := s.store.Put(item); err != nil {
 		return domain.Session{}, fmt.Errorf("persist session: %w", err)
 	}
-	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode, "self_evolution": selfEvolution})
+	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode, "effort_level": effortLevel, "self_evolution": selfEvolution})
 	return item, nil
 }
 
@@ -377,6 +401,21 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 	return item, nil
 }
 
+func (s *Service) SetEffortLevel(sessionID string, level domain.EffortLevel) (domain.Session, error) {
+	if !domain.ValidEffortLevel(level) {
+		return domain.Session{}, fmt.Errorf("unsupported effort level %q", level)
+	}
+	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.EffortLevel = level
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.bus.Publish(sessionID, "effort.level_changed", map[string]any{"effort_level": level})
+	return item, nil
+}
+
 func (s *Service) SetAutomationMode(sessionID string, mode domain.AutomationMode) (domain.Session, error) {
 	if !domain.ValidAutomationMode(mode) {
 		return domain.Session{}, fmt.Errorf("unsupported automation mode %q", mode)
@@ -423,11 +462,55 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 }
 
 func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message, planningMode string) (planner.Result, domain.Session, error) {
+	return s.submitPlannerRequest(ctx, sessionID, message, planningMode, "", requestKindStandard)
+}
+
+func (s *Service) SubmitPlanApproval(ctx context.Context, sessionID, parentRequestID string) (planner.Result, domain.Session, error) {
+	parentRequestID = strings.TrimSpace(parentRequestID)
+	if parentRequestID == "" {
+		return planner.Result{}, domain.Session{}, errors.New("plan request_id is required")
+	}
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return planner.Result{}, domain.Session{}, err
+	}
+	if current.LastRequestID != parentRequestID || current.State != "awaiting_plan_approval" || current.LastTurn == nil || current.LastTurn.RequestID != parentRequestID || current.LastTurn.Kind != domain.TurnKindPlan || current.LastTurn.Outcome == nil || current.LastTurn.Outcome.Status != domain.TurnOutcomeCompleted {
+		return planner.Result{}, current, errors.New("plan approval requires the latest pending completed plan proposal")
+	}
+	message := fmt.Sprintf("PLAN APPROVAL CONTINUATION\nParent request: %s\nThe user approved the following plan proposal. Implement exactly this approved scope now.\n\n%s", parentRequestID, current.LastTurn.Message)
+	return s.submitPlannerRequest(ctx, sessionID, message, "approve_plan", parentRequestID, requestKindPlanApproval)
+}
+
+func (s *Service) RejectPlan(sessionID, requestID string) (domain.Session, error) {
+	requestID = strings.TrimSpace(requestID)
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	if requestID == "" || current.LastRequestID != requestID || current.State != "awaiting_plan_approval" || current.LastTurn == nil || current.LastTurn.RequestID != requestID || current.LastTurn.Kind != domain.TurnKindPlan {
+		return domain.Session{}, errors.New("plan rejection requires the latest pending plan proposal")
+	}
+	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
+		item.State = "plan_rejected"
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.closeRemoteInputChannel(sessionID, "plan.rejected")
+	s.bus.Publish(sessionID, "plan.proposal_rejected", map[string]any{"request_id": requestID})
+	if committed, commitErr := s.commitPendingKnowledge(sessionID, requestID); commitErr == nil {
+		updated = committed
+	}
+	return updated, nil
+}
+
+func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, planningMode, parentRequestID, requestKind string) (planner.Result, domain.Session, error) {
 	planningMode = strings.ToLower(strings.TrimSpace(planningMode))
 	if planningMode == "" {
 		planningMode = "direct"
 	}
-	if planningMode != "direct" && planningMode != "plan_first" {
+	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" {
 		return planner.Result{}, domain.Session{}, fmt.Errorf("unsupported planning mode %q", planningMode)
 	}
 	item, err := s.refreshContext(sessionID)
@@ -437,15 +520,19 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
-	if refreshed, clearErr := s.store.Update(sessionID, func(current *domain.Session) error {
-		current.PendingKnowledgeRootRequestID = ""
-		current.PendingKnowledgeCandidateRequestID = ""
-		current.PendingKnowledgeCandidate = nil
-		current.PendingKnowledgeSummary = ""
-		current.LastMainRequestSummary = ""
-		return nil
-	}); clearErr == nil {
-		item = refreshed
+	if parentRequestID == "" {
+		if refreshed, clearErr := s.store.Update(sessionID, func(current *domain.Session) error {
+			current.PendingKnowledgeRootRequestID = ""
+			current.PendingKnowledgeCandidateRequestID = ""
+			current.PendingKnowledgeCandidate = nil
+			current.PendingKnowledgeSummary = ""
+			current.LastMainRequestSummary = ""
+			current.AutomationAttempt = 1
+			current.ImprovementAttempt = 0
+			return nil
+		}); clearErr == nil {
+			item = refreshed
+		}
 	}
 	// Capture one immutable knowledge identity for this request. Transport
 	// materialization later reuses this exact snapshot instead of reading the
@@ -454,21 +541,34 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 	if err != nil {
 		return planner.Result{}, item, err
 	}
+	// Anchor the exact host tree this request is planned against, alongside the
+	// context snapshot that describes it. A patch the model writes from here is
+	// authored for this tree, so recording it now is what lets execution apply
+	// that patch to the tree it was written for however far the host advances
+	// before the plan comes back.
+	baseCommit := s.captureRequestBase(ctx, sessionID, item.ProjectPath, requestID)
+	var releasedBases []string
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
 		current.PlannerInFlight = true
 		current.RemoteRecoveryAttempt = 0
-		recordRequestLineage(current, requestID, "", requestKindStandard)
+		recordRequestLineage(current, requestID, parentRequestID, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		recordRequestContext(current, requestID, item.Context)
+		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		return nil
 	}); err != nil {
 		return planner.Result{}, item, err
 	}
-	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA})
-	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedResponseBundleFilename(item, requestID)}, knowledgeSnapshot, item.ProjectPath))
+	s.releaseRequestBaseRefs(ctx, sessionID, item.ProjectPath, releasedBases)
+	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA, "planning_mode": planningMode, "parent_request_id": parentRequestID})
+	expectedFilename := expectedResponseBundleFilename(item, requestID)
+	if parentRequestID != "" {
+		expectedFilename = expectedResponseBundleFilenameForDerivedRequest(item, requestID, parentRequestID)
+	}
+	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedFilename}, knowledgeSnapshot, item.ProjectPath))
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -547,7 +647,9 @@ func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message,
 		return planner.Result{}, item, err
 	}
 	s.releaseSupersededRemoteInputLeases(sessionID, updated.PendingManualRequestIDs)
-	s.closeSupersededRemoteInputChannel(sessionID, requestID)
+	if parentRequestID == "" {
+		s.closeSupersededRemoteInputChannel(sessionID, requestID)
+	}
 	if result.Plan != nil {
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": result.Plan.PlanID, "allowed": updated.Policy.Allowed, "requires_approval": updated.Policy.RequiresApproval, "risk": updated.Policy.Risk})
 	} else if result.ManualPrompt != "" {
@@ -818,8 +920,8 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		}
 	}
 	if current.LastRequestMode == "plan_first" && parsed.Turn.RequestID == current.LastRequestID {
-		if parsed.Plan != nil || parsed.Turn.Kind == domain.TurnKindChange || parsed.Turn.Kind == domain.TurnKindWorkflow {
-			return BundleSubmission{}, errors.New("plan-first request must return a terminal proposal without plan.json; implementation requires explicit user approval")
+		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
+			return BundleSubmission{}, errors.New("plan-first request must return kind=plan without plan.json; implementation requires explicit user approval")
 		}
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
@@ -873,17 +975,31 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			return BundleSubmission{}, updateErr
 		}
 		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
-		s.closeRemoteInputChannel(sessionID, "request.terminal")
+		if parsed.Turn.Kind != domain.TurnKindPlan {
+			s.closeRemoteInputChannel(sessionID, "request.terminal")
+		}
 		s.bus.Publish(sessionID, "turn.received", map[string]any{"request_id": parsed.Turn.RequestID, "kind": parsed.Turn.Kind, "transport": "zip_bundle"})
-		if committed, commitErr := s.commitPendingKnowledge(sessionID, parsed.Turn.RequestID); commitErr != nil {
-			return BundleSubmission{}, commitErr
-		} else {
-			updated = committed
+		if parsed.Turn.Kind != domain.TurnKindPlan {
+			if committed, commitErr := s.commitPendingKnowledge(sessionID, parsed.Turn.RequestID); commitErr != nil {
+				return BundleSubmission{}, commitErr
+			} else {
+				updated = committed
+			}
 		}
 		return BundleSubmission{Session: updated}, nil
 	}
 	if err := protocol.Validate(*parsed.Plan); err != nil {
 		return BundleSubmission{}, err
+	}
+	// A change plan's commit_message becomes permanent project history, so its
+	// quality is part of the wire contract rather than a style preference.
+	// Checking it here — at ingestion, before policy and sandbox verification —
+	// means a rejected message costs one re-request; the same rejection at
+	// commit time would discard a fully verified candidate over prose.
+	if parsed.Turn.Kind == domain.TurnKindChange {
+		if err := protocol.ValidateCommitMessage(parsed.Plan.CommitMessage); err != nil {
+			return BundleSubmission{}, err
+		}
 	}
 	if err := validateConflictResolutionPlan(current, parsed.Plan); err != nil {
 		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
@@ -1052,7 +1168,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		return BundleSubmission{Session: current, AutoError: err.Error()}
 	}
 	result := BundleSubmission{Session: current}
-	for attempt := 0; attempt <= maxAutoRepairAttempts; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if current.Plan == nil || current.Policy == nil || !current.Policy.Allowed || current.Plan.Status != "ready" {
 			return result
 		}
@@ -1113,9 +1229,21 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		result.RestartScheduled = false
 		result.Session = applied
 		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport, "restart_required": result.RestartRequired})
+		if !result.RestartRequired && shouldContinueImprovement(applied) {
+			improved, improveErr := s.prepareImprovementRequest(ctx, sessionID, applied, planID)
+			if improveErr != nil {
+				result.AutoError = improveErr.Error()
+				return result
+			}
+			result.Session = improved
+			if improved.State == "planned" && improved.Plan != nil && improved.Plan.PlanID != planID {
+				current = improved
+				continue
+			}
+			result.RepairPrepared = improved.State == "repair_pending" && improved.LastManualPrompt != ""
+		}
 		return result
 	}
-	return result
 }
 
 func turnState(kind domain.TurnKind) string {
@@ -1126,6 +1254,8 @@ func turnState(kind domain.TurnKind) string {
 		return "awaiting_clarification"
 	case domain.TurnKindInvestigation:
 		return "investigated"
+	case domain.TurnKindPlan:
+		return "awaiting_plan_approval"
 	case domain.TurnKindWorkflow:
 		return "workflow_planned"
 	case domain.TurnKindBlocked:
@@ -1372,6 +1502,21 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	}
 	bindExecutionDependencySource(&workspace, item, reconcileFromArchive)
 	defer runner.Cleanup(workspace)
+	// Root this candidate's integration branch at the tree its patch was
+	// actually authored against, before anything is applied. Without this the
+	// patch is applied to whatever the host has drifted to since the request
+	// was planned, and an ordinary concurrent edit anywhere in the same file
+	// makes `git apply` fail outright — a dead end that consumed an AI repair
+	// round and could not be recovered by retrying. Rooted here the patch
+	// applies by construction, and genuine divergence surfaces later as a
+	// normal three-way merge, which Git resolves without a model turn whenever
+	// the changes are actually compatible.
+	baseRootedBranch := ""
+	if !unprotected && !reconcileFromArchive {
+		if branch, _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, item.Plan, workspace.Path); rooted {
+			baseRootedBranch = branch
+		}
+	}
 	pendingForExecution := item.PendingHostChanges
 	if item.IntegrationConflict != nil && item.IntegrationConflict.RequestID == item.Plan.RequestID {
 		// Preserve the original conflicted mutations durably until the focused
@@ -1492,7 +1637,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 				s.bus.Publish(sessionID, "changeset.verified", map[string]any{"changeset_id": canonicalChangeSet.ID, "plan_id": item.Plan.PlanID, "files": changeSetPaths(*canonicalChangeSet)})
 			}
 		} else {
-			integrationBranch, integrationCommit, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path)
+			integrationBranch, integrationCommit, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path, baseRootedBranch)
 			if err != nil {
 				return s.failExecution(ctx, sessionID, result, fmt.Errorf("commit verified patch to integration branch: %w", err))
 			}
@@ -1785,7 +1930,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	}
 
 	if updated.IntegrationConflict != nil && updated.Plan != nil && updated.IntegrationConflict.RequestID == updated.Plan.RequestID {
-		if updated.RepairAttempt < maxAutoRepairAttempts {
+		if effortAttemptAvailable(updated) {
 			conflict := updated.IntegrationConflict
 			if retried, retryErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
 				updated = retried
@@ -1914,8 +2059,8 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "plan_id": result.PlanID})
 		return updated, nil
 	}
-	if !manual && current.RepairAttempt >= maxAutoRepairAttempts {
-		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": current.RepairAttempt, "plan_id": result.PlanID})
+	if !manual && !effortAttemptAvailable(current) {
+		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": automaticAttemptsSpent(current), "plan_id": result.PlanID, "effort_level": normalizeEffortLevel(current.EffortLevel)})
 		return current, nil
 	}
 
@@ -1925,8 +2070,12 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 	}
 	requestID := ids.New("req")
 	attempt := refreshed.RepairAttempt + 1
-	repairMessage := buildRepairMessage(refreshed, result, cause, attempt, manual, guidance)
-	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID, "manual": manual})
+	automationAttempt := automaticAttemptsSpent(refreshed)
+	if !manual {
+		automationAttempt++
+	}
+	repairMessage := buildRepairMessage(refreshed, result, cause, attempt, automationAttempt, manual, guidance)
+	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "automation_attempt": automationAttempt, "failed_plan_id": result.PlanID, "manual": manual, "effort_level": normalizeEffortLevel(refreshed.EffortLevel)})
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
 	if err != nil {
 		return refreshed, err
@@ -1963,6 +2112,9 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastRepairError = cause.Error()
 		item.RepairAttempt = attempt
+		if !manual {
+			item.AutomationAttempt = automationAttempt
+		}
 		item.LastTurn = planned.Turn
 		if item.RepairParentPlanID == "" {
 			item.RepairParentPlanID = result.PlanID
@@ -2006,10 +2158,10 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 	return updated, nil
 }
 
-func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt int, manual bool, guidance string) string {
-	requestHeading := fmt.Sprintf("AUTOMATIC REPAIR REQUEST — attempt %d of %d", attempt, maxAutoRepairAttempts)
+func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt, automationAttempt int, manual bool, guidance string) string {
+	requestHeading := "AUTOMATIC REPAIR REQUEST — " + effortAttemptLabel(item, automationAttempt) + " · effort " + string(normalizeEffortLevel(item.EffortLevel))
 	if manual {
-		requestHeading = fmt.Sprintf("MANUAL GPT REPAIR REQUEST — operator requested after %d automatic attempt(s)", item.RepairAttempt)
+		requestHeading = fmt.Sprintf("MANUAL GPT REPAIR REQUEST — operator requested after %d autonomous attempt(s)", automaticAttemptsSpent(item))
 	}
 	operatorGuidance := ""
 	if clean := truncateRepairText(guidance, 4000); clean != "" {
@@ -2017,7 +2169,7 @@ func buildRepairMessage(item domain.Session, result domain.ExecutionResult, caus
 	}
 	if strings.HasPrefix(cause.Error(), "policy denied plan:") {
 		if !manual {
-			requestHeading = fmt.Sprintf("AUTOMATIC POLICY REPAIR REQUEST — attempt %d of %d", attempt, maxAutoRepairAttempts)
+			requestHeading = "AUTOMATIC POLICY REPAIR REQUEST — " + effortAttemptLabel(item, automationAttempt) + " · effort " + string(normalizeEffortLevel(item.EffortLevel))
 		}
 		return fmt.Sprintf(`%s
 
@@ -2159,6 +2311,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
 			updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
+			if errors.Is(prepareErr, ErrManagedStateConflict) {
+				return updated, prepareErr
+			}
 			if prepareErr != nil {
 				return item, fmt.Errorf("prepare focused conflict resolution: %w", prepareErr)
 			}
@@ -2327,6 +2482,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 					_ = sandbox.RevertHostMerge(ctx, item.ProjectPath, preMergeIntegrationSHA)
 				}
 				updated, prepareErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, item, item.ProjectPath, failedPlanID, conflict)
+				if errors.Is(prepareErr, ErrManagedStateConflict) {
+					return updated, abortPreparedTransaction(prepareErr)
+				}
 				if prepareErr != nil {
 					return item, abortPreparedTransaction(fmt.Errorf("prepare focused conflict resolution: %w", prepareErr))
 				}
@@ -2376,6 +2534,18 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		if commitErr != nil {
 			if raceExhausted {
+				// A race that survived every restage is not a transient
+				// collision another identical retry can win: the candidate and
+				// the host have genuinely diverged on this path, and replaying
+				// the same diff against the same host reproduces it forever.
+				// Escalate to the same bounded focused resolution a detected
+				// conflict uses, with the host's current content as CURRENT, so
+				// there is a way out instead of an endless retry affordance.
+				if updated, escalated, escalateErr := s.escalateExhaustedIntegrationRace(ctx, sessionID, item, pending, commitErr); escalateErr != nil {
+					return item, abortPreparedTransaction(escalateErr)
+				} else if escalated {
+					return updated, abortPreparedTransaction(fmt.Errorf("%w: %v", ErrIntegrationConflict, commitErr))
+				}
 				commitErr = fmt.Errorf("%w: %v", ErrHostIntegrationRace, commitErr)
 			}
 			_, _ = s.store.Update(sessionID, func(current *domain.Session) error {

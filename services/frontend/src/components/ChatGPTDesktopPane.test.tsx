@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import { chatGPTOverlayDocuments } from '../lib/chatGPTOverlay'
 
 class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
 const state = { url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'embedded' as const, authWindowOpen: false, authenticated: false }
@@ -12,7 +13,7 @@ function bridge() {
     chatgpt: {
       show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
       navigate: vi.fn().mockResolvedValue(state), confirmAffinity: vi.fn().mockResolvedValue({ ok: true }), rejectAffinity: vi.fn().mockResolvedValue({ ok: true }), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn().mockResolvedValue({ ok: true }), resumeExpectedBundle: vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', expectedFilename: 'bundle.zip' }), stopConversation: vi.fn().mockResolvedValue({ ok: true, state: 'stopped' }), cancelRequest: vi.fn().mockResolvedValue({ ok: true, cacheKey: 'chat-1', requestId: 'req_pending123', cleared: true }),
-      state: vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1' }), release: vi.fn().mockResolvedValue({ ok: true, released: true }), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
+      state: vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1' }), release: vi.fn().mockResolvedValue({ ok: true, released: true }), setAuthMode: vi.fn().mockResolvedValue(state), startAuth: vi.fn().mockResolvedValue(state), openExternal: vi.fn(), openInternal: vi.fn(), resumeEmbedded: vi.fn().mockResolvedValue(state), pickBundle: vi.fn(),
       onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
       onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
       onActivity: vi.fn(noopSubscription),
@@ -116,6 +117,15 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(vi.mocked(desktop.chatgpt.show).mock.calls.length).toBeGreaterThan(before))
   })
 
+  it('includes blocking overlays owned by the same-origin parent WorkspaceShell', () => {
+    const projectDocument = document.implementation.createHTMLDocument('project')
+    const shellDocument = document.implementation.createHTMLDocument('shell')
+    const shellWindow = { document: shellDocument } as unknown as Window
+    const projectWindow = { document: projectDocument, parent: shellWindow } as unknown as Window
+
+    expect(chatGPTOverlayDocuments(projectWindow)).toEqual([projectDocument, shellDocument])
+  })
+
   it('synchronizes the native view bounds immediately after mounting', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} />)
@@ -151,6 +161,15 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'embedded'))
     screen.getByRole('button', { name: /Externo/ }).click()
     await waitFor(() => expect(desktop.chatgpt.startAuth).toHaveBeenCalledWith('chat-1', 'external'))
+  })
+
+  it('opens the linked conversation in the Electron internal browser', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+
+    screen.getByTitle('Abrir no navegador interno').click()
+
+    await waitFor(() => expect(desktop.chatgpt.openInternal).toHaveBeenCalledWith('https://chatgpt.com/c/right'))
   })
 
   it('clears the recovery notice after a linked ChatGPT conversation finishes navigation', async () => {

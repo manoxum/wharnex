@@ -25,7 +25,40 @@ test('DOM automation scripts stay narrow and escape user text', () => {
   const activity = chatGPTVisibleActivityScript()
   assert.match(activity, /data-testid="stop-button"/)
   assert.match(activity, /thinking/)
-  assert.doesNotMatch(activity, /innerText|textContent|aria-label|document\.cookie|localStorage|sessionStorage|fetch\(/)
+  assert.match(activity, /data-message-author-role="assistant"/)
+  assert.match(activity, /rows\.length >= 8/)
+  assert.match(activity, /value\.length < 8 \|\| value\.length > 200/)
+  assert.match(activity, /node\.textContent/)
+  assert.doesNotMatch(activity, /innerText|aria-label|document\.cookie|localStorage|sessionStorage|fetch\(/)
+})
+
+// Visible-reasoning capture is the one place a DOM script may read generated
+// text, as a deliberate and bounded exception (AGENTS.md section 8, ADR-0038).
+// These assertions are the boundary of that exception: it reads the reasoning
+// steps ChatGPT is showing, and nothing else.
+test('visible reasoning capture stays inside its exception', () => {
+  const activity = chatGPTVisibleActivityScript()
+
+  // The answer itself, code and tool output are excluded structurally, by
+  // container — never by judging what the text says.
+  for (const selector of ['pre', 'code', '.markdown', '.sr-only', '[data-message-author-role]']) {
+    assert.ok(activity.includes(`'${selector}'`), `missing structural exclusion ${selector}`)
+  }
+  assert.match(activity, /node\.children\.length/)
+
+  // Bounded: a probe runs on every supervised chat on every tick.
+  assert.match(activity, /rows\.length >= 8/)
+  assert.match(activity, /value\.length < 8 \|\| value\.length > 200/)
+
+  // A wrapper repeats the concatenation of the rows beneath it.
+  assert.match(activity, /rows\.filter\(\(row\) => !rows\.some/)
+
+  // Passive: a health probe observes, it never mutates the page. Expanding a
+  // collapsed reasoning disclosure would be a click.
+  assert.doesNotMatch(activity, /\.click\(\)/)
+
+  // Liveness must survive a failure to read reasoning.
+  assert.match(activity, /catch \{ \/\* reasoning is optional; liveness is not \*\/ \}/)
 })
 
 test('every generated ChatGPT DOM bridge is valid JavaScript before renderer injection', () => {

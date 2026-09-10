@@ -34,7 +34,7 @@ export type AttentionHumanAction = {
 }
 
 const PENDING_RESOLUTION_STATES = new Set([
-  'awaiting_plan', 'workflow_pending', 'workflow_planned', 'workflow_observed',
+  'awaiting_plan', 'awaiting_plan_approval', 'workflow_pending', 'workflow_planned', 'workflow_observed',
   'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending',
 ])
 

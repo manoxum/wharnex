@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTComposerClick, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTComposerClick, dispatchChatGPTPointerClick, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
 
 const conversationURL = 'https://chatgpt.com/backend-api/f/conversation/prepare'
 
@@ -163,4 +163,32 @@ test('ChatGPT composer targeting does not call WebContents focus or move the OS 
     { type: 'mouseDown', x: 320, y: 640, button: 'left', clickCount: 1 },
     { type: 'mouseUp', x: 320, y: 640, button: 'left', clickCount: 1 },
   ])
+})
+
+test('account pointer clicks hover before pressing and never focus the WebContents', () => {
+  const events = []
+  let focused = 0
+  const webContents = {
+    focus() { focused += 1 },
+    sendInputEvent(event) { events.push(event) },
+  }
+  const point = dispatchChatGPTPointerClick(webContents, { x: 293.6, y: 452.1 })
+  assert.equal(focused, 0)
+  assert.deepEqual(point, { x: 293, y: 452 })
+  assert.deepEqual(events, [
+    { type: 'mouseMove', x: 293, y: 452 },
+    { type: 'mouseDown', x: 293, y: 452, button: 'left', clickCount: 1 },
+    { type: 'mouseUp', x: 293, y: 452, button: 'left', clickCount: 1 },
+  ])
+})
+
+test('account key dispatch is restricted to named keys', () => {
+  const events = []
+  const webContents = { sendInputEvent(event) { events.push(event) } }
+  assert.deepEqual(dispatchChatGPTAccountKey(webContents, 'Enter'), { method: 'native-enter' })
+  assert.deepEqual(events, [
+    { type: 'keyDown', keyCode: 'Enter' },
+    { type: 'keyUp', keyCode: 'Enter' },
+  ])
+  assert.throws(() => dispatchChatGPTAccountKey(webContents, 'rm -rf /'), /Unsupported ChatGPT account key/)
 })

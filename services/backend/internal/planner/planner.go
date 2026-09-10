@@ -15,6 +15,7 @@ type Request struct {
 	ContextManifest    domain.ContextManifest
 	PreviousResponseID string
 	AutomationMode     domain.AutomationMode
+	EffortLevel        domain.EffortLevel
 	SelfEvolution      bool
 	PlanningMode       string
 	// ExpectedBundleFilename is the canonical whx_bundle_res_* name the

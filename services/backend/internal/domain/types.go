@@ -14,6 +14,7 @@ const (
 	TurnKindAnswer        TurnKind = "answer"
 	TurnKindClarification TurnKind = "clarification"
 	TurnKindInvestigation TurnKind = "investigation"
+	TurnKindPlan          TurnKind = "plan"
 	TurnKindWorkflow      TurnKind = "workflow"
 	TurnKindChange        TurnKind = "change"
 	TurnKindBlocked       TurnKind = "blocked"
@@ -21,7 +22,7 @@ const (
 
 func ValidTurnKind(kind TurnKind) bool {
 	switch kind {
-	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindWorkflow, TurnKindChange, TurnKindBlocked:
+	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindPlan, TurnKindWorkflow, TurnKindChange, TurnKindBlocked:
 		return true
 	default:
 		return false
@@ -152,6 +153,27 @@ const (
 
 func ValidAutomationMode(mode AutomationMode) bool {
 	return mode == AutomationModeManual || mode == AutomationModeAuto
+}
+
+type EffortLevel string
+
+const (
+	EffortLevelLow       EffortLevel = "low"
+	EffortLevelMedium    EffortLevel = "medium"
+	EffortLevelHigh      EffortLevel = "high"
+	EffortLevelExtraHigh EffortLevel = "extra_high"
+	EffortLevelMax       EffortLevel = "max"
+	EffortLevelUltra     EffortLevel = "ultra"
+	EffortLevelLoop      EffortLevel = "loop"
+)
+
+func ValidEffortLevel(level EffortLevel) bool {
+	switch level {
+	case EffortLevelLow, EffortLevelMedium, EffortLevelHigh, EffortLevelExtraHigh, EffortLevelMax, EffortLevelUltra, EffortLevelLoop:
+		return true
+	default:
+		return false
+	}
 }
 
 // ChatTransportMode controls whether Wharnex Desktop drives the embedded
@@ -457,7 +479,14 @@ type ConflictResolution struct {
 	OriginalPlanIDs []string                    `json:"original_plan_ids"`
 	Paths           []string                    `json:"paths"`
 	Details         []IntegrationConflictDetail `json:"details"`
-	CreatedAt       time.Time                   `json:"created_at"`
+	// AttemptHistory records what each earlier round of this same conflict
+	// tried, oldest first. It travels back to the resolver so a repeated
+	// collision is visibly a repeated collision: without it every round looks
+	// like the first one and the same losing reconciliation can be proposed
+	// indefinitely, which is the failure mode a bounded attempt count alone
+	// only truncates rather than informs.
+	AttemptHistory []string  `json:"attempt_history,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type RequestLineage struct {
@@ -505,6 +534,7 @@ type Session struct {
 	ProjectPath             string               `json:"project_path"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
+	EffortLevel             EffortLevel          `json:"effort_level"`
 	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
 	WharnexInstanceID       string               `json:"wharnex_instance_id,omitempty"`
@@ -545,6 +575,8 @@ type Session struct {
 	LastBundle                         *ExecutionBundleInfo       `json:"last_bundle,omitempty"`
 	LastTurn                           *AgentTurn                 `json:"last_turn,omitempty"`
 	RepairAttempt                      int                        `json:"repair_attempt,omitempty"`
+	AutomationAttempt                  int                        `json:"automation_attempt,omitempty"`
+	ImprovementAttempt                 int                        `json:"improvement_attempt,omitempty"`
 	RepairParentPlanID                 string                     `json:"repair_parent_plan_id,omitempty"`
 	// ConflictAttempt counts automatic rounds requesting resolution of the
 	// SAME IntegrationConflict.ID (a real Git merge conflict or a ChangeSet
@@ -554,13 +586,21 @@ type Session struct {
 	// arrive at a conflict with fewer automatic attempts left than another
 	// plan, for no reason related to the conflict itself. Reset to 0
 	// whenever a conflict with a new ID begins.
-	ConflictAttempt        int                                 `json:"conflict_attempt,omitempty"`
-	LastRepairError        string                              `json:"last_repair_error,omitempty"`
-	FailureKind            string                              `json:"failure_kind,omitempty"`
-	WorkflowRound          int                                 `json:"workflow_round,omitempty"`
-	LastRequestMode        string                              `json:"last_request_mode,omitempty"`
-	PlannerInFlight        bool                                `json:"planner_in_flight,omitempty"`
-	RequestBaselines       map[string]string                   `json:"request_baselines,omitempty"`
+	ConflictAttempt  int               `json:"conflict_attempt,omitempty"`
+	LastRepairError  string            `json:"last_repair_error,omitempty"`
+	FailureKind      string            `json:"failure_kind,omitempty"`
+	WorkflowRound    int               `json:"workflow_round,omitempty"`
+	LastRequestMode  string            `json:"last_request_mode,omitempty"`
+	PlannerInFlight  bool              `json:"planner_in_flight,omitempty"`
+	RequestBaselines map[string]string `json:"request_baselines,omitempty"`
+	// RequestBaseCommits records, per request id, the host commit whose tree is
+	// exactly what that request's planner context was snapshotted from —
+	// anchored in the host repository under refs/wharnex/base/<request_id>.
+	// A plan's patch is authored against this tree, so rooting its integration
+	// branch here makes the patch apply by construction no matter how far the
+	// host has advanced since, and turns real divergence into an ordinary
+	// three-way merge instead of a dead-end apply failure.
+	RequestBaseCommits     map[string]string                   `json:"request_base_commits,omitempty"`
 	RequestContextArchives map[string]string                   `json:"-"`
 	RequestKnowledge       map[string]RequestKnowledgeSnapshot `json:"-"`
 	BaselineFileSnapshots  map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`

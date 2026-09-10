@@ -11,6 +11,11 @@ func TestValidateTurn(t *testing.T) {
 	if err := ValidateTurn(valid); err != nil {
 		t.Fatal(err)
 	}
+	valid.Kind = domain.TurnKindPlan
+	valid.Message = "## TODO\n- [ ] Rever proposta com o utilizador."
+	if err := ValidateTurn(valid); err != nil {
+		t.Fatalf("plan turn should be valid: %v", err)
+	}
 	valid.Kind = domain.TurnKind("execute")
 	if err := ValidateTurn(valid); err == nil {
 		t.Fatal("expected unsupported turn kind rejection")

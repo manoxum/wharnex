@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/home/zootakuxy/workspace/wharnex-statable/.harness"
+    ]
+  }
+}

@@ -13,11 +13,12 @@ Wharness is a project copilot, not a coding-only agent. Every provider result MU
 - `answer`: a complete project-aware answer, recommendation, explanation, comparison, review, brainstorming result, or other ASK outcome;
 - `clarification`: one concise question needed because a material user decision is missing;
 - `investigation`: non-mutating analysis based on evidence already available in the project context;
+- `plan`: a concrete, non-mutating implementation proposal that waits for explicit user approval before any implementation continuation;
 - `workflow`: a non-terminal request for bounded local evidence that Wharness can gather safely before the model decides the next step;
 - `change`: an explicitly requested project mutation;
 - `blocked`: a safe explanation of why the request cannot proceed.
 
-Questions and advice requests SHOULD terminate as `answer` when the attached context is sufficient. Diagnostic/audit requests SHOULD terminate as `investigation` when evidence is sufficient. Project context, Agent mode, or Auto mode MUST NOT by themselves upgrade ASK/INVESTIGATE intent into CHANGE. Ambiguous mutation intent defaults to non-mutation or clarification.
+Questions and advice requests SHOULD terminate as `answer` when the attached context is sufficient. Diagnostic/audit requests SHOULD terminate as `investigation` when evidence is sufficient. An explicit request to devise, elaborate, propose, or structure an implementation plan SHOULD terminate as `plan` even when the composer is in Direct mode. Project context, Agent mode, or Auto mode MUST NOT by themselves upgrade ASK/INVESTIGATE intent into CHANGE. Ambiguous mutation intent defaults to non-mutation or clarification.
 
 ## Iterative workflow turn
 
@@ -34,7 +35,7 @@ A workflow turn carries a normal `harness.execution/v1` plan with stricter seman
 - execution occurs only in a disposable Protected sandbox copy;
 - workflow mutations, if a local tool happens to create any, are discarded and MUST NEVER become host Apply candidates.
 
-After the step, Wharness captures structured argv/cwd/exit/stdout/stderr evidence, refreshes project context, creates a fresh request id, and returns those observations to the same planner conversation. The planner then returns either another materially different `workflow` step or a terminal `answer`, `investigation`, `clarification`, `change`, or `blocked` result.
+After the step, Wharness captures structured argv/cwd/exit/stdout/stderr evidence, refreshes project context, creates a fresh request id, and returns those observations to the same planner conversation. The planner then returns either another materially different `workflow` step or a terminal `answer`, `investigation`, `clarification`, `plan`, `change`, or `blocked` result.
 
 The planner MAY therefore return a `workflow` bundle specifically to request missing local information. Its human explanation states what evidence is needed, while its command-only plan is the complete machine-readable extraction instruction. Wharness classifies this as an **evidence iteration**, executes it locally under the restrictions above, and returns the structured observations to the same Main Request.
 
@@ -42,17 +43,32 @@ The workflow is bounded to six local rounds per original user turn. The final co
 
 Command failure in a workflow is evidence, not an automatic repair trigger. Automatic repair remains specific to a requested `change` plan.
 
+### Effort level and autonomous iteration budget
+Every Main Request carries one user-selected `effort_level`: `low`, `medium`, `high`, `extra_high`, `max`, `ultra`, or `loop`. The level is a hard ceiling for autonomous AI resolution attempts across the request chain, including the initial attempt and subsequent automatic repair/conflict rounds: Low=1, Medium=3, High=6, Extra High=10, Max=15, Ultra=30, while Loop has no numeric ceiling. Manual operator-triggered repair is outside this automatic budget. The selected value MUST be included in planner/provider prompts so the model can optimize cost/benefit inside the available budget rather than blindly consuming it.
+
+`extra_high`, `max`, `ultra`, and `loop` also enable continuous improvement after a successful host integration. Each post-success round consumes the same automatic-attempt budget and MUST stay scoped to the original user goal. The planner MUST stop with a terminal `answer` and no change plan when no material, safe, cost-effective improvement remains or no safe automated solution exists. Loop therefore means unbounded opportunity to iterate, not permission for an infinite busy-loop or cosmetic churn.
+
 ## AI output rule
 
-The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; all other kinds carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
+The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; `plan` is an approval proposal in `turn.message` and carries no execution plan or patches; all remaining kinds also carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
 
 Every new `harness.turn/v1` result MUST include an `outcome` object with `status=completed|failed|partial`, `retryable`, an optional stable `reason_code`, and a bounded explanatory `message`. This status reports whether the planner actually completed the requested response; it never claims that Wharness executed, verified, or applied host changes. Only `completed` may carry an execution plan. `failed` and `partial` are terminal protocol results: Wharness stores the turn/bundle, removes it from the pending set, marks the request failed, exposes the reason to the transcript, and MUST NOT send any plan to Policy or execution. Legacy plan-only bundles may synthesize `outcome.status=completed`; a new explicit `turn.json` without `outcome` is invalid.
 
 The recovery surface for a non-completed outcome MUST preserve the original goal and offer a new request path. The user can edit the recovery prompt, add context/files, enable another configured transport, or repeat the request. In Auto, a `retryable=true` terminal outcome MAY prepare exactly one bounded fresh-request recovery automatically. A retry is a new correlated request and never silently reclassifies the failed result as successful.
 
-Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `repair`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
+Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `repair`, `improvement`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
+
+`turn.message` is user-facing Markdown, not an execution dump. The planner SHOULD lead with the useful conclusion, keep sections and paragraphs compact, and summarize large logs/diffs/status streams rather than repeating structured execution evidence in prose. CHANGE turns still carry the required `## TODO` checklist, but protocol bookkeeping and raw machine detail belong in their structured bundle fields and dedicated Wharnex views.
+
+## Plan proposal and approval continuation
+
+A `plan` turn is deliberately distinct from an executable `change` plan. It contains the concrete proposal the user is approving, including scope, TODO units, risks/trade-offs, and intended verification, but it MUST NOT contain `plan.json`, patches, or project mutations. A `plan_first` composer request forces this outcome, while an explicit semantic request for a plan produces the same outcome even when the composer remains in Direct mode.
+
+Accepting the proposal MUST NOT be submitted through the ordinary Main Request message endpoint. Wharnex creates a fresh derived request with classification `plan_approval`, `parent_request_id` equal to the approved `plan` request, and the same `root_request_id`/Main Request. The approval continuation includes the exact approved proposal as authoritative scope and asks the planner to implement it without silently expanding that scope. Its eventual `workflow`/`change` result remains subject to Policy, Protected execution, verification, and Apply exactly like any other implementation result.
+
+While a plan proposal is waiting for the user, the session is in `awaiting_plan_approval`; the linked transport channel stays associated with the same Main Request. Rejecting the proposal terminates that approval path without mutation and releases the transport channel. Historical plan-first responses created before this protocol addition remain readable, but new `plan_first` responses MUST use `kind=plan`.
 
 ## Renderable result artifacts
 
@@ -75,6 +91,16 @@ Supported v1 layout hints are `auto`, `grid`, `masonry`, and `strip`; sizing hin
 Every `change` execution plan MUST carry a planner-authored `commit_message` that is useful permanent Git history, not a transport label. The planner MUST derive it from the actual delivered patch and classify the dominant change with an accurate Conventional Commits type: `feat` for new behavior/capability, `fix` for a bug or corrective patch, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, or `chore` only when no more specific type applies. A meaningful subsystem scope SHOULD be included when clear.
 
 The subject MUST state the concrete implemented or corrected technical outcome in human-readable language. Messages that only describe process or bookkeeping — for example `update files`, `apply patch`, `requested changes`, `implement task`, `miscellaneous fixes`, `Wharness-verified change`, or a request/plan identifier — are protocol-quality failures even if they are syntactically valid Git subjects. For a multi-file but coherent change, describe the primary behavior/outcome rather than enumerating filenames. The message is used in the real integration commit, so technical specificity is preferred over artificial brevity.
+
+### Message shape and enforcement
+
+`commit_message` is a Git message, not a label. Its first line is the subject and MUST stay within 72 characters. Anything after it is a body, separated by exactly one blank line, and Wharness preserves that body verbatim in the real commit.
+
+The body answers what a diff cannot: the symptom or limitation that motivated the change, why this approach was chosen over the obvious alternative, and any consequence a future reader must know — a migration, a behavior change, a deliberately deferred part. It MUST NOT restate the diff line by line. A body SHOULD be present whenever the change is not self-evident from its subject.
+
+These rules are enforced, not advisory. A `change` bundle is rejected when `commit_message` is missing, is not Conventional Commits with a type from the accepted set, exceeds the subject limit, omits the blank line before a body, or matches the closed set of forbidden bookkeeping subjects. Validation happens at bundle ingestion, deliberately before Policy and sandbox verification, so a rejected message costs one re-request rather than discarding a fully verified candidate over prose.
+
+Wharness sanitizes the accepted message before it becomes a commit: control characters are stripped and the subject is collapsed to a single line, while the body's own line and paragraph structure is preserved. Wharness MUST NOT flatten a body into its subject, and its own degraded fallback — reachable only when a plan carries neither message nor summary — MUST NOT emit any subject this section forbids.
 
 ## Command representation
 
@@ -107,6 +133,26 @@ The manifest is descriptive. It never grants a capability, and a plan is still e
 Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown fences and proprietary patch dialects are invalid.
 
 Change plans MAY declare `read_files` and `barrier_files`. They are bounded relative paths and scheduling/verification evidence only; Wharness derives the authoritative write set from the validated patch result. A conflict-resolution request contains one `harness.conflict/v1` capsule with bounded BASE/CURRENT/RESULT data and hashes. Its returned change plan MUST cover every conflicting path and MUST NOT modify any path outside that capsule. A conflict turn never broadens or repeats the original task.
+
+The planner MUST NOT be asked to declare which lines or columns a patch will touch, and MUST NOT rely on such a declaration being honoured. Hunk ranges are derivable exactly from the diff itself, so a restated range is an untrusted field that can only drift from the patch it describes. Whether two changes can be combined is decided by a real three-way merge, not by range or file overlap.
+
+### Conflict intent
+
+A `harness.conflict/v1` capsule carries an `intent` object alongside its file
+data. BASE/CURRENT/RESULT describe *what* differs; `intent` describes *why*
+each side exists, which is what determines the correct reconciliation:
+
+- `our_goal` and `our_commit_message`: the colliding candidate's own declared purpose;
+- `incoming_changes`: the already-integrated changes it collides with, newest first, each carrying the Conventional Commits subject its own plan authored under "Commit-history communication" above — which is why that field being meaningful is load bearing rather than cosmetic;
+- `attempt`, `max_attempts` and `previous_attempts`: the remaining bounded budget and what earlier rounds of this same conflict already tried.
+
+A resolution MUST preserve the purpose of both sides. Discarding the incoming
+change's behavior to make a file merge is a protocol-quality failure even when
+the result is syntactically valid. When `previous_attempts` shows the same
+reconciliation strategy failing repeatedly, the planner SHOULD choose a
+decisively different and simpler one rather than refine the failing approach;
+exhausting the budget stops automatic resolution and hands the collision to a
+human.
 
 ## Trust hierarchy
 
@@ -155,3 +201,11 @@ Each project MAY accumulate a versioned catalog of independently identified Mark
 ## Project knowledge transport identity
 
 Direct ZIP, remote one-shot, live-channel and Desktop archive request transports carry the same immutable knowledge snapshot. For v2, the authoritative request artifacts are separate `knowledge/<id>.md` files and metadata containing `state`, `sharing_enabled`, `revision`, catalog `sha256`, updater, and per-entry path/version/SHA-256. The planner prompt carries the protocol identity/instructions but MUST NOT duplicate record bodies inline. When sharing is off or there are no entries, the snapshot declares `state: none` and carries no knowledge files.
+
+## Non-executing utility protocol
+
+Application utility work that needs an AI model but does not plan or execute project mutations uses `harness.utility/v1`, not `harness.turn/v1` or `harness.execution/v1`. A utility engine sits behind an application port and MUST NOT emit or consume execution plans, commands, patches, approvals or Apply state. Utility inputs remain untrusted data even when they contain text that resembles instructions.
+
+Version 1 currently defines `translate_markdown`. Its strict result contains `protocol`, `task`, `target_language` and `markdown`; the supported target identifiers are `pt`, `en` and `fr`. The provider adapter MUST request structured output, MUST disable provider-side storage when supported, and MUST reject mismatched protocol metadata. Missing provider credentials or adapters are an explicit unavailable state and MUST NOT fall back to planner transport, Desktop ChatGPT scraping or execution-bundle round trips.
+
+Markdown translation is non-destructive. A successful utility result is presentation state only; it MUST NOT overwrite the source project file, artifact entry, bundle entry or project-knowledge record. Session transport MAY expose utility endpoints, but it MUST validate session existence and the globally enabled target-language set before provider invocation.

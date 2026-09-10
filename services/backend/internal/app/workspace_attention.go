@@ -1,0 +1,92 @@
+package app
+
+import (
+	"sort"
+
+	"kernl.local/harness/backend/internal/domain"
+)
+
+// Compact attention projection.
+//
+// The attention center only needs to know whether a chat wants the user's
+// attention. It used to learn that by fetching each chat's whole Session, one
+// request per chat: those payloads are 1-2 MB each (context manifests, pending
+// patches, artifact inventories, baselines), so a workspace with thirty chats
+// pulled and parsed tens of megabytes on every poll. That blocked the
+// renderer's main thread long enough for the window to be killed and restarted
+// in a loop.
+//
+// This returns the same decision inputs for every chat in one small response.
+// Heavy collections are reduced to the counts the UI actually reads.
+
+type AttentionRecord struct {
+	SessionID      string                 `json:"session_id"`
+	ChatID         string                 `json:"chat_id"`
+	State          string                 `json:"state"`
+	FailureKind    string                 `json:"failure_kind,omitempty"`
+	LastRequestID  string                 `json:"last_request_id,omitempty"`
+	LastTurn       *domain.AgentTurn      `json:"last_turn,omitempty"`
+	Policy         *domain.PolicyDecision `json:"policy,omitempty"`
+	HasPlan        bool                   `json:"has_plan"`
+	PlanID         string                 `json:"plan_id,omitempty"`
+	LastExecPlanID string                 `json:"last_execution_plan_id,omitempty"`
+	PendingCount   int                    `json:"pending_host_changes"`
+	Conflict       *AttentionConflict     `json:"integration_conflict,omitempty"`
+	Interrupted    *AttentionInterrupted  `json:"interrupted_execution,omitempty"`
+}
+
+type AttentionConflict struct {
+	ID        string `json:"id"`
+	PathCount int    `json:"path_count"`
+}
+
+type AttentionInterrupted struct {
+	PlanID string `json:"plan_id"`
+	Status string `json:"status"`
+}
+
+// WorkspaceAttention returns one compact record per session of a project.
+func (s *Service) WorkspaceAttention(projectPath string) ([]AttentionRecord, error) {
+	project, err := normalizeProjectPath(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	sessions := s.store.List()
+
+	records := make([]AttentionRecord, 0, 32)
+	for _, item := range sessions {
+		if item.ProjectPath != project {
+			continue
+		}
+		records = append(records, attentionRecordFor(item))
+	}
+	sort.Slice(records, func(i, j int) bool { return records[i].SessionID > records[j].SessionID })
+	return records, nil
+}
+
+func attentionRecordFor(item domain.Session) AttentionRecord {
+	record := AttentionRecord{
+		SessionID:     item.ID,
+		ChatID:        item.ChatID,
+		State:         item.State,
+		FailureKind:   item.FailureKind,
+		LastRequestID: item.LastRequestID,
+		LastTurn:      item.LastTurn,
+		Policy:        item.Policy,
+		PendingCount:  len(item.PendingHostChanges),
+	}
+	if item.Plan != nil {
+		record.HasPlan = true
+		record.PlanID = item.Plan.PlanID
+	}
+	if item.LastExecution != nil {
+		record.LastExecPlanID = item.LastExecution.PlanID
+	}
+	if item.IntegrationConflict != nil {
+		record.Conflict = &AttentionConflict{ID: item.IntegrationConflict.ID, PathCount: len(item.IntegrationConflict.Paths)}
+	}
+	if item.InterruptedExecution != nil {
+		record.Interrupted = &AttentionInterrupted{PlanID: item.InterruptedExecution.PlanID, Status: item.InterruptedExecution.Status}
+	}
+	return record
+}

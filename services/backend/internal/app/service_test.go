@@ -1529,7 +1529,7 @@ func TestSuccessfulRetainedPlanRetryRetiresObsoleteRepairRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalRequest := prompted.LastRequestID
-	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"retained-plan","request_id":"` + originalRequest + `","status":"ready","summary":"update file","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch":"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n","command":{"argv":[],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`)
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"retained-plan","request_id":"` + originalRequest + `","status":"ready","summary":"update file","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch":"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n","command":{"argv":[],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`)
 	planned, err := service.SubmitManualPlan(started.ID, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -1600,7 +1600,7 @@ func makeExecutionBundleWithBaseline(t *testing.T, requestID, baseline string) [
 	entries := map[string]string{
 		"README.md":         "# Automatic fix\nChanges hello.txt from old to new.\n",
 		"patches/001.patch": "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n",
-		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"update hello","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"update hello","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Atualização cumulativa do pedido de teste.")
 	for name, value := range entries {
@@ -1868,6 +1868,30 @@ func makeAnswerBundle(t *testing.T, requestID string) []byte {
 		"turn.json": `{"protocol":"harness.turn/v1","request_id":"` + requestID + `","kind":"answer","message":"A série mensal limita o histórico aos últimos 12 registos.","outcome":{"status":"completed","retryable":false}}`,
 	}
 	addV2ResponseArtifacts(entries, "Resumo cumulativo da resposta de teste.")
+	for name, value := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+func makePlanBundle(t *testing.T, requestID string) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := zip.NewWriter(&out)
+	entries := map[string]string{
+		"README.md": "# Plan proposal\nNo project mutation is included before approval.\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"` + requestID + `","kind":"plan","message":"## TODO\n- [ ] Refatorar o fluxo de aprovação mantendo o escopo proposto.\n\nRisco: médio. Verificar testes do backend e frontend.","outcome":{"status":"completed","retryable":false}}`,
+	}
+	addV2ResponseArtifacts(entries, "Resumo cumulativo da proposta de plano.")
 	for name, value := range entries {
 		entry, err := writer.Create(name)
 		if err != nil {
@@ -2231,7 +2255,7 @@ func TestAutoWorkflowBundleExecutesSandboxAndPreparesSameConversationContinuatio
 	}
 }
 
-func TestPlanFirstRejectsImplementationBundleUntilUserApproval(t *testing.T) {
+func TestPlanFirstRejectsImplementationBundleUntilLinkedApproval(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
 	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
@@ -2245,15 +2269,62 @@ func TestPlanFirstRejectsImplementationBundleUntilUserApproval(t *testing.T) {
 	if prompted.LastRequestMode != "plan_first" {
 		t.Fatalf("planning mode not persisted: %#v", prompted)
 	}
-	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makeExecutionBundle(t, prompted.LastRequestID)); err == nil || !strings.Contains(err.Error(), "plan-first") {
+	planRequestID := prompted.LastRequestID
+	planFilename := expectedResponseBundleFilename(prompted, planRequestID)
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, planFilename, makeExecutionBundle(t, planRequestID)); err == nil || !strings.Contains(err.Error(), "plan-first") {
 		t.Fatalf("expected plan-first implementation rejection, got %v", err)
 	}
-	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+prompted.LastRequestID+".zip", makeAnswerBundle(t, prompted.LastRequestID))
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, planFilename, makePlanBundle(t, planRequestID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.AutoExecuted || result.AutoApplied || result.Session.State != "answered" {
-		t.Fatalf("plan proposal must stay terminal: %#v", result)
+	if result.AutoExecuted || result.AutoApplied || result.Session.State != "awaiting_plan_approval" || result.Session.LastTurn == nil || result.Session.LastTurn.Kind != domain.TurnKindPlan {
+		t.Fatalf("plan proposal must wait for explicit approval: %#v", result)
+	}
+
+	_, approved, err := service.SubmitPlanApproval(context.Background(), started.ID, planRequestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.LastRequestID == planRequestID || approved.LastRequestMode != "approve_plan" {
+		t.Fatalf("approval must create a distinct continuation: %#v", approved)
+	}
+	lineage, ok := approved.RequestLineages[approved.LastRequestID]
+	if !ok || lineage.Kind != requestKindPlanApproval || lineage.ParentRequestID != planRequestID || lineage.RootRequestID != planRequestID {
+		t.Fatalf("approval lineage mismatch: %#v", lineage)
+	}
+	if !strings.Contains(approved.LastManualPrompt, "REQUEST STRATEGY: APPROVE_PLAN") || !strings.Contains(approved.LastManualPrompt, "Refatorar o fluxo de aprovação") {
+		t.Fatalf("approval prompt did not preserve the approved proposal: %q", approved.LastManualPrompt)
+	}
+	expectedFilename := expectedResponseBundleFilename(approved, approved.LastRequestID)
+	if !strings.Contains(approved.LastManualPrompt, expectedFilename) {
+		t.Fatalf("approval prompt did not use the derived canonical filename %q", expectedFilename)
+	}
+	if _, _, err := service.SubmitPlanApproval(context.Background(), started.ID, planRequestID); err == nil {
+		t.Fatal("duplicate approval must not create a second continuation")
+	}
+}
+
+func TestDirectRequestCanReturnPlanProposalWithoutPlanToggle(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "Elabora um plano para reorganizar o fluxo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompted.LastRequestMode != "direct" {
+		t.Fatalf("direct mode unexpectedly changed: %#v", prompted)
+	}
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedResponseBundleFilename(prompted, prompted.LastRequestID), makePlanBundle(t, prompted.LastRequestID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Session.State != "awaiting_plan_approval" || result.Session.LastTurn == nil || result.Session.LastTurn.Kind != domain.TurnKindPlan {
+		t.Fatalf("direct explicit plan was not recognized as an approval proposal: %#v", result.Session)
 	}
 }
 
@@ -2439,7 +2510,7 @@ func makePolicyBlockedBundle(t *testing.T, requestID string) []byte {
 	writer := zip.NewWriter(&out)
 	entries := map[string]string{
 		"README.md": "# Docker attempt\nThis intentionally exercises Policy repair.\n",
-		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"blocked-docker","request_id":"` + requestID + `","status":"ready","summary":"run docker compose","risk":"high","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["docker","compose","config","--quiet"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"blocked-docker","request_id":"` + requestID + `","status":"ready","summary":"run docker compose","commit_message":"build(deploy): validate the compose configuration","risk":"high","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["docker","compose","config","--quiet"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Resumo cumulativo da tentativa bloqueada pela Policy.")
 	for name, value := range entries {

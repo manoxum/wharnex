@@ -23,7 +23,8 @@ describe('chat header CSS', () => {
     expect(header).toContain('position: sticky')
     expect(header).toContain('top: 0')
     expect(header).toContain('z-index: 12')
-    expect(stream).toContain('overflow: auto')
+    expect(stream).toContain('overflow-x: hidden')
+    expect(stream).toContain('overflow-y: auto')
   })
 
   it('keeps chat export as a compact square icon action', () => {
@@ -47,6 +48,23 @@ describe('chat header CSS', () => {
   })
 })
 
+
+describe('execution queue CSS', () => {
+  it('keeps the FIFO drawer compact and neutral instead of using accent-tinted cards', () => {
+    const drawer = lastRule('.execution-queue-drawer')
+    const metrics = lastRule('.execution-queue-metric')
+    const concurrency = lastRule('.execution-queue-concurrency')
+    const card = lastRule('.execution-queue-card')
+
+    expect(drawer).toContain('background: var(--theme-bg)')
+    expect(metrics).toContain('display: inline-flex')
+    expect(metrics).not.toContain('box-shadow')
+    expect(concurrency).toContain('border-top: 1px solid var(--theme-border-soft)')
+    expect(card).toContain('background: var(--theme-surface)')
+    expect(card).toContain('box-shadow: none')
+  })
+})
+
 describe('composer layout CSS', () => {
   it('uses the whole top composer edge as the vertical resize handle', () => {
     const composer = lastRule('.composer')
@@ -54,6 +72,8 @@ describe('composer layout CSS', () => {
 
     expect(composer).toContain('position: relative')
     expect(composer).toContain('resize: none')
+    expect(composer).toContain('border-bottom-color: color-mix')
+    expect(composer).toContain('box-shadow: 0 10px 28px var(--theme-shadow)')
     expect(handle).toContain('top: -6px')
     expect(handle).toContain('left: 0')
     expect(handle).toContain('right: 0')
@@ -74,6 +94,7 @@ describe('composer layout CSS', () => {
     expect(footer).toContain('grid-template-columns: minmax(0, 1fr)')
     expect(footer).toContain('justify-content: stretch')
     expect(footer).toContain('justify-items: stretch')
+    expect(footer).toContain('border-radius: 0 0 14px 14px')
     expect(toolbar).toContain('width: 100%')
     expect(toolbar).toContain('min-width: 0')
     expect(toolbar).toContain('min-height: 31px')
@@ -85,6 +106,20 @@ describe('composer layout CSS', () => {
     expect(lastRule('.composer-hint')).toContain('padding-right: 6px')
   })
 
+
+  it('renders effort as a compact two-stage capsule instead of a native select pill', () => {
+    const effort = lastRule('.composer-effort-picker')
+    const select = lastRule('.composer-effort-picker select')
+    const arrow = lastRule('.composer-effort-picker::after')
+
+    expect(effort).toContain('position: relative')
+    expect(effort).toContain('border-radius: 999px')
+    expect(effort).toContain('gap: 6px')
+    expect(select).toContain('appearance: none')
+    expect(select).toContain('border-radius: 999px')
+    expect(select).toContain('font-variant-numeric: tabular-nums')
+    expect(arrow).toContain('transform: rotate(45deg)')
+  })
 
   it('uses calm semantic palettes for selected execution and automation icons', () => {
     const protectedMode = lastRule('.composer-round-action.mode-protected.selected')

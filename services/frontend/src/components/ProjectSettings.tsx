@@ -10,8 +10,9 @@ import { confirmDialog, noticeDialog } from '../lib/appDialog'
 import { ThemePreferenceControl } from './ThemeToggle'
 import { RemoteStorageSettings } from './RemoteStorageSettings'
 import { TunnelProviderSettings } from './TunnelProviderSettings'
+import { LanguageSettingsPanel } from './LanguageSettingsPanel'
 
-type SettingsSection = 'appearance' | 'context' | 'tunnel-provider' | 'remote-storage' | 'data'
+type SettingsSection = 'appearance' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'data'
 
 export function ProjectSettings({ session, onClose, onSession, onError }: {
   session: Session
@@ -172,13 +173,14 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
       </header>
       <div className="project-settings-body settings-layout">
         <nav className="settings-navigation" aria-label="Secções das configurações">
-          <SettingsNavButton active={activeSection === 'appearance'} icon="monitor" label="Aparência" detail="Tema e tipografia" onClick={() => setActiveSection('appearance')}/>
+          <SettingsNavButton active={activeSection === 'appearance'} icon="monitor" label="Aparência" detail="Tema e tipografia" onClick={() => setActiveSection('appearance')}/><SettingsNavButton active={activeSection === 'language'} icon="monitor" label="Idioma" detail="Interface e tradução" onClick={() => setActiveSection('language')}/>
           <SettingsNavButton active={activeSection === 'context'} icon="file" label="Contexto" detail="Recorte do projeto" onClick={() => setActiveSection('context')}/>
           <SettingsNavButton active={activeSection === 'tunnel-provider'} icon="network" label="Tunnel Provider" detail="Transporte ChatGPT" onClick={() => setActiveSection('tunnel-provider')}/>
           <SettingsNavButton active={activeSection === 'remote-storage'} icon="network" label="Storage remoto" detail="Contas e limites" onClick={() => setActiveSection('remote-storage')}/>
           <SettingsNavButton active={activeSection === 'data'} icon="shield" label="Dados locais" detail="Uso e limpeza" onClick={() => setActiveSection('data')}/>
         </nav>
         <main className="settings-content">
+        {activeSection === 'language' ? <LanguageSettingsPanel onError={onError}/> : null}
         {activeSection === 'appearance' ? <section className="appearance-settings-section">
           <div className="context-section-title"><div><strong>Aparência e tipografia</strong><span>Ajuste a leitura da interface sem alterar o projeto. As preferências são locais ao Wharness.</span></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
           <ThemePreferenceControl value={uiPreferences.theme} onChange={(theme) => { const next = saveUIPreferences({ ...uiPreferences, theme }); setUIPreferences(next) }} />
@@ -226,7 +228,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
             <div><input type="number" min={1} max={3650} value={artifactRetentionDays} onChange={(event) => setArtifactRetentionDays(Math.max(1, Math.min(3650, Number(event.target.value) || 30)))} style={{ width: 92 }}/><span> dias </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar retenção')))}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
-            <div><strong>Quota de bundles do ChatGPT</strong><span>Janela móvel de 3 horas. O Wharness mede bundles enviados e recebidos em todos os chats; o limite configurável aplica-se aos enviados e gera apenas alerta, sem bloquear novos pedidos.</span></div>
+            <div><strong>Quota de bundles do ChatGPT</strong><span>Janela móvel de 3 horas. Esta é uma estimativa local do Wharness: mede bundles enviados e recebidos em todos os chats conhecidos pela instância; o limite configurável aplica-se aos enviados e gera apenas alerta, sem bloquear novos pedidos.</span></div>
             <div><input aria-label="Máximo de bundles enviados em 3 horas" type="number" min={1} max={10000} value={bundleWindowLimit} onChange={(event) => setBundleWindowLimit(Math.max(1, Math.min(10000, Number(event.target.value) || 80)))} style={{ width: 92 }}/><span> envios / 3 h </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar quota de bundles')))}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
@@ -256,6 +258,7 @@ function footerHint(section: SettingsSection) {
   if (section === 'remote-storage') return 'A configuração de storage é global e aplica-se a todos os projetos após reiniciar.'
   if (section === 'data') return 'Os ficheiros dos projetos reais não são removidos pelas operações desta secção.'
   if (section === 'appearance') return 'Preferências visuais ficam apenas neste dispositivo.'
+  if (section === 'language') return 'Idioma é global; traduções Markdown são temporárias e nunca reescrevem o ficheiro original.'
   return 'Snapshot final = lista exata enviada ao ChatGPT/Planner.'
 }
 

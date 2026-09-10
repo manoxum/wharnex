@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { artifactPreviewDefinition, type ArtifactPreviewKind } from '../lib/artifactPreviewRegistry'
 import { MarkdownContent } from './MarkdownContent'
+import { TranslatableMarkdown } from './TranslatableMarkdown'
 import { Icon } from './Icon'
 
 const MAX_TEXT_PREVIEW_BYTES = 16 * 1024 * 1024
 
-export function ArtifactPreview({ path, url, size, kind: declaredKind, mode = 'preview', wrap = false, compact = false }: {
+export function ArtifactPreview({ path, url, size, kind: declaredKind, mode = 'preview', wrap = false, compact = false, sessionId }: {
   path: string
   url: string
   size: number
@@ -13,6 +14,7 @@ export function ArtifactPreview({ path, url, size, kind: declaredKind, mode = 'p
   mode?: 'preview' | 'raw'
   wrap?: boolean
   compact?: boolean
+  sessionId?: string
 }) {
   const kind = useMemo(() => artifactPreviewDefinition(path, declaredKind).kind, [declaredKind, path])
   const [text, setText] = useState('')
@@ -36,7 +38,7 @@ export function ArtifactPreview({ path, url, size, kind: declaredKind, mode = 'p
   if (kind === 'binary') return <PreviewEmpty title="Formato sem pré-visualização segura" text={`${size.toLocaleString('pt-PT')} bytes · descarregue para abrir no programa apropriado.`} />
   if (loading) return <div className="artifact-preview-empty"><span className="spinner"/>A abrir por stream…</div>
   if (error) return <div className="artifact-preview-empty composer-error">{error}</div>
-  return <div className={`artifact-text-preview ${wrap ? 'artifact-text-wrap' : ''}`}>{truncated && !compact && <div className="artifact-preview-warning">Pré-visualização limitada; o download mantém o ficheiro completo.</div>}{kind === 'markdown' && mode === 'preview' ? <MarkdownContent markdown={text || 'Ficheiro vazio.'}/> : <pre>{text}</pre>}</div>
+  return <div className={`artifact-text-preview ${wrap ? 'artifact-text-wrap' : ''}`}>{truncated && !compact && <div className="artifact-preview-warning">Pré-visualização limitada; o download mantém o ficheiro completo.</div>}{kind === 'markdown' && mode === 'preview' ? (sessionId && !compact ? <TranslatableMarkdown sessionId={sessionId} markdown={text || 'Ficheiro vazio.'}/> : <MarkdownContent markdown={text || 'Ficheiro vazio.'} compact={compact}/>) : <pre>{text}</pre>}</div>
 }
 
 function PreviewEmpty({ title, text }: { title: string; text: string }) { return <div className="artifact-preview-empty"><Icon name="file" size={28}/><strong>{title}</strong><span>{text}</span></div> }

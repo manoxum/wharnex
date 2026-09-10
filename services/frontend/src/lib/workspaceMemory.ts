@@ -1,4 +1,4 @@
-import type { AutomationMode, ChatArtifactSelection, ChatItem, ChatRequestMode, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
+import type { AutomationMode, EffortLevel, ChatArtifactSelection, ChatItem, ChatRequestMode, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
 import { chatgptConversationURL } from './desktop'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
@@ -9,6 +9,7 @@ const CHAT_ITEMS_PREFIX = 'kernl.workspace.chat.v2:'
 const ARCHIVED_CHAT_INDEX_PREFIX = 'kernl.workspace.chats.archived.v1:'
 const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
 const AUTOMATION_MODE_PREFIX = 'kernl.workspace.automation-mode.v1:'
+const EFFORT_LEVEL_PREFIX = 'kernl.workspace.effort-level.v1:'
 const EXECUTION_HISTORY_PREFIX = 'kernl.workspace.execution-history.v1:'
 const LEGACY_TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v2'
 export const TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v3'
@@ -23,6 +24,30 @@ export type ActiveWorkspace = {
   chatId?: string
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
+  effortLevel?: EffortLevel
+}
+
+// Remote archival is a best-effort account operation on a surface Wharnex does
+// not own the availability of. It is tracked as durable chat state so a failure
+// parks the chat for a later retry instead of blocking the local archive, which
+// is the authoritative one.
+export type RemoteArchiveState = 'pending' | 'archived' | 'not-applicable'
+
+export type RemoteArchive = {
+  state: RemoteArchiveState
+  attempts: number
+  lastState?: string
+  lastAttemptAt?: string
+}
+
+// Chats start with a title derived locally from the prompt. A definitive title
+// is one the support engine produced (or the user typed), which is what the
+// naming job looks for.
+export type ChatNaming = {
+  state: 'provisional' | 'definitive' | 'unavailable'
+  attempts: number
+  lastAttemptAt?: string
+  projectAssigned?: boolean
 }
 
 export type WorkspaceChat = {
@@ -30,12 +55,14 @@ export type WorkspaceChat = {
   title: string
   sessionId: string
   chatgptUrl?: string
+  remoteArchive?: RemoteArchive
+  naming?: ChatNaming
   lastContextSha256?: string
   lastContextChatgptUrl?: string
   artifactSelection?: Partial<ChatArtifactSelection>
   requestMode?: ChatRequestMode
   transport?: TransportOptions
-  pendingPlan?: { requestId: string; originalMessage: string }
+  pendingPlan?: { requestId: string; originalMessage?: string }
   conflictSurfaces?: Record<string, { cacheKey: string; url?: string; resolvedAt?: string }>
   purpose?: 'standard' | 'self-evolution'
   createdAt: string
@@ -95,6 +122,17 @@ export function loadAutomationMode(projectPath: string): AutomationMode {
 
 export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
   try { localStorage.setItem(AUTOMATION_MODE_PREFIX + projectPath, mode) } catch { /* storage unavailable/full */ }
+}
+
+export function loadEffortLevel(projectPath: string): EffortLevel {
+  try {
+    const value = localStorage.getItem(EFFORT_LEVEL_PREFIX + projectPath) as EffortLevel | null
+    return value && ['low', 'medium', 'high', 'extra_high', 'max', 'ultra', 'loop'].includes(value) ? value : 'medium'
+  } catch { return 'medium' }
+}
+
+export function saveEffortLevel(projectPath: string, level: EffortLevel) {
+  try { localStorage.setItem(EFFORT_LEVEL_PREFIX + projectPath, level) } catch { /* storage unavailable/full */ }
 }
 
 export function loadTransportOptions(): TransportOptions {
@@ -175,16 +213,36 @@ export function saveChat(projectPath: string, chatId: string, items: ChatItem[])
   try { localStorage.setItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
 }
 
-export function archiveChat(projectPath: string, chatId: string) {
+export function archiveChat(projectPath: string, chatId: string, remoteArchive?: RemoteArchive) {
   const active = loadWorkspaceChats(projectPath)
   const target = active.find((chat) => chat.id === chatId)
   if (!target) return { active, archived: loadArchivedWorkspaceChats(projectPath) }
   const remaining = active.filter((chat) => chat.id !== chatId)
   const archivedAt = new Date().toISOString()
-  const archived = [{ ...target, updatedAt: archivedAt, archivedAt }, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  const moved: WorkspaceChat = { ...target, updatedAt: archivedAt, archivedAt, ...(remoteArchive ? { remoteArchive } : {}) }
+  const archived = [moved, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
   saveWorkspaceChats(projectPath, remaining)
   saveArchivedWorkspaceChats(projectPath, archived)
   return { active: remaining, archived }
+}
+
+// Records the outcome of a remote-archive attempt on an already-archived chat.
+// Kept separate from `archiveChat` because the retry job runs long after the
+// local archive that is authoritative for the user.
+export function recordRemoteArchiveAttempt(projectPath: string, chatId: string, outcome: { ok: boolean; state: string }) {
+  const archived = loadArchivedWorkspaceChats(projectPath)
+  const target = archived.find((chat) => chat.id === chatId)
+  if (!target) return archived
+  const previous = target.remoteArchive
+  const remoteArchive: RemoteArchive = {
+    state: outcome.ok ? 'archived' : 'pending',
+    attempts: (previous?.attempts || 0) + 1,
+    lastState: outcome.state,
+    lastAttemptAt: new Date().toISOString(),
+  }
+  const next = archived.map((chat) => chat.id === chatId ? { ...chat, remoteArchive } : chat)
+  saveArchivedWorkspaceChats(projectPath, next)
+  return next
 }
 
 export function restoreArchivedChat(projectPath: string, chatId: string) {
@@ -279,23 +337,41 @@ function compactEventData(data: Record<string, unknown>) {
 }
 
 const COMPOSER_DRAFT_PREFIX = 'kernl.workspace.composer-draft.v1:'
+const composerFileDrafts = new Map<string, ComposerFileDraft>()
 export type ComposerDraft = { message: string; height: number }
+export type ComposerFileDraft = { attachments: File[]; projectFiles: string[] }
+
+function composerDraftKey(projectPath: string, chatId: string) { return `${projectPath}:${chatId}` }
 
 export function loadComposerDraft(projectPath: string, chatId: string): ComposerDraft {
   try {
-    const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`)
+    const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`)
     const value = raw ? JSON.parse(raw) as Partial<ComposerDraft> : {}
     return { message: typeof value.message === 'string' ? value.message : '', height: normalizeComposerHeight(value.height) }
   } catch { return { message: '', height: 156 } }
 }
 
 export function saveComposerDraft(projectPath: string, chatId: string, draft: ComposerDraft) {
-  try { localStorage.setItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`, JSON.stringify({ message: draft.message.slice(0, 20000), height: normalizeComposerHeight(draft.height) })) } catch { /* best effort */ }
+  try { localStorage.setItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`, JSON.stringify({ message: draft.message.slice(0, 20000), height: normalizeComposerHeight(draft.height) })) } catch { /* best effort */ }
+}
+
+export function loadComposerFileDraft(projectPath: string, chatId: string): ComposerFileDraft {
+  const draft = composerFileDrafts.get(composerDraftKey(projectPath, chatId))
+  return draft ? { attachments: [...draft.attachments], projectFiles: [...draft.projectFiles] } : { attachments: [], projectFiles: [] }
+}
+
+export function saveComposerFileDraft(projectPath: string, chatId: string, draft: ComposerFileDraft) {
+  const key = composerDraftKey(projectPath, chatId)
+  if (!draft.attachments.length && !draft.projectFiles.length) { composerFileDrafts.delete(key); return }
+  composerFileDrafts.set(key, { attachments: [...draft.attachments], projectFiles: [...draft.projectFiles] })
 }
 
 export function clearComposerDraft(projectPath: string, chatId: string) {
-  try { localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${projectPath}:${chatId}`) } catch { /* best effort */ }
+  try { localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`) } catch { /* best effort */ }
+  composerFileDrafts.delete(composerDraftKey(projectPath, chatId))
 }
+
+export function clearEphemeralComposerDrafts() { composerFileDrafts.clear() }
 
 function normalizeComposerHeight(value: unknown) {
   const number = Number(value)

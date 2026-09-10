@@ -10,6 +10,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
+	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
 )
 
@@ -22,9 +23,14 @@ func integrationBranchName(requestID string) string {
 	return "whx/" + requestID
 }
 
-// maxCommitMessageLength bounds a planner-supplied commit message before it
-// becomes a real Git commit message in the project's history.
-const maxCommitMessageLength = 500
+// Bounds applied to planner-supplied text before it becomes a real Git commit
+// message. The subject follows the Git convention the protocol validator also
+// enforces; the body is bounded separately so detail is capped without the cap
+// eating into the subject.
+const (
+	maxCommitSubjectLength = protocol.MaxCommitSubjectLength
+	maxCommitBodyLength    = protocol.MaxCommitMessageBytes
+)
 
 // sanitizeCommitMessage strips control characters and collapses whitespace
 // from planner-supplied text before it is used verbatim as a Git commit
@@ -32,30 +38,69 @@ const maxCommitMessageLength = 500
 // planner text (summary, README.md) elsewhere in this protocol, but load
 // bearing here specifically because this text becomes real, permanent
 // project history, not just a chat message.
+// sanitizeCommitMessage prepares planner-supplied text to become a real Git
+// commit message: a subject line, then an optional body separated by one blank
+// line.
+//
+// The body's line structure is deliberately preserved. Flattening newlines into
+// spaces — as this previously did — made a commit body structurally impossible,
+// so every Wharness commit was a bare subject no matter what the planner wrote,
+// and the reasoning that makes history worth reading was silently discarded.
+// The subject is still collapsed to a single line, because Git treats the first
+// line as the subject and a multi-line one has no meaning.
 func sanitizeCommitMessage(raw, fallback string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		raw = strings.TrimSpace(fallback)
 	}
+	subject, body := splitCommitMessage(stripControlCharacters(raw))
+	subject = strings.Join(strings.Fields(subject), " ")
+	if subject == "" {
+		// Reached only when both the plan's own message and its summary are
+		// empty, which ValidateCommitMessage rejects upstream for any change
+		// bundle. It is labelled as the degradation it is rather than reusing
+		// a subject the protocol itself names as a quality failure.
+		subject = "chore: record verified change with no planner-supplied message"
+	}
+	if len(subject) > maxCommitSubjectLength {
+		subject = strings.TrimSpace(subject[:maxCommitSubjectLength])
+	}
+	if body == "" {
+		return subject
+	}
+	if len(body) > maxCommitBodyLength {
+		body = strings.TrimSpace(body[:maxCommitBodyLength])
+	}
+	return subject + "\n\n" + body
+}
+
+// splitCommitMessage separates the Git subject from its body. Anything after
+// the first line is body; a blank separator line is normalized in.
+func splitCommitMessage(raw string) (subject, body string) {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	parts := strings.SplitN(raw, "\n", 2)
+	subject = strings.TrimSpace(parts[0])
+	if len(parts) == 1 {
+		return subject, ""
+	}
+	return subject, strings.Trim(parts[1], "\n")
+}
+
+// stripControlCharacters removes characters that must never reach a commit
+// message, while keeping the newlines and tabs that carry body structure.
+func stripControlCharacters(raw string) string {
 	var b strings.Builder
 	for _, r := range raw {
 		switch {
 		case r == '\n' || r == '\t':
-			b.WriteRune(' ')
+			b.WriteRune(r)
 		case r < 0x20 || r == 0x7f:
 			// control characters dropped
 		default:
 			b.WriteRune(r)
 		}
 	}
-	clean := strings.Join(strings.Fields(b.String()), " ")
-	if clean == "" {
-		clean = "chore: Wharness-verified change"
-	}
-	if len(clean) > maxCommitMessageLength {
-		clean = strings.TrimSpace(clean[:maxCommitMessageLength])
-	}
-	return clean
+	return b.String()
 }
 
 // allPendingHaveIntegrationBranches reports whether every host-applicable
@@ -96,7 +141,13 @@ func planIDForIntegrationBranch(pending []domain.PendingHostChange, branch strin
 // applied patch onto its own integration branch and pushes that branch into
 // the host's own .git (never a remote — see PushBranchToHost). Returns ""
 // for a command-only plan with no patch, which has nothing to commit.
-func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath string) (branch, commitSHA string, err error) {
+// baseRootedBranch is non-empty when the workspace was already repointed at
+// the request's own base and that branch opened there (see
+// prepareBaseRootedWorkspace). In that case the branch exists and is checked
+// out already, so committing must not try to create it a second time — and
+// must not re-root it at the host's newer tip, which is exactly the parentage
+// this whole mechanism exists to avoid.
+func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath, baseRootedBranch string) (branch, commitSHA string, err error) {
 	patchFiles := actualPatchFiles(plan)
 	if len(patchFiles) == 0 {
 		return "", "", nil
@@ -104,7 +155,11 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 	message := sanitizeCommitMessage(plan.CommitMessage, plan.Summary)
 	message = fmt.Sprintf("%s\n\nRequest-Id: %s\nPlan-Id: %s", message, plan.RequestID, plan.PlanID)
 	branch = integrationBranchName(plan.RequestID)
-	commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message, patchFiles)
+	if strings.TrimSpace(baseRootedBranch) == branch {
+		commitSHA, err = sandbox.CommitBaseRootedPatch(ctx, workspacePath, message, patchFiles)
+	} else {
+		commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message, patchFiles)
+	}
 	if err != nil {
 		return "", "", err
 	}
@@ -145,6 +200,14 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			continue
 		}
 		s.bus.Publish(sessionID, "integration.merge_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "branch": branch})
+		// Ask Git whether this merge can succeed before letting it touch the
+		// host at all. A doomed merge would otherwise still commit the host's
+		// dirty tree as a pre-merge snapshot on its way to aborting, leaving a
+		// bookkeeping commit behind for a merge that never happened.
+		if conflict, preflightErr := sandbox.PreflightMergeIntoHost(ctx, projectPath, branch); preflightErr == nil && conflict != nil {
+			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": pending[index].Plan.PlanID, "branch": branch, "paths": conflict.Paths})
+			return mergedBranches, preMergeSHA, pending[index].Plan.PlanID, conflict
+		}
 		if _, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch); mergeErr != nil {
 			return mergedBranches, preMergeSHA, pending[index].Plan.PlanID, mergeErr
 		}
@@ -186,7 +249,28 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := normalizedPaths(conflict.Paths)
-	if continuing && item.ConflictAttempt >= maxAutoRepairAttempts {
+
+	// Wharnex-managed project state (`.wharnex/knowledge/**`) is materialized by
+	// Wharnex, and the patch validator refuses it before any conflict-specific
+	// check can accept it. Asking a planner to resolve a conflict there is a
+	// request that cannot succeed by construction: every bundle it returns is
+	// rejected at ingestion, and the retry reproduces it identically. Such paths
+	// are therefore never handed to a planner.
+	managed, resolvable := partitionManagedConflictPaths(paths)
+	if len(managed) > 0 {
+		s.bus.Publish(sessionID, "integration.conflict_managed_paths", map[string]any{
+			"paths": managed, "reason": "Wharnex-managed project state is reconciled locally, never by a planner patch",
+		})
+	}
+	if len(resolvable) == 0 {
+		// Nothing is left that a planner is even allowed to touch. Stop here
+		// with an actionable local failure instead of burning request after
+		// request on a protocol contradiction.
+		return s.failManagedOnlyConflict(sessionID, item, conflictID, managed)
+	}
+	paths = resolvable
+
+	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
 	files := make([]conflictCapsuleFile, 0, len(paths))
@@ -209,7 +293,12 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 			Base: truncateRepairText(base, 24000), Current: truncateRepairText(current, 24000), Result: truncateRepairText(result, 24000),
 		})
 	}
-	capsule := conflictCapsule{Protocol: "harness.conflict/v1", ConflictID: conflictID, CurrentRevision: item.Context.Manifest.SHA256, OriginalPlanIDs: []string{failedPlanID}, Files: files}
+	capsule := conflictCapsule{
+		Protocol: "harness.conflict/v1", ConflictID: conflictID, CurrentRevision: item.Context.Manifest.SHA256,
+		OriginalPlanIDs: []string{failedPlanID},
+		Intent:          s.buildConflictIntent(ctx, item, repoPath, conflict, paths),
+		Files:           files,
+	}
 	capsuleJSON, err := json.MarshalIndent(capsule, "", "  ")
 	if err != nil {
 		return item, err
@@ -226,7 +315,10 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
 		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, item.LastRequestID),
 	}, knowledgeSnapshot, item.ProjectPath))
-	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, CreatedAt: time.Now().UTC()}
+	// Carry forward what this round tried, so the next round of the same
+	// conflict can see the shape of the loop rather than restarting blind.
+	history := appendConflictAttempt(intentHistory(item), conflictAttemptRecord(item, paths))
+	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, AttemptHistory: history, CreatedAt: time.Now().UTC()}
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
@@ -236,6 +328,9 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 			current.ConflictAttempt = 0
 		} else {
 			current.ConflictAttempt++
+		}
+		if current.AutomationMode == domain.AutomationModeAuto {
+			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
 		}
 		current.IntegrationConflict = &resolution
 		current.LastRequestID = requestID

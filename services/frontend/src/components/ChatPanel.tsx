@@ -1,7 +1,8 @@
 import { Fragment, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
-import { clearComposerDraft, loadComposerDraft, saveComposerDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
+import type { AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
+import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
+import { ChatItemBoundary } from './ChatItemBoundary'
 import { StatusPill } from './StatusPill'
 import { stateLabel } from '../lib/risk'
 import { addChatAttachments, uniquifyPastedChatFiles } from '../lib/chatAttachments'
@@ -16,12 +17,54 @@ import { activePendingRequestId } from '../lib/pendingRequest'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
+const LONG_CHAT_MARKDOWN_CHARS = 1400
+const LONG_CHAT_MARKDOWN_LINES = 18
+const CHANGE_DIFF_PREVIEW_COUNT = 4
 
 function clampComposerHeight(height: number) {
   return Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)))
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+function chatItemSource(item: ChatItem) {
+  return item.source || (item.role === 'user' ? 'user' : item.turnKind ? 'chatgpt' : 'wharness')
+}
+
+function isWhxNotice(item: ChatItem) {
+  return (item.presentation || 'message') === 'notice' && chatItemSource(item) === 'wharness'
+}
+
+function indexWhxNoticeRuns(items: ChatItem[]) {
+  const hiddenIds = new Set<string>()
+  const previousByLatestId = new Map<string, ChatItem[]>()
+  let run: ChatItem[] = []
+  const flush = () => {
+    if (run.length > 1) {
+      const previous = run.slice(0, -1)
+      previous.forEach((item) => hiddenIds.add(item.id))
+      previousByLatestId.set(run[run.length - 1].id, previous)
+    }
+    run = []
+  }
+  for (const item of items) {
+    if (isWhxNotice(item)) run.push(item)
+    else { flush() }
+  }
+  flush()
+  return { hiddenIds, previousByLatestId }
+}
+
+function isNormativeChangePath(path: string) {
+  const normalized = path.replace(/^\.\//, '')
+  return normalized === 'AGENTS.md' || normalized.startsWith('SoT/')
+}
+
+function prioritizedChangeFiles(files: ChatChangeFile[]) {
+  return files.map((file, index) => ({ file, index }))
+    .sort((left, right) => Number(isNormativeChangePath(right.file.path)) - Number(isNormativeChangePath(left.file.path)) || left.index - right.index)
+    .map(({ file }) => file)
+}
+
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -33,6 +76,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   historyViewportStore?: ChatViewportStore
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
+  effortLevel?: EffortLevel
   chatTransportMode?: ChatTransportMode
   attachmentsEnabled?: boolean
   preparedAttachmentCount?: number
@@ -49,6 +93,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   transportProgress?: string
   onExecutionMode?: (mode: ExecutionMode) => void
   onAutomationMode?: (mode: AutomationMode) => void
+  onEffortLevel?: (level: EffortLevel) => void
   onChatTransportMode?: (mode: ChatTransportMode) => void
   onKnowledgeSharing?: (enabled: boolean) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
@@ -87,11 +132,12 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
+  const initialFileDraft = loadComposerFileDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)
   const [composerHeight, setComposerHeight] = useState(initialDraft.height)
-  const [attachments, setAttachments] = useState<File[]>([])
+  const [attachments, setAttachments] = useState<File[]>(initialFileDraft.attachments)
   const [attachmentError, setAttachmentError] = useState('')
-  const [projectFiles, setProjectFiles] = useState<string[]>([])
+  const [projectFiles, setProjectFiles] = useState<string[]>(initialFileDraft.projectFiles)
   const [fileQuery, setFileQuery] = useState<{ start: number; end: number; query: string }>()
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -102,11 +148,13 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const [editingQueueText, setEditingQueueText] = useState('')
   const [todoOpen, setTodoOpen] = useState(false)
   const [contextChannelOpen, setContextChannelOpen] = useState(false)
+  const [expandedWhxNoticeRunId, setExpandedWhxNoticeRunId] = useState('')
   const [inspectedArtifact, setInspectedArtifact] = useState<ChatArtifactKind | ''>('')
   const [inspectedChangeFile, setInspectedChangeFile] = useState<ChatChangeFile>()
   const selectedArtifacts: ChatArtifactSelection = artifactSelection || { context: false, prompt: true, result: false, error: false }
   const currentExecutionMode = executionMode || session.execution_mode || 'protected'
   const currentAutomationMode = automationMode || session.automation_mode || 'manual'
+  const currentEffortLevel = effortLevel || session.effort_level || 'medium'
   const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
   const effectiveTransport = chatTransport || globalTransport
@@ -117,14 +165,17 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const todos = useMemo(() => latestTodoSnapshot(items), [items])
   const { endRef, hasOlder, hiddenItemCount, loadOlder, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
+  const whxNoticeRuns = useMemo(() => indexWhxNoticeRuns(visibleItems), [visibleItems])
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
   const fileSuggestions = useMemo(() => fileQuery ? matchingProjectFiles(eligibleProjectFiles, fileQuery.query, projectFiles) : [], [eligibleProjectFiles, fileQuery, projectFiles])
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
     const draft = loadComposerDraft(session.project_path, activeChatId)
-    setMessage(draft.message); setComposerHeight(draft.height); setContentView('conversation')
+    const fileDraft = loadComposerFileDraft(session.project_path, activeChatId)
+    setMessage(draft.message); setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles(fileDraft.projectFiles); setAttachmentError(''); setContentView('conversation'); setExpandedWhxNoticeRunId('')
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
+  useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
   useEffect(() => () => {
     if (copiedResetTimerRef.current !== null) window.clearTimeout(copiedResetTimerRef.current)
   }, [])
@@ -150,6 +201,16 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     observer.observe(composer)
     return () => observer.disconnect()
   }, [])
+
+  function persistAttachments(nextAttachments: File[]) {
+    saveComposerFileDraft(session.project_path, activeChatId, { attachments: nextAttachments, projectFiles })
+    setAttachments(nextAttachments)
+  }
+
+  function persistProjectFiles(nextProjectFiles: string[]) {
+    saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles: nextProjectFiles })
+    setProjectFiles(nextProjectFiles)
+  }
 
   function clearComposer() {
     setMessage('')
@@ -182,7 +243,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
 
   function addFiles(files: File[]) {
     const next = addChatAttachments(attachments, files)
-    setAttachments(next.files); setAttachmentError(next.error || '')
+    persistAttachments(next.files); setAttachmentError(next.error || '')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -242,7 +303,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   function selectProjectFile(path: string) {
     if (!fileQuery) return
     setMessage((current) => `${current.slice(0, fileQuery.start)}${current.slice(fileQuery.end)}`)
-    setProjectFiles((current) => [...new Set([...current, path])])
+    persistProjectFiles([...new Set([...projectFiles, path])])
     setFileQuery(undefined)
     window.setTimeout(() => textareaRef.current?.focus(), 0)
   }
@@ -264,6 +325,15 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   }
 
   const latestFailureNoticeId = [...items].reverse().find(isFailureNotice)?.id
+  // Each entry renders inside its own boundary: without one, a single throwing
+  // item unmounts the whole workspace and leaves a blank window, turning a
+  // cosmetic defect in one message into total loss of the UI.
+  const renderChatEntry = (item: ChatItem) => <Fragment key={item.id}>
+    <ChatItemBoundary label="Esta mensagem não pôde ser apresentada">
+    <ChatItemView item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRepairWithGPT={onRepairWithGPT} canRepairWithGPT={canRepairWithGPT && item.id === latestFailureNoticeId} onRetryDependencyNetwork={onRetryDependencyNetwork} canRetryDependencyNetwork={canRetryDependencyNetwork && item.id === latestFailureNoticeId} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) && canResendPreparedRequest(item) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />
+    </ChatItemBoundary>
+    {item.iteration?.phase === 'result' && item.turnKind !== 'workflow' && <ChatItemBoundary label="Os artefactos desta iteração não puderam ser apresentados"><ReturnedArtifactGallery sessionId={session.id} artifacts={session.artifacts} requestId={item.iteration.requestId}/></ChatItemBoundary>}
+  </Fragment>
 
   return <section className={`chat-panel ${embedded ? 'embedded' : ''}`}>
     <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
@@ -307,7 +377,20 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
 
     {contentView === 'conversation' ? <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
       {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar anteriores</button></div>}
-      {visibleItems.map((item) => <Fragment key={item.id}><ChatItemView item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRepairWithGPT={onRepairWithGPT} canRepairWithGPT={canRepairWithGPT && item.id === latestFailureNoticeId} onRetryDependencyNetwork={onRetryDependencyNetwork} canRetryDependencyNetwork={canRetryDependencyNetwork && item.id === latestFailureNoticeId} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) && canResendPreparedRequest(item) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />{item.iteration?.phase === 'result' && item.turnKind !== 'workflow' && <ReturnedArtifactGallery sessionId={session.id} artifacts={session.artifacts} requestId={item.iteration.requestId}/>}</Fragment>)}
+      {visibleItems.map((item) => {
+        const previousNotices = whxNoticeRuns.previousByLatestId.get(item.id) || []
+        if (whxNoticeRuns.hiddenIds.has(item.id)) return null
+        const runExpanded = previousNotices.length > 0 && expandedWhxNoticeRunId === item.id
+        return <Fragment key={item.id}>
+          {previousNotices.length > 0 && <div className="whx-notice-run">
+            <button type="button" className="whx-notice-stack-toggle" aria-expanded={runExpanded} aria-label={runExpanded ? 'Ocultar notificações WHX anteriores' : `Mostrar ${previousNotices.length} notificações WHX anteriores`} onClick={() => setExpandedWhxNoticeRunId((current) => current === item.id ? '' : item.id)}>
+              <span aria-hidden="true">···</span><small>{runExpanded ? 'ocultar anteriores' : `${previousNotices.length} anterior${previousNotices.length === 1 ? '' : 'es'}`}</small>
+            </button>
+            {runExpanded && <div className="whx-notice-run-history">{previousNotices.map(renderChatEntry)}</div>}
+          </div>}
+          {renderChatEntry(item)}
+        </Fragment>
+      })}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharness</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
     </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
@@ -337,8 +420,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
         onKeyDown={resizeComposerFromKeyboard}
       />
       <div className="composer-scroll-area">
-      {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => setAttachments((current) => current.filter((item) => item !== file))}/>)}</div> : null}
-      {projectFiles.length ? <div className="composer-file-references" aria-label="Ficheiros do projeto referenciados">{projectFiles.map((path) => <span className="composer-file-reference-chip" key={path}><Icon name="file" size={11}/><b>{path}</b><button type="button" onClick={() => setProjectFiles((current) => current.filter((item) => item !== path))} aria-label={`Remover referência ${path}`}><Icon name="close" size={9}/></button></span>)}</div> : null}
+      {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
+      {projectFiles.length ? <div className="composer-file-references" aria-label="Ficheiros do projeto referenciados">{projectFiles.map((path) => <span className="composer-file-reference-chip" key={path}><Icon name="file" size={11}/><b>{path}</b><button type="button" onClick={() => persistProjectFiles(projectFiles.filter((item) => item !== path))} aria-label={`Remover referência ${path}`}><Icon name="close" size={9}/></button></span>)}</div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       <div className="composer-editor-shell"><textarea ref={textareaRef} lang="pt-PT" spellCheck autoCorrect="on" autoCapitalize="sentences" disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => updateMessage(event.target.value, event.target.selectionStart)} onClick={(event) => setFileQuery(fileReferenceQuery(event.currentTarget.value, event.currentTarget.selectionStart))} onPaste={pasteFiles} onKeyDown={(event) => {
         if (fileSuggestions.length && event.key === 'Escape') { event.preventDefault(); setFileQuery(undefined); return }
@@ -368,6 +451,18 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
             <button type="button" className={`composer-round-action mode-manual ${currentAutomationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
             <button type="button" className={`composer-round-action mode-auto ${currentAutomationMode === 'auto' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto'} aria-label="Auto" title="Auto · mudanças válidas seguem Protected e são aplicadas após verificação" onClick={() => onAutomationMode?.('auto')}><Icon name="agent" size={12}/></button>
           </span>
+          <label className="composer-effort-picker" title="Nível de esforço · limita tentativas automáticas e, a partir de Extra High, ativa melhoria contínua pós-sucesso">
+            <span>Esforço</span>
+            <select aria-label="Nível de esforço" value={currentEffortLevel} disabled={busy || !onEffortLevel} onChange={(event) => onEffortLevel?.(event.target.value as EffortLevel)}>
+              <option value="low">Low · 1</option>
+              <option value="medium">Medium · 3</option>
+              <option value="high">High · 6</option>
+              <option value="extra_high">Extra High · 10</option>
+              <option value="max">Max · 15</option>
+              <option value="ultra">Ultra · 30</option>
+              <option value="loop">Loop · ∞</option>
+            </select>
+          </label>
           <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
             <button type="button" className={`composer-round-action mode-scraper ${currentChatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharness interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
             <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>
@@ -417,17 +512,17 @@ function ArtifactInspector({ kind, content, onClose }: { kind: ChatArtifactKind;
 }
 
 function ChatItemView({ item, copied, onCopy, onApprovePlan, onRejectPlan, onInspectArtifact, onInspectChange, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock, onRepairWithGPT, canRepairWithGPT, onRetryDependencyNetwork, canRetryDependencyNetwork, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, busy, taskInFlight, artifactContent }: { item: ChatItem; copied: boolean; onCopy: (item: ChatItem) => Promise<void>; onApprovePlan?: (item: ChatItem) => Promise<void>; onRejectPlan?: (item: ChatItem) => void; onInspectArtifact: (kind: ChatArtifactKind) => void; onInspectChange: (file: ChatChangeFile) => void; onOpenFile?: (path: string) => void; onRevertChange?: (item: ChatItem) => Promise<void>; onReprocessPolicyBlock?: () => Promise<void>; canReprocessPolicyBlock: boolean; onRepairWithGPT?: (detail: string) => Promise<void>; canRepairWithGPT: boolean; onRetryDependencyNetwork?: () => Promise<void>; canRetryDependencyNetwork: boolean; onRetryTransportFailure?: (requestId: string) => Promise<void>; onResendPendingRequest?: (requestId: string) => Promise<void>; onCancelPendingRequest?: (requestId: string) => Promise<void>; busy: boolean; taskInFlight: boolean; artifactContent?: Partial<Record<ChatArtifactKind, string>> }) {
-  const source = item.source || (item.role === 'user' ? 'user' : item.turnKind ? 'chatgpt' : 'wharness')
+  const source = chatItemSource(item)
   const presentation = item.presentation || 'message'
   const visibleText = item.role === 'harness' ? stripTodoSection(item.text) : item.text
   if (presentation === 'change' && item.change) return <ChangeSummaryCard item={item} onInspect={onInspectChange} onOpenFile={onOpenFile} onRevert={onRevertChange} />
-  if (presentation === 'notice') return <details id={`chat-item-${item.id}`} className={`chat-notice notice-${source} notice-${item.turnKind || 'status'}`}><summary><span className="notice-mark"><Icon name={noticeIcon(item)} size={12}/></span><strong>{source === 'chatgpt' ? 'ChatGPT' : 'WHX'}</strong><span className="notice-kind">{item.meta || item.turnKind || 'estado'}</span><span className="notice-summary">{compactNoticeText(visibleText)}</span><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><Icon name="chevron-right" size={11}/></summary><div className="notice-content"><MarkdownContent markdown={visibleText || 'Atualização da execução.'}/><div className="notice-actions">{canRepairWithGPT && onRepairWithGPT && isFailureNotice(item) && <button type="button" className="text-button" disabled={busy || taskInFlight} onClick={() => void requestGPTRepair(onRepairWithGPT)}><Icon name="agent" size={12}/> Corrigir com GPT</button>}{canRetryDependencyNetwork && onRetryDependencyNetwork && isFailureNotice(item) && <button type="button" className="text-button" disabled={busy} onClick={() => void onRetryDependencyNetwork()}><Icon name="network" size={12}/> Permitir rede e repetir</button>}{isPolicyBlockedNotice(item) && canReprocessPolicyBlock && onReprocessPolicyBlock && <button type="button" className="text-button" disabled={busy} onClick={() => void onReprocessPolicyBlock()}><Icon name="refresh" size={12}/> Reprocessar</button>}{isTransportFailureNotice(item) && item.iteration && onRetryTransportFailure && <button type="button" className="text-button" disabled={busy || taskInFlight} title={taskInFlight ? 'Existe um pedido mais recente em processamento' : undefined} onClick={() => void onRetryTransportFailure(item.iteration!.requestId)}><Icon name="refresh" size={12}/> Retomar pedido</button>}{item.iteration && onResendPendingRequest && <button type="button" className="text-button" disabled={busy || taskInFlight} title={taskInFlight ? 'Existe um pedido mais recente em processamento' : 'Reenvia o mesmo pedido ao ChatGPT, caso o envio automático não tenha sido entregue'} onClick={() => void onResendPendingRequest(item.iteration!.requestId)}><Icon name="refresh" size={12}/> Reenviar request</button>}{item.iteration && onCancelPendingRequest && <button type="button" className="text-button danger" disabled={busy} onClick={() => void onCancelPendingRequest(item.iteration!.requestId)}><Icon name="close" size={12}/> Cancelar pedido</button>}</div>{item.iteration && <IterationReference item={item} onInspectArtifact={onInspectArtifact} artifactContent={artifactContent}/>}</div></details>
+  if (presentation === 'notice') return <details id={`chat-item-${item.id}`} className={`chat-notice notice-${source} notice-${item.turnKind || 'status'}`}><summary><span className="notice-mark"><Icon name={noticeIcon(item)} size={12}/></span><strong>{source === 'chatgpt' ? 'ChatGPT' : 'WHX'}</strong><span className="notice-kind">{item.meta || item.turnKind || 'estado'}</span><span className="notice-summary">{compactNoticeText(visibleText)}</span><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><Icon name="chevron-right" size={11}/></summary><div className="notice-content"><ExpandableMarkdown markdown={visibleText || 'Atualização da execução.'}/><div className="notice-actions">{canRepairWithGPT && onRepairWithGPT && isFailureNotice(item) && <button type="button" className="text-button" disabled={busy || taskInFlight} onClick={() => void requestGPTRepair(onRepairWithGPT)}><Icon name="agent" size={12}/> Corrigir com GPT</button>}{canRetryDependencyNetwork && onRetryDependencyNetwork && isFailureNotice(item) && <button type="button" className="text-button" disabled={busy} onClick={() => void onRetryDependencyNetwork()}><Icon name="network" size={12}/> Permitir rede e repetir</button>}{isPolicyBlockedNotice(item) && canReprocessPolicyBlock && onReprocessPolicyBlock && <button type="button" className="text-button" disabled={busy} onClick={() => void onReprocessPolicyBlock()}><Icon name="refresh" size={12}/> Reprocessar</button>}{isTransportFailureNotice(item) && item.iteration && onRetryTransportFailure && <button type="button" className="text-button" disabled={busy || taskInFlight} title={taskInFlight ? 'Existe um pedido mais recente em processamento' : undefined} onClick={() => void onRetryTransportFailure(item.iteration!.requestId)}><Icon name="refresh" size={12}/> Retomar pedido</button>}{item.iteration && onResendPendingRequest && <button type="button" className="text-button" disabled={busy || taskInFlight} title={taskInFlight ? 'Existe um pedido mais recente em processamento' : 'Reenvia o mesmo pedido ao ChatGPT, caso o envio automático não tenha sido entregue'} onClick={() => void onResendPendingRequest(item.iteration!.requestId)}><Icon name="refresh" size={12}/> Reenviar request</button>}{item.iteration && onCancelPendingRequest && <button type="button" className="text-button danger" disabled={busy} onClick={() => void onCancelPendingRequest(item.iteration!.requestId)}><Icon name="close" size={12}/> Cancelar pedido</button>}</div>{item.iteration && <IterationReference item={item} onInspectArtifact={onInspectArtifact} artifactContent={artifactContent}/>}</div></details>
   if (presentation === 'thought') return <div className="chat-thought"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Raciocínio visível do ChatGPT</strong><MarkdownContent markdown={visibleText}/>{item.meta && <span>{item.meta}</span>}</div></div>
 
   const label = source === 'user' ? 'Você' : source === 'chatgpt' ? 'ChatGPT' : 'Wharness'
   return <article id={`chat-item-${item.id}`} tabIndex={-1} className={`message message-${source} ${presentation === 'plan' ? 'message-plan' : ''}`}>
     <div className="message-heading"><div className="message-label">{label}</div><div className="message-tools"><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><button type="button" onClick={() => void onCopy(item)} title="Copiar mensagem" aria-label="Copiar mensagem"><Icon name={copied ? 'check' : 'copy'} size={12}/></button></div></div>
-    <div className="message-body">{item.role === 'harness' ? <MarkdownContent markdown={visibleText || 'Atualização de tarefas.'} /> : visibleText}</div>
+    <div className="message-body">{item.role === 'harness' ? <ExpandableMarkdown markdown={visibleText || 'Atualização de tarefas.'} /> : visibleText}</div>
     {item.attachments?.length ? <div className="message-attachments">{item.attachments.map((file, index) => <MessageAttachmentCard key={file.storageRef || `${file.name}-${file.size}-${index}`} attachment={file}/>)}</div> : null}
     {item.iteration && <IterationReference item={item} onInspectArtifact={onInspectArtifact} artifactContent={artifactContent} />}
     {(item.meta || (isPolicyBlockedNotice(item) && canReprocessPolicyBlock && onReprocessPolicyBlock)) && <div className="message-meta">{item.meta}{isPolicyBlockedNotice(item) && canReprocessPolicyBlock && onReprocessPolicyBlock && <button type="button" className="text-button" disabled={busy} onClick={() => void onReprocessPolicyBlock()}><Icon name="refresh" size={12}/> Reprocessar</button>}</div>}
@@ -435,6 +530,17 @@ function ChatItemView({ item, copied, onCopy, onApprovePlan, onRejectPlan, onIns
       {item.approval.status === 'pending' ? <><div><Icon name="plan" size={13}/><span>Plano proposto · nenhuma alteração foi executada.</span></div><div><button type="button" className="text-button" onClick={() => onRejectPlan?.(item)}>Rejeitar</button><button type="button" className="apply-button" onClick={() => void onApprovePlan?.(item)}><Icon name="check" size={13}/> Aprovar e implementar</button></div></> : <span>{item.approval.status === 'approved' ? 'Plano aprovado para implementação.' : 'Plano rejeitado. Nenhuma alteração foi iniciada.'}</span>}
     </div>}
   </article>
+}
+
+function ExpandableMarkdown({ markdown }: { markdown: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const collapsible = markdown.length > LONG_CHAT_MARKDOWN_CHARS || markdown.split('\n').length > LONG_CHAT_MARKDOWN_LINES
+  return <div className={`chat-markdown-disclosure${collapsible ? ' collapsible' : ''}${expanded ? ' expanded' : ''}`}>
+    <div className="chat-markdown-window"><MarkdownContent markdown={markdown}/></div>
+    {collapsible && <button type="button" className="chat-markdown-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+      <span aria-hidden="true">{expanded ? '−' : '···'}</span>{expanded ? 'Mostrar menos' : 'Expandir conteúdo'}
+    </button>}
+  </div>
 }
 
 function compactNoticeText(value: string) {
@@ -461,13 +567,20 @@ async function requestGPTRepair(onRepairWithGPT: (detail: string) => Promise<voi
 }
 
 function ChangeSummaryCard({ item, onInspect, onOpenFile, onRevert }: { item: ChatItem; onInspect: (file: ChatChangeFile) => void; onOpenFile?: (path: string) => void; onRevert?: (item: ChatItem) => Promise<void> }) {
+  const [expanded, setExpanded] = useState(false)
   const change = item.change!
   const hostCommands = change.hostCommands || []
   const additions = change.files.reduce((total, file) => total + file.additions, 0)
   const deletions = change.files.reduce((total, file) => total + file.deletions, 0)
+  const prioritizedFiles = prioritizedChangeFiles(change.files)
+  const visibleFiles = expanded ? prioritizedFiles : prioritizedFiles.slice(0, CHANGE_DIFF_PREVIEW_COUNT)
+  const hiddenCount = Math.max(0, prioritizedFiles.length - visibleFiles.length)
   return <article className="change-summary-card">
     <header><div><span className="change-summary-icon"><Icon name="apply" size={14}/></span><div><strong>{change.reverted ? 'Alterações revertidas' : 'Alterações aplicadas'}</strong><span>{change.files.length} ficheiro(s) · {formatMessageTime(change.appliedAt)}</span></div></div><code>+{additions} −{deletions}</code></header>
-    {change.files.length > 0 && <div className="change-file-list">{change.files.map((file) => <div className="change-file-row" key={file.path}><button type="button" className="change-file-name" onClick={() => onOpenFile?.(file.path)} title="Abrir no Editor"><Icon name="file" size={12}/><span>{file.path}</span></button><button type="button" className="change-file-diff" onClick={() => onInspect(file)} title="Ver diff"><b>+{file.additions}</b><i>−{file.deletions}</i></button></div>)}</div>}
+    {prioritizedFiles.length > 0 && <div className={`change-file-disclosure${hiddenCount ? ' collapsed' : ''}`}>
+      <div className="change-file-list">{visibleFiles.map((file) => <div className={`change-file-row${isNormativeChangePath(file.path) ? ' normative' : ''}`} key={file.path}><button type="button" className="change-file-name" onClick={() => onOpenFile?.(file.path)} title="Abrir no Editor"><Icon name="file" size={12}/><span>{file.path}</span>{isNormativeChangePath(file.path) && <em>Normativo</em>}</button><button type="button" className="change-file-diff" onClick={() => onInspect(file)} title="Ver diff"><b>+{file.additions}</b><i>−{file.deletions}</i></button></div>)}</div>
+      {prioritizedFiles.length > CHANGE_DIFF_PREVIEW_COUNT && <button type="button" className="change-file-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}><span aria-hidden="true">{expanded ? '−' : '···'}</span>{expanded ? 'Mostrar menos diffs' : `Mostrar mais ${hiddenCount} diff${hiddenCount === 1 ? '' : 's'}`}</button>}
+    </div>}
     {hostCommands.length > 0 && <div className="change-host-commands"><strong>Comandos no host</strong>{hostCommands.map((command, index) => <div className="change-host-command" key={`${command.argv.join(' ')}-${index}`}><code>{command.argv.join(' ')}</code><span>{command.cwd || '.'} · exit {command.exit_code} · {command.duration_ms} ms</span></div>)}</div>}
     <footer><span>Plano {change.planId}</span>{change.canRevert && !change.reverted && <button type="button" className="text-button change-revert" onClick={() => void onRevert?.(item)}><Icon name="refresh" size={12}/> Reverter alteração</button>}</footer>
   </article>

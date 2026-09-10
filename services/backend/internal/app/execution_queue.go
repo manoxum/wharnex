@@ -62,8 +62,47 @@ type executionQueueTicket struct {
 	once     *sync.Once
 }
 
+// maxProjectExecutionConcurrency caps the operator knob. Each concurrent
+// runner claims a full container memory allowance plus a complete project
+// clone, so an unbounded value trades queueing delay — which is recoverable —
+// for out-of-disk and out-of-memory failures, which this codebase already
+// classifies as unrepairable by any source patch.
+const maxProjectExecutionConcurrency = 8
+
 func newProjectExecutionQueue() *projectExecutionQueue {
 	return &projectExecutionQueue{capacity: projectExecutionConcurrency(), projects: make(map[string]*projectExecutionQueueState)}
+}
+
+// currentCapacity reports the configured number of plans one project may
+// verify at a time.
+func (q *projectExecutionQueue) currentCapacity() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.capacity
+}
+
+// setCapacity adjusts how many plans one project may verify concurrently.
+//
+// Lowering it never interrupts work already running: an over-capacity project
+// simply admits nobody new until it drains back under the new limit, because
+// admission compares against the live capacity. Raising it releases exactly
+// the number of waiters the new headroom allows, in FIFO order, so a queue
+// that is already waiting benefits immediately instead of only affecting
+// plans submitted afterwards.
+func (q *projectExecutionQueue) setCapacity(capacity int) int {
+	if capacity < 1 {
+		capacity = 1
+	}
+	if capacity > maxProjectExecutionConcurrency {
+		capacity = maxProjectExecutionConcurrency
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.capacity = capacity
+	for _, state := range q.projects {
+		q.admitWaiters(state)
+	}
+	return q.capacity
 }
 
 func (q *projectExecutionQueue) acquire(ctx context.Context, projectPath, sessionID string, onQueued ...func(int)) (executionQueueTicket, error) {
@@ -123,16 +162,26 @@ func (q *projectExecutionQueue) release(project string) {
 	if state == nil {
 		return
 	}
-	if len(state.waiters) == 0 {
-		state.active--
-		if state.active <= 0 {
-			delete(q.projects, project)
-		}
-		return
+	state.active--
+	q.admitWaiters(state)
+	if state.active <= 0 && len(state.waiters) == 0 {
+		delete(q.projects, project)
 	}
-	// The released slot transfers directly to the next waiter, so active
-	// stays at its current level rather than dipping and being re-taken.
-	next := state.waiters[0]
-	state.waiters = state.waiters[1:]
-	close(next.ready)
+}
+
+// admitWaiters releases as many queued plans as the current capacity allows,
+// in FIFO order. Callers hold q.mu.
+//
+// Draining against the live capacity — rather than handing a freed slot
+// straight to the next waiter — is what makes the capacity knob safe to lower
+// while work is in flight: an over-capacity project admits nobody until it has
+// drained back under the new limit, and a raised capacity immediately benefits
+// plans that are already waiting instead of only later submissions.
+func (q *projectExecutionQueue) admitWaiters(state *projectExecutionQueueState) {
+	for state.active < q.capacity && len(state.waiters) > 0 {
+		next := state.waiters[0]
+		state.waiters = state.waiters[1:]
+		state.active++
+		close(next.ready)
+	}
 }

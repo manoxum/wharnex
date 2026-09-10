@@ -56,6 +56,7 @@ describe('AgentWorkspace', () => {
   beforeEach(() => {
     localStorage.clear()
     window.history.replaceState({}, '', '/?wharnessWindow=primary')
+    vi.spyOn(api, 'bundleQuota').mockResolvedValue({ window_hours: 3, limit: 80, sent: 12, received: 10, total: 22, warning: false, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -73,6 +74,23 @@ describe('AgentWorkspace', () => {
     window.history.replaceState({}, '', '/?wharnessWindow=secondary')
     const secondary = render(props().element)
     expect((secondary.container.querySelector('.agent-workspace') as HTMLElement).style.getPropertyValue('--agent-chat-width')).toBe('')
+  })
+
+  it('keeps only compact sent and received bundle counters in embedded Agent chrome', async () => {
+    vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 24, received: 21, total: 45, warning: false, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
+    const rendered = render(props().element)
+    expect(await screen.findByRole('group', { name: 'Bundles: 24 enviados ao ChatGPT e 21 recebidos do ChatGPT.' })).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑24↓21')
+    expect(rendered.container.querySelector('.agent-bundle-quota-track')).toBeNull()
+    expect(rendered.container.querySelector('.agent-bundle-quota-fill')).toBeNull()
+  })
+
+  it('does not turn the Agent counters into a quota warning when the configured sent limit is reached', async () => {
+    vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 80, received: 76, total: 156, warning: true, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
+    const rendered = render(props().element)
+    expect(await screen.findByRole('group', { name: 'Bundles: 80 enviados ao ChatGPT e 76 recebidos do ChatGPT.' })).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑80↓76')
+    expect(rendered.container.querySelector('.agent-bundle-quota.warning')).toBeNull()
   })
 
   it('keeps the chat fixed on the left and uses the right-side tabs for the inspector', () => {
@@ -141,7 +159,7 @@ describe('AgentWorkspace', () => {
     const empty = props()
     const rendered = render(empty.element)
     fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
-    expect(screen.getByText(/A fila está livre/)).toBeTruthy()
+    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
     rendered.rerender(<AgentWorkspace
       {...(empty.element.props)}
       executionFIFO={[
@@ -151,7 +169,30 @@ describe('AgentWorkspace', () => {
     />)
     expect(screen.getByText('plan-one')).toBeTruthy()
     expect(screen.getByText('plan-two')).toBeTruthy()
-    expect(screen.getByText('02')).toBeTruthy()
+    expect(screen.getByText('#02')).toBeTruthy()
+    expect(screen.getAllByText('Em execução').length).toBeGreaterThan(0)
+    expect(screen.getByText('Na fila')).toBeTruthy()
+  })
+
+  it('exposes the per-project execution concurrency next to the queue it governs', async () => {
+    vi.spyOn(api, 'executionConcurrency').mockResolvedValue({ concurrency: 1, max: 8 })
+    const update = vi.spyOn(api, 'updateExecutionConcurrency').mockResolvedValue({ concurrency: 3, max: 8 })
+    render(props().element)
+    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
+    const input = await screen.findByLabelText('Execuções simultâneas por projeto')
+    expect(input.tagName).toBe('SELECT')
+    expect((input as HTMLSelectElement).value).toBe('1')
+    fireEvent.change(input, { target: { value: '3' } })
+    await waitFor(() => expect(update).toHaveBeenCalledWith(3))
+    await waitFor(() => expect((screen.getByLabelText('Execuções simultâneas por projeto') as HTMLSelectElement).value).toBe('3'))
+  })
+
+  it('keeps the execution queue usable when the concurrency limit cannot be read', async () => {
+    vi.spyOn(api, 'executionConcurrency').mockRejectedValue(new Error('backend unavailable'))
+    render(props().element)
+    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
+    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
+    await waitFor(() => expect(screen.queryByLabelText('Execuções simultâneas por projeto')).toBeNull())
   })
 
   it('does not expose Apply or Reject from stale execution success without pending host changes', () => {

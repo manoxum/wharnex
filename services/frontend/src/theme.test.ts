@@ -16,6 +16,12 @@ describe('complete colour themes', () => {
     ]) expect(theme).toContain(surface)
   })
 
+  it('keeps the effort selector integrated with the dark composer chrome', () => {
+    expect(theme).toContain(":root[data-theme='dark'] .composer-effort-picker {")
+    expect(theme).toContain(":root[data-theme='dark'] .composer-effort-picker select {")
+    expect(theme).toContain("background: #292929; color: #e0e6dc;")
+  })
+
   it('calibrates security and execution meanings independently in dark mode', () => {
     expect(theme).toContain("[data-theme='dark'] .composer-round-action.mode-protected.selected")
     expect(theme).toContain("[data-theme='dark'] .composer-round-action.mode-unprotected.selected")

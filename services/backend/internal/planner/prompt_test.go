@@ -76,6 +76,9 @@ func TestBuildManualPromptMakesAskDistinctFromChange(t *testing.T) {
 		"do not invent a coding task",
 		"Only explicit mutation intent may end in kind=change",
 		"turn.message is the actual response the user will read inside Wharness",
+		"Write polished, human-readable Markdown",
+		"Summarize long logs, execution evidence, patches and repeated status",
+		"do not create a heading for every sentence",
 		"provide the recommendation, analysis, or diagnosis itself",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -107,9 +110,27 @@ func TestBuildManualPromptDeclaresSelfEvolutionModeAndLifecycleOwnership(t *test
 
 func TestBuildManualPromptPlanFirstIsPlanningOnly(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-plan-first", Message: "refactor", PlanningMode: "plan_first"})
-	for _, want := range []string{"REQUEST STRATEGY: PLAN_FIRST", "NO plan.json", "NO patches/", "## TODO", "separate approved request"} {
+	for _, want := range []string{"REQUEST STRATEGY: PLAN_FIRST", "kind=plan", "NO plan.json", "NO patches/", "## TODO", "linked plan_approval request"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("plan-first prompt missing %q", want)
+		}
+	}
+}
+
+func TestBuildManualPromptDirectSupportsExplicitPlanIntent(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-direct-plan", Message: "elabora um plano para refatorar esta área", PlanningMode: "direct"})
+	for _, want := range []string{"REQUEST STRATEGY: DIRECT", "If the user explicitly asks for a plan, return kind=plan", "non-mutating approval proposal"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("direct explicit-plan prompt missing %q", want)
+		}
+	}
+}
+
+func TestBuildManualPromptPlanApprovalContinuesSameMainRequest(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-plan-approval", Message: "approved proposal", PlanningMode: "approve_plan"})
+	for _, want := range []string{"REQUEST STRATEGY: APPROVE_PLAN", "same Main Request", "approved proposal", "do not silently expand scope"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("plan-approval prompt missing %q", want)
 		}
 	}
 }
@@ -274,6 +295,27 @@ func TestBuildManualPromptOrchestratorUsesDedicatedPlanningProtocol(t *testing.T
 	for _, forbidden := range []string{"CHANGE PLAN CONTRACT", "plan.json", "harness.execution/v1"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("orchestrator prompt must remain separate from execution planning, found %q", forbidden)
+		}
+	}
+}
+
+func TestBuildManualPromptCarriesEffortLevelAndCostBenefitContract(t *testing.T) {
+	prompt := BuildManualPrompt(Request{
+		RequestID:      "req-effort",
+		Message:        "corrigir e melhorar",
+		AutomationMode: domain.AutomationModeAuto,
+		EffortLevel:    domain.EffortLevelExtraHigh,
+	})
+	for _, want := range []string{
+		"EFFORT LEVEL: extra_high",
+		"low: one resolution attempt only",
+		"medium: up to 3 total automated resolution attempts",
+		"extra_high: up to 10 total attempts",
+		"continuous-improvement rounds",
+		"Never consume attempts merely because they are available",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("effort prompt missing %q", want)
 		}
 	}
 }

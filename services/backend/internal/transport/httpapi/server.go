@@ -22,6 +22,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/utility"
 )
 
 type API struct {
@@ -36,6 +37,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
+	mux.HandleFunc("GET /api/execution-concurrency", a.executionConcurrency)
+	mux.HandleFunc("PUT /api/execution-concurrency", a.updateExecutionConcurrency)
 	mux.HandleFunc("GET /api/tunnel-config", a.tunnelConfig)
 	mux.HandleFunc("PUT /api/tunnel-config", a.updateTunnelConfig)
 	mux.HandleFunc("GET /api/tunnel/providers", a.tunnelProviders)
@@ -49,7 +52,19 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/remote-storage/connections/check", a.checkRemoteStorage)
 	mux.HandleFunc("GET /api/artifact-settings", a.artifactSettings)
 	mux.HandleFunc("PUT /api/artifact-settings", a.updateArtifactSettings)
+	mux.HandleFunc("GET /api/language-settings", a.languageSettings)
+	mux.HandleFunc("PUT /api/language-settings", a.updateLanguageSettings)
 	mux.HandleFunc("GET /api/bundle-quota", a.bundleQuota)
+	// One compact response for every chat of a project. The attention center
+	// previously fetched each chat's whole Session (1-2 MB each), which a
+	// workspace with many chats could not survive.
+	mux.HandleFunc("GET /api/workspace-attention", a.workspaceAttention)
+	// Durable workspace chat index and transcripts (previously localStorage).
+	mux.HandleFunc("GET /api/workspace-chats", a.listWorkspaceChats)
+	mux.HandleFunc("PUT /api/workspace-chats/{id}", a.saveWorkspaceChat)
+	mux.HandleFunc("DELETE /api/workspace-chats/{id}", a.deleteWorkspaceChat)
+	mux.HandleFunc("GET /api/workspace-chats/{id}/items", a.listWorkspaceChatItems)
+	mux.HandleFunc("PUT /api/workspace-chats/{id}/items", a.replaceWorkspaceChatItems)
 	mux.HandleFunc("GET /api/storage", a.storage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
 	mux.HandleFunc("POST /api/projects/create", a.createProject)
@@ -59,12 +74,15 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/effort-level", a.effortLevel)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
 	mux.HandleFunc("POST /api/sessions/{id}/archive", a.archiveChat)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
+	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/approve", a.approvePlan)
+	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/failures", a.remoteInputFailure)
@@ -109,6 +127,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/file", a.readFile)
 	mux.HandleFunc("GET /api/sessions/{id}/file/preview", a.previewFile)
 	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
+	mux.HandleFunc("POST /api/sessions/{id}/translate-markdown", a.translateMarkdown)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", a.terminal)
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/overview", a.orchestratorOverview)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/propose", a.orchestratorProposePlan)
@@ -141,6 +160,36 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.tunnelStatus()})
+}
+
+// executionConcurrency exposes how many plans one project may verify at a
+// time, so the workspace queue view can present the limit it is queueing
+// against instead of leaving the operator to infer it from behavior.
+func (a *API) executionConcurrency(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"concurrency": a.service.ExecutionConcurrency(),
+		"max":         a.service.MaxExecutionConcurrency(),
+	})
+}
+
+// updateExecutionConcurrency applies a new limit at runtime. Work already
+// running is never interrupted by lowering it: the project simply admits
+// nothing new until it drains under the new limit.
+func (a *API) updateExecutionConcurrency(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Concurrency int `json:"concurrency"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if payload.Concurrency < 1 {
+		writeError(w, http.StatusBadRequest, "invalid_concurrency", "concurrency must be at least 1")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"concurrency": a.service.SetExecutionConcurrency(payload.Concurrency),
+		"max":         a.service.MaxExecutionConcurrency(),
+	})
 }
 
 func (a *API) tunnelStatus() app.RemoteInputStatus {
@@ -410,6 +459,70 @@ func (a *API) updateArtifactSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.service.ArtifactSettings())
 }
 
+func (a *API) languageSettings(w http.ResponseWriter, _ *http.Request) {
+	document, err := config.ReadLanguageSettings(a.cfg.LanguageSettingsFile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "language_settings_read_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (a *API) updateLanguageSettings(w http.ResponseWriter, r *http.Request) {
+	var document config.LanguageSettingsDocument
+	if !decodeJSON(w, r, &document) {
+		return
+	}
+	if err := config.SaveLanguageSettings(a.cfg.LanguageSettingsFile, document); err != nil {
+		writeError(w, http.StatusBadRequest, "language_settings_invalid", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (a *API) translateMarkdown(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
+	var body struct {
+		TargetLanguage string `json:"target_language"`
+		Markdown       string `json:"markdown"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_translation_request", err.Error())
+		return
+	}
+	settings, err := config.ReadLanguageSettings(a.cfg.LanguageSettingsFile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "language_settings_read_failed", err.Error())
+		return
+	}
+	allowed := false
+	for _, language := range settings.TranslationLanguages {
+		if language == body.TargetLanguage {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		writeError(w, http.StatusBadRequest, "translation_language_disabled", "target language is not enabled in language settings")
+		return
+	}
+	result, err := a.service.TranslateMarkdown(r.Context(), r.PathValue("id"), utility.LanguageCode(body.TargetLanguage), body.Markdown)
+	if err != nil {
+		switch {
+		case errors.Is(err, session.ErrNotFound):
+			writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+		case errors.Is(err, utility.ErrUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "utility_unavailable", "Markdown translation requires OPENAI_API_KEY")
+		default:
+			writeError(w, http.StatusBadGateway, "translation_failed", err.Error())
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (a *API) bundleQuota(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.service.BundleQuota(time.Now().UTC()))
 }
@@ -606,6 +719,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 		ProjectPath    string                `json:"project_path"`
 		ExecutionMode  domain.ExecutionMode  `json:"execution_mode"`
 		AutomationMode domain.AutomationMode `json:"automation_mode"`
+		EffortLevel    domain.EffortLevel    `json:"effort_level"`
 		ChatID         string                `json:"chat_id"`
 	}
 	if !decodeJSON(w, r, &body) {
@@ -615,7 +729,7 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_project_path", "project_path is required")
 		return
 	}
-	item, err := a.service.StartSessionWithModes(r.Context(), body.ProjectPath, body.ExecutionMode, body.AutomationMode)
+	item, err := a.service.StartSessionWithModes(r.Context(), body.ProjectPath, body.ExecutionMode, body.AutomationMode, body.EffortLevel)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "session_create_failed", err.Error())
 		return
@@ -702,6 +816,21 @@ func (a *API) automationMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) effortLevel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		EffortLevel domain.EffortLevel `json:"effort_level"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetEffortLevel(r.PathValue("id"), body.EffortLevel)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "effort_level_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (a *API) chatTransportMode(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ChatTransportMode domain.ChatTransportMode `json:"chat_transport_mode"`
@@ -727,6 +856,24 @@ func (a *API) knowledgeSharing(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetKnowledgeSharingEnabled(r.PathValue("id"), body.Enabled)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "knowledge_sharing_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) approvePlan(w http.ResponseWriter, r *http.Request) {
+	result, item, err := a.service.SubmitPlanApproval(r.Context(), r.PathValue("id"), r.PathValue("request_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "plan_approval_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
+}
+
+func (a *API) rejectPlan(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RejectPlan(r.PathValue("id"), r.PathValue("request_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "plan_rejection_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -979,7 +1126,11 @@ func (a *API) cancelPendingRequest(w http.ResponseWriter, r *http.Request) {
 func (a *API) apply(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.ApplyToHost(r.Context(), r.PathValue("id"))
 	if err != nil {
-		if !errors.Is(err, app.ErrIntegrationConflict) {
+		// A conflict already has its own resolution path, and a conflict confined
+		// to Wharnex-managed state has no planner-resolvable content at all —
+		// starting a repair round for either just spends a request on something
+		// the model cannot fix.
+		if !errors.Is(err, app.ErrIntegrationConflict) && !errors.Is(err, app.ErrManagedStateConflict) {
 			_, _ = a.service.TriggerApplyFailureRepair(r.Context(), r.PathValue("id"), err)
 		}
 		writeError(w, 409, "apply_failed", err.Error())

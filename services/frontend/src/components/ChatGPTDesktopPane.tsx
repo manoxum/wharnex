@@ -5,6 +5,7 @@ import { StatusPill } from './StatusPill'
 import { confirmDialog } from '../lib/appDialog'
 import { expectedResponseBundleName } from '../lib/bundlename'
 import { errorMessage } from '../lib/errorMessage'
+import { CHATGPT_OVERLAY_SELECTOR, chatGPTOverlayDocuments } from '../lib/chatGPTOverlay'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
@@ -125,12 +126,16 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   }, [bridge, applyDesktopState])
 
   useEffect(() => {
-    const selector = '[role="dialog"][aria-modal="true"], [data-chatgpt-overlay-blocker="true"]'
-    const sync = () => setOverlayBlocked(Boolean(document.querySelector(selector)))
+    const documents = chatGPTOverlayDocuments(window)
+    const sync = () => setOverlayBlocked(documents.some((target) => Boolean(target.querySelector(CHATGPT_OVERLAY_SELECTOR))))
     sync()
-    const observer = new MutationObserver(sync)
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'aria-hidden'] })
-    return () => observer.disconnect()
+    const observers = documents.flatMap((target) => {
+      if (!target.body) return []
+      const observer = new MutationObserver(sync)
+      observer.observe(target.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'aria-hidden', 'aria-modal', 'data-chatgpt-overlay-blocker'] })
+      return [observer]
+    })
+    return () => observers.forEach((observer) => observer.disconnect())
   }, [])
 
   useEffect(() => {
@@ -299,6 +304,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
         <button className="icon-button light" disabled={!state.canGoForward} title="Avançar" onClick={() => void bridge?.chatgpt.forward(chatId)}><Icon name="arrow-right" size={15}/></button>
         <button className="icon-button light" title="Recarregar ChatGPT" onClick={() => void bridge?.chatgpt.reload(chatId)}><Icon name="refresh" size={15}/></button>
         <button className="icon-button light" title="Abrir no navegador do sistema" onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={15}/></button>
+        <button className="icon-button light" title="Abrir no navegador interno" onClick={() => void bridge?.chatgpt.openInternal(linkedConversation || CHATGPT_HOME)}><Icon name="monitor" size={15}/></button>
         <button className="icon-button light" title="Colar clipboard no campo focado" onClick={() => void bridge?.chatgpt.paste(chatId)}><Icon name="clipboard" size={15}/></button>
       </div>
       <div className="desktop-browser-address" title={state.url}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(state.url)}</span></div>

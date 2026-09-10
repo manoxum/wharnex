@@ -1,0 +1,89 @@
+{
+  "schema": "harness.chat-agent-behavior/v1",
+  "provider": "chatgpt",
+  "revision": "2026-09-10.1",
+  "origin": "seed",
+  "base_url": "https://chatgpt.com",
+  "trusted_hosts": ["chatgpt.com"],
+  "conversation_path": "/c/",
+  "new_conversation_path": "/",
+
+  "selectors": {
+    "composer": ["#prompt-textarea", "div[contenteditable=\"true\"][role=\"textbox\"]", "textarea[name=\"prompt-textarea\"]"],
+    "sendButton": ["button[data-testid=\"send-button\"]"],
+    "stopButton": ["button[data-testid=\"stop-button\"]", "button[aria-label*=\"stop generating\" i]"],
+    "assistantTurn": ["[data-message-author-role=\"assistant\"]"],
+    "conversationTurn": ["[data-testid^=\"conversation-turn\"]"],
+    "sidebarRoot": ["[data-testid=\"sidebar\"]", "nav[data-testid*=\"sidebar\"]", "aside[data-testid*=\"sidebar\"]"],
+    "sidebarClose": ["button[data-testid=\"close-sidebar-button\"]"],
+    "sidebarOpen": ["button[data-testid=\"open-sidebar-button\"]"],
+    "conversationAnchor": ["a[href^=\"/c/\"]"],
+    "conversationOptionsTrigger": ["[data-conversation-options-trigger]"],
+    "conversationOptionsHeader": ["button[data-testid=\"conversation-options-button\"]"],
+    "menuItem": ["[role=\"menuitem\"]"],
+    "projectAnchor": ["a[role=\"menuitem\"][href^=\"/g/g-p-\"]", "a[href^=\"/g/g-p-\"]"],
+    "titleEditor": ["input[name=\"title-editor\"]", "input[aria-label=\"Chat title\"]"],
+    "dialog": ["[role=\"dialog\"]"],
+    "libraryRow": ["div[role=\"row\"][data-page-table-selection-id]"],
+    "libraryRowActions": ["button[aria-label^=\"Open actions menu for \"]"],
+    "errorNotice": ["[data-testid*=\"error\" i]", "div[role=\"alert\"]"]
+  },
+
+  "optional_selectors": {
+    "modelPicker": ["[data-composer-surface] button[aria-haspopup=\"menu\"]:not([data-testid])"],
+    "modelOption": ["[role=\"menuitemradio\"]"],
+    "effortPicker": ["[data-composer-surface] button[aria-haspopup=\"menu\"]:not([data-testid])"],
+    "effortSlider": ["[role=\"menuitem\"][aria-keyshortcuts]"],
+    "effortToggle": ["[role=\"menuitem\"][aria-expanded]"],
+    "reasoningDisclosure": ["button[aria-expanded]"],
+    "reasoningRow": ["[data-reasoning-row]"]
+  },
+
+  "reasoning": {
+    "enabled": true,
+    "max_rows": 40,
+    "max_row_chars": 240,
+    "min_row_chars": 8,
+    "exclude_within": ["pre", "code", ".markdown", "[data-message-author-role]"]
+  },
+
+  "labels": {
+    "rename": ["rename", "renomear", "cambiar nombre", "renommer", "umbenennen"],
+    "archive": ["archive", "arquivar", "archivar", "archiver", "archivieren"],
+    "delete": ["delete", "apagar", "eliminar", "supprimer", "löschen"],
+    "moveToProject": ["move to project", "mover para projeto", "mover para o projeto", "mover al proyecto", "déplacer vers le projet", "in projekt verschieben"],
+    "newProject": ["new project", "novo projeto", "nuevo proyecto", "nouveau projet", "neues projekt"],
+    "reasoningDisclosure": ["processou durante", "pensou durante", "thought for", "reasoned for", "thinking for", "razonó durante", "a réfléchi pendant"]
+  },
+
+  "effort_levels": [
+    { "id": "instant", "labels": ["instantâneo", "instantaneo", "instant"] },
+    { "id": "light", "labels": ["rápido", "rapido", "light", "fast"] },
+    { "id": "medium", "labels": ["médio", "medio", "medium", "standard"] },
+    { "id": "high", "labels": ["elevada", "elevado", "high", "alta"] }
+  ],
+
+  "timing": {
+    "settleMs": 350,
+    "menuSettleMs": 400,
+    "navigationTimeoutMs": 45000,
+    "readyTimeoutMs": 30000,
+    "sendConfirmTimeoutMs": 25000,
+    "inspectTimeoutMs": 20000,
+    "retryBaseMs": 500,
+    "retryCeilingMs": 8000,
+    "maxAttempts": 4
+  },
+
+  "verification": {
+    "navigate": { "require_trusted_host": true, "require_conversation_url": true, "require_ready_selector": "composer" },
+    "send": { "require_composer_cleared": true, "require_conversation_request": true, "require_assistant_progress": true },
+    "inspect": { "require_ready_selector": "composer" }
+  },
+
+  "anomaly": {
+    "capture_selectors": ["main", "[role=\"dialog\"]", "[role=\"alert\"]"],
+    "max_capture_bytes": 262144,
+    "escalate_after_repeats": 3
+  }
+}
