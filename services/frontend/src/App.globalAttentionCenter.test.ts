@@ -7,9 +7,11 @@ const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 describe('App global attention session refresh', () => {
   it('refreshes inactive chat sessions on a bounded cadence and feeds the Agent center', () => {
     expect(source).toMatch(/setAttentionSessions/)
-    expect(source).toMatch(/chats\.map\(async \(chat\) =>/)
-    expect(source).toMatch(/await api\.getSession\(chat\.sessionId\)/)
-    expect(source).toMatch(/window\.setInterval\(\(\) => void refresh\(\), 6000\)/)
+    // Sequential, on a bounded interval: fetching every chat's session at once
+    // every six seconds grew the renderer until it was killed once a workspace
+    // held many chats (see App.attentionMemory.test.ts).
+    expect(source).toMatch(/await api\.workspaceAttention\(session\.project_path\)/)
+    expect(source).toMatch(/window\.setInterval\(\(\) => void refresh\(\), ATTENTION_REFRESH_INTERVAL_MS\)/)
     expect(source).toMatch(/attentionSessions=\{attentionSessions\}/)
     expect(source).toMatch(/chatgptHumanActions=\{chatgptHumanActions\}/)
   })

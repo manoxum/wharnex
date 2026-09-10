@@ -6,6 +6,7 @@ import { riskLabel } from '../lib/risk'
 import { api } from '../lib/api'
 import { isDesktop } from '../lib/desktop'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import { residentPoolChats } from '../lib/chatPanePool'
 import { DirectChatGPTPane } from './DirectChatGPTPane'
 import { MarkdownContent } from './MarkdownContent'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
@@ -251,8 +252,18 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
 }) {
+  // Only a bounded window of chats keeps a live pane.
+  //
+  // Every pane owns bridge subscriptions and re-renders on remote state, so
+  // mounting one per chat made the cost grow with the chat count rather than
+  // with what the user is actually using. A workspace that grew to thirty chats
+  // blocked the renderer's main thread while a ChatGPT surface loaded — the
+  // window went unresponsive and was then killed and restarted in a loop. The
+  // active chat is always resident; the rest are the most recently used, and a
+  // chat outside the window simply mounts its pane when it is next opened.
+  const resident = residentPoolChats(chats, activeChatId)
   return <div className="desktop-chatgpt-pool" hidden={!visible}>
-    {chats.map((liveChat) => {
+    {resident.map((liveChat) => {
       const isActive = liveChat.id === activeChatId
       const surface = isActive ? chatgptSurface : undefined
       // The active chat's own native view is additionally suspended (hidden)

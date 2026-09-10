@@ -55,6 +55,16 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/language-settings", a.languageSettings)
 	mux.HandleFunc("PUT /api/language-settings", a.updateLanguageSettings)
 	mux.HandleFunc("GET /api/bundle-quota", a.bundleQuota)
+	// One compact response for every chat of a project. The attention center
+	// previously fetched each chat's whole Session (1-2 MB each), which a
+	// workspace with many chats could not survive.
+	mux.HandleFunc("GET /api/workspace-attention", a.workspaceAttention)
+	// Durable workspace chat index and transcripts (previously localStorage).
+	mux.HandleFunc("GET /api/workspace-chats", a.listWorkspaceChats)
+	mux.HandleFunc("PUT /api/workspace-chats/{id}", a.saveWorkspaceChat)
+	mux.HandleFunc("DELETE /api/workspace-chats/{id}", a.deleteWorkspaceChat)
+	mux.HandleFunc("GET /api/workspace-chats/{id}/items", a.listWorkspaceChatItems)
+	mux.HandleFunc("PUT /api/workspace-chats/{id}/items", a.replaceWorkspaceChatItems)
 	mux.HandleFunc("GET /api/storage", a.storage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
 	mux.HandleFunc("POST /api/projects/create", a.createProject)

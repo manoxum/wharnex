@@ -2580,3 +2580,19 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .markdown-translation-toolbar { align-items: stretch; flex-direction: column; }
   .markdown-translation-toolbar > div { flex-wrap: wrap; }
 }
+
+/* A contained chat-item render failure. Kept visually quiet: it is a defect
+   report inside the transcript, not an alarm that should dominate the chat. */
+.chat-item-error {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-sunken, rgba(127, 127, 127, 0.12));
+  color: var(--text-secondary, inherit);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+}

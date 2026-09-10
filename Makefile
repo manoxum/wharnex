@@ -9,7 +9,7 @@ BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
-.PHONY: help deps deps-status deps-refresh build-status build-refresh runner-deps build build-stage build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
+.PHONY: reset-data clean-all help deps deps-status deps-refresh build-status build-refresh runner-deps build build-stage build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
 	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
@@ -38,6 +38,15 @@ help:
 		'  make logs     Show categorized frontend, Electron, ChatGPT and self-evolution logs' \
 		'                SOURCE=chatgpt FILTER=error FOLLOW=1 TAIL=200' \
 		'  make check    Run backend/frontend/desktop quality checks' \
+		'' \
+		'Data reset (destructive):' \
+		'  make reset-data   Drop every Wharnex table, empty the artifact bucket and reset' \
+		'                    the Electron userData. Keeps the authenticated ChatGPT session' \
+		'                    and backs PostgreSQL up first. Requires typing RESET WHARNESS.' \
+		'                    RESET_BROWSER_SESSION=1 also destroys the ChatGPT login' \
+		'                    RESET_BACKUP=0 skips the PostgreSQL backup' \
+		'  make clean        Remove build output only; runtime data is untouched' \
+		'  make clean-all    clean + reset-data' \
 		'' \
 		'Linux Electron runtime:' \
 		'  make electron-runtime-check     Verify immutable runtime / user-namespace fallback' \
@@ -212,10 +221,26 @@ run-frontend:
 run-desktop:
 	cd "$(ROOT_DIR)/services/desktop" && npm run dev
 
+# clean removes build output only. Runtime data lives in PostgreSQL, MinIO and
+# the Electron userData, and is destroyed by `make reset-data` — a separate,
+# explicitly confirmed target, so rebuilding never costs anyone their sessions.
 clean:
 	@$(MAKE) --no-print-directory stop || true
 	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" \
 		"$(BUILD_CACHE_DIR)" "$(BUILD_STAMP)" "$(BUILD_BASELINE_STAMP)"
+
+# Destroys this checkout's runtime data: every Wharnex table, every artifact
+# object, and the Electron userData. Preserves the authenticated ChatGPT
+# browser partition unless RESET_BROWSER_SESSION=1. Backs PostgreSQL up first
+# unless RESET_BACKUP=0.
+reset-data: export WHARNESS_ROOT := $(ROOT_DIR)
+reset-data:
+	@"$(ROOT_DIR)/scripts/reset-data.sh" \
+		$(if $(filter 1,$(RESET_BROWSER_SESSION)),--include-browser-session,) \
+		$(if $(filter 0,$(RESET_BACKUP)),--no-backup,)
+
+# clean-all is the full wipe: build output and runtime data together.
+clean-all: clean reset-data
 
 EXPORT_DIR ?= $(abspath $(ROOT_DIR)/../project-context/wharness)
 EXPORT_ARCHIVE ?= $(EXPORT_DIR)/wharness.zip

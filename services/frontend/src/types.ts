@@ -462,6 +462,24 @@ export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | '
 export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage?: string; requestId: string }
 export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }
 export type ChatChangeSummary = { planId: string; files: ChatChangeFile[]; hostCommands?: CommandResult[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
+// One chat's attention inputs, without the megabyte of session payload the
+// attention center never reads. See /api/workspace-attention.
+export type AttentionRecord = {
+  session_id: string
+  chat_id: string
+  state: string
+  failure_kind?: string
+  last_request_id?: string
+  last_turn?: Session['last_turn']
+  policy?: Session['policy']
+  has_plan: boolean
+  plan_id?: string
+  last_execution_plan_id?: string
+  pending_host_changes: number
+  integration_conflict?: { id: string; path_count: number }
+  interrupted_execution?: { plan_id: string; status: string }
+}
+
 export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 export type ChatIterationRef = {
   id: string

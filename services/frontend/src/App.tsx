@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
-import type { AppConfig, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
+import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
 import { executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, type ExecutionFIFOItem } from './lib/executionQueueView'
@@ -22,6 +22,37 @@ import {
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
 // account operations, and those are serialized against the user's own work.
+// Adapts a compact attention record into the Session shape the attention center
+// already consumes. Only nine fields are ever read, and the two collections are
+// read for their length alone — so representing "n pending changes" as n empty
+// slots is faithful to what the consumer asks, without carrying the megabyte of
+// payload that made polling fatal.
+function attentionSessionFrom(record: AttentionRecord, projectPath: string): Session {
+  return {
+    id: record.session_id,
+    project_path: projectPath,
+    chat_id: record.chat_id,
+    execution_mode: 'protected',
+    automation_mode: 'auto',
+    state: record.state,
+    created_at: '',
+    context: { id: '', manifest: { id: '', project_root: projectPath, sha256: '', files: [], excluded: [], text_truncated: false } },
+    failure_kind: record.failure_kind,
+    last_request_id: record.last_request_id,
+    last_turn: record.last_turn,
+    policy: record.policy,
+    plan: record.has_plan ? ({ plan_id: record.plan_id } as Session['plan']) : undefined,
+    last_execution: record.last_execution_plan_id ? ({ plan_id: record.last_execution_plan_id } as Session['last_execution']) : undefined,
+    pending_host_changes: Array.from({ length: record.pending_host_changes }) as Session['pending_host_changes'],
+    integration_conflict: record.integration_conflict
+      ? ({ id: record.integration_conflict.id, paths: Array.from({ length: record.integration_conflict.path_count }) } as Session['integration_conflict'])
+      : undefined,
+    interrupted_execution: record.interrupted_execution as Session['interrupted_execution'],
+  }
+}
+
+const ATTENTION_REFRESH_INTERVAL_MS = 15_000
+
 const CHAT_MAINTENANCE_INTERVAL_MS = 5 * 60_000
 import { dueChatNaming, dueRemoteArchives } from './lib/chatMaintenance'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
@@ -146,16 +177,26 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (refreshing) return
       refreshing = true
       try {
-        const entries = await Promise.all(chats.map(async (chat) => {
+        // One compact request for the whole project, not one full Session per
+        // chat. Those payloads are 1-2 MB each (context manifests, pending
+        // patches, artifact inventories), so a workspace with many chats pulled
+        // and parsed tens of megabytes per poll — enough to block the
+        // renderer's main thread until the window was killed and restarted.
+        let records: AttentionRecord[] = []
+        try { records = (await api.workspaceAttention(session.project_path)).records }
+        catch { return }
+        if (cancelled) return
+        const bySession = new Map(records.map((record) => [record.session_id, record]))
+        const entries = chats.map((chat) => {
           if (chat.id === activeChatId && chat.sessionId === session.id) return [chat.id, session] as const
-          try { return [chat.id, await api.getSession(chat.sessionId)] as const }
-          catch { return [chat.id, undefined] as const }
-        }))
+          const record = bySession.get(chat.sessionId)
+          return [chat.id, record ? attentionSessionFrom(record, session.project_path) : undefined] as const
+        })
         if (!cancelled) setAttentionSessions(Object.fromEntries(entries))
       } finally { refreshing = false }
     }
     void refresh()
-    const timer = window.setInterval(() => void refresh(), 6000)
+    const timer = window.setInterval(() => void refresh(), ATTENTION_REFRESH_INTERVAL_MS)
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [activeChatId, chats, session])
 
@@ -679,7 +720,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         // for background chats made switching chats measurably heavier — the
         // exact resident cost the agent pool exists to remove. Until that pool
         // owns this traffic, the job stays opportunistic.
-        const liveKeys = new Set((await bridge.chatgpt.liveKeys().catch(() => [])) || [])
+        // The bridge is only as new as the installed desktop build, so this
+        // capability may simply not exist yet. Calling it unguarded threw
+        // "liveKeys is not a function" out of the maintenance tick.
+        let liveKeys = new Set()
+        try { liveKeys = new Set((await bridge.chatgpt.liveKeys?.()) || []) } catch { liveKeys = new Set() }
         const candidates = dueChatNaming(loadWorkspaceChats(projectPath), now)
           .filter((chat) => chat.id !== activeChatIdRef.current)
           .filter((chat) => liveKeys.has(chat.id))

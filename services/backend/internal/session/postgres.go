@@ -64,6 +64,28 @@ CREATE TABLE IF NOT EXISTS harness_project_knowledge_entries (
 );
 CREATE INDEX IF NOT EXISTS harness_project_knowledge_entries_project_idx
     ON harness_project_knowledge_entries (project_path, knowledge_id);
+CREATE TABLE IF NOT EXISTS harness_workspace_chats (
+    id text PRIMARY KEY,
+    project_path text NOT NULL,
+    session_id text NOT NULL DEFAULT '',
+    title text NOT NULL DEFAULT '',
+    chatgpt_url text NOT NULL DEFAULT '',
+    archived_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    payload jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS harness_workspace_chats_project_updated_idx
+    ON harness_workspace_chats (project_path, updated_at DESC, id);
+CREATE TABLE IF NOT EXISTS harness_chat_items (
+    chat_id text NOT NULL,
+    item_id text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    payload jsonb NOT NULL,
+    PRIMARY KEY (chat_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS harness_chat_items_chat_created_idx
+    ON harness_chat_items (chat_id, created_at, item_id);
 INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, version, updated_at, updated_by_request_id)
 SELECT legacy.project_path, 'legacy-project-knowledge', legacy.content, GREATEST(legacy.version, 1), legacy.updated_at, legacy.updated_by_request_id
 FROM harness_project_knowledge AS legacy
