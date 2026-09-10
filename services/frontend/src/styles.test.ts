@@ -107,6 +107,20 @@ describe('composer layout CSS', () => {
   })
 
 
+  it('renders effort as a compact two-stage capsule instead of a native select pill', () => {
+    const effort = lastRule('.composer-effort-picker')
+    const select = lastRule('.composer-effort-picker select')
+    const arrow = lastRule('.composer-effort-picker::after')
+
+    expect(effort).toContain('position: relative')
+    expect(effort).toContain('border-radius: 999px')
+    expect(effort).toContain('gap: 6px')
+    expect(select).toContain('appearance: none')
+    expect(select).toContain('border-radius: 999px')
+    expect(select).toContain('font-variant-numeric: tabular-nums')
+    expect(arrow).toContain('transform: rotate(45deg)')
+  })
+
   it('uses calm semantic palettes for selected execution and automation icons', () => {
     const protectedMode = lastRule('.composer-round-action.mode-protected.selected')
     const unprotectedMode = lastRule('.composer-round-action.mode-unprotected.selected')
