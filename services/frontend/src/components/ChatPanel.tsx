@@ -1,7 +1,8 @@
 import { Fragment, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { AutomationMode, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
-import { clearComposerDraft, loadComposerDraft, saveComposerDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
+import type { AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
+import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
+import { ChatItemBoundary } from './ChatItemBoundary'
 import { StatusPill } from './StatusPill'
 import { stateLabel } from '../lib/risk'
 import { addChatAttachments, uniquifyPastedChatFiles } from '../lib/chatAttachments'
@@ -63,7 +64,7 @@ function prioritizedChangeFiles(files: ChatChangeFile[]) {
     .map(({ file }) => file)
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -75,6 +76,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   historyViewportStore?: ChatViewportStore
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
+  effortLevel?: EffortLevel
   chatTransportMode?: ChatTransportMode
   attachmentsEnabled?: boolean
   preparedAttachmentCount?: number
@@ -91,6 +93,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   transportProgress?: string
   onExecutionMode?: (mode: ExecutionMode) => void
   onAutomationMode?: (mode: AutomationMode) => void
+  onEffortLevel?: (level: EffortLevel) => void
   onChatTransportMode?: (mode: ChatTransportMode) => void
   onKnowledgeSharing?: (enabled: boolean) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
@@ -129,11 +132,12 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
+  const initialFileDraft = loadComposerFileDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)
   const [composerHeight, setComposerHeight] = useState(initialDraft.height)
-  const [attachments, setAttachments] = useState<File[]>([])
+  const [attachments, setAttachments] = useState<File[]>(initialFileDraft.attachments)
   const [attachmentError, setAttachmentError] = useState('')
-  const [projectFiles, setProjectFiles] = useState<string[]>([])
+  const [projectFiles, setProjectFiles] = useState<string[]>(initialFileDraft.projectFiles)
   const [fileQuery, setFileQuery] = useState<{ start: number; end: number; query: string }>()
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -150,6 +154,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const selectedArtifacts: ChatArtifactSelection = artifactSelection || { context: false, prompt: true, result: false, error: false }
   const currentExecutionMode = executionMode || session.execution_mode || 'protected'
   const currentAutomationMode = automationMode || session.automation_mode || 'manual'
+  const currentEffortLevel = effortLevel || session.effort_level || 'medium'
   const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
   const effectiveTransport = chatTransport || globalTransport
@@ -166,9 +171,11 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
     const draft = loadComposerDraft(session.project_path, activeChatId)
-    setMessage(draft.message); setComposerHeight(draft.height); setContentView('conversation'); setExpandedWhxNoticeRunId('')
+    const fileDraft = loadComposerFileDraft(session.project_path, activeChatId)
+    setMessage(draft.message); setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles(fileDraft.projectFiles); setAttachmentError(''); setContentView('conversation'); setExpandedWhxNoticeRunId('')
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
+  useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
   useEffect(() => () => {
     if (copiedResetTimerRef.current !== null) window.clearTimeout(copiedResetTimerRef.current)
   }, [])
@@ -194,6 +201,16 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     observer.observe(composer)
     return () => observer.disconnect()
   }, [])
+
+  function persistAttachments(nextAttachments: File[]) {
+    saveComposerFileDraft(session.project_path, activeChatId, { attachments: nextAttachments, projectFiles })
+    setAttachments(nextAttachments)
+  }
+
+  function persistProjectFiles(nextProjectFiles: string[]) {
+    saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles: nextProjectFiles })
+    setProjectFiles(nextProjectFiles)
+  }
 
   function clearComposer() {
     setMessage('')
@@ -226,7 +243,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
 
   function addFiles(files: File[]) {
     const next = addChatAttachments(attachments, files)
-    setAttachments(next.files); setAttachmentError(next.error || '')
+    persistAttachments(next.files); setAttachmentError(next.error || '')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -286,7 +303,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   function selectProjectFile(path: string) {
     if (!fileQuery) return
     setMessage((current) => `${current.slice(0, fileQuery.start)}${current.slice(fileQuery.end)}`)
-    setProjectFiles((current) => [...new Set([...current, path])])
+    persistProjectFiles([...new Set([...projectFiles, path])])
     setFileQuery(undefined)
     window.setTimeout(() => textareaRef.current?.focus(), 0)
   }
@@ -308,9 +325,14 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   }
 
   const latestFailureNoticeId = [...items].reverse().find(isFailureNotice)?.id
+  // Each entry renders inside its own boundary: without one, a single throwing
+  // item unmounts the whole workspace and leaves a blank window, turning a
+  // cosmetic defect in one message into total loss of the UI.
   const renderChatEntry = (item: ChatItem) => <Fragment key={item.id}>
+    <ChatItemBoundary label="Esta mensagem não pôde ser apresentada">
     <ChatItemView item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRepairWithGPT={onRepairWithGPT} canRepairWithGPT={canRepairWithGPT && item.id === latestFailureNoticeId} onRetryDependencyNetwork={onRetryDependencyNetwork} canRetryDependencyNetwork={canRetryDependencyNetwork && item.id === latestFailureNoticeId} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) && canResendPreparedRequest(item) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />
-    {item.iteration?.phase === 'result' && item.turnKind !== 'workflow' && <ReturnedArtifactGallery sessionId={session.id} artifacts={session.artifacts} requestId={item.iteration.requestId}/>}
+    </ChatItemBoundary>
+    {item.iteration?.phase === 'result' && item.turnKind !== 'workflow' && <ChatItemBoundary label="Os artefactos desta iteração não puderam ser apresentados"><ReturnedArtifactGallery sessionId={session.id} artifacts={session.artifacts} requestId={item.iteration.requestId}/></ChatItemBoundary>}
   </Fragment>
 
   return <section className={`chat-panel ${embedded ? 'embedded' : ''}`}>
@@ -398,8 +420,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
         onKeyDown={resizeComposerFromKeyboard}
       />
       <div className="composer-scroll-area">
-      {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => setAttachments((current) => current.filter((item) => item !== file))}/>)}</div> : null}
-      {projectFiles.length ? <div className="composer-file-references" aria-label="Ficheiros do projeto referenciados">{projectFiles.map((path) => <span className="composer-file-reference-chip" key={path}><Icon name="file" size={11}/><b>{path}</b><button type="button" onClick={() => setProjectFiles((current) => current.filter((item) => item !== path))} aria-label={`Remover referência ${path}`}><Icon name="close" size={9}/></button></span>)}</div> : null}
+      {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
+      {projectFiles.length ? <div className="composer-file-references" aria-label="Ficheiros do projeto referenciados">{projectFiles.map((path) => <span className="composer-file-reference-chip" key={path}><Icon name="file" size={11}/><b>{path}</b><button type="button" onClick={() => persistProjectFiles(projectFiles.filter((item) => item !== path))} aria-label={`Remover referência ${path}`}><Icon name="close" size={9}/></button></span>)}</div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       <div className="composer-editor-shell"><textarea ref={textareaRef} lang="pt-PT" spellCheck autoCorrect="on" autoCapitalize="sentences" disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => updateMessage(event.target.value, event.target.selectionStart)} onClick={(event) => setFileQuery(fileReferenceQuery(event.currentTarget.value, event.currentTarget.selectionStart))} onPaste={pasteFiles} onKeyDown={(event) => {
         if (fileSuggestions.length && event.key === 'Escape') { event.preventDefault(); setFileQuery(undefined); return }
@@ -429,6 +451,18 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
             <button type="button" className={`composer-round-action mode-manual ${currentAutomationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
             <button type="button" className={`composer-round-action mode-auto ${currentAutomationMode === 'auto' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto'} aria-label="Auto" title="Auto · mudanças válidas seguem Protected e são aplicadas após verificação" onClick={() => onAutomationMode?.('auto')}><Icon name="agent" size={12}/></button>
           </span>
+          <label className="composer-effort-picker" title="Nível de esforço · limita tentativas automáticas e, a partir de Extra High, ativa melhoria contínua pós-sucesso">
+            <span>Esforço</span>
+            <select aria-label="Nível de esforço" value={currentEffortLevel} disabled={busy || !onEffortLevel} onChange={(event) => onEffortLevel?.(event.target.value as EffortLevel)}>
+              <option value="low">Low · 1</option>
+              <option value="medium">Medium · 3</option>
+              <option value="high">High · 6</option>
+              <option value="extra_high">Extra High · 10</option>
+              <option value="max">Max · 15</option>
+              <option value="ultra">Ultra · 30</option>
+              <option value="loop">Loop · ∞</option>
+            </select>
+          </label>
           <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
             <button type="button" className={`composer-round-action mode-scraper ${currentChatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharness interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
             <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>

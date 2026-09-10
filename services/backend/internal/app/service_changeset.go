@@ -345,11 +345,41 @@ func changeSetPaths(set domain.ChangeSet) []string {
 }
 
 type conflictCapsule struct {
-	Protocol        string                `json:"protocol"`
-	ConflictID      string                `json:"conflict_id"`
-	CurrentRevision string                `json:"current_revision"`
-	OriginalPlanIDs []string              `json:"original_plan_ids"`
-	Files           []conflictCapsuleFile `json:"files"`
+	Protocol        string   `json:"protocol"`
+	ConflictID      string   `json:"conflict_id"`
+	CurrentRevision string   `json:"current_revision"`
+	OriginalPlanIDs []string `json:"original_plan_ids"`
+	// Intent carries why each side of the collision exists. Three versions of
+	// a file say what differs; only intent says which reconciliation is
+	// correct, so a resolver without it can do no better than guess textually.
+	Intent *conflictCapsuleIntent `json:"intent,omitempty"`
+	Files  []conflictCapsuleFile  `json:"files"`
+}
+
+// conflictCapsuleIntent describes the purpose of both colliding sides and how
+// many times this same conflict has already been attempted.
+type conflictCapsuleIntent struct {
+	// OurGoal is the colliding candidate's own planner-authored purpose.
+	OurGoal string `json:"our_goal,omitempty"`
+	// OurCommitMessage is the Conventional Commits subject the plan declared.
+	OurCommitMessage string `json:"our_commit_message,omitempty"`
+	// IncomingChanges are the already-integrated changes this candidate
+	// collides with, newest first, each stating its own purpose.
+	IncomingChanges []conflictCapsuleChange `json:"incoming_changes,omitempty"`
+	// Attempt/MaxAttempts make the remaining budget explicit so the resolver
+	// can tell a first attempt from the last one and choose a decisively
+	// simpler reconciliation rather than repeating a strategy that has already
+	// failed. Exhausting the budget stops automatic resolution.
+	Attempt     int `json:"attempt"`
+	MaxAttempts int `json:"max_attempts"`
+	// PreviousAttempts records what earlier rounds of THIS conflict already
+	// tried, so the resolver can see it is circling rather than converging.
+	PreviousAttempts []string `json:"previous_attempts,omitempty"`
+}
+
+type conflictCapsuleChange struct {
+	Commit  string `json:"commit"`
+	Purpose string `json:"purpose"`
 }
 
 type conflictCapsuleFile struct {
@@ -374,7 +404,22 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 		conflictID = item.IntegrationConflict.ID
 	}
 	paths := conflictPaths(conflicts)
-	if continuing && item.ConflictAttempt >= maxAutoRepairAttempts {
+
+	// Same rule as the Git-native merge path: a planner may not patch
+	// Wharnex-managed project state, so a conflict there can never be resolved
+	// by a focused-resolution bundle and must not be sent to one.
+	managed, resolvable := partitionManagedConflictPaths(paths)
+	if len(managed) > 0 {
+		s.bus.Publish(sessionID, "integration.conflict_managed_paths", map[string]any{
+			"paths": managed, "reason": "Wharnex-managed project state is reconciled locally, never by a planner patch",
+		})
+	}
+	if len(resolvable) == 0 {
+		return s.failManagedOnlyConflict(sessionID, item, conflictID, managed)
+	}
+	paths = resolvable
+
+	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
 	planIDs := make([]string, 0)
@@ -425,6 +470,9 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 		} else {
 			current.ConflictAttempt++
 		}
+		if current.AutomationMode == domain.AutomationModeAuto {
+			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
+		}
 		current.IntegrationConflict = &resolution
 		current.LastRequestID = requestID
 		current.LastManualPrompt = prompt
@@ -442,7 +490,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 }
 
 // exhaustConflictResolution stops an automatic conflict-resolution loop that
-// has already spent maxAutoRepairAttempts rounds on the SAME conflict ID
+// has already spent the selected effort budget on the SAME conflict ID
 // without converging, instead of preparing yet another automatic prompt.
 // Shared by prepareConflictResolution (ChangeSet path) and
 // prepareConflictResolutionFromMerge (Git merge path) — both call this the
@@ -649,4 +697,48 @@ func (s *Service) replayPlanPatches(ctx context.Context, runner sandbox.Runner, 
 		}
 	}
 	return nil
+}
+
+// partitionManagedConflictPaths splits conflicting paths into the ones Wharnex
+// owns and the ones a planner is allowed to patch.
+//
+// The two sets must never be mixed in one focused-resolution request: a bundle
+// that touches a managed path is rejected by the patch validator before any
+// conflict-specific check runs, so including one makes the whole request
+// unsatisfiable.
+func partitionManagedConflictPaths(paths []string) (managed []string, resolvable []string) {
+	for _, path := range paths {
+		if protocol.IsWharnexManagedPath(path) {
+			managed = append(managed, path)
+			continue
+		}
+		resolvable = append(resolvable, path)
+	}
+	return managed, resolvable
+}
+
+// failManagedOnlyConflict terminates a conflict whose every path is
+// Wharnex-managed.
+//
+// There is no planner turn that can resolve this, so the request stops with an
+// actionable local state instead of being retried against a contradiction. The
+// conflicting knowledge itself is not lost: the records remain in the database
+// and are re-materialized on the next knowledge commit, which is why the
+// remedy is local rather than a model round.
+func (s *Service) failManagedOnlyConflict(sessionID string, item domain.Session, conflictID string, managed []string) (domain.Session, error) {
+	detail := fmt.Sprintf(
+		"integration conflict confined to Wharnex-managed project state (%s); these paths are materialized by Wharnex and are never resolved by a planner patch. Re-run the request against the current host state.",
+		strings.Join(managed, ", "),
+	)
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.State = "conflict_resolution_exhausted"
+		current.LastRepairError = detail
+		current.IntegrationConflict = nil
+		return nil
+	})
+	if err != nil {
+		return updated, err
+	}
+	s.bus.Publish(sessionID, "conflict.managed_paths_only", map[string]any{"conflict_id": conflictID, "paths": managed})
+	return updated, fmt.Errorf("%w: %s", ErrManagedStateConflict, strings.Join(managed, ", "))
 }

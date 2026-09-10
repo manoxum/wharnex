@@ -154,4 +154,14 @@ describe('composer draft memory', () => {
     memory.clearComposerDraft('/p', 'chat-a')
     expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: '', height: 156 })
   })
+
+  it('keeps unsent attachment selections scoped to each chat for the current app runtime', async () => {
+    const memory = await import('./workspaceMemory')
+    const file = new File(['draft'], 'draft.txt', { type: 'text/plain' })
+    memory.saveComposerFileDraft('/p', 'chat-a', { attachments: [file], projectFiles: ['src/App.tsx'] })
+    expect(memory.loadComposerFileDraft('/p', 'chat-a')).toEqual({ attachments: [file], projectFiles: ['src/App.tsx'] })
+    expect(memory.loadComposerFileDraft('/p', 'chat-b')).toEqual({ attachments: [], projectFiles: [] })
+    memory.clearComposerDraft('/p', 'chat-a')
+    expect(memory.loadComposerFileDraft('/p', 'chat-a')).toEqual({ attachments: [], projectFiles: [] })
+  })
 })

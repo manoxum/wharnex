@@ -51,7 +51,7 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 		_ = s.orchestrator.PutTask(ctx, task)
 		return OrchestratorRunResult{}, err
 	}
-	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode)
+	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode, owner.EffortLevel)
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}

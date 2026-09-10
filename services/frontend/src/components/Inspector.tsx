@@ -6,8 +6,10 @@ import { riskLabel } from '../lib/risk'
 import { api } from '../lib/api'
 import { isDesktop } from '../lib/desktop'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import { residentPoolChats } from '../lib/chatPanePool'
 import { DirectChatGPTPane } from './DirectChatGPTPane'
 import { MarkdownContent } from './MarkdownContent'
+import { TranslatableMarkdown } from './TranslatableMarkdown'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { buildExecutionTimeline } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
@@ -250,8 +252,18 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
 }) {
+  // Only a bounded window of chats keeps a live pane.
+  //
+  // Every pane owns bridge subscriptions and re-renders on remote state, so
+  // mounting one per chat made the cost grow with the chat count rather than
+  // with what the user is actually using. A workspace that grew to thirty chats
+  // blocked the renderer's main thread while a ChatGPT surface loaded — the
+  // window went unresponsive and was then killed and restarted in a loop. The
+  // active chat is always resident; the rest are the most recently used, and a
+  // chat outside the window simply mounts its pane when it is next opened.
+  const resident = residentPoolChats(chats, activeChatId)
   return <div className="desktop-chatgpt-pool" hidden={!visible}>
-    {chats.map((liveChat) => {
+    {resident.map((liveChat) => {
       const isActive = liveChat.id === activeChatId
       const surface = isActive ? chatgptSurface : undefined
       // The active chat's own native view is additionally suspended (hidden)
@@ -297,7 +309,7 @@ export function PlanView({ session }: { session: Session }) {
     <div className="section-heading plan-heading"><div><span className="panel-kicker">{workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
     <div className="metric-row"><Metric label={workflow ? 'Comandos locais' : 'Operações'} value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
-    {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><MarkdownContent markdown={session.last_bundle.readme} /></div></details>}
+    {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><TranslatableMarkdown sessionId={session.id} markdown={session.last_bundle.readme} /></div></details>}
     <div className="operation-list">
       {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <details><summary>Ver diff</summary><pre className="diff-view">{op.patch}</pre></details>}</div></div>)}
       {verification.map((command, index) => <div className="operation verification" key={`v-${index}`}><div className="operation-index"><Icon name="check" size={15}/></div><div className="operation-body"><strong>{(command.argv || []).join(' ')}</strong><span>Verification · {command.cwd || '.'}</span></div></div>)}
@@ -357,8 +369,8 @@ export function TerminalView({ events }: { events: HarnessEvent[] }) {
   </div>
 }
 
-function executionKindLabel(kind: 'standard' | 'repair' | 'evidence' | 'conflict') {
-	return kind === 'repair' ? 'Resolução de erro' : kind === 'evidence' ? 'Extração de informações' : kind === 'conflict' ? 'Resolução de conflito' : 'Execução principal'
+function executionKindLabel(kind: 'standard' | 'repair' | 'improvement' | 'evidence' | 'conflict') {
+	return kind === 'repair' ? 'Resolução de erro' : kind === 'improvement' ? 'Melhoria contínua' : kind === 'evidence' ? 'Extração de informações' : kind === 'conflict' ? 'Resolução de conflito' : 'Execução principal'
 }
 
 function formatExecutionDate(value: string) {

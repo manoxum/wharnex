@@ -159,7 +159,7 @@ describe('AgentWorkspace', () => {
     const empty = props()
     const rendered = render(empty.element)
     fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
-    expect(screen.getByText(/A fila está livre/)).toBeTruthy()
+    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
     rendered.rerender(<AgentWorkspace
       {...(empty.element.props)}
       executionFIFO={[
@@ -169,7 +169,30 @@ describe('AgentWorkspace', () => {
     />)
     expect(screen.getByText('plan-one')).toBeTruthy()
     expect(screen.getByText('plan-two')).toBeTruthy()
-    expect(screen.getByText('02')).toBeTruthy()
+    expect(screen.getByText('#02')).toBeTruthy()
+    expect(screen.getAllByText('Em execução').length).toBeGreaterThan(0)
+    expect(screen.getByText('Na fila')).toBeTruthy()
+  })
+
+  it('exposes the per-project execution concurrency next to the queue it governs', async () => {
+    vi.spyOn(api, 'executionConcurrency').mockResolvedValue({ concurrency: 1, max: 8 })
+    const update = vi.spyOn(api, 'updateExecutionConcurrency').mockResolvedValue({ concurrency: 3, max: 8 })
+    render(props().element)
+    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
+    const input = await screen.findByLabelText('Execuções simultâneas por projeto')
+    expect(input.tagName).toBe('SELECT')
+    expect((input as HTMLSelectElement).value).toBe('1')
+    fireEvent.change(input, { target: { value: '3' } })
+    await waitFor(() => expect(update).toHaveBeenCalledWith(3))
+    await waitFor(() => expect((screen.getByLabelText('Execuções simultâneas por projeto') as HTMLSelectElement).value).toBe('3'))
+  })
+
+  it('keeps the execution queue usable when the concurrency limit cannot be read', async () => {
+    vi.spyOn(api, 'executionConcurrency').mockRejectedValue(new Error('backend unavailable'))
+    render(props().element)
+    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
+    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
+    await waitFor(() => expect(screen.queryByLabelText('Execuções simultâneas por projeto')).toBeNull())
   })
 
   it('does not expose Apply or Reject from stale execution success without pending host changes', () => {

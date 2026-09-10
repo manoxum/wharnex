@@ -298,3 +298,24 @@ func TestBuildManualPromptOrchestratorUsesDedicatedPlanningProtocol(t *testing.T
 		}
 	}
 }
+
+func TestBuildManualPromptCarriesEffortLevelAndCostBenefitContract(t *testing.T) {
+	prompt := BuildManualPrompt(Request{
+		RequestID:      "req-effort",
+		Message:        "corrigir e melhorar",
+		AutomationMode: domain.AutomationModeAuto,
+		EffortLevel:    domain.EffortLevelExtraHigh,
+	})
+	for _, want := range []string{
+		"EFFORT LEVEL: extra_high",
+		"low: one resolution attempt only",
+		"medium: up to 3 total automated resolution attempts",
+		"extra_high: up to 10 total attempts",
+		"continuous-improvement rounds",
+		"Never consume attempts merely because they are available",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("effort prompt missing %q", want)
+		}
+	}
+}

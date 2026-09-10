@@ -138,6 +138,7 @@ export type ContextInspection = {
 
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
+export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'
 /** Scraper: Desktop drives the embedded ChatGPT DOM directly, as it always
  *  has. Manual: Desktop never touches that DOM — the prompt is only shown
  *  for copy/paste and a response bundle is only imported by explicit human
@@ -191,6 +192,9 @@ export type Session = {
   chat_id?: string
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
+  effort_level?: EffortLevel
+  automation_attempt?: number
+  improvement_attempt?: number
   chat_transport_mode?: ChatTransportMode
   knowledge_sharing_enabled?: boolean
   knowledge_last_seen_revision?: number
@@ -236,7 +240,7 @@ export type Session = {
   artifacts?: ArtifactRecord[]
   interrupted_execution?: { plan_id: string; requested_at: string; approved: boolean; status?: 'awaiting_decision' | 'running' | 'resuming' | 'failed_retryable'; last_error?: string }
   remote_recovery_attempt?: number
-	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'evidence' | 'conflict' | 'knowledge_review'; created_at: string }>
+	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'improvement' | 'evidence' | 'conflict' | 'knowledge_review'; created_at: string }>
   /** Set the instant a chat's session is archived; null once restored. Set
    *  together, restore is a pure state flip (api.restoreChat) while it is
    *  still within the grace window (see compacted_at). */
@@ -270,6 +274,18 @@ export type ArtifactPresentationItem = { path: string; preview_path?: string; la
 export type ArtifactPresentationGallery = { id: string; title?: string; description?: string; layout: 'auto' | 'grid' | 'masonry' | 'strip'; sizing: 'uniform' | 'adaptive'; items: ArtifactPresentationItem[] }
 export type ArtifactPresentation = { protocol: 'harness.artifact-presentation/v1'; fallback: boolean; warning?: string; galleries: ArtifactPresentationGallery[] }
 export type ArtifactSettings = { retention_days: number; bundle_window_limit: number }
+export type LanguageCode = 'pt' | 'en' | 'fr'
+export type LanguageSettings = { version: 1; interface_language: LanguageCode; translation_languages: LanguageCode[] }
+export type MarkdownTranslation = { protocol: 'harness.utility/v1'; task: 'translate_markdown'; target_language: LanguageCode; markdown: string }
+// ExecutionConcurrency is how many plans one project may verify at a time,
+// plus the ceiling the backend clamps to. Raising it is not free: each
+// concurrent runner claims a full container memory allowance and a complete
+// project clone.
+export type ExecutionConcurrency = {
+  concurrency: number
+  max: number
+}
+
 export type BundleQuota = {
   window_hours: number
   limit: number
@@ -446,6 +462,24 @@ export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | '
 export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage?: string; requestId: string }
 export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }
 export type ChatChangeSummary = { planId: string; files: ChatChangeFile[]; hostCommands?: CommandResult[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
+// One chat's attention inputs, without the megabyte of session payload the
+// attention center never reads. See /api/workspace-attention.
+export type AttentionRecord = {
+  session_id: string
+  chat_id: string
+  state: string
+  failure_kind?: string
+  last_request_id?: string
+  last_turn?: Session['last_turn']
+  policy?: Session['policy']
+  has_plan: boolean
+  plan_id?: string
+  last_execution_plan_id?: string
+  pending_host_changes: number
+  integration_conflict?: { id: string; path_count: number }
+  interrupted_execution?: { plan_id: string; status: string }
+}
+
 export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 export type ChatIterationRef = {
   id: string

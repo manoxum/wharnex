@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatPanel } from './ChatPanel'
 import type { Session } from '../types'
+import { clearEphemeralComposerDrafts } from '../lib/workspaceMemory'
 
 const session = {
   id: 'ses-test',
@@ -33,7 +34,7 @@ const chatActions = {
 }
 
 describe('ChatPanel', () => {
-  afterEach(() => { vi.restoreAllMocks(); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
+  afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
   it('positions the initial transcript at the latest messages without smooth scrolling', () => {
     const scrollIntoView = vi.fn(() => Promise.resolve())
@@ -397,6 +398,46 @@ describe('ChatPanel', () => {
     fireEvent.change(screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…'), { target: { value: 'implementar' } })
     fireEvent.submit(view.container.querySelector('form')!)
     expect(onSend).toHaveBeenCalledWith('implementar', [file], [], { context: false, prompt: true, result: false, error: false }, 'direct')
+  })
+
+  it('restores unsent file attachments after leaving and returning to the same chat', () => {
+    const file = new File(['draft'], 'rascunho.txt', { type: 'text/plain' })
+    const first = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="draft-files" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+    )
+    fireEvent.change(first.container.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } })
+    expect(first.container.textContent).toContain('rascunho.txt')
+    first.unmount()
+
+    const restored = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="draft-files" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(restored.container.textContent).toContain('rascunho.txt')
+    restored.unmount()
+
+    const other = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="other-chat" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(other.container.textContent).not.toContain('rascunho.txt')
+  })
+
+  it('persists a selected file before a keyed chat switch can unmount the composer', () => {
+    const file = new File(['draft'], 'troca-imediata.txt', { type: 'text/plain' })
+    const panel = (chatId: string) => (
+      <ChatPanel key={chatId} session={session} items={[]} chats={[]} activeChatId={chatId} busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />
+    )
+    const view = render(panel('chat-a'))
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+
+    act(() => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      view.rerender(panel('chat-b'))
+    })
+    expect(view.container.textContent).not.toContain('troca-imediata.txt')
+
+    view.rerender(panel('chat-a'))
+    expect(view.container.textContent).toContain('troca-imediata.txt')
   })
 
   it('finds eligible project files from @file and turns the selection into a chip', () => {

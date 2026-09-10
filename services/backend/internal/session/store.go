@@ -85,6 +85,16 @@ type Store struct {
 	// knowledgeCatalogs is the v2 in-memory fallback. Postgres persists the
 	// same model in harness_project_knowledge_state/entries.
 	knowledgeCatalogs map[string]domain.ProjectKnowledgeCatalog
+	// workspaceChats / workspaceChatItems are the in-memory fallbacks for the
+	// chat index and transcripts, used only when db is nil. Postgres persists
+	// the same model in harness_workspace_chats / harness_chat_items, which is
+	// where this state belongs: it previously lived in the browser's
+	// localStorage, where a single "clear data" destroyed every chat title,
+	// ordering, conversation binding and transcript while the sessions and
+	// their artifacts survived untouched. Lazily initialized: see
+	// workspacechats.go.
+	workspaceChats     map[string][]domain.WorkspaceChat
+	workspaceChatItems map[string][]domain.WorkspaceChatItem
 }
 
 func NewStore() *Store { return &Store{items: make(map[string]domain.Session)} }

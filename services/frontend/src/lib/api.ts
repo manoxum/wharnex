@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, AutomationMode, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, AttentionRecord, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -63,6 +63,8 @@ export function normalizeOrchestratorOverview(overview: OrchestratorOverview): O
 export const api = {
   url: API_URL,
   config: () => request<AppConfig>('/api/config'),
+  executionConcurrency: () => request<ExecutionConcurrency>('/api/execution-concurrency'),
+  updateExecutionConcurrency: (concurrency: number) => request<ExecutionConcurrency>('/api/execution-concurrency', { method: 'PUT', body: JSON.stringify({ concurrency }) }),
   tunnelConfig: () => request<TunnelProviderConfigResponse>('/api/tunnel-config'),
   updateTunnelConfig: (config: TunnelProviderDocument) => request<TunnelProviderConfigResponse>('/api/tunnel-config', { method: 'PUT', body: JSON.stringify(config) }),
   tunnelProviders: () => request<{ providers: TunnelProvider[] }>('/api/tunnel/providers'),
@@ -75,6 +77,8 @@ export const api = {
   connectRemoteStorage: (instanceID: string, provider: RemoteStorageProviderID, fields: Record<string, string>) => request<RemoteStorageConnection>('/api/remote-storage/connections', { method: 'POST', body: JSON.stringify({ instance_id: instanceID, provider, fields }) }),
   checkRemoteStorage: (remote: string) => request<{ connected: boolean }>('/api/remote-storage/connections/check', { method: 'POST', body: JSON.stringify({ remote }) }),
   artifactSettings: () => request<ArtifactSettings>('/api/artifact-settings'),
+  languageSettings: () => request<LanguageSettings>('/api/language-settings'),
+  updateLanguageSettings: (settings: LanguageSettings) => request<LanguageSettings>('/api/language-settings', { method: 'PUT', body: JSON.stringify(settings) }),
   updateArtifactSettings: (retentionDays: number, bundleWindowLimit: number) => request<ArtifactSettings>('/api/artifact-settings', { method: 'PUT', body: JSON.stringify({ retention_days: retentionDays, bundle_window_limit: bundleWindowLimit }) }),
   bundleQuota: () => request<BundleQuota>('/api/bundle-quota'),
   artifacts: (id: string) => request<{ artifacts: ArtifactRecord[] }>(`/api/sessions/${id}/artifacts`),
@@ -88,15 +92,18 @@ export const api = {
   clearStorage: (confirm: string) => request<{ status: string }>('/api/storage', { method: 'DELETE', body: JSON.stringify({ confirm }) }),
   createProject: (parentPath: string, name: string) => request<ProjectProvision>('/api/projects/create', { method: 'POST', body: JSON.stringify({ parent_path: parentPath, name }) }),
   cloneProject: (repositoryURL: string, parentPath: string, directory = '') => request<ProjectProvision>('/api/projects/clone', { method: 'POST', body: JSON.stringify({ repository_url: repositoryURL, parent_path: parentPath, directory }) }),
-  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'auto', chatId?: string) =>
-    request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode, automation_mode: automationMode, chat_id: chatId }) }),
+  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'auto', chatId?: string, effortLevel: EffortLevel = 'medium') =>
+    request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode, automation_mode: automationMode, effort_level: effortLevel, chat_id: chatId }) }),
   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
+  workspaceAttention: (projectPath: string) => request<{ records: AttentionRecord[] }>(`/api/workspace-attention?project_path=${encodeURIComponent(projectPath)}`),
   projectKnowledge: (id: string) => request<{ knowledge: ProjectKnowledge | null }>(`/api/sessions/${id}/knowledge`),
   deleteSession: (id: string) => request<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
   setExecutionMode: (id: string, executionMode: ExecutionMode) =>
     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
   setAutomationMode: (id: string, automationMode: AutomationMode) =>
     request<Session>(`/api/sessions/${id}/automation-mode`, { method: 'PUT', body: JSON.stringify({ automation_mode: automationMode }) }),
+  setEffortLevel: (id: string, effortLevel: EffortLevel) =>
+    request<Session>(`/api/sessions/${id}/effort-level`, { method: 'PUT', body: JSON.stringify({ effort_level: effortLevel }) }),
   setChatTransportMode: (id: string, chatTransportMode: ChatTransportMode) =>
     request<Session>(`/api/sessions/${id}/chat-transport-mode`, { method: 'PUT', body: JSON.stringify({ chat_transport_mode: chatTransportMode }) }),
   setKnowledgeSharing: (id: string, enabled: boolean) =>
@@ -143,6 +150,7 @@ export const api = {
   deleteWorkspacePath: (id: string, path: string) => request<void>(`/api/sessions/${id}/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   readFile: (id: string, path: string) => request<WorkspaceFile>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
   filePreviewURL: (id: string, path: string) => `${API_URL}/api/sessions/${id}/file/preview?path=${encodeURIComponent(path)}`,
+  translateMarkdown: (id: string, targetLanguage: LanguageCode, markdown: string) => request<MarkdownTranslation>(`/api/sessions/${id}/translate-markdown`, { method: 'POST', body: JSON.stringify({ target_language: targetLanguage, markdown }) }),
   writeFile: (id: string, file: Pick<WorkspaceFile, 'path' | 'content' | 'sha256'>) =>
     request<WorkspaceFile>(`/api/sessions/${id}/file`, {
       method: 'PUT',

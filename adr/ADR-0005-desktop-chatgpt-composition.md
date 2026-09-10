@@ -14,7 +14,9 @@ The Agent exposes two deliberately separate products on that primitive. **Engine
 
 The remote view has no preload and no Node integration, with sandbox, context isolation and web security enabled. It uses a dedicated persistent partition so normal ChatGPT login state survives restarts. Wharnex never reads cookies or generated output; DOM access is restricted to named transport and owned account-management controls.
 
-A narrow local preload lets the trusted Wharness frontend show/hide/resize the native view, request browser navigation controls, copy the current context ZIP as a native clipboard file, and read clipboard text for explicit JSON import.
+An explicit toolbar action may open the current trusted ChatGPT URL in a detached Electron `BrowserWindow` for ordinary human browsing. That internal browser reuses the same persistent ChatGPT partition only for browser-session state, keeps the same sandbox/context-isolation/web-security boundary with no preload or Node integration, and is never registered as an Engine transport/account-automation surface. One internal browser is reused per owning Wharnex desktop window; top-level navigation is confined to trusted `chatgpt.com` HTTPS origins and unrelated HTTPS destinations are delegated to the operating-system browser. This convenience window is not an authentication workaround: providers that reject embedded Electron user-agents continue to use the external managed-browser flow from ADR-0013.
+
+A narrow local preload lets the trusted Wharness frontend show/hide/resize the native view, request browser navigation controls, open the detached internal browser through one named IPC capability, copy the current context ZIP as a native clipboard file, and read clipboard text for explicit JSON import.
 
 ## Consequences
 

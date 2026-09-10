@@ -1,11 +1,20 @@
 {
   "protocol": "harness.knowledge/v2",
   "entries": [
+    "agent-queue-composer-drafts",
     "artifact-presentation-galleries",
+    "brand-identity-system",
+    "effort-level-budgets",
     "knowledge-sharing-toggle",
     "legacy-project-knowledge",
+    "logo-creative-reset",
     "logo-exploration-31-38",
     "logo-exploration-39-50",
-    "orchestrator-mode-design"
+    "logo-exploration-51-86",
+    "logo-exploration-g1-l2",
+    "logo-reset-a1-f2",
+    "markdown-translation-utility",
+    "orchestrator-mode-design",
+    "plan-approval-continuations"
   ]
 }

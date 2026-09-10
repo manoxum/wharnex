@@ -23,6 +23,31 @@ Required controls:
 
 Local sandbox exists only for tests/development and must require explicit opt-in.
 
+## Verification workspace baseline (v1.3.2)
+
+A verification sandbox is a real local clone of the host repository, so it
+carries the host's actual commit history. Populating its working tree from the
+host's *current* files leaves that tree ahead of the base a pending plan's patch
+was written against — and leaves the sandbox's index inconsistent with its
+working tree, which also disables `git apply --3way`.
+
+For a Protected `change` plan with an anchored request base (see
+`SoT/EXECUTION_MODEL.md`), the workspace is therefore repointed at that base
+before any operation runs: the request's base ref is fetched from the host by
+absolute path — a local clone negotiates `refs/heads/*` only, so the ref does
+not arrive with the clone even though its object does — and the integration
+branch is checked out there. `git clean` runs without `-x`, so lazily hydrated
+gitignored dependency trees (`node_modules`, the private Go module cache)
+survive and are not copied again.
+
+Pending candidates replayed into that workspace are merged onto the same base
+branch, so a sequential build of compatible changes chains correctly instead of
+each candidate being rooted independently.
+
+A workspace rebuilt from an immutable archived request base has a synthetic root
+commit and no ancestry in common with the host. It keeps the legacy
+`ChangeSet` path unchanged, because there is nothing to branch or merge onto.
+
 ## Runner toolchain and environment disclosure
 
 The runner image ships the language toolchains (Go, Node with corepack), build drivers (`make`, `build-essential`, `pkg-config`), source control and patching (`git`, `patch`, `diffutils`), structured-data and search utilities (`jq`, `ripgrep`), and archive/inspection utilities (`unzip`, `zip`, `xz-utils`, `file`, `tree`). Network clients (`curl`, `wget`, `ssh`, `nc`) MUST remain absent: the runner has no network by default and those executables are denied by policy regardless.

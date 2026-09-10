@@ -16,8 +16,20 @@ describe('App chat-id backfill', () => {
     // deduplicated per session id so it does not refire every render.
     const start = source.indexOf('chatIdBackfillRef.current.has(session.id)')
     expect(start).toBeGreaterThan(-1)
-    const window = source.slice(start - 400, start + 400)
+    const window = source.slice(start - 900, start + 400)
     expect(window).toContain('session.chat_id === activeChatId) return')
     expect(window).toContain('api.setChatId(session.id, activeChatId)')
+  })
+
+  // A chat switch changes the active chat id immediately and reconciles the
+  // session behind it, so `session` is briefly still the previous chat's. That
+  // transient must not be reported as an inconsistent association — doing so
+  // fired the error on essentially every switch.
+  it('ignores the stale session a switch leaves behind instead of calling it inconsistent', () => {
+    const start = source.indexOf('Associação de chat inconsistente')
+    expect(start).toBeGreaterThan(-1)
+    const window = source.slice(start - 700, start)
+    expect(window).toContain('const owner = chats.find((chat) => chat.id === activeChatId)')
+    expect(window).toContain('if (owner && owner.sessionId !== session.id) return')
   })
 })

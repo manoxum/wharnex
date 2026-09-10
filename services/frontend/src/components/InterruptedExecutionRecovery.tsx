@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Session } from '../types'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
-import type { ExecutionFIFOItem } from './AgentWorkspace'
+import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import { Icon } from './Icon'
 
 export type InterruptedExecutionTarget = {

@@ -123,3 +123,56 @@ Each chat's DOM/download supervisor is single-flight. Processing classification 
 ## Request knowledge artifact
 
 Direct ZIP, remote one-shot, live-channel, and Desktop archive request transports carry a first-class immutable project-knowledge snapshot. Before creating that snapshot, Wharnex reads the managed project catalog under `.wharnex/knowledge/` and imports a changed valid file catalog into the local DB; the subtree is excluded from ordinary context capture so knowledge is not sent twice. Under `harness.knowledge/v2`, each record is transported as a separate `knowledge/<id>.md`; metadata includes `state`, `sharing_enabled`, catalog `revision`, catalog `sha256`, updater, and every entry's `id`, `path`, `version`, SHA-256, and updater. The bytes MUST match those hashes. The planner prompt identifies the v2 protocol and catalog revision/count but MUST NOT inline the knowledge bodies. `state: none` means no knowledge files are attached (because sharing is off or the catalog is empty).
+
+## Account operations and chat maintenance (v1.3.3 — see `adr/ADR-0037`)
+
+Account-management operations (find/create project, move conversation, `WHX:`
+rename, stop/archive, sidebar collapse, library bundle deletion) are activated
+with trusted native input, not synthetic DOM clicks. Each script locates its
+control and returns that control's viewport-relative click rect; the main
+process commits it with `sendInputEvent`, the same mechanism the composer
+transport already uses. ChatGPT renders these controls as Radix
+`div[role="menuitem"]` nodes that ignore `HTMLElement.click()`, so a script that
+clicks is a script that reports success while doing nothing. A script that
+cannot find its control returns a typed failure state — and, for menus, the
+labels it did observe — rather than activating an adjacent control.
+
+The permitted inspection boundary is unchanged: structural control metadata and
+exact user-owned project/conversation labels only. Trusted input is a
+renderer-level event; it does not move the operating-system pointer and does not
+focus the remote WebContents.
+
+A conversation's menu is addressed through `data-conversation-options-trigger`,
+whose value is that conversation's own id, with the thread-header
+`conversation-options-button` as the fallback when the conversation is open but
+absent from the visible history. List position is never used.
+
+Renaming commits through the inline sidebar `input[name="title-editor"]`; there
+is no rename dialog. The staged value is committed with a trusted `Enter` and
+confirmed from the conversation row's own label.
+
+Project existence is decided by reading the account's own "Move to project"
+inventory with names folded for case and whitespace, and creation is confirmed
+by re-reading that same inventory. A confirmation matching more than once is
+reported as a duplicate rather than accepted, so a project is never created
+twice remotely.
+
+Archiving a chat is local and authoritative. An unconfirmed remote archive is
+recorded as durable pending chat state and retried by a bounded background job
+(exponential backoff from 5 minutes to a 6 hour ceiling, 8 attempts); it never
+prevents the user from closing the chat. A retry recreates the owned view from
+the stored conversation URL, because a released view is not evidence that the
+remote conversation was archived.
+
+A chat opens with a provisional locally-derived title. A background job assigns
+a definitive title and moves the conversation into the project; a title the user
+typed is definitive and is never revisited. Maintenance jobs process one item
+per tick, skip the chat the user is viewing, and degrade into durable state
+instead of interrupting unrelated work.
+
+Bundle files accumulated in the account library become eligible for deletion
+once their owning chat has been archived beyond the retention window (3 days).
+Eligibility is proven by the bundle naming contract
+`whx_bundle_<req|res>_<chat_id>_<request_id>[_<subrequest_id>].zip`, which
+embeds the owning chat id. An entry that does not parse as a Wharnex bundle for
+an expired archived chat is never deleted.

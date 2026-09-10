@@ -15,7 +15,7 @@
     "request_id": {"type": "string", "minLength": 1},
     "status": {"enum": ["ready", "blocked"]},
     "summary": {"type": "string"},
-    "commit_message": {"type": "string", "minLength": 1, "maxLength": 500, "description": "Planner-authored Conventional Commits subject for change plans. It must classify the dominant change and describe the concrete implemented or corrected technical outcome; workflow plans omit it."},
+    "commit_message": {"type": "string", "minLength": 1, "maxLength": 4000, "description": "Planner-authored Git commit message for change plans, mandatory and validated before execution. The first line is a Conventional Commits subject of at most 72 characters that classifies the dominant change and states the concrete implemented or corrected technical outcome; bookkeeping subjects such as 'update files' or 'apply patch' are rejected. An optional body, separated by exactly one blank line, explains why the change was made and is preserved verbatim in the real commit. Workflow plans omit the field."},
     "risk": {"enum": ["low", "medium", "high"]},
     "requires_approval": {"type": "boolean"},
     "operations": {

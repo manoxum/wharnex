@@ -54,6 +54,7 @@ interface WharnessDesktopBridge {
     queueComment(request: { cacheKey: string; sessionId: string; text: string; url?: string; requestId: string; commentId?: string; attachments?: DesktopUserAttachment[] }): Promise<{ ok: boolean; cacheKey: string; queued: boolean; requestId: string; duplicate?: boolean }>
     state(cacheKey: string): Promise<DesktopChatGPTState>
     release(cacheKey: string): Promise<{ ok: boolean; released: boolean }>
+    liveKeys(): Promise<string[]>
     archiveConversation(cacheKey: string, url?: string): Promise<{ ok: boolean; state: string }>
     stopConversation(cacheKey: string): Promise<{ ok: boolean; state: string }>
     cancelRequest(cacheKey: string, requestId: string): Promise<{ ok: boolean; cacheKey: string; requestId: string; cleared: boolean }>
@@ -69,6 +70,7 @@ interface WharnessDesktopBridge {
     setTransportMode(cacheKey: string, mode: 'scraper' | 'manual'): Promise<{ ok: boolean }>
     startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     openExternal(url?: string): Promise<{ ok: boolean }>
+    openInternal(url?: string): Promise<{ ok: boolean; reused: boolean }>
     resumeEmbedded(cacheKey: string): Promise<DesktopChatGPTState>
     resumeExpectedBundle(request: { cacheKey: string; sessionId: string; requestId: string; url: string; recoveryBootstrap?: string; expectedFilename?: string }): Promise<{ ok: boolean; cacheKey: string; requestId: string; expectedFilename: string }>
     continueExpectedBundle(cacheKey: string, requestId: string, options?: { force?: boolean }): Promise<{ ok: boolean; cacheKey: string; requestId: string; confirmationRequired?: boolean; reason?: string }>

@@ -40,6 +40,14 @@ func (s *Service) executionEnvironmentSection(ctx context.Context, projectPath s
 // internal continuations construct a request without holding the session.
 func (s *Service) plannerRequest(ctx context.Context, base planner.Request, snapshot domain.RequestKnowledgeSnapshot, projectPath string) planner.Request {
 	request := withPlannerKnowledge(base, snapshot)
+	if request.EffortLevel == "" && request.SessionID != "" {
+		if item, err := s.store.Get(request.SessionID); err == nil {
+			request.EffortLevel = normalizeEffortLevel(item.EffortLevel)
+		}
+	}
+	if request.EffortLevel == "" {
+		request.EffortLevel = domain.EffortLevelMedium
+	}
 	request.ExecutionEnvironment = s.executionEnvironmentSection(ctx, projectPath)
 	return request
 }

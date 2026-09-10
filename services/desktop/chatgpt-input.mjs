@@ -7,6 +7,32 @@ export function dispatchChatGPTComposerClick(webContents, point) {
   return { x, y }
 }
 
+// Account menus are hover-driven: a Radix submenu keeps its own open state
+// keyed on pointer movement, so the press has to be preceded by a move to the
+// same point. This stays a renderer-level event and never moves the OS pointer.
+export function dispatchChatGPTPointerClick(webContents, point) {
+  if (!webContents || typeof webContents.sendInputEvent !== 'function') throw new Error('ChatGPT web contents are unavailable')
+  const x = Math.max(0, Math.floor(Number(point?.x) || 0))
+  const y = Math.max(0, Math.floor(Number(point?.y) || 0))
+  webContents.sendInputEvent({ type: 'mouseMove', x, y })
+  webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+  webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+  return { x, y }
+}
+
+// ChatGPT's account menus are Radix `div[role="menuitem"]` nodes whose select
+// handlers ignore a synthetic HTMLElement.click(). Account automation therefore
+// locates the control in the page and commits it with a trusted native event,
+// exactly as the composer transport already does.
+export function dispatchChatGPTAccountKey(webContents, keyCode) {
+  if (!webContents || typeof webContents.sendInputEvent !== 'function') throw new Error('ChatGPT web contents are unavailable')
+  const key = String(keyCode || '')
+  if (!/^[A-Za-z]+$/.test(key)) throw new Error(`Unsupported ChatGPT account key ${key}`)
+  webContents.sendInputEvent({ type: 'keyDown', keyCode: key })
+  webContents.sendInputEvent({ type: 'keyUp', keyCode: key })
+  return { method: `native-${key.toLowerCase()}` }
+}
+
 export function dispatchChatGPTSubmit(webContents) {
   if (!webContents || typeof webContents.sendInputEvent !== 'function') {
     throw new Error('ChatGPT web contents are unavailable')

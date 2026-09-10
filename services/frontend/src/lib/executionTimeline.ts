@@ -13,7 +13,7 @@ export type ExecutionTimelineEntry = {
   output: string
 	requestId: string
 	rootRequestId: string
-	iterationKind: 'standard' | 'repair' | 'evidence' | 'conflict'
+	iterationKind: 'standard' | 'repair' | 'improvement' | 'evidence' | 'conflict'
 }
 
 export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelineEntry[] {
@@ -91,8 +91,8 @@ function eventLineage(event: HarnessEvent, fallback: Pick<ExecutionTimelineEntry
 	const requestId = String(event.data.request_id || fallback.requestId)
 	const rootRequestId = String(event.data.root_request_id || fallback.rootRequestId || requestId)
 	const explicit = String(event.data.iteration_kind || '')
-	const inferred = event.type.startsWith('workflow.') ? 'evidence' : event.type.startsWith('repair.') ? 'repair' : event.type.startsWith('conflict.') ? 'conflict' : fallback.iterationKind
-	const iterationKind = (['standard', 'repair', 'evidence', 'conflict'].includes(explicit) ? explicit : inferred) as ExecutionTimelineEntry['iterationKind']
+	const inferred = event.type.startsWith('workflow.') ? 'evidence' : event.type.startsWith('improvement.') ? 'improvement' : event.type.startsWith('repair.') ? 'repair' : event.type.startsWith('conflict.') ? 'conflict' : fallback.iterationKind
+	const iterationKind = (['standard', 'repair', 'improvement', 'evidence', 'conflict'].includes(explicit) ? explicit : inferred) as ExecutionTimelineEntry['iterationKind']
 	return { requestId, rootRequestId, iterationKind }
 }
 

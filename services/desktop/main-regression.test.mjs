@@ -128,6 +128,26 @@ test('manual toolbar send actions submit only after their upload is confirmed', 
 })
 
 
+test('internal ChatGPT browser reuses the isolated Electron partition without privileged preload', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function openInternalChatGPTBrowser(windowState, value)')
+  const end = source.indexOf('\nfunction createWindow(', start)
+
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  const internalBrowser = source.slice(start, end)
+  assert.match(internalBrowser, /new BrowserWindow/)
+  assert.match(internalBrowser, /securePreferences\(\{ partition: CHATGPT_PARTITION, backgroundThrottling: false \}\)/)
+  assert.doesNotMatch(internalBrowser, /preload:/)
+  assert.match(internalBrowser, /requireTrustedChatGPTURL/)
+  assert.match(internalBrowser, /setWindowOpenHandler/)
+  assert.match(internalBrowser, /will-navigate/)
+  assert.match(source, /ipcMain\.handle\('wharness:chatgpt:open-internal'/)
+  assert.match(source, /closeAllInternalChatGPTBrowsers\(\)/)
+  assert.match(preload, /openInternal: \(url = ''\) => invoke\('wharness:chatgpt:open-internal'/)
+})
+
 test('dual ChatGPT auth uses a real managed browser and never forwards an in-flight provider URL', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const routeStart = source.indexOf('function routeChatGPTNavigation(entry, event, url)')
@@ -303,12 +323,12 @@ test('desktop disables a broken IPv6 browser route before Electron becomes ready
   assert.ok(switchAt >= 0 && switchAt < readyAt)
 })
 
-test('renderer navigation atomically presents its ChatGPT view with current bounds', async () => {
+test('renderer navigation preserves overlay-driven ChatGPT visibility', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf("ipcMain.handle('wharness:chatgpt:navigate'")
   const end = source.indexOf("ipcMain.handle('wharness:chatgpt:confirm-affinity'", start)
   const navigate = source.slice(start, end)
-  assert.match(navigate, /windowState\.chatgptVisible = true/)
+  assert.doesNotMatch(navigate, /windowState\.chatgptVisible = true/)
   assert.match(navigate, /activateChatGPTView\(key, request\?\.bounds, windowState\)/)
 })
 
@@ -839,5 +859,117 @@ test('a dead main-frame renderer in the trusted window reloads the frontend inst
   assert.notEqual(targetIndex, -1)
   assert.notEqual(renderProcessGoneIndex, -1)
   assert.ok(targetIndex < renderProcessGoneIndex, 'target URL must be built before the crash handler closes over it')
-  assert.match(create, /if \(!quitting && details\.reason !== 'clean-exit'\) \{\s*void win\.loadURL\(target\.href\)/)
+  // The window must still come back — the reload is now paced and bounded
+  // rather than immediate (see the backoff regression below), but a crashed
+  // renderer must never be left as a permanently blank window.
+  assert.match(create, /void win\.loadURL\(target\.href\)/)
+  assert.match(create, /render-process-gone[\s\S]{0,900}?state\.rendererRestartTimer = setTimeout\(/)
+})
+
+// Moving a conversation into a ChatGPT project — which the account automation
+// does deliberately — changes its URL to `/g/g-p-<project>/c/<id>`. Matching
+// only the root `/c/<id>` form silently unbound the chat's affinity and left
+// account operations unable to address the conversation by id, which surfaces
+// to the user as `menu-unavailable`.
+test('conversation ids are recovered from project-scoped conversation URLs', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function chatGPTConversationID(value)')
+  const end = source.indexOf('\nfunction canonicalChatGPTConversationURL', start)
+  assert.notEqual(start, -1)
+  const body = source.slice(start, end)
+  assert.match(body, /\(\?:\^\|\\\/\)c\\\/\(\[\^\/\?#\]\+\)/)
+  assert.doesNotMatch(body, /\/\^\\\/c\\\//)
+  // Transient creation URLs still never become durable affinity.
+  assert.match(body, /WEB\(\?::\|%3A\)/)
+})
+
+// Account automation gives a background chat surface a real, full-size layout
+// viewport so its renderer lays out and accepts trusted input — Electron clips
+// a child view to its parent, so off-screen bounds collapse it to 0x0 and it
+// stops receiving input entirely. Those bounds must therefore never be on
+// screen: showing such a view before the renderer reports its real pane
+// geometry covers the whole Wharnex window for a frame, which reads as the
+// project closing and reopening.
+test('a parked chat surface is never shown while it carries layout-only bounds', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const parkStart = source.indexOf('function ensureChatGPTLayoutViewport(')
+  const parkEnd = source.indexOf('\n// Locates a control', parkStart)
+  const park = source.slice(parkStart, parkEnd)
+  assert.match(park, /entry\.parkedLayout = true/)
+  assert.doesNotMatch(park, /x: -\d+/)
+
+  const activateStart = source.indexOf('function activateChatGPTView(')
+  const activateEnd = source.indexOf('\nfunction wait(', activateStart)
+  const activate = source.slice(activateStart, activateEnd)
+  assert.match(activate, /const parked = entry\.parkedLayout === true && !ownerState\.chatgptBounds/)
+  assert.match(activate, /setVisible\(ownerState\.chatgptVisible && !entry\.externalAuthProvider && !parked\)/)
+
+  // Real pane bounds clear the parked flag, so the view becomes showable again.
+  const boundsStart = source.indexOf('function setChatGPTBounds(')
+  const boundsEnd = source.indexOf('\nfunction currentChatGPTState(', boundsStart)
+  assert.match(source.slice(boundsStart, boundsEnd), /entry\.parkedLayout = false/)
+})
+
+// Rapidly cycling sandboxed renderers on the shared ChatGPT partition triggers
+// Electron's "Cannot destructure property 'preloadScripts' of
+// 'binding.startupData'" crash, which takes the trusted frontend renderer down
+// with it and reloads the app. Deferred maintenance therefore drives only an
+// already-resident surface instead of creating one for itself.
+test('deferred remote archive never creates a chat surface for itself', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function archiveChatGPTConversation(')
+  const end = source.indexOf('\nasync function stopChatGPTConversation', start)
+  assert.notEqual(start, -1)
+  const body = source.slice(start, end)
+
+  assert.match(body, /const entry = chatgptViews\.get\(key\)/)
+  assert.doesNotMatch(body, /ensureChatGPTView\(/)
+  assert.match(body, /state: 'view-not-live'/)
+  // "not live" must not be reported as success, or a remote archive that never
+  // happened would be retired.
+  assert.doesNotMatch(body, /ok: true, state: 'view-not-live'/)
+})
+
+// Reloading the instant a renderer dies can re-enter the same failure: a
+// loadURL issued while a previous sandboxed renderer spawn is still settling is
+// one of the ways Electron produces "Cannot destructure property
+// 'preloadScripts' of 'binding.startupData'", so an immediate retry can turn a
+// single crash into a reload loop.
+test('frontend renderer crash recovery backs off and is bounded', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("win.webContents.on('render-process-gone'")
+  const end = source.indexOf("win.webContents.on('unresponsive'", start)
+  assert.notEqual(start, -1)
+  const handler = source.slice(start, end)
+
+  assert.match(handler, /state\.rendererRestarts >= FRONTEND_RENDERER_RESTART_LIMIT/)
+  assert.match(handler, /Math\.min\(8_000, 500 \* \(2 \*\* \(state\.rendererRestarts - 1\)\)\)/)
+  assert.match(handler, /setTimeout\(/)
+  // The reload must not be issued synchronously from the crash event.
+  const immediate = handler.indexOf('win.loadURL')
+  const scheduled = handler.indexOf('state.rendererRestartTimer = setTimeout(')
+  assert.ok(scheduled !== -1 && scheduled < immediate, 'reload must be scheduled, not immediate')
+  assert.match(handler, /if \(quitting \|\| details\.reason === 'clean-exit'\) return/)
+
+  // A renderer that stays up long enough clears the budget.
+  assert.match(source, /state\.rendererRestarts = 0/)
+})
+
+// The DOM poller kept clicking the same download affordance after the bundle
+// had already been delivered: each click genuinely re-downloaded the ZIP, the
+// will-download handler dropped it as a duplicate, downloadInFlight cleared on
+// `done`, and the next sweep clicked again — a hot loop that never progressed.
+test('expected-bundle polling stops once the request has been delivered', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pollExpectedChatGPTDownloadKey')
+  const clickIndex = source.indexOf('chatGPTExpectedDownloadScript(expected.filename', start)
+  assert.notEqual(start, -1)
+  assert.notEqual(clickIndex, -1)
+  const guard = source.indexOf('recentlyDeliveredChatGPTBundleRequestId(expected.requestId)', start)
+  assert.notEqual(guard, -1, 'poller must check whether the bundle already arrived')
+  assert.ok(guard < clickIndex, 'the delivered check must run before the download click')
+  // Supervision is finished, so the expectation is released rather than merely
+  // skipped — otherwise the surface stays supervised forever.
+  assert.match(source.slice(guard, clickIndex), /disarmExpectedChatGPTBundle\(key, expected\.requestId\)/)
 })

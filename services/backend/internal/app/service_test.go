@@ -1529,7 +1529,7 @@ func TestSuccessfulRetainedPlanRetryRetiresObsoleteRepairRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalRequest := prompted.LastRequestID
-	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"retained-plan","request_id":"` + originalRequest + `","status":"ready","summary":"update file","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch":"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n","command":{"argv":[],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`)
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"retained-plan","request_id":"` + originalRequest + `","status":"ready","summary":"update file","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch":"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n","command":{"argv":[],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`)
 	planned, err := service.SubmitManualPlan(started.ID, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -1600,7 +1600,7 @@ func makeExecutionBundleWithBaseline(t *testing.T, requestID, baseline string) [
 	entries := map[string]string{
 		"README.md":         "# Automatic fix\nChanges hello.txt from old to new.\n",
 		"patches/001.patch": "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n",
-		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"update hello","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"update hello","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Atualização cumulativa do pedido de teste.")
 	for name, value := range entries {
@@ -2510,7 +2510,7 @@ func makePolicyBlockedBundle(t *testing.T, requestID string) []byte {
 	writer := zip.NewWriter(&out)
 	entries := map[string]string{
 		"README.md": "# Docker attempt\nThis intentionally exercises Policy repair.\n",
-		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"blocked-docker","request_id":"` + requestID + `","status":"ready","summary":"run docker compose","risk":"high","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["docker","compose","config","--quiet"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"blocked-docker","request_id":"` + requestID + `","status":"ready","summary":"run docker compose","commit_message":"build(deploy): validate the compose configuration","risk":"high","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["docker","compose","config","--quiet"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Resumo cumulativo da tentativa bloqueada pela Policy.")
 	for name, value := range entries {

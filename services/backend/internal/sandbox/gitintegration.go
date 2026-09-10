@@ -227,6 +227,53 @@ func ChangedPathsBetween(ctx context.Context, repoPath, fromSHA, toSHA string) (
 	return strings.Split(strings.TrimSpace(output), "\n"), nil
 }
 
+// CommitSummary is one integrated change's own description of what it was
+// for. Subject is the planner-authored Conventional Commits line the protocol
+// already requires on every change plan (see AI_PROTOCOL "Commit-history
+// communication"), so it states the intent of that change rather than merely
+// naming the files it touched.
+type CommitSummary struct {
+	SHA     string
+	Subject string
+}
+
+// CommitsTouching lists the commits reachable from toSHA but not fromSHA that
+// modified any of the given paths, newest first.
+//
+// This is what turns a conflict capsule from "here are three versions of a
+// file" into "here is what the change you are colliding with was trying to
+// achieve". Resolving a conflict semantically requires knowing the other
+// side's purpose, and for a Wharness-integrated change that purpose is already
+// recorded — as the commit message the protocol obliges the planner to write.
+func CommitsTouching(ctx context.Context, repoPath, fromSHA, toSHA string, paths []string) ([]CommitSummary, error) {
+	fromSHA = strings.TrimSpace(fromSHA)
+	toSHA = strings.TrimSpace(toSHA)
+	if toSHA == "" || len(paths) == 0 {
+		return nil, nil
+	}
+	rangeSpec := toSHA
+	if fromSHA != "" && fromSHA != toSHA {
+		rangeSpec = fromSHA + ".." + toSHA
+	}
+	args := append([]string{"log", "--no-merges", "--format=%H%x1f%s", "--max-count=20", rangeSpec, "--"}, paths...)
+	output, err := runGit(ctx, repoPath, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list commits touching %s: %s", strings.Join(paths, ", "), output)
+	}
+	summaries := make([]CommitSummary, 0)
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x1f", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		summaries = append(summaries, CommitSummary{SHA: strings.TrimSpace(parts[0]), Subject: strings.TrimSpace(parts[1])})
+	}
+	return summaries, nil
+}
+
 // RevertHostMerge resets the host's checked-out branch back to preMergeSHA.
 // Safe because preMergeSHA is always the tip this exact request's own merge
 // moved away from, moments earlier — used when post-merge verification

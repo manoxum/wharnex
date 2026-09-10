@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
+import { TranslatableMarkdown } from './TranslatableMarkdown'
 
 export function FilePreviewModal({ sessionId, path, onOpenInEditor, onClose }: {
   sessionId: string
@@ -33,7 +34,7 @@ export function FilePreviewModal({ sessionId, path, onOpenInEditor, onClose }: {
       </header>
       {error ? <div className="change-diff-loading">{error}</div>
         : content === undefined ? <div className="change-diff-loading">A carregar…</div>
-        : <div className="file-preview-editor"><CodeEditor path={path} value={content} onChange={() => undefined} onSave={() => undefined} onCursorChange={() => undefined} readOnly/></div>}
+        : isMarkdown(path) ? <div className="file-preview-markdown"><TranslatableMarkdown sessionId={sessionId} markdown={content || 'Ficheiro vazio.'}/></div> : <div className="file-preview-editor"><CodeEditor path={path} value={content} onChange={() => undefined} onSave={() => undefined} onCursorChange={() => undefined} readOnly/></div>}
     </section>
   </div>
 }
@@ -43,3 +44,5 @@ function formatBytes(size: number) {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
+
+function isMarkdown(path: string) { return /\.(md|mdx|markdown)$/i.test(path) }

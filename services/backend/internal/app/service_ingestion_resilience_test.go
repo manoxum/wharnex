@@ -52,7 +52,7 @@ func changeBundleWithKnowledge(t *testing.T, requestID string, baseRevision int,
 		"summary.md":           "Resumo cumulativo do pedido de teste.",
 		"knowledge/index.json": `{"protocol":"harness.knowledge/v2","base_revision":` + itoa(baseRevision) + `,"mode":"replace","entries":[]}`,
 		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID +
-			`","status":"ready","summary":"update hello","risk":"low","requires_approval":false,` +
+			`","status":"ready","summary":"update hello","risk":"low","commit_message":"fix(demo): replace the hello greeting text","requires_approval":false,` +
 			`"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],` +
 			`"verification":[{"argv":["go","test","./..."],"cwd":".","timeout_seconds":` + itoa(timeoutSeconds) + `,"network":false,"expected_exit_codes":[0]}]}`,
 	})
@@ -127,7 +127,7 @@ func TestMalformedKnowledgePayloadDoesNotDiscardTheChangeBundle(t *testing.T) {
 		"README.md":         "# Automatic fix\n",
 		"patches/001.patch": "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n",
 		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID +
-			`","status":"ready","summary":"update hello","risk":"low","requires_approval":false,` +
+			`","status":"ready","summary":"update hello","risk":"low","commit_message":"fix(demo): replace the hello greeting text","requires_approval":false,` +
 			`"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	})
 
@@ -236,7 +236,7 @@ func TestSandboxDiskExhaustionIsClassifiedAndSkipsTheRepairLoop(t *testing.T) {
 		"summary.md":           "Resumo cumulativo do pedido de teste.",
 		"knowledge/index.json": `{"protocol":"harness.knowledge/v2","base_revision":0,"mode":"replace","entries":[]}`,
 		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID +
-			`","status":"ready","summary":"update hello","risk":"low","requires_approval":false,` +
+			`","status":"ready","summary":"update hello","risk":"low","commit_message":"fix(demo): replace the hello greeting text","requires_approval":false,` +
 			`"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}},` +
 			`{"type":"command","patch":"","command":{"argv":["go","test","./..."],"cwd":".","timeout_seconds":600,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	})
