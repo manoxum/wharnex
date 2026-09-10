@@ -48,6 +48,44 @@ A workspace rebuilt from an immutable archived request base has a synthetic root
 commit and no ancestry in common with the host. It keeps the legacy
 `ChangeSet` path unchanged, because there is nothing to branch or merge onto.
 
+## Host repository shape and dirty-worktree integration (v1.3.3)
+
+The host project's repository shape is measured, never assumed (see
+`adr/ADR-0039`). `internal/hostrepo` resolves the repository's real Git
+directory — `.git` is a *file* in a linked worktree and in a project root that
+is itself a submodule — reads the submodule inventory from the index, detects
+an in-progress merge/rebase/cherry-pick/am from Git's own marker files, and
+classifies uncommitted state by what Git can actually capture.
+
+That classification is the contract. `git status` reporting a path as modified
+does not mean `git add -A` will stage it: dirty submodule content belongs to
+another repository, and an untracked embedded repository stages only as a bare
+gitlink. Consequently:
+
+- Preserving the operator's uncommitted work before an integration succeeds
+  when there is nothing a superproject commit can hold, rather than failing on
+  `no changes added to commit`.
+- Embedded repositories are excluded from every Wharnex-authored commit and
+  reported as left in place, so no commit claims to preserve files it holds
+  only a pointer to.
+- Unresolved paths, an in-progress Git operation, and an integration that would
+  move a dirty submodule's recorded commit are **refused**, carrying the reason,
+  the paths and the operator's remedy (`host_working_state_blocked`, see
+  `SoT/ERROR_MODEL.md`). The verified candidate is retained and no repair round
+  is consumed.
+- Commits and merges Wharnex makes on a host use the fixed non-human identity
+  with signing and project hooks disabled; a project's own `pre-commit` gate
+  has no authority over Wharnex plumbing.
+- A merge or revert that moves a submodule's recorded commit realigns that
+  submodule's checkout, which Git does not do. Realignment is offline and never
+  touches a submodule holding uncommitted work; skips are reported.
+
+A patch writing inside a registered submodule is rejected at ingestion: the
+superproject's index holds a single gitlink there, so the path cannot be
+staged, committed or merged, and no planner repair can change that. A project
+Wharnex cannot inspect is admitted unchanged — a measurement failure never
+rejects a legitimate change.
+
 ## Runner toolchain and environment disclosure
 
 The runner image ships the language toolchains (Go, Node with corepack), build drivers (`make`, `build-essential`, `pkg-config`), source control and patching (`git`, `patch`, `diffutils`), structured-data and search utilities (`jq`, `ripgrep`), and archive/inspection utilities (`unzip`, `zip`, `xz-utils`, `file`, `tree`). Network clients (`curl`, `wget`, `ssh`, `nc`) MUST remain absent: the runner has no network by default and those executables are denied by policy regardless.

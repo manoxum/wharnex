@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"kernl.local/harness/backend/internal/hostrepo"
 )
 
 var ErrGitUnavailable = errors.New("git executable not found")
@@ -66,9 +68,25 @@ func ensureInitialCommit(ctx context.Context, abs string) error {
 	if err := verify.Run(); err == nil {
 		return nil
 	}
+	// Embedded repositories are excluded from the baseline for the same reason
+	// the pre-merge snapshot excludes them: `git add -A` records one as a bare
+	// gitlink, so the commit would claim to hold the operator's files while
+	// containing only an unresolvable pointer. Hooks are disabled because this
+	// commit is Wharnex's own bootstrap, not the operator's contribution — a
+	// project's failing pre-commit lint must not block opening it.
+	state, stateErr := hostrepo.Working(ctx, abs)
+	stageArgs := []string{"add", "-A"}
+	if stateErr == nil {
+		stageArgs = hostrepo.StageArgs(state.EmbeddedRepositories)
+	}
+	commit := []string{
+		"-c", "user.name=Wharness", "-c", "user.email=wharness@localhost",
+		"-c", "commit.gpgSign=false", "-c", "core.hooksPath=" + filepath.Join(abs, ".git", "wharnex-hooks-disabled"),
+		"commit", "-q", "--no-verify", "--allow-empty", "-m", "Wharness project baseline",
+	}
 	commands := [][]string{
-		{"git", "-C", abs, "add", "-A"},
-		{"git", "-C", abs, "-c", "user.name=Wharness", "-c", "user.email=wharness@localhost", "-c", "commit.gpgSign=false", "commit", "-q", "--allow-empty", "-m", "Wharness project baseline"},
+		append([]string{"git", "-C", abs}, stageArgs...),
+		append([]string{"git", "-C", abs}, commit...),
 	}
 	for _, args := range commands {
 		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
