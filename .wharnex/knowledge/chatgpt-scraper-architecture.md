@@ -10,4 +10,19 @@
 - Archive/delete esperam a lineage ativa ficar segura. `DELETE_BUNDLE` exige persistência local confirmada e nome canónico exato ou artifact id; não há fuzzy-delete de itens visualmente truncados na Biblioteca.
 - O worker remoto nunca executa patches. Ele apenas descarrega o response bundle; filename/request id/protocolo continuam validados pelo backend e a pipeline Policy/Protected/Apply continua sendo a única autoridade de execução local.
 - O gate de self-evolution do Desktop executa `npm run check`, incluindo todos os `*.test.mjs`. Depois de um cutover arquitetural, regressões baseadas em source strings do modelo antigo (por exemplo `main-regression.test.mjs`) precisam ser retargeted para o novo contrato; uma suite focal do scheduler não substitui o gate Desktop completo.
-- Ao reatribuir a única superfície Supervisor entre chats, a retirada da superfície anterior não pode apagar a intenção de visibilidade já registada pela janela. O rebind deve preservar `chatgptVisible`; caso contrário o novo `WebContentsView` nasce oculto e a UI fica presa no placeholder `A carregar ChatGPT…`, inclusive depois de uma troca diferida por preparação de transporte.
+## Rechecagem pós-cutover (2026-09-10)
+
+A infraestrutura nova está no runtime, mas o cutover de produção ainda é híbrido e não satisfaz integralmente o plano aprovado:
+
+- O Desktop cria efetivamente 1 Supervisor e 3 workers, e o backend tem fila durável tipada, leases, prioridades, `not_before`, aging, locks e pausa de provider.
+- O caminho Auto normal ainda chama `preparePromptForChatGPT(... autoSubmit=true)` no Supervisor. Esse caminho submete diretamente, arma `expectedChatGPTBundles` em memória e, no primeiro pedido, pode organizar/renomear imediatamente no Supervisor. A criação durável de `AWAIT_RESPONSE` depende depois do mecanismo de `resumeExpectedBundle`; `TITLE_DISCOVER` não é criado nesse caminho.
+- As continuações automáticas continuam a chamar `preparePrompt(... autoSubmit=true)` diretamente no Supervisor; não existe produtor de produção para `BOT_WRITE`. `RENAME_CHAT`, `ARCHIVE_CHAT` e `DELETE_CHAT` também têm executores/tipos, mas não têm produtores normais no scheduler.
+- O frontend ainda mantém manutenção periódica própria para archive/naming e chama operações de conta diretamente no Supervisor. Isso mantém um segundo controlador fora da fila e pode substituir/navegar a superfície visível.
+- O poller periódico antigo de bundles foi desligado, mas `pollExpectedChatGPTDownloadKey()` continua alcançável pelo `did-stop-loading` do Supervisor e ainda contém recovery/continuation legado.
+- O scheduler pode pôr uma task em `WAITING` no último `attempt`; o backend deixa de a reclamar quando `attempt >= max_attempts`, podendo deixá-la parada em `WAITING` indefinidamente.
+- Pausa global é aplicada em `ATTENTION providerWide`, mas não há caminho de runtime/frontend que chame `setProviderPause(false)`. Uma pausa sem `paused_until` pode portanto congelar a fila até intervenção externa. HTTP 429 continua a usar backoff local do `expected` em vez de throttle global da fila.
+- O endpoint de `cancelLineage` existe, porém o cancelamento corrente da UI limpa estado local e não o invoca; tasks duráveis da lineage podem sobreviver ao cancelamento.
+- O `main` emite `wharness:chat-agent:state`, mas o preload/frontend não o expõe/consome; o painel de fila/workers previsto na fase Supervisor UX ainda não existe.
+- O executor de archive/delete não persiste `remote_state` depois da confirmação. Já `ORGANIZE_CHAT` persiste `remote_title`, e o backend sincroniza esse título para o título local do chat.
+
+Conclusão operacional: considerar o estado atual como **fundação implementada + cutover parcial**, e não como aceitação concluída da arquitetura Supervisor/Workers. Antes de declarar parity, os fluxos Auto, lifecycle/title, cancellation, provider pause/resume, retry terminal e observabilidade devem ser fechados por testes end-to-end de produção, não apenas por assertions estruturais de source.
