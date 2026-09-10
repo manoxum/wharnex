@@ -153,8 +153,7 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 	if len(patchFiles) == 0 {
 		return "", "", nil
 	}
-	message := sanitizeCommitMessage(plan.CommitMessage, plan.Summary)
-	message = fmt.Sprintf("%s\n\nRequest-Id: %s\nPlan-Id: %s", message, plan.RequestID, plan.PlanID)
+	message := commitMessageForPlan(plan)
 	branch = integrationBranchName(plan.RequestID)
 	if strings.TrimSpace(baseRootedBranch) == branch {
 		commitSHA, err = sandbox.CommitBaseRootedPatch(ctx, workspacePath, message, patchFiles)
@@ -190,7 +189,27 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 // the whole batch with one git reset. On a real merge conflict it returns
 // *sandbox.MergeConflictError for the specific candidate that conflicted;
 // the host is left exactly as it was before that attempt.
-func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, projectPath string, pending []domain.PendingHostChange) (mergedBranches []string, preMergeSHA string, failedPlanID string, err error) {
+// integratedCandidate records one candidate's own contribution to the host,
+// bracketed by the commits immediately before and after its merge.
+//
+// The bracket is what makes manual commit mode possible. Its own change is
+// exactly diff(BeforeSHA, AfterSHA): BeforeSHA is captured after that merge's
+// pre-merge snapshot, so an operator's unrelated uncommitted edits — which the
+// snapshot committed — fall outside it. Without the bracket the only available
+// diff would be "everything that happened during this Apply", which mixes the
+// operator's own work into a message describing the planner's.
+type integratedCandidate struct {
+	planID    string
+	requestID string
+	sessionID string
+	branch    string
+	beforeSHA string
+	afterSHA  string
+	message   string
+	paths     []string
+}
+
+func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, projectPath string, pending []domain.PendingHostChange) (integrated []integratedCandidate, preMergeSHA string, failedPlanID string, err error) {
 	preMergeSHA, err = sandbox.CurrentHeadSHA(ctx, projectPath)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("resolve host HEAD before merge: %w", err)
@@ -215,18 +234,53 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			s.bus.Publish(sessionID, "integration.merge_preflight_degraded", map[string]any{"plan_id": planID, "branch": branch, "error": preflightErr.Error()})
 		} else if conflict != nil {
 			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": planID, "branch": branch, "paths": conflict.Paths})
-			return mergedBranches, preMergeSHA, planID, conflict
+			return integrated, preMergeSHA, planID, conflict
 		}
 		merge, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch)
 		s.publishHostStatePreservation(sessionID, planID, merge.Preservation)
 		if mergeErr != nil {
-			return mergedBranches, preMergeSHA, planID, mergeErr
+			return integrated, preMergeSHA, planID, mergeErr
 		}
 		s.publishSubmoduleSync(sessionID, planID, "merge", merge.SubmoduleSync)
-		mergedBranches = append(mergedBranches, branch)
+		afterSHA, headErr := sandbox.CurrentHeadSHA(ctx, projectPath)
+		if headErr != nil {
+			return integrated, preMergeSHA, planID, fmt.Errorf("resolve host HEAD after merge: %w", headErr)
+		}
+		plan := pending[index].Plan
+		integrated = append(integrated, integratedCandidate{
+			planID:    planID,
+			requestID: plan.RequestID,
+			sessionID: sessionID,
+			branch:    branch,
+			beforeSHA: merge.PreMergeSHA,
+			afterSHA:  afterSHA,
+			message:   commitMessageForPlan(&plan),
+			paths:     actualPatchFiles(&plan),
+		})
 		s.bus.Publish(sessionID, "integration.merge_completed", map[string]any{"plan_id": planID, "branch": branch})
 	}
-	return mergedBranches, preMergeSHA, "", nil
+	return integrated, preMergeSHA, "", nil
+}
+
+// integratedBranches lists the branch refs an Apply merged, for cleanup.
+func integratedBranches(integrated []integratedCandidate) []string {
+	branches := make([]string, 0, len(integrated))
+	for _, candidate := range integrated {
+		branches = append(branches, candidate.branch)
+	}
+	return branches
+}
+
+// commitMessageForPlan builds the exact message the integration commit used,
+// so a pending record and an auto-mode commit carry identical history.
+//
+// It is deliberately the same construction the commit itself performs rather
+// than a second rendering of the same inputs: the two must never diverge, or
+// a change committed manually would carry different history from the same
+// change committed automatically.
+func commitMessageForPlan(plan *domain.ExecutionPlan) string {
+	message := sanitizeCommitMessage(plan.CommitMessage, plan.Summary)
+	return fmt.Sprintf("%s\n\nRequest-Id: %s\nPlan-Id: %s", message, plan.RequestID, plan.PlanID)
 }
 
 // publishHostStatePreservation reports what the pre-merge snapshot could and

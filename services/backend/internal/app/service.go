@@ -18,9 +18,11 @@ import (
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
+	"kernl.local/harness/backend/internal/gitsettings"
 	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/orchestrator"
+	"kernl.local/harness/backend/internal/pendingcommit"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/policy"
 	"kernl.local/harness/backend/internal/projectconfig"
@@ -114,6 +116,9 @@ type Service struct {
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
 	runtimeInstanceID       string
+	gitSettingsFile         string
+	gitSettingsMu           sync.Mutex
+	pendingCommits          *pendingcommit.Store
 }
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
@@ -1010,6 +1015,21 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	if err := validateConflictResolutionPlan(current, parsed.Plan); err != nil {
 		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
+	}
+	// A Git-origin conflict resolves into the very merge it was asked about,
+	// not into a new verified candidate: there is nothing to plan, execute or
+	// apply, only a merge to conclude. Intercepting here — before the plan is
+	// stored as the session's pending work — is what keeps the two paths from
+	// interleaving, since a half-stored candidate for a merge that has already
+	// been committed would have nowhere left to go.
+	if current.IntegrationConflict != nil && current.IntegrationConflict.Git != nil &&
+		parsed.Plan.RequestID == current.IntegrationConflict.RequestID {
+		resolved, resolveErr := s.concludeGitConflict(ctx, sessionID, current, parsed.Plan)
+		if resolveErr != nil {
+			return BundleSubmission{}, resolveErr
+		}
+		s.releaseRemoteInputLease(sessionID, parsed.Plan.RequestID)
+		return BundleSubmission{Session: resolved}, nil
 	}
 	decision := s.policy.Evaluate(*parsed.Plan)
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
@@ -2385,6 +2405,19 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	changedFiles = normalizedPaths(changedFiles)
 	latestPlanID := pending[len(pending)-1].Plan.PlanID
 	selfEvolution := s.isSelfEvolution(item) && len(patches) > 0
+	// Resolved once, here, for the whole Apply: reading the setting again later
+	// would let a toggle flipped mid-Apply commit half a batch and leave the
+	// rest uncommitted. Self-evolution always commits — its transaction
+	// rollback, activation and lineage all anchor on real commits, so an
+	// uncommitted self-evolution has nothing to roll back to.
+	commitMode := s.projectCommitMode(item.ProjectPath)
+	if selfEvolution && commitMode != gitsettings.CommitModeAuto {
+		commitMode = gitsettings.CommitModeAuto
+		s.bus.Publish(sessionID, "git.commit_mode_overridden", map[string]any{
+			"plan_id": latestPlanID, "mode": string(gitsettings.CommitModeAuto),
+			"reason": "self-evolution rollback and activation anchor on real commits",
+		})
+	}
 	var transaction selfevolution.Transaction
 	if selfEvolution {
 		transaction, err = s.selfEvolution.Prepare(sessionID, latestPlanID, patches)
@@ -2435,7 +2468,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	// happened, so failApply (defined before that block runs) can revert
 	// them if a LATER step (a model-requested git command, or post-merge
 	// verification) fails. Declared here so the closure can see them.
-	var mergedIntegrationBranches []string
+	var mergedIntegrationBranches []integratedCandidate
 	var preMergeIntegrationSHA string
 	failApply := func(cause error) error {
 		var failure error
@@ -2658,6 +2691,16 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 	}
 
+	// The change is verified and on disk. In manual mode the only thing left
+	// to decide is whether it becomes history now or when the operator says
+	// so: record what each candidate contributed, then return the branch to
+	// where they left it, leaving everything in the working tree.
+	if commitMode == gitsettings.CommitModeManual && len(mergedIntegrationBranches) > 0 {
+		if unwindErr := s.recordAndUnwindIntegration(ctx, sessionID, item.ProjectPath, mergedIntegrationBranches, preMergeIntegrationSHA); unwindErr != nil {
+			return item, failApply(unwindErr)
+		}
+	}
+
 	hostAppliedAt := time.Now().UTC()
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		if selfEvolution {
@@ -2688,7 +2731,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		return item, rollback(err)
 	}
 	if len(mergedIntegrationBranches) > 0 {
-		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, mergedIntegrationBranches)
+		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, integratedBranches(mergedIntegrationBranches))
 	}
 
 	if selfEvolution {

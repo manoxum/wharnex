@@ -1,0 +1,397 @@
+package hostrepo
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// newBareRemote creates a bare repository usable as a push target, so the push
+// path is exercised for real without any network.
+func newBareRemote(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "remote.git")
+	git(t, t.TempDir(), "init", "-q", "--bare", "-b", "main", dir)
+	return dir
+}
+
+func TestBranchesReportsLocalRemoteAndTracking(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	git(t, root, "checkout", "-q", "-b", "feature")
+	write(t, root, "f.txt", "x\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: add f")
+
+	branches, err := Branches(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Branch{}
+	for _, branch := range branches {
+		byName[branch.Name] = branch
+	}
+	main, ok := byName["main"]
+	if !ok {
+		t.Fatalf("expected the local main branch, got %+v", branches)
+	}
+	if !main.HasUpstream || main.Upstream != "origin/main" {
+		t.Fatalf("expected main tracking origin/main, got %+v", main)
+	}
+	feature, ok := byName["feature"]
+	if !ok || !feature.Current {
+		t.Fatalf("expected feature to be the current branch, got %+v", feature)
+	}
+	if feature.Subject != "feat: add f" {
+		t.Fatalf("expected the tip subject, got %q", feature.Subject)
+	}
+	tracking, ok := byName["origin/main"]
+	if !ok || tracking.Remote != "origin" {
+		t.Fatalf("expected the origin/main remote-tracking branch, got %+v", byName)
+	}
+	// refs/remotes/<remote>/HEAD is a symbolic pointer, not something a human
+	// merges; it must not appear as a branch.
+	for _, branch := range branches {
+		if strings.HasSuffix(branch.Name, "/HEAD") {
+			t.Fatalf("remote HEAD must not be listed as a branch: %+v", branch)
+		}
+	}
+}
+
+func TestBranchesReportsAheadAndBehind(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	write(t, root, "local.txt", "local\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "local only")
+
+	branches, err := Branches(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, branch := range branches {
+		if branch.Name != "main" {
+			continue
+		}
+		if branch.Ahead != 1 || branch.Behind != 0 {
+			t.Fatalf("expected 1 ahead / 0 behind, got %+v", branch)
+		}
+		return
+	}
+	t.Fatal("main branch not listed")
+}
+
+func TestRedactRemoteURLStripsEmbeddedCredentials(t *testing.T) {
+	cases := map[string]string{
+		"https://user:ghp_secret@github.com/org/repo.git": "https://***@github.com/org/repo.git",
+		"https://token@github.com/org/repo.git":           "https://***@github.com/org/repo.git",
+		"https://github.com/org/repo.git":                 "https://github.com/org/repo.git",
+		"git@github.com:org/repo.git":                     "git@github.com:org/repo.git",
+		"/srv/git/repo.git":                               "/srv/git/repo.git",
+	}
+	for raw, want := range cases {
+		if got := RedactRemoteURL(raw); got != want {
+			t.Fatalf("RedactRemoteURL(%q) = %q, want %q", raw, got, want)
+		}
+		if strings.Contains(RedactRemoteURL(raw), "ghp_secret") {
+			t.Fatalf("a credential survived redaction of %q", raw)
+		}
+	}
+}
+
+// A Wharnex-originated commit is identified by its Request-Id trailer, not by
+// its author: in manual mode the operator commits Wharnex's change under their
+// own identity, and author-based detection would lose exactly those.
+func TestLogIdentifiesWharnexCommitsByTrailer(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	write(t, root, "a.txt", "a\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: add a\n\nWhy it matters.\n\nRequest-Id: req_1\nPlan-Id: plan_1")
+	write(t, root, "b.txt", "b\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "chore: unrelated human commit")
+
+	commits, err := Log(context.Background(), root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) < 2 {
+		t.Fatalf("expected at least two commits, got %d", len(commits))
+	}
+	if commits[0].Wharnex {
+		t.Fatalf("a commit with no trailer is not Wharnex-originated: %+v", commits[0])
+	}
+	whx := commits[1]
+	if !whx.Wharnex || whx.RequestID != "req_1" || whx.PlanID != "plan_1" {
+		t.Fatalf("expected the trailered commit recognised, got %+v", whx)
+	}
+	if whx.Subject != "feat: add a" || !strings.Contains(whx.Body, "Why it matters.") {
+		t.Fatalf("subject/body were not separated correctly: %+v", whx)
+	}
+	// No upstream means nothing is provably pushed; claiming otherwise is the
+	// dangerous direction.
+	if whx.Pushed {
+		t.Fatal("with no upstream a commit must not be reported as pushed")
+	}
+}
+
+func TestLogMarksPushedCommits(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	write(t, root, "local.txt", "local\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "chore: local only")
+
+	commits, err := Log(context.Background(), root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commits[0].Pushed {
+		t.Fatalf("the newest local commit is not on the remote: %+v", commits[0])
+	}
+	if !commits[1].Pushed {
+		t.Fatalf("the pushed commit must be marked pushed: %+v", commits[1])
+	}
+}
+
+func TestCommitPathsCommitsOnlyTheSelectedPaths(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	write(t, root, "wanted.txt", "wanted\n")
+	write(t, root, "unrelated.txt", "unrelated\n")
+
+	sha, err := CommitPaths(context.Background(), root, "feat: add wanted", []string{"wanted.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha == "" {
+		t.Fatal("expected a commit sha")
+	}
+	files := git(t, root, "show", "--format=", "--name-only", sha)
+	if !strings.Contains(files, "wanted.txt") || strings.Contains(files, "unrelated.txt") {
+		t.Fatalf("the commit must hold only the selected path, got %q", files)
+	}
+	if status := git(t, root, "status", "--porcelain"); !strings.Contains(status, "unrelated.txt") {
+		t.Fatalf("the unselected file must stay uncommitted, got %q", status)
+	}
+}
+
+func TestCommitPathsReportsNothingToCommit(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	_, err := CommitPaths(context.Background(), root, "feat: nothing", []string{"README.md"})
+	if !errors.Is(err, ErrNothingToCommit) {
+		t.Fatalf("expected ErrNothingToCommit, got %v", err)
+	}
+	if status := git(t, root, "status", "--porcelain"); status != "" {
+		t.Fatalf("a commit that did not happen must leave the index alone, got %q", status)
+	}
+}
+
+// The applied change stays on disk while the history returns to where the
+// operator left it — the whole point of the manual commit mode.
+func TestUnwindToCommitKeepsFilesAndDropsHistory(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	original := git(t, root, "rev-parse", "HEAD")
+	write(t, root, "applied.txt", "applied\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: applied by wharnex")
+
+	if err := UnwindToCommit(context.Background(), root, original); err != nil {
+		t.Fatal(err)
+	}
+	if head := git(t, root, "rev-parse", "HEAD"); head != original {
+		t.Fatalf("expected HEAD back at %s, got %s", original, head)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "applied.txt"))
+	if err != nil || string(data) != "applied\n" {
+		t.Fatalf("the applied file must survive, got %q err=%v", data, err)
+	}
+	if status := git(t, root, "status", "--porcelain"); !strings.Contains(status, "applied.txt") {
+		t.Fatalf("the change must now read as uncommitted, got %q", status)
+	}
+}
+
+func TestPushReportsRejectionSeparatelyFromFailure(t *testing.T) {
+	requireGit(t)
+	remote := newBareRemote(t)
+	root := newRepo(t, "README.md", "root\n")
+	git(t, root, "remote", "add", "origin", remote)
+	if result, err := Push(context.Background(), root, "origin", "main", true); err != nil || !result.Succeeded() {
+		t.Fatalf("first push should succeed, got %+v err=%v", result, err)
+	}
+
+	// A peer advances the remote behind our back.
+	peer := t.TempDir()
+	git(t, peer, "clone", "-q", remote, peer+"/clone")
+	clone := peer + "/clone"
+	write(t, clone, "peer.txt", "peer\n")
+	git(t, clone, "add", "-A")
+	git(t, clone, "commit", "-qm", "chore: peer work")
+	git(t, clone, "push", "-q", "origin", "main")
+
+	write(t, root, "mine.txt", "mine\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "chore: my work")
+
+	result, err := Push(context.Background(), root, "origin", "main", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != PushOutcomeRejected {
+		t.Fatalf("a non-fast-forward must be classified as rejected, not failed: %+v", result)
+	}
+}
+
+func TestMergeBranchAbortsOnConflictAndLeavesTheTreeClean(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "f.txt", "base\n")
+	git(t, root, "checkout", "-q", "-b", "other")
+	write(t, root, "f.txt", "other\n")
+	git(t, root, "commit", "-qam", "feat: other side")
+	git(t, root, "checkout", "-q", "main")
+	write(t, root, "f.txt", "mine\n")
+	git(t, root, "commit", "-qam", "feat: my side")
+	headBefore := git(t, root, "rev-parse", "HEAD")
+
+	result, err := MergeBranch(context.Background(), root, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != MergeOutcomeConflict || !contains(result.Paths, "f.txt") {
+		t.Fatalf("expected a conflict on f.txt, got %+v", result)
+	}
+	if result.Sides.BaseSHA == "" || result.Sides.OursSHA != headBefore || result.Sides.TheirsSHA == "" {
+		t.Fatalf("the three merge sides must be recorded, got %+v", result.Sides)
+	}
+	// Wharnex's own integration refuses to act on a repository with unresolved
+	// paths, so a conflicted merge left in place would block every Agent
+	// request on the project.
+	if status := git(t, root, "status", "--porcelain"); status != "" {
+		t.Fatalf("a conflicting merge must leave the tree clean, got %q", status)
+	}
+	if head := git(t, root, "rev-parse", "HEAD"); head != headBefore {
+		t.Fatal("an aborted merge must not move HEAD")
+	}
+}
+
+func TestMergeBranchSucceedsOnDisjointChanges(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "f.txt", "base\n")
+	git(t, root, "checkout", "-q", "-b", "other")
+	write(t, root, "other.txt", "other\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: other file")
+	git(t, root, "checkout", "-q", "main")
+
+	result, err := MergeBranch(context.Background(), root, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != MergeOutcomeMerged && result.Outcome != MergeOutcomeUpToDate {
+		t.Fatalf("expected a clean merge, got %+v", result)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "other.txt")); statErr != nil {
+		t.Fatalf("the merged file must be present: %v", statErr)
+	}
+}
+
+// Replaying the merge and patching our own clean version is what lets
+// MergeBranch abort without losing anything.
+func TestMergeResolutionReplaysAndCommits(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "f.txt", "base\n")
+	git(t, root, "checkout", "-q", "-b", "other")
+	write(t, root, "f.txt", "other\n")
+	git(t, root, "commit", "-qam", "feat: other side")
+	git(t, root, "checkout", "-q", "main")
+	write(t, root, "f.txt", "mine\n")
+	git(t, root, "commit", "-qam", "feat: my side")
+	if _, err := MergeBranch(context.Background(), root, "other"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := BeginMergeResolution(context.Background(), root, "other", []string{"f.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	// Our own clean version is on disk, with no conflict markers, which is
+	// what makes the resolution expressible as an ordinary patch.
+	if body := readFile(t, root, "f.txt"); body != "mine\n" {
+		t.Fatalf("expected our clean version staged for patching, got %q", body)
+	}
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("mine and other\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := CompleteMergeResolution(context.Background(), root, []string{"f.txt"}, "merge: reconcile f.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha == "" {
+		t.Fatal("expected a merge commit")
+	}
+	if body := readFile(t, root, "f.txt"); body != "mine and other\n" {
+		t.Fatalf("expected the resolved content, got %q", body)
+	}
+	if parents := git(t, root, "rev-list", "--parents", "-n", "1", "HEAD"); len(strings.Fields(parents)) != 3 {
+		t.Fatalf("the resolution must be a real merge commit with two parents, got %q", parents)
+	}
+	if status := git(t, root, "status", "--porcelain"); status != "" {
+		t.Fatalf("expected a clean tree after concluding the merge, got %q", status)
+	}
+}
+
+// A resolution that leaves a path conflicted must never be recorded as a
+// finished merge.
+func TestCompleteMergeResolutionRefusesUnresolvedPaths(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "f.txt", "base\n")
+	write(t, root, "g.txt", "base\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "add g")
+	git(t, root, "checkout", "-q", "-b", "other")
+	write(t, root, "f.txt", "other\n")
+	write(t, root, "g.txt", "other\n")
+	git(t, root, "commit", "-qam", "feat: other side")
+	git(t, root, "checkout", "-q", "main")
+	write(t, root, "f.txt", "mine\n")
+	write(t, root, "g.txt", "mine\n")
+	git(t, root, "commit", "-qam", "feat: my side")
+
+	if err := BeginMergeResolution(context.Background(), root, "other", []string{"f.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	// g.txt is still conflicted because only f.txt was resolved.
+	if _, err := CompleteMergeResolution(context.Background(), root, []string{"f.txt"}, "merge: partial"); err == nil {
+		t.Fatal("a partial resolution must not conclude the merge")
+	}
+	AbortMerge(context.Background(), root)
+	if status := git(t, root, "status", "--porcelain"); status != "" {
+		t.Fatalf("aborting must restore a clean tree, got %q", status)
+	}
+}
+
+func TestFileAtRefReportsSubmodulePointersAsAbsent(t *testing.T) {
+	requireGit(t)
+	root, _ := newRepoWithSubmodule(t, "mod/app")
+	if _, exists := FileAtRef(context.Background(), root, "HEAD", "mod/app"); exists {
+		t.Fatal("a gitlink has no text content and must report as absent")
+	}
+	content, exists := FileAtRef(context.Background(), root, "HEAD", "README.md")
+	if !exists || content != "root\n" {
+		t.Fatalf("expected the file content preserved byte-for-byte, got %q exists=%v", content, exists)
+	}
+}

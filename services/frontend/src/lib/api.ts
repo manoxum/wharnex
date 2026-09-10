@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AttentionRecord, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
+import type { AgentTurn, AppConfig, AttentionRecord, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
 
@@ -57,6 +57,19 @@ export function normalizeOrchestratorOverview(overview: OrchestratorOverview): O
     ...overview,
     plans: Array.isArray(overview?.plans) ? overview.plans : [],
     tasks: Array.isArray(overview?.tasks) ? overview.tasks.map((task) => ({ ...task, depends_on: Array.isArray(task?.depends_on) ? task.depends_on : [] })) : [],
+  }
+}
+
+// Same defence as normalizeOrchestratorOverview: a Go backend marshals an
+// unallocated slice as null, and this panel maps over every one of these.
+export function normalizeGitOverview(overview: GitOverview): GitOverview {
+  return {
+    ...overview,
+    branches: Array.isArray(overview?.branches) ? overview.branches : [],
+    remotes: Array.isArray(overview?.remotes) ? overview.remotes : [],
+    commits: Array.isArray(overview?.commits) ? overview.commits : [],
+    pending: Array.isArray(overview?.pending) ? overview.pending : [],
+    working: overview?.working || { clean: true, stageable_count: 0 },
   }
 }
 
@@ -158,6 +171,16 @@ export const api = {
     }),
   terminal: (id: string, command: CommandSpec, target: TerminalTarget = 'sandbox', confirmHost = false) => request<CommandResult>(`/api/sessions/${id}/terminal?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(command) }),
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
+  gitOverview: (id: string) => request<GitOverview>(`/api/sessions/${id}/git/overview`).then(normalizeGitOverview),
+  setGitCommitMode: (id: string, mode: GitCommitMode) => request<{ commit_mode: GitCommitMode }>(`/api/sessions/${id}/git/commit-mode`, { method: 'PUT', body: JSON.stringify({ commit_mode: mode }) }),
+  gitPendingCommit: (id: string, pendingID: string) => request<GitPendingCommit>(`/api/sessions/${id}/git/pending/${encodeURIComponent(pendingID)}`),
+  commitGitPending: (id: string, pendingIDs: string[]) => request<GitCommitResult>(`/api/sessions/${id}/git/pending/commit`, { method: 'POST', body: JSON.stringify({ pending_ids: pendingIDs }) }),
+  discardGitPending: (id: string, pendingIDs: string[]) => request<{ removed: number }>(`/api/sessions/${id}/git/pending/discard`, { method: 'POST', body: JSON.stringify({ pending_ids: pendingIDs }) }),
+  // The confirmation token is required by the backend: pushing publishes code
+  // to a remote other people read and cannot be undone by a local reset, so it
+  // must never be reachable by a stray click or a replayed request.
+  gitPush: (id: string, remote: string, branch: string, setUpstream: boolean) => request<GitPushResult>(`/api/sessions/${id}/git/push`, { method: 'POST', body: JSON.stringify({ remote, branch, set_upstream: setUpstream, confirmation: 'push' }) }),
+  gitMerge: (id: string, ref: string) => request<GitMergeResult>(`/api/sessions/${id}/git/merge`, { method: 'POST', body: JSON.stringify({ ref }) }),
   orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`).then(normalizeOrchestratorOverview),
   proposeOrchestratorPlan: (id: string, objective: string) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/propose`, { method: 'POST', body: JSON.stringify({ objective }) }),
   importOrchestratorPlan: (id: string, requestId: string, proposal: OrchestratorProposal) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/import`, { method: 'POST', body: JSON.stringify({ request_id: requestId, proposal }) }),

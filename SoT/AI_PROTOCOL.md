@@ -4,7 +4,7 @@
 
 - `harness.turn/v1`: classifies one conversational agent outcome.
 - `harness.execution/v1`: describes executable work for a `workflow` or `change` turn.
-- `harness.conflict/v1`: a Wharness-generated, focused BASE/CURRENT/RESULT capsule for resolving a verified integration conflict — sourced from a real Git merge conflict's merge-base/host/branch commits for a candidate integrated via the Git-native flow (see `AUTOMATION_BUNDLE.md`), or from a canonical `ChangeSet` for a candidate reconciled from an immutable archived base.
+- `harness.conflict/v1`: a Wharness-generated, focused BASE/CURRENT/RESULT capsule for resolving a conflict. Its `origin` field says which reconciliation is being asked for — `integration` (the historical case, and the default when the field is absent), or `push`/`branch_merge` for a host Git operation the operator started, which additionally carries the `git` block naming the merge to replay (see `adr/ADR-0040`). For an integration conflict it resolves a verified candidate — sourced from a real Git merge conflict's merge-base/host/branch commits for a candidate integrated via the Git-native flow (see `AUTOMATION_BUNDLE.md`), or from a canonical `ChangeSet` for a candidate reconciled from an immutable archived base.
 
 ## Intent-first agent rule
 

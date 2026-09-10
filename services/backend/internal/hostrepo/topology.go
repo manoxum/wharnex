@@ -116,6 +116,23 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(output)), err
 }
 
+// runRaw returns stdout byte-for-byte, with stderr kept separate.
+//
+// It exists because run() trims whitespace and folds stderr into the result,
+// which is right for status output a caller parses or reports, and destructive
+// for content: a file read back through run() loses its trailing newline and
+// any leading blank line, so writing it back would silently rewrite the file.
+// Anything reproducing file or diff content must use this.
+func runRaw(ctx context.Context, dir string, args ...string) (stdout string, err error) {
+	if _, lookErr := exec.LookPath("git"); lookErr != nil {
+		return "", ErrGitUnavailable
+	}
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.Output()
+	return string(output), err
+}
+
 // Inspect measures a repository's topology. It performs no mutation of any
 // kind: every command it runs is a read.
 func Inspect(ctx context.Context, root string) (Topology, error) {
