@@ -61,6 +61,10 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 	// A conversation binding is only ever a trusted ChatGPT conversation URL;
 	// anything else is dropped rather than stored and later navigated to.
 	chat.ChatGPTURL = normalizeChatGPTConversationURL(chat.ChatGPTURL)
+	chat.ConversationID = chatGPTConversationIDFromURL(chat.ChatGPTURL)
+	chat.RemoteProjectRef = boundedText(chat.RemoteProjectRef, 256)
+	chat.RemoteTitle = boundedText(chat.RemoteTitle, maxChatTitleLength)
+	chat.RemoteState = boundedText(chat.RemoteState, 64)
 
 	if chat.CreatedAt.IsZero() {
 		chat.CreatedAt = time.Now().UTC()
@@ -69,6 +73,19 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 		return domain.WorkspaceChat{}, err
 	}
 	return chat, nil
+}
+
+func (s *Service) UpdateWorkspaceChatRemote(chatID, chatGPTURL, projectRef, remoteTitle, remoteState string) error {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return ErrInvalidWorkspaceChat
+	}
+	url := normalizeChatGPTConversationURL(chatGPTURL)
+	if chatGPTURL != "" && url == "" {
+		return ErrInvalidWorkspaceChat
+	}
+	return s.store.UpdateWorkspaceChatRemote(id, url, chatGPTConversationIDFromURL(url),
+		boundedText(projectRef, 256), boundedText(remoteTitle, maxChatTitleLength), boundedText(remoteState, 64))
 }
 
 func (s *Service) DeleteWorkspaceChat(chatID string) error {
@@ -141,4 +158,20 @@ func normalizeChatGPTConversationURL(value string) string {
 		}
 	}
 	return raw
+}
+
+func chatGPTConversationIDFromURL(value string) string {
+	if value == "" {
+		return ""
+	}
+	marker := "/c/"
+	at := strings.LastIndex(value, marker)
+	if at == -1 {
+		return ""
+	}
+	id := value[at+len(marker):]
+	if cut := strings.IndexAny(id, "/?#"); cut != -1 {
+		id = id[:cut]
+	}
+	return id
 }

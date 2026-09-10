@@ -53,7 +53,8 @@ func (s *Store) ListWorkspaceChats(projectPath string) ([]domain.WorkspaceChat, 
 		return chats, nil
 	}
 
-	rows, err := s.db.Query(`SELECT id, project_path, session_id, title, chatgpt_url, archived_at, created_at, updated_at, payload
+	rows, err := s.db.Query(`SELECT id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
+		remote_title, remote_state, archived_at, created_at, updated_at, payload
 		FROM harness_workspace_chats WHERE project_path=$1 ORDER BY updated_at DESC, id`, project)
 	if err != nil {
 		return nil, fmt.Errorf("list workspace chats: %w", err)
@@ -65,7 +66,9 @@ func (s *Store) ListWorkspaceChats(projectPath string) ([]domain.WorkspaceChat, 
 		var chat domain.WorkspaceChat
 		var archivedAt sql.NullTime
 		var payload []byte
-		if err := rows.Scan(&chat.ID, &chat.ProjectPath, &chat.SessionID, &chat.Title, &chat.ChatGPTURL, &archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload); err != nil {
+		if err := rows.Scan(&chat.ID, &chat.ProjectPath, &chat.SessionID, &chat.Title, &chat.ChatGPTURL,
+			&chat.ConversationID, &chat.RemoteProjectRef, &chat.RemoteTitle, &chat.RemoteState,
+			&archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload); err != nil {
 			return nil, fmt.Errorf("scan workspace chat: %w", err)
 		}
 		if archivedAt.Valid {
@@ -122,19 +125,72 @@ func (s *Store) SaveWorkspaceChat(chat domain.WorkspaceChat) error {
 		archivedAt = *chat.ArchivedAt
 	}
 	_, err = s.db.Exec(`INSERT INTO harness_workspace_chats
-			(id, project_path, session_id, title, chatgpt_url, archived_at, created_at, updated_at, payload)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			(id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
+			 remote_title, remote_state, archived_at, created_at, updated_at, payload)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (id) DO UPDATE SET
 			project_path=EXCLUDED.project_path,
 			session_id=EXCLUDED.session_id,
 			title=EXCLUDED.title,
 			chatgpt_url=EXCLUDED.chatgpt_url,
+			conversation_id=EXCLUDED.conversation_id,
+			remote_project_ref=EXCLUDED.remote_project_ref,
+			remote_title=EXCLUDED.remote_title,
+			remote_state=EXCLUDED.remote_state,
 			archived_at=EXCLUDED.archived_at,
 			updated_at=EXCLUDED.updated_at,
 			payload=EXCLUDED.payload`,
-		chat.ID, chat.ProjectPath, chat.SessionID, chat.Title, chat.ChatGPTURL, archivedAt, chat.CreatedAt, chat.UpdatedAt, payload)
+		chat.ID, chat.ProjectPath, chat.SessionID, chat.Title, chat.ChatGPTURL, chat.ConversationID,
+		chat.RemoteProjectRef, chat.RemoteTitle, chat.RemoteState, archivedAt, chat.CreatedAt, chat.UpdatedAt, payload)
 	if err != nil {
 		return fmt.Errorf("persist workspace chat: %w", err)
+	}
+	return nil
+}
+
+// UpdateWorkspaceChatRemote updates only the browser-affinity metadata owned by
+// the Desktop scheduler. It deliberately leaves renderer-owned transcript and
+// project fields untouched, so a worker can persist a confirmed ChatGPT POST
+// immediately without racing a whole-record rewrite from the frontend.
+func (s *Store) UpdateWorkspaceChatRemote(chatID, chatGPTURL, conversationID, projectRef, remoteTitle, remoteState string) error {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return fmt.Errorf("workspace chat id is required")
+	}
+	now := time.Now().UTC()
+	if s.db == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for project, list := range s.chatFallback() {
+			for i := range list {
+				if list[i].ID != id {
+					continue
+				}
+				list[i].ChatGPTURL = chatGPTURL
+				list[i].ConversationID = conversationID
+				list[i].RemoteProjectRef = projectRef
+				list[i].RemoteTitle = remoteTitle
+				if strings.TrimSpace(remoteTitle) != "" {
+					list[i].Title = remoteTitle
+				}
+				list[i].RemoteState = remoteState
+				list[i].UpdatedAt = now
+				s.chatFallback()[project] = list
+				return nil
+			}
+		}
+		return fmt.Errorf("workspace chat not found")
+	}
+	result, err := s.db.Exec(`UPDATE harness_workspace_chats
+		SET chatgpt_url=$2, conversation_id=$3, remote_project_ref=$4, remote_title=$5,
+			title=CASE WHEN BTRIM($5) <> '' THEN $5 ELSE title END,
+			remote_state=$6, updated_at=$7
+		WHERE id=$1`, id, chatGPTURL, conversationID, projectRef, remoteTitle, remoteState, now)
+	if err != nil {
+		return fmt.Errorf("update workspace chat remote state: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return fmt.Errorf("workspace chat not found")
 	}
 	return nil
 }

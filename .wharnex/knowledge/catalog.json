@@ -17,6 +17,7 @@
     "markdown-translation-utility",
     "orchestrator-mode-design",
     "plan-approval-continuations",
-    "project-execution-audit-logs"
+    "project-execution-audit-logs",
+    "revert-restore-recovery"
   ]
 }

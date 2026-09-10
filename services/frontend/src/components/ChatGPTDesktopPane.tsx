@@ -136,8 +136,9 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   useEffect(() => {
     if (!bridge || !chatId) return
     if (suspended || overlayBlocked || externalAuth || !hostRef.current) return
-    // This pane instance now stays mounted for the chat's whole lifetime and
-    // is merely suspended/unsuspended as the user switches chats or tabs.
+    // This is the single human-facing Supervisor pane. It remains mounted while
+    // its chatId/url props move between chats; background automation is handled
+    // by hidden Desktop workers rather than additional React panes.
     // `navigate` must still run every time this pane is unsuspended: its
     // backend handler already no-ops cheaply when the remote view is already
     // on the right conversation, but it is also what self-heals a view that

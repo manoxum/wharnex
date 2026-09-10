@@ -10,14 +10,18 @@ import "time"
 // binding, while the Sessions and their MinIO artifacts survived untouched in
 // the backend. The chat index is durable state and belongs beside them.
 type WorkspaceChat struct {
-	ID          string     `json:"id"`
-	ProjectPath string     `json:"project_path"`
-	SessionID   string     `json:"session_id"`
-	Title       string     `json:"title"`
-	ChatGPTURL  string     `json:"chatgpt_url,omitempty"`
-	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID               string     `json:"id"`
+	ProjectPath      string     `json:"project_path"`
+	SessionID        string     `json:"session_id"`
+	Title            string     `json:"title"`
+	ChatGPTURL       string     `json:"chatgpt_url,omitempty"`
+	ConversationID   string     `json:"conversation_id,omitempty"`
+	RemoteProjectRef string     `json:"remote_project_ref,omitempty"`
+	RemoteTitle      string     `json:"remote_title,omitempty"`
+	RemoteState      string     `json:"remote_state,omitempty"`
+	ArchivedAt       *time.Time `json:"archived_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 
 	// Renderer-owned fields the backend stores but never interprets: artifact
 	// selection, transport options, conflict surfaces, naming/remote-archive

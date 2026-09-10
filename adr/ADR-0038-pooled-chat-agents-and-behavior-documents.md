@@ -1,131 +1,118 @@
-# ADR-0038 — Pooled chat agents, one global queue, and behavior documents
+# ADR-0038 — Supervisor/worker ChatGPT runtime, durable queue, and behavior documents
 
 ## Status
 
-Proposed. Core modules landed and tested; the migration of existing ChatGPT
-traffic onto the controller is in progress. Supersedes the one-view-per-chat
-rule in `AGENTS.md` section 8 once that migration completes.
+Accepted. This decision supersedes the per-chat renderer ownership model from
+ADR-0006 and the renderer-rehydration/background-poller portions of ADR-0012
+and ADR-0037.
 
 ## Context
 
-Every live Wharnex chat owned its own ChatGPT `WebContentsView`. That gave each
-chat a stable surface, but it ties resident cost to chat count: thirty chats
-means thirty Chromium renderers on one authenticated partition. Wharnex is
-routinely used with many more chats than there are conversations actively being
-driven at any instant, so most of those renderers are idle weight.
+A dedicated ChatGPT `WebContentsView` per Harness chat made Chromium cost grow
+with chat count and spread automation state across renderer lifetime, React pane
+lifetime, and ad-hoc background timers. A large workspace therefore paid for
+many idle renderers while still lacking one durable scheduler that could recover
+work after a Desktop restart or serialize operations on the same remote
+conversation.
 
-The surfaces also had no shared scheduler. Each chat drove its own view
-independently, so nothing could express "a user is waiting on a prompt, finish
-that before resuming background inspection", and nothing prevented two
-operations from interleaving on the same page.
-
-Separately, every selector, label and timing was compiled into control flow.
-A ChatGPT UI change therefore required a code change, and adding a second AI
-provider would have meant a parallel implementation of the same verbs.
+The durable identities are already available independently of a renderer:
+Harness `chat_id`, provider `conversation_id`, and Wharness `request_id`.
+Renderers should execute work for those identities rather than own them.
 
 ## Decision
 
-### Instances are pooled, not owned
+### One Supervisor and three autonomous workers
 
-A small pool of `WebContentsView` slots is rotated across chats. Sizing:
+For one authenticated ChatGPT profile/Desktop process, Wharnex owns exactly one
+human-facing **Supervisor** browser plus three hidden persistent **Worker**
+browsers. They share only the dedicated authenticated ChatGPT browser partition.
+The pool is global across projects and windows, so chat count does not change
+remote renderer count.
 
-- one chat holds the pool at exactly one slot;
-- two or more chats raise the floor to two, so the slot the user is looking at
-  is never the slot doing background work;
-- the pool grows toward a configurable ceiling (default 3, hard maximum 6) but
-  never past the number of chats.
+The Supervisor is exclusively the interactive surface: selected-chat
+navigation, the first user submission, and user comments. Background scheduler
+jobs never use it. During composer/upload/submit critical phases it holds a
+navigation/write lease. If the user switches chats meanwhile, Wharnex records
+the latest desired chat and navigates there only after submission is confirmed.
 
-Roles are not interchangeable. Exactly one slot carries the `view` role whenever
-more than one slot exists: it follows the active chat and is never given
-background inspection, because a background navigation would pull the page out
-from under the person reading it. The remaining `worker` slots take everything
-else. With a single chat there is nothing to inspect in the background, so one
-slot serves both purposes.
+Workers execute autonomous jobs. Affinity is only a cache preference:
+`chat_id -> conversation_id` is durable state, and a worker may be rebound after
+finishing its non-preemptive job. Project-scoped ChatGPT URLs do not change the
+canonical conversation identity.
 
-A read never takes the viewing slot. A write may, but only when no worker is
-free, because a user is waiting on it.
+### PostgreSQL is the browser-job source of truth
 
-### One global queue, priority ordered, non-preemptive
+The backend persists typed tasks with `task_id`, `type`, `project_id`, `chat_id`,
+`session_id`, `request_id`, `root_request_id`, `conversation_id`,
+`parent_task_id`, `priority`, `status`, `not_before`, `attempt`, `max_attempts`,
+`dedupe_key`, lease fields, payload/error fields, and timestamps. Electron only
+claims leases and executes browser work.
 
-All agents pull from a single queue. Writes outrank account operations, which
-outrank reads: a write is a user waiting on their own prompt, a read is
-background inspection that is never urgent.
+Task states are `PENDING`, `LEASED`, `RUNNING`, `WAITING`, `DONE`, `FAILED`,
+`ATTENTION`, and `CANCELLED`. Expired leases are safely reclaimed. Writes are
+never deduplicated; idempotent work uses a dedupe key. Child tasks are created
+instead of mutating a task into a new type.
 
-Dispatch is non-preemptive. A running job is never aborted because something
-better arrived. A half-finished read leaves the surface in an unknown state — a
-menu open, a navigation mid-flight — and the cost of reasoning about that state
-dwarfs the latency saved. An agent finishes its current job, then takes the next
-one.
+Scheduling priority is:
 
-Reads collapse on a dedupe key, because re-asking to inspect a chat that is
-already queued for inspection is one job. Writes never collapse: two prompts are
-two intents.
+1. P0 `BOT_WRITE`, `RECOVERY_WRITE`;
+2. P1 due `AWAIT_RESPONSE`;
+3. P2 `TITLE_DISCOVER`, title fallback, `ORGANIZE_CHAT`, `RENAME_CHAT`;
+4. P3 `ARCHIVE_CHAT`, `DELETE_CHAT`;
+5. P4 `DELETE_BUNDLE`, `DELETE_TEMP_CHAT`.
 
-### Behavior lives in a document, not in code
+FIFO applies inside effective priority and lower-priority maintenance ages
+toward P1. A global account-operation lock serializes rename/move/archive/delete
+work. A per-conversation remote-write lock prevents writers from overlapping
+one another or an await probe on the same conversation.
 
-An agent is instantiated with a base URL plus a validated behavior document
-(`harness.chat-agent-behavior/v1`) holding selectors, menu labels, timing
-budgets, verification requirements and anomaly-capture rules. Scripts are built
-from that document; nothing is compiled in. A second provider is a second
-document, and a UI change is a document change.
+### Awaiting is a bounded probe, not a parked browser
 
-Optional controls are declared separately from required ones, because an absent
-control can be legitimate: an account with no model picker is data, not a
-defect. An unmapped optional control makes its verb report
-`capability-unavailable` rather than clicking something adjacent.
+`AWAIT_RESPONSE` navigates a worker to the canonical conversation, checks only
+allowlisted structural state and the exact expected bundle affordance, then
+finishes quickly. While generation is active it returns to `WAITING` with
+`not_before` plus bounded backoff/jitter so the worker is released. A completed
+turn without the canonical bundle may create one bounded `RECOVERY_WRITE`
+child. CAPTCHA/auth/rate-limit/provider-wide gates move work to `ATTENTION` and
+pause the provider globally instead of producing three retry storms.
 
-A learned overlay may refine a document at runtime, but it may only *extend*
-selector lists — never remove a builtin. A UI change should add a way to find a
-control, not delete the way that still works for users on an older rollout, and
-an overlay that could delete selectors would let one bad learning cycle blind
-the agent permanently.
+`BOT_WRITE`/`RECOVERY_WRITE` acquire the per-conversation write lease and create
+exactly one `AWAIT_RESPONSE` only after the conversation POST is confirmed and a
+stable `conversation_id` exists. User comments remain Supervisor operations and
+do not create a second await lineage.
 
-### A job is complete only on its own evidence
+### Conversation organization and lifecycle are idempotent jobs
 
-A write is not finished when the keystroke is sent; it is finished when the
-composer is observed drained and the conversation request is observed starting.
-A read is not finished when navigation is requested; it is finished when the
-trusted conversation URL is settled and the readiness selector is present. Both
-carry bounded timeouts and bounded retries from the document's own budgets, so a
-slow network, a ChatGPT error surface, or a stalled page ends as a typed failure
-rather than a hang.
+The first confirmed submission persists the conversation binding immediately
+and independently enqueues response waiting and native-title discovery. The
+provider's native title is accepted only after stable reads. A temporary title
+conversation is a bounded fallback, not the normal path. Organization performs
+exact project lookup/create, move, rename, confirmation, and local remote-state
+sync; ambiguous duplicate projects require attention.
 
-### Abnormal situations are captured for evolution
+Archive/delete jobs honor active request/recovery/write guards and treat already
+completed remote state as success. Cleanup jobs are exact-identity and
+retention-aware; a truncated/fuzzy library filename is never enough to delete an
+artifact.
 
-When a verb cannot find its control, the agent captures a bounded structural
-snapshot — tags, attributes and nesting, never text nodes — so a behavior
-document can be evolved from evidence. A snapshot kept for evolution must never
-become a transcript. Repeated failures of the same shape escalate to explicit
-human attention rather than retrying indefinitely.
+### Behavior remains data-driven and fail-closed
 
-### Visible reasoning is captured structurally
-
-ChatGPT collapses completed reasoning behind a disclosure ("Processou durante
-5m 23s"); expanding it is what makes the summary rows readable at all. Rows are
-selected structurally: short prose lines that are not inside, and do not
-contain, a code or markdown region. That is what separates "Validou estilos e
-temas da interface" from the tool/code block beside it. Wrapper elements report
-the concatenation of the rows beneath them, so any candidate that strictly
-contains another candidate is discarded as a wrapper.
-
-This is a deliberate, bounded exception to the prohibition on reading generated
-output, scoped to the reasoning summary rows of a Wharnex-driven conversation and
-surfaced to the user as "Raciocínio visível do ChatGPT". It does not extend to
-answer prose, and completion is still never inferred from it.
+Provider selectors, labels, budgets, optional capabilities, anomaly snapshots,
+and visible-reasoning rules remain in `harness.chat-agent-behavior/v1` behavior
+documents. Scripts locate controls; trusted native input commits account menu
+actions. Missing or ambiguous controls fail closed rather than clicking nearby
+UI. Generated assistant prose, cookies, storage, and unrelated conversations
+remain outside the automation inspection boundary.
 
 ## Consequences
 
-- Resident cost decouples from chat count: three slots serve any number of
-  chats, at the price of navigation latency when a worker must move between
-  conversations.
-- A chat is no longer guaranteed a warm surface; the affinity map (chat →
-  conversation URL) becomes the durable binding and the view becomes a cache.
-- Priority inversion is possible by construction: a long read delays a write
-  that arrives mid-job. This is accepted deliberately in exchange for never
-  leaving a surface in an unknown state, and is bounded by the read's own
-  timeout.
-- Trusted native clicks land on hidden views (verified), which is what makes
-  worker slots usable without showing them.
-- Two effort settings become meaningful and must not be conflated: Wharnex's own
-  execution effort, and the provider-side reasoning effort passed to the chat
-  along with the requested model.
+- Thirty or more chats still use one Supervisor plus three workers.
+- Browser lifetime is no longer chat lifetime; durable identity and queue state
+  survive Desktop restart independently of renderer state.
+- Background work can never navigate the user's visible browser.
+- `not_before`, leases, dedupe keys, lineage, and provider pause make recovery
+  observable and retry-safe instead of timer-driven.
+- React renders only the selected Supervisor surface; background liveness is a
+  Desktop/backend concern.
+- Worker jobs remain non-preemptive. Their probes/actions are therefore bounded
+  so a newly arrived P0 write is delayed only by a short current job.

@@ -4,6 +4,8 @@ import {
   chatGPTCommitConversationTitleScript,
   chatGPTConversationTitleScript,
   chatGPTHideSidebarScript,
+  chatGPTLibraryArtifactRectScript,
+  chatGPTLibraryArtifactStateScript,
   chatGPTMenuItemRectScript,
   chatGPTNewProjectDialogScript,
   chatGPTOpenConversationMenuScript,
@@ -19,6 +21,8 @@ import {
 
 const ALL_SCRIPTS = [
   chatGPTHideSidebarScript(),
+  chatGPTLibraryArtifactRectScript('whx_bundle_res_chat-a_req_20260910T201853_b3ac40e93553974d.zip', 'artifact-1'),
+  chatGPTLibraryArtifactStateScript('whx_bundle_res_chat-a_req_20260910T201853_b3ac40e93553974d.zip', 'artifact-1'),
   chatGPTShowSidebarScript(),
   chatGPTStopConversationScript(),
   chatGPTOpenConversationMenuScript('6aa1cb9b-e968-83ea-ab1a-eaaeda5dda4f'),
@@ -106,4 +110,19 @@ test('project inventory reads the account project anchors and reports duplicates
   assert.match(chatGPTProjectInventoryScript(), /a\[role="menuitem"\]\[href\^="\/g\/g-p-"\]/)
   assert.match(chatGPTProjectItemRectScript('Wharnex'), /duplicates: matches\.length/)
   assert.match(chatGPTProjectItemRectScript('Wharnex'), /toLocaleLowerCase/)
+})
+
+
+test('library cleanup requires exact artifact identity and returns native click coordinates', () => {
+  const filename = 'whx_bundle_res_chat-a_req_20260910T201853_b3ac40e93553974d.zip'
+  const locate = chatGPTLibraryArtifactRectScript(filename, 'artifact-1')
+  const state = chatGPTLibraryArtifactStateScript(filename, 'artifact-1')
+  assert.match(locate, /data-page-table-selection-id/)
+  assert.match(locate, /Open actions menu for /)
+  assert.match(locate, /name === wantedName/)
+  assert.match(locate, /id === wantedID/)
+  assert.match(locate, /artifact-ambiguous/)
+  assert.match(locate, /rect\(/)
+  assert.doesNotMatch(locate, /\.includes\(wantedName\)|startsWith\(wantedName\)/)
+  assert.match(state, /artifact-absent/)
 })

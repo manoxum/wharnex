@@ -46,6 +46,24 @@ func (a *API) saveWorkspaceChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, saved)
 }
 
+func (a *API) updateWorkspaceChatRemote(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ChatGPTURL       string `json:"chatgpt_url"`
+		RemoteProjectRef string `json:"remote_project_ref"`
+		RemoteTitle      string `json:"remote_title"`
+		RemoteState      string `json:"remote_state"`
+	}
+	if err := decodeChatBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if err := a.service.UpdateWorkspaceChatRemote(r.PathValue("id"), body.ChatGPTURL, body.RemoteProjectRef, body.RemoteTitle, body.RemoteState); err != nil {
+		writeWorkspaceChatError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (a *API) deleteWorkspaceChat(w http.ResponseWriter, r *http.Request) {
 	if err := a.service.DeleteWorkspaceChat(r.PathValue("id")); err != nil {
 		writeWorkspaceChatError(w, err)

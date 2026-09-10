@@ -157,22 +157,20 @@ by re-reading that same inventory. A confirmation matching more than once is
 reported as a duplicate rather than accepted, so a project is never created
 twice remotely.
 
-Archiving a chat is local and authoritative. An unconfirmed remote archive is
-recorded as durable pending chat state and retried by a bounded background job
-(exponential backoff from 5 minutes to a 6 hour ceiling, 8 attempts); it never
-prevents the user from closing the chat. A retry recreates the owned view from
-the stored conversation URL, because a released view is not evidence that the
-remote conversation was archived.
+Browser maintenance is persisted as typed PostgreSQL tasks and leased to one of
+three hidden workers. Archive/delete/title/organization work is idempotent and
+bounded; active request/recovery/write guards defer lifecycle work with
+`WAITING`/`not_before`. A Desktop restart reclaims expired leases. The visible
+Supervisor is reserved for the user and is never borrowed by maintenance.
 
-A chat opens with a provisional locally-derived title. A background job assigns
-a definitive title and moves the conversation into the project; a title the user
-typed is definitive and is never revisited. Maintenance jobs process one item
-per tick, skip the chat the user is viewing, and degrade into durable state
-instead of interrupting unrelated work.
+A chat opens with a provisional locally-derived title. After the first confirmed
+submission, native-title discovery and project organization are queued
+independently from response waiting. The native title must stabilize before use;
+a temporary title conversation is a bounded fallback. A title explicitly chosen
+by the user remains definitive.
 
-Bundle files accumulated in the account library become eligible for deletion
-once their owning chat has been archived beyond the retention window (3 days).
-Eligibility is proven by the bundle naming contract
-`whx_bundle_<req|res>_<chat_id>_<request_id>[_<subrequest_id>].zip`, which
-embeds the owning chat id. An entry that does not parse as a Wharnex bundle for
-an expired archived chat is never deleted.
+Bundle files in the account library are cleanup candidates only after local
+persistence/ingestion and the configured retention boundary. A cleanup task must
+carry an exact canonical Wharnex filename and, when available, the provider
+artifact id. Fuzzy prefixes, truncated UI labels, ambiguous rows, or artifacts
+still needed by request recovery/audit fail closed and are never deleted.

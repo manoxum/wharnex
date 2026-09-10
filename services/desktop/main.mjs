@@ -8,7 +8,7 @@ import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPoi
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript } from './chatgpt-dom.mjs'
-import { chatGPTCommitConversationTitleScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
+import { chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
@@ -20,6 +20,8 @@ import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieD
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
+import { DEFAULT_WORKER_SLOTS } from './chat-agent-pool.mjs'
+import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -28,6 +30,7 @@ const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
 const FRONTEND_RUNTIME_TOKEN = randomUUID()
 const CHATGPT_URL = 'https://chatgpt.com/'
 const CHATGPT_LOGIN_URL = 'https://chatgpt.com/auth/login'
+const CHATGPT_LIBRARY_URL = 'https://chatgpt.com/library'
 const CHATGPT_PARTITION = 'persist:wharness-chatgpt'
 const MAX_CONTEXT_BYTES = 256 * 1024 * 1024
 const MAX_PLAN_BYTES = 2 * 1024 * 1024
@@ -41,6 +44,8 @@ const MAX_CHAT_ARTIFACTS_BYTES = 6 * 1024 * 1024
 const CHATGPT_CHROMIUM_VERSION = '152.0.7977.65'
 const CHATGPT_USER_AGENT = chromeCompatibleUserAgent(process.platform, CHATGPT_CHROMIUM_VERSION)
 const CHATGPT_ACCEPT_LANGUAGES = 'pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+const CHATGPT_BUNDLE_RETENTION_HOURS = Math.max(1, Math.min(24 * 30, Number(process.env.WHARNESS_CHATGPT_BUNDLE_RETENTION_HOURS || 72) || 72))
+const CHATGPT_BUNDLE_RETENTION_MS = CHATGPT_BUNDLE_RETENTION_HOURS * 60 * 60 * 1000
 const CHATGPT_AFFINITY_RECOVERY_GRACE_MS = 60_000
 // Some Linux networks advertise IPv6 while dropping HTTPS connections on that
 // route. Chromium otherwise selects that route for ChatGPT and leaves the
@@ -90,6 +95,9 @@ if (!app.requestSingleInstanceLock()) {
 
 let mainWindow
 let chatgptViews = new Map()
+const chatGPTWorkerEntries = []
+let chatAgentScheduler
+let deferredSupervisorNavigation
 const chatGPTAuthBrowsers = new Map()
 const internalChatGPTBrowsers = new Map()
 const desktopWindows = new Map()
@@ -104,6 +112,7 @@ const recentChatGPTCommentFingerprints = new Map()
 const chatGPTActivityFingerprints = new Map()
 const expectedChatGPTBundles = new Map()
 const pollingExpectedChatGPTBundles = new Set()
+const chatAgentTitleSamples = new Map()
 const chatGPTTransportTails = new Map()
 const pendingChatGPTBundleDeliveries = new Map()
 // requestId -> deliveredAt. A second concurrent download of the same file
@@ -221,6 +230,7 @@ async function withChatGPTTransportPreparation(cacheKey, entry, requestId, opera
     entry.transportPreparationCount = Math.max(0, Number(entry.transportPreparationCount || 0) - 1)
     if (!entry.transportPreparationCount) entry.transportRequestId = ''
     reconcileChatGPTThrottle(key, entry)
+    if (entry.role !== 'worker' && !entry.transportPreparationCount && deferredSupervisorNavigation) setTimeout(() => { void applyDeferredSupervisorNavigation() }, 0)
     release()
     if (chatGPTTransportTails.get(key) === tail) chatGPTTransportTails.delete(key)
   }
@@ -468,6 +478,21 @@ async function acknowledgeChatGPTBundle(cacheKey, requestId, filename) {
     try { await rm(record.filePath, { force: true }) } catch { /* acknowledged data is safe to clean later */ }
   }
   if (key) cancelChatGPTRequestState(key, id)
+  if (record?.filename && key && chatAgentScheduler) {
+    const parsed = parseBundleName(record.filename)
+    if (parsed?.kind === 'res' && parsed?.chatId === safeChatId(key)) {
+      await enqueueChatAgentTask('DELETE_BUNDLE', {
+        key,
+        requestId: id,
+        rootRequestId: id,
+        conversationURL: '',
+        dedupeKey: `delete-bundle:${record.filename}`,
+        notBefore: new Date(Date.now() + CHATGPT_BUNDLE_RETENTION_MS).toISOString(),
+        payload: { canonical_filename: record.filename, artifact_id: '', locally_persisted: true },
+        maxAttempts: 8,
+      }).catch((error) => console.warn(`[chat-agent] remote bundle cleanup enqueue failed request=${id}: ${error instanceof Error ? error.message : String(error)}`))
+    }
+  }
   return { ok: true, requestId: id, alreadyAcknowledged: !record }
 }
 
@@ -496,8 +521,21 @@ function closeAllInternalChatGPTBrowsers() {
   internalChatGPTBrowsers.clear()
 }
 
+function rehomeChatGPTWorkers(windowState) {
+  const replacement = [...desktopWindows.values()].find((state) => state.id !== windowState?.id && state.window && !state.window.isDestroyed())
+  if (!replacement) return false
+  for (const entry of chatGPTWorkerEntries) {
+    if (entry.ownerWindowId !== windowState.id || entry.view.webContents.isDestroyed()) continue
+    try { windowState.window.contentView.removeChildView?.(entry.view) } catch { /* already detached */ }
+    replacement.window.contentView.addChildView(entry.view)
+    entry.ownerWindowId = replacement.id
+    entry.view.setVisible(false)
+  }
+  return true
+}
+
 function closeChatGPTViewsForWindow(windowState) {
-  for (const [key, entry] of [...chatgptViews.entries()]) if (entry.ownerWindowId === windowState.id) releaseChatGPTView(key, windowState)
+  for (const [key, entry] of [...chatgptViews.entries()]) if (entry.ownerWindowId === windowState.id) retireChatGPTSupervisorSurface(key)
   windowState.activeChatGPTKey = ''
   windowState.chatgptVisible = false
 }
@@ -513,6 +551,10 @@ function closeAllChatGPTViews() {
     if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
   }
   chatgptViews = new Map()
+  for (const entry of chatGPTWorkerEntries.splice(0)) {
+    clearTimeout(entry.affinitySettleTimer)
+    if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
+  }
   for (const state of desktopWindows.values()) { state.activeChatGPTKey = ''; state.chatgptVisible = false }
 }
 
@@ -522,7 +564,10 @@ function touchChatGPTEntry(entry) {
 
 function chatGPTEntryForWebContentsID(webContentsId) {
   if (webContentsId == null) return undefined
-  return [...chatgptViews.entries()].find(([, candidate]) => candidate.view.webContents.id === webContentsId)
+  const supervisor = [...chatgptViews.entries()].find(([, candidate]) => candidate.view.webContents.id === webContentsId)
+  if (supervisor) return supervisor
+  const worker = chatGPTWorkerEntries.find((candidate) => candidate.view.webContents.id === webContentsId && candidate.ownerKey)
+  return worker ? [worker.ownerKey, worker] : undefined
 }
 
 function noteChatGPTNetworkActivity(details, phase = 'network') {
@@ -562,9 +607,9 @@ function noteChatGPTNetworkFailure(details) {
 
 function requireOwnedChatGPTEntry(cacheKey, entry) {
   const key = sanitizeChatCacheKey(cacheKey)
-  if (!entry || entry.ownerKey !== key || chatgptViews.get(key) !== entry) {
-    throw new Error('ChatGPT view ownership mismatch')
-  }
+  const workerOwnsKey = entry?.role === 'worker' && entry.ownerKey === key && chatGPTWorkerEntries.includes(entry)
+  const supervisorOwnsKey = entry?.role !== 'worker' && entry?.ownerKey === key && chatgptViews.get(key) === entry
+  if (!workerOwnsKey && !supervisorOwnsKey) throw new Error('ChatGPT view ownership mismatch')
   return { key, entry, wc: entry.view.webContents }
 }
 
@@ -800,7 +845,7 @@ function scheduleChatGPTAffinitySettlement(cacheKey, entry) {
   if (!canonicalChatGPTConversationURL(entry.view.webContents.getURL())) return
   entry.affinitySettleTimer = setTimeout(async () => {
     entry.affinitySettleTimer = undefined
-    if (chatgptViews.get(cacheKey) !== entry || !isChatGPTAffinityAwaitingSettlement(entry.affinity)) return
+    if (chatGPTKeyForEntry(entry) !== cacheKey || !isChatGPTAffinityAwaitingSettlement(entry.affinity)) return
     const stableURL = await waitForConcreteChatGPTConversation(entry.view.webContents, 2_500)
     if (stableURL && isChatGPTAffinityAwaitingSettlement(entry.affinity)) settleChatGPTAffinityAfterSubmit(cacheKey, entry, stableURL)
   }, 0)
@@ -1042,16 +1087,16 @@ function registerChatGPTPlanDownloads(chatSession) {
 
 function chatGPTKeyForEntry(entry) {
   const key = String(entry?.ownerKey || '')
-  if (!key || chatgptViews.get(key) !== entry) return ''
-  return key
+  if (!key) return ''
+  if (entry?.role === 'worker') return chatGPTWorkerEntries.includes(entry) ? key : ''
+  return chatgptViews.get(key) === entry ? key : ''
 }
 
 function chatGPTKeyForWebContents(webContents) {
   if (!webContents || webContents.isDestroyed?.()) return ''
-  for (const [key, entry] of chatgptViews) {
-    if (entry.view.webContents.id === webContents.id && entry.ownerKey === key) return key
-  }
-  return ''
+  for (const [key, entry] of chatgptViews) if (entry.view.webContents.id === webContents.id && entry.ownerKey === key) return key
+  const worker = chatGPTWorkerEntries.find((entry) => entry.view.webContents.id === webContents.id && entry.ownerKey)
+  return worker?.ownerKey || ''
 }
 
 function publishExternalAuth(entry, provider, url) {
@@ -1374,45 +1419,139 @@ function createChatGPTView(cacheKey, windowState) {
   return entry
 }
 
+function createChatGPTWorkerView(slotId, windowState) {
+  if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT worker without a host window')
+  const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
+  view.setBackgroundColor('#ffffff')
+  view.setVisible(false)
+  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, affinity: createChatGPTAffinityTracker() }
+  windowState.window.contentView.addChildView(view)
+  chatGPTWorkerEntries.push(entry)
+  const wc = view.webContents
+  wc.setUserAgent(CHATGPT_USER_AGENT)
+  wc.setBackgroundThrottling(false)
+  wc.setWindowOpenHandler(({ url }) => {
+    const disposition = chatGPTNavigationDisposition(url)
+    if (disposition.kind === 'trusted' || disposition.kind === 'chatgpt-auth') {
+      if (entry.ownerKey) void loadOwnedChatGPTURL(entry.ownerKey, entry, url, 'worker-window-open').catch(() => undefined)
+    } else if (disposition.kind === 'external') void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) advanceChatGPTConversationTransportGeneration(entry) })
+  wc.on('will-navigate', (event, url) => { if (chatGPTNavigationDisposition(url).kind === 'external') { event.preventDefault(); void shell.openExternal(url) } })
+  wc.on('did-start-loading', () => { entry.loading = true; entry.loadingSince = Date.now(); entry.loadingFaultNoted = false; touchChatGPTEntry(entry) })
+  wc.on('did-stop-loading', () => {
+    entry.loading = false; entry.loadingSince = 0; entry.loadingFaultNoted = false; touchChatGPTEntry(entry)
+    if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, wc.getURL()); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) }
+  })
+  wc.on('did-navigate', (_event, url) => { if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, url); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) } })
+  wc.on('did-navigate-in-page', (_event, url) => { if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, url); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) } })
+  wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    console.warn(`[chat-agent] slot=${slotId} load-failed code=${code} main=${Boolean(isMainFrame)} url=${sanitizeDiagnosticURL(url)} error=${description}`)
+    if (entry.ownerKey && isMainFrame && isRecoverableChatGPTNetworkError(description)) noteChatGPTRendererFault(entry.ownerKey, description)
+  })
+  wc.on('render-process-gone', (_event, details) => {
+    console.error(`[chat-agent] slot=${slotId} renderer-gone reason=${details.reason} exitCode=${details.exitCode}`)
+    if (entry.ownerKey) noteChatGPTRendererFault(entry.ownerKey, `worker renderer process gone: ${details.reason || 'unknown'}`)
+  })
+  console.log(`[chat-agent] worker-created slot=${slotId} wc=${wc.id}`)
+  return entry
+}
+
+function ensureChatGPTWorkerPool(windowState) {
+  if (!windowState?.window || windowState.window.isDestroyed()) return
+  for (let index = chatGPTWorkerEntries.length; index < DEFAULT_WORKER_SLOTS; index += 1) createChatGPTWorkerView(`worker-${index + 1}`, windowState)
+}
+
+function assignChatGPTWorker(entry, task) {
+  if (!entry || entry.role !== 'worker') throw new Error('Chat-agent worker slot is unavailable')
+  const key = sanitizeChatCacheKey(task?.chat_id || task?.chatId)
+  const rawConversation = String(task?.payload?.conversation_url || task?.conversation_url || '').trim()
+  const rawID = String(task?.conversation_id || task?.conversationId || '').trim()
+  const conversationURL = canonicalChatGPTConversationURL(rawConversation) || (/^[A-Za-z0-9-]{1,128}$/.test(rawID) ? `https://chatgpt.com/c/${rawID}` : '')
+  if (entry.ownerKey !== key) {
+    clearTimeout(entry.affinitySettleTimer)
+    entry.affinity = createChatGPTAffinityTracker()
+    entry.conversationRequests.clear()
+    entry.staleConversationRequestIds.clear()
+    entry.conversationTransportGeneration = 0
+    entry.humanAction = undefined
+    entry.ownerKey = key
+  }
+  if (conversationURL) syncChatGPTAffinity(entry.affinity, conversationURL, false)
+  touchChatGPTEntry(entry)
+  return { key, conversationURL }
+}
+
+function workerEntryForIndex(worker) {
+  return chatGPTWorkerEntries[Math.max(0, Number(worker || 1) - 1)]
+}
+
+function retireChatGPTSupervisorSurface(cacheKey) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const entry = chatgptViews.get(key)
+  if (!entry) return false
+  clearTimeout(entry.authProbeTimer)
+  clearTimeout(entry.affinitySettleTimer)
+  cancelExternalAuthentication(key)
+  chatgptViews.delete(key)
+  const state = windowStateForEntry(entry)
+  if (state?.activeChatGPTKey === key) {
+    state.activeChatGPTKey = ''
+    state.chatgptVisible = false
+  }
+  if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
+  console.log(`[chatgpt-supervisor] retired key=${key}`)
+  return true
+}
+
+function supervisorEntry() {
+  return [...chatgptViews.values()][0]
+}
+
+function supervisorKey() {
+  return [...chatgptViews.keys()][0] || ''
+}
+
 function ensureChatGPTView(cacheKey, windowState) {
   const key = sanitizeChatCacheKey(cacheKey)
   let entry = chatgptViews.get(key)
-  if (!entry) entry = createChatGPTView(key, windowState)
-  if (windowState && entry.ownerWindowId !== windowState.id) throw new Error('ChatGPT chat is already owned by another Wharness window')
+  if (!entry) {
+    const currentKey = supervisorKey()
+    const current = currentKey ? chatgptViews.get(currentKey) : undefined
+    if (current && currentKey !== key) {
+      if (Number(current.transportPreparationCount || 0) > 0) throw new Error('ChatGPT Supervisor is busy submitting another chat')
+      retireChatGPTSupervisorSurface(currentKey)
+    }
+    const resolved = windowState || [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+    entry = createChatGPTView(key, resolved)
+    entry.role = 'supervisor'
+    entry.slotId = 'supervisor'
+  }
+  if (windowState && entry.ownerWindowId !== windowState.id) {
+    const previousState = windowStateForEntry(entry)
+    try { previousState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+    windowState.window.contentView.addChildView(entry.view)
+    if (previousState?.activeChatGPTKey === key) { previousState.activeChatGPTKey = ''; previousState.chatgptVisible = false }
+    entry.ownerWindowId = windowState.id
+  }
   requireOwnedChatGPTEntry(key, entry)
   touchChatGPTEntry(entry)
   return { key, entry }
 }
 
-// Resident ChatGPT surfaces are capped per window.
-//
-// A view is created lazily the first time a chat is opened and, until now, was
-// never released while that chat stayed open, so a long session that visited
-// many chats accumulated one sandboxed Chromium renderer per chat on the shared
-// authenticated partition. That is the resident cost behind switching feeling
-// progressively heavier, and it is what the pooled agent slots remove
-// structurally (ADR-0038); this cap is the interim bound.
-//
-// Eviction is strictly conservative: never the active view, and never a view
-// Wharness still owns a concrete reason to observe — an expected bundle, a
-// pending human action, an in-flight transport or account operation. Those are
-// exactly the surfaces whose supervision must survive being in the background.
-const MAX_RESIDENT_CHATGPT_VIEWS = 4
+// The remote runtime has one human-facing Supervisor. The three autonomous
+// workers live outside chatgptViews and are never exposed through renderer IPC.
+// Switching chats retires/rebinds only the Supervisor surface; durable request
+// state stays keyed by chat/request and workers continue independently.
+const MAX_RESIDENT_CHATGPT_VIEWS = 1
 
-function evictIdleChatGPTViews(windowState) {
-  if (!windowState) return 0
-  const owned = [...chatgptViews.entries()].filter(([, entry]) => entry.ownerWindowId === windowState.id)
-  if (owned.length <= MAX_RESIDENT_CHATGPT_VIEWS) return 0
-  const evictable = owned
-    .filter(([key, entry]) => key !== windowState.activeChatGPTKey && !chatGPTEntryNeedsSupervision(key, entry))
-    .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0))
+function evictIdleChatGPTViews() {
+  const entries = [...chatgptViews.entries()]
+  if (entries.length <= MAX_RESIDENT_CHATGPT_VIEWS) return 0
   let released = 0
-  for (const [key] of evictable) {
-    if (owned.length - released <= MAX_RESIDENT_CHATGPT_VIEWS) break
-    if (releaseChatGPTView(key, windowState)) {
-      released += 1
-      console.log(`[chatgpt-instance] evicted idle key=${key} resident=${owned.length - released}`)
-    }
+  for (const [key] of entries.slice(0, -MAX_RESIDENT_CHATGPT_VIEWS)) {
+    if (retireChatGPTSupervisorSurface(key)) released += 1
   }
   return released
 }
@@ -1441,6 +1580,40 @@ function activateChatGPTView(cacheKey, bounds, windowState) {
   evictIdleChatGPTViews(ownerState)
   publishChatGPTState(key)
   return entry
+}
+
+function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const currentKey = supervisorKey()
+  const current = currentKey ? chatgptViews.get(currentKey) : undefined
+  if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) return false
+  deferredSupervisorNavigation = {
+    key, windowState, bounds: request?.bounds, url: String(request?.url || ''),
+    resetToHomeIfConversation: request?.resetToHomeIfConversation === true, visible: windowState?.chatgptVisible !== false,
+  }
+  if (windowState) windowState.desiredVisibleChatGPTKey = key
+  console.log(`[chatgpt-supervisor] deferred-switch from=${currentKey} to=${key} request=${current.transportRequestId || '-'}`)
+  return true
+}
+
+async function applyDeferredSupervisorNavigation() {
+  const pending = deferredSupervisorNavigation
+  if (!pending) return
+  const current = supervisorEntry()
+  if (current && Number(current.transportPreparationCount || 0) > 0) return
+  deferredSupervisorNavigation = undefined
+  const state = pending.windowState
+  if (!state?.window || state.window.isDestroyed()) return
+  state.chatgptVisible = pending.visible
+  state.desiredVisibleChatGPTKey = ''
+  const entry = activateChatGPTView(pending.key, pending.bounds, state)
+  const target = pending.url ? requireTrustedChatGPTURL(pending.url) : CHATGPT_URL
+  const currentURL = entry.view.webContents.getURL()
+  if (!sameConversationURL(currentURL, target) && currentURL !== target) {
+    await loadOwnedChatGPTURL(pending.key, entry, target, 'deferred-supervisor-switch')
+  }
+  if (state.chatgptVisible) entry.view.setVisible(!entry.externalAuthProvider)
+  void flushQueuedChatGPTComments()
 }
 
 function wait(ms) {
@@ -1752,9 +1925,10 @@ async function ensureChatGPTProject(key, entry, projectName, conversationId = ''
   })
 }
 
-async function organizeChatGPTConversation(cacheKey, projectName, title, expectedURL = '') {
+async function organizeChatGPTConversation(cacheKey, projectName, title, expectedURL = '', entryOverride = undefined) {
   const key = sanitizeChatCacheKey(cacheKey)
-  const { entry } = ensureChatGPTView(key)
+  const entry = entryOverride || ensureChatGPTView(key).entry
+  requireOwnedChatGPTEntry(key, entry)
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
     try {
@@ -1773,6 +1947,7 @@ async function organizeChatGPTConversation(cacheKey, projectName, title, expecte
       // wanted project present, so selecting it is the very next click.
       const project = await ensureChatGPTProject(key, entry, projectName, conversationId)
       if (!project.ok) return { ok: false, state: project.state, project: project.project || normalizeChatGPTProjectName(projectName) }
+      if (Number(project.duplicates || 1) > 1) return { ok: false, state: 'duplicate-project', project: project.project, duplicates: project.duplicates }
       const selected = await commitChatGPTAccountControl(key, entry, 'select-project', chatGPTProjectItemRectScript(project.project))
       if (!selected.ok) return { ok: false, state: selected.state, project: project.project }
       await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 3)
@@ -1797,9 +1972,10 @@ async function organizeChatGPTConversation(cacheKey, projectName, title, expecte
   })
 }
 
-async function suggestChatGPTConversationTitle(cacheKey, expectedURL = '') {
+async function suggestChatGPTConversationTitle(cacheKey, expectedURL = '', entryOverride = undefined) {
   const key = sanitizeChatCacheKey(cacheKey)
-  const { entry } = ensureChatGPTView(key)
+  const entry = entryOverride || ensureChatGPTView(key).entry
+  requireOwnedChatGPTEntry(key, entry)
   if (expectedURL) {
     const target = requireTrustedChatGPTURL(expectedURL)
     if (!sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'read-conversation-title')
@@ -1810,7 +1986,7 @@ async function suggestChatGPTConversationTitle(cacheKey, expectedURL = '') {
   return { ok: !generic, state: generic ? 'title-not-ready' : 'suggested', title: generic ? '' : normalizeWHXTitle(raw) }
 }
 
-async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
+async function archiveChatGPTConversation(cacheKey, expectedURL = '', entryOverride = undefined) {
   const key = sanitizeChatCacheKey(cacheKey)
   // A released view plus a known conversation URL is the normal shape of the
   // deferred retry: the chat was already archived locally and its renderer torn
@@ -1823,8 +1999,9 @@ async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
   // triggers Electron's "Cannot destructure property 'preloadScripts' of
   // 'binding.startupData'" crash, which takes the whole frontend down with it.
   // A retry that finds no live surface stays pending for the next attempt.
-  const entry = chatgptViews.get(key)
+  const entry = entryOverride || chatgptViews.get(key)
   if (!entry) return { ok: false, state: 'view-not-live' }
+  requireOwnedChatGPTEntry(key, entry)
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
     reconcileChatGPTThrottle(key, entry)
@@ -1841,12 +2018,83 @@ async function archiveChatGPTConversation(cacheKey, expectedURL = '') {
       const shown = await runChatGPTAccountScript(key, entry, 'show-sidebar', chatGPTShowSidebarScript())
       if (shown.state === 'opening') await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 2)
       const archived = await chooseChatGPTConversationAction(key, entry, 'archive', conversationId)
-      if (archived.ok) releaseChatGPTView(key, windowStateForEntry(entry))
+      if (archived.ok && entry.role === 'worker') { entry.ownerKey = ''; entry.affinity = createChatGPTAffinityTracker() }
+      else if (archived.ok) releaseChatGPTView(key, windowStateForEntry(entry))
       else await hideChatGPTSidebar(key, entry).catch(() => undefined)
       return archived
     } finally {
       entry.accountOperationActive = false
       if (chatgptViews.get(key) === entry) reconcileChatGPTThrottle(key, entry)
+    }
+  })
+}
+
+async function deleteChatGPTConversation(cacheKey, expectedURL = '', entryOverride = undefined) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const entry = entryOverride || chatgptViews.get(key)
+  if (!entry) return { ok: false, state: 'view-not-live' }
+  requireOwnedChatGPTEntry(key, entry)
+  return serializeChatGPTAccountOperation(async () => {
+    entry.accountOperationActive = true
+    try {
+      const target = expectedURL ? requireTrustedChatGPTURL(expectedURL) : ''
+      if (target && !sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'delete-conversation')
+      await waitForChatGPTSurfaceReady(key, entry)
+      ensureChatGPTLayoutViewport(key, entry)
+      const conversationId = chatGPTConversationID(entry.view.webContents.getURL())
+      const shown = await runChatGPTAccountScript(key, entry, 'show-sidebar', chatGPTShowSidebarScript())
+      if (!shown.ok) return shown
+      if (shown.state === 'opening') await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 2)
+      const chosen = await chooseChatGPTConversationAction(key, entry, 'delete', conversationId)
+      if (!chosen.ok) return chosen
+      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+      const confirmed = await commitChatGPTAccountControl(key, entry, 'confirm-delete', chatGPTConfirmDeleteScript(), { attempts: 6 })
+      if (!confirmed.ok) return confirmed
+      await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 2)
+      if (entry.role === 'worker') { entry.ownerKey = ''; entry.affinity = createChatGPTAffinityTracker() }
+      else releaseChatGPTView(key, windowStateForEntry(entry))
+      return { ok: true, state: 'deleted' }
+    } finally {
+      entry.accountOperationActive = false
+      if (chatGPTKeyForEntry(entry)) await hideChatGPTSidebar(key, entry).catch(() => undefined)
+    }
+  })
+}
+
+async function deleteChatGPTLibraryArtifact(cacheKey, canonicalFilename, artifactID = '', entryOverride = undefined) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const filename = path.basename(String(canonicalFilename || '').trim())
+  if (!filename || filename !== canonicalFilename || !parseBundleName(filename)) return { ok: false, state: 'invalid-canonical-filename' }
+  const entry = entryOverride || chatgptViews.get(key)
+  if (!entry) return { ok: false, state: 'view-not-live' }
+  requireOwnedChatGPTEntry(key, entry)
+  return serializeChatGPTAccountOperation(async () => {
+    entry.accountOperationActive = true
+    try {
+      if (entry.view.webContents.getURL() !== CHATGPT_LIBRARY_URL) await loadOwnedChatGPTURL(key, entry, CHATGPT_LIBRARY_URL, 'delete-library-artifact')
+      ensureChatGPTLayoutViewport(key, entry)
+      let located = { ok: false, state: 'artifact-missing', rows: 0 }
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * (attempt ? 2 : 1))
+        located = await runChatGPTAccountScript(key, entry, 'library-artifact', chatGPTLibraryArtifactRectScript(filename, artifactID))
+        if (located.ok) break
+        if (located.state === 'artifact-ambiguous') return located
+      }
+      if (!located.ok) return located.state === 'artifact-missing' ? { ok: true, state: 'already-deleted' } : located
+      dispatchChatGPTPointerClick(entry.view.webContents, located.rect)
+      const chosen = await commitChatGPTAccountControl(key, entry, 'library-delete', chatGPTMenuItemRectScript('delete'), { attempts: 6 })
+      if (!chosen.ok) return chosen
+      const confirmed = await commitChatGPTAccountControl(key, entry, 'library-confirm-delete', chatGPTConfirmDeleteScript(), { attempts: 6 })
+      if (!confirmed.ok) return confirmed
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 2)
+        const state = await runChatGPTAccountScript(key, entry, 'library-confirm-absent', chatGPTLibraryArtifactStateScript(filename, artifactID || located.artifactId || ''))
+        if (state.ok && state.state === 'artifact-absent') return { ok: true, state: 'deleted', artifactId: located.artifactId || artifactID, canonicalFilename: filename }
+        if (state.matches > 1) return { ok: false, state: 'artifact-ambiguous' }
+      }
+      return { ok: false, state: 'delete-not-confirmed' }
+    } finally {
+      entry.accountOperationActive = false
     }
   })
 }
@@ -1867,9 +2115,10 @@ async function stopChatGPTConversation(cacheKey) {
   })
 }
 
-async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentConversation = false) {
+async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentConversation = false, entryOverride = undefined) {
   const key = sanitizeChatCacheKey(cacheKey)
-  const { entry } = ensureChatGPTView(key)
+  const entry = entryOverride || ensureChatGPTView(key).entry
+  requireOwnedChatGPTEntry(key, entry)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
   if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharness.`)
   if (expectedURL) {
@@ -1964,8 +2213,8 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
 // that relied on their own try/catch or on the shared DOM-probe-failure
 // counter in pollExpectedChatGPTDownloadKey already handle a thrown error
 // correctly.
-async function submitChatGPTDraft(key) {
-  const target = await targetChatGPTComposer(key)
+async function submitChatGPTDraft(key, entryOverride = undefined) {
+  const target = await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
   markChatGPTAffinitySubmitted(target.entry.affinity)
   let method = 'dom-click'
@@ -2167,48 +2416,285 @@ async function submitPreparedChatGPTDraft(cacheKey) {
   if (!prepared || Date.now() - prepared.preparedAt > 10 * 60 * 1000) throw new Error('No recent prepared ChatGPT draft exists for this chat')
   const entry = activateChatGPTView(key)
   const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
-  const expectedFilename = armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap, prepared.liveTunnels || [], prepared.originalPrompt || '', prepared.sessionId || '', prepared.expectedFilename || '')
-  try {
-    await submitChatGPTDraft(key)
-  } catch (error) {
-    disarmExpectedChatGPTBundle(key, prepared.requestId)
-    throw error
-  }
+  const expectedFilename = authoritativeBundleFilename(prepared.expectedFilename, prepared.requestId, key)
+  const submission = await submitChatGPTDraft(key)
+  if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, entry)
-  if (conversationUrl && prepared.chatTitle) {
-    const organized = await organizeChatGPTConversation(key, prepared.projectName, prepared.chatTitle)
-    publishChatGPTAccountAction(key, 'organize', organized)
-    if (!organized.ok) console.warn(`[chatgpt-account] organization incomplete key=${key} state=${organized.state}`)
-  }
+  if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
+  armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap, prepared.liveTunnels || [], prepared.originalPrompt || '', prepared.sessionId || '', expectedFilename)
+  await persistWorkspaceChatRemote(key, conversationUrl, { remoteState: 'awaiting-response' })
+  await enqueueChatAgentFollowups(key, prepared.requestId, conversationUrl, {
+    expectedFilename, assistantBaseline, recoveryBootstrap: prepared.recoveryBootstrap,
+    originalPrompt: prepared.originalPrompt || '', sessionId: prepared.sessionId || '', liveTunnels: prepared.liveTunnels || [],
+    projectName: prepared.projectName || '', fallbackTitle: prepared.chatTitle || '',
+  })
   preparedChatGPTDrafts.delete(key)
   touchChatGPTEntry(entry)
-  return { ok: true, cacheKey: key, expectedFilename, conversationUrl }
+  return { ok: true, cacheKey: key, expectedFilename, conversationUrl, scheduled: true }
 }
 
-async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestId = '', sessionId = '') {
+async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestId = '', sessionId = '', entryOverride = undefined) {
   const text = String(value || '').trim()
   if (!text) throw new Error('Repair prompt is empty')
   if (text.length > 1024 * 1024) throw new Error('Repair prompt exceeds 1 MiB limit')
 
   const key = sanitizeChatCacheKey(cacheKey)
   const expectedFilename = canonicalBundleFilename(key, requestId)
-  const target = await targetChatGPTComposer(key, expectedURL)
+  const target = await targetChatGPTComposer(key, expectedURL, false, entryOverride)
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   const prior = expectedChatGPTBundles.get(key)
   const liveTunnels = prior?.requestId === requestId && Array.isArray(prior.liveTunnels) ? prior.liveTunnels : []
   const bundled = await fillBundledChatGPTComposer(key, target.entry, sessionId, requestId, text, expectedFilename, [], liveTunnels)
-  armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, liveTunnels, text, sessionId)
   await wait(100)
-  try {
-    await submitChatGPTDraft(key)
-  } catch (error) {
-    disarmExpectedChatGPTBundle(key, requestId)
-    throw error
-  }
-  await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
+  const submission = await submitChatGPTDraft(key, target.entry)
+  if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
+  const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
+  if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
+  armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, liveTunnels, text, sessionId, expectedFilename)
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=dom`)
-  return { ok: true, cacheKey: key, expectedFilename }
+  return { ok: true, cacheKey: key, expectedFilename, conversationUrl, assistantBaseline, recoveryBootstrap: bundled.bootstrap, liveTunnels }
+}
+
+
+function chatAgentTaskPayload(task) {
+  if (task?.payload && typeof task.payload === 'object' && !Buffer.isBuffer(task.payload)) return task.payload
+  try { return JSON.parse(String(task?.payload || '{}')) } catch { return {} }
+}
+
+function chatAgentConversationURL(task, payload = chatAgentTaskPayload(task)) {
+  const fromPayload = canonicalChatGPTConversationURL(payload?.conversation_url || '')
+  if (fromPayload) return fromPayload
+  const id = String(task?.conversation_id || '').trim()
+  return /^[A-Za-z0-9-]{1,128}$/.test(id) ? `https://chatgpt.com/c/${id}` : ''
+}
+
+function chatAgentConversationID(value) {
+  return chatGPTConversationID(value)
+}
+
+async function persistWorkspaceChatRemote(chatID, conversationURL, { projectRef = '', remoteTitle = '', remoteState = '' } = {}) {
+  const key = sanitizeChatCacheKey(chatID)
+  const target = new URL(`/api/workspace-chats/${encodeURIComponent(key)}/remote`, BACKEND_URL)
+  const response = await fetch(target, {
+    method: 'PATCH', redirect: 'error', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chatgpt_url: canonicalChatGPTConversationURL(conversationURL), remote_project_ref: projectRef, remote_title: remoteTitle, remote_state: remoteState }),
+  })
+  if (!response.ok) throw new Error(`workspace chat remote state HTTP ${response.status}`)
+  return response.json()
+}
+
+async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId = '', conversationURL = '', parentTaskID = '', dedupeKey = '', payload = {}, maxAttempts = 8, notBefore = undefined, projectID = '', sessionID = '' }) {
+  if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
+  const conversationID = chatAgentConversationID(conversationURL)
+  return chatAgentScheduler.enqueue({
+    type, project_id: String(projectID || ''), chat_id: sanitizeChatCacheKey(key), session_id: String(sessionID || ''),
+    request_id: String(requestId || ''), root_request_id: String(rootRequestId || requestId || ''), conversation_id: conversationID,
+    parent_task_id: String(parentTaskID || ''), dedupe_key: String(dedupeKey || ''), max_attempts: Number(maxAttempts || 8),
+    not_before: notBefore || new Date().toISOString(), payload: { ...payload, conversation_url: canonicalChatGPTConversationURL(conversationURL) },
+  })
+}
+
+function expectedChatAgentPayload(key, requestId, conversationURL, values = {}) {
+  return {
+    conversation_url: canonicalChatGPTConversationURL(conversationURL),
+    expected_filename: authoritativeBundleFilename(values.expectedFilename, requestId, key),
+    assistant_baseline: Math.max(0, Number(values.assistantBaseline || 0)),
+    recovery_bootstrap: String(values.recoveryBootstrap || ''), original_prompt: String(values.originalPrompt || ''),
+    session_id: String(values.sessionId || ''), live_tunnels: Array.isArray(values.liveTunnels) ? values.liveTunnels.slice(0, 16) : [],
+    project_name: String(values.projectName || ''), fallback_title: String(values.fallbackTitle || ''), recovery_count: Math.max(0, Number(values.recoveryCount || 0)),
+  }
+}
+
+async function enqueueChatAgentFollowups(key, requestId, conversationURL, values = {}) {
+  const payload = expectedChatAgentPayload(key, requestId, conversationURL, values)
+  const common = { key, requestId, rootRequestId: requestId, conversationURL, sessionID: payload.session_id, projectID: values.projectName || '', payload }
+  await enqueueChatAgentTask('AWAIT_RESPONSE', { ...common, dedupeKey: `await:${requestId}`, maxAttempts: 30 })
+  await enqueueChatAgentTask('TITLE_DISCOVER', { ...common, dedupeKey: `title:${chatAgentConversationID(conversationURL) || key}`, maxAttempts: 8 })
+}
+
+function hydrateExpectedChatAgentBundle(key, task, payload) {
+  const requestId = String(task?.request_id || '')
+  let expected = expectedChatGPTBundles.get(key)
+  if (expected?.requestId === requestId) return expected
+  armExpectedChatGPTBundle(key, requestId, payload.assistant_baseline, payload.recovery_bootstrap, payload.live_tunnels || [], payload.original_prompt || '', payload.session_id || task?.session_id || '', payload.expected_filename || '')
+  expected = expectedChatGPTBundles.get(key)
+  expected.continuationCount = Math.max(0, Number(payload.recovery_count || 0))
+  return expected
+}
+
+async function chatAgentChildExists(task, type) {
+  const listed = await chatAgentScheduler.list({ request_id: task.request_id })
+  return (listed?.tasks || []).some((item) => item.type === type && item.parent_task_id === task.task_id && item.status !== 'FAILED' && item.status !== 'CANCELLED')
+}
+
+async function probeChatAgentResponse(task, entry, key, payload, conversationURL) {
+  const expected = hydrateExpectedChatAgentBundle(key, task, payload)
+  if (recentlyDeliveredChatGPTBundleRequestId(expected.requestId) || pendingChatGPTBundleDeliveries.has(expected.requestId)) {
+    disarmExpectedChatGPTBundle(key, expected.requestId)
+    return { status: 'done' }
+  }
+  await targetChatGPTComposer(key, conversationURL, false, entry)
+  const health = await executeChatGPTDOMScript(key, entry, 'worker-health', chatGPTHumanActionScript())
+  if (health?.required === true) return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(String(health.kind || 'verification')) }
+  if (!expected.downloadInFlight) {
+    const clickMode = await entry.view.webContents.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
+    if (clickMode) {
+      expected.downloadInFlight = true
+      expected.lastDOMClick = Date.now()
+      recentExpectedDownload = { key, requestId: expected.requestId, at: Date.now() }
+      return { status: 'waiting', delayMs: 2_000 }
+    }
+  }
+  const completion = await entry.view.webContents.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
+  if (completion?.thinking === true || completion?.complete !== true) return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt) }
+  if (Number(payload.recovery_count || 0) >= MAX_BUNDLE_CONTINUATIONS) {
+    return { status: 'attention', error: `ChatGPT terminou sem disponibilizar ${expected.filename} depois da recuperação limitada.` }
+  }
+  if (!(await chatAgentChildExists(task, 'RECOVERY_WRITE'))) {
+    const continuation = `WHARNESS DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}\n\nThe previous ChatGPT turn finished without a detected validated downloadable bundle named ${expected.filename}.\nDo not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharness file-first contract. Finish with the file attachment only.${expected.originalPrompt ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${expected.originalPrompt}` : ''}`
+    await enqueueChatAgentTask('RECOVERY_WRITE', {
+      key, requestId: expected.requestId, rootRequestId: task.root_request_id || expected.requestId,
+      conversationURL, parentTaskID: task.task_id, sessionID: expected.sessionId, maxAttempts: 6,
+      payload: { ...payload, prompt: continuation, recovery_count: Number(payload.recovery_count || 0) + 1, expected_filename: expected.filename },
+    })
+  }
+  return { status: 'done' }
+}
+
+async function executeChatAgentWrite(task, entry, key, payload, conversationURL) {
+  const prompt = String(payload.prompt || payload.original_prompt || '').trim()
+  if (!prompt) return { status: 'failed', error: 'chat-agent write payload is empty' }
+  const result = await withChatGPTTransportPreparation(key, entry, task.request_id, () =>
+    submitPromptToChatGPT(key, prompt, conversationURL, task.request_id, payload.session_id || task.session_id || '', entry))
+  await persistWorkspaceChatRemote(key, result.conversationUrl, { remoteState: 'awaiting-response' })
+  const nextPayload = expectedChatAgentPayload(key, task.request_id, result.conversationUrl, {
+    expectedFilename: result.expectedFilename, assistantBaseline: result.assistantBaseline, recoveryBootstrap: result.recoveryBootstrap,
+    originalPrompt: payload.original_prompt || prompt, sessionId: payload.session_id || task.session_id || '', liveTunnels: result.liveTunnels || payload.live_tunnels || [],
+    projectName: payload.project_name || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0,
+  })
+  await enqueueChatAgentTask('AWAIT_RESPONSE', {
+    key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: result.conversationUrl,
+    parentTaskID: task.task_id, dedupeKey: `await:${task.request_id}`, payload: nextPayload, maxAttempts: 30, sessionID: nextPayload.session_id,
+  })
+  return { status: 'done' }
+}
+
+async function enqueueOrganizeFromTitle(task, key, payload, conversationURL, title, parentTaskID = task.task_id) {
+  return enqueueChatAgentTask('ORGANIZE_CHAT', {
+    key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL,
+    parentTaskID, dedupeKey: `organize:${chatAgentConversationID(conversationURL) || key}`,
+    payload: { ...payload, title: normalizeWHXTitle(title), target_url: conversationURL }, maxAttempts: 8,
+  })
+}
+
+async function executeChatAgentTitleDiscover(task, entry, key, payload, conversationURL) {
+  const title = await suggestChatGPTConversationTitle(key, conversationURL, entry)
+  if (title.ok) {
+    const prior = chatAgentTitleSamples.get(task.task_id)
+    if (!prior || prior.title !== title.title) {
+      chatAgentTitleSamples.set(task.task_id, { title: title.title, reads: 1 })
+      return { status: 'waiting', delayMs: 1_500 }
+    }
+    prior.reads += 1
+    if (prior.reads < 2) return { status: 'waiting', delayMs: 1_500 }
+    await enqueueOrganizeFromTitle(task, key, payload, conversationURL, title.title)
+    chatAgentTitleSamples.delete(task.task_id)
+    return { status: 'done' }
+  }
+  if (Number(task.attempt || 0) < 3) return { status: 'waiting', delayMs: 2_500 }
+  if (!(await chatAgentChildExists(task, 'TITLE_GENERATE_TEMP'))) {
+    await enqueueChatAgentTask('TITLE_GENERATE_TEMP', {
+      key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL,
+      parentTaskID: task.task_id, dedupeKey: `title-temp:${chatAgentConversationID(conversationURL) || key}`,
+      payload, maxAttempts: 4,
+    })
+  }
+  return { status: 'done' }
+}
+
+async function executeChatAgentTempTitle(task, entry, key, payload, conversationURL) {
+  const capsule = String(payload.fallback_title || payload.project_name || `WHX ${task.request_id}`).slice(0, 160)
+  const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
+  const prompt = `Create a concise conversation title for this Wharnex task context. Do not perform the task itself. Context label: ${capsule}`
+  const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(prompt), true)
+  if (!filled) return { status: 'failed', error: 'temporary title composer could not be filled' }
+  const submitted = await submitChatGPTDraft(key, entry)
+  if (!submitted.accepted) return { status: 'waiting', delayMs: 2_000 }
+  const tempURL = await waitForSubmittedChatGPTConversation(key, entry, target.conversationUrl)
+  if (!tempURL) return { status: 'waiting', delayMs: 2_000 }
+  await enqueueChatAgentTask('TITLE_AWAIT', {
+    key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: tempURL,
+    parentTaskID: task.task_id, dedupeKey: `title-await:${chatAgentConversationID(tempURL)}`,
+    payload: { ...payload, target_url: conversationURL, temp_url: tempURL }, maxAttempts: 8,
+  })
+  return { status: 'done' }
+}
+
+async function executeChatAgentTitleAwait(task, entry, key, payload) {
+  const tempURL = canonicalChatGPTConversationURL(payload.temp_url || '')
+  const targetURL = canonicalChatGPTConversationURL(payload.target_url || '')
+  const suggested = await suggestChatGPTConversationTitle(key, tempURL, entry)
+  if (!suggested.ok && Number(task.attempt || 0) < 4) return { status: 'waiting', delayMs: 2_500 }
+  const title = suggested.ok ? suggested.title : normalizeWHXTitle(payload.fallback_title || task.request_id)
+  await enqueueOrganizeFromTitle(task, key, payload, targetURL, title)
+  return { status: 'done' }
+}
+
+async function chatAgentLifecycleBlocked(task) {
+  const listed = await chatAgentScheduler.list({ chat_id: task.chat_id })
+  return (listed?.tasks || []).some((item) => item.task_id !== task.task_id && ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status) && ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
+}
+
+async function executeChatAgentTask(task, { worker }) {
+  const entry = workerEntryForIndex(worker)
+  if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
+  const payload = chatAgentTaskPayload(task)
+  const assigned = assignChatGPTWorker(entry, { ...task, payload })
+  const key = assigned.key
+  const conversationURL = chatAgentConversationURL(task, payload) || assigned.conversationURL
+  if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) await loadOwnedChatGPTURL(key, entry, conversationURL, `chat-agent-${String(task.type || '').toLowerCase()}`)
+  switch (task.type) {
+    case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
+    case 'BOT_WRITE':
+    case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL)
+    case 'TITLE_DISCOVER': return executeChatAgentTitleDiscover(task, entry, key, payload, conversationURL)
+    case 'TITLE_GENERATE_TEMP': return executeChatAgentTempTitle(task, entry, key, payload, conversationURL)
+    case 'TITLE_AWAIT': return executeChatAgentTitleAwait(task, entry, key, payload)
+    case 'ORGANIZE_CHAT': {
+      const result = await organizeChatGPTConversation(key, payload.project_name, payload.title || payload.fallback_title, payload.target_url || conversationURL, entry)
+      if (result.state === 'duplicate-project') return { status: 'attention', error: `Projeto ChatGPT duplicado: ${result.project}` }
+      if (!result.ok) return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+      await persistWorkspaceChatRemote(key, payload.target_url || conversationURL, { projectRef: result.project || '', remoteTitle: result.title || '', remoteState: 'organized' })
+      if (payload.temp_url) await enqueueChatAgentTask('DELETE_TEMP_CHAT', { key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: payload.temp_url, parentTaskID: task.task_id, dedupeKey: `delete-temp:${chatAgentConversationID(payload.temp_url)}`, payload, maxAttempts: 6 })
+      return { status: 'done' }
+    }
+    case 'RENAME_CHAT': {
+      const result = await organizeChatGPTConversation(key, payload.project_name, payload.title, conversationURL, entry)
+      return result.ok ? { status: 'done' } : { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+    }
+    case 'ARCHIVE_CHAT': {
+      if (await chatAgentLifecycleBlocked(task)) return { status: 'waiting', delayMs: 5_000 }
+      const result = await archiveChatGPTConversation(key, conversationURL, entry)
+      return result.ok || result.state === 'already-archived' ? { status: 'done' } : { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+    }
+    case 'DELETE_CHAT':
+    case 'DELETE_TEMP_CHAT': {
+      if (task.type === 'DELETE_CHAT' && await chatAgentLifecycleBlocked(task)) return { status: 'waiting', delayMs: 5_000 }
+      const result = await deleteChatGPTConversation(key, conversationURL, entry)
+      return result.ok || result.state === 'already-deleted' ? { status: 'done' } : { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+    }
+    case 'DELETE_BUNDLE': {
+      if (!payload.locally_persisted) return { status: 'attention', error: 'remote bundle cleanup requires confirmed local persistence' }
+      const filename = String(payload.canonical_filename || '').trim()
+      if (!filename || !parseBundleName(filename)) return { status: 'attention', error: 'exact canonical Wharnex bundle filename is required' }
+      const result = await deleteChatGPTLibraryArtifact(key, filename, String(payload.artifact_id || ''), entry)
+      if (result.ok || result.state === 'already-deleted') return { status: 'done' }
+      if (result.state === 'artifact-ambiguous' || result.state === 'invalid-canonical-filename') return { status: 'attention', error: result.state }
+      return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+    }
+    default: return { status: 'failed', error: `Unsupported chat-agent task type ${task.type}` }
+  }
 }
 
 
@@ -2825,6 +3311,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
+  win.on('close', () => { if (!quitting) rehomeChatGPTWorkers(state) })
   win.on('closed', () => {
     closeInternalChatGPTBrowserForWindow(state)
     closeChatGPTViewsForWindow(state)
@@ -2878,6 +3365,7 @@ function registerIPC() {
   ipcMain.handle('wharness:chatgpt:show', async (event, request) => {
     const windowState = trustedSender(event)
     windowState.chatgptVisible = true
+    if (deferSupervisorNavigationIfBusy(request?.cacheKey, windowState, { ...request, visible: true })) return { ok: true, deferred: true }
     const entry = activateChatGPTView(request?.cacheKey, request?.bounds, windowState)
     const wc = entry.view.webContents
     // A new WebContentsView starts on about:blank.  The renderer previously
@@ -2915,6 +3403,9 @@ function registerIPC() {
     const windowState = trustedSender(event)
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const target = requireTrustedChatGPTURL(request?.url || CHATGPT_URL)
+    if (deferSupervisorNavigationIfBusy(key, windowState, request)) {
+      return currentChatGPTState(supervisorKey(), windowState)
+    }
     // Navigation may already be in flight when a blocking Wharness overlay
     // hides the native WebContentsView. Preserve that visibility decision here:
     // only the explicit show IPC may make the remote view visible again.
@@ -3095,38 +3586,25 @@ function registerIPC() {
     return currentChatGPTState(key, windowState)
   })
   ipcMain.handle('wharness:chatgpt:resume-expected-bundle', async (event, request) => {
-    const windowState = trustedSender(event)
+    trustedSender(event)
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const requestId = String(request?.requestId || '').trim()
     const target = requireTrustedChatGPTURL(request?.url || '')
     const conversation = canonicalChatGPTConversationURL(target)
     if (!conversation) throw new Error('Pending bundle recovery requires a concrete trusted ChatGPT conversation URL')
-    const { entry } = ensureChatGPTView(key, windowState)
-    return withChatGPTTransportPreparation(key, entry, requestId, async () => {
-      const { wc } = requireOwnedChatGPTEntry(key, entry)
-      if (windowState.activeChatGPTKey !== key) entry.view.setVisible(false)
-      syncChatGPTAffinityURL(key, entry, conversation)
-      // The renderer can reconstruct a durable pending request only from the
-      // backend's complete last_manual_prompt. Preserve it as originalPrompt as
-      // well as recoveryBootstrap: every later continuation must repeat the
-      // request-scoped knowledge identity/content validated by the input bundle.
-      const recoveryPrompt = String(request?.recoveryBootstrap || '')
-      const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
-      armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename)
-      const expected = expectedChatGPTBundles.get(key)
-      expected.rehydrating = true
-      expected.recoveryEligibleAt = Number.POSITIVE_INFINITY
-      if (!sameConversationURL(wc.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'resume-expected-bundle')
-      const assistantBaseline = await chatGPTAssistantTurnCount(wc)
-      if (expectedChatGPTBundles.get(key) === expected) {
-        expected.assistantBaseline = assistantBaseline
-        expected.rehydrating = false
-        expected.recoveryEligibleAt = Date.now() + PROCESSING_SIGNAL_GRACE_MS
-        expected.recovery = createChatGPTRecoveryState(Date.now())
-      }
-      void pollExpectedChatGPTDownloadKey(key)
-      return { ok: true, cacheKey: key, requestId, expectedFilename }
+    const recoveryPrompt = String(request?.recoveryBootstrap || '')
+    const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
+    await persistWorkspaceChatRemote(key, conversation, { remoteState: 'awaiting-response' })
+    const payload = expectedChatAgentPayload(key, requestId, conversation, {
+      expectedFilename, recoveryBootstrap: recoveryPrompt, originalPrompt: recoveryPrompt,
+      sessionId: request?.sessionId,
     })
+    await enqueueChatAgentTask('AWAIT_RESPONSE', {
+      key, requestId, rootRequestId: requestId, conversationURL: conversation,
+      sessionID: payload.session_id, dedupeKey: `await:${requestId}`,
+      payload, maxAttempts: 30,
+    })
+    return { ok: true, cacheKey: key, requestId, expectedFilename, scheduled: true }
   })
   ipcMain.handle('wharness:chatgpt:continue-expected-bundle', async (event, request) => {
     const windowState = trustedSender(event)
@@ -3414,7 +3892,7 @@ app.whenReady().then(async () => {
 
   console.log(`ChatGPT compatibility UA: Chrome/${CHATGPT_CHROMIUM_VERSION}`)
   registerIPC()
-  chatGPTDownloadPoller = setInterval(() => { void pollExpectedChatGPTDownloads(); void flushQueuedChatGPTComments(); void pollChatGPTVisibleActivity() }, DOM_DOWNLOAD_POLL_MS)
+  chatGPTDownloadPoller = setInterval(() => { void flushQueuedChatGPTComments(); void pollChatGPTVisibleActivity() }, DOM_DOWNLOAD_POLL_MS)
 
   const layout = loadWindowLayout()
   const restartIntent = consumeRestartIntent()
@@ -3431,8 +3909,24 @@ app.whenReady().then(async () => {
     for (const windowId of layout) createWindow(windowId, false)
     persistWindowLayout()
   }
+
+  const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+  ensureChatGPTWorkerPool(workerHost)
+  chatAgentScheduler = new ChatAgentSchedulerClient({
+    baseURL: BACKEND_URL, workerCount: DEFAULT_WORKER_SLOTS, execute: executeChatAgentTask,
+    onState: (state) => {
+      const publicState = { kind: state?.kind || '', worker: state?.worker || 0, task: state?.task ? { task_id: state.task.task_id, type: state.task.type, chat_id: state.task.chat_id, request_id: state.task.request_id, status: state.task.status } : undefined, error: state?.error ? String(state.error?.message || state.error) : '' }
+      for (const windowState of desktopWindows.values()) sendToWindowState(windowState, 'wharness:chat-agent:state', publicState)
+    },
+  })
+  chatAgentScheduler.start()
 })
 
-app.on('before-quit', () => { quitting = true; persistWindowLayout(); if (chatGPTDownloadPoller) clearInterval(chatGPTDownloadPoller) })
+app.on('before-quit', () => {
+  quitting = true
+  persistWindowLayout()
+  if (chatGPTDownloadPoller) clearInterval(chatGPTDownloadPoller)
+  if (chatAgentScheduler) void chatAgentScheduler.stop()
+})
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow('primary') })
