@@ -182,7 +182,7 @@ test('bundle fallback snapshots assistant-turn baseline before each planner subm
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
   const repair = source.slice(repairStart, repairEnd)
   assert.match(repair, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
-  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, liveTunnels, text, sessionId\)/)
+  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, liveTunnels, text, sessionId, expectedFilename\)/)
 })
 
 test('external auth reuses the persistent Wharness browser profile and clear-session owns deletion', async () => {
@@ -277,7 +277,7 @@ test('automatic and confirmed submissions wait for a stable loaded definitive Ch
   const submitted = source.slice(preparedStart, preparedEnd > preparedStart ? preparedEnd : undefined)
   assert.match(prepare, /conversationUrl = await waitForSubmittedChatGPTConversation\(key, target\.entry, target\.conversationUrl\)/)
   assert.match(submitted, /const conversationUrl = await waitForSubmittedChatGPTConversation\(key, entry\)/)
-  assert.match(submitted, /return \{ ok: true, cacheKey: key, expectedFilename, conversationUrl \}/)
+  assert.match(submitted, /return \{ ok: true, cacheKey: key, expectedFilename, conversationUrl, scheduled: true \}/)
 })
 
 test('ChatGPT affinity state is published to the owner window even when another chat is visually active', async () => {
@@ -414,29 +414,22 @@ test('a failed delivery continuation escalates once instead of looping behind a 
   assert.match(poll.slice(continuation, genericCatch), /catch \(error\) \{[\s\S]*escalateChatGPTContinuationFailure[\s\S]*return/)
 })
 
-test('pending bundles are resumed in hidden owned views and scanned independently', async () => {
+test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating a hidden chat view', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const resumeStart = source.indexOf("ipcMain.handle('wharness:chatgpt:resume-expected-bundle'")
-  const resumeEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:pick-bundle'", resumeStart)
+  const resumeEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'", resumeStart)
   const resume = source.slice(resumeStart, resumeEnd)
   assert.ok(resumeStart >= 0, 'resume expected bundle IPC must exist')
-  assert.match(resume, /ensureChatGPTView\(key, windowState\)/)
-  assert.match(resume, /entry\.view\.setVisible\(false\)/)
-  assert.match(resume, /armExpectedChatGPTBundle\(key, requestId/)
-  assert.match(resume, /const recoveryPrompt = String\(request\?\.recoveryBootstrap \|\| ''\)/)
-  assert.match(resume, /armExpectedChatGPTBundle\(key, requestId, 0, recoveryPrompt, \[\], recoveryPrompt, request\?\.sessionId, expectedFilename\)/)
-  assert.match(resume, /expected\.rehydrating = true/)
-  assert.match(resume, /const assistantBaseline = await chatGPTAssistantTurnCount\(wc\)/)
-  assert.match(resume, /expected\.assistantBaseline = assistantBaseline/)
-  assert.match(resume, /expected\.rehydrating = false/)
-  assert.match(resume, /expected\.recoveryEligibleAt = Date\.now\(\) \+ PROCESSING_SIGNAL_GRACE_MS/)
-  assert.match(resume, /loadOwnedChatGPTURL\(key, entry, target/)
-  assert.match(resume, /pollExpectedChatGPTDownloadKey\(key\)/)
-
-  assert.match(source, /const pollingExpectedChatGPTBundles = new Set\(\)/)
-  assert.match(source, /await Promise\.allSettled\(keys\.map\(\(key\) => pollExpectedChatGPTDownloadKey\(key\)\)\)/)
-  const stopped = source.match(/wc\.on\('did-stop-loading',[^\n]+/s)?.[0] || ''
-  assert.match(stopped, /pollExpectedChatGPTDownloadKey\(cacheKey\)/)
+  assert.match(resume, /const conversation = canonicalChatGPTConversationURL\(target\)/)
+  assert.match(resume, /persistWorkspaceChatRemote\(key, conversation, \{ remoteState: 'awaiting-response' \}\)/)
+  assert.match(resume, /expectedChatAgentPayload\(key, requestId, conversation/)
+  assert.match(resume, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
+  assert.match(resume, /dedupeKey: `await:\$\{requestId\}`/)
+  assert.match(resume, /maxAttempts: 30/)
+  assert.match(resume, /scheduled: true/)
+  assert.doesNotMatch(resume, /ensureChatGPTView\(/)
+  assert.doesNotMatch(resume, /setVisible\(false\)/)
+  assert.doesNotMatch(resume, /pollExpectedChatGPTDownloadKey\(key\)/)
 })
 
 test('background ChatGPT views disable renderer throttling and escalate structural or exhausted transport failures to human attention', async () => {
@@ -500,17 +493,22 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   assert.match(pollLoop, /reconcileChatGPTThrottle\(key, entry\)/)
 })
 
-test('transport IPC keeps hidden views unthrottled for the complete preparation and restores their idle policy', async () => {
+test('Supervisor transport stays unthrottled while durable resume bypasses the visible surface', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const helperStart = source.indexOf('async function withChatGPTTransportPreparation(')
   const helperEnd = source.indexOf('\nfunction sendToWindowState', helperStart)
   const helper = source.slice(helperStart, helperEnd)
   assert.match(helper, /transportPreparationCount[\s\S]*reconcileChatGPTThrottle[\s\S]*try[\s\S]*await operation\(\)[\s\S]*finally[\s\S]*transportPreparationCount[\s\S]*reconcileChatGPTThrottle/)
-  for (const channel of ['resume-expected-bundle', 'submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
+  for (const channel of ['submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
     const start = source.indexOf(`ipcMain.handle('wharness:chatgpt:${channel}'`)
     const end = source.indexOf('\n  })', start)
     assert.match(source.slice(start, end), /withChatGPTTransportPreparation/)
   }
+  const resumeStart = source.indexOf("ipcMain.handle('wharness:chatgpt:resume-expected-bundle'")
+  const resumeEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'", resumeStart)
+  const resume = source.slice(resumeStart, resumeEnd)
+  assert.match(resume, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
+  assert.doesNotMatch(resume, /withChatGPTTransportPreparation/)
   assert.match(source.slice(source.indexOf('async function flushQueuedChatGPTComments()'), source.indexOf('\nasync function publishRemoteChannelComment')), /withChatGPTTransportPreparation/)
 })
 
@@ -613,34 +611,24 @@ test('Portuguese spell checking is configured from Chromium dictionaries', async
 })
 
 
-test('each Harness chat owns a dedicated ChatGPT WebContentsView and DOM IPC stays key-scoped', async () => {
+test('one Supervisor owns renderer IPC while three hidden workers stay outside chat view ownership', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
-  const createStart = source.indexOf('function createChatGPTView(cacheKey, windowState)')
-  const createEnd = source.indexOf('\nfunction ensureChatGPTView', createStart)
-  const targetStart = source.indexOf('async function targetChatGPTComposer(cacheKey')
-  const targetEnd = source.indexOf('\nasync function waitForChatGPTSurfaceReady', targetStart)
-  assert.notEqual(createStart, -1)
-  assert.notEqual(createEnd, -1)
-  assert.notEqual(targetStart, -1)
-  assert.notEqual(targetEnd, -1)
-
-  const create = source.slice(createStart, createEnd)
-  const target = source.slice(targetStart, targetEnd)
-  assert.match(create, /ownerKey: cacheKey/)
-  assert.match(create, /ownerWindowId: windowState\.id/)
-  assert.match(source, /const desktopWindows = new Map\(\)/)
-  assert.match(source, /const projectWindowRegistry = new ProjectWindowRegistry\(\)/)
-  assert.match(source, /wharness:projects:acquire/)
-  assert.match(source, /wharness:windows:open/)
-  assert.match(source, /persistRestartIntent\(scope, windowState\.id\)/)
-  assert.match(source, /consumeRestartIntent\(\)/)
-  assert.match(source, /import \{ mkdirSync, readFileSync, rmSync, writeFileSync \} from 'node:fs'/)
-  assert.match(source, /createWindow\(restartIntent\.currentWindowId, false\)/)
-  assert.match(source, /function requireOwnedChatGPTEntry\(cacheKey, entry\)/)
-  assert.match(source, /chatgptViews\.get\(key\) !== entry/)
-  assert.match(target, /requireOwnedChatGPTEntry\(key, entry\)/)
-  assert.doesNotMatch(source, /MAX_CHATGPT_VIEWS|evictChatGPTViews/)
+  const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
+  const ensureEnd = source.indexOf('\nfunction evictIdleChatGPTViews', ensureStart)
+  const ensure = source.slice(ensureStart, ensureEnd)
+  const workerStart = source.indexOf('function ensureChatGPTWorkerPool(windowState)')
+  const workerEnd = source.indexOf('\nfunction assignChatGPTWorker', workerStart)
+  const workers = source.slice(workerStart, workerEnd)
+  assert.match(source, /const chatGPTWorkerEntries = \[\]/)
+  assert.match(source, /const MAX_RESIDENT_CHATGPT_VIEWS = 1/)
+  assert.match(ensure, /entry\.role = 'supervisor'/)
+  assert.match(ensure, /entry\.slotId = 'supervisor'/)
+  assert.match(ensure, /retireChatGPTSupervisorSurface\(currentKey\)/)
+  assert.match(workers, /DEFAULT_WORKER_SLOTS/)
+  assert.match(workers, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`/)
+  assert.match(source, /function workerEntryForIndex\(worker\)/)
+  assert.match(source, /entry\.role !== 'worker'/)
 
   assert.match(preload, /hide: \(cacheKey\).*\{ cacheKey \}/)
   assert.match(preload, /state: \(cacheKey\).*\{ cacheKey \}/)
@@ -648,11 +636,6 @@ test('each Harness chat owns a dedicated ChatGPT WebContentsView and DOM IPC sta
   assert.match(preload, /paste: \(cacheKey\).*\{ cacheKey \}/)
   assert.match(preload, /release: \(cacheKey\).*\{ cacheKey \}/)
   assert.match(source, /wharness:chatgpt:release/)
-  // A bundle download is published under the cacheKey of the chat that
-  // actually OWNS the request, never merely the surface that downloaded it.
-  // deliveryCacheKey is sourceCacheKey for the ordinary case and blank for a
-  // cross-request bundle, which the renderer then routes by request id — the
-  // stronger form of the same key-scoping invariant.
   assert.match(source, /const deliveryCacheKey = bundleCandidate\.unrouted \? '' : sourceCacheKey/)
   assert.match(source, /publishBundleDownload\(\{ cacheKey: deliveryCacheKey, filename/)
   assert.match(source, /publishPlanDownload\(\{ cacheKey: sourceCacheKey, filename/)
@@ -696,7 +679,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
 
 test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function submitChatGPTDraft(key)')
+  const start = source.indexOf('async function submitChatGPTDraft(key, entryOverride = undefined)')
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)
@@ -715,7 +698,7 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
   assert.doesNotMatch(body, /return \{ accepted: false/)
 })
 
-test('preparePromptForChatGPT disarms a stale expected bundle when the automatic submit itself fails', async () => {
+test('expected bundle supervision is armed only around submissions that can leave stale state', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
   const prepareEnd = source.indexOf('\nasync function retryPersistedChatGPTPrompt', prepareStart)
@@ -725,15 +708,22 @@ test('preparePromptForChatGPT disarms a stale expected bundle when the automatic
   const submitCount = (prepare.match(/await submitChatGPTDraft\(key\)/g) || []).length
   const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
   assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
-  assert.equal(disarmCount, 1, 'a failed mandatory ZIP submit must disarm the bundle it just armed instead of leaving a stale wait')
+  assert.equal(disarmCount, 1, 'a failed autoSubmit disarms the bundle armed before dispatch')
 
   const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(cacheKey)')
   const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
-  assert.match(source.slice(preparedStart, preparedEnd), /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
+  const prepared = source.slice(preparedStart, preparedEnd)
+  const preparedSubmit = prepared.indexOf('await submitChatGPTDraft(key)')
+  const preparedArm = prepared.indexOf('armExpectedChatGPTBundle(key, prepared.requestId')
+  assert.ok(preparedSubmit >= 0 && preparedArm > preparedSubmit, 'manual prepared submit arms supervision only after submit confirmation')
+  assert.doesNotMatch(prepared, /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
 
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
-  assert.match(source.slice(repairStart, repairEnd), /disarmExpectedChatGPTBundle\(key, requestId\)/)
+  const repair = source.slice(repairStart, repairEnd)
+  const repairSubmit = repair.indexOf('await submitChatGPTDraft(key, target.entry)')
+  const repairArm = repair.indexOf('armExpectedChatGPTBundle(key, requestId')
+  assert.ok(repairSubmit >= 0 && repairArm > repairSubmit, 'repair submission arms supervision only after submit confirmation')
 })
 
 test('pollChatGPTVisibleActivity skips DOM probing while the view is still navigating, mirroring pollExpectedChatGPTDownloadKey', async () => {
@@ -916,18 +906,18 @@ test('a parked chat surface is never shown while it carries layout-only bounds',
 // 'binding.startupData'" crash, which takes the trusted frontend renderer down
 // with it and reloads the app. Deferred maintenance therefore drives only an
 // already-resident surface instead of creating one for itself.
-test('deferred remote archive never creates a chat surface for itself', async () => {
+test('deferred remote archive reuses a leased worker and never allocates a new chat surface', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function archiveChatGPTConversation(')
-  const end = source.indexOf('\nasync function stopChatGPTConversation', start)
+  const end = source.indexOf('\nasync function deleteChatGPTConversation', start)
   assert.notEqual(start, -1)
   const body = source.slice(start, end)
 
-  assert.match(body, /const entry = chatgptViews\.get\(key\)/)
+  assert.match(body, /const entry = entryOverride \|\| chatgptViews\.get\(key\)/)
   assert.doesNotMatch(body, /ensureChatGPTView\(/)
   assert.match(body, /state: 'view-not-live'/)
-  // "not live" must not be reported as success, or a remote archive that never
-  // happened would be retired.
+  assert.match(body, /entry\.role === 'worker'/)
+  assert.match(body, /entry\.ownerKey = ''/)
   assert.doesNotMatch(body, /ok: true, state: 'view-not-live'/)
 })
 
