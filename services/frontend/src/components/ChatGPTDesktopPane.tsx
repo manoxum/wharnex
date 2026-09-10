@@ -5,7 +5,7 @@ import { StatusPill } from './StatusPill'
 import { confirmDialog } from '../lib/appDialog'
 import { expectedResponseBundleName } from '../lib/bundlename'
 import { errorMessage } from '../lib/errorMessage'
-import { CHATGPT_OVERLAY_SELECTOR, chatGPTOverlayDocuments } from '../lib/chatGPTOverlay'
+import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
@@ -125,18 +125,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     }
   }, [bridge, applyDesktopState])
 
-  useEffect(() => {
-    const documents = chatGPTOverlayDocuments(window)
-    const sync = () => setOverlayBlocked(documents.some((target) => Boolean(target.querySelector(CHATGPT_OVERLAY_SELECTOR))))
-    sync()
-    const observers = documents.flatMap((target) => {
-      if (!target.body) return []
-      const observer = new MutationObserver(sync)
-      observer.observe(target.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'aria-hidden', 'aria-modal', 'data-chatgpt-overlay-blocker'] })
-      return [observer]
-    })
-    return () => observers.forEach((observer) => observer.disconnect())
-  }, [])
+  useEffect(() => observeChatGPTOverlayBlockers(window, setOverlayBlocked), [])
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return
