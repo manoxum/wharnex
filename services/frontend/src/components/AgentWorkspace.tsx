@@ -266,7 +266,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={() => setDrawer('')}/> : null}
       {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={() => setDrawer('')} onError={onError}/> : null}
-      {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={activityChats} currentSession={session} activeChatId={chatProps.activeChatId} onClose={() => setDrawer('')}/> : null}
+      {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={activityChats} currentSession={session} activeChatId={chatProps.activeChatId} activeEvents={inspectorProps.events} onClose={() => setDrawer('')}/> : null}
       {drawer === 'fifo' ? <ExecutionQueueDrawer items={visibleExecutionFIFO} onClose={() => setDrawer('')} onError={onError}/> : null}
       {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={onAnalyzeEvolution || (async () => undefined)} onClose={() => setDrawer('')}/> : null}
     </aside>}

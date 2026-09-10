@@ -105,6 +105,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/analyze", a.selfEvolutionAnalyze)
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/evidence/resolve", a.selfEvolutionResolveEvidence)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
+	mux.HandleFunc("GET /api/sessions/{id}/events/history", a.eventHistory)
 	mux.HandleFunc("GET /api/sessions/{id}/knowledge", a.projectKnowledge)
 	mux.HandleFunc("GET /api/sessions/{id}/requests/{request_id}/knowledge", a.requestKnowledge)
 	mux.HandleFunc("POST /api/sessions/{id}/chat-export", a.chatExport)
@@ -1204,6 +1205,19 @@ func (a *API) selfEvolutionResolveEvidence(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, evidence)
+}
+
+func (a *API) eventHistory(w http.ResponseWriter, r *http.Request) {
+	const maxHistoryEvents = 2000
+	events := a.bus.History(r.PathValue("id"))
+	total := len(events)
+	truncated := total > maxHistoryEvents
+	if truncated {
+		events = events[total-maxHistoryEvents:]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"events": events, "total": total, "truncated": truncated,
+	})
 }
 
 func (a *API) events(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { ExecutionPlan, ExecutionResult, Session } from '../types'
+import type { ExecutionPlan, ExecutionResult, HarnessEvent, Session } from '../types'
 import type { WorkspaceChat } from './workspaceMemory'
-import { collectExecutionActivities, collectPlanActivities, executionEventsFromResult, loadProjectSessions } from './projectActivity'
+import { collectExecutionActivities, collectPlanActivities, executionAuditEvents, executionEventsFromResult, filterAuditEvents, loadProjectSessions } from './projectActivity'
 
 const plan = (id: string, summary = id): ExecutionPlan => ({
   protocol: 'harness.execution/v1', plan_id: id, request_id: `req-${id}`, status: 'ready', summary,
@@ -40,6 +40,22 @@ describe('project activity catalogue', () => {
     expect(events[2].data.stdout).toBe('ok\n')
     expect(events[2].data.exit_code).toBe(0)
   })
+
+  it('uses durable audit events for the selected execution and keeps unrelated requests out', () => {
+    const value = session('a')
+    value.plan = plan('p1', 'Plano atual')
+    value.last_execution = execution('p1')
+    const item = collectExecutionActivities([{ chat: chat('a'), session: value }])[0]
+    const events: HarnessEvent[] = [
+      { id: 'a', session_id: value.id, type: 'execution.started', timestamp: '2026-09-05T10:00:00Z', data: { plan_id: 'p1', request_id: 'req-p1' } },
+      { id: 'b', session_id: value.id, type: 'host.applied', timestamp: '2026-09-05T10:03:00Z', data: { plan_id: 'p1' } },
+      { id: 'c', session_id: value.id, type: 'execution.failed', timestamp: '2026-09-05T11:00:00Z', data: { plan_id: 'other', request_id: 'req-other', error: 'nope' } },
+    ]
+    const scoped = executionAuditEvents(events, item)
+    expect(scoped.map((event) => event.id)).toEqual(['a', 'b'])
+    expect(filterAuditEvents(events, 'NOPE').map((event) => event.id)).toEqual(['c'])
+  })
+
   it('bounds parallel session loads so project history cannot exhaust browser request resources', async () => {
     let inFlight = 0
     let peak = 0

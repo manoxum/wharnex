@@ -64,3 +64,16 @@ it('groups standard, repair, and evidence iterations under their main request', 
     ['req-main', 'standard'], ['req-main', 'standard'], ['req-main', 'repair'], ['req-main', 'evidence'],
   ])
 })
+
+
+it('keeps generic audit events inspectable with structured payload and severity', () => {
+  const entries = buildExecutionTimeline([{
+    id: 'evt-raw', session_id: 's', type: 'transport.failed', timestamp: '2026-09-04T06:00:00Z',
+    data: { request_id: 'req-main', transport: 'desktop', error: 'upload timeout', attempt: 2 },
+  }])
+  expect(entries).toHaveLength(1)
+  expect(entries[0]).toMatchObject({ title: 'transport.failed', badge: 'EVENT', tone: 'fail' })
+  expect(entries[0].detail).toContain('request_id=req-main')
+  expect(entries[0].output).toContain('[erro] upload timeout')
+  expect(entries[0].output).toContain('\"attempt\": 2')
+})
