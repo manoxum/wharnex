@@ -75,8 +75,14 @@ CREATE TABLE IF NOT EXISTS harness_workspace_chats (
     updated_at timestamptz NOT NULL DEFAULT now(),
     payload jsonb NOT NULL DEFAULT '{}'::jsonb
 );
+ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS conversation_id text NOT NULL DEFAULT '';
+ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_project_ref text NOT NULL DEFAULT '';
+ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_title text NOT NULL DEFAULT '';
+ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_state text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS harness_workspace_chats_project_updated_idx
     ON harness_workspace_chats (project_path, updated_at DESC, id);
+CREATE INDEX IF NOT EXISTS harness_workspace_chats_conversation_idx
+    ON harness_workspace_chats (conversation_id) WHERE conversation_id <> '';
 CREATE TABLE IF NOT EXISTS harness_chat_items (
     chat_id text NOT NULL,
     item_id text NOT NULL,
@@ -86,6 +92,49 @@ CREATE TABLE IF NOT EXISTS harness_chat_items (
 );
 CREATE INDEX IF NOT EXISTS harness_chat_items_chat_created_idx
     ON harness_chat_items (chat_id, created_at, item_id);
+CREATE TABLE IF NOT EXISTS harness_chat_agent_provider_state (
+    provider text PRIMARY KEY,
+    paused boolean NOT NULL DEFAULT false,
+    paused_until timestamptz,
+    reason text NOT NULL DEFAULT '',
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO harness_chat_agent_provider_state (provider) VALUES ('chatgpt')
+    ON CONFLICT (provider) DO NOTHING;
+CREATE TABLE IF NOT EXISTS harness_chat_agent_tasks (
+    task_id text PRIMARY KEY,
+    type text NOT NULL,
+    project_id text NOT NULL DEFAULT '',
+    chat_id text NOT NULL DEFAULT '',
+    session_id text NOT NULL DEFAULT '',
+    request_id text NOT NULL DEFAULT '',
+    root_request_id text NOT NULL DEFAULT '',
+    conversation_id text NOT NULL DEFAULT '',
+    parent_task_id text NOT NULL DEFAULT '',
+    priority integer NOT NULL,
+    status text NOT NULL,
+    not_before timestamptz NOT NULL DEFAULT now(),
+    attempt integer NOT NULL DEFAULT 0,
+    max_attempts integer NOT NULL DEFAULT 6,
+    dedupe_key text NOT NULL DEFAULT '',
+    lease_owner text NOT NULL DEFAULT '',
+    lease_expires_at timestamptz,
+    payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+    last_error text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_ready_idx
+    ON harness_chat_agent_tasks (status, not_before, priority, created_at);
+CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_conversation_idx
+    ON harness_chat_agent_tasks (conversation_id, status);
+CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_request_idx
+    ON harness_chat_agent_tasks (root_request_id, request_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS harness_chat_agent_tasks_dedupe_active_idx
+    ON harness_chat_agent_tasks (dedupe_key)
+    WHERE dedupe_key <> ''
+      AND type NOT IN ('BOT_WRITE','RECOVERY_WRITE')
+      AND status IN ('PENDING','LEASED','RUNNING','WAITING');
 INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, version, updated_at, updated_by_request_id)
 SELECT legacy.project_path, 'legacy-project-knowledge', legacy.content, GREATEST(legacy.version, 1), legacy.updated_at, legacy.updated_by_request_id
 FROM harness_project_knowledge AS legacy
@@ -237,7 +286,7 @@ func (s *Store) postgresList() ([]domain.Session, error) {
 }
 
 func (s *Store) postgresClear() error {
-	_, err := s.db.Exec(`TRUNCATE harness_events, harness_sessions`)
+	_, err := s.db.Exec(`TRUNCATE harness_chat_agent_tasks, harness_events, harness_sessions`)
 	return wrapPostgresError("clear sessions", err)
 }
 

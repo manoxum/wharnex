@@ -1,79 +1,63 @@
-import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_MAX_SLOTS, HARD_MAX_SLOTS, assignRoles, desiredSlotCount, selectSlotForEviction, selectSlotForJob } from './chat-agent-pool.mjs'
+import test from 'node:test'
+import {
+  DEFAULT_TOTAL_SLOTS,
+  DEFAULT_WORKER_SLOTS,
+  assignRoles,
+  canonicalConversationID,
+  canonicalConversationURL,
+  desiredSlotCount,
+  selectSlotForJob,
+  slotBlueprints,
+} from './chat-agent-pool.mjs'
 
-const slot = (id, overrides = {}) => ({ id, chatId: '', role: 'worker', busy: false, destroyed: false, lastUsed: 0, ...overrides })
-
-test('a single chat holds the pool at exactly one slot', () => {
-  assert.equal(desiredSlotCount(0), 1)
-  assert.equal(desiredSlotCount(1), 1)
+test('one active profile uses one supervisor plus three workers', () => {
+  assert.equal(desiredSlotCount(0), 0)
+  assert.equal(desiredSlotCount(1), 4)
+  assert.equal(desiredSlotCount(30), 4)
+  assert.equal(DEFAULT_WORKER_SLOTS, 3)
+  assert.equal(DEFAULT_TOTAL_SLOTS, 4)
+  assert.deepEqual(slotBlueprints().map((slot) => slot.role), ['supervisor', 'worker', 'worker', 'worker'])
 })
 
-// The viewing slot must never be the slot doing background inspection, so the
-// moment a second chat exists the pool needs a second instance.
-test('more than one chat raises the floor to two slots', () => {
-  assert.equal(desiredSlotCount(2), 2)
-  assert.equal(desiredSlotCount(3), 3)
+test('assignRoles preserves a single exclusive supervisor', () => {
+  const roles = assignRoles([
+    { id: 'worker-1' },
+    { id: 'supervisor', role: 'supervisor' },
+    { id: 'worker-2' },
+    { id: 'worker-3' },
+  ])
+  assert.equal(roles.filter((slot) => slot.role === 'supervisor').length, 1)
+  assert.equal(roles.find((slot) => slot.id === 'supervisor').role, 'supervisor')
 })
 
-test('the pool grows to its ceiling and never beyond it', () => {
-  assert.equal(desiredSlotCount(30), DEFAULT_MAX_SLOTS)
-  assert.equal(desiredSlotCount(30, 5), 5)
-  assert.equal(desiredSlotCount(30, 99), HARD_MAX_SLOTS)
+test('background jobs can never fall back to the supervisor', () => {
+  const slots = [
+    { id: 'supervisor', role: 'supervisor', busy: false, chatId: 'visible' },
+    { id: 'worker-1', role: 'worker', busy: true },
+    { id: 'worker-2', role: 'worker', busy: true },
+    { id: 'worker-3', role: 'worker', busy: true },
+  ]
+  assert.equal(selectSlotForJob(slots, { type: 'BOT_WRITE', chatId: 'visible' }), undefined)
+  assert.equal(selectSlotForJob(slots, { type: 'AWAIT_RESPONSE', chatId: 'visible' }), undefined)
 })
 
-// A fourth slot with three chats would idle forever.
-test('the pool never holds more slots than there are chats', () => {
-  assert.equal(desiredSlotCount(2, 5), 2)
+test('worker affinity is preference only', () => {
+  const slots = [
+    { id: 'supervisor', role: 'supervisor', busy: false },
+    { id: 'worker-1', role: 'worker', busy: false, conversationId: 'conv-a' },
+    { id: 'worker-2', role: 'worker', busy: false, conversationId: 'conv-b' },
+    { id: 'worker-3', role: 'worker', busy: false },
+  ]
+  assert.equal(selectSlotForJob(slots, { conversationId: 'conv-b' }).id, 'worker-2')
+  slots[2].busy = true
+  assert.equal(selectSlotForJob(slots, { conversationId: 'conv-b' }).id, 'worker-1')
 })
 
-test('exactly one slot carries the view role whenever several exist', () => {
-  const roles = assignRoles([slot('a'), slot('b'), slot('c')], 'chat-1')
-  assert.equal(roles.filter((entry) => entry.role === 'view').length, 1)
-  assert.equal(roles.filter((entry) => entry.role === 'worker').length, 2)
-})
-
-test('the slot already showing the active chat keeps the view role', () => {
-  const roles = assignRoles([slot('a'), slot('b', { chatId: 'chat-1' })], 'chat-1')
-  assert.equal(roles.find((entry) => entry.role === 'view').id, 'b')
-})
-
-test('a lone slot is the view slot and destroyed slots are ignored', () => {
-  assert.deepEqual(assignRoles([slot('a')], 'chat-1').map((entry) => entry.role), ['view'])
-  assert.deepEqual(assignRoles([slot('a', { destroyed: true }), slot('b')], 'chat-1').map((entry) => entry.id), ['b'])
-})
-
-test('work for the visible chat runs on the visible slot', () => {
-  const slots = [slot('view', { chatId: 'chat-1' }), slot('worker')]
-  const chosen = selectSlotForJob(slots, { kind: 'write', chatId: 'chat-1' }, 'chat-1')
-  assert.equal(chosen.id, 'view')
-})
-
-// A background read on the viewing slot would navigate the page out from under
-// the person reading it.
-test('a background read never takes the viewing slot', () => {
-  const slots = [slot('view', { chatId: 'chat-1' }), slot('worker', { busy: true })]
-  assert.equal(selectSlotForJob(slots, { kind: 'read', chatId: 'chat-9' }, 'chat-1'), undefined)
-})
-
-// A user waiting on their own prompt outranks protecting the view.
-test('a write may fall back to the viewing slot when no worker is free', () => {
-  const slots = [slot('view', { chatId: 'chat-1' }), slot('worker', { busy: true })]
-  assert.equal(selectSlotForJob(slots, { kind: 'write', chatId: 'chat-9' }, 'chat-1').id, 'view')
-})
-
-test('a worker already parked on the target conversation is preferred', () => {
-  const slots = [slot('view', { chatId: 'chat-1' }), slot('w1'), slot('w2', { chatId: 'chat-7' })]
-  assert.equal(selectSlotForJob(slots, { kind: 'read', chatId: 'chat-7' }, 'chat-1').id, 'w2')
-})
-
-test('nothing is dispatched when every slot is busy', () => {
-  const slots = [slot('view', { busy: true }), slot('worker', { busy: true })]
-  assert.equal(selectSlotForJob(slots, { kind: 'write', chatId: 'chat-1' }, 'chat-1'), undefined)
-})
-
-test('eviction spares the viewing slot and busy slots, then takes the least recently used', () => {
-  const slots = [slot('view', { chatId: 'chat-1', lastUsed: 1 }), slot('busy', { busy: true, lastUsed: 2 }), slot('old', { lastUsed: 3 }), slot('older', { lastUsed: 2 })]
-  assert.equal(selectSlotForEviction(slots, 'chat-1').id, 'older')
-  assert.equal(selectSlotForEviction([slot('only', { chatId: 'chat-1' })], 'chat-1'), undefined)
+test('conversation identity survives project URL changes', () => {
+  const id = 'abc-123'
+  assert.equal(canonicalConversationID(`https://chatgpt.com/c/${id}`), id)
+  assert.equal(canonicalConversationID(`https://chatgpt.com/g/g-p-project/c/${id}?x=1`), id)
+  assert.equal(canonicalConversationURL(`https://chatgpt.com/g/g-p-project/c/${id}`), `https://chatgpt.com/c/${id}`)
+  assert.equal(canonicalConversationID('https://chatgpt.com/c/WEB:temp'), '')
 })

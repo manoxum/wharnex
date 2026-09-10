@@ -230,53 +230,27 @@ describe('Inspector ChatGPT engine pool (desktop)', () => {
   beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver) })
   afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
 
-  it('keeps one dedicated pane per open chat mounted instead of destroying/recreating it when the active chat switches', async () => {
+  it('keeps exactly one Supervisor pane while the active chat changes', async () => {
     const desktop = desktopBridge(); window.wharnessDesktop = desktop
     const chatA = workspaceChat('chat-a', 'Chat A')
     const chatB = workspaceChat('chat-b', 'Chat B')
-    const view = render(<Inspector
-      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
-      session={legacySession()}
-      events={[]}
-      manualPrompt=""
-      busy={false}
-      chat={chatA}
-      chats={[chatA, chatB]}
-      onChatGPTURL={() => true}
-      onExecute={async () => undefined}
-      onApply={async () => undefined}
-      onManualPlan={async () => undefined}
-      onPlanFile={async () => ''}
-      onBundleFile={async () => ''}
-      onSession={() => undefined}
-    />)
+    const props = {
+      config: { planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false } as const,
+      session: legacySession(), events: [], manualPrompt: '', busy: false, chats: [chatA, chatB],
+      onChatGPTURL: () => true, onExecute: async () => undefined, onApply: async () => undefined,
+      onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
+    }
+    const view = render(<Inspector {...props} chat={chatA} />)
 
-    await waitFor(() => expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(2))
+    await waitFor(() => expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(1))
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-a', expect.anything()))
-    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(2)
+    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(1)
 
-    act(() => { view.rerender(<Inspector
-      config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
-      session={legacySession()}
-      events={[]}
-      manualPrompt=""
-      busy={false}
-      chat={chatB}
-      chats={[chatA, chatB]}
-      onChatGPTURL={() => true}
-      onExecute={async () => undefined}
-      onApply={async () => undefined}
-      onManualPlan={async () => undefined}
-      onPlanFile={async () => ''}
-      onBundleFile={async () => ''}
-      onSession={() => undefined}
-    />) })
+    act(() => { view.rerender(<Inspector {...props} chat={chatB} />) })
 
-    // Switching the active chat must show/hide the already-mounted panes, never tear them down and remount them.
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-b', expect.anything()))
-    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-a'))
-    expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(2)
-    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(2)
+    expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(1)
+    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(1)
   })
 })
 

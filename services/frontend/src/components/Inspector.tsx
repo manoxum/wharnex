@@ -6,7 +6,6 @@ import { riskLabel } from '../lib/risk'
 import { api } from '../lib/api'
 import { isDesktop } from '../lib/desktop'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
-import { residentPoolChats } from '../lib/chatPanePool'
 import { DirectChatGPTPane } from './DirectChatGPTPane'
 import { MarkdownContent } from './MarkdownContent'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
@@ -228,15 +227,11 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
-// Mounts one dedicated ChatGPTDesktopPane per live chat and keeps every one of
-// them mounted for the chat's whole lifetime instead of destroying/recreating
-// it on tab or chat switches. Each pane owns its own bridge subscriptions
-// (state/activity/notices), so a chat's observability keeps working while it
-// sits in the background and switching back shows it exactly as it was left,
-// matching the dedicated ChatGPT WebContentsView the Desktop main process
-// already keeps alive per chat. Only the active, non-suspended pane is
-// visible and unsuspended; the rest stay hidden and tell their native view to
-// stay hidden too.
+// The renderer exposes exactly one human-facing Supervisor pane. Background
+// automation is owned by the Desktop process' three hidden worker browsers and
+// the durable backend queue, so React must not keep a pane mounted per chat.
+// Re-rendering the same component with another chat id preserves one Supervisor
+// surface while Desktop coalesces navigation around submit/write critical phases.
 function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, chatgptSurface, busy, session, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onPlanFile, onBundleFile }: {
   visible: boolean
   globallySuspended: boolean
@@ -252,46 +247,29 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
 }) {
-  // Only a bounded window of chats keeps a live pane.
-  //
-  // Every pane owns bridge subscriptions and re-renders on remote state, so
-  // mounting one per chat made the cost grow with the chat count rather than
-  // with what the user is actually using. A workspace that grew to thirty chats
-  // blocked the renderer's main thread while a ChatGPT surface loaded — the
-  // window went unresponsive and was then killed and restarted in a loop. The
-  // active chat is always resident; the rest are the most recently used, and a
-  // chat outside the window simply mounts its pane when it is next opened.
-  const resident = residentPoolChats(chats, activeChatId)
+  const activeChat = chats.find((chat) => chat.id === activeChatId)
+  if (!activeChat) return <div className="desktop-chatgpt-pool" hidden />
+  const surface = chatgptSurface
+  const manualTransport = session.chat_transport_mode === 'manual'
   return <div className="desktop-chatgpt-pool" hidden={!visible}>
-    {resident.map((liveChat) => {
-      const isActive = liveChat.id === activeChatId
-      const surface = isActive ? chatgptSurface : undefined
-      // The active chat's own native view is additionally suspended (hidden)
-      // when THIS chat is in Manual transport mode — ManualChatGPTPane takes
-      // its place in the DOM. Background/inactive chats are never affected
-      // by the active chat's transport mode, since each pool item is
-      // otherwise suspended purely by tab-visibility/active-ness, exactly as
-      // before this mode existed.
-      const manualTransport = isActive && session.chat_transport_mode === 'manual'
-      return <div key={liveChat.id} className={isActive ? 'desktop-chatgpt-pool-item active' : 'desktop-chatgpt-pool-item'}>
-        <ChatGPTDesktopPane
-          suspended={globallySuspended || !visible || !isActive || manualTransport}
-          busy={busy}
-          chatId={surface?.cacheKey || liveChat.id}
-          chatTitle={surface?.title || liveChat.title}
-          chatgptUrl={surface?.url || liveChat.chatgptUrl}
-          pendingRequestId={isActive ? activePendingRequestId(session) : undefined}
-          sessionId={isActive ? session.id : undefined}
-          recoveryBootstrap={isActive ? session.last_manual_prompt : undefined}
-          onChatGPTURL={onChatGPTURL}
-          onActivity={onChatGPTActivity}
-          onTransportFailure={onTransportFailure}
-          onCancelPendingRequest={onCancelPendingRequest}
-          onPlanFile={onPlanFile}
-          onBundleFile={onBundleFile}
-        />
-      </div>
-    })}
+    <div className="desktop-chatgpt-pool-item active">
+      <ChatGPTDesktopPane
+        suspended={globallySuspended || !visible || manualTransport}
+        busy={busy}
+        chatId={surface?.cacheKey || activeChat.id}
+        chatTitle={surface?.title || activeChat.title}
+        chatgptUrl={surface?.url || activeChat.chatgptUrl}
+        pendingRequestId={activePendingRequestId(session)}
+        sessionId={session.id}
+        recoveryBootstrap={session.last_manual_prompt}
+        onChatGPTURL={onChatGPTURL}
+        onActivity={onChatGPTActivity}
+        onTransportFailure={onTransportFailure}
+        onCancelPendingRequest={onCancelPendingRequest}
+        onPlanFile={onPlanFile}
+        onBundleFile={onBundleFile}
+      />
+    </div>
   </div>
 }
 
