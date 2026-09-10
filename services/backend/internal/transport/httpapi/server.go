@@ -100,6 +100,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
 	mux.HandleFunc("POST /api/sessions/{id}/pending-changes/reject", a.rejectPendingChanges)
 	mux.HandleFunc("POST /api/sessions/{id}/revert", a.revert)
+	mux.HandleFunc("POST /api/sessions/{id}/restore-reverted", a.restoreReverted)
 	mux.HandleFunc("POST /api/sessions/{id}/self-restart", a.selfRestart)
 	mux.HandleFunc("GET /api/sessions/{id}/self-evolution/evidence", a.selfEvolutionEvidence)
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/analyze", a.selfEvolutionAnalyze)
@@ -1154,6 +1155,15 @@ func (a *API) revert(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.RevertHostChange(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusConflict, "revert_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) restoreReverted(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RestoreRevertedHostChange(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "restore_reverted_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

@@ -153,6 +153,7 @@ export const api = {
   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
   rejectPendingChanges: (id: string) => request<Session>(`/api/sessions/${id}/pending-changes/reject`, { method: 'POST', body: '{}' }),
   revert: (id: string) => request<Session>(`/api/sessions/${id}/revert`, { method: 'POST', body: '{}' }),
+  restoreReverted: (id: string) => request<Session>(`/api/sessions/${id}/restore-reverted`, { method: 'POST', body: '{}' }),
   restartSelfEvolution: (id: string) => request<Session>(`/api/sessions/${id}/self-restart`, { method: 'POST', body: '{}' }),
   evolutionEvidence: (id: string) => request<EvolutionEvidence>(`/api/sessions/${id}/self-evolution/evidence`),
   analyzeEvolutionEvidence: (id: string, evidenceIds: string[]) => request<{ session: Session; evidence_total: number }>(`/api/sessions/${id}/self-evolution/analyze`, { method: 'POST', body: JSON.stringify({ evidence_ids: evidenceIds }) }),

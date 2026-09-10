@@ -33,6 +33,10 @@ func gitRepo(t *testing.T, fileName, content string) string {
 	t.Helper()
 	root := t.TempDir()
 	runGitForApp(t, root, "init", "-q", "-b", "main")
+	// Service-level Git operations run outside runGitForApp, so persist the
+	// operator identity in this fixture instead of relying on command-scoped -c.
+	runGitForApp(t, root, "config", "user.name", "Tester")
+	runGitForApp(t, root, "config", "user.email", "test@example.invalid")
 	if err := os.WriteFile(filepath.Join(root, fileName), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

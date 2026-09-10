@@ -2064,6 +2064,10 @@ func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, re
 }
 
 func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error, manual bool, guidance string) (domain.Session, error) {
+	return s.prepareRepairRequestWithKind(ctx, sessionID, result, cause, manual, guidance, requestKindRepair)
+}
+
+func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error, manual bool, guidance, lineageKind string) (domain.Session, error) {
 	current, err := s.store.Get(sessionID)
 	if err != nil {
 		return current, err
@@ -2074,17 +2078,19 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 	// the model cannot satisfy. Classify first and short-circuit before any
 	// attempt-count bookkeeping: this must block the very first repair
 	// round, not just the ones after RepairAttempt is exhausted.
-	if kind := classifyExecutionFailure(cause); kind != "" {
-		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
-			item.FailureKind = kind
-			item.LastRepairError = cause.Error()
-			return nil
-		})
-		if updateErr != nil {
-			return current, updateErr
+	if lineageKind != requestKindRevertRestore {
+		if kind := classifyExecutionFailure(cause); kind != "" {
+			updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+				item.FailureKind = kind
+				item.LastRepairError = cause.Error()
+				return nil
+			})
+			if updateErr != nil {
+				return current, updateErr
+			}
+			s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "plan_id": result.PlanID})
+			return updated, nil
 		}
-		s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "plan_id": result.PlanID})
-		return updated, nil
 	}
 	if !manual && !effortAttemptAvailable(current) {
 		s.bus.Publish(sessionID, "repair.exhausted", map[string]any{"attempts": automaticAttemptsSpent(current), "plan_id": result.PlanID, "effort_level": normalizeEffortLevel(current.EffortLevel)})
@@ -2102,7 +2108,10 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		automationAttempt++
 	}
 	repairMessage := buildRepairMessage(refreshed, result, cause, attempt, automationAttempt, manual, guidance)
-	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "automation_attempt": automationAttempt, "failed_plan_id": result.PlanID, "manual": manual, "effort_level": normalizeEffortLevel(refreshed.EffortLevel)})
+	if lineageKind == requestKindRevertRestore {
+		repairMessage = buildRevertRestoreMessage(refreshed, result, cause)
+	}
+	s.bus.Publish(sessionID, "repair.started", map[string]any{"request_id": requestID, "attempt": attempt, "automation_attempt": automationAttempt, "failed_plan_id": result.PlanID, "manual": manual, "effort_level": normalizeEffortLevel(refreshed.EffortLevel), "iteration_kind": lineageKind})
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
 	if err != nil {
 		return refreshed, err
@@ -2131,7 +2140,7 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 	}
 
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
-		recordRequestLineage(item, requestID, refreshed.LastRequestID, requestKindRepair)
+		recordRequestLineage(item, requestID, refreshed.LastRequestID, lineageKind)
 		recordRequestKnowledge(item, requestID, knowledgeSnapshot)
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
@@ -2178,9 +2187,9 @@ func (s *Service) prepareRepairRequestWithOptions(ctx context.Context, sessionID
 		return refreshed, err
 	}
 	if planned.Plan == nil {
-		s.bus.Publish(sessionID, "repair.prompt_ready", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID})
+		s.bus.Publish(sessionID, "repair.prompt_ready", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID, "iteration_kind": lineageKind})
 	} else {
-		s.bus.Publish(sessionID, "repair.plan_ready", map[string]any{"request_id": requestID, "attempt": attempt, "plan_id": planned.Plan.PlanID})
+		s.bus.Publish(sessionID, "repair.plan_ready", map[string]any{"request_id": requestID, "attempt": attempt, "plan_id": planned.Plan.PlanID, "iteration_kind": lineageKind})
 	}
 	return updated, nil
 }
@@ -2711,6 +2720,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		current.SelfEvolution = current.SelfEvolution || selfEvolution
 		current.LastAppliedChanges = append([]domain.PendingHostChange(nil), pending...)
+		current.LastRevertedChanges = nil
 		current.LastHostCommands = append([]domain.CommandResult(nil), hostCommands...)
 		current.LastHostAppliedAt = hostAppliedAt
 		current.PendingHostChanges = nil
@@ -2868,6 +2878,7 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.State = "reverted"
+		current.LastRevertedChanges = append([]domain.PendingHostChange(nil), applied...)
 		current.LastAppliedChanges = nil
 		current.LastHostCommands = nil
 		current.LastHostAppliedAt = time.Time{}

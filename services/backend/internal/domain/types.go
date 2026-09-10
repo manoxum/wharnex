@@ -595,6 +595,7 @@ type Session struct {
 	LastExecution           *ExecutionResult     `json:"last_execution,omitempty"`
 	PendingHostChanges      []PendingHostChange  `json:"pending_host_changes,omitempty"`
 	LastAppliedChanges      []PendingHostChange  `json:"last_applied_changes,omitempty"`
+	LastRevertedChanges     []PendingHostChange  `json:"last_reverted_changes,omitempty"`
 	LastHostCommands        []CommandResult      `json:"last_host_commands,omitempty"`
 	LastHostAppliedAt       time.Time            `json:"last_host_applied_at,omitempty"`
 	LastProviderResponseID  string               `json:"last_provider_response_id,omitempty"`
