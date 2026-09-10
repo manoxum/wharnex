@@ -16,6 +16,7 @@ import (
 	"kernl.local/harness/backend/internal/config"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/orchestrator"
+	"kernl.local/harness/backend/internal/pendingcommit"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/planner/manual"
 	openaiadapter "kernl.local/harness/backend/internal/planner/openai"
@@ -78,6 +79,7 @@ func main() {
 		service.SetUtilityEngine(utilityopenai.New(cfg.OpenAIAPIKey, cfg.OpenAIUtilityModel, cfg.OpenAIBaseURL))
 	}
 	service.SetOrchestratorStore(orchestratorStore)
+	service.SetGitSurface(cfg.GitSettingsFile, pendingcommit.NewStore(cfg.GitPendingCommitsFile))
 	service.SetRuntimeInstanceID(cfg.InstanceID)
 	service.SetEnvironmentProber(sandboxenv.NewProber(cfg.RunnerImage, cfg.Sandbox))
 	stopArtifacts := configureArtifactStore(cfg, service)

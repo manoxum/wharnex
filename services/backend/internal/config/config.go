@@ -33,11 +33,17 @@ type Config struct {
 	InstanceID           string
 	StateFile            string
 	LanguageSettingsFile string
-	DependencyCacheDir   string
-	RemoteStorage        RemoteStorageConfig
-	Tunnel               TunnelConfig
-	Artifacts            ArtifactStorageConfig
-	ChatArchive          ChatArchiveConfig
+	// GitSettingsFile holds per-project Git surface configuration (auto vs
+	// manual commit mode). GitPendingCommitsFile holds the queue of changes
+	// applied but deliberately not committed. Both live beside the state file
+	// because they are Wharnex operational state, not project content.
+	GitSettingsFile       string
+	GitPendingCommitsFile string
+	DependencyCacheDir    string
+	RemoteStorage         RemoteStorageConfig
+	Tunnel                TunnelConfig
+	Artifacts             ArtifactStorageConfig
+	ChatArchive           ChatArchiveConfig
 }
 
 type ArtifactStorageConfig struct {
@@ -111,23 +117,25 @@ func Load() Config {
 		IndexFile:     remoteIndexFile(stateFile),
 	}
 	return Config{
-		Addr:                 env("HARNESS_ADDR", "127.0.0.1:8080"),
-		FrontendOrigin:       env("HARNESS_FRONTEND_ORIGIN", "http://127.0.0.1:5173"),
-		InstanceID:           env("HARNESS_INSTANCE_ID", ""),
-		DatabaseURL:          strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),
-		Planner:              env("HARNESS_PLANNER", "manual"),
-		Sandbox:              env("HARNESS_SANDBOX", "docker"),
-		RunnerImage:          env("HARNESS_RUNNER_IMAGE", "kernl-runner:local"),
-		OpenAIAPIKey:         os.Getenv("OPENAI_API_KEY"),
-		OpenAIModel:          env("OPENAI_MODEL", "gpt-5.6-sol"),
-		OpenAIUtilityModel:   env("OPENAI_UTILITY_MODEL", env("OPENAI_MODEL", "gpt-5.6-sol")),
-		OpenAIBaseURL:        env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-		MaxContextBytes:      envInt64("HARNESS_MAX_CONTEXT_BYTES", 4*1024*1024),
-		MaxBundleBytes:       envInt64("HARNESS_MAX_BUNDLE_BYTES", 128*1024*1024),
-		AllowLocalSandbox:    envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
-		StateFile:            stateFile,
-		LanguageSettingsFile: filepath.Join(filepath.Dir(stateFile), "language-settings.json"),
-		DependencyCacheDir:   env("HARNESS_DEPENDENCY_CACHE_DIR", filepath.Join(filepath.Dir(stateFile), "dependency-cache")),
+		Addr:                  env("HARNESS_ADDR", "127.0.0.1:8080"),
+		FrontendOrigin:        env("HARNESS_FRONTEND_ORIGIN", "http://127.0.0.1:5173"),
+		InstanceID:            env("HARNESS_INSTANCE_ID", ""),
+		DatabaseURL:           strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),
+		Planner:               env("HARNESS_PLANNER", "manual"),
+		Sandbox:               env("HARNESS_SANDBOX", "docker"),
+		RunnerImage:           env("HARNESS_RUNNER_IMAGE", "kernl-runner:local"),
+		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:           env("OPENAI_MODEL", "gpt-5.6-sol"),
+		OpenAIUtilityModel:    env("OPENAI_UTILITY_MODEL", env("OPENAI_MODEL", "gpt-5.6-sol")),
+		OpenAIBaseURL:         env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+		MaxContextBytes:       envInt64("HARNESS_MAX_CONTEXT_BYTES", 4*1024*1024),
+		MaxBundleBytes:        envInt64("HARNESS_MAX_BUNDLE_BYTES", 128*1024*1024),
+		AllowLocalSandbox:     envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
+		StateFile:             stateFile,
+		LanguageSettingsFile:  filepath.Join(filepath.Dir(stateFile), "language-settings.json"),
+		GitSettingsFile:       filepath.Join(filepath.Dir(stateFile), "git-settings.json"),
+		GitPendingCommitsFile: filepath.Join(filepath.Dir(stateFile), "git-pending-commits.json"),
+		DependencyCacheDir:    env("HARNESS_DEPENDENCY_CACHE_DIR", filepath.Join(filepath.Dir(stateFile), "dependency-cache")),
 		Artifacts: ArtifactStorageConfig{
 			Endpoint:     env("HARNESS_ARTIFACT_ENDPOINT", "http://minio:9000"),
 			AccessKey:    env("HARNESS_ARTIFACT_ACCESS_KEY", "wharness"),

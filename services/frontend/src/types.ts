@@ -503,3 +503,112 @@ export type BundleSubmission = { session: Session; auto_executed: boolean; auto_
 
 export type ProjectStorageUsage = { project_path: string; session_count: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; total_bytes: number }
 export type BackendStorageUsage = { total_bytes: number; state_bytes: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; orphan_bytes: number; projects: ProjectStorageUsage[] }
+
+// ---------------------------------------------------------------------------
+// Git surface
+// ---------------------------------------------------------------------------
+
+/**
+ * How a project treats its own history once a verified change is applied.
+ * `auto` commits the integration immediately; `manual` returns the branch to
+ * where the operator left it and keeps the change as uncommitted work, with
+ * the planner-authored commit message preserved as a pending record.
+ */
+export type GitCommitMode = 'auto' | 'manual'
+
+export type GitBranch = {
+  name: string
+  remote?: string
+  current: boolean
+  commit_sha: string
+  subject?: string
+  upstream?: string
+  ahead: number
+  behind: number
+  has_upstream: boolean
+  gone: boolean
+}
+
+export type GitRemote = { name: string; url: string }
+
+export type GitCommit = {
+  sha: string
+  short_sha: string
+  subject: string
+  body?: string
+  author_name: string
+  author_email: string
+  committed_at: string
+  request_id?: string
+  plan_id?: string
+  /** Originated from a Wharnex change, identified by its Request-Id trailer. */
+  wharnex: boolean
+  merge: boolean
+  /** Reachable from the branch's upstream. False also means "not provable". */
+  pushed: boolean
+}
+
+export type GitPendingCommit = {
+  id: string
+  project_path: string
+  session_id?: string
+  request_id?: string
+  plan_id?: string
+  subject: string
+  message: string
+  paths: string[]
+  /** Only populated by the per-record endpoint; the overview omits it. */
+  diff?: string
+  diff_truncated?: boolean
+  created_at: string
+}
+
+export type GitWorkingSummary = {
+  clean: boolean
+  stageable_count: number
+  dirty_submodules?: string[]
+  embedded_repositories?: string[]
+  unmerged_paths?: string[]
+}
+
+export type GitConflictContext = {
+  origin: 'integration' | 'push' | 'branch_merge'
+  ref: string
+  remote?: string
+  remote_branch?: string
+  base_sha: string
+  ours_sha: string
+  theirs_sha: string
+  target_branch?: string
+}
+
+export type GitOverview = {
+  project_path: string
+  available: boolean
+  unavailable?: string
+  commit_mode: GitCommitMode
+  /** Self-evolution always commits, so the toggle is presented as fixed. */
+  commit_mode_fixed?: boolean
+  current_branch?: string
+  detached: boolean
+  in_progress?: string
+  has_identity: boolean
+  branches: GitBranch[]
+  remotes: GitRemote[]
+  commits: GitCommit[]
+  pending: GitPendingCommit[]
+  working: GitWorkingSummary
+  conflict?: GitConflictContext
+}
+
+export type GitCommitOutcome = { pending_id: string; subject: string; commit_sha?: string; skipped?: string }
+export type GitCommitResult = { outcomes: GitCommitOutcome[]; blocked?: string[] }
+export type GitPushResult = {
+  outcome: 'pushed' | 'up_to_date' | 'rejected' | 'auth_required' | 'failed' | 'conflict'
+  remote: string
+  branch: string
+  detail?: string
+  integrated?: boolean
+  conflict_id?: string
+}
+export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string }

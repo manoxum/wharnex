@@ -499,6 +499,40 @@ type ConflictResolution struct {
 	// only truncates rather than informs.
 	AttemptHistory []string  `json:"attempt_history,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
+	// Git is set when this conflict came from a human-initiated Git operation
+	// on the host — a push that had to integrate the remote's work first, or
+	// an explicit branch merge — rather than from integrating a verified
+	// Wharnex candidate. The two resolve to different places: a candidate's
+	// resolution becomes a new verified change, while this one is replayed
+	// into the same Git merge and committed as its merge commit.
+	Git *GitConflictContext `json:"git,omitempty"`
+}
+
+// GitConflictOrigin names what produced a conflict, so a resolver is told
+// which reconciliation it is being asked for rather than having to infer it.
+const (
+	GitConflictOriginIntegration = "integration"
+	GitConflictOriginPush        = "push"
+	GitConflictOriginBranchMerge = "branch_merge"
+)
+
+// GitConflictContext describes a host Git merge whose conflict is awaiting a
+// planner resolution, with everything needed to replay that exact merge later.
+type GitConflictContext struct {
+	Origin string `json:"origin"`
+	// Ref is the incoming ref being merged, as Git resolves it.
+	Ref string `json:"ref"`
+	// Remote and RemoteBranch are set for a push-triggered integration.
+	Remote       string `json:"remote,omitempty"`
+	RemoteBranch string `json:"remote_branch,omitempty"`
+	// BaseSHA/OursSHA/TheirsSHA are the three sides of the merge. They are
+	// recorded before the merge is aborted, because afterwards Git keeps no
+	// MERGE_HEAD to recover them from.
+	BaseSHA   string `json:"base_sha"`
+	OursSHA   string `json:"ours_sha"`
+	TheirsSHA string `json:"theirs_sha"`
+	// TargetBranch is the local branch the merge lands on.
+	TargetBranch string `json:"target_branch,omitempty"`
 }
 
 type RequestLineage struct {

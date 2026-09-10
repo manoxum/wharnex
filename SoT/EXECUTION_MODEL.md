@@ -103,6 +103,32 @@ Host Apply is serialized only for the short integration phase per canonical proj
 
 Every host write performs per-path compare-and-swap against the value observed during staging and uses replace semantics. A race triggers at most three restage attempts; Wharness never overwrites an unexpected external value. The integration journal rolls back only values still owned by Wharness. Protocol, policy, transport, verification, race, and merge-conflict outcomes remain distinct.
 
+## Commit modes and the Git surface (v1.3.4)
+
+A project chooses what happens to its history after a verified change is
+applied (see `adr/ADR-0040`). **Auto-commit** — the default and the historical
+behavior — keeps the integration's commits. **No auto-commit** runs the same
+full integration (pre-merge snapshot, real merge, post-merge verification) and
+then returns the branch to the commit the host was at before Wharnex touched
+anything, leaving the change in the working tree as uncommitted work. The
+integration is never skipped: the merge is what reconciles the change with host
+drift, and skipping it would reintroduce the failure `adr/ADR-0035` removed.
+
+Each integrated candidate is recorded before the unwind with its
+planner-authored commit message, its declared paths and its own diff, so the
+history the change protocol obliges the planner to write survives even though
+the commit does not. Committing that queue — in full or selectively — pushing,
+and merging another branch are explicit human actions on the project Git
+surface; none of them is reachable from a model plan, which continues through
+Policy and Protected execution unchanged.
+
+A push rejected as non-fast-forward is integrated (fetch, merge, push again)
+rather than reported as a failure. A conflict on that integration, or on an
+explicit branch merge, aborts before returning — Wharnex's own integration
+refuses to act on a repository with unresolved paths — and routes into the same
+bounded `harness.conflict/v1` resolution, replayed into that exact merge and
+committed as its merge commit. Publishing the result remains an explicit push.
+
 A true merge conflict preserves all pending candidates and creates exactly one `harness.conflict/v1` focused resolution request. That request may write only the conflicting paths. Its result replaces only the conflicted mutations; unrelated verified mutations remain queued. Repeated global baseline repair for a merge conflict is forbidden.
 
 ## Request-base-rooted integration (v1.3.2)

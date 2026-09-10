@@ -353,7 +353,26 @@ type conflictCapsule struct {
 	// a file say what differs; only intent says which reconciliation is
 	// correct, so a resolver without it can do no better than guess textually.
 	Intent *conflictCapsuleIntent `json:"intent,omitempty"`
-	Files  []conflictCapsuleFile  `json:"files"`
+	// Origin says what produced this conflict, so a resolver knows which
+	// reconciliation it is being asked for instead of inferring it from the
+	// file contents. Absent means the historical case, an integration
+	// conflict between a verified candidate and the host.
+	Origin string `json:"origin,omitempty"`
+	// Git is present when the conflict came from a host Git operation the
+	// operator started — a push that had to integrate the remote first, or an
+	// explicit branch merge — and names the exact merge being reconciled.
+	Git   *conflictCapsuleGit   `json:"git,omitempty"`
+	Files []conflictCapsuleFile `json:"files"`
+}
+
+// conflictCapsuleGit names the merge a Git-origin conflict is reconciling.
+type conflictCapsuleGit struct {
+	Ref          string `json:"ref"`
+	TargetBranch string `json:"target_branch,omitempty"`
+	Remote       string `json:"remote,omitempty"`
+	BaseSHA      string `json:"base_sha"`
+	OursSHA      string `json:"ours_sha"`
+	TheirsSHA    string `json:"theirs_sha"`
 }
 
 // conflictCapsuleIntent describes the purpose of both colliding sides and how

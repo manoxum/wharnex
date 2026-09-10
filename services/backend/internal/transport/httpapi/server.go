@@ -138,6 +138,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/start", a.orchestratorStartTask)
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/tasks/{task_id}/runs", a.orchestratorTaskRuns)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
+	a.registerGitRoutes(mux)
 	return cors(mux, allowedOrigins(cfg.FrontendOrigin))
 }
 
@@ -1474,6 +1475,16 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 }
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+}
+
+// writeJSONError carries structured data alongside the error envelope, for a
+// refusal the client must act on rather than merely display — a blocked
+// selective commit has to name the records that must be included.
+func writeJSONError(w http.ResponseWriter, status int, code, message string, detail any) {
+	writeJSON(w, status, map[string]any{
+		"error":  map[string]string{"code": code, "message": message},
+		"detail": detail,
+	})
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")

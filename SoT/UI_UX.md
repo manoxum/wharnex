@@ -102,6 +102,35 @@ Every sent or received Harness transcript message displays a local date/time and
 - The visible 100% typography setting is the central readable baseline, internally calibrated more generously above the former compact baseline. Settings expose a symmetric-around-100 wider bounded UI scale (40%-160%), allowing up to 60% reduction or enlargement from the central value, plus curated interface and monospace font stacks, persisted only in Wharness local UI state. The preferred pairing is Inter/Manrope for interface text and JetBrains Mono for code/logs, with system fallbacks. Small fixed UI font declarations participate in the same scale so changing the preference affects the whole workspace instead of only selected panels.
 - A successful self-evolution host build MUST present a confirmation modal instead of restarting immediately. Dismissing the modal leaves a persistent compact restart-required indicator that reopens the confirmation. The pending transaction remains rollback-capable until restart is scheduled.
 
+## Project Git surface (v1.3.4)
+
+The Agent activity rail exposes a **Git do projeto** drawer, badged with the
+number of applied-but-uncommitted changes so that state is visible without
+opening the panel. The badge refreshes when an Apply could have changed it,
+never on a timer.
+
+The panel presents, in one read: the project's commit mode; the current branch
+with its ahead/behind counts; local and remote-tracking branches; the pending
+commit queue; and the recent history, marking each commit as Wharnex-originated
+(decided by its `Request-Id` trailer, so a change the operator committed
+themselves is still recognised) and as pushed or still local. A repository that
+cannot be inspected states why rather than rendering an empty panel.
+
+Every action here is an explicit human action and is never reachable from a
+model plan. Pending records may be committed in full or selectively; a
+selection that would fold an earlier unselected record into a later one is
+refused with the blockers named, because the commit would otherwise carry the
+wrong message. Discarding a record MUST be labelled as removing only Wharnex's
+note — the files are never touched. When the repository has no configured Git
+identity the panel says so and disables committing, since a manual commit is
+the operator's own and is never attributed to a bot.
+
+Pushing is confirmed explicitly and reports its own outcome in the operator's
+terms, including the case where the remote's work was integrated first and the
+case where that integration conflicted — which publishes nothing and states so.
+An active Git conflict awaiting resolution is shown as such, and the commit-mode
+toggle is presented as fixed for a self-evolution project, which always commits.
+
 ## Unified Agent surface and activity drawer (v1.2.39)
 
 The Agent mode is a stable two-column workspace: Harness chat remains on the left and the right inspector switches between **Plano**, **Execução**, **Engine** and the automation-free **ChatGPT** surface. The divider is pointer-resizable, has an accessible label, persists the user's width locally, and preserves usable minimum widths. Native remote renderers remain suspended whenever their own tab is not visible or a Wharness overlay occupies their viewport.
