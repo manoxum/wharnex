@@ -241,6 +241,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
 
     <nav className="agent-chat-switcher" aria-label="Conversas do Harness">
       <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
+      {archived.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void chatProps.onRestoreChat(archived[0].id)} title={`Reabrir último chat fechado: ${archived[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
       <div className="chat-tabs">
         {chatProps.chats.map((chat) => <div key={chat.id} className={chat.id === chatProps.activeChatId ? 'chat-tab-group active' : 'chat-tab-group'}>
           <button className={chat.id === chatProps.activeChatId ? 'chat-tab active' : 'chat-tab'} onClick={() => void chatProps.onSelectChat(chat.id)} title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}><span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" /></button>
