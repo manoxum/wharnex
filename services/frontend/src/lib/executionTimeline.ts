@@ -13,7 +13,7 @@ export type ExecutionTimelineEntry = {
   output: string
 	requestId: string
 	rootRequestId: string
-	iterationKind: 'standard' | 'repair' | 'improvement' | 'evidence' | 'conflict'
+	iterationKind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict'
 }
 
 export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelineEntry[] {
@@ -92,7 +92,7 @@ function eventLineage(event: HarnessEvent, fallback: Pick<ExecutionTimelineEntry
 	const rootRequestId = String(event.data.root_request_id || fallback.rootRequestId || requestId)
 	const explicit = String(event.data.iteration_kind || '')
 	const inferred = event.type.startsWith('workflow.') ? 'evidence' : event.type.startsWith('improvement.') ? 'improvement' : event.type.startsWith('repair.') ? 'repair' : event.type.startsWith('conflict.') ? 'conflict' : fallback.iterationKind
-	const iterationKind = (['standard', 'repair', 'improvement', 'evidence', 'conflict'].includes(explicit) ? explicit : inferred) as ExecutionTimelineEntry['iterationKind']
+	const iterationKind = (['standard', 'repair', 'revert_restore', 'improvement', 'evidence', 'conflict'].includes(explicit) ? explicit : inferred) as ExecutionTimelineEntry['iterationKind']
 	return { requestId, rootRequestId, iterationKind }
 }
 
@@ -132,6 +132,10 @@ function statusMeta(event: HarnessEvent) {
     case 'host.pending_rejected': return { title: 'Alterações pendentes rejeitadas', detail: `${String(event.data.plan_count || 0)} plano(s) descartado(s)`, badge: 'REJECT', tone: 'warning' as const }
     case 'host.revert_started': return { title: 'Reversão no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'REVERT', tone: 'warning' as const }
     case 'host.reverted': return { title: 'Alterações revertidas no host', detail: '', badge: 'REVERT', tone: 'ok' as const }
+    case 'host.restore_started': return { title: 'Reposição no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'RESTORE', tone: 'warning' as const }
+    case 'host.restore_failed': return { title: 'Reposição direta falhou', detail: String(event.data.error || ''), badge: 'RESTORE', tone: 'fail' as const }
+    case 'host.restore_recovery_started': return { title: 'Conciliação da reposição iniciada', detail: String(event.data.error || ''), badge: 'GPT', tone: 'warning' as const }
+    case 'host.restored': return { title: 'Alteração reposta no host', detail: '', badge: 'RESTORE', tone: 'ok' as const }
     case 'host_dependency_repair.started': return { title: 'Reinstalação de dependências do host iniciada', detail: String(event.data.cwd || ''), badge: 'REPAIR', tone: 'warning' as const }
     case 'host_dependency_repair.command_started': return { title: 'Comando de reparo iniciado', detail: (event.data.argv as string[] | undefined)?.join(' ') || '', badge: 'REPAIR', tone: 'warning' as const }
     case 'host_dependency_repair.command_completed': return { title: 'Comando de reparo concluído', detail: (event.data.argv as string[] | undefined)?.join(' ') || '', badge: exit, tone: event.data.success ? 'ok' as const : 'fail' as const }
@@ -144,8 +148,8 @@ function statusMeta(event: HarnessEvent) {
     case 'verification.baseline_changed': return { title: 'Baseline alterada', detail: 'verification drift', badge: 'WARN', tone: 'warning' as const }
     case 'automation.approval_required': return { title: 'Aprovação necessária', detail: String(event.data.risk || ''), badge: 'APPROVE', tone: 'warning' as const }
     case 'automation.policy_blocked': case 'workflow.policy_blocked': return { title: 'Policy bloqueou a execução', detail: '', badge: 'BLOCK', tone: 'fail' as const }
-    case 'repair.started': return { title: 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' as const }
-    case 'repair.prompt_ready': return { title: 'Prompt de correção pronto', detail: '', badge: 'READY', tone: 'warning' as const }
+    case 'repair.started': return { title: event.data.iteration_kind === 'revert_restore' ? 'Conciliação da reposição iniciada' : 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' as const }
+    case 'repair.prompt_ready': return { title: event.data.iteration_kind === 'revert_restore' ? 'Pedido de reposição pronto' : 'Prompt de correção pronto', detail: '', badge: 'READY', tone: 'warning' as const }
     case 'repair.prepare_failed': return { title: 'Falha ao preparar correção', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
     case 'workflow.started': return { title: 'Investigação local iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' as const }
     case 'workflow.completed': return { title: 'Passo local concluído', detail: '', badge: 'OK', tone: 'ok' as const }

@@ -1467,6 +1467,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .bundle-card small { color: #aaa; }
 :root[data-theme='dark'] .bundle-tone-request-main { --bundle-color:#8aaff5; --bundle-bg:#1b2942; --bundle-border:#38558b; }
 :root[data-theme='dark'] .bundle-tone-request-repair { --bundle-color:#efb665; --bundle-bg:#382a18; --bundle-border:#755429; }
+:root[data-theme='dark'] .bundle-tone-request-restore { --bundle-color:#ee8f98; --bundle-bg:#342124; --bundle-border:#6d3d43; }
 :root[data-theme='dark'] .bundle-tone-request-summary { --bundle-color:#c0a1f5; --bundle-bg:#2c2340; --bundle-border:#5f4b83; }
 :root[data-theme='dark'] .bundle-tone-response { --bundle-color:#78ceb5; --bundle-bg:#19372f; --bundle-border:#346f60; }
 :root[data-theme='dark'] .bundle-tone-final-summary { --bundle-color:#e69abd; --bundle-bg:#3a2130; --bundle-border:#7a405c; }

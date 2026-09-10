@@ -9,7 +9,7 @@ import { ArtifactPreview } from './ArtifactPreview'
 import { ArtifactViewerModal, type ArtifactViewerItem } from './ArtifactViewerModal'
 
 type RequestLineages = NonNullable<Session['request_lineages']>
-type BundleTone = 'request-main' | 'request-repair' | 'request-summary' | 'response' | 'final-summary'
+type BundleTone = 'request-main' | 'request-repair' | 'request-restore' | 'request-summary' | 'response' | 'final-summary'
 type BundlePresentation = { tone: BundleTone; label: string }
 const EMPTY_ARTIFACTS: ArtifactRecord[] = []
 
@@ -175,6 +175,7 @@ function bundlePresentation(bundle: ArtifactRecord, requestLineages: RequestLine
   const lineageKind = bundle.request_id ? requestLineages[bundle.request_id]?.kind : undefined
   if (lineageKind === 'knowledge_review') return bundle.direction === 'input' ? { tone: 'request-summary', label: 'Pedido · resumo final' } : { tone: 'final-summary', label: 'Resumo final' }
   if (bundle.direction === 'output') return { tone: 'response', label: 'Resposta' }
+  if (lineageKind === 'revert_restore') return { tone: 'request-restore', label: 'Pedido · repor reversão' }
   if (!lineageKind || lineageKind === 'standard') return { tone: 'request-main', label: 'Pedido principal' }
   return { tone: 'request-repair', label: 'Pedido · correção' }
 }

@@ -189,6 +189,19 @@ describe('ChatPanel', () => {
     expect(screen.getByText('services/frontend/src/e.ts')).toBeTruthy()
   })
 
+  it('offers the inverse restore action for a reverted change card', async () => {
+    const onRevertChange = vi.fn(async () => undefined)
+    const item = { id: 'change-reverted', role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, text: 'Revertido.', change: { planId: 'plan-reverted', files: [], appliedAt: '2026-09-09T18:00:00Z', canRevert: true, reverted: true } }
+    render(
+      <ChatPanel session={session} items={[item]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onRevertChange={onRevertChange} {...chatActions} />,
+    )
+
+    const button = screen.getByRole('button', { name: 'Repor alteração' })
+    fireEvent.click(button)
+    await waitFor(() => expect(onRevertChange).toHaveBeenCalledWith(item))
+    expect(screen.queryByRole('button', { name: 'Reverter alteração' })).toBeNull()
+  })
+
   it('renders actual host commands after the applied diff summary', () => {
     render(
       <ChatPanel session={session} items={[{ id: 'change-1', role: 'harness', source: 'wharness', presentation: 'change', text: 'Alterações e comandos aplicados ao host.', change: { planId: 'plan-1', files: [], hostCommands: [{ argv: ['make', 'build-stage'], cwd: '.', exit_code: 0, stdout: '', stderr: '', success: true, duration_ms: 4321 }], appliedAt: '2026-09-07T10:00:00Z', canRevert: false } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,

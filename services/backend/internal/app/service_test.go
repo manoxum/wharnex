@@ -2911,4 +2911,75 @@ func TestAppliedPatchCanBeRevertedToPreviousHostState(t *testing.T) {
 	if string(contents) != "old\n" {
 		t.Fatalf("revert produced %q", contents)
 	}
+	if len(reverted.LastRevertedChanges) != 1 || reverted.LastRevertedChanges[0].Plan.PlanID != plan.PlanID {
+		t.Fatalf("revert must retain the exact applied batch for redo: %#v", reverted.LastRevertedChanges)
+	}
+	restored, err := service.RestoreRevertedHostChange(context.Background(), s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.State != "applied" || len(restored.LastRevertedChanges) != 0 || len(restored.LastAppliedChanges) != 1 {
+		t.Fatalf("restore should make the reverted batch applied again: %#v", restored)
+	}
+	contents, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "new\n" {
+		t.Fatalf("restore produced %q", contents)
+	}
+}
+
+func TestRestoreRevertedPatchFailurePreparesDistinctChatGPTRequest(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "restore-conflict.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "restore-conflict", Status: "ready", Summary: "update restore conflict", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/restore-conflict.txt\n+++ b/restore-conflict.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
+	}
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, applied, err := service.SubmitMessage(context.Background(), s.ID, "Atualize restore-conflict.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RevertHostChange(context.Background(), applied.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("drifted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	recoveryService := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	recovery, err := recoveryService.RestoreRevertedHostChange(context.Background(), s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovery.State != "repair_pending" || recovery.LastManualPrompt == "" {
+		t.Fatalf("restore conflict should prepare a ChatGPT continuation: state=%s prompt=%q", recovery.State, recovery.LastManualPrompt)
+	}
+	if !strings.Contains(recovery.LastManualPrompt, "REVERT RESTORE RECOVERY REQUEST") {
+		t.Fatalf("restore prompt must identify its recovery purpose: %s", recovery.LastManualPrompt)
+	}
+	lineage := recovery.RequestLineages[recovery.LastRequestID]
+	if lineage.Kind != requestKindRevertRestore {
+		t.Fatalf("restore recovery must use distinct lineage kind, got %#v", lineage)
+	}
+	if len(recovery.LastRevertedChanges) != 1 {
+		t.Fatalf("failed direct restore must retain the redo candidate: %#v", recovery.LastRevertedChanges)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "drifted\n" {
+		t.Fatalf("failed restore must preserve current host content, got %q", contents)
+	}
 }

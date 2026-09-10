@@ -78,10 +78,12 @@ describe('BundleExchangeBar', () => {
     const base = { kind: 'bundle', content_type: 'application/zip', size: 2048, sha256: 'b'.repeat(64), expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1 }
     const mainRequest = 'req_20260905T180000_1111111111111111'
     const repairRequest = 'req_20260905T190000_2222222222222222'
+    const restoreRequest = 'req_20260905T193000_4444444444444444'
     const summaryRequest = 'req_20260905T210000_3333333333333333'
     const artifacts: ArtifactRecord[] = [
       { ...base, id: 'main', request_id: mainRequest, direction: 'input', name: `whx_bundle_req_chat-1_${mainRequest}.zip`, created_at: '2026-09-05T18:00:00Z' },
       { ...base, id: 'repair', request_id: repairRequest, direction: 'input', name: `whx_bundle_req_chat-1_${mainRequest}_${repairRequest}.zip`, created_at: '2026-09-05T19:00:00Z' },
+      { ...base, id: 'restore', request_id: restoreRequest, direction: 'input', name: `whx_bundle_req_chat-1_${mainRequest}_${restoreRequest}.zip`, created_at: '2026-09-05T19:30:00Z' },
       { ...base, id: 'response', request_id: repairRequest, direction: 'output', name: `whx_bundle_res_chat-1_${mainRequest}_${repairRequest}.zip`, created_at: '2026-09-05T20:00:00Z' },
       { ...base, id: 'summary-request', request_id: summaryRequest, direction: 'input', name: `whx_bundle_req_chat-1_${mainRequest}_${summaryRequest}.zip`, created_at: '2026-09-05T21:00:00Z' },
       { ...base, id: 'summary-response', request_id: summaryRequest, direction: 'output', name: `whx_bundle_res_chat-1_${mainRequest}_${summaryRequest}.zip`, created_at: '2026-09-05T22:00:00Z' },
@@ -89,6 +91,7 @@ describe('BundleExchangeBar', () => {
     const requestLineages = {
       [mainRequest]: { request_id: mainRequest, root_request_id: mainRequest, kind: 'standard' as const, created_at: '2026-09-05T18:00:00Z' },
       [repairRequest]: { request_id: repairRequest, root_request_id: mainRequest, parent_request_id: mainRequest, kind: 'repair' as const, created_at: '2026-09-05T19:00:00Z' },
+      [restoreRequest]: { request_id: restoreRequest, root_request_id: mainRequest, parent_request_id: mainRequest, kind: 'revert_restore' as const, created_at: '2026-09-05T19:30:00Z' },
       [summaryRequest]: { request_id: summaryRequest, root_request_id: mainRequest, parent_request_id: mainRequest, kind: 'knowledge_review' as const, created_at: '2026-09-05T21:00:00Z' },
     }
 
@@ -97,16 +100,18 @@ describe('BundleExchangeBar', () => {
     expect(view.container.querySelector('.bundle-tone-request-summary')).toBeTruthy()
     expect(view.container.querySelector('.bundle-tone-response')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir galeria completa: 5 bundles, 3 enviados, 2 recebidos' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir galeria completa: 6 bundles, 4 enviados, 2 recebidos' }))
     await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'summary-response'))
     const selector = document.querySelector('.bundle-selector')!
     expect(selector.querySelector('.bundle-tone-request-main')).toBeTruthy()
     expect(selector.querySelector('.bundle-tone-request-repair')).toBeTruthy()
+    expect(selector.querySelector('.bundle-tone-request-restore')).toBeTruthy()
     expect(selector.querySelector('.bundle-tone-request-summary')).toBeTruthy()
     expect(selector.querySelector('.bundle-tone-response')).toBeTruthy()
     expect(selector.querySelector('.bundle-tone-final-summary')).toBeTruthy()
     expect(screen.getAllByText('Pedido principal').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Pedido · correção').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Pedido · repor reversão').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Pedido · resumo final').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Resposta').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Resumo final').length).toBeGreaterThan(0)

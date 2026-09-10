@@ -582,7 +582,7 @@ function ChangeSummaryCard({ item, onInspect, onOpenFile, onRevert }: { item: Ch
       {prioritizedFiles.length > CHANGE_DIFF_PREVIEW_COUNT && <button type="button" className="change-file-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}><span aria-hidden="true">{expanded ? '−' : '···'}</span>{expanded ? 'Mostrar menos diffs' : `Mostrar mais ${hiddenCount} diff${hiddenCount === 1 ? '' : 's'}`}</button>}
     </div>}
     {hostCommands.length > 0 && <div className="change-host-commands"><strong>Comandos no host</strong>{hostCommands.map((command, index) => <div className="change-host-command" key={`${command.argv.join(' ')}-${index}`}><code>{command.argv.join(' ')}</code><span>{command.cwd || '.'} · exit {command.exit_code} · {command.duration_ms} ms</span></div>)}</div>}
-    <footer><span>Plano {change.planId}</span>{change.canRevert && !change.reverted && <button type="button" className="text-button change-revert" onClick={() => void onRevert?.(item)}><Icon name="refresh" size={12}/> Reverter alteração</button>}</footer>
+    <footer><span>Plano {change.planId}</span>{change.canRevert && <button type="button" className="text-button change-revert" onClick={() => void onRevert?.(item)}><Icon name="refresh" size={12}/> {change.reverted ? 'Repor alteração' : 'Reverter alteração'}</button>}</footer>
   </article>
 }
 

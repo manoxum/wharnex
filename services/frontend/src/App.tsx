@@ -1923,6 +1923,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const attemptLabel = limit ? `${attempt}/${limit}` : `${attempt}/∞`
     const improvement = Boolean(failedSession.improvement_attempt) && !failedSession.last_repair_error
     const requestId = failedSession.last_request_id || ''
+    const restoringRevert = failedSession.request_lineages?.[requestId]?.kind === 'revert_restore'
     const dispatchKey = `${failedSession.id}:${requestId || attempt}`
     if (force) repairDispatchRef.current.delete(dispatchKey)
     if (!force && (repairDispatchRef.current.has(dispatchKey) || requestAlreadyRecorded(failedSession.project_path, targetChat.id, requestId, ['repair', 'prepared', 'submitted']))) {
@@ -1933,8 +1934,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const cause = truncateRepairCause(failedSession.last_repair_error || failedSession.last_execution?.error)
     appendChatItem(targetChat, failedSession.project_path, {
       id: `repair-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-      text: improvement ? `O Wharness preparou a ronda de melhoria contínua ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado. O ChatGPT deve parar se já não houver melhoria material com bom custo/benefício.` : `O Wharness preparou a requisição de correção ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
-      meta: improvement ? `Melhoria contínua ${failedSession.last_request_id || ''}`.trim() : (failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático'),
+      text: improvement ? `O Wharness preparou a ronda de melhoria contínua ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado. O ChatGPT deve parar se já não houver melhoria material com bom custo/benefício.` : restoringRevert ? `A reposição direta da alteração revertida encontrou um conflito. O Wharness preparou um pedido de conciliação ${attemptLabel} e vai enviá-lo automaticamente ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}` : `O Wharness preparou a requisição de correção ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
+      meta: improvement ? `Melhoria contínua ${failedSession.last_request_id || ''}`.trim() : restoringRevert ? `Reposição ${failedSession.last_request_id || ''}`.trim() : (failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático'),
       iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'repair', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined,
     })
     try {
@@ -2134,23 +2135,29 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function revertChange(item: ChatItem) {
-    if (!session || !item.change || item.change.reverted || busy) return
-    const latestAppliedPlanId = session.last_applied_changes?.[session.last_applied_changes.length - 1]?.plan.plan_id || session.plan?.plan_id
-    if (!latestAppliedPlanId || latestAppliedPlanId !== item.change.planId) {
-      setError('Este resumo pertence a um plano anterior. A reversão segura só está disponível para o último plano aplicado desta sessão.')
+    if (!session || !item.change || busy) return
+    const restoring = Boolean(item.change.reverted)
+    const changes = restoring ? session.last_reverted_changes : session.last_applied_changes
+    const latestPlanId = changes?.[changes.length - 1]?.plan.plan_id || (!restoring ? session.plan?.plan_id : undefined)
+    if (!latestPlanId || latestPlanId !== item.change.planId) {
+      setError(restoring
+        ? 'Este resumo já não corresponde à última reversão disponível para reposição segura.'
+        : 'Este resumo pertence a um plano anterior. A reversão segura só está disponível para o último plano aplicado desta sessão.')
       return
     }
     if (!(await confirmDialog({
-      title: 'Reverter alterações aplicadas?',
-      message: `O plano ${item.change.planId} será revertido no projeto real.`,
-      tone: 'danger',
-      confirmLabel: 'Reverter plano',
+      title: restoring ? 'Repor alteração revertida?' : 'Reverter alterações aplicadas?',
+      message: restoring ? `O plano ${item.change.planId} será reposto no projeto real.` : `O plano ${item.change.planId} será revertido no projeto real.`,
+      tone: restoring ? 'warning' : 'danger',
+      confirmLabel: restoring ? 'Repor alteração' : 'Reverter plano',
     }))) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.revert(session.id)
+      const updated = restoring ? await api.restoreReverted(session.id) : await api.revert(session.id)
       setSession(updated)
-      setItems((current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: true } } : candidate))
+      if (!restoring || updated.state === 'applied') {
+        setItems((current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: !restoring } } : candidate))
+      }
       markContextDirtyForOtherChats(updated.project_path, activeChatId)
       void syncPeerBaselineUpdates(updated.project_path, activeChatId)
     } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
