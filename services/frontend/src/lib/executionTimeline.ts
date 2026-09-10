@@ -82,7 +82,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       continue
     }
     const meta = statusMeta(event)
-    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: joinedFallback(event), ...active, ...meta })
+    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: statusEventOutput(event), ...active, ...meta })
   }
   return entries
 }
@@ -152,6 +152,35 @@ function statusMeta(event: HarnessEvent) {
     case 'workflow.step_failed': return { title: 'Passo local produziu diagnóstico', detail: '', badge: 'WARN', tone: 'warning' as const }
     case 'workflow.continuation_started': return { title: 'Continuação com evidências iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' as const }
     case 'workflow.prompt_ready': return { title: 'Continuação pronta para o ChatGPT', detail: '', badge: 'READY', tone: 'ok' as const }
-    default: return { title: event.type, detail: '', badge: '', tone: 'ok' as const }
+    default: return { title: event.type, detail: compactEventData(event), badge: 'EVENT', tone: genericEventTone(event) }
   }
+}
+
+function compactEventData(event: HarnessEvent) {
+  const keys = ['plan_id', 'request_id', 'state', 'status', 'transport', 'target', 'reason', 'attempt', 'round', 'position']
+  const parts = keys.flatMap((key) => {
+    const value = event.data[key]
+    if (value === undefined || value === null || value === '') return []
+    return [`${key}=${Array.isArray(value) ? value.map(String).join(',') : String(value)}`]
+  })
+  return parts.slice(0, 4).join(' · ')
+}
+
+function structuredEventData(event: HarnessEvent) {
+  if (!event.data || !Object.keys(event.data).length) return ''
+  try { return JSON.stringify(event.data, null, 2) || '' } catch { return String(event.data) }
+}
+
+function statusEventOutput(event: HarnessEvent) {
+  const summary = joinedFallback(event)
+  const structured = structuredEventData(event)
+  if (!summary) return structured
+  if (!structured) return summary
+  return `${summary}\n\n[dados]\n${structured}`
+}
+
+function genericEventTone(event: HarnessEvent): ExecutionTimelineEntry['tone'] {
+  if (/failed|error|blocked|rejected|exhausted|rollback_failed/i.test(event.type) || event.data.success === false) return 'fail'
+  if (/warning|degraded|skipped|retry|required|stalled|pending/i.test(event.type)) return 'warning'
+  return 'ok'
 }

@@ -195,5 +195,6 @@ export const api = {
   updateProjectConfig: (id: string, config: ProjectConfig) => request<{ config: ProjectConfig; session: Session }>(`/api/sessions/${id}/project-config`, { method: 'PUT', body: JSON.stringify(config) }),
   bundleURL: (id: string) => `${API_URL}/api/sessions/${id}/bundle`,
   contextURL: (id: string) => `${API_URL}/api/sessions/${id}/context`,
+  eventHistory: (id: string) => request<{ events: HarnessEvent[]; total: number; truncated: boolean }>(`/api/sessions/${id}/events/history`),
   eventsURL: (id: string) => `${API_URL}/api/sessions/${id}/events`,
 }

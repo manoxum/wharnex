@@ -41,6 +41,7 @@ export type ExecutionActivityItem = {
   chatId: string
   chatTitle: string
   timestamp: string
+  requestId: string
   execution: ExecutionResult
   session: Session
 }
@@ -66,6 +67,11 @@ export function collectPlanActivities(entries: ProjectSessionActivity[]): PlanAc
 export function collectExecutionActivities(entries: ProjectSessionActivity[]): ExecutionActivityItem[] {
   const items = new Map<string, ExecutionActivityItem>()
   for (const { chat, session } of entries) {
+    const requestByPlan = new Map<string, string>()
+    if (session.plan) requestByPlan.set(session.plan.plan_id, session.plan.request_id)
+    for (const change of [...(session.pending_host_changes || []), ...(session.last_applied_changes || [])]) {
+      requestByPlan.set(change.plan.plan_id, change.plan.request_id)
+    }
     const executions = [
       session.last_execution,
       ...(session.pending_host_changes || []).map((change) => change.execution),
@@ -73,10 +79,34 @@ export function collectExecutionActivities(entries: ProjectSessionActivity[]): E
     ].filter((value): value is ExecutionResult => Boolean(value))
     for (const execution of executions) {
       const id = `${chat.id}:${execution.plan_id}:${execution.started_at}`
-      items.set(id, { id, chatId: chat.id, chatTitle: chat.title, timestamp: execution.started_at, execution, session })
+      items.set(id, {
+        id, chatId: chat.id, chatTitle: chat.title, timestamp: execution.started_at,
+        requestId: requestByPlan.get(execution.plan_id) || '', execution, session,
+      })
     }
   }
   return [...items.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+}
+
+export function executionAuditEvents(events: HarnessEvent[], item: ExecutionActivityItem): HarnessEvent[] {
+  const planID = item.execution.plan_id
+  const requestID = item.requestId
+  return events.filter((event) => {
+    const eventPlanID = String(event.data.plan_id || '')
+    const eventRequestID = String(event.data.request_id || '')
+    const rootRequestID = String(event.data.root_request_id || '')
+    return eventPlanID === planID || Boolean(requestID && (eventRequestID === requestID || rootRequestID === requestID))
+  })
+}
+
+export function filterAuditEvents(events: HarnessEvent[], query: string): HarnessEvent[] {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return events
+  return events.filter((event) => {
+    let data = ''
+    try { data = JSON.stringify(event.data) || '' } catch { data = String(event.data) }
+    return `${event.type} ${event.id} ${event.timestamp} ${data}`.toLocaleLowerCase().includes(needle)
+  })
 }
 
 export function sessionForPlan(item: PlanActivityItem): Session {

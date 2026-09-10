@@ -1,24 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Session } from '../types'
+import type { HarnessEvent, Session } from '../types'
 import { api } from '../lib/api'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
-import { collectExecutionActivities, collectPlanActivities, executionEventsFromResult, loadProjectSessions, sessionForPlan, type ProjectSessionActivity } from '../lib/projectActivity'
+import { collectExecutionActivities, collectPlanActivities, executionAuditEvents, executionEventsFromResult, filterAuditEvents, loadProjectSessions, sessionForPlan, type ProjectSessionActivity } from '../lib/projectActivity'
 import { Icon } from './Icon'
 import { PlanView, TerminalView } from './Inspector'
 
 export type ProjectActivityKind = 'plans' | 'executions'
 
-export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatId, onClose }: {
+export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatId, activeEvents, onClose }: {
   kind: ProjectActivityKind
   chats: WorkspaceChat[]
   currentSession: Session
   activeChatId: string
+  activeEvents: HarnessEvent[]
   onClose: () => void
 }) {
   const [remoteSessions, setRemoteSessions] = useState<Record<string, Session>>({})
   const [selected, setSelected] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [eventHistory, setEventHistory] = useState<Record<string, { events: HarnessEvent[]; total: number; truncated: boolean }>>({})
+  const [eventHistoryError, setEventHistoryError] = useState<Record<string, string>>({})
+  const [eventHistoryLoading, setEventHistoryLoading] = useState('')
+  const [logScope, setLogScope] = useState<'execution' | 'session'>('execution')
+  const [logQuery, setLogQuery] = useState('')
   const remoteSessionKey = JSON.stringify([...new Set(chats.filter((chat) => chat.id !== activeChatId).map((chat) => chat.sessionId))].sort())
 
   useEffect(() => {
@@ -50,6 +56,34 @@ export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatI
     if (entries.length && !entries.some((item) => item.id === selected)) setSelected(entries[0].id)
   }, [entries, selected])
 
+  const chosenExecution = chosen && 'execution' in chosen ? chosen : undefined
+  useEffect(() => {
+    if (!chosenExecution || eventHistory[chosenExecution.session.id] || eventHistoryError[chosenExecution.session.id]) return
+    let cancelled = false
+    const sessionID = chosenExecution.session.id
+    setEventHistoryLoading(sessionID)
+    void api.eventHistory(sessionID)
+      .then((snapshot) => { if (!cancelled) setEventHistory((current) => ({ ...current, [sessionID]: snapshot })) })
+      .catch(() => { if (!cancelled) setEventHistoryError((current) => ({ ...current, [sessionID]: 'Histórico de auditoria indisponível; a mostrar apenas o resultado resumido da execução.' })) })
+      .finally(() => { if (!cancelled) setEventHistoryLoading((current) => current === sessionID ? '' : current) })
+    return () => { cancelled = true }
+  }, [chosenExecution, eventHistory, eventHistoryError])
+
+  const selectedHistory = useMemo(() => {
+    if (!chosenExecution) return []
+    const persisted = eventHistory[chosenExecution.session.id]?.events || []
+    const live = chosenExecution.chatId === activeChatId ? activeEvents : []
+    const merged = new Map<string, HarnessEvent>()
+    for (const event of [...persisted, ...live]) merged.set(event.id, event)
+    return [...merged.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id))
+  }, [activeChatId, activeEvents, chosenExecution, eventHistory])
+  const scopedHistory = useMemo(() => chosenExecution && logScope === 'execution' ? executionAuditEvents(selectedHistory, chosenExecution) : selectedHistory, [chosenExecution, logScope, selectedHistory])
+  const searchedHistory = useMemo(() => filterAuditEvents(scopedHistory, logQuery), [logQuery, scopedHistory])
+  const fallbackEvents = useMemo(() => chosenExecution ? executionEventsFromResult(chosenExecution.execution, chosenExecution.session.id) : [], [chosenExecution])
+  const visibleEvents = searchedHistory.length || logQuery ? searchedHistory : (scopedHistory.length ? scopedHistory : fallbackEvents)
+  const failureCount = visibleEvents.filter((event) => /failed|error|blocked|rejected|exhausted/i.test(event.type) || event.data.success === false).length
+  const commandCount = new Set(visibleEvents.filter((event) => event.type.startsWith('command.')).map((event) => String(event.data.run_id || event.id))).size
+
   return <section className="project-activity-drawer" aria-label={kind === 'plans' ? 'Planos do projeto' : 'Execuções do projeto'}>
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Projeto inteiro</span><strong>{kind === 'plans' ? 'Planos' : 'Execuções'}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
     {!entries.length && loading ? <div className="agent-drawer-empty">A carregar atividade…</div> : !entries.length ? <div className="agent-drawer-empty">{error || (kind === 'plans' ? 'Nenhum plano disponível nos chats deste projeto.' : 'Nenhuma execução disponível nos chats deste projeto.')}</div> : <div className="project-activity-layout">
@@ -67,9 +101,17 @@ export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatI
       </div>
       <div className="project-activity-detail">
         {chosen && kind === 'plans' && 'plan' in chosen ? <PlanView session={sessionForPlan(chosen)} /> : null}
-        {chosen && kind === 'executions' && 'execution' in chosen ? <>
-          <div className="project-execution-meta"><strong>{chosen.execution.plan_id}</strong><span>{chosen.chatTitle} · {chosen.execution.success ? 'Concluída' : 'Falhou'} · {formatDate(chosen.execution.started_at)} → {formatDate(chosen.execution.completed_at)}</span>{chosen.execution.warnings?.map((warning) => <small key={warning}>{warning}</small>)}{chosen.execution.error ? <small>{chosen.execution.error}</small> : null}</div>
-          <TerminalView events={executionEventsFromResult(chosen.execution, chosen.session.id)} />
+        {chosenExecution && kind === 'executions' ? <>
+          <div className="project-execution-meta"><strong>{chosenExecution.execution.plan_id}</strong><span>{chosenExecution.chatTitle} · {chosenExecution.execution.success ? 'Concluída' : 'Falhou'} · {formatDate(chosenExecution.execution.started_at)} → {formatDate(chosenExecution.execution.completed_at)}</span>{chosenExecution.requestId ? <code>{chosenExecution.requestId}</code> : null}{chosenExecution.execution.warnings?.map((warning) => <small key={warning}>{warning}</small>)}{chosenExecution.execution.error ? <small>{chosenExecution.execution.error}</small> : null}</div>
+          <div className="project-log-toolbar">
+            <div className="project-log-stats"><span><b>{visibleEvents.length}</b> eventos</span><span><b>{commandCount}</b> comandos</span><span className={failureCount ? 'danger' : ''}><b>{failureCount}</b> falhas</span></div>
+            <div className="project-log-scope" aria-label="Âmbito dos logs"><button type="button" className={logScope === 'execution' ? 'active' : ''} onClick={() => setLogScope('execution')}>Execução</button><button type="button" className={logScope === 'session' ? 'active' : ''} onClick={() => setLogScope('session')}>Sessão</button></div>
+            <input type="search" value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder="Filtrar evento, comando, erro ou request…" aria-label="Filtrar logs" />
+          </div>
+          {eventHistoryLoading === chosenExecution.session.id ? <div className="project-log-notice">A carregar histórico completo de auditoria…</div> : null}
+          {eventHistory[chosenExecution.session.id]?.truncated ? <div className="project-log-notice warning">A sessão tem {eventHistory[chosenExecution.session.id].total} eventos; são mostrados os 2000 mais recentes.</div> : null}
+          {eventHistoryError[chosenExecution.session.id] ? <div className="project-log-notice warning">{eventHistoryError[chosenExecution.session.id]}</div> : null}
+          {logQuery && !visibleEvents.length ? <div className="agent-drawer-empty">Nenhum log corresponde ao filtro atual.</div> : <TerminalView key={`${chosenExecution.id}:${logScope}`} events={visibleEvents} />}
         </> : null}
       </div>
     </div>}
