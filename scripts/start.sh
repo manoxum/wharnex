@@ -76,11 +76,11 @@ fi
 WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" ensure
 
 # stack.sh ensure just (re)wrote these; read back the ports actually applied
-# for this checkout instead of assuming the 8080/5173 defaults, so two
+# for this checkout instead of assuming the 8888/5173 defaults, so two
 # checkouts on different ports each wait on and report their own.
 HTTP_PORT=$(sed -n 's/^WHARNESS_HTTP_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
 WEB_PORT=$(sed -n 's/^WHARNESS_WEB_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
-[ -n "$HTTP_PORT" ] || HTTP_PORT=8080
+[ -n "$HTTP_PORT" ] || HTTP_PORT=8888
 [ -n "$WEB_PORT" ] || WEB_PORT=5173
 
 : > "$LOG_FILE"

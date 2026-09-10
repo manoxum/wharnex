@@ -23,7 +23,7 @@ import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchiv
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
-const BACKEND_URL = requireLocalHTTPURL(process.env.WHARNESS_API_URL || 'http://127.0.0.1:8080', 'Backend URL').href
+const BACKEND_URL = requireLocalHTTPURL(process.env.WHARNESS_API_URL || 'http://127.0.0.1:8888', 'Backend URL').href
 const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
 const FRONTEND_RUNTIME_TOKEN = randomUUID()
 const CHATGPT_URL = 'https://chatgpt.com/'

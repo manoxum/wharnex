@@ -32,8 +32,8 @@ BACKEND_IMAGE="wharness-backend:$PROJECT"
 FRONTEND_IMAGE="wharness-frontend:$PROJECT"
 TUNNEL_IMAGE="wharness-tunnel:$PROJECT"
 # Host ports are also per-checkout: two checkouts running concurrently must
-# not both try to bind 127.0.0.1:8080/5173.
-HTTP_PORT=${WHARNESS_HTTP_PORT:-8080}
+# not both try to bind 127.0.0.1:8888/5173.
+HTTP_PORT=${WHARNESS_HTTP_PORT:-8888}
 WEB_PORT=${WHARNESS_WEB_PORT:-5173}
 INSTANCE_ID=${WHARNESS_INSTANCE_ID:-}
 

@@ -1,6 +1,6 @@
 import type { AgentTurn, AppConfig, AttentionRecord, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile } from '../types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8888'
 
 export class APIError extends Error {
   constructor(message: string, public status: number, public data?: unknown) {

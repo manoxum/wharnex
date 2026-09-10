@@ -111,7 +111,7 @@ func Load() Config {
 		IndexFile:     remoteIndexFile(stateFile),
 	}
 	return Config{
-		Addr:                 env("HARNESS_ADDR", "127.0.0.1:8080"),
+		Addr:                 env("HARNESS_ADDR", "127.0.0.1:8888"),
 		FrontendOrigin:       env("HARNESS_FRONTEND_ORIGIN", "http://127.0.0.1:5173"),
 		InstanceID:           env("HARNESS_INSTANCE_ID", ""),
 		DatabaseURL:          strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),

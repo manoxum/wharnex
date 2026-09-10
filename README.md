@@ -130,13 +130,13 @@ make start
 `make start` first reconciles the persistent Compose services and then starts the host Desktop lifecycle coordinator. The Compose services are:
 
 - project-owned PostgreSQL on a dynamically allocated loopback port;
-- backend: `127.0.0.1:8080` by default (override with `WHARNESS_HTTP_PORT`);
+- backend: `127.0.0.1:8888` by default (override with `WHARNESS_HTTP_PORT`);
 - built frontend through Vite preview: `127.0.0.1:5173` by default (override with `WHARNESS_WEB_PORT`);
 - Wharness Electron desktop shell.
 
 Running more than one checkout of this repository concurrently: each checkout's
 Compose project name defaults to its own folder name (override with
-`WHARNESS_COMPOSE_PROJECT_NAME`), and its ports default to 8080/5173 (override with
+`WHARNESS_COMPOSE_PROJECT_NAME`), and its ports default to 8888/5173 (override with
 `WHARNESS_HTTP_PORT`/`WHARNESS_WEB_PORT`) so the stacks don't collide. Persist these
 in a gitignored `.harness/env` file at the repo root instead of exporting them every
 session.
