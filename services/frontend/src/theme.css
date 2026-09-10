@@ -622,6 +622,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .composer-round-action b,
 :root[data-theme='dark'] .composer-artifact-button b { border-color: #212121; background: #686868; }
 :root[data-theme='dark'] .composer-mode-group { border-color: var(--theme-border); background: #171717; }
+:root[data-theme='dark'] .composer-effort-picker { border-color: var(--theme-border); background: #171717; color: #aeb8a8; box-shadow: inset 0 1px rgba(255,255,255,.025); }
+:root[data-theme='dark'] .composer-effort-picker > span { color: #7f897b; }
+:root[data-theme='dark'] .composer-effort-picker select { background: #292929; color: #e0e6dc; }
+:root[data-theme='dark'] .composer-effort-picker:hover { border-color: #575757; background: #1c1c1c; }
+:root[data-theme='dark'] .composer-effort-picker:hover select { background: #313131; color: #f0f3ed; }
+:root[data-theme='dark'] .composer-effort-picker:focus-within { border-color: #668944; box-shadow: 0 0 0 2px rgba(168,214,109,.1); }
 :root[data-theme='dark'] .composer-action-divider { background: var(--theme-border); }
 :root[data-theme='dark'] .composer-comment-state { background: #303030; color: #cecece; }
 :root[data-theme='dark'] .composer.comment-mode { border-color: #4d4d4d; background: #171717; }
