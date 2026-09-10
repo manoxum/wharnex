@@ -96,3 +96,21 @@ func TestLoadRejectsSymlinkKnowledgeEntry(t *testing.T) {
 		t.Fatal("expected symlink knowledge file to be rejected")
 	}
 }
+
+func TestIsManagedPathNormalizesProtocolAndGitForms(t *testing.T) {
+	for _, path := range []string{
+		".wharnex/knowledge",
+		".wharnex/knowledge/catalog.json",
+		"a/.wharnex/knowledge/topic.md",
+		"b/.wharnex/knowledge/nested/topic.md",
+	} {
+		if !IsManagedPath(path) {
+			t.Fatalf("expected %q to be managed", path)
+		}
+	}
+	for _, path := range []string{".wharnex/config.json", "knowledge/topic.md", "src/.wharnex/knowledge/topic.md"} {
+		if IsManagedPath(path) {
+			t.Fatalf("expected %q not to be managed", path)
+		}
+	}
+}

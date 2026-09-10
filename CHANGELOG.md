@@ -1,5 +1,6 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 
+- Treat `.wharnex/knowledge/**` as host-authoritative merge state instead of a planner conflict. Request-base snapshots no longer stage volatile managed knowledge into candidate ancestry, preflight filters managed-only collisions, and the real Git merge preserves the exact current host side locally for legacy/existing candidate branches. Mixed conflicts still send only ordinary source paths through `harness.conflict/v1`. This removes the `conflict_resolution_exhausted` rerun dead end without allowing planners to patch managed knowledge.
 - Add **Repor alteração** as the inverse of Revert for the latest Protected applied batch. Revert now retains the exact patch batch; Restore replays it atomically, rolls back a partial replay on conflict, and automatically opens a fresh current-context ChatGPT reconciliation request with dedicated `revert_restore` lineage when direct replay is unsafe. Those recovery input bundles receive their own **Pedido · repor reversão** visual category in the bundle explorer instead of blending into generic repair traffic.
 - Replace per-chat ChatGPT browser residency with one visible Supervisor, three durable worker browsers, leased chat-agent tasks, and exact retained Library cleanup.
 

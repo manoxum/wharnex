@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/projectknowledge"
 )
 
 func Validate(plan domain.ExecutionPlan) error {
@@ -235,10 +236,7 @@ func ValidatePatchPaths(patch string) error {
 // contradicted each other, which produced a request that could never succeed and
 // retried forever.
 func IsWharnexManagedPath(value string) bool {
-	lower := strings.ToLower(filepath.ToSlash(strings.TrimSpace(value)))
-	lower = strings.TrimPrefix(strings.TrimPrefix(lower, "a/"), "b/")
-	lower = filepath.ToSlash(filepath.Clean(lower))
-	return lower == ".wharnex/knowledge" || strings.HasPrefix(lower, ".wharnex/knowledge/")
+	return projectknowledge.IsManagedPath(value)
 }
 
 // validatePathShape enforces the structural rules every path must satisfy,

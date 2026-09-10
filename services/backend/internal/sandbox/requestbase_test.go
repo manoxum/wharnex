@@ -157,3 +157,40 @@ func TestDeleteRequestBaseRefReleasesAnchor(t *testing.T) {
 		t.Fatalf("base ref still anchored: %s", refs)
 	}
 }
+
+func TestCaptureRequestBaseExcludesManagedKnowledgeWorkingTreeDrift(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "visible.txt", "committed\n")
+	managed := filepath.Join(host, ".wharnex", "knowledge")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("committed knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "knowledge")
+	if err := os.WriteFile(filepath.Join(host, "visible.txt"), []byte("planner-visible drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("runtime knowledge drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	base, err := CaptureRequestBase(context.Background(), host, "req_managed")
+	if err != nil {
+		t.Fatalf("capture request base: %v", err)
+	}
+	visible, exists, err := ReadFileAtRef(context.Background(), host, base, "visible.txt")
+	if err != nil || !exists || visible != "planner-visible drift\n" {
+		t.Fatalf("planner-visible drift was not captured: exists=%v err=%v content=%q", exists, err, visible)
+	}
+	knowledge, exists, err := ReadFileAtRef(context.Background(), host, base, ".wharnex/knowledge/topic.md")
+	if err != nil || !exists || knowledge != "committed knowledge\n" {
+		t.Fatalf("managed runtime drift leaked into request base: exists=%v err=%v content=%q", exists, err, knowledge)
+	}
+	current, err := os.ReadFile(filepath.Join(managed, "topic.md"))
+	if err != nil || string(current) != "runtime knowledge drift\n" {
+		t.Fatalf("capture disturbed managed working tree: err=%v content=%q", err, current)
+	}
+}

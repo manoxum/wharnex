@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"kernl.local/harness/backend/internal/hostrepo"
+	"kernl.local/harness/backend/internal/projectknowledge"
 )
 
 // requestBaseRefPrefix namespaces the refs Wharness anchors a request's base
@@ -39,17 +41,18 @@ func RequestBaseRef(requestID string) string {
 // completely unaffected. The commit's parent is the host's current HEAD, which
 // is what gives it real shared ancestry with the host for a later merge.
 //
-// Content is exactly what `git add -A` stages: tracked files plus untracked
-// files, minus everything the project's own .gitignore excludes. That is the
-// same scope the pre-merge host snapshot (snapshotUncommittedHostState) has
-// always committed, so this introduces no file into the host's object database
-// that the existing integration flow did not already put there.
+// Content is what `git add -A` stages for planner-visible project state:
+// tracked files plus untracked files, minus gitignored content and the
+// Wharnex-managed knowledge subtree. Knowledge is transported separately from
+// project context and planners cannot patch it, so recording its volatile
+// working-tree version in the request-base ancestry falsely makes it look like
+// candidate-owned source during a later three-way merge.
 func CaptureRequestBase(ctx context.Context, hostPath, requestID string) (commitSHA string, err error) {
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
 		return "", errors.New("request id is required")
 	}
-	commit, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharness request base "+requestID)
+	commit, err := captureWorkingTreeCommit(ctx, hostPath, "Wharness request base "+requestID, []string{projectknowledge.DirectoryName})
 	if err != nil {
 		return "", err
 	}
@@ -70,6 +73,10 @@ func CaptureRequestBase(ctx context.Context, hostPath, requestID string) (commit
 // (CaptureRequestBase does); callers using it for a read-only comparison can
 // use it directly.
 func CaptureWorkingTreeCommit(ctx context.Context, repoPath, message string) (commitSHA string, err error) {
+	return captureWorkingTreeCommit(ctx, repoPath, message, nil)
+}
+
+func captureWorkingTreeCommit(ctx context.Context, repoPath, message string, excludedPaths []string) (commitSHA string, err error) {
 	head, err := CurrentHeadSHA(ctx, repoPath)
 	if err != nil {
 		// A repository with no commit yet has no tree to parent onto; the
@@ -116,7 +123,14 @@ func CaptureWorkingTreeCommit(ctx context.Context, repoPath, message string) (co
 	// snapshot excludes them: `git add -A` records one as a gitlink, so the
 	// base tree would claim a submodule where the model was shown files, and
 	// a sandbox checked out at that base would find the directory empty.
-	if output, err := runIsolated(hostrepo.StageArgs(state.EmbeddedRepositories)...); err != nil {
+	stageArgs := hostrepo.StageArgs(state.EmbeddedRepositories)
+	for _, path := range excludedPaths {
+		path = filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+		if path != "." && path != "" {
+			stageArgs = append(stageArgs, ":(exclude)"+path)
+		}
+	}
+	if output, err := runIsolated(stageArgs...); err != nil {
 		return "", fmt.Errorf("stage working tree: %s", output)
 	}
 	tree, err := runIsolated("write-tree")
@@ -144,10 +158,12 @@ func CaptureWorkingTreeCommit(ctx context.Context, repoPath, message string) (co
 // (snapshotUncommittedHostState); preflighting against HEAD alone would miss a
 // conflict with an operator's uncommitted edit and report a false "clean".
 //
-// A nil error with a nil conflict means the merge is expected to succeed, or
-// that this Git build cannot answer. The real merge stays authoritative: this
-// exists so a merge already known to be doomed never reaches the host and
-// never leaves a pre-merge snapshot commit behind for nothing.
+// A nil error with a nil conflict means the merge is expected to succeed, the
+// only predicted conflicts are Wharnex-managed knowledge (which the real merge
+// preserves from the host locally), or this Git build cannot answer. The real
+// merge stays authoritative: this exists so a merge already known to be doomed
+// on planner-resolvable paths never reaches the host and never leaves a
+// pre-merge snapshot commit behind for nothing.
 func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*MergeConflictError, error) {
 	comparison, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharness merge preflight")
 	if err != nil {
@@ -157,8 +173,12 @@ func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*Merg
 	if err != nil || !preflight.Supported || preflight.Clean {
 		return nil, err
 	}
+	_, ordinary := partitionManagedMergePaths(preflight.ConflictPaths)
+	if len(ordinary) == 0 {
+		return nil, nil
+	}
 	mergeBase, _ := runGit(ctx, hostPath, "merge-base", comparison, branch)
-	return &MergeConflictError{Paths: preflight.ConflictPaths, Branch: branch, HostSHA: comparison, MergeBaseSHA: mergeBase}, nil
+	return &MergeConflictError{Paths: ordinary, Branch: branch, HostSHA: comparison, MergeBaseSHA: mergeBase}, nil
 }
 
 // DeleteRequestBaseRef releases a request's anchored base tree once no
