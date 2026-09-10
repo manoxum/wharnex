@@ -1521,7 +1521,13 @@ function ensureChatGPTView(cacheKey, windowState) {
     const current = currentKey ? chatgptViews.get(currentKey) : undefined
     if (current && currentKey !== key) {
       if (Number(current.transportPreparationCount || 0) > 0) throw new Error('ChatGPT Supervisor is busy submitting another chat')
+      // `show` records the renderer's visible intent before activating the next
+      // chat. Retiring the old Supervisor clears that window flag, so preserve
+      // it across this immediate rebind or the replacement view stays hidden
+      // behind the renderer's "A carregar ChatGPT…" placeholder indefinitely.
+      const preserveVisibleIntent = windowState?.chatgptVisible === true
       retireChatGPTSupervisorSurface(currentKey)
+      if (preserveVisibleIntent && windowState) windowState.chatgptVisible = true
     }
     const resolved = windowState || [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
     entry = createChatGPTView(key, resolved)

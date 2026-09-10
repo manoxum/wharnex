@@ -641,6 +641,16 @@ test('one Supervisor owns renderer IPC while three hidden workers stay outside c
   assert.match(source, /publishPlanDownload\(\{ cacheKey: sourceCacheKey, filename/)
 })
 
+test('switching the Supervisor preserves the renderer visible intent', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
+  const ensureEnd = source.indexOf('\nfunction evictIdleChatGPTViews', ensureStart)
+  const ensure = source.slice(ensureStart, ensureEnd)
+
+  assert.match(ensure, /const preserveVisibleIntent = windowState\?\.chatgptVisible === true/)
+  assert.match(ensure, /retireChatGPTSupervisorSurface\(currentKey\)[\s\S]*if \(preserveVisibleIntent && windowState\) windowState\.chatgptVisible = true/)
+})
+
 test('bundle download failures remain correlated to a strict late filename instead of the newer active request', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('function publishBundleDownloadError')
