@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -144,5 +145,150 @@ func TestPreflightMergeIntoHostAllowsCleanMerge(t *testing.T) {
 	}
 	if conflict != nil {
 		t.Fatalf("expected a clean preflight, got %v", conflict.Paths)
+	}
+}
+
+func TestManagedKnowledgeConflictIsLocallyPreservedDuringMerge(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "source.txt", "base source\n")
+	managed := filepath.Join(host, ".wharnex", "knowledge")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("base knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "knowledge base")
+	base := mustGit(t, host, "rev-parse", "HEAD")
+
+	mustGit(t, host, "checkout", "-qb", "whx/candidate", base)
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("candidate snapshot knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(host, "source.txt"), []byte("candidate source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md", "source.txt")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "candidate")
+
+	mustGit(t, host, "checkout", "-q", "-B", "main", base)
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("current host knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "host knowledge")
+
+	conflict, err := PreflightMergeIntoHost(context.Background(), host, "whx/candidate")
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	if conflict != nil {
+		t.Fatalf("managed-only conflict must not be planner-routed: %v", conflict.Paths)
+	}
+	if _, err := MergeBranchOnHost(context.Background(), host, "whx/candidate"); err != nil {
+		t.Fatalf("merge should preserve managed host state locally: %v", err)
+	}
+	knowledge, err := os.ReadFile(filepath.Join(managed, "topic.md"))
+	if err != nil || string(knowledge) != "current host knowledge\n" {
+		t.Fatalf("managed host state was overwritten: err=%v content=%q", err, knowledge)
+	}
+	source, err := os.ReadFile(filepath.Join(host, "source.txt"))
+	if err != nil || string(source) != "candidate source\n" {
+		t.Fatalf("verified candidate source was not merged: err=%v content=%q", err, source)
+	}
+}
+
+func TestPreflightKeepsOrdinaryConflictWhenManagedStateAlsoConflicts(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "source.txt", "base source\n")
+	managed := filepath.Join(host, ".wharnex", "knowledge")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("base knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "knowledge base")
+	base := mustGit(t, host, "rev-parse", "HEAD")
+
+	mustGit(t, host, "checkout", "-qb", "whx/candidate-mixed", base)
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("candidate knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(host, "source.txt"), []byte("candidate source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md", "source.txt")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "candidate")
+
+	mustGit(t, host, "checkout", "-q", "-B", "main", base)
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("host knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(host, "source.txt"), []byte("host source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md", "source.txt")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "host")
+
+	conflict, err := PreflightMergeIntoHost(context.Background(), host, "whx/candidate-mixed")
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	if conflict == nil || len(conflict.Paths) != 1 || conflict.Paths[0] != "source.txt" {
+		t.Fatalf("expected only planner-resolvable source conflict, got %#v", conflict)
+	}
+}
+
+func TestMergeConflictOmitsManagedKnowledgeWhenOrdinaryPathAlsoConflicts(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "source.txt", "base source\n")
+	managed := filepath.Join(host, ".wharnex", "knowledge")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("base knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "knowledge base")
+	base := mustGit(t, host, "rev-parse", "HEAD")
+
+	mustGit(t, host, "checkout", "-qb", "whx/candidate-real-mixed", base)
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("candidate knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(host, "source.txt"), []byte("candidate source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md", "source.txt")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "candidate")
+
+	mustGit(t, host, "checkout", "-q", "-B", "main", base)
+	if err := os.WriteFile(filepath.Join(managed, "topic.md"), []byte("host knowledge\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(host, "source.txt"), []byte("host source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, host, "add", ".wharnex/knowledge/topic.md", "source.txt")
+	mustGit(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "host")
+	preMerge := mustGit(t, host, "rev-parse", "HEAD")
+
+	_, err := MergeBranchOnHost(context.Background(), host, "whx/candidate-real-mixed")
+	var conflict *MergeConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected merge conflict, got %v", err)
+	}
+	if len(conflict.Paths) != 1 || conflict.Paths[0] != "source.txt" {
+		t.Fatalf("expected only ordinary conflict path, got %v", conflict.Paths)
+	}
+	if got := mustGit(t, host, "rev-parse", "HEAD"); got != preMerge {
+		t.Fatalf("aborted merge moved HEAD: got %s want %s", got, preMerge)
+	}
+	if status := mustGit(t, host, "status", "--porcelain"); status != "" {
+		t.Fatalf("aborted merge left host dirty: %q", status)
 	}
 }

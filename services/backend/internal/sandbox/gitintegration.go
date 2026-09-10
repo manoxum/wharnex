@@ -162,9 +162,11 @@ type HostMerge struct {
 // MergeBranchOnHost merges branch (already pushed into the host's own repo
 // by PushBranchToHost) into the host's currently checked-out branch, and
 // returns the exact pre-merge HEAD so a failed post-merge verification can
-// be reverted with RevertHostMerge. On a real conflict, the merge is
-// aborted before returning *MergeConflictError — the host working tree is
-// left exactly as it was.
+// be reverted with RevertHostMerge. A conflict confined to Wharnex-managed
+// project knowledge is resolved locally by preserving the host side, because
+// that subtree is never part of a planner patch. Any remaining real conflict
+// is aborted before returning *MergeConflictError, leaving the host working
+// tree exactly as it was.
 //
 // The host is treated as a repository whose shape must be measured, not
 // assumed. Before anything is mutated it establishes that the operator has no
@@ -203,11 +205,23 @@ func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge,
 	mergeArgs := append(hostrepo.InternalGitArgs(topology), "merge", "--no-ff", "--no-edit", branch)
 	if output, mergeErr := runGit(ctx, hostPath, mergeArgs...); mergeErr != nil {
 		conflicted, conflictErr := runGit(ctx, hostPath, "diff", "--name-only", "--diff-filter=U")
-		_, _ = runGit(ctx, hostPath, "merge", "--abort")
 		if conflictErr == nil && strings.TrimSpace(conflicted) != "" {
+			paths := strings.Fields(conflicted)
+			managed, ordinary := partitionManagedMergePaths(paths)
+			if len(managed) > 0 && len(ordinary) == 0 {
+				if preserveErr := preserveManagedMergeConflicts(ctx, hostPath, topology, result.PreMergeSHA, managed); preserveErr == nil {
+					result.SubmoduleSync, _ = hostrepo.SyncSubmodules(ctx, hostPath, preMerge.Submodules)
+					return result, nil
+				} else {
+					_, _ = runGit(ctx, hostPath, "merge", "--abort")
+					return result, preserveErr
+				}
+			}
+			_, _ = runGit(ctx, hostPath, "merge", "--abort")
 			mergeBase, _ := runGit(ctx, hostPath, "merge-base", result.PreMergeSHA, branch)
-			return result, &MergeConflictError{Paths: strings.Fields(conflicted), Branch: branch, HostSHA: result.PreMergeSHA, MergeBaseSHA: mergeBase}
+			return result, &MergeConflictError{Paths: ordinary, Branch: branch, HostSHA: result.PreMergeSHA, MergeBaseSHA: mergeBase}
 		}
+		_, _ = runGit(ctx, hostPath, "merge", "--abort")
 		return result, fmt.Errorf("merge integration branch: %s", output)
 	}
 	// A failed realignment is not a reason to undo a merge that succeeded:

@@ -22,6 +22,17 @@ const (
 
 var entryIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,79}$`)
 
+// IsManagedPath reports whether value addresses the project-side knowledge
+// subtree Wharnex owns and materializes from harness.knowledge/v2 records.
+// Diff prefixes are accepted because protocol validation sees a/... and b/...
+// while Git conflict reporting uses plain repository-relative paths.
+func IsManagedPath(value string) bool {
+	lower := strings.ToLower(filepath.ToSlash(strings.TrimSpace(value)))
+	lower = strings.TrimPrefix(strings.TrimPrefix(lower, "a/"), "b/")
+	lower = filepath.ToSlash(filepath.Clean(lower))
+	return lower == DirectoryName || strings.HasPrefix(lower, DirectoryName+"/")
+}
+
 type catalogMarker struct {
 	Protocol string   `json:"protocol"`
 	Entries  []string `json:"entries"`

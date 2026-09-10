@@ -73,10 +73,12 @@ current tree as a real commit parented on HEAD, anchored under
 
 Capture is non-invasive: staging happens in a private temporary index, so the
 host's index, HEAD, branch and working tree are untouched, and an operator with
-a half-staged change in progress is unaffected. Content is exactly what
-`git add -A` stages — tracked plus untracked, minus everything `.gitignore`
-excludes — the same scope the pre-merge host snapshot has always committed, so
-no new class of file enters the host's object database. The ref lives outside
+a half-staged change in progress is unaffected. Content is what `git add -A`
+stages for planner-visible project state — tracked plus untracked, minus
+`.gitignore` exclusions and Wharnex-managed `.wharnex/knowledge/**`. Project
+knowledge is transported independently and cannot be planner-patched, so dirty
+managed materialization must not become candidate ancestry; the request-base
+tree retains the parent HEAD version of that subtree. The ref lives outside
 `refs/heads`/`refs/tags`, so `git branch`, `git tag` and a default `git log` are
 unchanged.
 
@@ -105,9 +107,12 @@ operator's uncommitted edit.
 
 It is advisory. The host moves between check and merge, so the atomic merge
 stays authoritative; the preflight exists so a merge already known to be doomed
-never mutates the host and never leaves a pre-merge snapshot commit behind for a
-merge that did not happen. An older Git that cannot answer degrades to
-"unknown", never to "clean".
+on planner-resolvable paths never mutates the host and never leaves a pre-merge
+snapshot commit behind for a merge that did not happen. Conflicts confined to
+`.wharnex/knowledge/**` are filtered from planner reconciliation: the real merge
+preserves the exact current host side locally, while mixed conflicts expose only
+ordinary paths. An older Git that cannot answer degrades to "unknown", never to
+"clean".
 
 ### 3. Conflict intent
 
