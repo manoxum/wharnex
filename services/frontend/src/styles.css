@@ -1959,7 +1959,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-log-notice { margin: 0 0 8px; padding: 7px 9px; border-radius: 8px; background: var(--theme-muted); color: var(--theme-text-muted); font-size: calc(7.5px * var(--ui-font-scale)); }
 .project-log-notice.warning { color: #b69b6a; }
 
-.bundle-exchange-bar { min-width:0; height:48px; display:grid; grid-template-columns:minmax(0, 1fr); align-items:center; padding:4px 5px; border:1px solid var(--theme-border-soft); border-radius:11px; background:color-mix(in srgb, var(--theme-elevated) 94%, var(--theme-accent) 6%); overflow:hidden; }
+.bundle-exchange-bar { min-width:0; height:48px; display:grid; grid-template-columns:auto minmax(0, 1fr); align-items:center; gap:6px; padding:4px 5px; border:1px solid var(--theme-border-soft); border-radius:11px; background:color-mix(in srgb, var(--theme-elevated) 94%, var(--theme-accent) 6%); overflow:hidden; }
+.bundle-exchange-summary { min-width:0; height:38px; padding:0 4px 0 3px; display:flex; align-items:center; gap:4px; border:0; border-radius:8px; background:transparent; color:var(--theme-text); text-align:left; cursor:pointer; }
+.bundle-exchange-summary:hover { background:var(--theme-hover); }
+.bundle-exchange-stats { min-width:0; display:flex; align-items:center; gap:4px; color:var(--theme-text-muted); white-space:nowrap; }
+.bundle-exchange-stats b { min-width:20px; height:20px; padding:0 4px; display:grid; place-items:center; border-radius:999px; background:var(--theme-accent-soft); color:var(--theme-accent); font-size:10px; line-height:1; }
+.bundle-exchange-stats i { color:var(--theme-text-soft); font-size:9px; font-style:normal; font-weight:800; line-height:1; }
+.bundle-exchange-icon { width:27px; height:27px; flex:0 0 27px; border:1px solid var(--theme-border-soft); border-radius:8px; display:grid; place-items:center; background:var(--theme-surface); color:var(--theme-accent); }
 .bundle-exchange-list { min-width:0; display:grid; grid-template-columns:repeat(3, minmax(90px, 1fr)); gap:5px; }
 .bundle-card { --bundle-color:#557d24; --bundle-bg:#edf4e4; --bundle-border:#bfd3a6; min-width:0; height:38px; padding:3px 6px; display:flex; align-items:center; gap:5px; border:1px solid var(--bundle-border); border-radius:8px; background:var(--bundle-bg); color:var(--theme-text); text-align:left; cursor:pointer; transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
 .bundle-card:hover { transform:translateY(-1px); box-shadow:0 4px 12px color-mix(in srgb, var(--bundle-color) 15%, transparent); border-color:var(--bundle-color); }
