@@ -26,3 +26,14 @@ A infraestrutura nova está no runtime, mas o cutover de produção ainda é hí
 - O executor de archive/delete não persiste `remote_state` depois da confirmação. Já `ORGANIZE_CHAT` persiste `remote_title`, e o backend sincroniza esse título para o título local do chat.
 
 Conclusão operacional: considerar o estado atual como **fundação implementada + cutover parcial**, e não como aceitação concluída da arquitetura Supervisor/Workers. Antes de declarar parity, os fluxos Auto, lifecycle/title, cancellation, provider pause/resume, retry terminal e observabilidade devem ser fechados por testes end-to-end de produção, não apenas por assertions estruturais de source.
+
+## Fecho do cutover de lifecycle e runtime (2026-09-11)
+
+- Archive, rename e delete iniciados pela UI passam a criar `ARCHIVE_CHAT`, `RENAME_CHAT` e `DELETE_CHAT` na fila durável. Os IPCs desses fluxos não criam nem navegam o Supervisor; fechar localmente acontece antes do enqueue remoto.
+- `ARCHIVE_CHAT`, `RENAME_CHAT` e `DELETE_CHAT` persistem `remote_state` de conclusão; ao esgotar tentativas, o lifecycle persiste `attention` antes de falhar.
+- O scheduler não devolve uma tarefa para `WAITING` quando o attempt atual já atingiu `max_attempts`; essa condição termina em `FAILED`, evitando tarefas inalcançáveis.
+- Cancelar um Main Request chama também `cancelLineage(root_request_id)` no scheduler, eliminando trabalho durável órfão dessa lineage.
+- A pausa global do provider ganhou uma ação explícita de retoma no runtime; o drawer mostra reachability do backend/scheduler, counts por estado, oldest/next `not_before`, estado do provider, e por worker último claim, lineage, conversa, attempt/max, lease e erro.
+- O fallback `Runtime local` agora identifica explicitamente bridge/preload ausente, separando esse caso de backend indisponível, scheduler parado ou browser de Worker ainda não criado.
+
+Estes ajustes fecham os gaps de lifecycle, retry terminal, cancelamento, pausa/retoma e observabilidade identificados na rechecagem anterior. O princípio permanece: o Supervisor serve interação humana; trabalho de conta em background pertence aos Workers e à fila durável.
