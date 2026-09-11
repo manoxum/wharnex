@@ -44,6 +44,8 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 	"sandbox_disk_full":                            domain.FailureKindSandboxResourceExhausted,
 	"artifact_storage_full":                        domain.FailureKindArtifactStorageFull,
 	"host_working_state_blocked":                   domain.FailureKindHostWorkingStateBlocked,
+	"submodule_boundary":                           domain.FailureKindSubmoduleWrite,
+	"submodule_write":                              domain.FailureKindSubmoduleWrite,
 }
 
 // classifyExecutionFailure derives a domain.FailureKind from a Wharness
