@@ -14,9 +14,9 @@ const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
 const children = new Map()
 const servicesMode = process.env.WHARNESS_SERVICES_MODE || 'local'
 // Two checkouts running concurrently each pin their own backend/frontend
-// ports (see scripts/start.sh); default to the historical 8080/5173 for a
+// ports (see scripts/start.sh); default to 8888/5173 for a
 // bare `npm run dev` invocation outside that wrapper.
-const apiURL = process.env.WHARNESS_API_URL || 'http://127.0.0.1:8080'
+const apiURL = process.env.WHARNESS_API_URL || 'http://127.0.0.1:8888'
 const frontendURL = process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173'
 let shuttingDown = false
 // A detached Electron child does not reliably keep Node's event loop alive on
@@ -130,7 +130,7 @@ async function main() {
     run('frontend', frontend.command, frontend.args, frontendDir)
 
     await Promise.all([
-      waitFor('http://127.0.0.1:8080/api/health', 'backend'),
+      waitFor('http://127.0.0.1:8888/api/health', 'backend'),
       waitFor('http://127.0.0.1:5173', 'frontend'),
     ])
   }

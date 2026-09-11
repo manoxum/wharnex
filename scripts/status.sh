@@ -32,7 +32,7 @@ fi
 
 HTTP_PORT=$(sed -n 's/^WHARNESS_HTTP_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
 WEB_PORT=$(sed -n 's/^WHARNESS_WEB_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
-[ -n "$HTTP_PORT" ] || HTTP_PORT=8080
+[ -n "$HTTP_PORT" ] || HTTP_PORT=8888
 [ -n "$WEB_PORT" ] || WEB_PORT=5173
 
 if curl -fsS "http://127.0.0.1:$HTTP_PORT/api/health" >/dev/null 2>&1; then

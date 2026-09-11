@@ -99,7 +99,7 @@ mkdir -p "$RUN_DIR"
 if [ "${WHARNESS_SERVICES_MODE:-local}" != stack ]; then
   recover_pid_file backend
   recover_pid_file frontend
-  recover_port backend 8080
+  recover_port backend 8888
   recover_port frontend 5173
 fi
 recover_pid_file electron

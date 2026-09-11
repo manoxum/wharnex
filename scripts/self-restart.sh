@@ -48,7 +48,7 @@ cleanup_lock() {
 }
 
 runtime_healthy() {
-  curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 || return 1
+  curl -fsS http://127.0.0.1:8888/api/health >/dev/null 2>&1 || return 1
   curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1 || return 1
   [ -f "$ROOT/.harness/run/electron.pid" ] || return 1
   ep=$(cat "$ROOT/.harness/run/electron.pid" 2>/dev/null || true)
@@ -84,7 +84,7 @@ recover_old_runtime() {
 }
 
 stack_runtime_healthy() {
-  curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 || return 1
+  curl -fsS http://127.0.0.1:8888/api/health >/dev/null 2>&1 || return 1
   curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1
 }
 

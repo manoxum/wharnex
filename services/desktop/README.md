@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-`npm run dev` reuses backend/frontend servers already listening on `127.0.0.1:8080` and `127.0.0.1:5173`; otherwise it starts them and then launches Electron.
+`npm run dev` reuses backend/frontend servers already listening on `127.0.0.1:8888` and `127.0.0.1:5173`; otherwise it starts them and then launches Electron.
 
 ## Security boundary
 
