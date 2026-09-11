@@ -10,6 +10,14 @@ import (
 const chatAgentTaskColumns = `task_id,type,project_id,chat_id,session_id,request_id,root_request_id,conversation_id,parent_task_id,
 	priority,status,not_before,attempt,max_attempts,dedupe_key,lease_owner,lease_expires_at,payload,last_error,created_at,updated_at`
 
+func qualifiedChatAgentTaskColumns(alias string) string {
+	columns := strings.Split(chatAgentTaskColumns, ",")
+	for index, column := range columns {
+		columns[index] = alias + "." + strings.TrimSpace(column)
+	}
+	return strings.Join(columns, ",")
+}
+
 func scanChatAgentTask(scanner interface{ Scan(...any) error }) (ChatAgentTask, error) {
 	var task ChatAgentTask
 	var lease sql.NullTime
@@ -173,7 +181,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration) (*
 	SET status='LEASED', lease_owner=$1, lease_expires_at=now()+($2 * interval '1 second'),
 		attempt=t.attempt+1, updated_at=now()
 	FROM candidate WHERE t.task_id=candidate.task_id
-	RETURNING `+chatAgentTaskColumns, owner, seconds)
+	RETURNING `+qualifiedChatAgentTaskColumns("t"), owner, seconds)
 	task, err := scanChatAgentTask(row)
 	if err == sql.ErrNoRows {
 		if commitErr := tx.Commit(); commitErr != nil {
