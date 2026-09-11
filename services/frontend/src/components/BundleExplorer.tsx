@@ -15,12 +15,9 @@ const EMPTY_ARTIFACTS: ArtifactRecord[] = []
 
 export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
   const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
-  const counts = useMemo(() => ({ input: bundles.filter((item) => item.direction === 'input').length, output: bundles.filter((item) => item.direction === 'output').length }), [bundles])
   const [selected, setSelected] = useState<ArtifactRecord>()
   if (!bundles.length) return null
-  const summaryLabel = `Abrir galeria completa: ${bundles.length} ${bundles.length === 1 ? 'bundle' : 'bundles'}, ${counts.input} ${counts.input === 1 ? 'enviado' : 'enviados'}, ${counts.output} ${counts.output === 1 ? 'recebido' : 'recebidos'}`
   return <><section className="bundle-exchange-bar" aria-label="Galeria de bundles trocados com o ChatGPT">
-    <button className="bundle-exchange-summary" type="button" onClick={() => setSelected(bundles[0])} title={summaryLabel} aria-label={summaryLabel}><span className="bundle-exchange-icon"><Icon name="folder" size={13}/></span><span className="bundle-exchange-stats"><b title="Total">{bundles.length}</b><i title="Enviados">↑{counts.input}</i><i title="Recebidos">↓{counts.output}</i></span></button>
     <div className="bundle-exchange-list">{bundles.slice(0, 3).map((bundle) => {
       const presentation = bundlePresentation(bundle, requestLineages)
       return <button key={bundle.id} className={`bundle-card bundle-tone-${presentation.tone}`} type="button" onClick={() => setSelected(bundle)} title={`Explorar ${bundle.name}`}>
