@@ -4,6 +4,7 @@
     "agent-queue-composer-drafts",
     "artifact-presentation-galleries",
     "brand-identity-system",
+    "chatgpt-delivery-state-model",
     "chatgpt-scraper-architecture",
     "effort-level-budgets",
     "knowledge-sharing-toggle",
@@ -18,6 +19,7 @@
     "orchestrator-mode-design",
     "plan-approval-continuations",
     "project-execution-audit-logs",
-    "revert-restore-recovery"
+    "revert-restore-recovery",
+    "storage-footprint-management"
   ]
 }
