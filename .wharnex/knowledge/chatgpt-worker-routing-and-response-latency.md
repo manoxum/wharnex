@@ -19,3 +19,10 @@
 5. Prefer affinity-aware slot selection to reduce rebinding, without relying on affinity as the correctness boundary.
 6. Track download intents per request/Worker or source WebContents instead of one global fallback.
 7. Regression tests should cover response-completion latency, stale navigation events, cross-chat routing, redirect between fill and submit, and simultaneous downloads.
+
+## Anti-burst e rate-limit dos Workers (2026-09-11)
+
+- Cada loop do scheduler espera 2,5 s depois de concluir/assentar uma task antes de reclamar a próxima. O objetivo é evitar que probes curtos liberem o mesmo Worker para trocar de chat imediatamente.
+- Inícios de navegação cross-chat dos Workers são serializados globalmente com intervalo mínimo de 2,5 s. Depois de cada load, o executor aguarda `waitForChatGPTSurfaceReady`, portanto a task só continua quando o documento deixou de carregar e a rede ficou quieta pelo settle window.
+- HTTP 429 relevante (main frame ou transporte de conversa) aciona uma pausa global do provider por 60 s, não apenas backoff local de um `expected`. Tasks já reclamadas observam o gate local e voltam para `WAITING`; a ação explícita de retoma do provider limpa também esse gate local.
+- O custo intencional é maior latência mínima no trabalho de background e em trocas cross-chat; a contrapartida é limitar burst por Worker e por perfil autenticado antes de chegar ao rate-limit do ChatGPT.
