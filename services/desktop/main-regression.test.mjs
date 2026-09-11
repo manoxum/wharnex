@@ -271,7 +271,7 @@ test('automatic and confirmed submissions wait for a stable loaded definitive Ch
 
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
-  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(cacheKey)')
+  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
   const preparedEnd = source.indexOf('\nasync function', preparedStart + 20)
   const prepare = source.slice(prepareStart, prepareEnd)
   const submitted = source.slice(preparedStart, preparedEnd > preparedStart ? preparedEnd : undefined)
@@ -502,8 +502,9 @@ test('Supervisor transport stays unthrottled while durable resume bypasses the v
   for (const channel of ['submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
     const start = source.indexOf(`ipcMain.handle('wharness:chatgpt:${channel}'`)
     const end = source.indexOf('\n  })', start)
-    assert.match(source.slice(start, end), /withChatGPTTransportPreparation/)
+    assert.match(source.slice(start, end), /withChatGPTSupervisorTransport/)
   }
+  assert.match(source, /withChatGPTSupervisorTransport[\s\S]*withChatGPTTransportPreparation/)
   const resumeStart = source.indexOf("ipcMain.handle('wharness:chatgpt:resume-expected-bundle'")
   const resumeEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'", resumeStart)
   const resume = source.slice(resumeStart, resumeEnd)
@@ -651,6 +652,51 @@ test('switching the Supervisor preserves the renderer visible intent', async () 
   assert.match(ensure, /retireChatGPTSupervisorSurface\(currentKey\)[\s\S]*if \(preserveVisibleIntent && windowState\) windowState\.chatgptVisible = true/)
 })
 
+test('a busy Supervisor hides its old surface and publishes the deferred target state', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const deferStart = source.indexOf('function setDeferredSupervisorNavigation(')
+  const deferEnd = source.indexOf('\nasync function applyDeferredSupervisorNavigation', deferStart)
+  const deferred = source.slice(deferStart, deferEnd)
+  const navigateStart = source.indexOf("ipcMain.handle('wharness:chatgpt:navigate'")
+  const navigateEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:confirm-affinity'", navigateStart)
+  const navigate = source.slice(navigateStart, navigateEnd)
+
+  assert.match(source, /const surfaceDeferred = Boolean/)
+  assert.match(deferred, /current\.view\.setVisible\(false\)/)
+  assert.match(deferred, /sendToWindowState\(windowState, 'wharness:chatgpt:state', currentChatGPTState\(key, windowState\)\)/)
+  assert.match(navigate, /return currentChatGPTState\(key, windowState\)/)
+  assert.doesNotMatch(navigate, /return currentChatGPTState\(supervisorKey\(\), windowState\)/)
+})
+
+test('direct Supervisor writes serialize across chats and preserve the selected surface', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helperStart = source.indexOf('async function withChatGPTSupervisorTransport(')
+  const helperEnd = source.indexOf('\nfunction sendToWindowState', helperStart)
+  const helper = source.slice(helperStart, helperEnd)
+
+  assert.match(source, /let chatGPTSupervisorTransportTail = Promise\.resolve\(\)/)
+  assert.match(helper, /await waitForDifferentSupervisorTransport\(key\)/)
+  assert.match(helper, /preserveVisibleSupervisorForTransport\(key, windowState\)/)
+  assert.match(helper, /withChatGPTTransportPreparation\(key, entry, requestId/)
+  for (const channel of ['submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
+    const start = source.indexOf(`ipcMain.handle('wharness:chatgpt:${channel}'`)
+    const end = source.indexOf('\n  })', start)
+    assert.match(source.slice(start, end), /withChatGPTSupervisorTransport/)
+  }
+})
+
+test('auto submit persists binding and delegates response/title followups to workers', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function preparePromptForChatGPT(request)')
+  const end = source.indexOf('\nasync function retryPersistedChatGPTPrompt', start)
+  const prepare = source.slice(start, end)
+
+  assert.match(prepare, /await persistWorkspaceChatRemote\(key, conversationUrl, \{ remoteState: 'awaiting-response' \}\)/)
+  assert.match(prepare, /await enqueueChatAgentFollowups\(key, requestId, conversationUrl/)
+  assert.doesNotMatch(prepare, /organizeChatGPTConversation\(/)
+  assert.doesNotMatch(prepare, /publishChatGPTAccountAction\(key, 'organize'/)
+})
+
 test('bundle download failures remain correlated to a strict late filename instead of the newer active request', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('function publishBundleDownloadError')
@@ -720,7 +766,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
   assert.equal(disarmCount, 1, 'a failed autoSubmit disarms the bundle armed before dispatch')
 
-  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(cacheKey)')
+  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
   const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
   const prepared = source.slice(preparedStart, preparedEnd)
   const preparedSubmit = prepared.indexOf('await submitChatGPTDraft(key)')

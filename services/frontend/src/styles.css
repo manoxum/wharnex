@@ -340,6 +340,10 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .desktop-chatgpt-notice { flex: 0 0 auto; padding: 6px 11px; background: #e5edd9; color: #536b33; border-bottom: 1px solid #cbd7ba; font-size: calc(9px * var(--ui-font-scale)); line-height: 1.45; }
 .desktop-chatgpt-host { flex: 1; min-height: 230px; position: relative; background: #fff; overflow: hidden; }
 .desktop-chatgpt-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #969b91; font-size: calc(10px * var(--ui-font-scale)); }
+.desktop-chatgpt-deferred { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 28px; background: #f3f5ef; color: #30352d; text-align: center; }
+.desktop-chatgpt-deferred svg { color: #557d24; }
+.desktop-chatgpt-deferred strong { font-size: calc(14px * var(--ui-font-scale)); }
+.desktop-chatgpt-deferred span { max-width: 560px; color: #687064; font-size: calc(10px * var(--ui-font-scale)); line-height: 1.55; }
 .desktop-plan-import { flex: 0 0 146px; min-height: 0; padding: 8px 10px 10px; border-top: 1px solid #cbd0c5; background: #eef0e9; }
 .desktop-plan-import .field-label { margin-bottom: 6px; }
 .desktop-plan-import-row { height: 108px; display: grid; grid-template-columns: 1fr auto; gap: 7px; align-items: stretch; }

@@ -114,6 +114,7 @@ const expectedChatGPTBundles = new Map()
 const pollingExpectedChatGPTBundles = new Set()
 const chatAgentTitleSamples = new Map()
 const chatGPTTransportTails = new Map()
+let chatGPTSupervisorTransportTail = Promise.resolve()
 const pendingChatGPTBundleDeliveries = new Map()
 // requestId -> deliveredAt. A second concurrent download of the same file
 // (see downloadInFlight above) can still slip through as a genuine race
@@ -233,6 +234,53 @@ async function withChatGPTTransportPreparation(cacheKey, entry, requestId, opera
     if (entry.role !== 'worker' && !entry.transportPreparationCount && deferredSupervisorNavigation) setTimeout(() => { void applyDeferredSupervisorNavigation() }, 0)
     release()
     if (chatGPTTransportTails.get(key) === tail) chatGPTTransportTails.delete(key)
+  }
+}
+
+async function waitForDifferentSupervisorTransport(cacheKey) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  for (;;) {
+    const currentKey = supervisorKey()
+    const current = currentKey ? chatgptViews.get(currentKey) : undefined
+    if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) return
+    const activeTail = chatGPTTransportTails.get(currentKey)
+    if (activeTail) {
+      try { await activeTail } catch { /* transport failures still release the Supervisor */ }
+      continue
+    }
+    await wait(25)
+  }
+}
+
+function preserveVisibleSupervisorForTransport(cacheKey, windowState) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const desiredKey = String(windowState?.desiredVisibleChatGPTKey || windowState?.activeChatGPTKey || '')
+  if (!windowState?.chatgptVisible || !desiredKey || desiredKey === key) return
+  if (deferredSupervisorNavigation?.windowState === windowState && deferredSupervisorNavigation.key === desiredKey) return
+  const visibleEntry = chatgptViews.get(desiredKey)
+  if (!visibleEntry) return
+  setDeferredSupervisorNavigation(desiredKey, windowState, {
+    bounds: windowState.chatgptBounds,
+    url: visibleEntry.view.webContents.getURL(),
+    visible: true,
+  }, visibleEntry)
+}
+
+async function withChatGPTSupervisorTransport(cacheKey, windowState, requestId, operation) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const prior = chatGPTSupervisorTransportTail
+  let release
+  const tail = new Promise((resolve) => { release = resolve })
+  chatGPTSupervisorTransportTail = tail
+  try { await prior } catch { /* a prior direct submission cannot poison the queue */ }
+  try {
+    await waitForDifferentSupervisorTransport(key)
+    preserveVisibleSupervisorForTransport(key, windowState)
+    const { entry } = ensureChatGPTView(key, windowState)
+    return await withChatGPTTransportPreparation(key, entry, requestId, () => operation(key, entry))
+  } finally {
+    release()
+    if (chatGPTSupervisorTransportTail === tail) chatGPTSupervisorTransportTail = Promise.resolve()
   }
 }
 
@@ -657,9 +705,11 @@ function currentChatGPTState(cacheKey = '', windowState) {
   const key = cacheKey ? sanitizeChatCacheKey(cacheKey) : defaultKey
   const entry = key ? chatgptViews.get(key) : undefined
   if (entry && windowState && entry.ownerWindowId !== windowState.id) throw new Error('ChatGPT view belongs to another Wharness window')
+  const surfaceDeferred = Boolean(key && deferredSupervisorNavigation?.key === key && (!windowState || deferredSupervisorNavigation.windowState === windowState))
   const wc = entry?.view.webContents
   return {
     cacheKey: key,
+    surfaceDeferred,
     url: wc?.getURL() || CHATGPT_URL,
     title: wc?.getTitle() || 'ChatGPT',
     loading: entry?.loading ?? true,
@@ -1588,16 +1638,36 @@ function activateChatGPTView(cacheKey, bounds, windowState) {
   return entry
 }
 
+function clearDeferredSupervisorNavigation() {
+  const pending = deferredSupervisorNavigation
+  deferredSupervisorNavigation = undefined
+  if (pending?.windowState) pending.windowState.desiredVisibleChatGPTKey = ''
+}
+
+function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, current = supervisorEntry()) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  clearDeferredSupervisorNavigation()
+  deferredSupervisorNavigation = {
+    key, windowState, bounds: request?.bounds, url: String(request?.url || ''),
+    resetToHomeIfConversation: request?.resetToHomeIfConversation === true, visible: request?.visible !== false && windowState?.chatgptVisible !== false,
+  }
+  if (windowState) windowState.desiredVisibleChatGPTKey = key
+  if (current && !current.view.webContents.isDestroyed()) {
+    current.view.setVisible(false)
+    reconcileChatGPTThrottle(chatGPTKeyForEntry(current), current)
+  }
+  if (windowState) sendToWindowState(windowState, 'wharness:chatgpt:state', currentChatGPTState(key, windowState))
+}
+
 function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
   const key = sanitizeChatCacheKey(cacheKey)
   const currentKey = supervisorKey()
   const current = currentKey ? chatgptViews.get(currentKey) : undefined
-  if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) return false
-  deferredSupervisorNavigation = {
-    key, windowState, bounds: request?.bounds, url: String(request?.url || ''),
-    resetToHomeIfConversation: request?.resetToHomeIfConversation === true, visible: windowState?.chatgptVisible !== false,
+  if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) {
+    clearDeferredSupervisorNavigation()
+    return false
   }
-  if (windowState) windowState.desiredVisibleChatGPTKey = key
+  setDeferredSupervisorNavigation(key, windowState, request, current)
   console.log(`[chatgpt-supervisor] deferred-switch from=${currentKey} to=${key} request=${current.transportRequestId || '-'}`)
   return true
 }
@@ -2301,11 +2371,13 @@ async function preparePromptForChatGPT(request) {
       throw error
     }
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
-    if (conversationUrl && requestedTitle) {
-      const organized = await organizeChatGPTConversation(key, request?.projectName, requestedTitle)
-      publishChatGPTAccountAction(key, 'organize', organized)
-      if (!organized.ok) console.warn(`[chatgpt-account] organization incomplete key=${key} state=${organized.state}`)
-    }
+    if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
+    await persistWorkspaceChatRemote(key, conversationUrl, { remoteState: 'awaiting-response' })
+    await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
+      expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
+      sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
+      projectName: request?.projectName || '', fallbackTitle: requestedTitle,
+    })
     preparedChatGPTDrafts.delete(key)
   } else {
     preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, chatTitle: requestedTitle })
@@ -2416,11 +2488,12 @@ async function attachPromptToChatGPT(request) {
   return { ok: true, cacheKey: key, bytes: prompt.bytes.byteLength, submitted: true, conversationUrl }
 }
 
-async function submitPreparedChatGPTDraft(cacheKey) {
+async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
   const key = sanitizeChatCacheKey(cacheKey)
   const prepared = preparedChatGPTDrafts.get(key)
   if (!prepared || Date.now() - prepared.preparedAt > 10 * 60 * 1000) throw new Error('No recent prepared ChatGPT draft exists for this chat')
-  const entry = activateChatGPTView(key)
+  const entry = entryOverride || activateChatGPTView(key)
+  requireOwnedChatGPTEntry(key, entry)
   const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
   const expectedFilename = authoritativeBundleFilename(prepared.expectedFilename, prepared.requestId, key)
   const submission = await submitChatGPTDraft(key)
@@ -3395,7 +3468,8 @@ function registerIPC() {
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const entry = chatgptViews.get(key)
     if (entry?.ownerWindowId === windowState.id) entry.view.setVisible(false)
-    if (windowState.activeChatGPTKey === key) windowState.chatgptVisible = false
+    if (windowState.activeChatGPTKey === key || (deferredSupervisorNavigation?.key === key && deferredSupervisorNavigation.windowState === windowState)) windowState.chatgptVisible = false
+    if (deferredSupervisorNavigation?.key === key && deferredSupervisorNavigation.windowState === windowState) deferredSupervisorNavigation.visible = false
     if (entry) reconcileChatGPTThrottle(key, entry)
     return { ok: true }
   })
@@ -3410,7 +3484,7 @@ function registerIPC() {
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const target = requireTrustedChatGPTURL(request?.url || CHATGPT_URL)
     if (deferSupervisorNavigationIfBusy(key, windowState, request)) {
-      return currentChatGPTState(supervisorKey(), windowState)
+      return currentChatGPTState(key, windowState)
     }
     // Navigation may already be in flight when a blocking Wharness overlay
     // hides the native WebContentsView. Preserve that visibility decision here:
@@ -3737,37 +3811,31 @@ function registerIPC() {
   })
   ipcMain.handle('wharness:chatgpt:submit-prompt', async (event, request) => {
     const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    return withChatGPTTransportPreparation(key, entry, request?.requestId, () => submitPromptToChatGPT(key, request?.text, request?.url, request?.requestId, request?.sessionId))
+    return withChatGPTSupervisorTransport(request?.cacheKey, windowState, request?.requestId, (key, entry) => submitPromptToChatGPT(key, request?.text, request?.url, request?.requestId, request?.sessionId, entry))
   })
   ipcMain.handle('wharness:chatgpt:prepare-prompt', async (event, request) => {
     const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    return withChatGPTTransportPreparation(key, entry, request?.requestId, () => preparePromptForChatGPT(request))
+    return withChatGPTSupervisorTransport(request?.cacheKey, windowState, request?.requestId, () => preparePromptForChatGPT(request))
   })
   ipcMain.handle('wharness:chatgpt:retry-prepared-prompt', async (event, request) => {
     const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    return withChatGPTTransportPreparation(key, entry, request?.expectedRequestId, () => retryPreparedChatGPTPrompt(request))
+    return withChatGPTSupervisorTransport(request?.cacheKey, windowState, request?.expectedRequestId, () => retryPreparedChatGPTPrompt(request))
   })
   ipcMain.handle('wharness:chatgpt:attach-context', async (event, request) => {
     const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    return withChatGPTTransportPreparation(key, entry, request?.requestId, () => attachContextToChatGPT(request))
+    return withChatGPTSupervisorTransport(request?.cacheKey, windowState, request?.requestId, () => attachContextToChatGPT(request))
   })
   ipcMain.handle('wharness:chatgpt:attach-prompt', async (event, request) => {
     const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    return withChatGPTTransportPreparation(key, entry, request?.requestId, () => attachPromptToChatGPT(request))
+    return withChatGPTSupervisorTransport(request?.cacheKey, windowState, request?.requestId, () => attachPromptToChatGPT(request))
   })
   ipcMain.handle('wharness:chatgpt:submit-prepared', async (event, request) => {
     const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    return withChatGPTTransportPreparation(key, entry, preparedChatGPTDrafts.get(key)?.requestId, () => submitPreparedChatGPTDraft(key))
+    const key = sanitizeChatCacheKey(request?.cacheKey)
+    return withChatGPTSupervisorTransport(key, windowState, preparedChatGPTDrafts.get(key)?.requestId, (_key, entry) => submitPreparedChatGPTDraft(key, entry))
   })
   ipcMain.handle('wharness:chatgpt:queue-comment', async (event, request) => {
-    const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
+    trustedSender(event)
     return queueChatGPTComment(request)
   })
   ipcMain.handle('wharness:chatgpt:cancel-request', (event, request) => {

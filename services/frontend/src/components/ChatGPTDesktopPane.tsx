@@ -38,6 +38,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false, authMode: 'embedded', authWindowOpen: false })
   const [notice, setNotice] = useState('')
   const [linkReady, setLinkReady] = useState(false)
+  const deferredSurfaceRef = useRef(false)
   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
   const [overlayBlocked, setOverlayBlocked] = useState(false)
   const [requestAction, setRequestAction] = useState<'resume' | 'stop' | null>(null)
@@ -49,6 +50,15 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const applyDesktopState = useCallback((next: DesktopChatGPTState) => {
     if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
     setState(next)
+    if (next.surfaceDeferred) {
+      deferredSurfaceRef.current = true
+      setLinkReady(false)
+      return
+    }
+    if (deferredSurfaceRef.current && !next.loading) {
+      deferredSurfaceRef.current = false
+      setLinkReady(true)
+    }
     if (next.externalAuthProvider) {
       setExternalAuth((current) => current || { provider: next.externalAuthProvider || 'OpenAI', url: '' })
       return
@@ -154,14 +164,19 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     linkedURLRef.current = chatgptUrl
     const target = chatgptUrl || CHATGPT_HOME
     const recoveryNotice = chatgptUrl ? 'A recuperar a conversa ChatGPT…' : ''
+    const navigationNotice = recoveryNotice || 'Novo chat: aguardando URL definitiva do ChatGPT.'
     if (!alreadyBound) {
       setLinkReady(false)
-      setNotice(recoveryNotice || 'Novo chat: aguardando URL definitiva do ChatGPT.')
+      setNotice(navigationNotice)
     }
     void bridge.chatgpt.navigate(target, chatId, { resetToHomeIfConversation: !chatgptUrl, bounds: elementBounds(hostRef.current) }).then((next) => {
       if (!alive) return
-      navigatedRef.current = { chatId, chatgptUrl }
       applyDesktopState(next)
+      if (next.surfaceDeferred) {
+        if (!alreadyBound) setNotice((current) => current === navigationNotice ? '' : current)
+        return
+      }
+      navigatedRef.current = { chatId, chatgptUrl }
       setLinkReady(true)
       if (!alreadyBound && recoveryNotice) setNotice((current) => current === recoveryNotice ? '' : current)
       const linkedConversation = chatgptConversationURL(linkedURLRef.current || '')
@@ -320,7 +335,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
-    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharness retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
+    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharness retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
   </div>
 }
 

@@ -54,7 +54,7 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
 const ATTENTION_REFRESH_INTERVAL_MS = 15_000
 
 const CHAT_MAINTENANCE_INTERVAL_MS = 5 * 60_000
-import { dueChatNaming, dueRemoteArchives } from './lib/chatMaintenance'
+import { dueRemoteArchives } from './lib/chatMaintenance'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
@@ -685,12 +685,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
-  // Background chat maintenance. These jobs finish work that a user action
-  // deliberately did not block on: an unconfirmed remote archive, and a chat
-  // still carrying the provisional title derived from its first prompt. They
-  // run one item per tick, never touch the chat the user is looking at, and
-  // stay silent — a failure is durable state for the next tick, not an error
-  // toast interrupting unrelated work.
+  // Background chat maintenance only retries the remote half of an explicit
+  // archive. Automatic title discovery/project organization belongs to the
+  // durable Desktop worker queue created after a confirmed first submission.
+  // A maintenance failure remains silent durable state for the next tick.
   const maintenanceRunningRef = useRef(false)
   useEffect(() => {
     if (!session || !isDesktop()) return
@@ -714,42 +712,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           return
         }
 
-        // Naming only ever runs against a chat whose remote surface is already
-        // live. Resurrecting a released view costs a full Chromium renderer
-        // plus a navigation on the shared partition, and doing that on a timer
-        // for background chats made switching chats measurably heavier — the
-        // exact resident cost the agent pool exists to remove. Until that pool
-        // owns this traffic, the job stays opportunistic.
-        // The bridge is only as new as the installed desktop build, so this
-        // capability may simply not exist yet. Calling it unguarded threw
-        // "liveKeys is not a function" out of the maintenance tick.
-        let liveKeys = new Set()
-        try { liveKeys = new Set((await bridge.chatgpt.liveKeys?.()) || []) } catch { liveKeys = new Set() }
-        const candidates = dueChatNaming(loadWorkspaceChats(projectPath), now)
-          .filter((chat) => chat.id !== activeChatIdRef.current)
-          .filter((chat) => liveKeys.has(chat.id))
-        const [pendingName] = candidates
-        if (!pendingName?.chatgptUrl) return
-        const attempts = (pendingName.naming?.attempts || 0) + 1
-        const lastAttemptAt = new Date().toISOString()
-        let naming: ChatNaming = { state: 'unavailable', attempts, lastAttemptAt }
-        let title = pendingName.title
-        try {
-          const suggestion = await bridge.chatgpt.suggestTitle(pendingName.id, pendingName.chatgptUrl)
-          if (suggestion?.ok && suggestion.title) {
-            const suggested = suggestion.title.replace(/^WHX:\s*/i, '').replace(/\s+/g, ' ').trim().slice(0, 82)
-            if (suggested) {
-              const organized = await bridge.chatgpt.organizeConversation(pendingName.id, chatGPTProjectName(projectPath), suggested, pendingName.chatgptUrl)
-              title = suggested
-              naming = { state: organized?.ok ? 'definitive' : 'unavailable', attempts, lastAttemptAt, projectAssigned: Boolean(organized?.ok) }
-            }
-          }
-        } catch { /* the next tick retries under the same bounded backoff */ }
-        setChats((current) => {
-          const next = current.map((chat) => chat.id === pendingName.id ? { ...chat, title, naming, updatedAt: lastAttemptAt } : chat)
-          saveWorkspaceChats(projectPath, next)
-          return next
-        })
+        // Native title discovery and project organization are durable Desktop
+        // worker tasks created after the first confirmed submission. The
+        // renderer maintenance loop must never navigate the visible Supervisor
+        // to perform background naming or project assignment.
       } finally { maintenanceRunningRef.current = false }
     }
 

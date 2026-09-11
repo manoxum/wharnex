@@ -779,6 +779,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .desktop-bundle-name { border-color: var(--theme-border); background: #171717; color: #b8b8b8; }
 :root[data-theme='dark'] .desktop-chatgpt-notice { border-color: #4d4d4d; background: #252525; color: #cecece; }
 :root[data-theme='dark'] .desktop-chatgpt-host { background: #171717; }
+:root[data-theme='dark'] .desktop-chatgpt-deferred { background: #171717; color: var(--theme-text); }
+:root[data-theme='dark'] .desktop-chatgpt-deferred svg { color: #b9ff56; }
+:root[data-theme='dark'] .desktop-chatgpt-deferred span { color: var(--theme-text-muted); }
 :root[data-theme='dark'] .chatgpt-auth-compact-panel { border-color: var(--theme-border); background: #212121; }
 :root[data-theme='dark'] .chatgpt-auth-compact-panel > strong { color: var(--theme-text-soft); }
 :root[data-theme='dark'] .chatgpt-auth-indicator { border-color: var(--theme-border); background: var(--theme-muted); color: #b8b8b8; }
