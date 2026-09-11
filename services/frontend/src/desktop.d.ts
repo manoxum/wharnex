@@ -21,12 +21,12 @@ type DesktopStorageUsage = { total_bytes: number; user_data_bytes: number; brows
 type DesktopBrowserSessionResult = { cancelled: boolean; filename?: string; bytes?: number; files?: number; restarting?: boolean }
 type DesktopAgentRuntimeTask = {
   task_id: string; type: string; chat_id: string; request_id: string; root_request_id: string; conversation_id: string; status: string
-  attempt: number; max_attempts: number; lease_expires_at: string; not_before: string; last_error: string; created_at: string
+  attempt: number; max_attempts: number; lease_expires_at: string; not_before: string; last_error: string; created_at: string; updated_at: string
 }
 type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number; url: string; title: string; loading: boolean }
 type DesktopAgentRuntimeAgent = {
-  id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'running' | 'error' | string
-  draining: boolean; loop_active?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
+  id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'claimed' | 'running' | 'stopped' | 'error' | string
+  draining: boolean; loop_active?: boolean; interacting?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
   error: string; browser: DesktopAgentRuntimeBrowser
 }
 type DesktopAgentRuntimeState = {
@@ -116,6 +116,9 @@ interface WharnessDesktopBridge {
     setWorkerCount(count: number): Promise<DesktopAgentRuntimeState>
     resumeProvider(): Promise<DesktopAgentRuntimeState>
     snapshot(agentId: string): Promise<{ agentId: string; dataUrl: string; capturedAt: string }>
+    openInteraction(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds: DesktopBounds }>
+    setInteractionBounds(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds?: DesktopBounds }>
+    closeInteraction(agentId: string): Promise<{ ok: boolean; agentId: string; closed: boolean }>
     onState(callback: (state: DesktopAgentRuntimeState) => void): () => void
   }
   data: {

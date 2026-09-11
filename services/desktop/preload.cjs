@@ -134,6 +134,9 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     setWorkerCount: (count) => invoke('wharness:agents:set-worker-count', { count: Number(count) }),
     resumeProvider: () => invoke('wharness:agents:resume-provider'),
     snapshot: (agentId) => invoke('wharness:agents:snapshot', { agentId: String(agentId || '') }),
+    openInteraction: (agentId, bounds) => invoke('wharness:agents:interaction-open', { agentId: String(agentId || ''), bounds }),
+    setInteractionBounds: (agentId, bounds) => invoke('wharness:agents:interaction-bounds', { agentId: String(agentId || ''), bounds }),
+    closeInteraction: (agentId) => invoke('wharness:agents:interaction-close', { agentId: String(agentId || '') }),
     onState: (callback) => {
       if (typeof callback !== 'function') return () => {}
       const handler = (_event, state) => callback(state)
