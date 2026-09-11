@@ -37,10 +37,11 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     state: (cacheKey) => invoke('wharness:chatgpt:state', { cacheKey }),
     release: (cacheKey) => invoke('wharness:chatgpt:release', { cacheKey }),
     liveKeys: () => invoke('wharness:chatgpt:live-keys', {}),
-    archiveConversation: (cacheKey, url = '') => invoke('wharness:chatgpt:archive-conversation', { cacheKey, url: String(url || '') }),
+    queueArchive: (request) => invoke('wharness:chatgpt:queue-archive', request),
     stopConversation: (cacheKey) => invoke('wharness:chatgpt:stop-conversation', { cacheKey }),
     cancelRequest: (cacheKey, requestId) => invoke('wharness:chatgpt:cancel-request', { cacheKey, requestId }),
-    organizeConversation: (cacheKey, projectName, title, url = '') => invoke('wharness:chatgpt:organize-conversation', { cacheKey, projectName: String(projectName || ''), title: String(title || ''), url: String(url || '') }),
+    queueRename: (request) => invoke('wharness:chatgpt:queue-rename', request),
+    queueDelete: (request) => invoke('wharness:chatgpt:queue-delete', request),
     suggestTitle: (cacheKey, url = '') => invoke('wharness:chatgpt:suggest-title', { cacheKey, url: String(url || '') }),
     hideSidebar: (cacheKey) => invoke('wharness:chatgpt:hide-sidebar', { cacheKey }),
     setAuthMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-auth-mode', { cacheKey, mode }),
@@ -131,6 +132,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   agents: Object.freeze({
     state: () => invoke('wharness:agents:state'),
     setWorkerCount: (count) => invoke('wharness:agents:set-worker-count', { count: Number(count) }),
+    resumeProvider: () => invoke('wharness:agents:resume-provider'),
     snapshot: (agentId) => invoke('wharness:agents:snapshot', { agentId: String(agentId || '') }),
     onState: (callback) => {
       if (typeof callback !== 'function') return () => {}

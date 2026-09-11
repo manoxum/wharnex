@@ -167,12 +167,22 @@ export class ChatAgentSchedulerClient {
         return
       }
       if (result?.status === 'waiting') {
-        const delay = Number(result.delayMs) || chatAgentBackoff(task.attempt)
-        await this.#transition(task.task_id, 'wait', {
-          owner,
-          not_before: result.notBefore || new Date(Date.now() + delay).toISOString(),
-          error: String(result.error || ''),
-        })
+        // Claim increments attempt before execution. A task that is put back in
+        // WAITING on its final attempt can never be claimed again because the
+        // backend intentionally excludes attempt >= max_attempts. Fail it
+        // terminally here instead of creating an unreachable queue record.
+        if (Number(task.attempt || 0) >= Number(task.max_attempts || 0)) {
+          await this.#transition(task.task_id, 'fail', {
+            owner, error: String(result.error || 'chat-agent task exhausted maximum attempts while waiting'),
+          })
+        } else {
+          const delay = Number(result.delayMs) || chatAgentBackoff(task.attempt)
+          await this.#transition(task.task_id, 'wait', {
+            owner,
+            not_before: result.notBefore || new Date(Date.now() + delay).toISOString(),
+            error: String(result.error || ''),
+          })
+        }
       } else if (result?.status === 'attention') {
         if (result.providerWide) {
           await this.setProviderPause(true, {

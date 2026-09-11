@@ -523,6 +523,7 @@ test('request cancellation clears only matching Desktop supervision state and a 
   assert.match(cancel, /prepared\?\.requestId/)
   assert.match(cancel, /comment\?\.requestId/)
   assert.match(cancel, /clearChatGPTHumanAction/)
+  assert.match(cancel, /chatAgentScheduler\.cancelLineage\(id\)/)
   assert.match(source, /wharness:chatgpt:cancel-request/)
   const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
   const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)

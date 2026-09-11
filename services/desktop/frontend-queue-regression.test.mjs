@@ -62,15 +62,14 @@ test('application controller owns Desktop ChatGPT affinity candidate validation'
 })
 
 
-test('background maintenance leaves title discovery and organization to Desktop workers', async () => {
+test('background account lifecycle work has durable worker producers and no renderer retry loop', async () => {
   const app = await source('App.tsx')
-  const maintenanceStart = app.indexOf('async function runMaintenance()')
-  const maintenanceEnd = app.indexOf('const timer = window.setInterval', maintenanceStart)
-  const maintenance = app.slice(maintenanceStart, maintenanceEnd)
-  assert.ok(maintenanceStart >= 0 && maintenanceEnd > maintenanceStart)
-  assert.doesNotMatch(maintenance, /dueChatNaming/)
-  assert.doesNotMatch(maintenance, /chatgpt\.suggestTitle/)
-  assert.doesNotMatch(maintenance, /chatgpt\.organizeConversation/)
+  assert.match(app, /chatgpt\.queueArchive\(/)
+  assert.match(app, /chatgpt\.queueRename\(/)
+  assert.match(app, /chatgpt\.queueDelete\(/)
+  assert.doesNotMatch(app, /async function runMaintenance\(\)/)
+  assert.doesNotMatch(app, /chatgpt\.archiveConversation\(/)
+  assert.doesNotMatch(app, /chatgpt\.organizeConversation\(/)
 })
 
 test('deferred Supervisor navigation exposes a local Engine cover while direct prompts queue', async () => {

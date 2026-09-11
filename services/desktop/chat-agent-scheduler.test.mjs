@@ -87,3 +87,29 @@ function expectWorkerStopped(states, worker) {
   assert.ok(states.some((state) => state.kind === 'worker-started' && state.worker === worker))
   assert.ok(states.some((state) => state.kind === 'worker-stopped' && state.worker === worker))
 }
+
+
+test('final-attempt waiting task fails instead of becoming unreachable WAITING', async () => {
+  const requests = []
+  let claimed = false
+  const task = { task_id: 'cat-final', type: 'ARCHIVE_CHAT', chat_id: 'chat-1', request_id: '', root_request_id: '', status: 'LEASED', attempt: 3, max_attempts: 3 }
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1,
+    fetchImpl: async (url, init = {}) => {
+      requests.push({ url, init })
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        if (!claimed) { claimed = true; return { ok: true, json: async () => ({ task }) } }
+        return { ok: true, json: async () => ({}) }
+      }
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'waiting', error: 'still not ready', delayMs: 1 }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && !requests.some((request) => request.url.endsWith('/cat-final/fail')); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(requests.some((request) => request.url.endsWith('/cat-final/fail')))
+  assert.ok(!requests.some((request) => request.url.endsWith('/cat-final/wait')))
+})

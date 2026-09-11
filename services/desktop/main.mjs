@@ -99,6 +99,11 @@ const chatGPTWorkerEntries = []
 const chatAgentWorkerStates = new Map()
 let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let chatAgentScheduler
+let chatAgentRuntimeDiagnostics = {
+  scheduler: { running: false, backend_reachable: false, last_refresh_at: '', last_error: '' },
+  queue: { total: 0, counts: {}, oldest_created_at: '', next_not_before: '' },
+  provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', updated_at: '' },
+}
 let deferredSupervisorNavigation
 const chatGPTAuthBrowsers = new Map()
 const internalChatGPTBrowsers = new Map()
@@ -422,7 +427,7 @@ function disarmExpectedChatGPTBundle(cacheKey, requestId) {
   if (expected && expected.requestId === String(requestId)) expectedChatGPTBundles.delete(key)
 }
 
-function cancelChatGPTRequestState(cacheKey, requestId) {
+async function cancelChatGPTRequestState(cacheKey, requestId) {
   const key = sanitizeChatCacheKey(cacheKey)
   const id = String(requestId || '').trim()
   if (!id) throw new Error('ChatGPT request cancellation requires a request id')
@@ -446,7 +451,14 @@ function cancelChatGPTRequestState(cacheKey, requestId) {
     cleared = true
   }
   if (entry) reconcileChatGPTThrottle(key, entry)
-  return { ok: true, cacheKey: key, requestId: id, cleared }
+  let cancelledTasks = 0
+  if (chatAgentScheduler) {
+    const lineage = await chatAgentScheduler.cancelLineage(id)
+    cancelledTasks = Math.max(0, Number(lineage?.cancelled || 0))
+    await refreshChatAgentRuntimeState()
+    publishChatAgentRuntimeState()
+  }
+  return { ok: true, cacheKey: key, requestId: id, cleared, cancelledTasks }
 }
 
 async function chatGPTAssistantTurnCount(wc) {
@@ -527,7 +539,7 @@ async function acknowledgeChatGPTBundle(cacheKey, requestId, filename) {
     pendingChatGPTBundleDeliveries.delete(id)
     try { await rm(record.filePath, { force: true }) } catch { /* acknowledged data is safe to clean later */ }
   }
-  if (key) cancelChatGPTRequestState(key, id)
+  if (key) await cancelChatGPTRequestState(key, id)
   if (record?.filename && key && chatAgentScheduler) {
     const parsed = parseBundleName(record.filename)
     if (parsed?.kind === 'res' && parsed?.chatId === safeChatId(key)) {
@@ -1567,8 +1579,60 @@ function publicChatAgentTask(task) {
   if (!task) return undefined
   return {
     task_id: String(task.task_id || ''), type: String(task.type || ''), chat_id: String(task.chat_id || ''),
-    request_id: String(task.request_id || ''), status: String(task.status || ''),
+    request_id: String(task.request_id || ''), root_request_id: String(task.root_request_id || ''),
+    conversation_id: String(task.conversation_id || ''), status: String(task.status || ''),
+    attempt: Math.max(0, Number(task.attempt || 0)), max_attempts: Math.max(0, Number(task.max_attempts || 0)),
+    lease_expires_at: String(task.lease_expires_at || ''), not_before: String(task.not_before || ''),
+    last_error: String(task.last_error || ''), created_at: String(task.created_at || ''),
   }
+}
+
+function chatAgentQueueDiagnostics(tasks = []) {
+  const counts = {}
+  let oldest = ''
+  let nextNotBefore = ''
+  for (const task of tasks) {
+    const status = String(task?.status || 'UNKNOWN').toUpperCase()
+    counts[status] = (counts[status] || 0) + 1
+    if (!['DONE', 'FAILED', 'CANCELLED'].includes(status)) {
+      const created = String(task?.created_at || '')
+      if (created && (!oldest || created < oldest)) oldest = created
+      const notBefore = String(task?.not_before || '')
+      if (notBefore && (!nextNotBefore || notBefore < nextNotBefore)) nextNotBefore = notBefore
+    }
+  }
+  return { total: tasks.length, counts, oldest_created_at: oldest, next_not_before: nextNotBefore }
+}
+
+async function refreshChatAgentRuntimeState() {
+  const now = new Date().toISOString()
+  if (!chatAgentScheduler) {
+    chatAgentRuntimeDiagnostics = {
+      ...chatAgentRuntimeDiagnostics,
+      scheduler: { running: false, backend_reachable: false, last_refresh_at: now, last_error: 'Scheduler ainda não iniciado' },
+    }
+    return chatAgentRuntimeState()
+  }
+  try {
+    const [listed, provider] = await Promise.all([chatAgentScheduler.list({ limit: 500 }), chatAgentScheduler.providerState()])
+    chatAgentRuntimeDiagnostics = {
+      scheduler: { running: Boolean(chatAgentScheduler.running), backend_reachable: true, last_refresh_at: now, last_error: '' },
+      queue: chatAgentQueueDiagnostics(Array.isArray(listed?.tasks) ? listed.tasks : []),
+      provider: {
+        provider: String(provider?.provider || 'chatgpt'), paused: provider?.paused === true,
+        paused_until: String(provider?.paused_until || ''), reason: String(provider?.reason || ''), updated_at: String(provider?.updated_at || ''),
+      },
+    }
+  } catch (error) {
+    chatAgentRuntimeDiagnostics = {
+      ...chatAgentRuntimeDiagnostics,
+      scheduler: {
+        running: Boolean(chatAgentScheduler.running), backend_reachable: false, last_refresh_at: now,
+        last_error: String(error?.message || error || 'Backend do scheduler indisponível'),
+      },
+    }
+  }
+  return chatAgentRuntimeState()
 }
 
 function publicAgentBrowser(entry) {
@@ -1596,8 +1660,9 @@ function chatAgentRuntimeState() {
     return {
       id: entry.slotId || `worker-${worker}`, label: `Worker ${worker}`, role: 'worker',
       status: runtime.task ? 'running' : runtime.error ? 'error' : entry.loading ? 'loading' : 'idle',
-      draining: worker > desiredChatAgentWorkerSlots,
-      chat_id: String(runtime.task?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
+      draining: worker > desiredChatAgentWorkerSlots, loop_active: runtime.active !== false,
+      chat_id: String(runtime.task?.chat_id || runtime.lastTask?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
+      last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
       error: String(runtime.error || ''), browser: publicAgentBrowser(entry),
     }
   })
@@ -1605,6 +1670,9 @@ function chatAgentRuntimeState() {
     instance_id: String(chatAgentScheduler?.instanceID || ''),
     desired_workers: desiredChatAgentWorkerSlots,
     limits: { min_workers: MIN_WORKER_SLOTS, max_workers: HARD_MAX_WORKER_SLOTS, supervisors: 1 },
+    scheduler: chatAgentRuntimeDiagnostics.scheduler,
+    queue: chatAgentRuntimeDiagnostics.queue,
+    provider: chatAgentRuntimeDiagnostics.provider,
     agents: [supervisorState, ...workers],
   }
 }
@@ -2666,6 +2734,33 @@ async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId =
   })
 }
 
+async function enqueueChatAgentLifecycleTask(type, request = {}) {
+  const key = sanitizeChatCacheKey(request.cacheKey)
+  const conversationURL = canonicalChatGPTConversationURL(request.url || '')
+  if (!conversationURL) throw new Error(`${type} requires a canonical ChatGPT conversation URL`)
+  const conversationID = chatAgentConversationID(conversationURL) || key
+  const title = String(request.title || '').replace(/\s+/g, ' ').trim().slice(0, 160)
+  const projectName = String(request.projectName || '').trim().slice(0, 160)
+  const requestId = String(request.requestId || '').trim()
+  const dedupeSuffix = type === 'RENAME_CHAT'
+    ? createHash('sha256').update(`${projectName}\0${title}`).digest('hex').slice(0, 16)
+    : 'once'
+  if (type === 'RENAME_CHAT' && !title) throw new Error('RENAME_CHAT requires a title')
+  if (type === 'ARCHIVE_CHAT') {
+    await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'archive-pending' })
+  } else if (type === 'DELETE_CHAT') {
+    await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'delete-pending' })
+  }
+  const task = await enqueueChatAgentTask(type, {
+    key, requestId, rootRequestId: requestId, conversationURL,
+    projectID: String(request.projectId || projectName || ''), sessionID: String(request.sessionId || ''),
+    dedupeKey: `${type.toLowerCase()}:${conversationID}:${dedupeSuffix}`,
+    payload: { project_name: projectName, title }, maxAttempts: type === 'RENAME_CHAT' ? 8 : 12,
+  })
+  void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
+  return { ok: true, state: 'queued', task_id: String(task?.task_id || ''), type }
+}
+
 function expectedChatAgentPayload(key, requestId, conversationURL, values = {}) {
   return {
     conversation_url: canonicalChatGPTConversationURL(conversationURL),
@@ -2817,6 +2912,15 @@ async function chatAgentLifecycleBlocked(task) {
   return (listed?.tasks || []).some((item) => item.task_id !== task.task_id && ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status) && ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
 }
 
+async function chatAgentLifecycleRetry(task, key, conversationURL, error, { persist = true } = {}) {
+  const detail = String(error || 'remote lifecycle operation did not complete')
+  if (Number(task.attempt || 0) < Number(task.max_attempts || 0)) {
+    return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: detail }
+  }
+  if (persist) await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'attention' })
+  return { status: 'failed', error: detail }
+}
+
 async function executeChatAgentTask(task, { worker }) {
   const entry = workerEntryForIndex(worker)
   if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
@@ -2842,18 +2946,24 @@ async function executeChatAgentTask(task, { worker }) {
     }
     case 'RENAME_CHAT': {
       const result = await organizeChatGPTConversation(key, payload.project_name, payload.title, conversationURL, entry)
-      return result.ok ? { status: 'done' } : { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+      if (!result.ok) return chatAgentLifecycleRetry(task, key, conversationURL, result.state)
+      await persistWorkspaceChatRemote(key, conversationURL, { projectRef: result.project || '', remoteTitle: result.title || payload.title || '', remoteState: 'organized' })
+      return { status: 'done' }
     }
     case 'ARCHIVE_CHAT': {
       if (await chatAgentLifecycleBlocked(task)) return { status: 'waiting', delayMs: 5_000 }
       const result = await archiveChatGPTConversation(key, conversationURL, entry)
-      return result.ok || result.state === 'already-archived' ? { status: 'done' } : { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+      if (!(result.ok || result.state === 'already-archived')) return chatAgentLifecycleRetry(task, key, conversationURL, result.state)
+      await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'archived' })
+      return { status: 'done' }
     }
     case 'DELETE_CHAT':
     case 'DELETE_TEMP_CHAT': {
       if (task.type === 'DELETE_CHAT' && await chatAgentLifecycleBlocked(task)) return { status: 'waiting', delayMs: 5_000 }
       const result = await deleteChatGPTConversation(key, conversationURL, entry)
-      return result.ok || result.state === 'already-deleted' ? { status: 'done' } : { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+      if (!(result.ok || result.state === 'already-deleted')) return chatAgentLifecycleRetry(task, key, conversationURL, result.state, { persist: task.type === 'DELETE_CHAT' })
+      if (task.type === 'DELETE_CHAT') await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'deleted' })
+      return { status: 'done' }
     }
     case 'DELETE_BUNDLE': {
       if (!payload.locally_persisted) return { status: 'attention', error: 'remote bundle cleanup requires confirmed local persistence' }
@@ -3653,18 +3763,21 @@ function registerIPC() {
   })
   ipcMain.handle('wharness:chatgpt:state', (event, request) => { const windowState = trustedSender(event); return currentChatGPTState(request?.cacheKey, windowState) })
   ipcMain.handle('wharness:chatgpt:release', (event, request) => { const windowState = trustedSender(event); return { ok: true, released: releaseChatGPTView(request?.cacheKey, windowState) } })
-  // The set of chats whose remote surface is already resident. Background
-  // maintenance uses it to stay opportunistic: resurrecting a released view
-  // costs a full Chromium renderer plus a navigation on the shared partition,
-  // which is exactly the resident cost the agent pool exists to remove.
   ipcMain.handle('wharness:chatgpt:live-keys', (event) => { const windowState = trustedSender(event); return [...chatgptViews.entries()].filter(([, entry]) => entry.ownerWindowId === windowState.id).map(([key]) => key) })
-  ipcMain.handle('wharness:chatgpt:archive-conversation', async (event, request) => {
-    const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    requireOwnedChatGPTEntry(key, entry)
-    const result = await archiveChatGPTConversation(key, request?.url || '')
-    publishChatGPTAccountAction(key, 'archive', result)
-    return result
+  // Background account lifecycle work is always a durable worker task. These
+  // handlers intentionally do not call ensureChatGPTView: closing, renaming or
+  // deleting a chat must never resurrect or navigate the visible Supervisor.
+  ipcMain.handle('wharness:chatgpt:queue-archive', async (event, request) => {
+    trustedSender(event)
+    return enqueueChatAgentLifecycleTask('ARCHIVE_CHAT', request)
+  })
+  ipcMain.handle('wharness:chatgpt:queue-rename', async (event, request) => {
+    trustedSender(event)
+    return enqueueChatAgentLifecycleTask('RENAME_CHAT', request)
+  })
+  ipcMain.handle('wharness:chatgpt:queue-delete', async (event, request) => {
+    trustedSender(event)
+    return enqueueChatAgentLifecycleTask('DELETE_CHAT', request)
   })
   ipcMain.handle('wharness:chatgpt:stop-conversation', async (event, request) => {
     const windowState = trustedSender(event)
@@ -3673,12 +3786,6 @@ function registerIPC() {
     const result = await stopChatGPTConversation(key)
     publishChatGPTAccountAction(key, 'stop', result)
     return result
-  })
-  ipcMain.handle('wharness:chatgpt:organize-conversation', async (event, request) => {
-    const windowState = trustedSender(event)
-    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    requireOwnedChatGPTEntry(key, entry)
-    return organizeChatGPTConversation(key, request?.projectName, request?.title, request?.url || '')
   })
   ipcMain.handle('wharness:chatgpt:suggest-title', async (event, request) => {
     const windowState = trustedSender(event)
@@ -3930,16 +4037,27 @@ function registerIPC() {
     trustedSender(event)
     return queueChatGPTComment(request)
   })
-  ipcMain.handle('wharness:chatgpt:cancel-request', (event, request) => {
+  ipcMain.handle('wharness:chatgpt:cancel-request', async (event, request) => {
     trustedSender(event)
     return cancelChatGPTRequestState(request?.cacheKey, request?.requestId)
   })
-  ipcMain.handle('wharness:agents:state', (event) => { trustedSender(event); return chatAgentRuntimeState() })
-  ipcMain.handle('wharness:agents:set-worker-count', (event, request) => {
+  ipcMain.handle('wharness:agents:state', async (event) => {
+    trustedSender(event)
+    return refreshChatAgentRuntimeState()
+  })
+  ipcMain.handle('wharness:agents:set-worker-count', async (event, request) => {
     const windowState = trustedSender(event)
     desiredChatAgentWorkerSlots = normalizeWorkerSlotCount(request?.count)
     chatAgentScheduler?.setWorkerCount(desiredChatAgentWorkerSlots)
     reconcileChatGPTWorkerPool(windowState)
+    await refreshChatAgentRuntimeState()
+    return publishChatAgentRuntimeState()
+  })
+  ipcMain.handle('wharness:agents:resume-provider', async (event) => {
+    trustedSender(event)
+    if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
+    await chatAgentScheduler.setProviderPause(false)
+    await refreshChatAgentRuntimeState()
     return publishChatAgentRuntimeState()
   })
   ipcMain.handle('wharness:agents:snapshot', async (event, request) => { trustedSender(event); return chatAgentBrowserSnapshot(request?.agentId) })
@@ -4093,20 +4211,21 @@ app.whenReady().then(async () => {
     onState: (state) => {
       const worker = Number(state?.worker || 0)
       if (worker) {
-        const prior = chatAgentWorkerStates.get(worker) || { active: true, task: undefined, error: '' }
+        const prior = chatAgentWorkerStates.get(worker) || { active: true, task: undefined, lastTask: undefined, lastClaimAt: '', error: '' }
         if (state.kind === 'worker-started') chatAgentWorkerStates.set(worker, { ...prior, active: true })
         else if (state.kind === 'worker-stopped') chatAgentWorkerStates.set(worker, { ...prior, active: false, task: undefined })
-        else if (state.kind === 'running') chatAgentWorkerStates.set(worker, { ...prior, active: true, task: state.task, error: '' })
-        else if (state.kind === 'settled') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, error: '' })
-        else if (state.kind === 'task-error' || state.kind === 'worker-error') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, error: String(state?.error?.message || state?.error || '') })
+        else if (state.kind === 'running') chatAgentWorkerStates.set(worker, { ...prior, active: true, task: state.task, lastTask: state.task, lastClaimAt: new Date().toISOString(), error: '' })
+        else if (state.kind === 'settled') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, lastTask: state.task || prior.lastTask, error: '' })
+        else if (state.kind === 'task-error') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, lastTask: state.task || prior.lastTask, error: String(state?.error?.message || state?.error || '') })
+        else if (state.kind === 'worker-error') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, error: String(state?.error?.message || state?.error || '') })
       }
-      const publicState = { kind: state?.kind || '', worker, task: publicChatAgentTask(state?.task), error: state?.error ? String(state.error?.message || state.error) : '' }
-      for (const windowState of desktopWindows.values()) sendToWindowState(windowState, 'wharness:chat-agent:state', publicState)
       reconcileChatGPTWorkerPool(workerHost)
       publishChatAgentRuntimeState()
+      void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
     },
   })
   chatAgentScheduler.start()
+  void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
 })
 
 app.on('before-quit', () => {
