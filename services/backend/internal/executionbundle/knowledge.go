@@ -19,6 +19,7 @@ var knowledgeEntryIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,79}$`)
 
 type knowledgeIndexWire struct {
 	Protocol     string                    `json:"protocol"`
+	RequestID    string                    `json:"request_id,omitempty"`
 	BaseRevision int64                     `json:"base_revision"`
 	Mode         string                    `json:"mode"`
 	Entries      []knowledgeIndexEntryWire `json:"entries"`

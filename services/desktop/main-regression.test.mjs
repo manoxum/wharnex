@@ -421,7 +421,7 @@ test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating 
   const resume = source.slice(resumeStart, resumeEnd)
   assert.ok(resumeStart >= 0, 'resume expected bundle IPC must exist')
   assert.match(resume, /const conversation = canonicalChatGPTConversationURL\(target\)/)
-  assert.match(resume, /persistWorkspaceChatRemote\(key, conversation, \{ remoteState: 'awaiting-response' \}\)/)
+  assert.match(resume, /persistWorkspaceChatRemoteBestEffort\(key, conversation, \{ remoteState: 'awaiting-response' \}\)/)
   assert.match(resume, /expectedChatAgentPayload\(key, requestId, conversation/)
   assert.match(resume, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
   assert.match(resume, /dedupeKey: `await:\$\{requestId\}`/)
@@ -696,10 +696,28 @@ test('auto submit persists binding and delegates response/title followups to wor
   const end = source.indexOf('\nasync function retryPersistedChatGPTPrompt', start)
   const prepare = source.slice(start, end)
 
-  assert.match(prepare, /await persistWorkspaceChatRemote\(key, conversationUrl, \{ remoteState: 'awaiting-response' \}\)/)
+  assert.match(prepare, /await persistWorkspaceChatRemoteBestEffort\(key, conversationUrl, \{ remoteState: 'awaiting-response' \}\)/)
   assert.match(prepare, /await enqueueChatAgentFollowups\(key, requestId, conversationUrl/)
   assert.doesNotMatch(prepare, /organizeChatGPTConversation\(/)
   assert.doesNotMatch(prepare, /publishChatGPTAccountAction\(key, 'organize'/)
+})
+
+test('confirmed ChatGPT submits treat remote-state and supervision failures as post-submit failures instead of resending', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helperStart = source.indexOf('async function persistWorkspaceChatRemoteBestEffort(')
+  const helperEnd = source.indexOf('\nasync function enqueueChatAgentTask', helperStart)
+  const helper = source.slice(helperStart, helperEnd)
+  assert.match(helper, /try \{[\s\S]*persistWorkspaceChatRemote[\s\S]*catch \(error\)/)
+  assert.match(helper, /return \{ ok: false, error: detail \}/)
+
+  const writeStart = source.indexOf('async function executeChatAgentWrite(')
+  const writeEnd = source.indexOf('\nasync function executeChatAgentAwaitResponse', writeStart)
+  const write = source.slice(writeStart, writeEnd)
+  assert.match(write, /submitPromptToChatGPT/)
+  assert.match(write, /persistWorkspaceChatRemoteBestEffort/)
+  assert.match(write, /try \{[\s\S]*enqueueChatAgentTask\('AWAIT_RESPONSE'/)
+  assert.match(write, /status: 'attention'/)
+  assert.doesNotMatch(write, /enqueueChatAgentTask\('RECOVERY_WRITE'/)
 })
 
 test('bundle download failures remain correlated to a strict late filename instead of the newer active request', async () => {
