@@ -26,3 +26,19 @@
 - Inícios de navegação cross-chat dos Workers são serializados globalmente com intervalo mínimo de 2,5 s. Depois de cada load, o executor aguarda `waitForChatGPTSurfaceReady`, portanto a task só continua quando o documento deixou de carregar e a rede ficou quieta pelo settle window.
 - HTTP 429 relevante (main frame ou transporte de conversa) aciona uma pausa global do provider por 60 s, não apenas backoff local de um `expected`. Tasks já reclamadas observam o gate local e voltam para `WAITING`; a ação explícita de retoma do provider limpa também esse gate local.
 - O custo intencional é maior latência mínima no trabalho de background e em trocas cross-chat; a contrapartida é limitar burst por Worker e por perfil autenticado antes de chegar ao rate-limit do ChatGPT.
+
+## Investigação de latência de bundle e wrong-chat routing (2026-09-11, req_20260911T133056_f9b063e4ff598748)
+
+A revisão da versão atual confirmou estes gaps adicionais como diretamente acionáveis:
+
+- `probeChatAgentResponse()` trata o estado saudável “ainda a gerar” com `chatAgentBackoff(task.attempt)`. Como cada claim incrementa `attempt`, observação saudável e falha partilham o mesmo budget; com `max_attempts=30` uma resposta longa pode esgotar o supervisor sem erro real. O cooldown global de 2,5 s do worker também se aplica a `AWAIT_RESPONSE`.
+- O timer `chatGPTDownloadPoller` de 2 s já não chama `pollExpectedChatGPTDownloads()`. A deteção autónoma depende do próximo claim de `AWAIT_RESPONSE`; por isso a disponibilidade do bundle pode preceder o próximo probe em dezenas de segundos quando o backoff atingiu 60 s.
+- `expectedChatGPTBundleForDownload()` tem boas correlações por filename e source WebContents, mas o fallback `recentExpectedDownload` continua global ao processo. Em concorrência, a intenção deve ser por WebContents/slot + request id + assignment epoch.
+- O envio Auto normal do frontend passa `preferCurrentConversation: true`. `targetChatGPTComposer()` aceita então a conversa corrente mesmo quando a conversa vinculada é diferente. Para automação, uma `conversation_id` conhecida deve ser destino obrigatório.
+- No Worker, `submitPromptToChatGPT()` faz targeting exato inicialmente, mas `submitChatGPTDraft()` volta a entrar no composer sem expected URL. Falta um guard final de `conversation_id` entre fill/upload e o commit point do POST.
+- `selectSlotForJob()` existe e implementa preferência por afinidade, mas os loops reais do scheduler fazem claims globais por worker numérico e não o usam. Isto aumenta rebinds e races, embora afinidade deva continuar apenas como otimização.
+- `ownerKey` é mutável e callbacks de navegação/renderer consultam o valor atual. Sem `assignmentEpoch`, um evento tardio da atribuição anterior pode contaminar a nova. O transporte deve carregar um token imutável `{slot, epoch, task, chat, conversation}` e callbacks stale devem ser no-op.
+- A serialização principal de preparação é por `cacheKey`; adicionar um lock por slot físico/WebContents fecha a fronteira do recurso realmente mutável.
+- Workers escondidos devem garantir um viewport de layout antes de probes que dependem de geometria/visibilidade (`chatGPTExpectedDownloadScript`).
+
+Ordem recomendada: (1) exact conversation guard e remover `preferCurrentConversation` em Auto; (2) cadência `AWAIT_RESPONSE` de baixa latência, separada de retry/failure budget; (3) download intent por Worker/request; (4) assignment epoch + slot lock; (5) affinity-aware dispatch; (6) métricas e testes de races. Meta sugerida: p95 <= 2 s e p99 <= 5 s do aparecimento do bundle no DOM até ao primeiro click, fora de pausas reais do provider.
