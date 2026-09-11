@@ -82,3 +82,10 @@ test('deferred Supervisor navigation exposes a local Engine cover while direct p
   assert.match(pane, /Pode enviar novos prompts agora/)
   assert.match(css, /\.desktop-chatgpt-deferred/)
 })
+
+test('agent runtime drawer inherits the Desktop bridge through the workspace iframe parent', async () => {
+  const drawer = await source('components/AgentRuntimeDrawer.tsx')
+  assert.match(drawer, /import \{ desktopBridge \} from '\.\.\/lib\/desktop'/)
+  assert.match(drawer, /const bridge = desktopBridge\(\)\?\.agents/)
+  assert.doesNotMatch(drawer, /window\.wharnessDesktop\?\.agents/)
+})
