@@ -60,3 +60,26 @@ test('application controller owns Desktop ChatGPT affinity candidate validation'
   assert.match(app, /chatgpt\.confirmAffinity\(chatId, conversation\)/)
   assert.match(app, /chatgpt\.rejectAffinity\(chatId, conversation\)/)
 })
+
+
+test('background maintenance leaves title discovery and organization to Desktop workers', async () => {
+  const app = await source('App.tsx')
+  const maintenanceStart = app.indexOf('async function runMaintenance()')
+  const maintenanceEnd = app.indexOf('const timer = window.setInterval', maintenanceStart)
+  const maintenance = app.slice(maintenanceStart, maintenanceEnd)
+  assert.ok(maintenanceStart >= 0 && maintenanceEnd > maintenanceStart)
+  assert.doesNotMatch(maintenance, /dueChatNaming/)
+  assert.doesNotMatch(maintenance, /chatgpt\.suggestTitle/)
+  assert.doesNotMatch(maintenance, /chatgpt\.organizeConversation/)
+})
+
+test('deferred Supervisor navigation exposes a local Engine cover while direct prompts queue', async () => {
+  const pane = await source('components/ChatGPTDesktopPane.tsx')
+  const desktopTypes = await source('desktop.d.ts')
+  const css = await source('styles.css')
+  assert.match(desktopTypes, /surfaceDeferred\?: boolean/)
+  assert.match(pane, /next\.surfaceDeferred/)
+  assert.match(pane, /A preparar este chat/)
+  assert.match(pane, /Pode enviar novos prompts agora/)
+  assert.match(css, /\.desktop-chatgpt-deferred/)
+})

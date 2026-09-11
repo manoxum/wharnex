@@ -202,6 +202,22 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(screen.getByText('Google: conclua a autenticação no navegador seguro aberto pelo Wharness.')).toBeTruthy())
   })
 
+  it('covers the Engine while another chat owns the Supervisor transport lease', async () => {
+    let stateHandler: ((value: DesktopChatGPTState) => void) | undefined
+    const desktop = bridge()
+    desktop.chatgpt.onState = vi.fn((callback) => { stateHandler = callback; return () => undefined })
+    desktop.chatgpt.navigate = vi.fn().mockResolvedValue({ ...state, cacheKey: 'chat-1', surfaceDeferred: true, loading: true })
+    window.wharnessDesktop = desktop
+    const { container } = render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+
+    expect(await screen.findByText('A preparar este chat')).toBeTruthy()
+    expect(screen.getByText(/Pode enviar novos prompts agora/)).toBeTruthy()
+    expect(container.querySelector('.desktop-chatgpt-deferred')).toBeTruthy()
+
+    act(() => stateHandler?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/right', surfaceDeferred: false, loading: false }))
+    await waitFor(() => expect(screen.queryByText('A preparar este chat')).toBeNull())
+  })
+
   it('ignores ChatGPT state events owned by another Harness chat', async () => {
     let stateHandler: ((value: DesktopChatGPTState) => void) | undefined
     const desktop = bridge(); desktop.chatgpt.onState = vi.fn((callback) => { stateHandler = callback; return () => undefined }); window.wharnessDesktop = desktop
