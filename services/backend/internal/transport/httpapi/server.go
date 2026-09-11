@@ -1017,6 +1017,10 @@ func (a *API) executionBundle(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "execution_bundle_not_pending", err.Error())
 			return
 		}
+		if errors.Is(err, app.ErrSubmoduleWrite) {
+			writeError(w, http.StatusBadRequest, "execution_bundle_submodule_write", err.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid_execution_bundle", err.Error())
 		return
 	}

@@ -158,8 +158,11 @@ cannot inspect is admitted exactly as before.
 Writing *inside* a submodule remains unsupported by design in this decision. A
 submodule is a different repository with its own remote, history and review
 process; Wharnex committing into it is a distinct authority question, not an
-extension of the superproject Apply it already owns. The refusal states the
-real constraint instead of failing late with a Git pathspec error.
+extension of the superproject Apply it already owns. The refusal is surfaced as
+the typed `submodule_write` terminal condition: it does not spend a fresh
+ChatGPT request trying the same superproject again, and the operator is directed
+to open the submodule repository itself. This states the real constraint
+instead of failing late with a Git pathspec error or entering a retry loop.
 
 ### Containment fix found on the way
 
@@ -204,5 +207,6 @@ that must not reach it. `.git` is now excluded whichever it is.
   operator's own remedy rather than a GPT repair.
 - Submodule checkouts follow the superproject through both merge and revert, so
   post-merge verification runs against the tree it is verifying.
-- A patch inside a submodule costs one re-request instead of a full verified
-  candidate.
+- A patch inside a submodule is rejected before execution and does not consume
+  a fresh ChatGPT recovery request. The operator is directed to the submodule
+  repository that actually owns the requested files.

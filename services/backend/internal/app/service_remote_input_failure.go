@@ -23,11 +23,14 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 	if kind == "" {
 		kind = "transport"
 	}
-	if kind != "transport" && kind != "bundle_validation" {
+	if kind != "transport" && kind != "bundle_validation" && kind != "submodule_write" {
 		return domain.Session{}, errors.New("unsupported remote input failure kind")
 	}
 	if requestID == "" || reason == "" || len(reason) > 512 {
 		return domain.Session{}, errors.New("remote input failure requires a request id and bounded reason")
+	}
+	if kind == "submodule_write" && !strings.Contains(strings.ToLower(reason), strings.ToLower(ErrSubmoduleWrite.Error())) {
+		return domain.Session{}, errors.New("submodule write failure requires the local submodule-write diagnostic")
 	}
 	knowledgeReviewFailure := false
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -55,8 +58,16 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, requestID)
 		current.PlannerInFlight = false
 		current.State = "failed"
-		current.LastRepairError = "Remote input communication failed: " + reason
-		current.FailureKind = domain.FailureKindRemoteInputTransport
+		if kind == "submodule_write" {
+			// This is a repository-topology refusal raised locally by Wharnex,
+			// not a transport outage and not a planner defect. Repeating the
+			// same request against the superproject can only reproduce it.
+			current.LastRepairError = reason
+			current.FailureKind = domain.FailureKindSubmoduleWrite
+		} else {
+			current.LastRepairError = "Remote input communication failed: " + reason
+			current.FailureKind = domain.FailureKindRemoteInputTransport
+		}
 		return nil
 	})
 	if err != nil {
@@ -68,7 +79,11 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 		s.bus.Publish(sessionID, "knowledge.review_delivery_failed", map[string]any{"request_id": requestID, "reason": reason, "kind": kind})
 		return updated, nil
 	}
-	s.closeRemoteInputChannel(sessionID, "transport_failed")
+	closeReason := "transport_failed"
+	if kind == "submodule_write" {
+		closeReason = "bundle_submodule_write_rejected"
+	}
+	s.closeRemoteInputChannel(sessionID, closeReason)
 	s.bus.Publish(sessionID, "remote_input.failed", map[string]any{"request_id": requestID, "reason": reason, "kind": kind})
 	if kind == "bundle_validation" && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
 		recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true)

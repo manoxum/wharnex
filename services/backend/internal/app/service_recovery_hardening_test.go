@@ -40,6 +40,32 @@ func TestLegacyRemoteInputFailureIsClassifiedAsTransportNotSourceRepair(t *testi
 	}
 }
 
+func TestServiceStartupMigratesPersistedSubmoduleRefusalFromTransport(t *testing.T) {
+	store := session.NewStore()
+	item := domain.Session{
+		ID:              "ses-submodule-migration",
+		ProjectPath:     t.TempDir(),
+		State:           "failed",
+		FailureKind:     domain.FailureKindRemoteInputTransport,
+		LastRepairError: "Remote input communication failed: " + ErrSubmoduleWrite.Error() + ": services/admin/file.ts belongs to services/admin",
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	updated, err := store.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.FailureKind != domain.FailureKindSubmoduleWrite {
+		t.Fatalf("failure kind = %q want %q", updated.FailureKind, domain.FailureKindSubmoduleWrite)
+	}
+	if updated.LastRepairError != item.LastRepairError {
+		t.Fatalf("startup migration must preserve diagnostic prose: %q", updated.LastRepairError)
+	}
+}
+
 func TestServiceStartupNormalizesThePendingHostCandidateExposedToClients(t *testing.T) {
 	store := session.NewStore()
 	patch := "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"

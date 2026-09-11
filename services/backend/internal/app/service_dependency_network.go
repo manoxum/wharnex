@@ -152,8 +152,17 @@ func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {
 // prose fallback is a compatibility shim for already-persisted sessions and
 // can be deleted once FailureKind has been populated for a full release.
 func sessionFailureKind(item domain.Session) string {
+	// v1.3.3 initially reported submodule write refusals through the generic
+	// remote-input bucket. Preserve a narrow compatibility migration so those
+	// persisted sessions stop offering a retry that can only fail again.
+	if item.FailureKind == domain.FailureKindRemoteInputTransport && sessionHasSubmoduleWriteDiagnostic(item) {
+		return domain.FailureKindSubmoduleWrite
+	}
 	if item.FailureKind != "" {
 		return item.FailureKind
+	}
+	if sessionHasSubmoduleWriteDiagnostic(item) {
+		return domain.FailureKindSubmoduleWrite
 	}
 	if strings.HasPrefix(item.LastRepairError, "Remote input communication failed:") {
 		return domain.FailureKindRemoteInputTransport
@@ -205,21 +214,44 @@ func sessionFailureKind(item domain.Session) string {
 	return ""
 }
 
+func sessionHasSubmoduleWriteDiagnostic(item domain.Session) bool {
+	needle := strings.ToLower(ErrSubmoduleWrite.Error())
+	details := []string{item.LastRepairError}
+	if item.LastExecution != nil {
+		details = append(details, item.LastExecution.Error)
+	}
+	for _, detail := range details {
+		if strings.Contains(strings.ToLower(detail), needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // clearSessionFailure resets a session's failure classification together
 // with its prose. The two fields must never be cleared independently, or a
 // stale FailureKind can outlive the LastRepairError that justified it (or
 // vice versa) and mislead the next recovery decision.
 func (s *Service) normalizeFailureKinds() {
 	for _, item := range s.store.List() {
-		if item.State != "failed" || item.FailureKind != "" {
+		if item.State != "failed" {
 			continue
 		}
 		kind := sessionFailureKind(item)
-		if kind == "" {
+		if kind == "" || kind == item.FailureKind {
+			continue
+		}
+		// Existing non-empty classifications are stable protocol state. The
+		// only correction allowed here is the historical submodule refusal that
+		// v1.3.3 stored as remote_input_transport before it had its own kind.
+		if item.FailureKind != "" && !(item.FailureKind == domain.FailureKindRemoteInputTransport && kind == domain.FailureKindSubmoduleWrite) {
 			continue
 		}
 		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
-			if current.State == "failed" && current.FailureKind == "" {
+			if current.State != "failed" {
+				return nil
+			}
+			if current.FailureKind == "" || (current.FailureKind == domain.FailureKindRemoteInputTransport && kind == domain.FailureKindSubmoduleWrite) {
 				current.FailureKind = kind
 			}
 			return nil

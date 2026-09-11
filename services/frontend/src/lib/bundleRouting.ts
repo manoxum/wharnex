@@ -13,3 +13,11 @@ export function isNonTerminalBundleRoutingError(error: unknown) {
   const code = (error.data as APIErrorEnvelope | undefined)?.error?.code
   return code === 'execution_bundle_request_mismatch' || code === 'execution_bundle_not_pending'
 }
+
+export type BundleFailureKind = 'bundle_validation' | 'submodule_write'
+
+export function bundleFailureKind(error: unknown): BundleFailureKind {
+  if (!(error instanceof APIError)) return 'bundle_validation'
+  const code = (error.data as APIErrorEnvelope | undefined)?.error?.code
+  return code === 'execution_bundle_submodule_write' ? 'submodule_write' : 'bundle_validation'
+}

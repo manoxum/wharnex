@@ -710,6 +710,38 @@ func TestAutoModeProtocolBundleFailurePreparesExactlyOneFreshRequest(t *testing.
 	}
 }
 
+func TestAutoModeSubmoduleWriteFailureIsTerminalWithoutFreshRequest(t *testing.T) {
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "main.txt"), []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 2<<20), manual.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	started, err := service.StartSession(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "original task")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reason := ErrSubmoduleWrite.Error() + ": services/admin/client/public/includes/cancelled-rides.html belongs to services/admin"
+	failed, err := service.FailRemoteInputRequestWithKind(context.Background(), started.ID, prompted.LastRequestID, reason, "submodule_write")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if failed.State != "failed" || failed.LastRequestID != prompted.LastRequestID {
+		t.Fatalf("submodule refusal unexpectedly prepared another request: %#v", failed)
+	}
+	if failed.RemoteRecoveryAttempt != 0 || len(failed.PendingManualRequestIDs) != 0 {
+		t.Fatalf("submodule refusal consumed a remote recovery attempt: %#v", failed)
+	}
+	if failed.FailureKind != domain.FailureKindSubmoduleWrite || failed.LastRepairError != reason {
+		t.Fatalf("submodule refusal lost its typed repository diagnosis: %#v", failed)
+	}
+}
+
 func TestRemoteInputFailureRejectsAHistoricalRequestThatIsNoLongerPending(t *testing.T) {
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "main.txt"), []byte("first"), 0o600); err != nil {

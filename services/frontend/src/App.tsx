@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
-import { BundleRoutingError, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
+import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
@@ -1617,7 +1617,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		// validation. It is terminal for this request: do not leave the chat
 		// waiting for a bundle that was already received and refused.
 		if (targetSession && targetChat && sessionHasPendingRequest(targetSession, requestId)) {
-			const recovered = await failRemoteInput(requestId, `Falha de protocolo ao validar o bundle: ${message}`, 'bundle_validation', targetSession, targetChat)
+			const failureKind = bundleFailureKind(e)
+			const failurePrefix = failureKind === 'submodule_write'
+				? 'Alteração rejeitada por pertencer a um submódulo Git'
+				: 'Falha de protocolo ao validar o bundle'
+			const recovered = await failRemoteInput(requestId, `${failurePrefix}: ${message}`, failureKind, targetSession, targetChat)
 			if (recovered?.last_request_id && recovered.last_request_id !== requestId) return `Bundle recusado; recuperação automática ${recovered.last_request_id} preparada.`
 		} else {
 			reportChatError(`Falha ao importar o bundle: ${message}`, 'Falha no bundle')
@@ -2249,19 +2253,29 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
   }
 
-  async function failRemoteInput(requestId: string, reason: string, kind: 'transport' | 'bundle_validation' = 'transport', requestedSession: Session | undefined = session, requestedChat?: WorkspaceChat) {
+  async function failRemoteInput(requestId: string, reason: string, kind: 'transport' | 'bundle_validation' | 'submodule_write' = 'transport', requestedSession: Session | undefined = session, requestedChat?: WorkspaceChat) {
     if (!requestedSession || !requestId) return
     try {
       const updated = await api.remoteInputFailure(requestedSession.id, requestId, reason.slice(0, 512), kind)
       const active = requestedChat || chats.find((chat) => chat.id === activeChatId)
       if (active?.id === activeChatIdRef.current) setSession(updated)
       if (active) {
-        const automaticallyRecovered = updated.last_request_id && updated.last_request_id !== requestId && updated.state === 'awaiting_plan'
+        const submoduleBlocked = updated.failure_kind === 'submodule_write'
+        const automaticallyRecovered = !submoduleBlocked && updated.last_request_id && updated.last_request_id !== requestId && updated.state === 'awaiting_plan'
         const itemId = `error-${crypto.randomUUID()}`
         appendChatItem(active, updated.project_path, {
           id: itemId, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-		  text: automaticallyRecovered ? `O bundle foi recusado com segurança. O WHX preservou a falha como diagnóstico, criou uma nova base imutável e preparou automaticamente um único pedido de correção.\n\nCausa: ${reason}` : `O pedido remoto terminou por falha de protocolo ou comunicação. Nenhum bundle foi executado. Ao repetir, o WHX enviará esta causa para que o ChatGPT corrija o contrato antes de gerar outro ZIP.\n\nCausa: ${reason}`,
-		  meta: automaticallyRecovered ? `Recuperação automática preparada · ${updated.last_request_id}` : `Falha de protocolo/comunicação · pedido pode ser repetido · ${reason.slice(0, 180)}`, iteration: iterationRef(requestId, 'failed', ['error'], active.chatgptUrl),
+		  text: submoduleBlocked
+		    ? `O bundle foi recusado porque a alteração tenta escrever dentro de um submódulo Git, que pertence a outro repositório. Nenhuma correção automática foi lançada. Abra o submódulo indicado na causa como projeto Wharness, repita a alteração nesse repositório e, se necessário, atualize depois o ponteiro no superprojeto.\n\nCausa: ${reason}`
+		    : automaticallyRecovered
+		      ? `O bundle foi recusado com segurança. O WHX preservou a falha como diagnóstico, criou uma nova base imutável e preparou automaticamente um único pedido de correção.\n\nCausa: ${reason}`
+		      : `O pedido remoto terminou por falha de protocolo ou comunicação. Nenhum bundle foi executado. Ao repetir, o WHX enviará esta causa para que o ChatGPT corrija o contrato antes de gerar outro ZIP.\n\nCausa: ${reason}`,
+		  meta: submoduleBlocked
+		    ? `Alteração pertence a submódulo · use o repositório do submódulo · ${reason.slice(0, 150)}`
+		    : automaticallyRecovered
+		      ? `Recuperação automática preparada · ${updated.last_request_id}`
+		      : `Falha de protocolo/comunicação · pedido pode ser repetido · ${reason.slice(0, 180)}`,
+		  iteration: iterationRef(requestId, 'failed', ['error'], active.chatgptUrl),
         })
         setError(reason)
         setErrorChatRef({ chatId: active.id, itemId, message: reason })

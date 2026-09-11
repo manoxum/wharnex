@@ -141,7 +141,7 @@ export const api = {
   requestFailureRepair: (id: string, detail = '') => request<Session>(`/api/sessions/${id}/failure-repair`, { method: 'POST', body: JSON.stringify({ detail }) }),
   retryFailedRequest: (id: string) => request<Session>(`/api/sessions/${id}/failed-request/retry`, { method: 'POST', body: '{}' }),
 	cancelPendingRequest: (id: string, requestId: string) => request<Session>(`/api/sessions/${id}/request/cancel`, { method: 'POST', body: JSON.stringify({ request_id: requestId }) }),
-	remoteInputFailure: (id: string, requestId: string, reason: string, kind: 'transport' | 'bundle_validation' = 'transport') => request<Session>(`/api/sessions/${id}/remote-input/failures`, { method: 'POST', body: JSON.stringify({ request_id: requestId, reason, kind }) }),
+	remoteInputFailure: (id: string, requestId: string, reason: string, kind: 'transport' | 'bundle_validation' | 'submodule_write' = 'transport') => request<Session>(`/api/sessions/${id}/remote-input/failures`, { method: 'POST', body: JSON.stringify({ request_id: requestId, reason, kind }) }),
   execute: (id: string, approved: boolean) =>
     request<{ session: Session; result: ExecutionResult }>(`/api/sessions/${id}/execute`, {
       method: 'POST', body: JSON.stringify({ approved }),
