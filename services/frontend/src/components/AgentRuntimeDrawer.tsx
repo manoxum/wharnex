@@ -58,7 +58,7 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
   const [runtime, setRuntime] = useState<Runtime>()
-  const [selectedId, setSelectedId] = useState('supervisor')
+  const [selectedId, setSelectedId] = useState('supervisor-1')
   const [interactionId, setInteractionId] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [snapshot, setSnapshot] = useState<Snapshot>()
@@ -134,6 +134,12 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
     } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível capturar o navegador') } finally { setBusy(false) }
   }
 
+  const followWorker = () => {
+    if (!selected || selected.role !== 'worker' || !selected.browser.available) return
+    window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: selected.id } }))
+    onClose()
+  }
+
   if (!bridge) return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime local</span><strong>Agentes</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></header>
     <div className="agent-drawer-empty"><strong>Bridge preload indisponível.</strong><span>Abra esta área no Wharness Desktop/Electron. Sem a bridge não é possível distinguir o scheduler, o backend ou os browsers dos Workers.</span></div>
@@ -151,7 +157,7 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
         <div className="agent-runtime-queue-times"><span>Mais antiga: {timeLabel(runtime.queue?.oldest_created_at)}</span><span>Próxima: {timeLabel(runtime.queue?.next_not_before)}</span></div>
       </div>
       <div className="agent-runtime-scale">
-        <div><strong>Supervisor</strong><small>Superfície humana exclusiva</small></div><div className="agent-runtime-stepper locked"><button disabled aria-label="Diminuir supervisores">−</button><b>1</b><button disabled aria-label="Aumentar supervisores">+</button></div>
+        <div><strong>Supervisores</strong><small>Duplo buffer: um ativo, outro pronto/standby</small></div><div className="agent-runtime-stepper locked"><button disabled aria-label="Diminuir supervisores">−</button><b>{runtime.limits.supervisors}</b><button disabled aria-label="Aumentar supervisores">+</button></div>
         <div><strong>Workers</strong><small>Escala sem interromper tarefas em curso</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.desired_workers <= runtime.limits.min_workers} onClick={() => void scaleWorkers(-1)} aria-label="Diminuir workers">−</button><b>{runtime.desired_workers}</b><button disabled={busy || runtime.desired_workers >= runtime.limits.max_workers} onClick={() => void scaleWorkers(1)} aria-label="Aumentar workers">+</button></div>
       </div>
       <div className="agent-runtime-body">
@@ -161,7 +167,7 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
         {selected && <div className="agent-runtime-detail">
           <div className="agent-runtime-detail-heading"><div><span className={`agent-runtime-dot ${selected.status}`} aria-hidden="true"/><strong>{selected.label}</strong></div><span>{statusLabel(selected)}</span></div>
           {(() => { const task = selected.task || selected.last_task; return <dl><div><dt>Loop</dt><dd>{selected.role === 'supervisor' ? 'Interação humana' : selected.loop_active === false ? 'Parado' : 'Ativo'}</dd></div><div><dt>Chat</dt><dd>{short(selected.chat_id)}</dd></div><div><dt>Tarefa</dt><dd>{task ? `${task.type} · ${task.task_id}${selected.task ? '' : ' · última'}` : 'Sem tarefa registada'}</dd></div><div><dt>Task state</dt><dd>{short(task?.status)}</dd></div><div><dt>Pedido</dt><dd>{short(task?.request_id)}</dd></div><div><dt>Lineage</dt><dd>{short(task?.root_request_id)}</dd></div><div><dt>Conversa</dt><dd>{short(task?.conversation_id)}</dd></div><div><dt>Tentativa</dt><dd>{task ? `${task.attempt}/${task.max_attempts}` : '—'}</dd></div><div><dt>Último claim</dt><dd>{timeLabel(selected.last_claim_at)}</dd></div>{selected.residency && <><div><dt>Residência</dt><dd>{short(selected.residency.resident_lane)} · rotação #{selected.residency.rotation_position + 1}</dd></div><div><dt>Dwell mínimo</dt><dd>{timeLabel(selected.residency.min_resident_until)}</dd></div><div><dt>Assignment epoch</dt><dd>{selected.residency.assignment_epoch}{selected.residency.navigation_in_progress ? ' · a navegar' : ''}{selected.residency.non_preemptive ? ' · não preemptível' : ''}</dd></div></>}<div><dt>Lease</dt><dd>{timeLabel(task?.lease_expires_at)}</dd></div><div><dt>not_before</dt><dd>{timeLabel(task?.not_before)}</dd></div><div><dt>Estado</dt><dd>{statusLabel(selected)}{selected.error || task?.last_error ? ` · ${selected.error || task?.last_error}` : ''}</dd></div><div><dt>Navegador</dt><dd>{selected.browser.available ? `WebContents #${selected.browser.web_contents_id}` : 'Ainda não criado'}</dd></div><div><dt>Página</dt><dd title={selected.browser.url}>{short(selected.browser.title || selected.browser.url, selected.browser.available ? 'Sem página carregada' : '—')}</dd></div></dl> })()}
-          {selected.role === 'worker' && <button type="button" className="agent-runtime-interact" disabled={busy || !selected.browser.available} onClick={() => setInteractionId(interactionId === selected.id ? undefined : selected.id)}><Icon name="monitor" size={13}/> {interactionId === selected.id ? 'Terminar interação' : 'Interagir com navegador'}</button>}
+          {selected.role === 'worker' && <div className="agent-runtime-worker-actions"><button type="button" className="agent-runtime-follow" disabled={busy || !selected.browser.available} onClick={followWorker}><Icon name="monitor" size={13}/> Seguir (flow)</button><button type="button" className="agent-runtime-interact" disabled={busy || !selected.browser.available} onClick={() => setInteractionId(interactionId === selected.id ? undefined : selected.id)}><Icon name="monitor" size={13}/> {interactionId === selected.id ? 'Terminar interação' : 'Interagir aqui'}</button></div>}
           <button type="button" className="agent-runtime-capture" disabled={busy || !selected.browser.available} onClick={() => void capture()}><Icon name="monitor" size={13}/> Capturar imagem</button>
           {interactionId === selected.id && selected.role === 'worker' && <div className="agent-runtime-interaction"><div className="agent-runtime-interaction-heading"><strong>Interação ao vivo</strong><span>{selected.task ? 'O Worker continua a executar a tarefa; ações manuais afetam a mesma instância.' : 'Está a interagir diretamente com esta instância.'}</span></div><div ref={interactionHostRef} className="agent-runtime-interaction-host" aria-label={`Navegador interativo de ${selected.label}`}/></div>}
           {snapshot?.agentId === selected.id && <figure className="agent-runtime-snapshot"><img src={snapshot.dataUrl} alt={`Captura do navegador de ${selected.label}`}/><figcaption>Capturado às {new Date(snapshot.capturedAt).toLocaleTimeString()}</figcaption></figure>}

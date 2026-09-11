@@ -19,7 +19,7 @@ test('free workers claim unresident lanes before any resident worker rotates', (
   assert.equal(residency.claimOptions('worker-2').fallback_mode, 'unresident_only')
 })
 
-test('rotation opens only for the head after the 30 second dwell', () => {
+test('rotation opens only for the head after the 60 second dwell', () => {
   let now = 10_000
   const residency = new ChatAgentResidency({ now: () => now })
   for (const [slot, lane] of [['worker-1', 'c:a'], ['worker-2', 'c:b']]) {
@@ -27,7 +27,7 @@ test('rotation opens only for the head after the 30 second dwell', () => {
     residency.settleAssignment(slot, bind.epoch, lane, now)
   }
   assert.equal(residency.claimOptions('worker-1').fallback_mode, 'resident_only')
-  now += 30_000
+  now += 60_000
   assert.equal(residency.claimOptions('worker-1').fallback_mode, 'any')
   assert.equal(residency.claimOptions('worker-2').fallback_mode, 'resident_only')
   const rebind = residency.beginAssignment('worker-1', 'c:c')
@@ -43,8 +43,8 @@ test('assignment epoch rejects stale callbacks and probes stay deliberately slow
   const second = residency.beginAssignment('worker-1', 'c:b')
   assert.equal(residency.epochCurrent('worker-1', first.epoch), false)
   assert.equal(residency.epochCurrent('worker-1', second.epoch, 'c:b'), true)
-  assert.equal(CHAT_AGENT_NAVIGATION_GAP_MS, 15_000)
-  assert.equal(CHAT_AGENT_AWAIT_PROBE_MS, 15_000)
+  assert.equal(CHAT_AGENT_NAVIGATION_GAP_MS, 30_000)
+  assert.equal(CHAT_AGENT_AWAIT_PROBE_MS, 30_000)
 })
 
 test('residency is deliberately ephemeral across desktop restart', () => {
@@ -56,7 +56,7 @@ test('residency is deliberately ephemeral across desktop restart', () => {
   assert.equal(new ChatAgentResidency({ now: () => now }).snapshot('worker-1').resident_lane, '')
 })
 
-test('residency dwell is configurable only inside the 15 to 30 second envelope', () => {
+test('residency dwell is configurable only inside the 30 to 120 second envelope', () => {
   let now = 1_000
   const short = new ChatAgentResidency({ now: () => now, minResidenceMs: 1 })
   const long = new ChatAgentResidency({ now: () => now, minResidenceMs: 90_000 })
@@ -64,6 +64,6 @@ test('residency dwell is configurable only inside the 15 to 30 second envelope',
     const bind = residency.beginAssignment(slot, `c:${slot}`)
     residency.settleAssignment(slot, bind.epoch, bind.lane, now)
   }
-  assert.equal(Date.parse(short.snapshot('short').min_resident_until) - now, 15_000)
-  assert.equal(Date.parse(long.snapshot('long').min_resident_until) - now, 30_000)
+  assert.equal(Date.parse(short.snapshot('short').min_resident_until) - now, 30_000)
+  assert.equal(Date.parse(long.snapshot('long').min_resident_until) - now, 90_000)
 })

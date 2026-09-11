@@ -2,14 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { chatAgentBackoff, ChatAgentSchedulerClient, DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, DEFAULT_CHAT_AGENT_WORKERS } from './chat-agent-scheduler.mjs'
 
-test('scheduler defaults to exactly three autonomous workers', () => {
+test('scheduler defaults to exactly six autonomous workers', () => {
   const scheduler = new ChatAgentSchedulerClient({
     baseURL: 'http://127.0.0.1:8080',
     fetchImpl: async () => { throw new Error('unused') },
     execute: async () => ({ status: 'done' }),
   })
   assert.equal(scheduler.workerCount, DEFAULT_CHAT_AGENT_WORKERS)
-  assert.equal(DEFAULT_CHAT_AGENT_WORKERS, 3)
+  assert.equal(DEFAULT_CHAT_AGENT_WORKERS, 6)
 })
 
 test('scheduler can apply an explicit cooldown before a worker claims another task', async () => {
@@ -36,7 +36,7 @@ test('scheduler can apply an explicit cooldown before a worker claims another ta
     await new Promise((resolve) => setTimeout(resolve, 2))
   }
   await scheduler.stop()
-  assert.equal(DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, 0)
+  assert.equal(DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, 2_500)
   assert.ok(claimTimes.length >= 2)
   assert.ok(claimTimes[1] - claimTimes[0] >= 15)
 })

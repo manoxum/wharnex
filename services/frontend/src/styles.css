@@ -338,6 +338,12 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .desktop-action-card.result { gap: 6px; }
 .desktop-bundle-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 7px; border: 1px solid #d9ddd3; border-radius: 6px; background: #fff; color: #6a7166; font-size: calc(7px * var(--ui-font-scale)); }
 .desktop-chatgpt-notice { flex: 0 0 auto; padding: 6px 11px; background: #e5edd9; color: #536b33; border-bottom: 1px solid #cbd7ba; font-size: calc(9px * var(--ui-font-scale)); line-height: 1.45; }
+.desktop-chatgpt-follow { min-height:38px; padding:6px 9px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid var(--theme-border); background:color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface)); }
+.desktop-chatgpt-follow > div { min-width:0; display:grid; gap:2px; }
+.desktop-chatgpt-follow strong { color:var(--theme-text); font-size:calc(7.8px * var(--ui-font-scale)); }
+.desktop-chatgpt-follow small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(6.5px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.desktop-chatgpt-follow button { flex:0 0 auto; min-height:26px; padding:0 8px; border:1px solid var(--theme-border); border-radius:6px; background:var(--theme-bg); color:var(--theme-text); font-size:calc(6.8px * var(--ui-font-scale)); cursor:pointer; }
+.desktop-chatgpt-follow button:hover { background:var(--theme-hover); }
 .desktop-chatgpt-host { flex: 1; min-height: 230px; position: relative; background: #fff; overflow: hidden; }
 .desktop-chatgpt-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #969b91; font-size: calc(10px * var(--ui-font-scale)); }
 .desktop-chatgpt-deferred { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 28px; background: #f3f5ef; color: #30352d; text-align: center; }
@@ -2718,10 +2724,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-detail dl > div { min-width:0; padding:7px 0; display:grid; grid-template-columns:62px minmax(0,1fr); gap:8px; border-bottom:1px solid var(--theme-border-soft); }
 .agent-runtime-detail dt { color:var(--theme-text-muted); font-size:calc(6.7px * var(--ui-font-scale)); }
 .agent-runtime-detail dd { margin:0; overflow:hidden; color:var(--theme-text-soft); font:500 calc(6.9px * var(--ui-font-scale))/1.4 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
-.agent-runtime-interact,.agent-runtime-capture { width:100%; min-height:31px; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-surface); color:var(--theme-text); font-size:calc(7.5px * var(--ui-font-scale)); cursor:pointer; }
+.agent-runtime-worker-actions { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.agent-runtime-worker-actions .agent-runtime-interact { margin-top:0; }
+.agent-runtime-follow,.agent-runtime-interact,.agent-runtime-capture { width:100%; min-height:31px; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-surface); color:var(--theme-text); font-size:calc(7.5px * var(--ui-font-scale)); cursor:pointer; }
+.agent-runtime-follow { margin-top:0; border-color:color-mix(in srgb, var(--theme-accent) 55%, var(--theme-border)); background:color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface)); font-weight:700; }
 .agent-runtime-interact { border-color:color-mix(in srgb, var(--theme-accent) 45%, var(--theme-border)); background:color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface)); }
-.agent-runtime-interact:hover:not(:disabled),.agent-runtime-capture:hover:not(:disabled) { background:var(--theme-hover); }
-.agent-runtime-interact:disabled,.agent-runtime-capture:disabled { opacity:.45; cursor:default; }
+.agent-runtime-follow:hover:not(:disabled),.agent-runtime-interact:hover:not(:disabled),.agent-runtime-capture:hover:not(:disabled) { background:var(--theme-hover); }
+.agent-runtime-follow:disabled,.agent-runtime-interact:disabled,.agent-runtime-capture:disabled { opacity:.45; cursor:default; }
 .agent-runtime-interaction { margin-top:10px; display:grid; gap:7px; }
 .agent-runtime-interaction-heading { display:grid; gap:2px; }
 .agent-runtime-interaction-heading strong { color:var(--theme-text-soft); font-size:calc(7.6px * var(--ui-font-scale)); }

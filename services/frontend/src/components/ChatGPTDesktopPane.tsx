@@ -9,6 +9,7 @@ import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
+const AGENT_FOLLOW_EVENT = 'wharnex:agent-follow'
 
 export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, recoveryBootstrap, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
   suspended?: boolean
@@ -42,6 +43,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
   const [overlayBlocked, setOverlayBlocked] = useState(false)
   const [requestAction, setRequestAction] = useState<'resume' | 'stop' | null>(null)
+  const [followedAgentId, setFollowedAgentId] = useState('')
   const [controlsExpanded, setControlsExpanded] = useState(() => {
     try { return window.localStorage.getItem(CHATGPT_CONTROLS_KEY) === '1' } catch { return false }
   })
@@ -138,14 +140,58 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   useEffect(() => observeChatGPTOverlayBlockers(window, setOverlayBlocked), [])
 
   useEffect(() => {
+    const onFollow = (event: Event) => {
+      const agentId = String((event as CustomEvent<{ agentId?: string }>).detail?.agentId || '').trim()
+      if (/^worker-[1-6]$/.test(agentId)) setFollowedAgentId(agentId)
+    }
+    window.addEventListener(AGENT_FOLLOW_EVENT, onFollow)
+    return () => window.removeEventListener(AGENT_FOLLOW_EVENT, onFollow)
+  }, [])
+
+  useEffect(() => {
+    const agents = bridge?.agents
+    const host = hostRef.current
+    if (!agents || !host || !followedAgentId) return
+    let active = true
+    let frame = 0
+    const sync = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (active && hostRef.current) void agents.setInteractionBounds(followedAgentId, elementBounds(hostRef.current)).catch(() => {})
+      })
+    }
+    void bridge.chatgpt.hide(chatIdRef.current)
+    void agents.openInteraction(followedAgentId, elementBounds(host)).catch((error) => {
+      if (!active) return
+      setFollowedAgentId('')
+      setNotice(error instanceof Error ? error.message : 'Não foi possível seguir o Worker')
+    })
+    const observer = new ResizeObserver(sync)
+    observer.observe(host)
+    window.addEventListener('resize', sync)
+    window.addEventListener('scroll', sync, true)
+    return () => {
+      active = false
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('resize', sync)
+      window.removeEventListener('scroll', sync, true)
+      void agents.closeInteraction(followedAgentId).catch(() => {})
+      if (!suspended && !overlayBlocked && !externalAuth && hostRef.current) {
+        void bridge.chatgpt.show(elementBounds(hostRef.current), chatIdRef.current, linkedURLRef.current || CHATGPT_HOME)
+      }
+    }
+  }, [bridge, followedAgentId, suspended, overlayBlocked, externalAuth])
+
+  useEffect(() => {
     if (!bridge || !hostRef.current) return
-    if (suspended || overlayBlocked || externalAuth) { void bridge.chatgpt.hide(chatIdRef.current); return }
+    if (suspended || overlayBlocked || externalAuth || followedAgentId) { void bridge.chatgpt.hide(chatIdRef.current); return }
     void bridge.chatgpt.show(elementBounds(hostRef.current), chatId, chatgptUrl || CHATGPT_HOME)
-  }, [bridge, chatId, suspended, overlayBlocked, externalAuth])
+  }, [bridge, chatId, suspended, overlayBlocked, externalAuth, followedAgentId])
 
   useEffect(() => {
     if (!bridge || !chatId) return
-    if (suspended || overlayBlocked || externalAuth || !hostRef.current) return
+    if (suspended || overlayBlocked || externalAuth || followedAgentId || !hostRef.current) return
     // This is the single human-facing Supervisor pane. It remains mounted while
     // its chatId/url props move between chats; background automation is handled
     // by hidden Desktop workers rather than additional React panes.
@@ -335,6 +381,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
+    {followedAgentId && <div className="desktop-chatgpt-follow"><div><Icon name="monitor" size={13}/><strong>Seguindo {followedAgentId.replace('worker-', 'Worker ')}</strong><small>Instância real do Worker em tempo real; o scheduler continua proprietário.</small></div><button type="button" className="text-button" onClick={() => setFollowedAgentId('')}>Parar de seguir</button></div>}
     <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharness retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
   </div>
 }

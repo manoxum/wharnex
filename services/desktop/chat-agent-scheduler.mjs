@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
-export const DEFAULT_CHAT_AGENT_WORKERS = 3
+export const DEFAULT_CHAT_AGENT_WORKERS = 6
 export const DEFAULT_CHAT_AGENT_LEASE_SECONDS = 45
-export const DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS = 0
+export const DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS = 2_500
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))

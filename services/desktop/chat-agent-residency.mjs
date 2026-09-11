@@ -1,7 +1,8 @@
-export const DEFAULT_CHAT_AGENT_RESIDENCY_MS = 30_000
-export const MIN_CHAT_AGENT_RESIDENCY_MS = 15_000
-export const CHAT_AGENT_NAVIGATION_GAP_MS = 15_000
-export const CHAT_AGENT_AWAIT_PROBE_MS = 15_000
+export const DEFAULT_CHAT_AGENT_RESIDENCY_MS = 60_000
+export const MIN_CHAT_AGENT_RESIDENCY_MS = 30_000
+export const MAX_CHAT_AGENT_RESIDENCY_MS = 120_000
+export const CHAT_AGENT_NAVIGATION_GAP_MS = 30_000
+export const CHAT_AGENT_AWAIT_PROBE_MS = 30_000
 
 export function chatAgentLane(task = {}) {
   const conversation = String(task.conversation_id || task.conversationId || '').trim()
@@ -18,7 +19,7 @@ export function chatAgentConversationFromLane(lane = '') {
 function normalizeResidence(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return DEFAULT_CHAT_AGENT_RESIDENCY_MS
-  return Math.max(MIN_CHAT_AGENT_RESIDENCY_MS, Math.min(DEFAULT_CHAT_AGENT_RESIDENCY_MS, Math.floor(numeric)))
+  return Math.max(MIN_CHAT_AGENT_RESIDENCY_MS, Math.min(MAX_CHAT_AGENT_RESIDENCY_MS, Math.floor(numeric)))
 }
 
 export class ChatAgentResidency {

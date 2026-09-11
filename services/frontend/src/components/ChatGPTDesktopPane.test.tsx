@@ -18,6 +18,7 @@ function bridge() {
       onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
       onActivity: vi.fn(noopSubscription),
     },
+    agents: { state: vi.fn(), setWorkerCount: vi.fn(), resumeProvider: vi.fn(), snapshot: vi.fn(), openInteraction: vi.fn().mockResolvedValue({ ok: true }), setInteractionBounds: vi.fn().mockResolvedValue({ ok: true }), closeInteraction: vi.fn().mockResolvedValue({ ok: true }), onState: vi.fn(noopSubscription) },
     attachments: { persist: vi.fn(), preview: vi.fn(), open: vi.fn(), removeChat: vi.fn() }, clipboard: { copyContextZip: vi.fn(), readText: vi.fn(), writeText: vi.fn() },
   } as unknown as WharnessDesktopBridge
 }
@@ -124,6 +125,23 @@ describe('ChatGPTDesktopPane', () => {
     const projectWindow = { document: projectDocument, parent: shellWindow } as unknown as Window
 
     expect(chatGPTOverlayDocuments(projectWindow)).toEqual([projectDocument, shellDocument])
+  })
+
+
+  it('follows an existing Worker in the main Engine area and restores the Supervisor on exit', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
+
+    act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-1' } })))
+
+    expect(await screen.findByText('Seguindo Worker 1')).toBeTruthy()
+    await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.objectContaining({ width: expect.any(Number), height: expect.any(Number) })))
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-1'))
+
+    screen.getByRole('button', { name: 'Parar de seguir' }).click()
+    await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
   })
 
   it('synchronizes the native view bounds immediately after mounting', async () => {

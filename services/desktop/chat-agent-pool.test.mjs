@@ -14,29 +14,31 @@ import {
   slotBlueprints,
 } from './chat-agent-pool.mjs'
 
-test('one active profile uses one supervisor plus three workers', () => {
+test('one active profile uses two supervisors plus six workers by default', () => {
   assert.equal(desiredSlotCount(0), 0)
-  assert.equal(desiredSlotCount(1), 4)
-  assert.equal(desiredSlotCount(30), 4)
-  assert.equal(DEFAULT_WORKER_SLOTS, 3)
-  assert.equal(DEFAULT_TOTAL_SLOTS, 4)
-  assert.deepEqual(slotBlueprints().map((slot) => slot.role), ['supervisor', 'worker', 'worker', 'worker'])
+  assert.equal(desiredSlotCount(1), 8)
+  assert.equal(desiredSlotCount(30), 8)
+  assert.equal(DEFAULT_WORKER_SLOTS, 6)
+  assert.equal(DEFAULT_TOTAL_SLOTS, 8)
+  assert.deepEqual(slotBlueprints().map((slot) => slot.role), ['supervisor', 'supervisor', 'worker', 'worker', 'worker', 'worker', 'worker', 'worker'])
 })
 
-test('assignRoles preserves a single exclusive supervisor', () => {
+test('assignRoles preserves two exclusive supervisors', () => {
   const roles = assignRoles([
     { id: 'worker-1' },
-    { id: 'supervisor', role: 'supervisor' },
+    { id: 'supervisor-1', role: 'supervisor' },
+    { id: 'supervisor-2', role: 'supervisor' },
     { id: 'worker-2' },
-    { id: 'worker-3' },
   ])
-  assert.equal(roles.filter((slot) => slot.role === 'supervisor').length, 1)
-  assert.equal(roles.find((slot) => slot.id === 'supervisor').role, 'supervisor')
+  assert.equal(roles.filter((slot) => slot.role === 'supervisor').length, 2)
+  assert.equal(roles.find((slot) => slot.id === 'supervisor-1').role, 'supervisor')
+  assert.equal(roles.find((slot) => slot.id === 'supervisor-2').role, 'supervisor')
 })
 
 test('background jobs can never fall back to the supervisor', () => {
   const slots = [
-    { id: 'supervisor', role: 'supervisor', busy: false, chatId: 'visible' },
+    { id: 'supervisor-1', role: 'supervisor', busy: false, chatId: 'visible' },
+    { id: 'supervisor-2', role: 'supervisor', busy: false },
     { id: 'worker-1', role: 'worker', busy: true },
     { id: 'worker-2', role: 'worker', busy: true },
     { id: 'worker-3', role: 'worker', busy: true },
@@ -47,13 +49,14 @@ test('background jobs can never fall back to the supervisor', () => {
 
 test('worker affinity is preference only', () => {
   const slots = [
-    { id: 'supervisor', role: 'supervisor', busy: false },
+    { id: 'supervisor-1', role: 'supervisor', busy: false },
+    { id: 'supervisor-2', role: 'supervisor', busy: false },
     { id: 'worker-1', role: 'worker', busy: false, conversationId: 'conv-a' },
     { id: 'worker-2', role: 'worker', busy: false, conversationId: 'conv-b' },
     { id: 'worker-3', role: 'worker', busy: false },
   ]
   assert.equal(selectSlotForJob(slots, { conversationId: 'conv-b' }).id, 'worker-2')
-  slots[2].busy = true
+  slots[3].busy = true
   assert.equal(selectSlotForJob(slots, { conversationId: 'conv-b' }).id, 'worker-1')
 })
 
@@ -71,7 +74,7 @@ test('worker topology clamps operator scaling to the supported bounds', () => {
   assert.equal(normalizeWorkerSlotCount(1), 1)
   assert.equal(normalizeWorkerSlotCount(4), 4)
   assert.equal(normalizeWorkerSlotCount(99), HARD_MAX_WORKER_SLOTS)
-  assert.equal(desiredSlotCount(1, 1), 2)
-  assert.equal(desiredSlotCount(1, 6), 7)
-  assert.deepEqual(slotBlueprints(2).map((slot) => slot.id), ['supervisor', 'worker-1', 'worker-2'])
+  assert.equal(desiredSlotCount(1, 1), 3)
+  assert.equal(desiredSlotCount(1, 6), 8)
+  assert.deepEqual(slotBlueprints(2).map((slot) => slot.id), ['supervisor-1', 'supervisor-2', 'worker-1', 'worker-2'])
 })

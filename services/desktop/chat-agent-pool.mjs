@@ -1,13 +1,13 @@
 // Global ChatGPT browser topology.
 //
-// One authenticated Desktop process owns exactly one human-facing Supervisor
-// plus a bounded number of autonomous workers. Chats own durable conversation
-// ids, not renderers; slots are parked on conversations only as an affinity
-// cache.
+// One authenticated Desktop process owns a small double-buffered Supervisor
+// pool plus a bounded number of autonomous workers. Only one Supervisor is
+// visible at a time; the second can finish a write or preload the next chat.
+// Chats own durable conversation ids, not renderers; slots are affinity caches.
 
-export const SUPERVISOR_SLOTS = 1
+export const SUPERVISOR_SLOTS = 2
 export const MIN_WORKER_SLOTS = 1
-export const DEFAULT_WORKER_SLOTS = 3
+export const DEFAULT_WORKER_SLOTS = 6
 export const DEFAULT_TOTAL_SLOTS = SUPERVISOR_SLOTS + DEFAULT_WORKER_SLOTS
 export const HARD_MAX_WORKER_SLOTS = 6
 
@@ -26,7 +26,7 @@ export function desiredSlotCount(chatCount, workerSlots = DEFAULT_WORKER_SLOTS) 
 export function slotBlueprints(workerSlots = DEFAULT_WORKER_SLOTS) {
   const workers = normalizeWorkerSlotCount(workerSlots)
   return [
-    { id: 'supervisor', role: 'supervisor' },
+    ...Array.from({ length: SUPERVISOR_SLOTS }, (_, index) => ({ id: `supervisor-${index + 1}`, role: 'supervisor' })),
     ...Array.from({ length: workers }, (_, index) => ({ id: `worker-${index + 1}`, role: 'worker' })),
   ]
 }
@@ -34,9 +34,15 @@ export function slotBlueprints(workerSlots = DEFAULT_WORKER_SLOTS) {
 export function assignRoles(slots) {
   const live = slots.filter((slot) => !slot.destroyed)
   if (!live.length) return []
-  let supervisor = live.find((slot) => slot.id === 'supervisor' || slot.role === 'supervisor')
-  if (!supervisor) supervisor = live[0]
-  return live.map((slot) => ({ ...slot, role: slot.id === supervisor.id ? 'supervisor' : 'worker' }))
+  const supervisorIDs = new Set(live
+    .filter((slot) => slot.role === 'supervisor' || /^supervisor(?:-|$)/.test(String(slot.id || '')))
+    .slice(0, SUPERVISOR_SLOTS)
+    .map((slot) => slot.id))
+  for (const slot of live) {
+    if (supervisorIDs.size >= SUPERVISOR_SLOTS) break
+    supervisorIDs.add(slot.id)
+  }
+  return live.map((slot) => ({ ...slot, role: supervisorIDs.has(slot.id) ? 'supervisor' : 'worker' }))
 }
 
 // Scheduler jobs are autonomous by definition. Initial human sends and user
