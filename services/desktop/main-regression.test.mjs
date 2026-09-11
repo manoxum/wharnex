@@ -687,7 +687,7 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   const statusEnd = source.indexOf('\nfunction settleChatGPTAffinityAfterSubmit', statusStart)
   const httpStatus = source.slice(statusStart, statusEnd)
 
-  assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_MS = 2_500/)
+  assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_MS = CHAT_AGENT_NAVIGATION_GAP_MS/)
   assert.match(pacing, /await wait\(remaining\)/)
   assert.match(pacing, /await loadOwnedChatGPTURL/)
   assert.match(pacing, /await waitForChatGPTSurfaceReady/)
@@ -696,9 +696,9 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   assert.match(execute, /status: 'waiting', delayMs: rateLimitDelay/)
   assert.match(httpStatus, /status === 429/)
   assert.match(httpStatus, /details\?\.resourceType === 'mainFrame' \|\| conversationTransport/)
-  assert.match(httpStatus, /chatGPTRateLimitUntil = next/)
-  assert.match(httpStatus, /setProviderPause\(true/)
-  assert.match(httpStatus, /pausedUntil: new Date\(next\)\.toISOString\(\)/)
+  assert.match(httpStatus, /chatGPTRateLimitUntil = fallbackUntil/)
+  assert.match(httpStatus, /recordRateLimit\(source\)/)
+  assert.match(httpStatus, /persistedUntil/)
 })
 
 test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle cleanup', async () => {
@@ -1139,4 +1139,42 @@ test('transient protocol ZIPs are deleted promptly and included in storage clean
   const ready = source.slice(readyStart, readyStart + 500)
   assert.match(ready, /wharness-chat-protocol/)
   assert.match(ready, /recursive: true, force: true/)
+})
+
+test('worker scheduling keeps residency and slot mutation explicit', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /new ChatAgentResidency\(/)
+  assert.match(source, /claimOptions: \(worker\) =>/)
+  assert.match(source, /chatAgentResidency\.claimOptions\(entry\.slotId/)
+  assert.match(source, /const transportKey = entry\.role === 'worker' \? `slot:\$\{entry\.slotId\}` : `chat:\$\{key\}`/)
+  assert.match(source, /await waitForChatGPTSurfaceReady\(key, entry\)[\s\S]*chatAgentResidency\.settleAssignment/)
+})
+
+test('await-response is a passive resident probe with fixed healthy cadence', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function probeChatAgentResponse(')
+  const end = source.indexOf('\nasync function executeChatAgentWrite', start)
+  assert.notEqual(start, -1)
+  const body = source.slice(start, end)
+
+  assert.match(body, /CHAT_AGENT_AWAIT_PROBE_MS/)
+  assert.match(body, /waitForChatGPTSurfaceReady\(key, entry\)/)
+  assert.match(body, /chatGPTHumanActionScript/)
+  assert.match(body, /chatGPTResponseCompletionScript/)
+  assert.doesNotMatch(body, /targetChatGPTComposer/)
+  assert.doesNotMatch(body, /\.reload\(/)
+  assert.doesNotMatch(body, /chatAgentBackoff/)
+})
+
+test('request pacing samples only structurally extracted durations for valid bundles', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /chatGPTProcessingDurationScript\(CHATGPT_BEHAVIOR\.labels\.reasoningDisclosure, expected\.assistantBaseline\)/)
+  assert.match(source, /request_eligible_at/)
+  assert.match(source, /recordRateLimit\(source\)/)
+
+  const validateIndex = source.indexOf('validateWharnessBundleDownload')
+  const recordIndex = source.indexOf('recordValidBundle', validateIndex)
+  assert.notEqual(validateIndex, -1)
+  assert.notEqual(recordIndex, -1)
+  assert.ok(recordIndex > validateIndex, 'processing samples must be recorded only after bundle validation')
 })

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTHumanActionScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chooseChatGPTDownloadCandidate, chooseUsableChatGPTDOMCandidate } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTHumanActionScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, parseChatGPTProcessingDuration, chooseChatGPTDownloadCandidate, chooseUsableChatGPTDOMCandidate } from './chatgpt-dom.mjs'
 
 test('DOM automation scripts stay narrow and escape user text', () => {
   const fill = chatGPTFillComposerScript('hello ` ${world} </script>')
@@ -135,4 +135,14 @@ test('download candidate policy prefers exact filename and only accepts one newe
     { index: 7, metadata: 'Download', latestAssistant: true, downloadSemantic: true, visible: true, nested: true },
     { index: 8, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
   ], 'wharness-bundle-req_12345678.zip'), { index: 8, mode: 'latest-assistant-unique' })
+})
+
+
+test('processing duration parser accepts only allowlisted reasoning disclosure labels', () => {
+  const prefixes = ['processou durante', 'thought for']
+  assert.equal(parseChatGPTProcessingDuration('Processou durante 5m 23s', prefixes), 323_000)
+  assert.equal(parseChatGPTProcessingDuration('Thought for 1h 2m 3s', prefixes), 3_723_000)
+  assert.equal(parseChatGPTProcessingDuration('Resposta levou 5m 23s', prefixes), 0)
+  assert.equal(parseChatGPTProcessingDuration('Processou durante', prefixes), 0)
+  assert.match(chatGPTProcessingDurationScript(prefixes, 2), /button\[aria-expanded\]/)
 })

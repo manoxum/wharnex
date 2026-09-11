@@ -97,10 +97,28 @@ CREATE TABLE IF NOT EXISTS harness_chat_agent_provider_state (
     paused boolean NOT NULL DEFAULT false,
     paused_until timestamptz,
     reason text NOT NULL DEFAULT '',
+    rate_limit_level integer NOT NULL DEFAULT 0,
+    last_rate_limit_at timestamptz,
+    last_rate_limit_source text NOT NULL DEFAULT '',
+    last_valid_bundle_at timestamptz,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE harness_chat_agent_provider_state ADD COLUMN IF NOT EXISTS rate_limit_level integer NOT NULL DEFAULT 0;
+ALTER TABLE harness_chat_agent_provider_state ADD COLUMN IF NOT EXISTS last_rate_limit_at timestamptz;
+ALTER TABLE harness_chat_agent_provider_state ADD COLUMN IF NOT EXISTS last_rate_limit_source text NOT NULL DEFAULT '';
+ALTER TABLE harness_chat_agent_provider_state ADD COLUMN IF NOT EXISTS last_valid_bundle_at timestamptz;
 INSERT INTO harness_chat_agent_provider_state (provider) VALUES ('chatgpt')
     ON CONFLICT (provider) DO NOTHING;
+CREATE TABLE IF NOT EXISTS harness_chat_agent_processing_samples (
+    provider text NOT NULL DEFAULT 'chatgpt',
+    request_id text NOT NULL,
+    conversation_id text NOT NULL DEFAULT '',
+    duration_ms bigint NOT NULL CHECK (duration_ms > 0),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (provider, request_id)
+);
+CREATE INDEX IF NOT EXISTS harness_chat_agent_processing_samples_recent_idx
+    ON harness_chat_agent_processing_samples (provider, created_at DESC);
 CREATE TABLE IF NOT EXISTS harness_chat_agent_tasks (
     task_id text PRIMARY KEY,
     type text NOT NULL,

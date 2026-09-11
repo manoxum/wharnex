@@ -98,8 +98,9 @@ type Store struct {
 	// chatAgentTasks is the non-Postgres fallback for the durable browser job
 	// scheduler. Production persists the same records in
 	// harness_chat_agent_tasks.
-	chatAgentTasks    map[string]ChatAgentTask
-	chatAgentProvider ChatAgentProviderState
+	chatAgentTasks             map[string]ChatAgentTask
+	chatAgentProvider          ChatAgentProviderState
+	chatAgentProcessingSamples []ChatAgentProcessingSample
 }
 
 func NewStore() *Store { return &Store{items: make(map[string]domain.Session)} }

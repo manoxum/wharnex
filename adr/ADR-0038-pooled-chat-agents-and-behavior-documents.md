@@ -45,8 +45,14 @@ Workers execute autonomous jobs. Scaling up creates additional hidden-by-default
 restarting the scheduler. Scaling down is non-preemptive: excess busy workers finish
 their current job before their renderer is retired. Affinity is only a cache preference:
 `chat_id -> conversation_id` is durable state, and a worker may be rebound after
-finishing its non-preemptive job. Project-scoped ChatGPT URLs do not change the
-canonical conversation identity.
+finishing its non-preemptive job. A reached conversation becomes that slot's resident
+lane for 30 seconds by default (never below 15 seconds). Resident work is preferred;
+free slots claim unresident lanes before any resident slot is evicted; and, when chats
+outnumber slots, only the head of a fair in-memory rotation may rebind after its dwell.
+Cross-chat navigation starts share one profile-global 15-second gate. Each rebind
+increments an assignment epoch so late callbacks cannot mutate the next assignment,
+and write/upload transport is serialized by physical slot rather than chat id.
+Project-scoped ChatGPT URLs do not change the canonical conversation identity.
 
 ### PostgreSQL is the browser-job source of truth
 
@@ -76,13 +82,19 @@ one another or an await probe on the same conversation.
 
 ### Awaiting is a bounded probe, not a parked browser
 
-`AWAIT_RESPONSE` navigates a worker to the canonical conversation, checks only
-allowlisted structural state and the exact expected bundle affordance, then
-finishes quickly. While generation is active it returns to `WAITING` with
-`not_before` plus bounded backoff/jitter so the worker is released. A completed
-turn without the canonical bundle may create one bounded `RECOVERY_WRITE`
-child. CAPTCHA/auth/rate-limit/provider-wide gates move work to `ATTENTION` and
-pause the provider globally instead of producing parallel retry storms.
+`AWAIT_RESPONSE` runs on the already-resident canonical conversation, checks only
+allowlisted structural health/completion state and the exact expected bundle affordance,
+and never focuses the composer or reloads a healthy page. While generation is active it
+returns to `WAITING` on a fixed roughly 15-second observation cadence so the worker is
+released without turning normal generation into failure backoff. A completed turn
+without the canonical bundle may create one bounded `RECOVERY_WRITE` child.
+Request-bound follow-ups are initially ineligible for at least one minute. Once three
+valid samples exist, the delay is `clamp(max(60s, (60s + average)/2), 60s, 15m)`, using
+only the newest 50 structurally parsed processing-duration disclosures associated with
+validated canonical bundles. Missing or ambiguous disclosures create no sample.
+CAPTCHA/auth/provider-wide gates move work to `ATTENTION`; HTTP 429 uses a durable
+60/120/240/300-second progressive breaker and resumes through the global navigation
+gate instead of producing parallel retry storms.
 
 `BOT_WRITE`/`RECOVERY_WRITE` acquire the per-conversation write lease and create
 exactly one `AWAIT_RESPONSE` only after the conversation POST is confirmed and a

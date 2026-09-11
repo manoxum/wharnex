@@ -70,6 +70,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	// executor; PostgreSQL remains authoritative across Desktop restarts.
 	mux.HandleFunc("GET /api/chat-agent/provider", a.chatAgentProviderState)
 	mux.HandleFunc("PUT /api/chat-agent/provider", a.updateChatAgentProviderState)
+	mux.HandleFunc("POST /api/chat-agent/provider/rate-limit", a.recordChatAgentRateLimit)
+	mux.HandleFunc("POST /api/chat-agent/provider/valid-bundle", a.recordChatAgentValidBundle)
 	mux.HandleFunc("POST /api/chat-agent/tasks", a.enqueueChatAgentTask)
 	mux.HandleFunc("GET /api/chat-agent/tasks", a.listChatAgentTasks)
 	mux.HandleFunc("POST /api/chat-agent/tasks/claim", a.claimChatAgentTask)

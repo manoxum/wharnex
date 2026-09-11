@@ -11,8 +11,11 @@ import (
 )
 
 type chatAgentLeaseRequest struct {
-	Owner        string `json:"owner"`
-	LeaseSeconds int    `json:"lease_seconds"`
+	Owner         string   `json:"owner"`
+	LeaseSeconds  int      `json:"lease_seconds"`
+	PreferredLane string   `json:"preferred_lane"`
+	ExcludedLanes []string `json:"excluded_lanes"`
+	FallbackMode  string   `json:"fallback_mode"`
 }
 
 func (a *API) enqueueChatAgentTask(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +56,9 @@ func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
 	if lease == 0 {
 		lease = 45 * time.Second
 	}
-	task, err := a.store.ClaimChatAgentTask(body.Owner, lease)
+	task, err := a.store.ClaimChatAgentTaskWithOptions(body.Owner, lease, session.ChatAgentClaimOptions{
+		PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, FallbackMode: body.FallbackMode,
+	})
 	if err != nil {
 		writeChatAgentTaskError(w, err)
 		return
@@ -184,6 +189,40 @@ func (a *API) updateChatAgentProviderState(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	state, err := a.store.SetChatAgentProviderPause(body.Paused, body.PausedUntil, body.Reason)
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (a *API) recordChatAgentRateLimit(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Source string `json:"source"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	state, err := a.store.RecordChatAgentRateLimit(body.Source)
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (a *API) recordChatAgentValidBundle(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RequestID      string `json:"request_id"`
+		ConversationID string `json:"conversation_id"`
+		DurationMS     int64  `json:"duration_ms"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	state, err := a.store.RecordChatAgentValidBundle(
+		body.RequestID, body.ConversationID, time.Duration(body.DurationMS)*time.Millisecond,
+	)
 	if err != nil {
 		writeChatAgentTaskError(w, err)
 		return
