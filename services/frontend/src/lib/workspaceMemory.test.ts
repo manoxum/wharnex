@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
 	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
+  enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -69,6 +69,23 @@ describe('workspace memory', () => {
   it('deduplicates recent workspaces', () => {
     rememberRecent('/tmp/a'); rememberRecent('/tmp/b'); rememberRecent('/tmp/a')
     expect(loadRecentWorkspaces()).toEqual(['/tmp/a', '/tmp/b'])
+  })
+
+  it('restores active chats in the persisted tab order instead of sorting by activity', () => {
+    const first = { ...newWorkspaceChat('ses-1', 'Primeiro'), updatedAt: '2026-09-04T08:00:00.000Z' }
+    const second = { ...newWorkspaceChat('ses-2', 'Segundo'), updatedAt: '2026-09-05T08:00:00.000Z' }
+    saveWorkspaceChats('/tmp/project', [first, second])
+    expect(loadWorkspaceChats('/tmp/project').map((chat) => chat.id)).toEqual([first.id, second.id])
+  })
+
+  it('reorders active chats manually and preserves that order across reloads', () => {
+    const first = newWorkspaceChat('ses-1', 'Primeiro')
+    const second = newWorkspaceChat('ses-2', 'Segundo')
+    const third = newWorkspaceChat('ses-3', 'Terceiro')
+    const reordered = reorderWorkspaceChats([first, second, third], first.id, third.id)
+    expect(reordered.map((chat) => chat.id)).toEqual([second.id, third.id, first.id])
+    saveWorkspaceChats('/tmp/project', reordered)
+    expect(loadWorkspaceChats('/tmp/project').map((chat) => chat.id)).toEqual([second.id, third.id, first.id])
   })
 
   it('persists multiple Harness chats with independent ChatGPT URLs and histories', () => {

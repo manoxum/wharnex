@@ -16,7 +16,7 @@ import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
-  loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
+  loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
   conflictChatGPTCacheKey, enabledTunnelIds, loadTransportOptions, recordRemoteArchiveAttempt, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
@@ -814,6 +814,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   function updateChat(patch: Partial<WorkspaceChat>) {
     if (!session || !activeChatId) return
     updateWorkspaceChat(activeChatId, session.project_path, patch)
+  }
+
+  function reorderChat(sourceChatId: string, targetChatId: string) {
+    if (!session) return
+    setChats((current) => {
+      const next = reorderWorkspaceChats(current, sourceChatId, targetChatId)
+      if (next === current) return current
+      saveWorkspaceChats(session.project_path, next)
+      return next
+    })
   }
 
   function markContextDirtyForOtherChats(projectPath: string, sourceChatId: string) {
@@ -2497,6 +2507,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onError={setError}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onExportChat={exportActiveChat}
+        onReorderChat={reorderChat}
         chatProps={{
           session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, chatTransportMode,
           attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],

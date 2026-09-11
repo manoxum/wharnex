@@ -47,7 +47,7 @@ function saveAgentChatWidth(width: number) {
 }
 
 
-export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSessions = {}, chatgptHumanActions = {}, chatgptHumanAction, chatgptAttentionNonce = 0, inspectorAttention, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat }: {
+export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSessions = {}, chatgptHumanActions = {}, chatgptHumanAction, chatgptAttentionNonce = 0, inspectorAttention, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat, onReorderChat }: {
   session: Session
   busy: boolean
   executionFIFO?: ExecutionFIFOItem[]
@@ -63,6 +63,7 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   onError: (message: string) => void
   onAnalyzeEvolution?: (ids: string[]) => Promise<void>
   onExportChat?: () => Promise<void>
+  onReorderChat: (sourceChatId: string, targetChatId: string) => void
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [drawer, setDrawer] = useState<Drawer>('')
@@ -72,6 +73,8 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const attentionClusterRef = useRef<HTMLDivElement>(null)
   const chatViewportStoreRef = useRef<ChatViewportStore>(new Map())
   const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
+  const [draggedChatId, setDraggedChatId] = useState('')
+  const [dropTargetChatId, setDropTargetChatId] = useState('')
   const [bundleQuota, setBundleQuota] = useState<BundleQuota>()
   const archived = chatProps.archivedChats || []
   const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
@@ -194,6 +197,30 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
     return [inspectorTab === target ? 'active' : '', tone ? `attention-pulse attention-${tone}` : '', executionPulse ? 'execution-pulse' : ''].filter(Boolean).join(' ')
   }
 
+  function beginChatDrag(event: React.DragEvent<HTMLDivElement>, chatId: string) {
+    setDraggedChatId(chatId)
+    setDropTargetChatId('')
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', chatId)
+  }
+
+  function dropChat(event: React.DragEvent<HTMLDivElement>, targetChatId: string) {
+    event.preventDefault()
+    const sourceChatId = draggedChatId || event.dataTransfer.getData('text/plain')
+    setDraggedChatId('')
+    setDropTargetChatId('')
+    if (sourceChatId && sourceChatId !== targetChatId) onReorderChat(sourceChatId, targetChatId)
+  }
+
+  function moveChatWithKeyboard(event: React.KeyboardEvent<HTMLButtonElement>, chatId: string) {
+    if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+    const index = chatProps.chats.findIndex((chat) => chat.id === chatId)
+    const target = chatProps.chats[index + (event.key === 'ArrowLeft' ? -1 : 1)]
+    if (!target) return
+    event.preventDefault()
+    onReorderChat(chatId, target.id)
+  }
+
   function beginResize(event: React.PointerEvent<HTMLButtonElement>) {
     const root = workspaceRef.current
     if (!root) return
@@ -244,8 +271,17 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
       {archived.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void chatProps.onRestoreChat(archived[0].id)} title={`Reabrir último chat fechado: ${archived[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
       <div className="chat-tabs">
-        {chatProps.chats.map((chat) => <div key={chat.id} className={chat.id === chatProps.activeChatId ? 'chat-tab-group active' : 'chat-tab-group'}>
-          <button className={chat.id === chatProps.activeChatId ? 'chat-tab active' : 'chat-tab'} onClick={() => void chatProps.onSelectChat(chat.id)} title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}><span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" /></button>
+        {chatProps.chats.map((chat) => <div
+          key={chat.id}
+          draggable
+          className={[chat.id === chatProps.activeChatId ? 'chat-tab-group active' : 'chat-tab-group', chat.id === draggedChatId ? 'dragging' : '', chat.id === dropTargetChatId ? 'drop-target' : ''].filter(Boolean).join(' ')}
+          onDragStart={(event) => beginChatDrag(event, chat.id)}
+          onDragEnter={() => { if (draggedChatId && draggedChatId !== chat.id) setDropTargetChatId(chat.id) }}
+          onDragOver={(event) => { if (draggedChatId && draggedChatId !== chat.id) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }}
+          onDrop={(event) => dropChat(event, chat.id)}
+          onDragEnd={() => { setDraggedChatId(''); setDropTargetChatId('') }}
+        >
+          <button className={chat.id === chatProps.activeChatId ? 'chat-tab active' : 'chat-tab'} onClick={() => void chatProps.onSelectChat(chat.id)} onKeyDown={(event) => moveChatWithKeyboard(event, chat.id)} title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}\nArraste para reordenar · Alt+←/→` : `${chat.title}\nChatGPT ainda não vinculado\nArraste para reordenar · Alt+←/→`}><span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" /></button>
           <button className="chat-tab-remove" disabled={busy} onClick={() => void chatProps.onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={11}/></button>
         </div>)}
       </div>

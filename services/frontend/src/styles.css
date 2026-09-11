@@ -363,6 +363,10 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .chat-tab-group { height: 29px; max-width: 210px; flex: 0 0 auto; display: inline-flex; align-items: center; border: 1px solid transparent; border-radius: 7px; background: transparent; overflow: hidden; }
 .chat-tab-group:hover { background: #e4e6de; }
 .chat-tab-group.active { border-color: #c8cec0; background: #fff; box-shadow: 0 1px 4px rgba(20,25,16,.04); }
+.chat-tab-group[draggable='true'] .chat-tab { cursor: grab; }
+.chat-tab-group.dragging { opacity: .55; }
+.chat-tab-group.dragging .chat-tab { cursor: grabbing; }
+.chat-tab-group.drop-target { outline: 1px dashed var(--theme-accent); outline-offset: -2px; }
 .chat-tab { height: 27px; min-width: 0; max-width: 182px; padding: 0 7px 0 9px; display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: #6d7268; font-size: calc(9px * var(--ui-font-scale)); cursor: pointer; }
 .chat-tab:hover { color: #363a33; }
 .chat-tab.active { color: #262a23; }
