@@ -675,6 +675,32 @@ test('agent runtime reconciles Worker occupancy from durable lease owners', asyn
   assert.match(source, /: 'claimed'/)
 })
 
+test('autonomous workers pace chat switches, wait for page settle, and pause on HTTP 429', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const paceStart = source.indexOf('async function paceChatGPTWorkerNavigation()')
+  const paceEnd = source.indexOf('\nasync function pasteChatGPTFile', paceStart)
+  const pacing = source.slice(paceStart, paceEnd)
+  const executeStart = source.indexOf('async function executeChatAgentTask(task, { worker })')
+  const executeEnd = source.indexOf('\n\nfunction chatGPTCommentFingerprint', executeStart)
+  const execute = source.slice(executeStart, executeEnd)
+  const statusStart = source.indexOf('function noteChatGPTHTTPStatus(details)')
+  const statusEnd = source.indexOf('\nfunction settleChatGPTAffinityAfterSubmit', statusStart)
+  const httpStatus = source.slice(statusStart, statusEnd)
+
+  assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_MS = 2_500/)
+  assert.match(pacing, /await wait\(remaining\)/)
+  assert.match(pacing, /await loadOwnedChatGPTURL/)
+  assert.match(pacing, /await waitForChatGPTSurfaceReady/)
+  assert.match(execute, /initialRateLimitDelay = chatAgentRateLimitDelayMs\(\)/)
+  assert.match(execute, /loadAndSettleChatGPTWorkerConversation/)
+  assert.match(execute, /status: 'waiting', delayMs: rateLimitDelay/)
+  assert.match(httpStatus, /status === 429/)
+  assert.match(httpStatus, /details\?\.resourceType === 'mainFrame' \|\| conversationTransport/)
+  assert.match(httpStatus, /chatGPTRateLimitUntil = next/)
+  assert.match(httpStatus, /setProviderPause\(true/)
+  assert.match(httpStatus, /pausedUntil: new Date\(next\)\.toISOString\(\)/)
+})
+
 test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle cleanup', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')

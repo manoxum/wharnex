@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chatAgentBackoff, ChatAgentSchedulerClient, DEFAULT_CHAT_AGENT_WORKERS } from './chat-agent-scheduler.mjs'
+import { chatAgentBackoff, ChatAgentSchedulerClient, DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, DEFAULT_CHAT_AGENT_WORKERS } from './chat-agent-scheduler.mjs'
 
 test('scheduler defaults to exactly three autonomous workers', () => {
   const scheduler = new ChatAgentSchedulerClient({
@@ -10,6 +10,35 @@ test('scheduler defaults to exactly three autonomous workers', () => {
   })
   assert.equal(scheduler.workerCount, DEFAULT_CHAT_AGENT_WORKERS)
   assert.equal(DEFAULT_CHAT_AGENT_WORKERS, 3)
+})
+
+test('scheduler applies a short cooldown before a worker claims another task', async () => {
+  const claimTimes = []
+  let claimCount = 0
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    taskCooldownMs: 20,
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        claimTimes.push(Date.now())
+        claimCount += 1
+        if (claimCount === 1) return { ok: true, json: async () => ({ task: { task_id: 'cat-1', attempt: 1, max_attempts: 3 } }) }
+        return { ok: true, json: async () => ({}) }
+      }
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && claimTimes.length < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.equal(DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, 2_500)
+  assert.ok(claimTimes.length >= 2)
+  assert.ok(claimTimes[1] - claimTimes[0] >= 15)
 })
 
 test('backoff is bounded and grows with attempts', () => {
@@ -94,7 +123,7 @@ test('final-attempt waiting task fails instead of becoming unreachable WAITING',
   let claimed = false
   const task = { task_id: 'cat-final', type: 'ARCHIVE_CHAT', chat_id: 'chat-1', request_id: '', root_request_id: '', status: 'LEASED', attempt: 3, max_attempts: 3 }
   const scheduler = new ChatAgentSchedulerClient({
-    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1,
+    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1, taskCooldownMs: 0,
     fetchImpl: async (url, init = {}) => {
       requests.push({ url, init })
       if (url.endsWith('/api/chat-agent/tasks/claim')) {

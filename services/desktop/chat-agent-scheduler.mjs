@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 export const DEFAULT_CHAT_AGENT_WORKERS = 3
 export const DEFAULT_CHAT_AGENT_LEASE_SECONDS = 45
+export const DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS = 2_500
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -40,6 +41,7 @@ export class ChatAgentSchedulerClient {
     maxWorkers = 6,
     leaseSeconds = DEFAULT_CHAT_AGENT_LEASE_SECONDS,
     idleMs = 750,
+    taskCooldownMs = DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS,
     onState = () => {},
   }) {
     if (!baseURL) throw new Error('chat-agent scheduler baseURL is required')
@@ -51,6 +53,7 @@ export class ChatAgentSchedulerClient {
     this.workerCount = this.#normalizeWorkerCount(workerCount)
     this.leaseSeconds = leaseSeconds
     this.idleMs = idleMs
+    this.taskCooldownMs = Math.max(0, Number(taskCooldownMs) || 0)
     this.onState = onState
     this.instanceID = `desktop-${randomUUID()}`
     this.running = false
@@ -141,6 +144,7 @@ export class ChatAgentSchedulerClient {
           continue
         }
         await this.#runTask(owner, task, index)
+        if (this.running && index <= this.workerCount && this.taskCooldownMs > 0) await wait(this.taskCooldownMs)
       } catch (error) {
         this.onState({ kind: 'worker-error', worker: index, error })
         await wait(Math.max(this.idleMs, 1_000))
