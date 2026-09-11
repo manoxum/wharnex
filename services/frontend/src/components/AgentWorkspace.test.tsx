@@ -28,8 +28,9 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
   const onOpenFile = vi.fn()
   const onExportChat = vi.fn(async () => undefined)
   const onSelectChat = vi.fn(async () => undefined)
+  const onReorderChat = vi.fn()
   return {
-    onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onApply, onRestore, onDelete, onOpenFile, onExportChat, onSelectChat,
+    onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onApply, onRestore, onDelete, onOpenFile, onExportChat, onSelectChat, onReorderChat,
     element: <AgentWorkspace
       session={current}
       busy={busy}
@@ -39,6 +40,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
       onOpenFile={onOpenFile}
       onError={vi.fn()}
       onExportChat={onExportChat}
+      onReorderChat={onReorderChat}
       chatProps={{
         session: current, items: [], chats: [{ id: 'chat-1', title: 'Principal', sessionId: current.id, createdAt: '2026-09-04T10:00:00.000Z', updatedAt: '2026-09-04T10:00:00.000Z' }, { id: 'chat-2', title: 'Paralelo', sessionId: 'ses-parallel', createdAt: '2026-09-04T09:00:00.000Z', updatedAt: '2026-09-04T09:00:00.000Z' }],
         archivedChats: [{ id: 'arch-1', title: 'Diagnóstico antigo', sessionId: 'ses-old', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' }], activeChatId: 'chat-1', busy,
@@ -117,6 +119,30 @@ describe('AgentWorkspace', () => {
     expect(view.onExecute).toHaveBeenCalledWith(false)
     fireEvent.click(screen.getByRole('button', { name: 'Plano' }))
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
+  })
+
+  it('lets users manually reorder chat tabs by drag and keyboard', () => {
+    const view = props()
+    render(view.element)
+    const primary = screen.getByRole('button', { name: 'Principal' })
+    const parallel = screen.getByRole('button', { name: 'Paralelo' })
+    const source = primary.closest('.chat-tab-group') as HTMLDivElement
+    const target = parallel.closest('.chat-tab-group') as HTMLDivElement
+    const data = new Map<string, string>()
+    const dataTransfer = {
+      effectAllowed: 'none', dropEffect: 'none',
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) || '',
+    }
+    fireEvent.dragStart(source, { dataTransfer })
+    fireEvent.dragEnter(target, { dataTransfer })
+    fireEvent.dragOver(target, { dataTransfer })
+    fireEvent.drop(target, { dataTransfer })
+    expect(view.onReorderChat).toHaveBeenCalledWith('chat-1', 'chat-2')
+
+    view.onReorderChat.mockClear()
+    fireEvent.keyDown(primary, { key: 'ArrowRight', altKey: true })
+    expect(view.onReorderChat).toHaveBeenCalledWith('chat-1', 'chat-2')
   })
 
   it('restores each chat viewport across the keyed chat panel remount', async () => {

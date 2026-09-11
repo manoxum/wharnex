@@ -168,7 +168,6 @@ export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {
     return parsed
       .filter(validChat)
       .map(normalizeWorkspaceChatAffinity)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 30)
   } catch { return [] }
 }
@@ -176,6 +175,17 @@ export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {
 export function saveWorkspaceChats(projectPath: string, chats: WorkspaceChat[]) {
   const normalized = chats.filter(validChat).map(normalizeWorkspaceChatAffinity).slice(0, 30)
   try { localStorage.setItem(CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
+}
+
+export function reorderWorkspaceChats(chats: WorkspaceChat[], sourceChatId: string, targetChatId: string): WorkspaceChat[] {
+  if (!sourceChatId || sourceChatId === targetChatId) return chats
+  const sourceIndex = chats.findIndex((chat) => chat.id === sourceChatId)
+  const targetIndex = chats.findIndex((chat) => chat.id === targetChatId)
+  if (sourceIndex < 0 || targetIndex < 0) return chats
+  const next = [...chats]
+  const [moved] = next.splice(sourceIndex, 1)
+  next.splice(targetIndex, 0, moved)
+  return next
 }
 
 
