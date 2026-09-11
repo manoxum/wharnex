@@ -165,3 +165,82 @@ test('scheduler sends affinity-aware claim options supplied by the residency lay
   assert.deepEqual(claimBody.excluded_lanes, ['c:conv-b'])
   assert.equal(claimBody.fallback_mode, 'resident_only')
 })
+
+test('queue depth is read as a backend aggregate instead of counted from a listed page', async () => {
+  // Counting a listed page breaks once settled history outgrows it: the list is
+  // ordered oldest-first, so the window fills with DONE rows and the live queue
+  // disappears from the count entirely.
+  const requested = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    fetchImpl: async (url) => {
+      requested.push(url)
+      return { ok: true, json: async () => ({ total: 36, counts: { PENDING: 36 }, due: 0, scheduled: 36 }) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+
+  const summary = await scheduler.queueSummary()
+  assert.deepEqual(requested, ['http://127.0.0.1:8080/api/chat-agent/tasks/summary'])
+  assert.equal(summary.due, 0)
+  assert.equal(summary.scheduled, 36)
+})
+
+test('a healthy observation is not charged an attempt and never trips the exhaustion guard', async () => {
+  // AWAIT_RESPONSE probes a resident conversation every 30s for as long as the
+  // model keeps working. Sharing the failure budget with those probes killed a
+  // long but perfectly healthy response at max_attempts.
+  const transitions = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    taskCooldownMs: 0,
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        if (transitions.some((item) => item.action === 'wait')) return { ok: true, json: async () => ({}) }
+        return { ok: true, json: async () => ({ task: { task_id: 'cat-1', type: 'AWAIT_RESPONSE', attempt: 30, max_attempts: 30 } }) }
+      }
+      const action = url.split('/').pop()
+      transitions.push({ action, body: JSON.parse(String(init?.body || '{}')) })
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'waiting', delayMs: 30_000, observation: true }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 200 && !transitions.some((item) => item.action === 'wait'); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+
+  const wait = transitions.find((item) => item.action === 'wait')
+  assert.ok(wait, 'an observation on the final attempt must still go back to WAITING')
+  assert.equal(wait.body.observation, true)
+  assert.equal(transitions.some((item) => item.action === 'fail'), false)
+})
+
+test('an ordinary retry on the final attempt still fails terminally', async () => {
+  const transitions = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    taskCooldownMs: 0,
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        if (transitions.some((item) => item.action === 'fail')) return { ok: true, json: async () => ({}) }
+        return { ok: true, json: async () => ({ task: { task_id: 'cat-2', type: 'ORGANIZE_CHAT', attempt: 8, max_attempts: 8 } }) }
+      }
+      const action = url.split('/').pop()
+      transitions.push({ action, body: JSON.parse(String(init?.body || '{}')) })
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'waiting', delayMs: 5_000, error: 'action-offscreen' }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 200 && !transitions.some((item) => item.action === 'fail'); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(transitions.some((item) => item.action === 'fail'))
+})

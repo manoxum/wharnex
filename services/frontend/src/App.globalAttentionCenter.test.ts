@@ -12,8 +12,11 @@ describe('App global attention session refresh', () => {
     // held many chats (see App.attentionMemory.test.ts).
     expect(source).toMatch(/await api\.workspaceAttention\(session\.project_path\)/)
     expect(source).toMatch(/window\.setInterval\(\(\) => void refresh\(\), ATTENTION_REFRESH_INTERVAL_MS\)/)
-    expect(source).toMatch(/attentionSessions=\{attentionSessions\}/)
-    expect(source).toMatch(/chatgptHumanActions=\{chatgptHumanActions\}/)
+    // The shell collects the attention list, because the side rail's attention
+    // drawer and the Agent command bar's popover are two views of one list.
+    expect(source).toMatch(/collectAttentionItems\(chats, attentionSessions, chatgptHumanActions\)/)
+    expect(source).toMatch(/attentionItems=\{attentionItems\}/)
+    expect(source).toMatch(/collectAttentionItems\(chats, attentionSessions, chatgptHumanActions\)/)
   })
 
   it('never assigns an unrelated chat human-action notice to the active chat', () => {

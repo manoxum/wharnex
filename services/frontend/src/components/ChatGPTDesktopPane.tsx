@@ -44,6 +44,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const [overlayBlocked, setOverlayBlocked] = useState(false)
   const [requestAction, setRequestAction] = useState<'resume' | 'stop' | null>(null)
   const [followedAgentId, setFollowedAgentId] = useState('')
+  const [agentRuntime, setAgentRuntime] = useState<DesktopAgentRuntimeState>()
   const [controlsExpanded, setControlsExpanded] = useState(() => {
     try { return window.localStorage.getItem(CHATGPT_CONTROLS_KEY) === '1' } catch { return false }
   })
@@ -138,6 +139,15 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   }, [bridge, applyDesktopState])
 
   useEffect(() => observeChatGPTOverlayBlockers(window, setOverlayBlocked), [])
+
+  useEffect(() => {
+    const agents = bridge?.agents
+    if (!agents) return
+    let active = true
+    void agents.state().then((next) => { if (active) setAgentRuntime(next) }).catch(() => {})
+    const off = agents.onState((next) => { if (active) setAgentRuntime(next) })
+    return () => { active = false; off() }
+  }, [bridge])
 
   useEffect(() => {
     const onFollow = (event: Event) => {
@@ -342,6 +352,25 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     setRequestAction(null)
   }
 
+  const workerAgents = (agentRuntime?.agents || []).filter((agent) => agent.role === 'worker' && agent.browser.available)
+  const followedWorker = followedAgentId ? workerAgents.find((agent) => agent.id === followedAgentId) : undefined
+
+  const selectEngineAgent = (agentId: string) => {
+    if (!agentId) { setFollowedAgentId(''); return }
+    const worker = workerAgents.find((agent) => agent.id === agentId)
+    if (worker) setFollowedAgentId(worker.id)
+  }
+
+  const openCurrentDevTools = async () => {
+    if (!bridge) return
+    try {
+      if (followedAgentId) await bridge.agents.openDevTools(followedAgentId)
+      else await bridge.chatgpt.openDevTools(chatIdRef.current)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Não foi possível abrir o DevTools desta instância')
+    }
+  }
+
   const currentConversation = chatgptConversationURL(state.url)
   const linkedConversation = chatgptConversationURL(chatgptUrl || '')
   const sameConversation = sameChatGPTConversation(currentConversation, linkedConversation)
@@ -360,6 +389,15 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       </div>
       <div className="desktop-browser-address" title={state.url}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(state.url)}</span></div>
       <div className="desktop-chatgpt-toolbar-status">
+        <label className="desktop-engine-instance" title="Escolher a instância mostrada no Engine">
+          <span>Instância</span>
+          <select aria-label="Instância do Engine" value={followedAgentId} onChange={(event) => selectEngineAgent(event.target.value)}>
+            <option value="">Supervisor</option>
+            {followedAgentId && !followedWorker && <option value={followedAgentId}>{followedAgentId.replace('worker-', 'Worker ')}</option>}
+            {workerAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
+          </select>
+        </label>
+        <button className="icon-button light desktop-engine-devtools" type="button" aria-label="Abrir DevTools da instância atual" title={`Abrir DevTools · ${followedAgentId ? followedAgentId.replace('worker-', 'Worker ') : 'Supervisor'}`} onClick={() => void openCurrentDevTools()}><Icon name="code" size={15}/></button>
         <StatusPill tone={!externalAuth && linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{externalAuth ? 'Login externo' : linkedConversation ? (mismatch ? 'Outra conversa' : 'Vinculado') : 'A vincular'}</StatusPill>
         <button className={`chatgpt-auth-indicator ${authenticated ? 'authenticated' : 'attention'}`} type="button" aria-label={authenticated ? 'Sessão ChatGPT autenticada' : 'Autenticação ChatGPT necessária'} title={authenticated ? 'Sessão ChatGPT autenticada · clique para opções' : 'Autenticar ChatGPT'} onClick={toggleControls}><Icon name={authenticated ? 'check' : 'shield'} size={15}/></button>
       </div>

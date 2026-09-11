@@ -5,10 +5,11 @@ import { Icon } from './Icon'
 
 type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
 
-export function AgentProjectExplorer({ session, onOpen, onError }: {
+export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
   session: Session
   onOpen: (path: string) => void
   onError: (message: string) => void
+  onClose: () => void
 }) {
   const [entries, setEntries] = useState<FileEntry[]>([])
   const [query, setQuery] = useState('')
@@ -37,7 +38,12 @@ export function AgentProjectExplorer({ session, onOpen, onError }: {
   return <section className="agent-project-explorer" aria-label="Explorador do projeto">
     <header className="agent-drawer-heading">
       <div><span className="panel-kicker">Project</span><strong>{projectName(session.project_path)}</strong></div>
-      <button type="button" className="agent-drawer-icon" onClick={() => void refresh()} disabled={loading} aria-label="Atualizar ficheiros" title="Atualizar ficheiros"><Icon name="refresh" size={14}/></button>
+      {/* Every drawer closes from its own heading: the panel is dismissed only
+          when the operator asks, so each one has to offer that control. */}
+      <div className="agent-runtime-heading-actions">
+        <button type="button" className="agent-drawer-icon" onClick={() => void refresh()} disabled={loading} aria-label="Atualizar ficheiros" title="Atualizar ficheiros"><Icon name="refresh" size={14}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar explorador" title="Fechar explorador"><Icon name="close" size={13}/></button>
+      </div>
     </header>
     <label className="agent-explorer-search">
       <Icon name="search" size={13}/>

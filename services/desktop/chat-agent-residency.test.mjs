@@ -67,3 +67,36 @@ test('residency dwell is configurable only inside the 30 to 120 second envelope'
   assert.equal(Date.parse(short.snapshot('short').min_resident_until) - now, 30_000)
   assert.equal(Date.parse(long.snapshot('long').min_resident_until) - now, 90_000)
 })
+
+test('taking a task always sends the slot to the back of the rotation', () => {
+  // The rotation decides which slot may cross lanes. Advancing it only on a
+  // rebind left a slot serving its own resident lane permanently at the head,
+  // so it stayed the only Worker allowed to escalate while the others waited.
+  const residency = new ChatAgentResidency({ now: () => 1_000 })
+  for (const slot of ['worker-1', 'worker-2', 'worker-3']) residency.register(slot)
+  assert.equal(residency.snapshot('worker-1').rotation_position, 0)
+
+  residency.noteAssignment('worker-1')
+  assert.equal(residency.snapshot('worker-1').rotation_position, 2)
+  assert.equal(residency.snapshot('worker-2').rotation_position, 0)
+
+  residency.noteAssignment('worker-2')
+  assert.equal(residency.snapshot('worker-2').rotation_position, 2)
+  assert.equal(residency.snapshot('worker-3').rotation_position, 0)
+})
+
+test('a slot that keeps serving its resident lane still yields its rotation turn', () => {
+  const residency = new ChatAgentResidency({ minResidenceMs: 30_000, now: () => 1_000 })
+  for (const slot of ['worker-1', 'worker-2']) residency.register(slot)
+  const first = residency.beginAssignment('worker-1', 'c:conv-a')
+  residency.settleAssignment('worker-1', first.epoch, 'c:conv-a')
+  assert.equal(residency.snapshot('worker-1').rotation_position, 1)
+
+  // Re-serving the same lane is not a rebind, so settleAssignment is never
+  // reached; the assignment itself has to move the slot.
+  const again = residency.beginAssignment('worker-1', 'c:conv-a')
+  assert.equal(again.rebind, false)
+  residency.noteAssignment('worker-1')
+  assert.equal(residency.snapshot('worker-1').rotation_position, 1)
+  assert.equal(residency.snapshot('worker-2').rotation_position, 0)
+})

@@ -61,6 +61,15 @@ renderer with a zero-sized viewport in which every rect collapses to the origin.
 Account automation therefore gives such a view a real layout viewport before
 locating controls, without ever making it visible.
 
+Whether a view is being shown is a property of the view, never of the chat it
+owns. A Worker is hidden even while it owns the very conversation the Supervisor
+currently displays — the common case, since a chat is organized immediately
+after it was used. Only the entry the Supervisor actually holds for that chat is
+exempt from receiving a layout viewport; a Worker entry never is. Deciding this
+by chat key alone leaves such a Worker at zero size, so every located control
+measures as offscreen and the task exhausts its attempt budget without the
+control ever having been unreachable.
+
 ### Conversation menus are addressed by conversation id
 
 The trigger is resolved through `data-conversation-options-trigger`, whose value

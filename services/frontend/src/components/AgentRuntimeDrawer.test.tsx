@@ -14,7 +14,7 @@ function runtime(desiredWorkers = 6): DesktopAgentRuntimeState {
     desired_workers: desiredWorkers,
     limits: { min_workers: 1, max_workers: 6, supervisors: 2 },
     scheduler: { running: true, backend_reachable: true, last_refresh_at: '2026-09-11T10:00:00Z', last_error: '' },
-    queue: { total: 2, counts: { RUNNING: 1, WAITING: 1 }, oldest_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
+    queue: { queued: 2, counts: { RUNNING: 1, WAITING: 1 }, due: 1, scheduled: 0, blocked: 0, oldest_due_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
     provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', updated_at: '2026-09-11T10:00:00Z' },
     agents: [
       { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false } },
@@ -61,6 +61,40 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(5))
   })
 
+  it('reports a fully deferred queue as scheduled rather than as pending backlog', async () => {
+    // Bundle-retention cleanup is enqueued PENDING but deferred for days. Such
+    // a queue is idle, and must not present an age that suggests stuck work.
+    const state = runtime()
+    state.queue = {
+      queued: 36, counts: { PENDING: 36 }, due: 0, scheduled: 36, blocked: 0,
+      oldest_due_created_at: '', next_not_before: '2026-09-13T22:32:18Z',
+    }
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    const { container } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    expect(await screen.findByText('Mais antiga por executar: —')).toBeTruthy()
+    const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
+    expect(rows).toContain('0 por executar36 agendadas')
+  })
+
+  it('counts only queued work, never settled tasks or a lifetime total', async () => {
+    // A settled task has left the queue; its tally described past throughput
+    // while saying nothing about what is waiting to run now.
+    const state = runtime()
+    state.queue = {
+      queued: 3, counts: { PENDING: 2, RUNNING: 1 }, due: 2, scheduled: 1, blocked: 0,
+      oldest_due_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z',
+    }
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    const { container } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    await screen.findByText('Worker 1')
+    const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
+    expect(rows).toContain('2 PENDING1 RUNNING')
+    expect(rows.join(' ')).not.toMatch(/tarefas/)
+    expect(rows.join(' ')).not.toMatch(/DONE|FAILED|CANCELLED|ATTENTION/)
+  })
+
   it('shows a durable leased task as occupied instead of available', async () => {
     const state = runtime()
     const worker = state.agents.find((agent) => agent.id === 'worker-1')!
@@ -100,7 +134,10 @@ describe('AgentRuntimeDrawer', () => {
 
     expect(listener).toHaveBeenCalledTimes(1)
     expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ agentId: 'worker-1' })
-    expect(onClose).toHaveBeenCalledTimes(1)
+    // Following a Worker must not dismiss the panel: the drawer closes only
+    // when the operator asks it to.
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Fechar agentes' })).toBeTruthy()
     window.removeEventListener('wharnex:agent-follow', listener)
   })
 

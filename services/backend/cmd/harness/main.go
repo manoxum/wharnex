@@ -86,6 +86,8 @@ func main() {
 	defer stopArtifacts()
 	stopChatArchive := configureChatArchive(cfg, service)
 	defer stopChatArchive()
+	stopChatAgentTasks := configureChatAgentTaskRetention(cfg, store)
+	defer stopChatAgentTasks()
 	service.SetRemoteStorageConnector(remoteinput.NewRcloneConnector())
 	remoteStore, cleanupRemote, stopRemote := configureRemoteInputs(cfg, service)
 	service.SetRemoteInputStore(remoteStore)
@@ -213,6 +215,40 @@ func configureArtifactStore(cfg config.Config, service *app.Service) func() {
 			select {
 			case <-ticker.C:
 				cleanup()
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
+// configureChatAgentTaskRetention wires the browser-agent task retention
+// sweep. Settled task rows are bookkeeping, not evidence — durable request
+// history lives in the audit bus — but they were never removed, so the table
+// grew with every request and carried completed work forever into every queue
+// read built on top of it.
+func configureChatAgentTaskRetention(cfg config.Config, store *session.Store) func() {
+	sweep := func() {
+		before := time.Now().UTC().Add(-time.Duration(cfg.ChatAgentTasks.RetentionHours) * time.Hour)
+		removed, err := store.PruneChatAgentTasks(before)
+		if err != nil {
+			log.Printf("chat agent task retention sweep failed: %v", err)
+			return
+		}
+		if removed > 0 {
+			log.Printf("chat agent task retention sweep removed %d settled tasks", removed)
+		}
+	}
+	sweep()
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(time.Duration(cfg.ChatAgentTasks.SweepIntervalMinutes) * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				sweep()
 			case <-stop:
 				return
 			}

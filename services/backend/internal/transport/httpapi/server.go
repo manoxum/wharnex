@@ -74,6 +74,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/chat-agent/provider/valid-bundle", a.recordChatAgentValidBundle)
 	mux.HandleFunc("POST /api/chat-agent/tasks", a.enqueueChatAgentTask)
 	mux.HandleFunc("GET /api/chat-agent/tasks", a.listChatAgentTasks)
+	mux.HandleFunc("GET /api/chat-agent/tasks/summary", a.chatAgentTaskSummary)
 	mux.HandleFunc("POST /api/chat-agent/tasks/claim", a.claimChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/cancel-lineage", a.cancelChatAgentLineage)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/start", a.startChatAgentTask)

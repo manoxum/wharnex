@@ -134,10 +134,12 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
     } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível capturar o navegador') } finally { setBusy(false) }
   }
 
+  // Following a Worker places it in the Engine area; it does not dismiss this
+  // panel. The drawer closes only when the operator asks it to, so watching a
+  // Worker never costs them the runtime view they were reading.
   const followWorker = () => {
     if (!selected || selected.role !== 'worker' || !selected.browser.available) return
     window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: selected.id } }))
-    onClose()
   }
 
   if (!bridge) return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">
@@ -153,8 +155,16 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
         <div className="agent-runtime-diagnostic-row"><div><strong>Scheduler</strong><small>{runtime.scheduler?.backend_reachable ? (runtime.scheduler.running ? 'Online' : 'Parado') : 'Backend indisponível'}</small></div><span title={runtime.scheduler?.last_error || ''}>{runtime.scheduler?.last_error ? short(runtime.scheduler.last_error) : timeLabel(runtime.scheduler?.last_refresh_at)}</span></div>
         <div className="agent-runtime-diagnostic-row"><div><strong>Provider {runtime.provider?.provider || 'chatgpt'}</strong><small>{runtime.provider?.paused ? 'Pausado globalmente' : 'Ativo'}</small></div><div className="agent-runtime-provider-action"><span title={runtime.provider?.reason || ''}>{runtime.provider?.paused ? short(runtime.provider.reason, 'Atenção humana') : 'Sem bloqueio global'}</span>{runtime.provider?.paused && <button type="button" disabled={busy} onClick={() => void resumeProvider()}>Retomar provider</button>}</div></div>
         <div className="agent-runtime-diagnostic-row"><div><strong>Pacing</strong><small>{runtime.provider?.valid_sample_count || 0} bundles válidos medidos</small></div><span>espera {durationLabel(runtime.provider?.initial_wait_ms)} · média {durationLabel(runtime.provider?.average_processing_ms)} · 429 L{runtime.provider?.rate_limit_level || 0}</span></div>
-        <div className="agent-runtime-queue"><span><b>{runtime.queue?.total || 0}</b> tarefas</span>{Object.entries(runtime.queue?.counts || {}).filter(([, count]) => count > 0).map(([state, count]) => <span key={state}><b>{count}</b> {state}</span>)}</div>
-        <div className="agent-runtime-queue-times"><span>Mais antiga: {timeLabel(runtime.queue?.oldest_created_at)}</span><span>Próxima: {timeLabel(runtime.queue?.next_not_before)}</span></div>
+        {/* Only work still in the queue. A settled task has left it, and its
+            lifetime tally described past throughput while saying nothing about
+            what is waiting now. */}
+        <div className="agent-runtime-queue">{Object.entries(runtime.queue?.counts || {}).filter(([, count]) => count > 0).map(([state, count]) => <span key={state}><b>{count}</b> {state}</span>)}</div>
+        {/* Backlog is only the work a worker could actually claim now. A task
+            deferred behind not_before (every bundle-retention cleanup is
+            deferred for days by design) is waiting on a clock, not on a worker,
+            so it is reported as "agendadas" and never ages the backlog. */}
+        <div className="agent-runtime-queue"><span><b>{runtime.queue?.due || 0}</b> por executar</span><span><b>{runtime.queue?.scheduled || 0}</b> agendadas</span>{(runtime.queue?.blocked || 0) > 0 && <span><b>{runtime.queue.blocked}</b> sem tentativas</span>}</div>
+        <div className="agent-runtime-queue-times"><span>Mais antiga por executar: {timeLabel(runtime.queue?.oldest_due_created_at)}</span><span>Próxima agendada: {timeLabel(runtime.queue?.next_not_before)}</span></div>
       </div>
       <div className="agent-runtime-scale">
         <div><strong>Supervisores</strong><small>Duplo buffer: um ativo, outro pronto/standby</small></div><div className="agent-runtime-stepper locked"><button disabled aria-label="Diminuir supervisores">−</button><b>{runtime.limits.supervisors}</b><button disabled aria-label="Aumentar supervisores">+</button></div>

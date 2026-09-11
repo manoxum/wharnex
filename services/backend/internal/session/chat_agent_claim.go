@@ -194,18 +194,29 @@ func chatAgentBlockedByActiveTask(candidate ChatAgentTask, tasks map[string]Chat
 }
 
 func (s *Store) StartChatAgentTask(taskID, owner string) (ChatAgentTask, error) {
-	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskRunning, time.Time{}, "")
+	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskRunning, time.Time{}, "", false)
 }
 
-func (s *Store) WaitChatAgentTask(taskID, owner string, notBefore time.Time, detail string) (ChatAgentTask, error) {
+// WaitChatAgentTask returns a leased task to WAITING until notBefore.
+//
+// `observation` marks a lease that only watched healthy remote progress rather
+// than attempting anything. A claim always increments `attempt`, which is
+// correct for a try and wrong for a passive probe: `AWAIT_RESPONSE` observes a
+// resident conversation every 30 seconds for as long as the model keeps
+// working, so with a bounded budget a long — but perfectly healthy — response
+// exhausts its own supervisor and the request is abandoned mid-reasoning. An
+// observation therefore gives the increment back, leaving the budget to count
+// only real attempts. It never falls below zero, and the caller may only claim
+// it when the remote side is provably still generating.
+func (s *Store) WaitChatAgentTask(taskID, owner string, notBefore time.Time, detail string, observation bool) (ChatAgentTask, error) {
 	if notBefore.IsZero() {
 		return ChatAgentTask{}, errors.New("not_before is required for WAITING")
 	}
-	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskWaiting, notBefore, detail)
+	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskWaiting, notBefore, detail, observation)
 }
 
 func (s *Store) CompleteChatAgentTask(taskID, owner string) (ChatAgentTask, error) {
-	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskDone, time.Time{}, "")
+	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskDone, time.Time{}, "", false)
 }
 
 func (s *Store) FailChatAgentTask(taskID, owner, detail string, attention bool) (ChatAgentTask, error) {
@@ -213,12 +224,12 @@ func (s *Store) FailChatAgentTask(taskID, owner, detail string, attention bool) 
 	if attention {
 		status = ChatAgentTaskAttention
 	}
-	return s.transitionChatAgentTask(taskID, owner, status, time.Time{}, detail)
+	return s.transitionChatAgentTask(taskID, owner, status, time.Time{}, detail, false)
 }
 
-func (s *Store) transitionChatAgentTask(taskID, owner, status string, notBefore time.Time, detail string) (ChatAgentTask, error) {
+func (s *Store) transitionChatAgentTask(taskID, owner, status string, notBefore time.Time, detail string, observation bool) (ChatAgentTask, error) {
 	if s.db != nil {
-		return s.postgresTransitionChatAgentTask(taskID, owner, status, notBefore, detail)
+		return s.postgresTransitionChatAgentTask(taskID, owner, status, notBefore, detail, observation)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -246,6 +257,9 @@ func (s *Store) transitionChatAgentTask(taskID, owner, status string, notBefore 
 	task.LastError = strings.TrimSpace(detail)
 	if status == ChatAgentTaskWaiting {
 		task.NotBefore = notBefore.UTC()
+		if observation && task.Attempt > 0 {
+			task.Attempt--
+		}
 	}
 	if status != ChatAgentTaskRunning {
 		task.LeaseOwner = ""

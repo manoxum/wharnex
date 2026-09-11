@@ -462,7 +462,10 @@ export type ChatItemSource = 'user' | 'chatgpt' | 'wharness'
 export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | 'change'
 export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage?: string; requestId: string }
 export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }
-export type ChatChangeSummary = { planId: string; files: ChatChangeFile[]; hostCommands?: CommandResult[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
+// `summary` is the planner's own short description of what the bundle did. The
+// protocol requires it on every plan-bearing response, and the self-evolution
+// activation dialog shows it as the explanation of what a restart activates.
+export type ChatChangeSummary = { planId: string; summary?: string; files: ChatChangeFile[]; hostCommands?: CommandResult[]; appliedAt: string; reverted?: boolean; canRevert: boolean }
 // One chat's attention inputs, without the megabyte of session payload the
 // attention center never reads. See /api/workspace-attention.
 export type AttentionRecord = {

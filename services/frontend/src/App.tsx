@@ -4,7 +4,10 @@ import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError 
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
-import { executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, type ExecutionFIFOItem } from './lib/executionQueueView'
+import { WorkspaceSideRail, type Drawer } from './components/WorkspaceSideRail'
+import { InteractiveTerminal } from './components/InteractiveTerminal'
+import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem } from './lib/executionQueueView'
+import { collectAttentionItems, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
@@ -57,7 +60,7 @@ import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversati
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
 import { buildChangeSummary } from './lib/changeSummary'
-import { confirmDialog } from './lib/appDialog'
+import { confirmDialog, promptDialog } from './lib/appDialog'
 import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 import { projectFileReferenceSuffix } from './lib/projectFileReferences'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
@@ -113,7 +116,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [chatgptHumanActions, setChatgptHumanActions] = useState<Record<string, DesktopChatGPTHumanAction>>({})
   const [attentionSessions, setAttentionSessions] = useState<Record<string, Session | undefined>>({})
   const [chatgptAttentionNonce, setChatgptAttentionNonce] = useState(0)
-  const [inspectorAttention, setInspectorAttention] = useState<{ tab: 'terminal' | 'chatgpt'; nonce: number }>({ tab: 'terminal', nonce: 0 })
+  const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
+  // The side rail and its drawer live beside every mode surface, so the open
+  // panel and its width belong to the shell rather than to one workspace.
+  const [sideDrawer, setSideDrawer] = useState<Drawer>('')
+  // The interactive terminal is shell-level for the same reason as the rail:
+  // it is the project's terminal, not the Editor's. It stays collapsed by
+  // default because Agent already divides its width three ways, and a panel
+  // permanently taking height from the chat is a cost the operator should opt
+  // into rather than inherit.
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [terminalHeight, setTerminalHeight] = useState(245)
   const [error, setError] = useState<string>()
   const [errorChatRef, setErrorChatRef] = useState<{ chatId: string; itemId: string; message: string }>()
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
@@ -2452,6 +2465,46 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const recoveryBlocksActiveChat = interruptedExecutions.some((target) => target.chat.id === activeChatId)
   const taskInFlight = requestChainActive(session) || restartModalOpen || recoveryBlocksActiveChat
   const restartPending = isRestartPending(session)
+  // Attention routing and the side rail are shell-level, because the rail's
+  // attention drawer and the Agent command bar's popover are two views of the
+  // same list and must not drift into two implementations. Routing the
+  // inspector goes through the existing inspectorAttention channel, which the
+  // Agent workspace already consumes.
+  const attentionItems = collectAttentionItems(chats, attentionSessions, chatgptHumanActions)
+  const visibleExecutionFIFO = visibleExecutionQueueItems(executionFIFO, chats.map((chat) => chat.id))
+  const activeExecutionCount = executionQueueActiveCount(visibleExecutionFIFO)
+
+  async function openAttentionItem(item: AttentionItem) {
+    if (item.id.endsWith(':chatgpt-human-action') && item.chatId === activeChatId && chatgptHumanAction?.active) {
+      await openChatGPTHumanAction()
+      return
+    }
+    setMode('agent')
+    if (item.chatId !== activeChatId) await selectChat(item.chatId)
+    if (item.target) setInspectorAttention((current) => ({ tab: item.target as AttentionTarget, nonce: current.nonce + 1 }))
+  }
+
+  async function runAttentionItemAction(item: AttentionItem) {
+    if (!item.action) return
+    if (item.chatId !== activeChatId) {
+      await openAttentionItem(item)
+      return
+    }
+    switch (item.action) {
+      case 'approve-execution': await execute(true); return
+      case 'retry-dependency-network': await retryDependencyNetwork(); return
+      case 'repair-host-dependency': await retryHostDependencyRepair(); return
+      case 'repair-with-gpt': {
+        const detail = await promptDialog({ title: 'Corrigir erro com GPT', message: 'Pode acrescentar um detalhe para orientar a correção ou deixar em branco.', inputLabel: 'Detalhe opcional', placeholder: 'Ex.: verifique também o comportamento no Windows', confirmLabel: 'Enviar para correção', tone: 'warning' })
+        if (detail !== undefined) await repairFailureWithGPT(detail)
+        return
+      }
+      case 'retry-transport': await retryTransportFailure(item.requestId || ''); return
+      case 'retry-host-apply':
+      case 'apply-host': await apply(); return
+    }
+  }
+
   return <main className="workspace-root">
     {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} instanceID={INSTANCE_ID} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
@@ -2465,52 +2518,84 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       onOpenChatGPT={(target) => void focusRecoveryTarget(target, 'chatgpt')}
     />}
     <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} onShowInChat={errorChatRef?.message === error ? () => void showErrorInChat() : undefined} />
-    <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
-      <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
-    </div>
-    <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
-      <OrchestratorWorkspace session={session} onError={setError} />
-    </div>
-    <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
-      {chats.length === 0 ? <div className="agent-empty-workspace">
-        <Icon name="agent" size={30}/>
-        <strong>Nenhum chat aberto</strong>
-        <span>Todos os chats deste projeto foram fechados e arquivados.</span>
-        <button type="button" className="primary-button" disabled={busy} onClick={() => void newChat()}><Icon name="plus" size={14}/> Novo chat</button>
-      </div> : <AgentWorkspace
+    {/* One side rail for every mode. The drawer and its width belong to the
+        shell, so switching between Agent, Editor and Orchestrator never changes
+        which panel is open — and the polling drawers are mounted once, not once
+        per workspace. */}
+    <div className={`workspace-body ${sideDrawer ? 'drawer-open' : ''}`}>
+      <WorkspaceSideRail
         session={session}
         busy={activeBusy}
-        executionFIFO={executionFIFO}
-        attentionSessions={attentionSessions}
-        chatgptHumanActions={chatgptHumanActions}
-        chatgptHumanAction={chatgptHumanAction}
-        chatgptAttentionNonce={chatgptAttentionNonce}
-        inspectorAttention={inspectorAttention}
-        onChatGPTHumanAction={() => void openChatGPTHumanAction()}
+        drawer={sideDrawer}
+        onDrawer={setSideDrawer}
+        chats={chats}
+        archivedChats={archivedChats}
+        activeChatId={activeChatId}
+        activeEvents={events}
+        attentionItems={attentionItems}
+        executionFIFO={visibleExecutionFIFO}
+        activeExecutionCount={activeExecutionCount}
+        onOpenAttention={openAttentionItem}
+        onAttentionAction={runAttentionItemAction}
+        onRestoreChat={restoreArchivedChat}
+        onDeleteArchivedChat={deleteArchivedChat}
+        onRenameChat={renameWorkspaceChat}
+        onGenerateChatTitle={generateWorkspaceChatTitle}
         onOpenFile={openFileFromChat}
-        onError={setError}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
-        onExportChat={exportActiveChat}
-        onReorderChat={reorderChat}
-        chatProps={{
-          session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, chatTransportMode,
-          attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
-          artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
-          artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
-          requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
-          onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onEffortLevel: changeEffortLevel, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
-          onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
-          onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
-          onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
-          onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
-          onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
-        }}
-        inspectorProps={{
-		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
-		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
-          onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession,
-        }}
-      />}
+        onError={setError}
+        terminalOpen={terminalOpen}
+        onToggleTerminal={() => setTerminalOpen((open) => !open)}
+      />
+      <div className="workspace-mode-stack">
+      <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
+        <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
+      </div>
+      <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
+        <OrchestratorWorkspace session={session} onError={setError} />
+      </div>
+      <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
+        {chats.length === 0 ? <div className="agent-empty-workspace">
+          <Icon name="agent" size={30}/>
+          <strong>Nenhum chat aberto</strong>
+          <span>Todos os chats deste projeto foram fechados e arquivados.</span>
+          <button type="button" className="primary-button" disabled={busy} onClick={() => void newChat()}><Icon name="plus" size={14}/> Novo chat</button>
+        </div> : <AgentWorkspace
+          session={session}
+          busy={activeBusy}
+          attentionItems={attentionItems}
+          chatgptAttentionNonce={chatgptAttentionNonce}
+          inspectorAttention={inspectorAttention}
+          onOpenAttention={openAttentionItem}
+          onAttentionAction={runAttentionItemAction}
+          onOpenAttentionDrawer={() => setSideDrawer('attention')}
+          onExportChat={exportActiveChat}
+          onReorderChat={reorderChat}
+          chatProps={{
+            session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, chatTransportMode,
+            attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
+            artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
+            artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
+            requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
+            onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onEffortLevel: changeEffortLevel, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
+            onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
+            onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
+            onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
+            onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
+            onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
+          }}
+          inspectorProps={{
+  		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
+  		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
+            onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession,
+          }}
+        />}
+      </div>
+        {terminalOpen && <>
+          <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(245)} />
+          <InteractiveTerminal session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={setError} />
+        </>}
+      </div>
     </div>
   </main>
 }

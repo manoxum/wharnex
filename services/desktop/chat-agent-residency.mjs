@@ -104,13 +104,29 @@ export class ChatAgentResidency {
     const changed = target !== state.residentLane
     state.pendingLane = ''
     state.navigationInProgress = false
+    this.noteAssignment(state.slotId)
     if (!changed) return true
     state.residentLane = target
     state.residentSince = settledAt
     state.minResidentUntil = settledAt + this.minResidenceMs
+    return true
+  }
+
+  /**
+   * Sends the slot to the back of the rotation because it just took a task.
+   *
+   * The rotation decides which slot may escalate past its own resident lane, so
+   * it has to advance on every assignment — not only when the lane changed. A
+   * slot that keeps serving its own resident lane never rebinds, so it used to
+   * stay permanently at the head: it remained the only one allowed to cross
+   * lanes, concentrating cross-lane work on one Worker while unresident lanes
+   * waited behind a slot that never yielded its turn.
+   */
+  noteAssignment(slotId) {
+    const state = this.register(slotId)
     this.rotation = this.rotation.filter((candidate) => candidate !== state.slotId)
     this.rotation.push(state.slotId)
-    return true
+    return this.rotation.indexOf(state.slotId)
   }
 
   cancelAssignment(slotId, epoch) {

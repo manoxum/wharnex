@@ -173,8 +173,10 @@ describe('composer layout CSS', () => {
 describe('split Agent layout CSS', () => {
   it('uses a persistent resizable chat/inspector split with a shared chat strip', () => {
     const splitLayout = css.slice(css.lastIndexOf('/* v1.2.42'))
-    expect(splitLayout).toContain('--agent-chat-width: 60vw')
-    expect(splitLayout).toContain('grid-template-columns: 42px minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr)')
+    // The chat keeps 60% of the usable width and the inspector 40%; the rail
+    // and the side drawer are the shell's columns, not this grid's.
+    expect(splitLayout).toContain('--agent-chat-width: calc((100% - 6px) * 0.6)')
+    expect(splitLayout).toContain('grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr)')
     expect(splitLayout).toContain('grid-template-rows: 42px 42px minmax(0, 1fr)')
     expect(splitLayout).toContain('grid-template-columns: auto minmax(0, 1fr) auto auto')
     expect(splitLayout).toContain('.agent-direct-chatgpt-tab { grid-column: 1')
@@ -186,9 +188,9 @@ describe('split Agent layout CSS', () => {
     expect(splitLayout).toContain('place-items: center')
     expect(splitLayout).toContain('pointer-events: none')
     expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / -1')
-    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 2; padding-left: 0')
-    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 4')
-    expect(splitLayout).toContain('.agent-splitter { grid-column: 3')
+    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; padding-left: 0')
+    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 3')
+    expect(splitLayout).toContain('.agent-splitter { grid-column: 2')
     expect(splitLayout).toContain('cursor: col-resize')
     expect(splitLayout).toContain('.agent-drawer { grid-column: 2; grid-row: 3; position: relative')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')

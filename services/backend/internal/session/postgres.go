@@ -148,6 +148,9 @@ CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_conversation_idx
     ON harness_chat_agent_tasks (conversation_id, status);
 CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_request_idx
     ON harness_chat_agent_tasks (root_request_id, request_id, status);
+CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_terminal_idx
+    ON harness_chat_agent_tasks (updated_at)
+    WHERE status IN ('DONE','FAILED','CANCELLED');
 CREATE UNIQUE INDEX IF NOT EXISTS harness_chat_agent_tasks_dedupe_active_idx
     ON harness_chat_agent_tasks (dedupe_key)
     WHERE dedupe_key <> ''

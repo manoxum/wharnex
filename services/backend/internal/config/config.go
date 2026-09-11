@@ -44,6 +44,7 @@ type Config struct {
 	Tunnel                TunnelConfig
 	Artifacts             ArtifactStorageConfig
 	ChatArchive           ChatArchiveConfig
+	ChatAgentTasks        ChatAgentTaskConfig
 }
 
 type ArtifactStorageConfig struct {
@@ -61,6 +62,15 @@ type ArtifactStorageConfig struct {
 // SweepIntervalMinutes is how often the sweep runs.
 type ChatArchiveConfig struct {
 	GraceHours           int64
+	SweepIntervalMinutes int64
+}
+
+// ChatAgentTaskConfig tunes retention of settled browser-agent task rows.
+// RetentionHours must stay comfortably longer than any single request
+// lifecycle, because a completed child task is what stops its parent from
+// enqueuing the same follow-up twice.
+type ChatAgentTaskConfig struct {
+	RetentionHours       int64
 	SweepIntervalMinutes int64
 }
 
@@ -147,6 +157,10 @@ func Load() Config {
 		ChatArchive: ChatArchiveConfig{
 			GraceHours:           envInt64("HARNESS_CHAT_ARCHIVE_GRACE_HOURS", 72),
 			SweepIntervalMinutes: envInt64("HARNESS_CHAT_ARCHIVE_SWEEP_INTERVAL_MINUTES", 60),
+		},
+		ChatAgentTasks: ChatAgentTaskConfig{
+			RetentionHours:       envInt64("HARNESS_CHAT_AGENT_TASK_RETENTION_HOURS", 72),
+			SweepIntervalMinutes: envInt64("HARNESS_CHAT_AGENT_TASK_SWEEP_INTERVAL_MINUTES", 60),
 		},
 		RemoteStorage: remoteStorage,
 		Tunnel: TunnelConfig{

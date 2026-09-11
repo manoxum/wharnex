@@ -103,7 +103,7 @@ let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let chatAgentScheduler
 let chatAgentRuntimeDiagnostics = {
   scheduler: { running: false, backend_reachable: false, last_refresh_at: '', last_error: '' },
-  queue: { total: 0, counts: {}, oldest_created_at: '', next_not_before: '' },
+  queue: { queued: 0, counts: {}, due: 0, scheduled: 0, blocked: 0, oldest_due_created_at: '', next_not_before: '' },
   provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', rate_limit_level: 0, last_rate_limit_at: '', last_rate_limit_source: '', last_valid_bundle_at: '', average_processing_ms: 0, valid_sample_count: 0, initial_wait_ms: 60_000, updated_at: '' },
 }
 let deferredSupervisorNavigation
@@ -127,6 +127,8 @@ const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(proce
 let chatGPTSupervisorTransportTail = Promise.resolve()
 let chatGPTWorkerNavigationTail = Promise.resolve()
 let chatGPTWorkerLastNavigationAt = 0
+let chatGPTWorkerSubmissionTail = Promise.resolve()
+let chatGPTWorkerLastSubmissionAt = 0
 let chatGPTRateLimitUntil = 0
 const pendingChatGPTBundleDeliveries = new Map()
 // requestId -> deliveredAt. A second concurrent download of the same file
@@ -152,6 +154,16 @@ const DOM_DOWNLOAD_POLL_MS = 2_000
 const DOM_DOWNLOAD_RETRY_MS = 5_000
 const BUNDLE_COMPLETION_GRACE_MS = 4_000
 const BUNDLE_CONTINUATION_BASE_MS = 5_000
+// How long a structural completion must keep holding, with the bundle still
+// absent, before it is treated as terminal. One instant of a live page is not
+// evidence: ChatGPT satisfies every completion condition transiently between
+// reasoning steps and before the file card mounts.
+const BUNDLE_COMPLETION_CONFIRM_MS = 15_000
+// Minimum process-wide spacing between prompt submissions. Transport is
+// serialized per Worker slot, so without this every free slot could submit at
+// once and present the authenticated account with a burst — the shape that
+// earns an HTTP 429 for the whole provider.
+const CHAT_AGENT_SUBMIT_GAP_MS = 10_000
 const MAX_BUNDLE_CONTINUATIONS = 1
 const PROCESSING_SIGNAL_GRACE_MS = 15_000
 const CONVERSATION_TRANSPORT_STALE_MS = 30_000
@@ -1748,21 +1760,28 @@ function publicChatAgentTask(task) {
   }
 }
 
-function chatAgentQueueDiagnostics(tasks = []) {
+// Projects the backend's queue aggregate onto the runtime diagnostics shape.
+//
+// The numbers that matter operationally are `due` and `scheduled`. A task
+// deferred behind its own not_before — every bundle-retention cleanup is
+// deferred for days by design — is waiting on a clock, not on a worker, so
+// counting it as pending backlog makes a completely idle queue read as a
+// stuck one. `oldest_due_created_at` ages only claimable work for the same
+// reason: a task that is early is not late.
+function chatAgentQueueDiagnostics(summary = {}) {
   const counts = {}
-  let oldest = ''
-  let nextNotBefore = ''
-  for (const task of tasks) {
-    const status = String(task?.status || 'UNKNOWN').toUpperCase()
-    counts[status] = (counts[status] || 0) + 1
-    if (!['DONE', 'FAILED', 'CANCELLED'].includes(status)) {
-      const created = String(task?.created_at || '')
-      if (created && (!oldest || created < oldest)) oldest = created
-      const notBefore = String(task?.not_before || '')
-      if (notBefore && (!nextNotBefore || notBefore < nextNotBefore)) nextNotBefore = notBefore
-    }
+  for (const [status, count] of Object.entries(summary?.counts || {})) {
+    counts[String(status).toUpperCase()] = Math.max(0, Number(count) || 0)
   }
-  return { total: tasks.length, counts, oldest_created_at: oldest, next_not_before: nextNotBefore }
+  return {
+    queued: Math.max(0, Number(summary?.queued) || 0),
+    counts,
+    due: Math.max(0, Number(summary?.due) || 0),
+    scheduled: Math.max(0, Number(summary?.scheduled) || 0),
+    blocked: Math.max(0, Number(summary?.blocked) || 0),
+    oldest_due_created_at: String(summary?.oldest_due_created_at || ''),
+    next_not_before: String(summary?.next_not_before || ''),
+  }
 }
 
 async function refreshChatAgentRuntimeState() {
@@ -1775,17 +1794,16 @@ async function refreshChatAgentRuntimeState() {
     return chatAgentRuntimeState()
   }
   try {
-    const [listed, leased, running, provider] = await Promise.all([
-      chatAgentScheduler.list({ limit: 500 }),
+    const [summary, leased, running, provider] = await Promise.all([
+      chatAgentScheduler.queueSummary(),
       chatAgentScheduler.list({ status: 'LEASED', limit: 50 }),
       chatAgentScheduler.list({ status: 'RUNNING', limit: 50 }),
       chatAgentScheduler.providerState(),
     ])
-    const tasks = Array.isArray(listed?.tasks) ? listed.tasks : []
     reconcileChatAgentWorkerTasks([...(leased?.tasks || []), ...(running?.tasks || [])])
     chatAgentRuntimeDiagnostics = {
       scheduler: { running: Boolean(chatAgentScheduler.running), backend_reachable: true, last_refresh_at: now, last_error: '' },
-      queue: chatAgentQueueDiagnostics(tasks),
+      queue: chatAgentQueueDiagnostics(summary),
       provider: {
         provider: String(provider?.provider || 'chatgpt'), paused: provider?.paused === true,
         paused_until: String(provider?.paused_until || ''), reason: String(provider?.reason || ''),
@@ -2286,9 +2304,18 @@ function ensureChatGPTLayoutViewport(key, entry) {
   // Never resize a view the window is actually showing: its bounds belong to
   // the renderer layout, and overwriting them makes the visible ChatGPT surface
   // jump while the user is looking at it.
+  //
+  // "Showing" is a property of the view, not of the chat. A Worker is hidden
+  // even while it owns the very chat the Supervisor has selected — which is the
+  // common case, since a chat is organized right after it was used. Matching on
+  // the key alone therefore denied a hidden Worker its layout viewport, leaving
+  // it at 0x0 so every getBoundingClientRect collapsed to the origin and every
+  // account control was reported as `action-offscreen` until the task exhausted
+  // its attempts. Only the entry the Supervisor map actually holds for this key
+  // is the visible surface; a Worker entry never is.
   const ownerState = windowStateForEntry(entry)
   if (entry?.interactionWindowId && ownerState?.activeAgentInteractionId === entry.slotId) return false
-  if (ownerState?.activeChatGPTKey === key) return false
+  if (ownerState?.activeChatGPTKey === key && chatgptViews.get(key) === entry) return false
   const bounds = entry.view.getBounds?.() || { width: 0, height: 0 }
   if (bounds.width >= 640 && bounds.height >= 480) return false
   // The viewport has to sit inside the window: Electron clips a child view to
@@ -2632,6 +2659,26 @@ async function paceChatGPTWorkerNavigation() {
     const remaining = CHATGPT_WORKER_NAVIGATION_GAP_MS - (Date.now() - chatGPTWorkerLastNavigationAt)
     if (remaining > 0) await wait(remaining)
     chatGPTWorkerLastNavigationAt = Date.now()
+  } finally {
+    release()
+  }
+}
+
+// Process-wide spacing for autonomous prompt submissions, mirroring the
+// navigation gap. Transport preparation is serialized per physical Worker slot,
+// which bounds one slot but not the pool: six free slots bound to six different
+// conversations would otherwise all submit in the same instant against a single
+// authenticated account, which is precisely the burst a provider-wide 429
+// answers. Ordering is FIFO through a promise tail, so no submission is starved.
+async function paceChatGPTWorkerSubmission() {
+  let release
+  const previous = chatGPTWorkerSubmissionTail
+  chatGPTWorkerSubmissionTail = new Promise((resolve) => { release = resolve })
+  await previous
+  try {
+    const remaining = CHAT_AGENT_SUBMIT_GAP_MS - (Date.now() - chatGPTWorkerLastSubmissionAt)
+    if (remaining > 0) await wait(remaining)
+    chatGPTWorkerLastSubmissionAt = Date.now()
   } finally {
     release()
   }
@@ -3085,7 +3132,20 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
   const health = await executeChatGPTDOMScript(key, entry, 'worker-health', chatGPTHumanActionScript())
   if (health?.required === true) return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(String(health.kind || 'verification')) }
   const completion = await entry.view.webContents.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
-  if (completion?.thinking === true || completion?.complete !== true) {
+  const now = Date.now()
+  // While the page is provably still generating, this lease observed healthy
+  // progress rather than attempting anything, so it must not spend the attempt
+  // budget. Supervision is bounded by evidence of trouble, never by a clock
+  // that runs out while the model is visibly still working.
+  if (completion?.thinking === true) {
+    expected.processingObservedAt = expected.processingObservedAt || now
+    expected.processingAbsentSince = 0
+    expected.settledAt = 0
+    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
+  }
+  if (expected.processingObservedAt && !expected.processingAbsentSince) expected.processingAbsentSince = now
+  if (completion?.complete !== true) {
+    expected.settledAt = 0
     return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS }
   }
   await captureChatGPTProcessingDuration(entry, expected)
@@ -3095,11 +3155,31 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
       expected.downloadInFlight = true
       expected.lastDOMClick = Date.now()
       recentExpectedDownload = { key, requestId: expected.requestId, at: Date.now() }
-      return { status: 'waiting', delayMs: 2_000 }
+      return { status: 'waiting', delayMs: DOM_DOWNLOAD_RETRY_MS, observation: true }
     }
+  }
+  // A completion is a single instant of a live page, and ChatGPT satisfies
+  // every structural completion condition transiently — between reasoning
+  // steps, and in the gap between finishing its text and mounting the file
+  // card. Acting on one such sample is what made Wharnex declare "terminou sem
+  // disponibilizar" over a response that was still being produced, and then
+  // spend a whole continuation request re-asking for work already in progress.
+  // A terminal conclusion therefore requires the completion to still hold, with
+  // the bundle still absent, after the grace window — and the grace is measured
+  // from the moment the generating indicator actually disappeared.
+  const idleSince = Math.max(Number(expected.processingAbsentSince || 0), Number(expected.settledAt || 0))
+  if (!expected.settledAt) expected.settledAt = now
+  if (!idleSince || now - idleSince < PROCESSING_SIGNAL_GRACE_MS) {
+    return { status: 'waiting', delayMs: BUNDLE_COMPLETION_CONFIRM_MS, observation: true }
   }
   if (Number(payload.recovery_count || 0) >= MAX_BUNDLE_CONTINUATIONS) {
     return { status: 'attention', error: `ChatGPT terminou sem disponibilizar ${expected.filename} depois da recuperação limitada.` }
+  }
+  // Continuations are real ChatGPT requests. Space them so a supervisor that
+  // keeps re-observing the same settled turn cannot turn into a request burst.
+  const continuationDelay = Math.min(30_000, BUNDLE_CONTINUATION_BASE_MS + Number(payload.recovery_count || 0) * 3_000)
+  if (expected.lastContinuationAt && now - expected.lastContinuationAt < continuationDelay) {
+    return { status: 'waiting', delayMs: continuationDelay, observation: true }
   }
   if (!(await chatAgentChildExists(task, 'RECOVERY_WRITE'))) {
     const continuation = `WHARNESS DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}\n\nThe previous ChatGPT turn finished without a detected validated downloadable bundle named ${expected.filename}.\nDo not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharness file-first contract. Finish with the file attachment only.${expected.originalPrompt ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${expected.originalPrompt}` : ''}`
@@ -3108,6 +3188,7 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
       conversationURL, parentTaskID: task.task_id, sessionID: expected.sessionId, maxAttempts: 6,
       payload: { ...payload, prompt: continuation, recovery_count: Number(payload.recovery_count || 0) + 1, expected_filename: expected.filename },
     })
+    expected.lastContinuationAt = now
   }
   return { status: 'done' }
 }
@@ -3115,6 +3196,12 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
 async function executeChatAgentWrite(task, entry, key, payload, conversationURL) {
   const prompt = String(payload.prompt || payload.original_prompt || '').trim()
   if (!prompt) return { status: 'failed', error: 'chat-agent write payload is empty' }
+  await paceChatGPTWorkerSubmission()
+  // The cooldown may have opened while this submission waited its turn in the
+  // queue above; submitting into an active provider pause is the one thing that
+  // reliably escalates it to the next level.
+  const rateLimitDelay = chatAgentRateLimitDelayMs()
+  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
   const result = await withChatGPTTransportPreparation(key, entry, task.request_id, () => {
     if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
       throw new Error('worker conversation changed before submit/upload')
@@ -3236,6 +3323,10 @@ async function executeChatAgentTask(task, { worker }) {
       if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
     }
     if (!chatAgentResidency.epochCurrent(entry.slotId, assigned.assignment.epoch, assigned.lane)) throw new Error('stale worker assignment epoch')
+    // Taking a task always costs this slot its place in the rotation, whether
+    // or not it had to rebind. A slot serving its own resident lane never
+    // rebinds, so without this it would never leave the head of the queue.
+    chatAgentResidency.noteAssignment(entry.slotId)
   } catch (error) {
     chatAgentResidency.cancelAssignment(entry.slotId, assigned.assignment.epoch)
     throw error
@@ -4076,6 +4167,15 @@ function registerIPC() {
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:state', (event, request) => { const windowState = trustedSender(event); return currentChatGPTState(request?.cacheKey, windowState) })
+  ipcMain.handle('wharness:chatgpt:open-devtools', (event, request) => {
+    const windowState = trustedSender(event)
+    const key = sanitizeChatCacheKey(request?.cacheKey)
+    const entry = chatgptViews.get(key)
+    if (!entry || entry.ownerWindowId !== windowState.id) throw new Error('Current ChatGPT browser instance is not available')
+    const { wc } = requireOwnedChatGPTEntry(key, entry)
+    wc.openDevTools({ mode: 'detach', activate: true })
+    return { ok: true }
+  })
   ipcMain.handle('wharness:chatgpt:release', (event, request) => { const windowState = trustedSender(event); return { ok: true, released: releaseChatGPTView(request?.cacheKey, windowState) } })
   ipcMain.handle('wharness:chatgpt:live-keys', (event) => { const windowState = trustedSender(event); return [...chatgptViews.entries()].filter(([, entry]) => entry.ownerWindowId === windowState.id).map(([key]) => key) })
   // Background account lifecycle work is always a durable worker task. These
@@ -4376,6 +4476,12 @@ function registerIPC() {
     return publishChatAgentRuntimeState()
   })
   ipcMain.handle('wharness:agents:snapshot', async (event, request) => { trustedSender(event); return chatAgentBrowserSnapshot(request?.agentId) })
+  ipcMain.handle('wharness:agents:open-devtools', (event, request) => {
+    trustedSender(event)
+    const entry = workerEntryForAgentID(request?.agentId)
+    entry.view.webContents.openDevTools({ mode: 'detach', activate: true })
+    return { ok: true, agentId: entry.slotId }
+  })
   ipcMain.handle('wharness:agents:interaction-open', async (event, request) => showChatAgentInteraction(request?.agentId, request?.bounds, trustedSender(event)))
   ipcMain.handle('wharness:agents:interaction-bounds', async (event, request) => setChatAgentInteractionBounds(request?.agentId, request?.bounds, trustedSender(event)))
   ipcMain.handle('wharness:agents:interaction-close', async (event, request) => closeChatAgentInteraction(request?.agentId, trustedSender(event)))

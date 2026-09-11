@@ -216,15 +216,19 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	return &task, nil
 }
 
-func (s *Store) postgresTransitionChatAgentTask(taskID, owner, status string, notBefore time.Time, detail string) (ChatAgentTask, error) {
+func (s *Store) postgresTransitionChatAgentTask(taskID, owner, status string, notBefore time.Time, detail string, observation bool) (ChatAgentTask, error) {
+	// A passive observation gives back the increment the claim charged it, so
+	// watching a healthy remote response for as long as it takes never spends
+	// the budget reserved for real attempts.
 	query := `UPDATE harness_chat_agent_tasks SET status=$3, last_error=$4,
 		not_before=CASE WHEN $3='WAITING' THEN $5 ELSE not_before END,
+		attempt=CASE WHEN $3='WAITING' AND $6 THEN GREATEST(0, attempt-1) ELSE attempt END,
 		lease_owner=CASE WHEN $3='RUNNING' THEN lease_owner ELSE '' END,
 		lease_expires_at=CASE WHEN $3='RUNNING' THEN lease_expires_at ELSE NULL END,
 		updated_at=now()
 		WHERE task_id=$1 AND lease_owner=$2 AND status IN ('LEASED','RUNNING')
 		RETURNING ` + chatAgentTaskColumns
-	task, err := scanChatAgentTask(s.db.QueryRow(query, taskID, owner, status, detail, notBefore))
+	task, err := scanChatAgentTask(s.db.QueryRow(query, taskID, owner, status, detail, notBefore, observation))
 	if err == sql.ErrNoRows {
 		return ChatAgentTask{}, ErrChatAgentLeaseOwner
 	}

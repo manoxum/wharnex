@@ -1001,6 +1001,18 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if err := protocol.Validate(*parsed.Plan); err != nil {
 		return BundleSubmission{}, err
 	}
+	// The summary is the one sentence a human reads to learn what this bundle
+	// did — in the transcript, and in the self-evolution activation dialog where
+	// it is the only prose between the operator and a decision to restart the
+	// runtime. It is checked at the same seam as the commit message, and for the
+	// same reason: a placeholder rejected here costs one re-request, while
+	// discovering it after verification would leave that dialog unable to say
+	// what it is activating. It is deliberately not enforced inside
+	// protocol.Validate, which also re-validates already-stored plans that
+	// predate this contract.
+	if err := protocol.ValidatePlanSummary(parsed.Plan.Summary); err != nil {
+		return BundleSubmission{}, err
+	}
 	// A change plan's commit_message becomes permanent project history, so its
 	// quality is part of the wire contract rather than a style preference.
 	// Checking it here — at ingestion, before policy and sandbox verification —

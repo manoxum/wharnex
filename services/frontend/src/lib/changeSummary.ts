@@ -17,7 +17,7 @@ export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = 
   const values = [...files.values()]
   if (!values.length && !hostCommands.length) return undefined
   const canRevert = values.length > 0 && plan.operations.every((operation) => operation.type === 'apply_patch')
-  return { planId: plan.plan_id, files: values, hostCommands, appliedAt, canRevert }
+  return { planId: plan.plan_id, summary: plan.summary?.trim() || undefined, files: values, hostCommands, appliedAt, canRevert }
 }
 
 function splitPatchByFile(patch: string): ChatChangeFile[] {

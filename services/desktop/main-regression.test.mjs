@@ -717,9 +717,13 @@ test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle
   assert.match(source, /wharness:agents:interaction-open/)
   assert.match(source, /wharness:agents:interaction-bounds/)
   assert.match(source, /wharness:agents:interaction-close/)
+  assert.match(source, /wharness:agents:open-devtools[\s\S]*workerEntryForAgentID\(request\?\.agentId\)[\s\S]*openDevTools\(\{ mode: 'detach', activate: true \}\)/)
+  assert.match(source, /wharness:chatgpt:open-devtools[\s\S]*chatgptViews\.get\(key\)[\s\S]*ownerWindowId !== windowState\.id[\s\S]*requireOwnedChatGPTEntry\(key, entry\)[\s\S]*openDevTools\(\{ mode: 'detach', activate: true \}\)/)
   assert.match(preload, /openInteraction:/)
   assert.match(preload, /setInteractionBounds:/)
   assert.match(preload, /closeInteraction:/)
+  assert.match(preload, /wharness:agents:open-devtools/)
+  assert.match(preload, /wharness:chatgpt:open-devtools/)
 })
 
 test('switching chats uses an idle Supervisor slot and preserves visible intent when recycling', async () => {
@@ -1182,4 +1186,76 @@ test('request pacing samples only structurally extracted durations for valid bun
   assert.notEqual(validateIndex, -1)
   assert.notEqual(recordIndex, -1)
   assert.ok(recordIndex > validateIndex, 'processing samples must be recorded only after bundle validation')
+})
+
+test('runtime queue diagnostics separate deferred work from claimable backlog', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function chatAgentQueueDiagnostics(')
+  const end = source.indexOf('\nasync function refreshChatAgentRuntimeState', start)
+  const diagnostics = source.slice(start, end)
+
+  // A task deferred behind not_before waits on a clock, not on a worker.
+  assert.match(diagnostics, /due:/)
+  assert.match(diagnostics, /scheduled:/)
+  assert.match(diagnostics, /oldest_due_created_at:/)
+  assert.doesNotMatch(diagnostics, /oldest_created_at:/)
+
+  const refreshStart = source.indexOf('async function refreshChatAgentRuntimeState(')
+  const refresh = source.slice(refreshStart, source.indexOf('\nfunction chatAgentRuntimeState', refreshStart))
+  // The aggregate is computed by the store: counting a capped, oldest-first
+  // list stops being true once settled history fills that window.
+  assert.match(refresh, /chatAgentScheduler\.queueSummary\(\)/)
+  assert.doesNotMatch(refresh, /chatAgentScheduler\.list\(\{ limit: 500 \}\)/)
+})
+
+test('a hidden Worker gets a layout viewport even while it owns the Supervisor selected chat', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function ensureChatGPTLayoutViewport(')
+  const viewport = source.slice(start, source.indexOf('\n}', source.indexOf('return true', start)))
+
+  // Identifying the visible surface by chat key alone left a hidden Worker at
+  // 0x0 whenever it owned the selected chat, so every located account control
+  // measured as offscreen and the task burned its whole attempt budget.
+  assert.match(viewport, /ownerState\?\.activeChatGPTKey === key && chatgptViews\.get\(key\) === entry/)
+  assert.doesNotMatch(viewport, /if \(ownerState\?\.activeChatGPTKey === key\) return false/)
+})
+
+test('AWAIT_RESPONSE confirms a completion before concluding the bundle is missing', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function probeChatAgentResponse(')
+  const probe = source.slice(start, source.indexOf('\nasync function executeChatAgentWrite', start))
+
+  // One instant of a live page is not evidence of completion: ChatGPT satisfies
+  // every structural completion condition transiently between reasoning steps
+  // and before the file card mounts. Acting on a single sample is what produced
+  // "terminou sem disponibilizar" over a response still being generated.
+  assert.match(probe, /PROCESSING_SIGNAL_GRACE_MS/)
+  assert.match(probe, /BUNDLE_COMPLETION_CONFIRM_MS/)
+  assert.match(probe, /processingAbsentSince/)
+  // A still-generating page is a passive observation, never a spent attempt.
+  assert.match(probe, /thinking === true[\s\S]*?observation: true/)
+  // Continuations are real ChatGPT requests and must be spaced.
+  assert.match(probe, /BUNDLE_CONTINUATION_BASE_MS/)
+  assert.match(probe, /lastContinuationAt/)
+})
+
+test('autonomous submissions are spaced process-wide and re-check the provider cooldown', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function executeChatAgentWrite(')
+  const write = source.slice(start, source.indexOf('\nasync function enqueueChatAgentFollowups', start))
+
+  // Transport is serialized per Worker slot, which bounds one slot but not the
+  // pool: every free slot could otherwise submit at once against one account.
+  assert.match(write, /await paceChatGPTWorkerSubmission\(\)/)
+  assert.match(write, /chatAgentRateLimitDelayMs\(\)/)
+
+  const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerSubmission('))
+  assert.match(pacer.slice(0, 600), /CHAT_AGENT_SUBMIT_GAP_MS/)
+})
+
+test('a worker that takes a task yields its place in the rotation', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function executeChatAgentTask(')
+  const execute = source.slice(start, source.indexOf('\n  switch (task.type)', start))
+  assert.match(execute, /chatAgentResidency\.noteAssignment\(entry\.slotId\)/)
 })

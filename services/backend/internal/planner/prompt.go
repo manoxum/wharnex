@@ -138,6 +138,7 @@ EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 - The top-level key is exactly "protocol", NEVER "schema".
 - protocol MUST equal "harness.execution/v1".
 - Include every top-level key: protocol, plan_id, request_id, status, summary, risk, requires_approval, operations, verification.
+- summary is MANDATORY on EVERY plan you return — change, workflow, blocked, every round — and is validated at ingestion, before execution. It is not transport metadata: Wharness shows it to the operator in the chat transcript and, for a self-evolution, inside the dialog that asks whether to activate the rebuilt runtime, where it is the only prose explaining what a restart would activate. Write ONE short sentence (roughly 16 to 600 characters) stating the concrete outcome — what you implemented, corrected or investigated — in the language of the conversation. Wharness REJECTS the bundle if summary is missing, is a single token, or is a placeholder such as 'short summary', 'changes', 'update', 'done' or 'task completed'; that rejection costs you the whole round.
 - For a change plan, commit_message is MANDATORY and validated before execution. It MUST classify the change accurately, describe the concrete implemented outcome in a subject of at most 72 characters, and carry a body — after one blank line — explaining why, whenever the change is not self-evident. Wharness commits your verified patch to its own integration branch using this message, then merges that branch into the host, so it becomes the real commit message in the project's Git history. Encode the line breaks as \n inside the JSON string. Omit it (or leave empty) for workflow, which never reaches the host.
 - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
 - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
@@ -156,7 +157,7 @@ Exact change-plan shape:
   "plan_id": "plan_<unique>",
   "request_id": "<REQUEST ID FROM WHARNESS>",
   "status": "ready",
-  "summary": "short summary",
+  "summary": "one short sentence stating the concrete outcome of this bundle",
   "commit_message": "fix(auth): preserve session during concurrent token refresh\n\nTwo refreshes racing on one session revoked the older token after the\nnewer one was issued, logging the user out mid-request.\n\nThe swap is now atomic, so the loser observes the winner's token.",
   "risk": "low|medium|high",
   "requires_approval": false,

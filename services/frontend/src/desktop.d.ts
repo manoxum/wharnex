@@ -33,7 +33,7 @@ type DesktopAgentRuntimeAgent = {
 type DesktopAgentRuntimeState = {
   instance_id: string; desired_workers: number; limits: { min_workers: number; max_workers: number; supervisors: number }
   scheduler: { running: boolean; backend_reachable: boolean; last_refresh_at: string; last_error: string }
-  queue: { total: number; counts: Record<string, number>; oldest_created_at: string; next_not_before: string }
+  queue: { queued: number; counts: Record<string, number>; due: number; scheduled: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
   provider: { provider: string; paused: boolean; paused_until: string; reason: string; updated_at: string; rate_limit_level?: number; last_rate_limit_at?: string; last_rate_limit_source?: string; last_valid_bundle_at?: string; average_processing_ms?: number; valid_sample_count?: number; initial_wait_ms?: number }
   agents: DesktopAgentRuntimeAgent[]
 }
@@ -65,6 +65,7 @@ interface WharnessDesktopBridge {
     back(cacheKey: string): Promise<{ ok: boolean }>
     forward(cacheKey: string): Promise<{ ok: boolean }>
     paste(cacheKey: string): Promise<{ ok: boolean }>
+    openDevTools(cacheKey: string): Promise<{ ok: boolean }>
     submitPrompt(request: { cacheKey: string; sessionId: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
     preparePrompt(request: { cacheKey: string; text: string; transport?: { disabledTunnelIds: string[] }; tunnelInstanceIds?: string[]; bootstrapText?: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; artifacts?: DesktopUserAttachment[]; projectFiles?: string[]; autoSubmit?: boolean; contextSha256?: string; lastContextSha256?: string; lastContextChatgptUrl?: string; includeContext?: boolean; preferCurrentConversation?: boolean; firstRequest?: boolean; chatTitle?: string; projectName?: string; expectedFilename?: string }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string; transport?: 'tunnel' | 'remote_channel'; provider?: string; instanceId?: string; expiresAt?: string }>
     retryPreparedPrompt(request: { cacheKey: string; expectedRequestId?: string; sessionId?: string; url?: string; recoveryPrompt?: string; expectedFilename?: string }): Promise<{ ok: boolean; cacheKey: string; attachmentCount?: number; submitted?: boolean; expectedFilename?: string; includedContext?: boolean; conversationUrl?: string; requestId?: string; alreadyDelivered?: boolean; durable?: boolean; transport?: 'tunnel' | 'remote_channel'; provider?: string; instanceId?: string; expiresAt?: string }>
@@ -117,6 +118,7 @@ interface WharnessDesktopBridge {
     setWorkerCount(count: number): Promise<DesktopAgentRuntimeState>
     resumeProvider(): Promise<DesktopAgentRuntimeState>
     snapshot(agentId: string): Promise<{ agentId: string; dataUrl: string; capturedAt: string }>
+    openDevTools(agentId: string): Promise<{ ok: boolean; agentId: string }>
     openInteraction(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds: DesktopBounds }>
     setInteractionBounds(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds?: DesktopBounds }>
     closeInteraction(agentId: string): Promise<{ ok: boolean; agentId: string; closed: boolean }>

@@ -121,7 +121,7 @@ func TestAutoProviderChangeExecutesAndAppliesWithoutDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := domain.ExecutionPlan{
-		Protocol: domain.ProtocolV1, PlanID: "provider-change", Status: "ready", Summary: "update hello", Risk: "low",
+		Protocol: domain.ProtocolV1, PlanID: "provider-change", Status: "ready", Summary: "Replace the hello greeting text in the demo file", Risk: "low",
 		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
 	}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
@@ -1600,7 +1600,7 @@ func makeExecutionBundleWithBaseline(t *testing.T, requestID, baseline string) [
 	entries := map[string]string{
 		"README.md":         "# Automatic fix\nChanges hello.txt from old to new.\n",
 		"patches/001.patch": "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n",
-		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"update hello","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"Replace the hello greeting text in the demo file","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Atualização cumulativa do pedido de teste.")
 	for name, value := range entries {

@@ -28,6 +28,10 @@ export function RestartConfirmation({ sessionId, change, busy, onLater, onRestar
         <h2 id="restart-confirmation-title">Como ativar a nova versão?</h2>
         <p>O host já foi atualizado, a revisão final do ChatGPT foi recebida e o conhecimento foi processado. Confirme quando deseja ativar a runtime reconstruída.</p>
       </div>
+      {/* The planner's own short description of the delivered work. The protocol
+          requires it on every plan-bearing response, so the operator is never
+          asked to restart the runtime without being told what changed. */}
+      {change?.summary && <p className="restart-confirmation-summary" aria-label="Resumo da alteração">{change.summary}</p>}
       <section className="restart-confirmation-changes" aria-labelledby="restart-confirmation-changes-title">
         <header>
           <div><span className="panel-kicker">Fecho da alteração</span><strong id="restart-confirmation-changes-title">Alterações desta versão</strong></div>

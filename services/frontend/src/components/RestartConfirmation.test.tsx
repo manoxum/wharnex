@@ -28,4 +28,16 @@ describe('RestartConfirmation', () => {
     expect(screen.getByRole('button', { name: /Apenas esta/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Todas agora/ })).toBeTruthy()
   })
+
+  it('explains what the restart activates using the planner summary', () => {
+    // The operator is deciding whether to restart the runtime; a diff alone
+    // makes them reconstruct the intent from the patch.
+    render(<RestartConfirmation sessionId="ses-self" change={{ ...change, summary: 'Corrige o dwell dos workers e espaça as submissões' }} busy={false} onLater={vi.fn()} onRestart={vi.fn()}/>)
+    expect(screen.getByLabelText('Resumo da alteração').textContent).toBe('Corrige o dwell dos workers e espaça as submissões')
+  })
+
+  it('omits the summary block when a legacy change carries none', () => {
+    render(<RestartConfirmation sessionId="ses-self" change={change} busy={false} onLater={vi.fn()} onRestart={vi.fn()}/>)
+    expect(screen.queryByLabelText('Resumo da alteração')).toBeNull()
+  })
 })

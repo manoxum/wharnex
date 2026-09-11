@@ -80,6 +80,13 @@ export class ChatAgentSchedulerClient {
     return requestJSON(this.fetchImpl, this.baseURL, `${target.pathname}${target.search}`)
   }
 
+  // Queue depth as an aggregate. Counting a listed page instead would go wrong
+  // the moment settled history outgrows that page: the list is oldest-first, so
+  // it fills with completed work and the live queue vanishes from the count.
+  async queueSummary() {
+    return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/tasks/summary')
+  }
+
   async cancelLineage(rootRequestID) {
     return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/tasks/cancel-lineage', {
       method: 'POST', body: JSON.stringify({ root_request_id: rootRequestID }),
@@ -196,11 +203,16 @@ export class ChatAgentSchedulerClient {
         return
       }
       if (result?.status === 'waiting') {
+        // An observation only watched healthy remote progress. The backend
+        // returns the attempt the claim charged, so the task stays claimable
+        // and the exhaustion guard below must not apply: a long but perfectly
+        // healthy response would otherwise have its own supervisor killed.
+        const observation = result.observation === true
         // Claim increments attempt before execution. A task that is put back in
         // WAITING on its final attempt can never be claimed again because the
         // backend intentionally excludes attempt >= max_attempts. Fail it
         // terminally here instead of creating an unreachable queue record.
-        if (Number(task.attempt || 0) >= Number(task.max_attempts || 0)) {
+        if (!observation && Number(task.attempt || 0) >= Number(task.max_attempts || 0)) {
           await this.#transition(task.task_id, 'fail', {
             owner, error: String(result.error || 'chat-agent task exhausted maximum attempts while waiting'),
           })
@@ -210,6 +222,7 @@ export class ChatAgentSchedulerClient {
             owner,
             not_before: result.notBefore || new Date(Date.now() + delay).toISOString(),
             error: String(result.error || ''),
+            observation,
           })
         }
       } else if (result?.status === 'attention') {

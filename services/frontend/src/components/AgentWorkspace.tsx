@@ -4,23 +4,10 @@ import { ChatPanel } from './ChatPanel'
 import type { ChatViewportStore } from './useProgressiveChatHistory'
 import { Inspector, type InspectorTab } from './Inspector'
 import { Icon } from './Icon'
-import { AgentProjectExplorer } from './AgentProjectExplorer'
-import { ProjectActivityDrawer, type ProjectActivityKind } from './ProjectActivityDrawer'
-import { EvolutionEvidenceDrawer } from './EvolutionEvidenceDrawer'
-import { ProjectKnowledgeDrawer } from './ProjectKnowledgeDrawer'
-import { GitDrawer } from './GitDrawer'
-import { AgentRuntimeDrawer } from './AgentRuntimeDrawer'
-import { FilePreviewModal } from './FilePreviewModal'
-import { loadChat } from '../lib/workspaceMemory'
-import { MarkdownContent } from './MarkdownContent'
-import { promptDialog } from '../lib/appDialog'
 import { desktopWindowScope } from '../lib/projectBindings'
-import { ATTENTION_ACTION_LABEL, collectAttentionItems, sessionCanApplyHost, sessionHostResolutionBlocked, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
+import { ATTENTION_ACTION_LABEL, sessionCanApplyHost, sessionHostResolutionBlocked, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { AttentionPopover } from './AttentionPopover'
 import { api } from '../lib/api'
-import { executionQueueActiveCount, visibleExecutionQueueItems, type ExecutionFIFOItem } from '../lib/executionQueueView'
-
-type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'git' | 'agents' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
 const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
@@ -46,29 +33,29 @@ function saveAgentChatWidth(width: number) {
   try { localStorage.setItem(agentChatWidthStorageKey(), String(width)) } catch { /* best effort */ }
 }
 
+// Kept in step with the grid in styles.css: the splitter width and the minimum
+// a panel may be squeezed to. The activity rail is no longer part of this grid
+// — it belongs to the shell, beside every mode surface.
+const AGENT_SPLITTER_PX = 6
+const AGENT_PANEL_MIN_PX = 320
 
-export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSessions = {}, chatgptHumanActions = {}, chatgptHumanAction, chatgptAttentionNonce = 0, inspectorAttention, onChatGPTHumanAction, chatProps, inspectorProps, onOpenFile, onError, onAnalyzeEvolution, onExportChat, onReorderChat }: {
+
+export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAttentionNonce = 0, inspectorAttention, onOpenAttention, onAttentionAction, onOpenAttentionDrawer, chatProps, inspectorProps, onExportChat, onReorderChat }: {
   session: Session
   busy: boolean
-  executionFIFO?: ExecutionFIFOItem[]
-  attentionSessions?: Record<string, Session | undefined>
-  chatgptHumanActions?: Record<string, DesktopChatGPTHumanAction>
-  chatgptHumanAction?: DesktopChatGPTHumanAction
+  attentionItems?: AttentionItem[]
   chatgptAttentionNonce?: number
   inspectorAttention?: { tab: InspectorTab; nonce: number }
-  onChatGPTHumanAction?: () => void
+  onOpenAttention: (item: AttentionItem) => Promise<void>
+  onAttentionAction: (item: AttentionItem) => Promise<void>
+  onOpenAttentionDrawer: () => void
   chatProps: ComponentProps<typeof ChatPanel>
   inspectorProps: ComponentProps<typeof Inspector>
-  onOpenFile: (path: string) => void
-  onError: (message: string) => void
-  onAnalyzeEvolution?: (ids: string[]) => Promise<void>
   onExportChat?: () => Promise<void>
   onReorderChat: (sourceChatId: string, targetChatId: string) => void
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
-  const [drawer, setDrawer] = useState<Drawer>('')
   const [attentionPopoverOpen, setAttentionPopoverOpen] = useState(false)
-  const [previewPath, setPreviewPath] = useState<string>()
   const workspaceRef = useRef<HTMLElement>(null)
   const attentionClusterRef = useRef<HTMLDivElement>(null)
   const chatViewportStoreRef = useRef<ChatViewportStore>(new Map())
@@ -77,13 +64,9 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
   const [dropTargetChatId, setDropTargetChatId] = useState('')
   const [bundleQuota, setBundleQuota] = useState<BundleQuota>()
   const archived = chatProps.archivedChats || []
-  const activityChats = useMemo(() => [...chatProps.chats, ...(chatProps.archivedChats || [])], [chatProps.chats, chatProps.archivedChats])
-  const attentionItems = useMemo(() => collectAttentionItems(chatProps.chats, attentionSessions, chatgptHumanActions), [attentionSessions, chatProps.chats, chatgptHumanActions])
   const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
   const activeCommandAttention = attentionItems.find((item) => item.chatId === chatProps.activeChatId && item.action && item.action !== 'apply-host')
   const executionCommandRunning = useMemo(() => hasRunningExecutionCommand(inspectorProps.events), [inspectorProps.events])
-  const visibleExecutionFIFO = useMemo(() => visibleExecutionQueueItems(executionFIFO, chatProps.chats.map((chat) => chat.id)), [executionFIFO, chatProps.chats])
-  const activeExecutionCount = useMemo(() => executionQueueActiveCount(visibleExecutionFIFO), [visibleExecutionFIFO])
   useEffect(() => {
     let alive = true
     const refresh = () => { void api.bundleQuota().then((value) => { if (alive) setBundleQuota(value) }).catch(() => {}) }
@@ -104,14 +87,16 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [attentionPopoverOpen])
+  // Attention routing switches the inspector to the surface that needs a human,
+  // but it never dismisses the left panel: the drawer closes only when the
+  // operator asks it to, so incoming attention cannot pull away the plans,
+  // runtime or Git view they were reading.
   useEffect(() => {
     if (!chatgptAttentionNonce) return
-    setDrawer('')
     setInspectorTab('chatgpt')
   }, [chatgptAttentionNonce])
   useEffect(() => {
     if (!inspectorAttention?.nonce) return
-    setDrawer('')
     setInspectorTab(inspectorAttention.tab)
   }, [inspectorAttention])
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
@@ -125,62 +110,19 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
     setInspectorTab(tab)
   }
 
-  // The badge exists so uncommitted Wharnex work is visible without opening the
-  // panel. It refetches only when an Apply could have created a record, never
-  // on a timer: a poll would make an idle workspace talk to the backend forever
-  // to learn a number that only changes when the user applies something.
-  const [pendingCommitCount, setPendingCommitCount] = useState(0)
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const overview = await api.gitOverview(session.id)
-        if (!cancelled) setPendingCommitCount(overview.pending.length)
-      } catch {
-        if (!cancelled) setPendingCommitCount(0)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [session.id, session.last_host_applied_at, drawer])
-
-  function toggleDrawer(next: Exclude<Drawer, ''>) { setDrawer((current) => current === next ? '' : next) }
-
   async function openAttention(item: AttentionItem) {
     setAttentionPopoverOpen(false)
-    if (item.id.endsWith(':chatgpt-human-action') && item.chatId === chatProps.activeChatId && chatgptHumanAction?.active && onChatGPTHumanAction) {
-      onChatGPTHumanAction()
-      return
-    }
-    if (item.chatId !== chatProps.activeChatId) await chatProps.onSelectChat(item.chatId)
-    if (item.target) setInspectorTab(item.target)
-    setDrawer('')
+    await onOpenAttention(item)
   }
 
   async function runAttentionAction(item: AttentionItem) {
-    if (!item.action) return
-    if (item.chatId !== chatProps.activeChatId) {
-      await openAttention(item)
-      return
-    }
     setAttentionPopoverOpen(false)
-    switch (item.action) {
-      case 'approve-execution': await inspectorProps.onExecute(true); return
-      case 'retry-dependency-network': await inspectorProps.onRetryDependencyNetwork?.(); return
-      case 'repair-host-dependency': await inspectorProps.onRetryHostDependencyRepair?.(); return
-      case 'repair-with-gpt': {
-        const detail = await promptDialog({ title: 'Corrigir erro com GPT', message: 'Pode acrescentar um detalhe para orientar a correção ou deixar em branco.', inputLabel: 'Detalhe opcional', placeholder: 'Ex.: verifique também o comportamento no Windows', confirmLabel: 'Enviar para correção', tone: 'warning' })
-        if (detail !== undefined) await chatProps.onRepairWithGPT?.(detail)
-        return
-      }
-      case 'retry-transport': await chatProps.onRetryTransportFailure?.(item.requestId || ''); return
-      case 'retry-host-apply':
-      case 'apply-host': await inspectorProps.onApply(); return
-    }
+    await onAttentionAction(item)
   }
 
   function openAllAttention() {
     setAttentionPopoverOpen(false)
-    setDrawer('attention')
+    onOpenAttentionDrawer()
   }
 
   function attentionTone(target: AttentionTarget): AttentionTone | undefined {
@@ -221,26 +163,31 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
     onReorderChat(chatId, target.id)
   }
 
-  function beginResize(event: React.PointerEvent<HTMLButtonElement>) {
-    const root = workspaceRef.current
-    if (!root) return
+  function trackPointerDrag(event: React.PointerEvent<HTMLButtonElement>, update: (clientX: number) => void) {
     event.currentTarget.setPointerCapture(event.pointerId)
-    const rect = root.getBoundingClientRect()
-    const drawerWidth = drawer ? root.querySelector<HTMLElement>('.agent-drawer')?.offsetWidth || 0 : 0
-    const fixed = 42 + drawerWidth
-    const update = (clientX: number) => {
-      const available = Math.max(720, rect.width - fixed - 6)
-      const next = Math.round(Math.max(320, Math.min(available - 320, clientX - rect.left - fixed)))
-      setChatWidth(next); saveAgentChatWidth(next)
-    }
     const move = (moveEvent: PointerEvent) => update(moveEvent.clientX)
     const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish)
   }
 
+  function beginResize(event: React.PointerEvent<HTMLButtonElement>) {
+    const root = workspaceRef.current
+    if (!root) return
+    const rect = root.getBoundingClientRect()
+    // The activity rail and the side drawer are the shell's, outside this grid,
+    // so the chat column starts at this element's own left edge.
+    trackPointerDrag(event, (clientX) => {
+      const available = Math.max(AGENT_PANEL_MIN_PX * 2, rect.width - AGENT_SPLITTER_PX)
+      const next = Math.round(Math.max(AGENT_PANEL_MIN_PX, Math.min(available - AGENT_PANEL_MIN_PX, clientX - rect.left)))
+      setChatWidth(next); saveAgentChatWidth(next)
+    })
+  }
+
   const executeLabel = direct ? 'Executar plano diretamente no host' : needsApproval ? 'Aprovar e executar plano' : 'Executar plano na sandbox'
 
-  return <section ref={workspaceRef} className={`agent-workspace ${drawer ? 'drawer-open' : ''}`} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
+  // The chat width is published only once the operator has actually chosen it,
+  // so an untouched layout falls through to the stylesheet's 60/40 default.
+  return <section ref={workspaceRef} className="agent-workspace" style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
     <header className="agent-commandbar">
       <nav className="agent-direct-chatgpt-tab" aria-label="ChatGPT direto">
         <button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')} title="ChatGPT" aria-label="ChatGPT"><Icon name="chatgpt" size={15}/></button>
@@ -287,32 +234,6 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       </div>
     </nav>
 
-    <aside className="agent-activity-bar" aria-label="Ferramentas do Agent">
-      <button type="button" className={drawer === 'archive' ? 'active' : ''} onClick={() => toggleDrawer('archive')} aria-label="Chats arquivados" title="Chats arquivados"><Icon name="folder" size={18}/>{archived.length > 0 && <b>{archived.length}</b>}</button>
-      <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggleDrawer('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
-      <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggleDrawer('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>
-      <button type="button" className={drawer === 'git' ? 'active' : ''} onClick={() => toggleDrawer('git')} aria-label="Git do projeto" title="Git do projeto"><Icon name="git" size={18}/>{pendingCommitCount > 0 && <b>{pendingCommitCount}</b>}</button>
-      <button type="button" className={drawer === 'agents' ? 'active' : ''} onClick={() => toggleDrawer('agents')} aria-label="Gestão de agentes" title="Supervisor e Workers"><Icon name="agent" size={18}/></button>
-      <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggleDrawer('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>
-      <button type="button" className={drawer === 'executions' ? 'active' : ''} onClick={() => toggleDrawer('executions')} aria-label="Execuções do projeto" title="Execuções do projeto"><Icon name="terminal" size={18}/></button>
-      <button type="button" className={drawer === 'fifo' ? 'active' : ''} onClick={() => toggleDrawer('fifo')} aria-label="Fila FIFO de execução" title="Fila FIFO de execução"><Icon name="play" size={18}/>{activeExecutionCount > 0 && <b>{activeExecutionCount}</b>}</button>
-      {session.self_evolution && <button type="button" className={drawer === 'evolution' ? 'active' : ''} onClick={() => toggleDrawer('evolution')} aria-label="Logs de auto-evolução" title="Logs e análise de auto-evolução"><Icon name="refresh" size={18}/></button>}
-    </aside>
-
-    {drawer && <aside className={`agent-drawer ${drawer === 'plans' || drawer === 'executions' ? 'activity-wide' : drawer === 'evolution' ? 'evidence-wide' : drawer === 'knowledge' ? 'knowledge-wide' : drawer === 'git' ? 'git-wide' : drawer === 'agents' ? 'agents-wide' : drawer === 'attention' ? 'attention-wide' : ''}`}>
-      {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onClose={() => setDrawer('')}/> : null}
-      {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archived} busy={busy} onRestore={chatProps.onRestoreChat} onDelete={chatProps.onDeleteArchivedChat} onRename={chatProps.onRenameChat} onGenerate={chatProps.onGenerateChatTitle} onClose={() => setDrawer('')}/> : null}
-      {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError}/> : null}
-      {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={() => setDrawer('')}/> : null}
-      {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={() => setDrawer('')} onError={onError}/> : null}
-      {drawer === 'agents' ? <AgentRuntimeDrawer onClose={() => setDrawer('')} onError={onError}/> : null}
-      {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={activityChats} currentSession={session} activeChatId={chatProps.activeChatId} activeEvents={inspectorProps.events} onClose={() => setDrawer('')}/> : null}
-      {drawer === 'fifo' ? <ExecutionQueueDrawer items={visibleExecutionFIFO} onClose={() => setDrawer('')} onError={onError}/> : null}
-      {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={onAnalyzeEvolution || (async () => undefined)} onClose={() => setDrawer('')}/> : null}
-    </aside>}
-
-    {previewPath && <FilePreviewModal sessionId={session.id} path={previewPath} onOpenInEditor={onOpenFile} onClose={() => setPreviewPath(undefined)}/>}
-
     <div className="agent-chat-stage"><ChatPanel key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
     <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
     <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} /></div>
@@ -339,133 +260,4 @@ function hasRunningExecutionCommand(events: HarnessEvent[]) {
     else running.delete(runID)
   }
   return running.size > 0
-}
-
-function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
-  const chatCount = new Set(items.map((item) => item.chatId)).size
-  return <section className="attention-center-drawer" aria-label="Centro de notificações">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Atenção global</span><strong>Centro de notificações</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar notificações"><Icon name="close" size={13}/></button></header>
-    <div className="attention-center-summary"><span><b>{items.length}</b> {items.length === 1 ? 'alerta ativo' : 'alertas ativos'}</span><span><b>{chatCount}</b> {chatCount === 1 ? 'chat afetado' : 'chats afetados'}</span></div>
-    <div className="attention-center-list">
-      {items.length ? items.map((item) => <article className={`attention-center-item ${item.tone}`} key={item.id}><button type="button" className="attention-center-link" disabled={busy && item.chatId !== activeChatId} onClick={() => void onOpen(item)}>
-        <span className="attention-center-marker"><Icon name={item.tone === 'danger' ? 'shield' : item.tone === 'success' ? 'apply' : 'bell'} size={15}/></span>
-        <span className="attention-center-copy"><small>{item.chatTitle}{item.chatId === activeChatId ? ' · aberto agora' : ''}</small><strong>{item.title}</strong><span>{item.detail}</span></span>
-        <Icon name="arrow-right" size={14}/>
-      </button>{item.action && <button type="button" className="attention-center-action" disabled={busy} onClick={() => void onAction(item)}>{item.chatId === activeChatId ? ATTENTION_ACTION_LABEL[item.action] : `Abrir · ${ATTENTION_ACTION_LABEL[item.action]}`}</button>}</article>) : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>Nada requer atenção</strong><span>Alertas de todos os chats abertos deste projeto aparecerão aqui.</span></div>}
-    </div>
-  </section>
-}
-
-// ExecutionConcurrencyControl exposes how many plans one project may verify at
-// the same time. It is deliberately presented next to the queue it governs, so
-// the ordered list and the limit that produces it are read together.
-//
-// Raising it is not free: each concurrent runner claims a full container
-// memory allowance plus a complete project clone, so the cost is stated rather
-// than left for the operator to discover through an out-of-disk failure.
-function ExecutionConcurrencyControl({ onError }: { onError?: (message: string) => void }) {
-  const [concurrency, setConcurrency] = useState<number>()
-  const [max, setMax] = useState(1)
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    api.executionConcurrency()
-      .then((value) => { if (active) { setConcurrency(value.concurrency); setMax(value.max) } })
-      .catch(() => { /* the queue itself stays usable without the knob */ })
-    return () => { active = false }
-  }, [])
-
-  const apply = async (next: number) => {
-    setBusy(true)
-    try {
-      const value = await api.updateExecutionConcurrency(next)
-      setConcurrency(value.concurrency)
-      setMax(value.max)
-    } catch (error) {
-      onError?.(error instanceof Error ? error.message : 'Não foi possível alterar a concorrência')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (concurrency === undefined) return null
-  return <div className="execution-queue-concurrency">
-    <div className="execution-queue-concurrency-copy">
-      <label htmlFor="execution-concurrency">Execuções simultâneas</label>
-      <small>Limite por projeto · cada execução reserva um clone</small>
-    </div>
-    <div className="execution-queue-concurrency-control">
-      <select id="execution-concurrency" aria-label="Execuções simultâneas por projeto" value={concurrency} disabled={busy}
-        onChange={(event) => void apply(Number(event.target.value))}>
-        {Array.from({ length: max }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}
-      </select>
-      <span>/ {max}</span>
-    </div>
-  </div>
-}
-
-function ExecutionQueueDrawer({ items, onClose, onError }: { items: ExecutionFIFOItem[]; onClose: () => void; onError?: (message: string) => void }) {
-  const running = items.filter((item) => item.status === 'running' || item.status === 'submitting')
-  const waiting = items.filter((item) => item.status === 'queued')
-  const recent = items.filter((item) => item.status === 'completed' || item.status === 'failed')
-  return <section className="execution-queue-drawer" aria-label="Fila FIFO de execução">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Execução do projeto</span><strong>Fila FIFO</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar fila"><Icon name="close" size={13}/></button></header>
-    <div className="execution-queue-overview" aria-label="Resumo da fila"><QueueMetric label="Em execução" value={running.length} tone="running"/><QueueMetric label="A aguardar" value={waiting.length} tone="queued"/><QueueMetric label="Recentes" value={recent.length} tone="completed"/></div>
-    <p className="execution-queue-hint">Mostra apenas chats ativos: trabalho em curso, pendente e as 5 últimas execuções terminadas.</p>
-    <ExecutionConcurrencyControl onError={onError}/>
-    <div className="execution-queue-list">{items.length ? items.map((item) => <ExecutionQueueCard key={item.key} item={item}/>) : <div className="agent-drawer-empty">Sem trabalho ativo ou recente. A próxima execução aparecerá aqui assim que entrar na fila.</div>}</div>
-  </section>
-}
-
-function QueueMetric({ label, value, tone }: { label: string; value: number; tone: 'running' | 'queued' | 'completed' }) {
-  return <div className={`execution-queue-metric ${tone}`}><i aria-hidden="true"/><span>{label}</span><b>{value}</b></div>
-}
-
-function ExecutionQueueCard({ item }: { item: ExecutionFIFOItem }) {
-  const state = executionQueueState(item)
-  const timestamp = item.completedAt || item.addedAt
-  return <article className={`execution-queue-card ${item.status}`}>
-    <div className="execution-queue-copy">
-      <div className="execution-queue-card-heading"><strong>{item.chatTitle}</strong><span className="execution-queue-state" aria-label={state.label}><Icon name={state.icon} size={11}/><b>{state.label}</b></span></div>
-      <span><code>{item.planId}</code><time dateTime={new Date(timestamp).toISOString()}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>{item.status === 'queued' && <i className="execution-queue-order" aria-label={`Posição ${item.position || 1} na fila`}>#{String(item.position || 1).padStart(2, '0')}</i>}</span>
-      <small>{state.detail}</small>
-    </div>
-  </article>
-}
-
-function executionQueueState(item: ExecutionFIFOItem): { label: string; detail: string; icon: 'play' | 'check' | 'close' | 'terminal' } {
-  if (item.status === 'running') return { label: 'Em execução', detail: 'Processamento ativo neste momento', icon: 'play' }
-  if (item.status === 'submitting') return { label: 'A iniciar', detail: 'A reservar o próximo slot de execução', icon: 'terminal' }
-  if (item.status === 'queued') return { label: 'Na fila', detail: 'Em espera, com a ordem FIFO preservada', icon: 'terminal' }
-  if (item.status === 'completed') return { label: 'Concluída', detail: 'Execução terminada com sucesso', icon: 'check' }
-  return { label: 'Com erro', detail: 'Execução terminada com falha', icon: 'close' }
-}
-
-function ArchiveDrawer({ projectPath, chats, busy, onRestore, onDelete, onRename, onGenerate, onClose }: {
-  projectPath: string
-  chats: ComponentProps<typeof ChatPanel>['archivedChats']
-  busy: boolean
-  onRestore: ComponentProps<typeof ChatPanel>['onRestoreChat']
-  onDelete: ComponentProps<typeof ChatPanel>['onDeleteArchivedChat']
-  onRename: ComponentProps<typeof ChatPanel>['onRenameChat']
-  onGenerate: ComponentProps<typeof ChatPanel>['onGenerateChatTitle']
-  onClose: () => void
-}) {
-  const [query, setQuery] = useState('')
-  const [preview, setPreview] = useState<string>()
-  const visible = chats.filter((chat) => chat.title.toLowerCase().includes(query.toLowerCase()))
-  const previewChat = chats.find((chat) => chat.id === preview)
-  const previewItems = previewChat ? loadChat(projectPath, previewChat.id) : []
-  return <section className="agent-archive-drawer" aria-label="Chats arquivados">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Chats</span><strong>Arquivados</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
-    <label className="archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar chats arquivados"/></label>
-    <div className="agent-archive-list">
-      {visible.length ? visible.map((chat) => <article className="agent-archive-item" key={chat.id} onClick={() => setPreview(chat.id)}>
-        <div><strong>{chat.title}</strong><span>Início {new Date(chat.createdAt).toLocaleString()}</span><span>Encerramento {new Date(chat.archivedAt || chat.updatedAt).toLocaleString()}</span></div>
-        <div><button type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); void promptDialog({ title: 'Renomear chat', inputLabel: 'Novo nome', initialValue: chat.title, confirmLabel: 'Renomear' }).then((title) => { if (title) return onRename?.(chat.id, title) }) }} aria-label={`Renomear ${chat.title}`} title="Renomear"><Icon name="rename" size={13}/></button><button type="button" disabled={busy || !chat.chatgptUrl} onClick={(event) => { event.stopPropagation(); void onGenerate?.(chat.id) }} aria-label={`Gerar nome para ${chat.title}`} title="Usar o título contextual gerado pelo ChatGPT"><Icon name="agent" size={13}/></button><button type="button" className="danger" disabled={busy} onClick={(event) => { event.stopPropagation(); void onDelete(chat.id) }} aria-label={`Eliminar definitivamente ${chat.title}`} title="Eliminar definitivamente"><Icon name="trash" size={13}/></button></div>
-      </article>) : <div className="agent-drawer-empty">Nenhum chat arquivado corresponde à pesquisa.</div>}
-    </div>
-    {previewChat && <div className="archived-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(undefined) }}><section className="archived-preview" role="dialog" aria-modal="true" aria-label={`Pré-visualização de ${previewChat.title}`}><header><div><span className="panel-kicker">Somente leitura</span><h2>{previewChat.title}</h2><p>{new Date(previewChat.createdAt).toLocaleString()} — {new Date(previewChat.archivedAt || previewChat.updatedAt).toLocaleString()}</p></div><button className="icon-button light" onClick={() => setPreview(undefined)} aria-label="Fechar pré-visualização"><Icon name="close" size={14}/></button></header><div className="archived-preview-stream">{previewItems.map((item) => <article key={item.id} className={`archived-preview-message ${item.source || item.role}`}><small>{item.source === 'chatgpt' ? 'ChatGPT' : item.source === 'wharness' ? 'WHX' : 'Você'} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small><MarkdownContent markdown={item.text}/></article>)}</div><footer><span>Envio e processamento permanecem bloqueados até restaurar.</span><button className="apply-button" disabled={busy} onClick={() => void onRestore(previewChat.id)}><Icon name="refresh" size={13}/> Restaurar chat</button></footer></section></div>}
-  </section>
 }

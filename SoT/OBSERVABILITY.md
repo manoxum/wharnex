@@ -22,6 +22,16 @@ Self-evolution publishes dedicated `self_evolution.*` events for transaction sta
 
 Desktop liveness diagnostics distinguish renderer/network recovery from human-required intervention without logging remote response prose or credentials. Logs identify the owning chat key/request, sanitized URL/status, bounded recovery reason/attempt, DOM-health probe failures, page-load stalls, rate-limit backoff, and categorical human-action kind (`verification`, `authentication`, `access`, `surface`, `transport`, or `stalled`). Human-action IPC carries only the owning chat key, request id when present, categorical kind/source, a local explanatory message, and timestamp. CAPTCHA tokens, cookies, local/session storage and arbitrary ChatGPT page text MUST NOT enter logs, events or renderer IPC.
 
+## Browser-agent queue observability (v1.3.5)
+
+The durable browser-agent queue MUST be reported as an aggregate computed by the session store, never by counting a listed page of tasks. The task list is ordered oldest-first and capped, so a client-side count silently stops describing the live queue as soon as settled history fills that window.
+
+Queue depth is the queue, not its history. A settled task (`DONE`, `FAILED`, `CANCELLED`, `ATTENTION`) has left the queue and MUST NOT be counted in it, nor contribute to a lifetime total: such a tally reports past throughput while saying nothing about what is waiting to run.
+
+Queue depth MUST distinguish work a worker could claim now from work that is merely deferred. A task held behind its own `not_before` is waiting on a clock, not on a worker: bundle-retention cleanup is enqueued days ahead by design, and reporting it as pending backlog makes a completely idle scheduler read as a stuck one. The published summary therefore separates `due`, `scheduled` and `blocked` — the last being tasks past their attempt budget, which the claim query excludes and which will never drain — using the same predicate the claim query itself applies. Backlog age (`oldest_due_created_at`) MUST be derived only from claimable tasks; a deferred task is early, not late, and MUST NOT age the queue.
+
+Settled task rows (`DONE`, `FAILED`, `CANCELLED`) are operational bookkeeping, not evidence: durable request history lives in the persisted event history above. They MUST be swept on a retention window rather than retained indefinitely. The window MUST stay comfortably longer than any single request lifecycle, because a completed child task is what stops its parent from enqueuing the same follow-up twice.
+
 ## Unresolved evidence ledger (v1.3.1)
 
 Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit selection enters an AI analysis request. **Analyze with AI** always creates or reuses a dedicated self-evolution Harness chat and never takes over the user's currently active conversation. Resolution is stored by immutable event ID across all canonical self-evolution sessions and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time and the currently selected analysis chat are not resolution boundaries.

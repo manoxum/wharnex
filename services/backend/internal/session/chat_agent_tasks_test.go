@@ -116,7 +116,7 @@ func TestChatAgentConversationWriteLeaseAndWait(t *testing.T) {
 		t.Fatalf("claim await after write: %#v %v", other, err)
 	}
 	notBefore := time.Now().UTC().Add(time.Minute)
-	waiting, err := store.WaitChatAgentTask(second.TaskID, "worker-2", notBefore, "still generating")
+	waiting, err := store.WaitChatAgentTask(second.TaskID, "worker-2", notBefore, "still generating", false)
 	if err != nil {
 		t.Fatal(err)
 	}

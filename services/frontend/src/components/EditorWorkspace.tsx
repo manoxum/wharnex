@@ -6,7 +6,6 @@ import { confirmDialog } from '../lib/appDialog'
 import type { FileEntry, Session, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
-import { InteractiveTerminal } from './InteractiveTerminal'
 import { WorkspaceExplorer } from './WorkspaceExplorer'
 import { ArtifactPreview } from './ArtifactPreview'
 
@@ -20,7 +19,6 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
   const [activePath, setActivePath] = useState<string>()
   const [loadingFiles, setLoadingFiles] = useState(false)
   const [savingPath, setSavingPath] = useState<string>()
-  const [terminalHeight, setTerminalHeight] = useState(245)
   const [cursor, setCursor] = useState<Cursor>({ line: 1, column: 1 })
   const [revealNonce, setRevealNonce] = useState(0)
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set())
@@ -167,8 +165,6 @@ export function EditorWorkspace({ session, onError, openPath, openNonce = 0 }: {
           </div>
         </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Escolha um ficheiro</h3><p>O Explorer mostra apenas ficheiros permitidos pela política do Harness. Abra vários ficheiros em tabs; o editor preserva rascunhos, histórico de undo, pesquisa, folding e navegação por linha.</p></div>}
       </div>
-      <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(245)} />
-      <InteractiveTerminal session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={onError} />
     </div>
   </section>
 }

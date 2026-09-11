@@ -47,6 +47,25 @@ func (a *API) listChatAgentTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": items})
 }
 
+// chatAgentTaskSummary reports queue depth as an aggregate.
+//
+// The runtime view used to derive its counters by listing tasks and counting
+// them in the client, which silently stops being true once the table outgrows
+// the list window: that window is ordered oldest-first, so it fills with
+// completed history and hides the live queue. Counting in the store is exact
+// regardless of table size.
+func (a *API) chatAgentTaskSummary(w http.ResponseWriter, r *http.Request) {
+	summary, err := a.store.ChatAgentQueueSummary()
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	if summary.Counts == nil {
+		summary.Counts = map[string]int{}
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
 func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
 	var body chatAgentLeaseRequest
 	if !decodeJSON(w, r, &body) {
@@ -94,11 +113,15 @@ func (a *API) waitChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		Owner     string    `json:"owner"`
 		NotBefore time.Time `json:"not_before"`
 		Error     string    `json:"error"`
+		// Observation marks a lease that only watched healthy remote progress.
+		// It returns the attempt the claim charged, so supervising a long but
+		// healthy response cannot exhaust the budget meant for real attempts.
+		Observation bool `json:"observation"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	task, err := a.store.WaitChatAgentTask(r.PathValue("id"), body.Owner, body.NotBefore, body.Error)
+	task, err := a.store.WaitChatAgentTask(r.PathValue("id"), body.Owner, body.NotBefore, body.Error, body.Observation)
 	if err != nil {
 		writeChatAgentTaskError(w, err)
 		return

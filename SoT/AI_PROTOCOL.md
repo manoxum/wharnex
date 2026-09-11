@@ -104,6 +104,14 @@ These rules are enforced, not advisory. A `change` bundle is rejected when `comm
 
 Wharness sanitizes the accepted message before it becomes a commit: control characters are stripped and the subject is collapsed to a single line, while the body's own line and paragraph structure is preserved. Wharness MUST NOT flatten a body into its subject, and its own degraded fallback — reachable only when a plan carries neither message nor summary — MUST NOT emit any subject this section forbids.
 
+## Plan summary
+
+`summary` is mandatory on every plan-bearing response bundle — change, workflow, blocked, and every round of a Main Request — and is human-facing prose, not transport metadata. Wharness shows it in the chat transcript and, for a self-evolution, inside the dialog that asks whether to activate the rebuilt runtime, where it is the only text explaining what a restart would activate. An operator MUST NOT be asked to reconstruct that intent from a diff.
+
+It is one short sentence stating the concrete outcome — what was implemented, corrected or investigated — written in the language of the conversation. Unlike `commit_message`, it describes the delivered bundle rather than authoring Git history, so it carries no Conventional Commits structure.
+
+These rules are enforced, not advisory. A plan-bearing bundle is rejected when `summary` is missing or blank, is shorter than the minimum needed to identify the work, is a single token, exceeds the byte ceiling, or matches the closed set of forbidden placeholders (`short summary`, `changes`, `update`, `done`, `task completed`, and the rest of the published list). Validation happens at bundle ingestion, deliberately before Policy and sandbox verification, for the same reason as `commit_message`: a rejected summary costs one re-request, while discovering it after verification would leave the activation dialog unable to say what it is activating. It is deliberately not enforced inside plan re-validation, which also runs against already-stored plans that predate this contract.
+
 ## Command representation
 
 Commands are argv arrays, for example:
