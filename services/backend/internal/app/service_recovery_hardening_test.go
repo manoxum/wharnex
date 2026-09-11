@@ -118,6 +118,8 @@ func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 		"self_evolution_transaction_metadata_mismatch": domain.FailureKindSelfEvolutionMetadata,
 		"stale_pending_baseline":                       domain.FailureKindStaleHostBaseline,
 		"host_integration_race":                        domain.FailureKindHostIntegrationRace,
+		"submodule_boundary":                           domain.FailureKindSubmoduleWrite,
+		"submodule_write":                              domain.FailureKindSubmoduleWrite,
 	}
 	for reason, want := range cases {
 		outcome := &domain.TurnOutcome{Status: domain.TurnOutcomeFailed, ReasonCode: reason, Retryable: true}
@@ -163,6 +165,38 @@ func TestHostDependencyPlannerOutcomeStopsFreshRequestRecovery(t *testing.T) {
 	}
 	if result.Session.FailureKind != domain.FailureKindHostDependencyState {
 		t.Fatalf("failure kind = %q", result.Session.FailureKind)
+	}
+}
+
+func TestPlannerSubmoduleBoundaryStopsFreshGPTRecovery(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "change submodule page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	seedFailedPlanForRepair(t, service, started.ID, requestID)
+	bundle := makeFailedBundleWithReason(t, requestID, "submodule_boundary", true)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RemoteRecoveryPrepared || result.Session.RemoteRecoveryAttempt != 0 {
+		t.Fatalf("submodule boundary must not create another GPT request: %#v", result)
+	}
+	if result.Session.FailureKind != domain.FailureKindSubmoduleWrite {
+		t.Fatalf("failure kind = %q want %q", result.Session.FailureKind, domain.FailureKindSubmoduleWrite)
+	}
+	if _, err := service.RetryFailedRequest(context.Background(), started.ID); err == nil || !strings.Contains(err.Error(), "terminal for fresh GPT retry") {
+		t.Fatalf("fresh retry should be refused for submodule boundary, got %v", err)
+	}
+	if _, err := service.RequestFailureRepair(context.Background(), started.ID, "try again"); err == nil || !strings.Contains(err.Error(), "dedicated local recovery action") {
+		t.Fatalf("GPT repair should be refused for submodule boundary, got %v", err)
 	}
 }
 

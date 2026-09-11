@@ -679,8 +679,16 @@ func TestRetryFailedRequestCreatesFreshDurableRequestWithoutFrontendTranscript(t
 	if retried.RequestBaselines[retried.LastRequestID] == "" || retried.RequestContextArchives[retried.LastRequestID] == "" {
 		t.Fatalf("fresh retry lacks immutable request base: baselines=%#v archives=%#v", retried.RequestBaselines, retried.RequestContextArchives)
 	}
-	if !strings.Contains(retried.LastManualPrompt, "FRESH REQUEST RECOVERY") || strings.Contains(retried.LastManualPrompt, "stale command plan cannot be reconciled without its immutable request base; submit one fresh request\n\nUSER REQUEST") {
-		t.Fatalf("fresh recovery prompt is malformed: %s", retried.LastManualPrompt)
+	if !strings.Contains(retried.LastManualPrompt, "FRESH REQUEST RECOVERY") ||
+		!strings.Contains(retried.LastManualPrompt, "PREVIOUS TERMINAL FAILURE — AUTHORITATIVE EVIDENCE") ||
+		!strings.Contains(retried.LastManualPrompt, "stale command plan cannot be reconciled without its immutable request base") ||
+		!strings.Contains(retried.LastManualPrompt, "Do not repeat a semantically equivalent plan") ||
+		!strings.Contains(retried.LastManualPrompt, "retryable=false") {
+		t.Fatalf("fresh recovery prompt lost failure evidence or anti-repeat rules: %s", retried.LastManualPrompt)
+	}
+	lineage := retried.RequestLineages[retried.LastRequestID]
+	if lineage.ParentRequestID != failed.LastRequestID || lineage.RootRequestID != prompted.LastRequestID || lineage.Kind != requestKindRepair {
+		t.Fatalf("fresh recovery lost request lineage: %#v", lineage)
 	}
 }
 
