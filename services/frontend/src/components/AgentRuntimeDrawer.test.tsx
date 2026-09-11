@@ -8,16 +8,17 @@ class TestResizeObserver {
   unobserve() {}
 }
 
-function runtime(desiredWorkers = 3): DesktopAgentRuntimeState {
+function runtime(desiredWorkers = 6): DesktopAgentRuntimeState {
   return {
     instance_id: 'desktop-test',
     desired_workers: desiredWorkers,
-    limits: { min_workers: 1, max_workers: 6, supervisors: 1 },
+    limits: { min_workers: 1, max_workers: 6, supervisors: 2 },
     scheduler: { running: true, backend_reachable: true, last_refresh_at: '2026-09-11T10:00:00Z', last_error: '' },
     queue: { total: 2, counts: { RUNNING: 1, WAITING: 1 }, oldest_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
     provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', updated_at: '2026-09-11T10:00:00Z' },
     agents: [
-      { id: 'supervisor', label: 'Supervisor', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false } },
+      { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false } },
+      { id: 'supervisor-2', label: 'Supervisor 2', role: 'supervisor', status: 'idle', draining: false, chat_id: '', error: '', browser: { available: false, web_contents_id: 0, url: '', title: '', loading: false } },
       { id: 'worker-1', label: 'Worker 1', role: 'worker', status: 'running', draining: false, chat_id: 'chat-1', task: { task_id: 'task-1', type: 'AWAIT_RESPONSE', chat_id: 'chat-1', request_id: 'req-1', root_request_id: 'req-root', conversation_id: 'conv-1', status: 'RUNNING', attempt: 2, max_attempts: 30, lease_expires_at: '2026-09-11T10:01:00Z', not_before: '2026-09-11T10:00:00Z', last_error: '', created_at: '2026-09-11T09:55:00Z', updated_at: '2026-09-11T10:00:00Z' }, last_claim_at: '2026-09-11T10:00:00Z', loop_active: true, error: '', browser: { available: true, web_contents_id: 11, url: 'https://chatgpt.com/c/worker', title: 'Chat worker', loading: false } },
     ],
   }
@@ -53,16 +54,16 @@ describe('AgentRuntimeDrawer', () => {
     expect(await screen.findByText('Worker 1')).toBeTruthy()
     fireEvent.click(screen.getByText('Worker 1'))
     expect(screen.getByText(/AWAIT_RESPONSE · task-1/)).toBeTruthy()
-    expect(screen.getByText('RUNNING')).toBeTruthy()
+    expect(screen.getByText('RUNNING', { selector: '.agent-runtime-detail dd' })).toBeTruthy()
     expect(screen.getByText('WebContents #11')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Aumentar workers' }))
-    await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(4))
+    fireEvent.click(screen.getByRole('button', { name: 'Diminuir workers' }))
+    await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(5))
   })
 
   it('shows a durable leased task as occupied instead of available', async () => {
     const state = runtime()
-    const worker = state.agents[1]
+    const worker = state.agents.find((agent) => agent.id === 'worker-1')!
     worker.status = 'claimed'
     if (worker.task) worker.task.status = 'LEASED'
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
@@ -77,12 +78,30 @@ describe('AgentRuntimeDrawer', () => {
 
     render(<AgentRuntimeDrawer onClose={() => undefined} />)
     fireEvent.click(await screen.findByText('Worker 1'))
-    fireEvent.click(screen.getByRole('button', { name: /Interagir com navegador/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Interagir aqui/ }))
     await waitFor(() => expect(agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.objectContaining({ width: 1, height: 1 })))
     expect(screen.getByLabelText('Navegador interativo de Worker 1')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Terminar interação/ }))
     await waitFor(() => expect(agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
+  })
+
+
+  it('moves a Worker into the main Engine flow when Seguir is requested', async () => {
+    const agents = agentsBridge()
+    const onClose = vi.fn()
+    const listener = vi.fn()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+    window.addEventListener('wharnex:agent-follow', listener)
+
+    render(<AgentRuntimeDrawer onClose={onClose} />)
+    fireEvent.click(await screen.findByText('Worker 1'))
+    fireEvent.click(screen.getByRole('button', { name: /Seguir \(flow\)/ }))
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ agentId: 'worker-1' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    window.removeEventListener('wharnex:agent-follow', listener)
   })
 
   it('captures a created browser even before it has a page URL', async () => {
@@ -95,8 +114,8 @@ describe('AgentRuntimeDrawer', () => {
     const button = await screen.findByRole('button', { name: /Capturar imagem/ })
     expect(button).not.toHaveProperty('disabled', true)
     fireEvent.click(button)
-    await waitFor(() => expect(agents.snapshot).toHaveBeenCalledWith('supervisor'))
-    expect(await screen.findByRole('img', { name: /Captura do navegador de Supervisor/ })).toBeTruthy()
+    await waitFor(() => expect(agents.snapshot).toHaveBeenCalledWith('supervisor-1'))
+    expect(await screen.findByRole('img', { name: /Captura do navegador de Supervisor 1/ })).toBeTruthy()
   })
 
   it('shows queue/provider health and explicitly resumes a paused provider', async () => {
@@ -108,7 +127,7 @@ describe('AgentRuntimeDrawer', () => {
 
     render(<AgentRuntimeDrawer onClose={() => undefined} />)
     expect(await screen.findByText('Pausado globalmente')).toBeTruthy()
-    expect(screen.getByText('1 WAITING')).toBeTruthy()
+    expect(screen.getByText('WAITING', { selector: '.agent-runtime-queue span' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar provider' }))
     await waitFor(() => expect(agents.resumeProvider).toHaveBeenCalledTimes(1))
   })

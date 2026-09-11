@@ -20,7 +20,7 @@ import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieD
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
-import { DEFAULT_WORKER_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_WORKER_SLOTS, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
+import { DEFAULT_WORKER_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_WORKER_SLOTS, SUPERVISOR_SLOTS, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
@@ -260,7 +260,7 @@ async function withChatGPTTransportPreparation(cacheKey, entry, requestId, opera
 async function waitForDifferentSupervisorTransport(cacheKey) {
   const key = sanitizeChatCacheKey(cacheKey)
   for (;;) {
-    const currentKey = supervisorKey()
+    const currentKey = supervisorKey(windowStateForEntry(chatgptViews.get(key)))
     const current = currentKey ? chatgptViews.get(currentKey) : undefined
     if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) return
     const activeTail = chatGPTTransportTails.get(`chat:${currentKey}`)
@@ -1821,11 +1821,16 @@ function publicAgentBrowser(entry) {
 }
 
 function chatAgentRuntimeState() {
-  const supervisor = supervisorEntry()
-  const supervisorState = {
-    id: 'supervisor', label: 'Supervisor', role: 'supervisor', status: supervisor?.loading ? 'loading' : 'idle',
-    draining: false, chat_id: String(supervisor?.ownerKey || ''), task: undefined, error: '', browser: publicAgentBrowser(supervisor),
-  }
+  const supervisors = Array.from({ length: SUPERVISOR_SLOTS }, (_, offset) => {
+    const id = `supervisor-${offset + 1}`
+    const entry = [...chatgptViews.values()].find((candidate) => candidate.slotId === id)
+    const active = Boolean(entry && [...desktopWindows.values()].some((state) => state.activeChatGPTKey === entry.ownerKey))
+    return {
+      id, label: `Supervisor ${offset + 1}`, role: 'supervisor',
+      status: entry?.transportPreparationCount ? 'running' : entry?.loading ? 'loading' : entry ? 'idle' : 'stopped',
+      draining: false, loop_active: true, interacting: active, chat_id: String(entry?.ownerKey || ''), task: undefined, error: '', browser: publicAgentBrowser(entry),
+    }
+  })
   const workers = chatGPTWorkerEntries.map((entry, offset) => {
     const worker = offset + 1
     const runtime = chatAgentWorkerStates.get(worker) || {}
@@ -1841,11 +1846,11 @@ function chatAgentRuntimeState() {
   return {
     instance_id: String(chatAgentScheduler?.instanceID || ''),
     desired_workers: desiredChatAgentWorkerSlots,
-    limits: { min_workers: MIN_WORKER_SLOTS, max_workers: HARD_MAX_WORKER_SLOTS, supervisors: 1 },
+    limits: { min_workers: MIN_WORKER_SLOTS, max_workers: HARD_MAX_WORKER_SLOTS, supervisors: SUPERVISOR_SLOTS },
     scheduler: chatAgentRuntimeDiagnostics.scheduler,
     queue: chatAgentRuntimeDiagnostics.queue,
     provider: chatAgentRuntimeDiagnostics.provider,
-    agents: [supervisorState, ...workers],
+    agents: [...supervisors, ...workers],
   }
 }
 
@@ -1857,10 +1862,10 @@ function publishChatAgentRuntimeState() {
 
 async function chatAgentBrowserSnapshot(agentID) {
   const id = String(agentID || '').trim()
-  const entry = id === 'supervisor' ? supervisorEntry() : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
+  const entry = id === 'supervisor' ? supervisorEntry() : /^supervisor-[12]$/.test(id) ? [...chatgptViews.values()].find((candidate) => candidate.slotId === id) : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
   const wc = entry?.view?.webContents
   if (!wc || wc.isDestroyed()) throw new Error('Agent browser instance is not available')
-  const layoutKey = entry.ownerKey || (entry.role === 'supervisor' ? supervisorKey() : entry.slotId || id)
+  const layoutKey = entry.ownerKey || (entry.role === 'supervisor' ? supervisorKey(windowStateForEntry(entry)) : entry.slotId || id)
   ensureChatGPTLayoutViewport(layoutKey, entry)
   const image = await wc.capturePage()
   return { agentId: id, dataUrl: image.toDataURL(), capturedAt: new Date().toISOString() }
@@ -1884,34 +1889,59 @@ function retireChatGPTSupervisorSurface(cacheKey) {
   return true
 }
 
-function supervisorEntry() {
-  return [...chatgptViews.values()][0]
+function supervisorKey(windowState) {
+  const active = String(windowState?.activeChatGPTKey || '')
+  if (active && chatgptViews.has(active)) return active
+  for (const state of desktopWindows.values()) {
+    const key = String(state.activeChatGPTKey || '')
+    if (key && chatgptViews.has(key)) return key
+  }
+  return [...chatgptViews.keys()][0] || ''
 }
 
-function supervisorKey() {
-  return [...chatgptViews.keys()][0] || ''
+function supervisorEntry(windowState) {
+  const key = supervisorKey(windowState)
+  return key ? chatgptViews.get(key) : undefined
+}
+
+function supervisorSlotID() {
+  const used = new Set([...chatgptViews.values()].map((entry) => String(entry.slotId || '')))
+  for (let index = 1; index <= SUPERVISOR_SLOTS; index += 1) {
+    const id = `supervisor-${index}`
+    if (!used.has(id)) return id
+  }
+  return 'supervisor-1'
+}
+
+function reusableSupervisor(cacheKey, windowState) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const active = String(windowState?.activeChatGPTKey || '')
+  const candidates = [...chatgptViews.entries()]
+    .filter(([candidateKey, entry]) => candidateKey !== key && Number(entry.transportPreparationCount || 0) === 0)
+    .sort(([leftKey, left], [rightKey, right]) => {
+      const leftActive = leftKey === active ? 1 : 0
+      const rightActive = rightKey === active ? 1 : 0
+      if (leftActive !== rightActive) return leftActive - rightActive
+      return Number(left.lastUsed || 0) - Number(right.lastUsed || 0)
+    })
+  return candidates[0]
 }
 
 function ensureChatGPTView(cacheKey, windowState) {
   const key = sanitizeChatCacheKey(cacheKey)
   let entry = chatgptViews.get(key)
   if (!entry) {
-    const currentKey = supervisorKey()
-    const current = currentKey ? chatgptViews.get(currentKey) : undefined
-    if (current && currentKey !== key) {
-      if (Number(current.transportPreparationCount || 0) > 0) throw new Error('ChatGPT Supervisor is busy submitting another chat')
-      // `show` records the renderer's visible intent before activating the next
-      // chat. Retiring the old Supervisor clears that window flag, so preserve
-      // it across this immediate rebind or the replacement view stays hidden
-      // behind the renderer's "A carregar ChatGPT…" placeholder indefinitely.
-      const preserveVisibleIntent = windowState?.chatgptVisible === true
-      retireChatGPTSupervisorSurface(currentKey)
-      if (preserveVisibleIntent && windowState) windowState.chatgptVisible = true
-    }
     const resolved = windowState || [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+    if (chatgptViews.size >= SUPERVISOR_SLOTS) {
+      const reusable = reusableSupervisor(key, resolved)
+      if (!reusable) throw new Error('All ChatGPT Supervisor slots are busy submitting')
+      const preserveVisibleIntent = resolved?.chatgptVisible === true
+      retireChatGPTSupervisorSurface(reusable[0])
+      if (preserveVisibleIntent && resolved) resolved.chatgptVisible = true
+    }
     entry = createChatGPTView(key, resolved)
     entry.role = 'supervisor'
-    entry.slotId = 'supervisor'
+    entry.slotId = supervisorSlotID()
   }
   if (windowState && entry.ownerWindowId !== windowState.id) {
     const previousState = windowStateForEntry(entry)
@@ -1925,12 +1955,10 @@ function ensureChatGPTView(cacheKey, windowState) {
   return { key, entry }
 }
 
-// The remote runtime has one human-facing Supervisor. The bounded autonomous
-// worker pool lives outside chatgptViews. Renderer access is limited to the
-// named agent-management IPC capabilities (runtime metadata, worker target,
-// explicit snapshot). Switching chats retires/rebinds only the Supervisor;
-// durable request state stays keyed by chat/request and workers continue independently.
-const MAX_RESIDENT_CHATGPT_VIEWS = 1
+// The remote runtime keeps two Supervisor slots as a double buffer. Exactly one
+// is visible; the other may finish a write or stay warm for the next chat. The
+// bounded autonomous worker pool lives outside chatgptViews.
+const MAX_RESIDENT_CHATGPT_VIEWS = SUPERVISOR_SLOTS
 
 function evictIdleChatGPTViews() {
   const entries = [...chatgptViews.entries()]
@@ -1974,7 +2002,7 @@ function clearDeferredSupervisorNavigation() {
   if (pending?.windowState) pending.windowState.desiredVisibleChatGPTKey = ''
 }
 
-function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, current = supervisorEntry()) {
+function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, current = supervisorEntry(windowState)) {
   const key = sanitizeChatCacheKey(cacheKey)
   clearDeferredSupervisorNavigation()
   deferredSupervisorNavigation = {
@@ -1991,22 +2019,21 @@ function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, cu
 
 function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
   const key = sanitizeChatCacheKey(cacheKey)
-  const currentKey = supervisorKey()
-  const current = currentKey ? chatgptViews.get(currentKey) : undefined
-  if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) {
+  if (chatgptViews.has(key) || chatgptViews.size < SUPERVISOR_SLOTS || reusableSupervisor(key, windowState)) {
     clearDeferredSupervisorNavigation()
     return false
   }
+  const currentKey = supervisorKey(windowState)
+  const current = currentKey ? chatgptViews.get(currentKey) : undefined
   setDeferredSupervisorNavigation(key, windowState, request, current)
-  console.log(`[chatgpt-supervisor] deferred-switch from=${currentKey} to=${key} request=${current.transportRequestId || '-'}`)
+  console.log(`[chatgpt-supervisor] deferred-switch from=${currentKey || '-'} to=${key} request=${current?.transportRequestId || '-'}`)
   return true
 }
 
 async function applyDeferredSupervisorNavigation() {
   const pending = deferredSupervisorNavigation
   if (!pending) return
-  const current = supervisorEntry()
-  if (current && Number(current.transportPreparationCount || 0) > 0) return
+  if (chatgptViews.size >= SUPERVISOR_SLOTS && !reusableSupervisor(pending.key, pending.windowState)) return
   deferredSupervisorNavigation = undefined
   const state = pending.windowState
   if (!state?.window || state.window.isDestroyed()) return

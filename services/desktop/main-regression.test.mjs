@@ -613,7 +613,7 @@ test('Portuguese spell checking is configured from Chromium dictionaries', async
 })
 
 
-test('one Supervisor owns renderer IPC while bounded workers stay outside chat view ownership', async () => {
+test('two Supervisor slots double-buffer renderer IPC while bounded workers stay outside chat view ownership', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
@@ -623,11 +623,13 @@ test('one Supervisor owns renderer IPC while bounded workers stay outside chat v
   const workerEnd = source.indexOf('\nfunction assignChatGPTWorker', workerStart)
   const workers = source.slice(workerStart, workerEnd)
   assert.match(source, /const chatGPTWorkerEntries = \[\]/)
-  assert.match(source, /const MAX_RESIDENT_CHATGPT_VIEWS = 1/)
+  assert.match(source, /const MAX_RESIDENT_CHATGPT_VIEWS = SUPERVISOR_SLOTS/)
   assert.match(source, /let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS/)
   assert.match(ensure, /entry\.role = 'supervisor'/)
-  assert.match(ensure, /entry\.slotId = 'supervisor'/)
-  assert.match(ensure, /retireChatGPTSupervisorSurface\(currentKey\)/)
+  assert.match(ensure, /entry\.slotId = supervisorSlotID\(\)/)
+  assert.match(ensure, /chatgptViews\.size >= SUPERVISOR_SLOTS/)
+  assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
+  assert.match(ensure, /retireChatGPTSupervisorSurface\(reusable\[0\]\)/)
   assert.match(workers, /index < desiredChatAgentWorkerSlots/)
   assert.match(workers, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`/)
   assert.match(workers, /while \(chatGPTWorkerEntries\.length > desiredChatAgentWorkerSlots\)/)
@@ -655,7 +657,7 @@ test('agent browser snapshots park hidden workers into a real layout viewport', 
   const snapshot = source.slice(start, end)
   assert.match(snapshot, /ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
   assert.match(snapshot, /await wc\.capturePage\(\)/)
-  assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor'/)
+  assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? supervisorKey/)
 })
 
 test('agent runtime reconciles Worker occupancy from durable lease owners', async () => {
@@ -720,14 +722,17 @@ test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle
   assert.match(preload, /closeInteraction:/)
 })
 
-test('switching the Supervisor preserves the renderer visible intent', async () => {
+test('switching chats uses an idle Supervisor slot and preserves visible intent when recycling', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
   const ensureEnd = source.indexOf('\nfunction evictIdleChatGPTViews', ensureStart)
   const ensure = source.slice(ensureStart, ensureEnd)
 
-  assert.match(ensure, /const preserveVisibleIntent = windowState\?\.chatgptVisible === true/)
-  assert.match(ensure, /retireChatGPTSupervisorSurface\(currentKey\)[\s\S]*if \(preserveVisibleIntent && windowState\) windowState\.chatgptVisible = true/)
+  assert.match(ensure, /chatgptViews\.size >= SUPERVISOR_SLOTS/)
+  assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
+  assert.match(source, /function reusableSupervisor[\s\S]*Number\(entry\.transportPreparationCount \|\| 0\) === 0/)
+  assert.match(ensure, /const preserveVisibleIntent = resolved\?\.chatgptVisible === true/)
+  assert.match(ensure, /retireChatGPTSupervisorSurface\(reusable\[0\]\)[\s\S]*if \(preserveVisibleIntent && resolved\) resolved\.chatgptVisible = true/)
 })
 
 test('a busy Supervisor hides its old surface and publishes the deferred target state', async () => {
