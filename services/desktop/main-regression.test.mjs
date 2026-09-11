@@ -1023,3 +1023,28 @@ test('expected-bundle polling stops once the request has been delivered', async 
   // skipped — otherwise the surface stays supervised forever.
   assert.match(source.slice(guard, clickIndex), /disarmExpectedChatGPTBundle\(key, expected\.requestId\)/)
 })
+
+test('transient protocol ZIPs are deleted promptly and included in storage cleanup', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const fillStart = source.indexOf('async function fillBundledChatGPTComposer')
+  const fillEnd = source.indexOf('\nasync function executeChatGPTDOMScript', fillStart)
+  const fill = source.slice(fillStart, fillEnd)
+  assert.notEqual(fillStart, -1)
+  assert.match(fill, /try \{/)
+  assert.match(fill, /finally \{/)
+  assert.match(fill, /rm\(path\.dirname\(input\.archivePath\), \{ recursive: true, force: true \}\)/)
+
+  const storageStart = source.indexOf('async function desktopStorageUsage()')
+  const storageEnd = source.indexOf('\nasync function clearDesktopWharnessData', storageStart)
+  const storage = source.slice(storageStart, storageEnd)
+  assert.match(storage, /chat-protocol/)
+
+  const clearStart = source.indexOf('async function clearDesktopWharnessData()')
+  const clearEnd = source.indexOf('\nfunction chatGPTConversationID', clearStart)
+  assert.match(source.slice(clearStart, clearEnd), /'wharness-chat-protocol'/)
+
+  const readyStart = source.indexOf('app.whenReady().then(async () => {')
+  const ready = source.slice(readyStart, readyStart + 500)
+  assert.match(ready, /wharness-chat-protocol/)
+  assert.match(ready, /recursive: true, force: true/)
+})

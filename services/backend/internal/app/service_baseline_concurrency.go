@@ -56,31 +56,37 @@ func enrichPlanConcurrency(plan *domain.ExecutionPlan, baseline string) {
 	plan.BarrierFiles = normalizedPaths(plan.BarrierFiles)
 }
 
-func recordRequestContext(item *domain.Session, requestID string, bundle domain.ContextBundle) {
+func recordRequestContext(item *domain.Session, requestID string, bundle domain.ContextBundle) []string {
 	requestID = strings.TrimSpace(requestID)
 	archive := strings.TrimSpace(bundle.ZipPath)
 	if requestID == "" || archive == "" {
-		return
+		return nil
 	}
 	if item.RequestContextArchives == nil {
 		item.RequestContextArchives = make(map[string]string)
 	}
+	pruned := make([]string, 0, max(1, len(item.RequestContextArchives)-24))
+	if previous := strings.TrimSpace(item.RequestContextArchives[requestID]); previous != "" && previous != archive {
+		pruned = append(pruned, previous)
+	}
 	item.RequestContextArchives[requestID] = archive
 	if len(item.RequestContextArchives) <= 24 {
-		return
+		return pruned
 	}
 	keep := map[string]bool{item.LastRequestID: true}
 	for _, id := range item.PendingManualRequestIDs {
 		keep[id] = true
 	}
-	for id := range item.RequestContextArchives {
+	for id, path := range item.RequestContextArchives {
 		if !keep[id] {
+			pruned = append(pruned, path)
 			delete(item.RequestContextArchives, id)
 			if len(item.RequestContextArchives) <= 24 {
 				break
 			}
 		}
 	}
+	return pruned
 }
 
 func requestContextArchive(item domain.Session, requestID string) string {

@@ -110,6 +110,7 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 			TargetBranch: request.targetBranch,
 		},
 	}
+	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
@@ -125,10 +126,11 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 		current.State = "conflict_resolution_pending"
 		current.LastRepairError = fmt.Sprintf("merging %s conflicts on: %s", request.ref, strings.Join(resolvable, ", "))
 		recordRequestBaseline(current, requestID, item.Context.Manifest.SHA256)
-		recordRequestContext(current, requestID, item.Context)
+		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		return nil
 	})
 	if err == nil {
+		s.cleanupPrunedRequestContexts(prunedContexts)
 		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{
 			"conflict_id": conflictID, "request_id": requestID, "paths": resolvable,
 			"origin": request.origin, "surface_key": conflictSurfaceKey(sessionID, conflictID),

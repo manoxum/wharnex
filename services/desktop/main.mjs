@@ -1960,11 +1960,15 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
 async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], liveTunnels = []) {
   const input = await materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, liveTunnels)
   const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels)
-  const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)
-  if (!filled) throw new Error('ChatGPT composer DOM could not be populated with bundled protocol input')
-  await pasteChatGPTFile(entry, input.archivePath, 1, 1)
-  await wait(chatInputSettleDelay(input.bytes, 1))
-  return { ...input, bootstrap }
+  try {
+    const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)
+    if (!filled) throw new Error('ChatGPT composer DOM could not be populated with bundled protocol input')
+    await pasteChatGPTFile(entry, input.archivePath, 1, 1)
+    await wait(chatInputSettleDelay(input.bytes, 1))
+    return { ...input, bootstrap }
+  } finally {
+    await rm(path.dirname(input.archivePath), { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 async function executeChatGPTDOMScript(cacheKey, entry, stage, script) {
@@ -3318,7 +3322,7 @@ async function desktopStorageUsage() {
   let entries = []
   try { entries = await readdir(app.getPath('temp'), { withFileTypes: true }) } catch { /* best effort */ }
   for (const entry of entries) {
-    if (!entry.isDirectory() || !/^(wharness-(bundles|plans|context|chat-inputs))$/.test(entry.name)) continue
+    if (!entry.isDirectory() || !/^(wharness-(bundles|plans|context|chat-inputs|chat-protocol))$/.test(entry.name)) continue
     tempBytes += await pathSize(path.join(app.getPath('temp'), entry.name))
   }
   const userDataBytes = await pathSize(userData)
@@ -3333,7 +3337,7 @@ async function clearDesktopWharnessData() {
   await localSession.flushStorageData()
   await rm(chatAttachmentRoot(), { recursive: true, force: true })
   await rm(pendingBrowserImportPath(), { force: true })
-  for (const name of ['wharness-bundles', 'wharness-plans', 'wharness-context', 'wharness-chat-inputs']) {
+  for (const name of ['wharness-bundles', 'wharness-plans', 'wharness-context', 'wharness-chat-inputs', 'wharness-chat-protocol']) {
     await rm(path.join(app.getPath('temp'), name), { recursive: true, force: true })
   }
   return { ok: true }
@@ -3996,6 +4000,7 @@ function registerIPC() {
 }
 
 app.whenReady().then(async () => {
+  await rm(path.join(app.getPath('temp'), 'wharness-chat-protocol'), { recursive: true, force: true }).catch(() => undefined)
   try { await applyPendingBrowserSessionImport() } catch (error) { console.error('[chatgpt-session] pending import failed', error) }
   const chatSession = session.fromPartition(CHATGPT_PARTITION)
   chatSession.setUserAgent(CHATGPT_USER_AGENT, CHATGPT_ACCEPT_LANGUAGES)

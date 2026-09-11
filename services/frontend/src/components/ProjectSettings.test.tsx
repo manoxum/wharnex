@@ -45,7 +45,7 @@ describe('ProjectSettings loading', () => {
       snapshot_id: 'ctx', sha256: 'abc', project_root: '/tmp/demo', included_files: 0, excluded_items: 0, included_bytes: 0, roots: [], entries: [], rules: [],
     })
     vi.mocked(api.storage).mockResolvedValue({
-      total_bytes: 0, state_bytes: 0, context_bytes: 0, sandbox_bytes: 0, orphan_bytes: 0, artifact_bytes: 0, projects: [],
+      total_bytes: 0, state_bytes: 0, context_bytes: 0, sandbox_bytes: 0, orphan_bytes: 0, artifact_bytes: 0, archive_bytes: 0, projects: [],
     })
   })
 

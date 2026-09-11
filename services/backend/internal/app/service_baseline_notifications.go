@@ -45,13 +45,16 @@ func (s *Service) publishBaselineUpdate(ctx context.Context, source domain.Sessi
 		}
 		peerBaseline := strings.TrimSpace(peer.Context.Manifest.SHA256)
 		completeDelta := peerBaseline == strings.TrimSpace(oldSHA)
-		_, _ = s.store.Update(peer.ID, func(item *domain.Session) error {
+		var prunedContexts []string
+		if _, err := s.store.Update(peer.ID, func(item *domain.Session) error {
 			if item.LastRequestID != "" {
 				recordRequestBaseline(item, item.LastRequestID, peerBaseline)
-				recordRequestContext(item, item.LastRequestID, item.Context)
+				prunedContexts = append(prunedContexts, recordRequestContext(item, item.LastRequestID, item.Context)...)
 			}
 			return nil
-		})
+		}); err == nil {
+			s.cleanupPrunedRequestContexts(prunedContexts)
+		}
 		refreshed, err := s.refreshContext(peer.ID)
 		if err != nil {
 			s.bus.Publish(peer.ID, "baseline.refresh_failed", map[string]any{"error": err.Error(), "new_sha256": newSHA})
