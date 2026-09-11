@@ -122,6 +122,9 @@ const pollingExpectedChatGPTBundles = new Set()
 const chatAgentTitleSamples = new Map()
 const chatGPTTransportTails = new Map()
 let chatGPTSupervisorTransportTail = Promise.resolve()
+let chatGPTWorkerNavigationTail = Promise.resolve()
+let chatGPTWorkerLastNavigationAt = 0
+let chatGPTRateLimitUntil = 0
 const pendingChatGPTBundleDeliveries = new Map()
 // requestId -> deliveredAt. A second concurrent download of the same file
 // (see downloadInFlight above) can still slip through as a genuine race
@@ -151,6 +154,7 @@ const PROCESSING_SIGNAL_GRACE_MS = 15_000
 const CONVERSATION_TRANSPORT_STALE_MS = 30_000
 const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
+const CHATGPT_WORKER_NAVIGATION_GAP_MS = 2_500
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
 // How many times a window's frontend renderer may be restarted after a
@@ -859,28 +863,48 @@ function clearChatGPTHumanAction(cacheKey, reason = '') {
 
 function noteChatGPTHTTPStatus(details) {
   const match = chatGPTEntryForWebContentsID(details?.webContentsId)
-  if (!match || !isChatGPTConversationTransportURL(details?.url)) return false
+  if (!match) return false
   const [key, entry] = match
-  const expected = expectedChatGPTBundles.get(key)
-  if (!expected) return false
   const status = Number(details?.statusCode || 0)
-  if (status === 401) return setChatGPTHumanAction(key, 'authentication', 'HTTP 401', 'http')
-  if (status === 403) return setChatGPTHumanAction(key, 'access', 'HTTP 403', 'http')
-  if (status === 429) {
-    const next = Date.now() + CHATGPT_RATE_LIMIT_BACKOFF_MS
-    if (next > Number(expected.backoffUntil || 0)) {
-      expected.backoffUntil = next
-      noteChatGPTRecoveryProgress(expected.recovery, 'http:429-backoff', Date.now())
-      sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: 'O ChatGPT aplicou limitação temporária de pedidos. O Wharness pausou novas tentativas por 60 segundos e retomará automaticamente.', capturedAt: new Date().toISOString() })
+  const conversationTransport = isChatGPTConversationTransportURL(details?.url)
+  if (status === 429 && (details?.resourceType === 'mainFrame' || conversationTransport)) {
+    const now = Date.now()
+    const expected = expectedChatGPTBundles.get(key)
+    const next = now + CHATGPT_RATE_LIMIT_BACKOFF_MS
+    if (expected) {
+      expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), next)
+      noteChatGPTRecoveryProgress(expected.recovery, 'http:429-backoff', now)
+    }
+    if (now >= chatGPTRateLimitUntil) {
+      chatGPTRateLimitUntil = next
+      if (chatAgentScheduler) {
+        void chatAgentScheduler.setProviderPause(true, {
+          pausedUntil: new Date(next).toISOString(),
+          reason: 'ChatGPT HTTP 429 rate limit',
+        }).then(() => refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState)).catch((error) => {
+          console.warn(`[chat-agent] could not persist provider rate-limit pause: ${error instanceof Error ? error.message : String(error)}`)
+        })
+      }
+      sendToChatGPTKey(key, 'wharness:chatgpt:activity', {
+        cacheKey: key,
+        state: 'thinking',
+        text: 'O ChatGPT aplicou limitação temporária de pedidos. Os workers foram pausados por 60 segundos e retomarão automaticamente.',
+        capturedAt: new Date().toISOString(),
+      })
     }
     return true
   }
+  if (!conversationTransport) return false
+  const expected = expectedChatGPTBundles.get(key)
+  if (!expected) return false
+  if (status === 401) return setChatGPTHumanAction(key, 'authentication', 'HTTP 401', 'http')
+  if (status === 403) return setChatGPTHumanAction(key, 'access', 'HTTP 403', 'http')
   if (status >= 500 && status <= 599) {
     noteChatGPTRecoveryFault(expected.recovery, `ChatGPT HTTP ${status}`, Date.now())
     return true
   }
   if (status > 0 && status < 400) {
-    expected.backoffUntil = 0
+    if (Date.now() >= chatGPTRateLimitUntil) expected.backoffUntil = 0
     if (entry.humanAction?.source === 'http' || entry.humanAction?.kind === 'transport') clearChatGPTHumanAction(key, `HTTP ${status}`)
   }
   return false
@@ -2533,6 +2557,30 @@ async function waitForChatGPTSurfaceReady(cacheKey, entry) {
   if (!isTrustedChatGPTOrigin(wc.getURL())) throw new Error('Active cached view is not a trusted ChatGPT page')
 }
 
+function chatAgentRateLimitDelayMs() {
+  return Math.max(0, chatGPTRateLimitUntil - Date.now())
+}
+
+async function paceChatGPTWorkerNavigation() {
+  let release
+  const previous = chatGPTWorkerNavigationTail
+  chatGPTWorkerNavigationTail = new Promise((resolve) => { release = resolve })
+  await previous
+  try {
+    const remaining = CHATGPT_WORKER_NAVIGATION_GAP_MS - (Date.now() - chatGPTWorkerLastNavigationAt)
+    if (remaining > 0) await wait(remaining)
+    chatGPTWorkerLastNavigationAt = Date.now()
+  } finally {
+    release()
+  }
+}
+
+async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason) {
+  await paceChatGPTWorkerNavigation()
+  await loadOwnedChatGPTURL(key, entry, conversationURL, reason)
+  await waitForChatGPTSurfaceReady(key, entry)
+}
+
 async function pasteChatGPTFile(entry, filePath, index, count) {
   const key = chatGPTKeyForEntry(entry)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
@@ -3062,11 +3110,21 @@ async function chatAgentLifecycleRetry(task, key, conversationURL, error, { pers
 async function executeChatAgentTask(task, { worker }) {
   const entry = workerEntryForIndex(worker)
   if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
+  const initialRateLimitDelay = chatAgentRateLimitDelayMs()
+  if (initialRateLimitDelay > 0) {
+    return { status: 'waiting', delayMs: initialRateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
+  }
   const payload = chatAgentTaskPayload(task)
   const assigned = assignChatGPTWorker(entry, { ...task, payload })
   const key = assigned.key
   const conversationURL = chatAgentConversationURL(task, payload) || assigned.conversationURL
-  if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) await loadOwnedChatGPTURL(key, entry, conversationURL, `chat-agent-${String(task.type || '').toLowerCase()}`)
+  if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
+    await loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, `chat-agent-${String(task.type || '').toLowerCase()}`)
+    const rateLimitDelay = chatAgentRateLimitDelayMs()
+    if (rateLimitDelay > 0) {
+      return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
+    }
+  }
   switch (task.type) {
     case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
     case 'BOT_WRITE':
@@ -4195,6 +4253,7 @@ function registerIPC() {
   ipcMain.handle('wharness:agents:resume-provider', async (event) => {
     trustedSender(event)
     if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
+    chatGPTRateLimitUntil = 0
     await chatAgentScheduler.setProviderPause(false)
     await refreshChatAgentRuntimeState()
     return publishChatAgentRuntimeState()
