@@ -111,7 +111,7 @@ func (s *Store) postgresListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAg
 	return items, rows.Err()
 }
 
-func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration) (*ChatAgentTask, error) {
+func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, options ChatAgentClaimOptions) (*ChatAgentTask, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("begin chat agent claim: %w", err)
@@ -144,9 +144,25 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration) (*
 		return nil, fmt.Errorf("requeue expired chat agent leases: %w", err)
 	}
 	seconds := int64(lease / time.Second)
-	row := tx.QueryRow(`WITH candidate AS (
+	laneExpr := `CASE WHEN t.conversation_id<>'' THEN 'c:'||t.conversation_id ELSE 'h:'||t.chat_id END`
+	args := []any{owner, seconds, options.PreferredLane, options.FallbackMode}
+	excludedSQL := ""
+	if len(options.ExcludedLanes) > 0 {
+		parts := make([]string, 0, len(options.ExcludedLanes))
+		for _, lane := range options.ExcludedLanes {
+			args = append(args, lane)
+			parts = append(parts, fmt.Sprintf("$%d", len(args)))
+		}
+		excludedSQL = " AND " + laneExpr + " NOT IN (" + strings.Join(parts, ",") + ")"
+	}
+	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','WAITING') AND t.not_before<=now() AND t.attempt<t.max_attempts
+		  AND (
+			$4='any'
+			OR ($4='resident_only' AND ` + laneExpr + `=$3)
+			OR ($4='unresident_only' AND ($3='' OR ` + laneExpr + `<>$3))
+		  )` + excludedSQL + `
 		  AND NOT EXISTS (
 			SELECT 1 FROM harness_chat_agent_provider_state p
 			WHERE p.provider='chatgpt' AND p.paused=true
@@ -171,7 +187,8 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration) (*
 				  )
 			)
 		  )
-		ORDER BY CASE
+		ORDER BY CASE WHEN $3<>'' AND ` + laneExpr + `=$3 THEN 0 ELSE 1 END,
+		CASE
 			WHEN t.priority<=1 THEN t.priority
 			ELSE GREATEST(1, t.priority-LEAST(t.priority-1, FLOOR(EXTRACT(EPOCH FROM (now()-t.created_at))/900)::int))
 		END, t.created_at, t.task_id
@@ -181,7 +198,8 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration) (*
 	SET status='LEASED', lease_owner=$1, lease_expires_at=now()+($2 * interval '1 second'),
 		attempt=t.attempt+1, updated_at=now()
 	FROM candidate WHERE t.task_id=candidate.task_id
-	RETURNING `+qualifiedChatAgentTaskColumns("t"), owner, seconds)
+	RETURNING ` + qualifiedChatAgentTaskColumns("t")
+	row := tx.QueryRow(query, args...)
 	task, err := scanChatAgentTask(row)
 	if err == sql.ErrNoRows {
 		if commitErr := tx.Commit(); commitErr != nil {

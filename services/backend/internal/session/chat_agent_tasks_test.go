@@ -156,3 +156,43 @@ func TestChatAgentGlobalAccountLockAndLineageCancel(t *testing.T) {
 		t.Fatalf("cancelled=%d want 2", cancelled)
 	}
 }
+
+func TestChatAgentAffinityClaimPrefersResidentLaneAndExcludesOthers(t *testing.T) {
+	store := NewStore()
+	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-b", "conv-b", "await:b")); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-1", 30*time.Second, ChatAgentClaimOptions{
+		PreferredLane: "c:conv-b", FallbackMode: ChatAgentClaimResidentOnly,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed == nil || claimed.ConversationID != "conv-b" {
+		t.Fatalf("resident claim=%#v want conv-b", claimed)
+	}
+	if _, err := store.CompleteChatAgentTask(claimed.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = store.ClaimChatAgentTaskWithOptions("worker-2", 30*time.Second, ChatAgentClaimOptions{
+		ExcludedLanes: []string{"c:conv-b"}, FallbackMode: ChatAgentClaimUnresidentOnly,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed == nil || claimed.ConversationID != "conv-a" {
+		t.Fatalf("unresident claim=%#v want conv-a", claimed)
+	}
+}
+
+func TestChatAgentClaimOptionsValidation(t *testing.T) {
+	if _, err := normalizeChatAgentClaimOptions(ChatAgentClaimOptions{FallbackMode: ChatAgentClaimResidentOnly}); err == nil {
+		t.Fatal("resident_only without preferred lane must fail")
+	}
+	if _, err := normalizeChatAgentClaimOptions(ChatAgentClaimOptions{FallbackMode: "surprise"}); err == nil {
+		t.Fatal("unknown fallback mode must fail")
+	}
+}

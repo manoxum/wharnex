@@ -12,7 +12,7 @@ test('scheduler defaults to exactly three autonomous workers', () => {
   assert.equal(DEFAULT_CHAT_AGENT_WORKERS, 3)
 })
 
-test('scheduler applies a short cooldown before a worker claims another task', async () => {
+test('scheduler can apply an explicit cooldown before a worker claims another task', async () => {
   const claimTimes = []
   let claimCount = 0
   const scheduler = new ChatAgentSchedulerClient({
@@ -36,7 +36,7 @@ test('scheduler applies a short cooldown before a worker claims another task', a
     await new Promise((resolve) => setTimeout(resolve, 2))
   }
   await scheduler.stop()
-  assert.equal(DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, 2_500)
+  assert.equal(DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, 0)
   assert.ok(claimTimes.length >= 2)
   assert.ok(claimTimes[1] - claimTimes[0] >= 15)
 })
@@ -141,4 +141,27 @@ test('final-attempt waiting task fails instead of becoming unreachable WAITING',
   await scheduler.stop()
   assert.ok(requests.some((request) => request.url.endsWith('/cat-final/fail')))
   assert.ok(!requests.some((request) => request.url.endsWith('/cat-final/wait')))
+})
+
+
+test('scheduler sends affinity-aware claim options supplied by the residency layer', async () => {
+  let claimBody
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1, taskCooldownMs: 0,
+    claimOptions: () => ({ preferred_lane: 'c:conv-a', excluded_lanes: ['c:conv-b'], fallback_mode: 'resident_only' }),
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        claimBody = JSON.parse(init.body)
+        return { ok: true, json: async () => ({}) }
+      }
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 50 && !claimBody; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 2))
+  await scheduler.stop()
+  assert.equal(claimBody.preferred_lane, 'c:conv-a')
+  assert.deepEqual(claimBody.excluded_lanes, ['c:conv-b'])
+  assert.equal(claimBody.fallback_mode, 'resident_only')
 })

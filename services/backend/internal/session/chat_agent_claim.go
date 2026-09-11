@@ -8,7 +8,84 @@ import (
 	"time"
 )
 
+const (
+	ChatAgentClaimAny            = "any"
+	ChatAgentClaimResidentOnly   = "resident_only"
+	ChatAgentClaimUnresidentOnly = "unresident_only"
+)
+
+type ChatAgentClaimOptions struct {
+	PreferredLane string   `json:"preferred_lane"`
+	ExcludedLanes []string `json:"excluded_lanes"`
+	FallbackMode  string   `json:"fallback_mode"`
+}
+
+func chatAgentTaskLane(task ChatAgentTask) string {
+	if value := strings.TrimSpace(task.ConversationID); value != "" {
+		return "c:" + value
+	}
+	if value := strings.TrimSpace(task.ChatID); value != "" {
+		return "h:" + value
+	}
+	return ""
+}
+
+func normalizeChatAgentClaimOptions(input ChatAgentClaimOptions) (ChatAgentClaimOptions, error) {
+	input.PreferredLane = strings.TrimSpace(input.PreferredLane)
+	input.FallbackMode = strings.TrimSpace(input.FallbackMode)
+	if input.FallbackMode == "" {
+		input.FallbackMode = ChatAgentClaimAny
+	}
+	switch input.FallbackMode {
+	case ChatAgentClaimAny, ChatAgentClaimResidentOnly, ChatAgentClaimUnresidentOnly:
+	default:
+		return ChatAgentClaimOptions{}, fmt.Errorf("unsupported chat agent fallback mode %q", input.FallbackMode)
+	}
+	if input.FallbackMode == ChatAgentClaimResidentOnly && input.PreferredLane == "" {
+		return ChatAgentClaimOptions{}, errors.New("preferred_lane is required for resident_only claim")
+	}
+	seen := map[string]struct{}{}
+	cleaned := make([]string, 0, len(input.ExcludedLanes))
+	for _, raw := range input.ExcludedLanes {
+		lane := strings.TrimSpace(raw)
+		if lane == "" || lane == input.PreferredLane {
+			continue
+		}
+		if _, ok := seen[lane]; ok {
+			continue
+		}
+		seen[lane] = struct{}{}
+		cleaned = append(cleaned, lane)
+	}
+	if len(cleaned) > 32 {
+		return ChatAgentClaimOptions{}, errors.New("excluded_lanes must contain at most 32 lanes")
+	}
+	input.ExcludedLanes = cleaned
+	return input, nil
+}
+
+func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
+	lane := chatAgentTaskLane(task)
+	for _, excluded := range options.ExcludedLanes {
+		if lane == excluded {
+			return false
+		}
+	}
+	switch options.FallbackMode {
+	case ChatAgentClaimResidentOnly:
+		return lane == options.PreferredLane
+	case ChatAgentClaimUnresidentOnly:
+		return options.PreferredLane == "" || lane != options.PreferredLane
+	default:
+		return true
+	}
+}
+
 func (s *Store) ClaimChatAgentTask(owner string, lease time.Duration) (*ChatAgentTask, error) {
+	return s.ClaimChatAgentTaskWithOptions(owner, lease, ChatAgentClaimOptions{})
+}
+
+func (s *Store) ClaimChatAgentTaskWithOptions(owner string, lease time.Duration, input ChatAgentClaimOptions) (*ChatAgentTask, error) {
 	owner = strings.TrimSpace(owner)
 	if owner == "" {
 		return nil, errors.New("lease owner is required")
@@ -16,8 +93,12 @@ func (s *Store) ClaimChatAgentTask(owner string, lease time.Duration) (*ChatAgen
 	if lease < 5*time.Second || lease > 10*time.Minute {
 		return nil, errors.New("lease duration must be between 5 seconds and 10 minutes")
 	}
+	options, err := normalizeChatAgentClaimOptions(input)
+	if err != nil {
+		return nil, err
+	}
 	if s.db != nil {
-		return s.postgresClaimChatAgentTask(owner, lease)
+		return s.postgresClaimChatAgentTask(owner, lease, options)
 	}
 	now := time.Now().UTC()
 	s.mu.Lock()
@@ -27,7 +108,10 @@ func (s *Store) ClaimChatAgentTask(owner string, lease time.Duration) (*ChatAgen
 		return nil, nil
 	}
 	if s.chatAgentProvider.Paused && s.chatAgentProvider.PausedUntil != nil {
-		s.chatAgentProvider = ChatAgentProviderState{Provider: "chatgpt", UpdatedAt: now}
+		s.chatAgentProvider.Paused = false
+		s.chatAgentProvider.PausedUntil = nil
+		s.chatAgentProvider.Reason = ""
+		s.chatAgentProvider.UpdatedAt = now
 	}
 	tasks := s.chatAgentFallback()
 	for id, task := range tasks {
@@ -53,12 +137,19 @@ func (s *Store) ClaimChatAgentTask(owner string, lease time.Duration) (*ChatAgen
 		if task.NotBefore.After(now) || task.Attempt >= task.MaxAttempts {
 			continue
 		}
-		if chatAgentBlockedByActiveTask(task, tasks, now) {
+		if chatAgentBlockedByActiveTask(task, tasks, now) || !chatAgentClaimAllows(task, options) {
 			continue
 		}
 		eligible = append(eligible, task)
 	}
 	sort.Slice(eligible, func(i, j int) bool {
+		if options.PreferredLane != "" {
+			iPreferred := chatAgentTaskLane(eligible[i]) == options.PreferredLane
+			jPreferred := chatAgentTaskLane(eligible[j]) == options.PreferredLane
+			if iPreferred != jPreferred {
+				return iPreferred
+			}
+		}
 		pi := chatAgentEffectivePriority(eligible[i], now)
 		pj := chatAgentEffectivePriority(eligible[j], now)
 		if pi != pj {

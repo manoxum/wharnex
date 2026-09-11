@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 export const DEFAULT_CHAT_AGENT_WORKERS = 3
 export const DEFAULT_CHAT_AGENT_LEASE_SECONDS = 45
-export const DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS = 2_500
+export const DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS = 0
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -42,6 +42,7 @@ export class ChatAgentSchedulerClient {
     leaseSeconds = DEFAULT_CHAT_AGENT_LEASE_SECONDS,
     idleMs = 750,
     taskCooldownMs = DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS,
+    claimOptions = () => ({}),
     onState = () => {},
   }) {
     if (!baseURL) throw new Error('chat-agent scheduler baseURL is required')
@@ -54,6 +55,7 @@ export class ChatAgentSchedulerClient {
     this.leaseSeconds = leaseSeconds
     this.idleMs = idleMs
     this.taskCooldownMs = Math.max(0, Number(taskCooldownMs) || 0)
+    this.claimOptions = typeof claimOptions === 'function' ? claimOptions : () => ({})
     this.onState = onState
     this.instanceID = `desktop-${randomUUID()}`
     this.running = false
@@ -92,6 +94,19 @@ export class ChatAgentSchedulerClient {
     return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/provider', {
       method: 'PUT',
       body: JSON.stringify({ paused, paused_until: pausedUntil, reason }),
+    })
+  }
+
+
+  async recordRateLimit(source) {
+    return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/provider/rate-limit', {
+      method: 'POST', body: JSON.stringify({ source }),
+    })
+  }
+
+  async recordValidBundle({ requestId, conversationId = '', durationMs = 0 }) {
+    return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/provider/valid-bundle', {
+      method: 'POST', body: JSON.stringify({ request_id: requestId, conversation_id: conversationId, duration_ms: durationMs }),
     })
   }
 
@@ -134,9 +149,19 @@ export class ChatAgentSchedulerClient {
     const owner = `${this.instanceID}:worker-${index}`
     while (this.running && index <= this.workerCount) {
       try {
+        const claim = await this.claimOptions(index) || {}
+        if (claim.skip === true) {
+          await wait(this.idleMs)
+          continue
+        }
         const claimed = await requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/tasks/claim', {
           method: 'POST',
-          body: JSON.stringify({ owner, lease_seconds: this.leaseSeconds }),
+          body: JSON.stringify({
+            owner, lease_seconds: this.leaseSeconds,
+            preferred_lane: String(claim.preferred_lane || ''),
+            excluded_lanes: Array.isArray(claim.excluded_lanes) ? claim.excluded_lanes : [],
+            fallback_mode: String(claim.fallback_mode || 'any'),
+          }),
         })
         const task = claimed?.task
         if (!task) {

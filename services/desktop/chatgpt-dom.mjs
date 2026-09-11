@@ -259,3 +259,48 @@ export function chatGPTVisibleActivityScript() {
     return { state, text, capturedAt: new Date().toISOString() };
   })()`
 }
+
+export function parseChatGPTProcessingDuration(value, prefixes = []) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+  const allowed = (Array.isArray(prefixes) ? prefixes : []).map((entry) => String(entry || '').trim().toLocaleLowerCase()).filter(Boolean)
+  const prefix = allowed.find((entry) => text.startsWith(entry))
+  if (!prefix) return 0
+  const duration = text.slice(prefix.length).trim()
+  if (!duration || duration.length > 80) return 0
+  let totalSeconds = 0
+  let matches = 0
+  const pattern = /(\d{1,4})\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)\b/gi
+  for (const match of duration.matchAll(pattern)) {
+    const amount = Number(match[1])
+    const unit = String(match[2]).toLowerCase()
+    if (!Number.isFinite(amount)) return 0
+    if (unit.startsWith('h')) totalSeconds += amount * 3600
+    else if (unit.startsWith('m')) totalSeconds += amount * 60
+    else totalSeconds += amount
+    matches += 1
+  }
+  if (!matches || totalSeconds <= 0 || totalSeconds > 24 * 60 * 60) return 0
+  return totalSeconds * 1000
+}
+
+export function chatGPTProcessingDurationScript(prefixes = [], assistantBaseline = 0) {
+  const labels = JSON.stringify((Array.isArray(prefixes) ? prefixes : []).map((entry) => String(entry || '').trim()).filter(Boolean))
+  const baseline = Math.max(0, Number(assistantBaseline) || 0)
+  const parser = parseChatGPTProcessingDuration.toString()
+  return `(() => {
+    const prefixes = ${labels};
+    const baseline = ${baseline};
+    const parseDuration = ${parser};
+    const turns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+    if (turns.length <= baseline) return { durationMs: 0, matched: false };
+    const latest = turns[turns.length - 1];
+    const disclosures = [...latest.querySelectorAll('button[aria-expanded]')].filter((node) => {
+      const text = String(node.textContent || node.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase();
+      return prefixes.some((prefix) => text.startsWith(String(prefix).toLocaleLowerCase()));
+    });
+    if (disclosures.length !== 1) return { durationMs: 0, matched: false };
+    const label = String(disclosures[0].textContent || disclosures[0].getAttribute('aria-label') || '');
+    const durationMs = parseDuration(label, prefixes);
+    return { durationMs, matched: durationMs > 0 };
+  })()`
+}

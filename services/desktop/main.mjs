@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTSubmit, submitWithRetry } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
@@ -22,6 +22,8 @@ import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
 import { DEFAULT_WORKER_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_WORKER_SLOTS, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
+import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
+import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
@@ -102,7 +104,7 @@ let chatAgentScheduler
 let chatAgentRuntimeDiagnostics = {
   scheduler: { running: false, backend_reachable: false, last_refresh_at: '', last_error: '' },
   queue: { total: 0, counts: {}, oldest_created_at: '', next_not_before: '' },
-  provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', updated_at: '' },
+  provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', rate_limit_level: 0, last_rate_limit_at: '', last_rate_limit_source: '', last_valid_bundle_at: '', average_processing_ms: 0, valid_sample_count: 0, initial_wait_ms: 60_000, updated_at: '' },
 }
 let deferredSupervisorNavigation
 const chatGPTAuthBrowsers = new Map()
@@ -121,6 +123,7 @@ const expectedChatGPTBundles = new Map()
 const pollingExpectedChatGPTBundles = new Set()
 const chatAgentTitleSamples = new Map()
 const chatGPTTransportTails = new Map()
+const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
 let chatGPTSupervisorTransportTail = Promise.resolve()
 let chatGPTWorkerNavigationTail = Promise.resolve()
 let chatGPTWorkerLastNavigationAt = 0
@@ -154,7 +157,7 @@ const PROCESSING_SIGNAL_GRACE_MS = 15_000
 const CONVERSATION_TRANSPORT_STALE_MS = 30_000
 const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
-const CHATGPT_WORKER_NAVIGATION_GAP_MS = 2_500
+const CHATGPT_WORKER_NAVIGATION_GAP_MS = CHAT_AGENT_NAVIGATION_GAP_MS
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
 // How many times a window's frontend renderer may be restarted after a
@@ -228,10 +231,15 @@ function reconcileChatGPTThrottle(key, entry) {
 async function withChatGPTTransportPreparation(cacheKey, entry, requestId, operation) {
   const key = sanitizeChatCacheKey(cacheKey)
   requireOwnedChatGPTEntry(key, entry)
-  const prior = chatGPTTransportTails.get(key) || Promise.resolve()
+  // Worker browser transport is a physical-slot resource. Serializing by chat
+  // alone lets stale work from the prior resident conversation overlap the
+  // same WebContents after a rebind.
+  const transportKey = entry.role === 'worker' ? `slot:${entry.slotId}` : `chat:${key}`
+  const prior = chatGPTTransportTails.get(transportKey) || Promise.resolve()
   let release
   const tail = new Promise((resolve) => { release = resolve })
-  chatGPTTransportTails.set(key, tail)
+  chatGPTTransportTails.set(transportKey, tail)
+  if (entry.role === 'worker') chatAgentResidency.setNonPreemptive(entry.slotId, true)
   try { await prior } catch { /* a prior operation cannot poison the queue */ }
   entry.transportPreparationCount = Number(entry.transportPreparationCount || 0) + 1
   entry.transportRequestId = String(requestId || '')
@@ -244,7 +252,8 @@ async function withChatGPTTransportPreparation(cacheKey, entry, requestId, opera
     reconcileChatGPTThrottle(key, entry)
     if (entry.role !== 'worker' && !entry.transportPreparationCount && deferredSupervisorNavigation) setTimeout(() => { void applyDeferredSupervisorNavigation() }, 0)
     release()
-    if (chatGPTTransportTails.get(key) === tail) chatGPTTransportTails.delete(key)
+    if (entry.role === 'worker') chatAgentResidency.setNonPreemptive(entry.slotId, false)
+    if (chatGPTTransportTails.get(transportKey) === tail) chatGPTTransportTails.delete(transportKey)
   }
 }
 
@@ -254,7 +263,7 @@ async function waitForDifferentSupervisorTransport(cacheKey) {
     const currentKey = supervisorKey()
     const current = currentKey ? chatgptViews.get(currentKey) : undefined
     if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) return
-    const activeTail = chatGPTTransportTails.get(currentKey)
+    const activeTail = chatGPTTransportTails.get(`chat:${currentKey}`)
     if (activeTail) {
       try { await activeTail } catch { /* transport failures still release the Supervisor */ }
       continue
@@ -870,25 +879,29 @@ function noteChatGPTHTTPStatus(details) {
   if (status === 429 && (details?.resourceType === 'mainFrame' || conversationTransport)) {
     const now = Date.now()
     const expected = expectedChatGPTBundles.get(key)
-    const next = now + CHATGPT_RATE_LIMIT_BACKOFF_MS
+    const fallbackUntil = now + CHATGPT_RATE_LIMIT_BACKOFF_MS
     if (expected) {
-      expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), next)
+      expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), fallbackUntil)
       noteChatGPTRecoveryProgress(expected.recovery, 'http:429-backoff', now)
     }
     if (now >= chatGPTRateLimitUntil) {
-      chatGPTRateLimitUntil = next
+      chatGPTRateLimitUntil = fallbackUntil
+      const source = details?.resourceType === 'mainFrame' ? 'main_frame' : 'conversation_transport'
       if (chatAgentScheduler) {
-        void chatAgentScheduler.setProviderPause(true, {
-          pausedUntil: new Date(next).toISOString(),
-          reason: 'ChatGPT HTTP 429 rate limit',
-        }).then(() => refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState)).catch((error) => {
-          console.warn(`[chat-agent] could not persist provider rate-limit pause: ${error instanceof Error ? error.message : String(error)}`)
+        void chatAgentScheduler.recordRateLimit(source).then((provider) => {
+          const persistedUntil = Date.parse(String(provider?.paused_until || ''))
+          if (Number.isFinite(persistedUntil)) chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, persistedUntil)
+          if (expected && Number.isFinite(persistedUntil)) expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), persistedUntil)
+          chatAgentRuntimeDiagnostics.provider = { ...chatAgentRuntimeDiagnostics.provider, ...provider }
+          publishChatAgentRuntimeState()
+        }).catch((error) => {
+          console.warn(`[chat-agent] could not persist progressive provider rate-limit pause: ${error instanceof Error ? error.message : String(error)}`)
         })
       }
       sendToChatGPTKey(key, 'wharness:chatgpt:activity', {
         cacheKey: key,
         state: 'thinking',
-        text: 'O ChatGPT aplicou limitação temporária de pedidos. Os workers foram pausados por 60 segundos e retomarão automaticamente.',
+        text: 'O ChatGPT aplicou limitação temporária. Os workers entram em cooldown progressivo e retomam com navegação global espaçada.',
         capturedAt: new Date().toISOString(),
       })
     }
@@ -1091,6 +1104,19 @@ function registerChatGPTPlanDownloads(chatSession) {
           const bytes = await readFile(savePath)
           if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharness excede o limite de 16 MiB.')
           const validated = validateWharnessBundleDownload(filename, bytes)
+          if (chatAgentScheduler) {
+            const expectedEntry = expectedBundle?.key
+              ? (chatGPTWorkerEntries.find((candidate) => candidate.ownerKey === expectedBundle.key) || chatgptViews.get(expectedBundle.key))
+              : undefined
+            const durationMs = Number(expectedBundle?.processingDurationMs || 0)
+            const conversationID = chatAgentConversationID(expectedEntry?.view?.webContents?.getURL?.() || sourceURL)
+            void chatAgentScheduler.recordValidBundle({ requestId: validated.requestId, conversationId: conversationID, durationMs })
+              .then((provider) => {
+                chatAgentRuntimeDiagnostics.provider = { ...chatAgentRuntimeDiagnostics.provider, ...provider }
+                publishChatAgentRuntimeState()
+              })
+              .catch((error) => console.warn(`[chat-agent] valid-bundle metric failed: ${error instanceof Error ? error.message : String(error)}`))
+          }
           if (recentlyDeliveredChatGPTBundleRequestId(validated.requestId)) {
             console.warn(`[chatgpt-bundle-download] duplicate-suppressed file=${filename} request=${validated.requestId}`)
             return
@@ -1518,6 +1544,7 @@ function createChatGPTWorkerView(slotId, windowState) {
   const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, affinity: createChatGPTAffinityTracker() }
   windowState.window.contentView.addChildView(view)
   chatGPTWorkerEntries.push(entry)
+  chatAgentResidency.register(slotId)
   const wc = view.webContents
   wc.setUserAgent(CHATGPT_USER_AGENT)
   wc.setBackgroundThrottling(false)
@@ -1552,6 +1579,7 @@ function createChatGPTWorkerView(slotId, windowState) {
 
 function retireChatGPTWorkerView(entry) {
   if (!entry) return false
+  chatAgentResidency.retire(entry.slotId)
   hideChatAgentInteractionEntry(entry)
   clearTimeout(entry.affinitySettleTimer)
   const state = windowStateForEntry(entry)
@@ -1584,6 +1612,9 @@ function ensureChatGPTWorkerPool(windowState) {
 function assignChatGPTWorker(entry, task) {
   if (!entry || entry.role !== 'worker') throw new Error('Chat-agent worker slot is unavailable')
   const key = sanitizeChatCacheKey(task?.chat_id || task?.chatId)
+  const lane = chatAgentLane(task)
+  if (!lane) throw new Error('Chat-agent task has no resident lane')
+  const assignment = chatAgentResidency.beginAssignment(entry.slotId, lane)
   const rawConversation = String(task?.payload?.conversation_url || task?.conversation_url || '').trim()
   const rawID = String(task?.conversation_id || task?.conversationId || '').trim()
   const conversationURL = canonicalChatGPTConversationURL(rawConversation) || (/^[A-Za-z0-9-]{1,128}$/.test(rawID) ? `https://chatgpt.com/c/${rawID}` : '')
@@ -1598,7 +1629,7 @@ function assignChatGPTWorker(entry, task) {
   }
   if (conversationURL) syncChatGPTAffinity(entry.affinity, conversationURL, false)
   touchChatGPTEntry(entry)
-  return { key, conversationURL }
+  return { key, conversationURL, lane, assignment }
 }
 
 function workerEntryForIndex(worker) {
@@ -1757,7 +1788,11 @@ async function refreshChatAgentRuntimeState() {
       queue: chatAgentQueueDiagnostics(tasks),
       provider: {
         provider: String(provider?.provider || 'chatgpt'), paused: provider?.paused === true,
-        paused_until: String(provider?.paused_until || ''), reason: String(provider?.reason || ''), updated_at: String(provider?.updated_at || ''),
+        paused_until: String(provider?.paused_until || ''), reason: String(provider?.reason || ''),
+        rate_limit_level: Math.max(0, Number(provider?.rate_limit_level || 0)), last_rate_limit_at: String(provider?.last_rate_limit_at || ''),
+        last_rate_limit_source: String(provider?.last_rate_limit_source || ''), last_valid_bundle_at: String(provider?.last_valid_bundle_at || ''),
+        average_processing_ms: Math.max(0, Number(provider?.average_processing_ms || 0)), valid_sample_count: Math.max(0, Number(provider?.valid_sample_count || 0)),
+        initial_wait_ms: Math.max(60_000, Number(provider?.initial_wait_ms || 60_000)), updated_at: String(provider?.updated_at || ''),
       },
     }
   } catch (error) {
@@ -1800,7 +1835,7 @@ function chatAgentRuntimeState() {
       draining: worker > desiredChatAgentWorkerSlots, loop_active: runtime.active !== false, interacting: Boolean(entry.interactionWindowId),
       chat_id: String(runtime.task?.chat_id || runtime.lastTask?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
       last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
-      error: String(runtime.error || ''), browser: publicAgentBrowser(entry),
+      error: String(runtime.error || ''), browser: publicAgentBrowser(entry), residency: chatAgentResidency.snapshot(entry.slotId),
     }
   })
   return {
@@ -2575,10 +2610,13 @@ async function paceChatGPTWorkerNavigation() {
   }
 }
 
-async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason) {
+async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason, assignment) {
   await paceChatGPTWorkerNavigation()
   await loadOwnedChatGPTURL(key, entry, conversationURL, reason)
   await waitForChatGPTSurfaceReady(key, entry)
+  if (assignment?.rebind && !chatAgentResidency.settleAssignment(entry.slotId, assignment.epoch, assignment.lane)) {
+    throw new Error('stale worker assignment after ChatGPT navigation')
+  }
 }
 
 async function pasteChatGPTFile(entry, filePath, index, count) {
@@ -2905,6 +2943,21 @@ async function persistWorkspaceChatRemoteBestEffort(chatID, conversationURL, val
   }
 }
 
+const CHAT_AGENT_REQUEST_BOUND_TASKS = new Set(['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'TITLE_GENERATE_TEMP', 'TITLE_AWAIT'])
+
+function chatAgentInitialRequestWaitMs() {
+  const value = Number(chatAgentRuntimeDiagnostics?.provider?.initial_wait_ms || 60_000)
+  return Math.max(60_000, Math.min(15 * 60_000, Number.isFinite(value) ? value : 60_000))
+}
+
+function chatAgentRequestEligibleAt(type, payload = {}, explicit = undefined) {
+  if (explicit) return explicit
+  if (!CHAT_AGENT_REQUEST_BOUND_TASKS.has(String(type || ''))) return new Date().toISOString()
+  const inherited = String(payload?.request_eligible_at || '').trim()
+  if (inherited && Number.isFinite(Date.parse(inherited))) return inherited
+  return new Date(Date.now() + chatAgentInitialRequestWaitMs()).toISOString()
+}
+
 async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId = '', conversationURL = '', parentTaskID = '', dedupeKey = '', payload = {}, maxAttempts = 8, notBefore = undefined, projectID = '', sessionID = '' }) {
   if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
   const conversationID = chatAgentConversationID(conversationURL)
@@ -2912,7 +2965,7 @@ async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId =
     type, project_id: String(projectID || ''), chat_id: sanitizeChatCacheKey(key), session_id: String(sessionID || ''),
     request_id: String(requestId || ''), root_request_id: String(rootRequestId || requestId || ''), conversation_id: conversationID,
     parent_task_id: String(parentTaskID || ''), dedupe_key: String(dedupeKey || ''), max_attempts: Number(maxAttempts || 8),
-    not_before: notBefore || new Date().toISOString(), payload: { ...payload, conversation_url: canonicalChatGPTConversationURL(conversationURL) },
+    not_before: chatAgentRequestEligibleAt(type, payload, notBefore), payload: { ...payload, conversation_url: canonicalChatGPTConversationURL(conversationURL) },
   })
 }
 
@@ -2951,12 +3004,14 @@ function expectedChatAgentPayload(key, requestId, conversationURL, values = {}) 
     recovery_bootstrap: String(values.recoveryBootstrap || ''), original_prompt: String(values.originalPrompt || ''),
     session_id: String(values.sessionId || ''), live_tunnels: Array.isArray(values.liveTunnels) ? values.liveTunnels.slice(0, 16) : [],
     project_name: String(values.projectName || ''), fallback_title: String(values.fallbackTitle || ''), recovery_count: Math.max(0, Number(values.recoveryCount || 0)),
+    request_eligible_at: String(values.requestEligibleAt || ''),
   }
 }
 
 async function enqueueChatAgentFollowups(key, requestId, conversationURL, values = {}) {
-  const payload = expectedChatAgentPayload(key, requestId, conversationURL, values)
-  const common = { key, requestId, rootRequestId: requestId, conversationURL, sessionID: payload.session_id, projectID: values.projectName || '', payload }
+  const requestEligibleAt = String(values.requestEligibleAt || new Date(Date.now() + chatAgentInitialRequestWaitMs()).toISOString())
+  const payload = expectedChatAgentPayload(key, requestId, conversationURL, { ...values, requestEligibleAt })
+  const common = { key, requestId, rootRequestId: requestId, conversationURL, sessionID: payload.session_id, projectID: values.projectName || '', payload, notBefore: requestEligibleAt }
   await enqueueChatAgentTask('AWAIT_RESPONSE', { ...common, dedupeKey: `await:${requestId}`, maxAttempts: 30 })
   await enqueueChatAgentTask('TITLE_DISCOVER', { ...common, dedupeKey: `title:${chatAgentConversationID(conversationURL) || key}`, maxAttempts: 8 })
 }
@@ -2976,15 +3031,37 @@ async function chatAgentChildExists(task, type) {
   return (listed?.tasks || []).some((item) => item.type === type && item.parent_task_id === task.task_id && item.status !== 'FAILED' && item.status !== 'CANCELLED')
 }
 
+async function captureChatGPTProcessingDuration(entry, expected) {
+  if (!entry || !expected || Number(expected.processingDurationMs || 0) > 0) return Number(expected?.processingDurationMs || 0)
+  try {
+    const result = await entry.view.webContents.executeJavaScript(
+      chatGPTProcessingDurationScript(CHATGPT_BEHAVIOR.labels.reasoningDisclosure, expected.assistantBaseline), true)
+    if (result?.matched === true && Number(result.durationMs) > 0) expected.processingDurationMs = Number(result.durationMs)
+  } catch (error) {
+    console.warn(`[chat-agent] processing-duration probe failed request=${expected.requestId || '-'} error=${error instanceof Error ? error.message : String(error)}`)
+  }
+  return Number(expected.processingDurationMs || 0)
+}
+
 async function probeChatAgentResponse(task, entry, key, payload, conversationURL) {
   const expected = hydrateExpectedChatAgentBundle(key, task, payload)
   if (recentlyDeliveredChatGPTBundleRequestId(expected.requestId) || pendingChatGPTBundleDeliveries.has(expected.requestId)) {
     disarmExpectedChatGPTBundle(key, expected.requestId)
     return { status: 'done' }
   }
-  await targetChatGPTComposer(key, conversationURL, false, entry)
+  if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
+    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, error: 'resident worker is no longer on the expected conversation' }
+  }
+  // AWAIT_RESPONSE is deliberately passive: observe the already-resident page,
+  // never focus the composer, reload, or navigate a healthy conversation.
+  await waitForChatGPTSurfaceReady(key, entry)
   const health = await executeChatGPTDOMScript(key, entry, 'worker-health', chatGPTHumanActionScript())
   if (health?.required === true) return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(String(health.kind || 'verification')) }
+  const completion = await entry.view.webContents.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
+  if (completion?.thinking === true || completion?.complete !== true) {
+    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS }
+  }
+  await captureChatGPTProcessingDuration(entry, expected)
   if (!expected.downloadInFlight) {
     const clickMode = await entry.view.webContents.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
     if (clickMode) {
@@ -2994,8 +3071,6 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
       return { status: 'waiting', delayMs: 2_000 }
     }
   }
-  const completion = await entry.view.webContents.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
-  if (completion?.thinking === true || completion?.complete !== true) return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt) }
   if (Number(payload.recovery_count || 0) >= MAX_BUNDLE_CONTINUATIONS) {
     return { status: 'attention', error: `ChatGPT terminou sem disponibilizar ${expected.filename} depois da recuperação limitada.` }
   }
@@ -3013,13 +3088,17 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
 async function executeChatAgentWrite(task, entry, key, payload, conversationURL) {
   const prompt = String(payload.prompt || payload.original_prompt || '').trim()
   if (!prompt) return { status: 'failed', error: 'chat-agent write payload is empty' }
-  const result = await withChatGPTTransportPreparation(key, entry, task.request_id, () =>
-    submitPromptToChatGPT(key, prompt, conversationURL, task.request_id, payload.session_id || task.session_id || '', entry))
+  const result = await withChatGPTTransportPreparation(key, entry, task.request_id, () => {
+    if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
+      throw new Error('worker conversation changed before submit/upload')
+    }
+    return submitPromptToChatGPT(key, prompt, conversationURL, task.request_id, payload.session_id || task.session_id || '', entry)
+  })
   await persistWorkspaceChatRemoteBestEffort(key, result.conversationUrl, { remoteState: 'awaiting-response' })
   const nextPayload = expectedChatAgentPayload(key, task.request_id, result.conversationUrl, {
     expectedFilename: result.expectedFilename, assistantBaseline: result.assistantBaseline, recoveryBootstrap: result.recoveryBootstrap,
     originalPrompt: payload.original_prompt || prompt, sessionId: payload.session_id || task.session_id || '', liveTunnels: result.liveTunnels || payload.live_tunnels || [],
-    projectName: payload.project_name || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0,
+    projectName: payload.project_name || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0, requestEligibleAt: payload.request_eligible_at || '',
   })
   try {
     await enqueueChatAgentTask('AWAIT_RESPONSE', {
@@ -3118,12 +3197,21 @@ async function executeChatAgentTask(task, { worker }) {
   const assigned = assignChatGPTWorker(entry, { ...task, payload })
   const key = assigned.key
   const conversationURL = chatAgentConversationURL(task, payload) || assigned.conversationURL
-  if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
-    await loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, `chat-agent-${String(task.type || '').toLowerCase()}`)
-    const rateLimitDelay = chatAgentRateLimitDelayMs()
-    if (rateLimitDelay > 0) {
-      return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
+  try {
+    if (assigned.assignment.rebind) {
+      if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
+        await loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, `chat-agent-${String(task.type || '').toLowerCase()}`, assigned.assignment)
+      } else {
+        await waitForChatGPTSurfaceReady(key, entry)
+        if (!chatAgentResidency.settleAssignment(entry.slotId, assigned.assignment.epoch, assigned.lane)) throw new Error('stale worker assignment before execution')
+      }
+      const rateLimitDelay = chatAgentRateLimitDelayMs()
+      if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
     }
+    if (!chatAgentResidency.epochCurrent(entry.slotId, assigned.assignment.epoch, assigned.lane)) throw new Error('stale worker assignment epoch')
+  } catch (error) {
+    chatAgentResidency.cancelAssignment(entry.slotId, assigned.assignment.epoch)
+    throw error
   }
   switch (task.type) {
     case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
@@ -3438,6 +3526,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
       // download resolves (success or failure), not by a timer, so it never
       // gets stuck open longer than the actual download takes.
       if (!expected.downloadInFlight && (!expected.lastDOMClick || now - expected.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS)) {
+        await captureChatGPTProcessingDuration(entry, expected)
         const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
         if (clickMode) {
           expected.lastDOMClick = now
@@ -3463,6 +3552,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
       } else if (expected.processingObservedAt && !expected.processingAbsentSince) {
         expected.processingAbsentSince = now
       }
+      if (completion?.complete === true) await captureChatGPTProcessingDuration(entry, expected)
       const processingSignalActive = completion?.thinking === true
         || Boolean(expected.processingAbsentSince && now - expected.processingAbsentSince < PROCESSING_SIGNAL_GRACE_MS)
       const transport = classifyChatGPTConversationTransport(entry.conversationRequests, {
@@ -4409,6 +4499,13 @@ app.whenReady().then(async () => {
   ensureChatGPTWorkerPool(workerHost)
   chatAgentScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: executeChatAgentTask,
+    claimOptions: (worker) => {
+      const entry = workerEntryForIndex(worker)
+      if (!entry) return { skip: true }
+      return chatAgentResidency.claimOptions(entry.slotId, {
+        blocked: Boolean(entry.interactionWindowId || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.loading),
+      })
+    },
     onState: (state) => {
       const worker = Number(state?.worker || 0)
       if (worker) {
