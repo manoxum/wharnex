@@ -35,10 +35,13 @@ describe('chat header CSS', () => {
     expect(exportButton).toContain('justify-content: center')
   })
 
-  it('keeps the bundle strip dedicated to recent bundle cards', () => {
+  it('keeps bundle counts readable without restoring the quota meter', () => {
     const strip = lastRule('.bundle-exchange-bar')
-    expect(strip).toContain('grid-template-columns:minmax(0, 1fr)')
-    expect(css).not.toContain('.bundle-exchange-summary')
+    const summary = firstRule('.bundle-exchange-summary')
+    const stats = firstRule('.bundle-exchange-stats')
+    expect(strip).toContain('grid-template-columns:auto minmax(0, 1fr)')
+    expect(summary).toContain('gap:4px')
+    expect(stats).toContain('gap:4px')
     expect(css).not.toContain('.bundle-quota-indicator')
   })
 })
