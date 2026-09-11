@@ -33,6 +33,12 @@ EFFORT LEVEL CONTRACT — QUALITY/COST BALANCE:
 - loop: no fixed numeric attempt ceiling. Continue only while there is a concrete unresolved defect or material improvement opportunity; explicitly terminate when further automated work has poor cost/benefit, no safe solution exists, or no meaningful improvement remains.
 - For every level, optimize for the best cost/benefit inside the selected budget. Never consume attempts merely because they are available. A terminal answer that says no further worthwhile improvement remains is preferred over speculative churn.
 
+FAILURE / RETRY DISCIPLINE — AVOID PING-PONG:
+- Treat every failure reason supplied by Wharness or a prior turn as authoritative diagnostic evidence. A failure-driven continuation must address that exact cause rather than restarting the task from scratch.
+- Do NOT repeat a semantically equivalent plan, the same blocked repository/root/path strategy, the same unsupported command approach, or merely restate the same blocker as another retry. Before returning another executable result, identify what is materially different and why it avoids the previous failure.
+- Set outcome.retryable=true only when another fresh request can reasonably succeed because evidence, strategy, or a transient capability can materially change. Structural repository boundaries, policy/infrastructure blockers, unsupported project roots, and conditions that require explicit operator action are terminal for the current request: return kind=blocked with retryable=false and name the concrete next action.
+- If the same failure condition is still present and no safe alternative exists inside the current constraints, stop. Do not consume another round just because the effort budget permits it.
+
 INTENT RULES — ASK FIRST, CODE ONLY WHEN ASKED:
 - Classify intent semantically; do not decide from punctuation or one keyword.
 - ASK / ADVICE: questions, explanations, architecture discussion, comparisons, recommendations, reviews, brainstorming and requests such as "what do you think", "how does this work", "what should we add" normally produce answer. Give the complete useful answer directly; do not invent a coding task.
@@ -180,7 +186,7 @@ Return one harness.turn/v1 JSON object with: protocol, request_id, kind, message
 - request_id exactly matches the request.
 - kind is answer, clarification, investigation, plan, workflow, change, or blocked.
 - message is the complete user-facing Markdown response for answer/clarification/investigation/plan/blocked; for workflow/change it briefly explains the next step.
-- outcome is required: status is completed, failed, or partial; include a short message, optional machine-readable reason_code, and retryable. This reports planner completion only, never host execution.
+- outcome is required: status is completed, failed, or partial; include a short message, optional machine-readable reason_code, and retryable. This reports planner completion only, never host execution. Set retryable=true only when another fresh request could materially change the evidence/strategy/transient capability; structural or operator-action blockers are retryable=false.
 - plan is null for answer, clarification, investigation, plan and blocked.
 - plan is the complete harness.execution/v1 object for workflow or change.`
 

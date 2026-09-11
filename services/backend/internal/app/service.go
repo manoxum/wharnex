@@ -1148,9 +1148,10 @@ func (s *Service) RetryPolicyRepair(ctx context.Context, sessionID string) (doma
 	return s.preparePolicyRepairRequest(ctx, sessionID, current.Plan.PlanID, current.Policy.Reasons, "user_retry")
 }
 
-// RetryFailedRequest starts a genuinely new request from current context after
-// a terminal transport/protocol failure. It does not reuse the stale plan or
-// require the frontend transcript to reconstruct durable recovery state.
+// RetryFailedRequest starts a genuinely new correlated request from current
+// context after a terminal transport/protocol failure. It does not reuse the
+// stale plan, but it carries the concrete failure evidence and lineage so the
+// next planner turn cannot mistake a correction for an unrelated new task.
 func (s *Service) RetryFailedRequest(ctx context.Context, sessionID string) (domain.Session, error) {
 	return s.retryFailedRequest(ctx, sessionID, false)
 }
@@ -1167,14 +1168,36 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	if current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "" {
 		return domain.Session{}, errors.New("no terminal failed request is available to retry")
 	}
+	if kind := sessionFailureKind(current); kind != "" && kind != domain.FailureKindRemoteInputTransport {
+		return current, fmt.Errorf("failure %s is terminal for fresh GPT retry and requires its dedicated recovery action", kind)
+	}
 	if len(current.PendingManualRequestIDs) > 0 || current.PlannerInFlight {
 		return domain.Session{}, errors.New("another request is already pending")
 	}
-	message := "FRESH REQUEST RECOVERY\n\nRetry the most recent failed task from the current project context. Treat the previous plan as diagnostic history only: do not reuse its stale baseline or request id. Preserve the original user goal and produce a new protocol-valid result."
+	failedRequestID := current.LastRequestID
+	failureKind := sessionFailureKind(current)
+	if failureKind == "" {
+		failureKind = "unclassified_planner_failure"
+	}
+	message := fmt.Sprintf(`FRESH REQUEST RECOVERY
+
+Retry the most recent failed task from the current project context. Preserve the original user goal, but treat the previous result only as diagnostic history: do not reuse its stale baseline or request id.
+
+PREVIOUS TERMINAL FAILURE — AUTHORITATIVE EVIDENCE:
+REQUEST ID: %s
+FAILURE KIND: %s
+FAILURE REASON:
+%s
+
+RECOVERY STRATEGY RULES:
+- Address the failure reason above directly. Do not repeat a semantically equivalent plan, the same blocked project/root/path strategy, the same unsupported command approach, or merely restate the same blocker.
+- Before returning a new executable result, choose a materially different strategy and make sure it removes the named failure condition.
+- If the blocker cannot be overcome inside the current project root, policy, execution environment, or available evidence, stop and return a terminal blocked result with retryable=false plus the concrete operator action required. Do not ask Wharness to send the same task around again.
+- Set retryable=true only when another future request could materially change evidence, strategy, or a transient capability.`, failedRequestID, failureKind, truncateRepairText(current.LastRepairError, 12000))
 	if clean := truncateRepairText(guidance, 4000); clean != "" {
 		message += "\n\nOPTIONAL OPERATOR GUIDANCE:\n" + clean
 	}
-	_, updated, err := s.SubmitMessageWithMode(ctx, sessionID, message, current.LastRequestMode)
+	_, updated, err := s.submitPlannerRequest(ctx, sessionID, message, current.LastRequestMode, failedRequestID, requestKindRepair)
 	if err != nil {
 		return updated, err
 	}
@@ -1189,7 +1212,7 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	if err != nil {
 		return updated, err
 	}
-	s.bus.Publish(sessionID, "request.failure_retried", map[string]any{"request_id": updated.LastRequestID, "replaces_request_id": current.LastRequestID, "automatic": automatic})
+	s.bus.Publish(sessionID, "request.failure_retried", map[string]any{"request_id": updated.LastRequestID, "replaces_request_id": failedRequestID, "automatic": automatic, "failure_kind": failureKind, "failure_reason": truncateRepairText(current.LastRepairError, 512)})
 	return updated, nil
 }
 
@@ -2244,7 +2267,7 @@ Use the current Wharness project context as authoritative. Replace denied comman
 	return fmt.Sprintf(`%s
 
 The previous execution plan failed and Wharness captured the failure automatically.
-Do not repeat the failed plan unchanged. Produce a corrected replacement plan for the SAME user intent.
+Do not repeat the failed plan unchanged or submit a semantically equivalent strategy. Produce a corrected replacement plan for the SAME user intent, and make the new approach directly eliminate the named failure cause. If the cause cannot be fixed inside the current project/policy/environment, stop with a terminal blocked result using retryable=false and name the operator action required instead of starting another loop.
 %s
 
 FAILED PLAN ID: %s
