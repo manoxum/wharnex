@@ -85,13 +85,19 @@ test('deferred Supervisor navigation exposes a local Engine cover while direct p
 
 test('agent runtime drawer inherits the Desktop bridge through the workspace iframe parent', async () => {
   const drawer = await source('components/AgentRuntimeDrawer.tsx')
-  assert.match(drawer, /import \{ desktopBridge \} from '\.\.\/lib\/desktop'/)
+  assert.match(drawer, /import \{ desktopBridge, elementBounds \} from '\.\.\/lib\/desktop'/)
   assert.match(drawer, /const bridge = desktopBridge\(\)\?\.agents/)
   assert.doesNotMatch(drawer, /window\.wharnessDesktop\?\.agents/)
 })
 
-test('agent runtime only offers browser capture after the instance has a page', async () => {
+test('agent runtime exposes created browser instances for capture and explicit Worker interaction', async () => {
   const drawer = await source('components/AgentRuntimeDrawer.tsx')
-  assert.match(drawer, /disabled=\{busy \|\| !selected\.browser\.available \|\| !selected\.browser\.url\}/)
-  assert.match(drawer, /A instância ainda não carregou uma página/)
+  const desktopTypes = await source('desktop.d.ts')
+  assert.match(drawer, /disabled=\{busy \|\| !selected\.browser\.available\}/)
+  assert.doesNotMatch(drawer, /!selected\.browser\.url/)
+  assert.match(drawer, /bridge\.openInteraction\(interactionId, interactionBounds\(host\)\)/)
+  assert.match(drawer, /bridge\.closeInteraction\(interactionId\)/)
+  assert.match(desktopTypes, /openInteraction\(agentId: string, bounds: DesktopBounds\)/)
+  assert.match(desktopTypes, /setInteractionBounds\(agentId: string, bounds: DesktopBounds\)/)
+  assert.match(desktopTypes, /closeInteraction\(agentId: string\)/)
 })

@@ -24,20 +24,24 @@ Renderers should execute work for those identities rather than own them.
 ### One Supervisor and a bounded autonomous worker pool
 
 For one authenticated ChatGPT profile/Desktop process, Wharnex owns exactly one
-human-facing **Supervisor** browser plus a configurable pool of one to six hidden
-persistent **Worker** browsers, with three workers as the default. They share only
+human-facing **Supervisor** browser plus a configurable pool of one to six persistent
+**Worker** browsers that are hidden by default, with three workers as the default. They share only
 the dedicated authenticated ChatGPT browser partition. The pool is global across
 projects and windows, so chat count does not change remote renderer count. Operators
 may resize only the Worker pool; the Supervisor remains exactly one exclusive human
 surface.
 
-The Supervisor is exclusively the interactive surface: selected-chat
-navigation, the first user submission, and user comments. Background scheduler
-jobs never use it. During composer/upload/submit critical phases it holds a
+The Supervisor is the normal interactive chat surface: selected-chat navigation,
+the first user submission, and user comments. Background scheduler jobs never use it.
+For diagnosis and recovery, the trusted local Agent runtime drawer may explicitly
+surface exactly one existing Worker view inside a bounded interaction host. This does
+not change scheduler ownership, grant generic navigation/DOM/session IPC, or stop the
+Worker's current non-preemptive task. The Worker returns to hidden state when the
+interaction ends, the frontend renderer exits, or its owning window closes. During composer/upload/submit critical phases it holds a
 navigation/write lease. If the user switches chats meanwhile, Wharnex records
 the latest desired chat and navigates there only after submission is confirmed.
 
-Workers execute autonomous jobs. Scaling up creates additional hidden slots without
+Workers execute autonomous jobs. Scaling up creates additional hidden-by-default slots without
 restarting the scheduler. Scaling down is non-preemptive: excess busy workers finish
 their current job before their renderer is retired. Affinity is only a cache preference:
 `chat_id -> conversation_id` is durable state, and a worker may be rebound after
@@ -120,9 +124,13 @@ remain outside the automation inspection boundary.
 - Background work can never navigate the user's visible browser.
 - `not_before`, leases, dedupe keys, lineage, and provider pause make recovery
   observable and retry-safe instead of timer-driven.
-- React renders only the selected Supervisor surface; a local management drawer may
-  display bounded runtime metadata and a user-triggered browser snapshot for each slot.
-  Snapshot capture is local, explicit, and is not automation inspection or persistence
-  of generated assistant prose.
+- React renders the normal Supervisor surface; a local management drawer may display
+  bounded runtime metadata, capture a user-triggered browser snapshot, and temporarily
+  surface exactly one Worker for explicit direct interaction. Snapshot/interaction are
+  local and explicit, do not expose remote DOM/session material through IPC, and do not
+  transfer scheduler ownership or persist generated assistant prose.
+- Worker busy state is reconciled from durable `LEASED`/`RUNNING` task lease owners in
+  addition to low-latency scheduler events, so reopening the drawer cannot make an
+  executing Worker appear available merely because an in-memory event was missed.
 - Worker jobs remain non-preemptive. Their probes/actions are therefore bounded
   so a newly arrived P0 write is delayed only by a short current job.

@@ -1,6 +1,6 @@
 # Wharness Desktop
 
-Electron shell that composes the local Wharness frontend with one visible ChatGPT Supervisor `WebContentsView` and three hidden persistent worker views backed by the durable browser-agent queue.
+Electron shell that composes the local Wharness frontend with one visible ChatGPT Supervisor `WebContentsView` and three persistent worker views that are hidden by default and backed by the durable browser-agent queue. The Agent runtime drawer can explicitly surface one worker for bounded live interaction without changing scheduler ownership.
 
 ## Development start
 

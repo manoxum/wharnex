@@ -584,6 +584,7 @@ function closeAllInternalChatGPTBrowsers() {
 }
 
 function rehomeChatGPTWorkers(windowState) {
+  hideChatAgentInteractionsForWindow(windowState)
   const replacement = [...desktopWindows.values()].find((state) => state.id !== windowState?.id && state.window && !state.window.isDestroyed())
   if (!replacement) return false
   for (const entry of chatGPTWorkerEntries) {
@@ -591,6 +592,8 @@ function rehomeChatGPTWorkers(windowState) {
     try { windowState.window.contentView.removeChildView?.(entry.view) } catch { /* already detached */ }
     replacement.window.contentView.addChildView(entry.view)
     entry.ownerWindowId = replacement.id
+    entry.interactionWindowId = ''
+    entry.parkedLayout = true
     entry.view.setVisible(false)
   }
   return true
@@ -617,7 +620,7 @@ function closeAllChatGPTViews() {
     clearTimeout(entry.affinitySettleTimer)
     if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
   }
-  for (const state of desktopWindows.values()) { state.activeChatGPTKey = ''; state.chatgptVisible = false }
+  for (const state of desktopWindows.values()) { state.activeChatGPTKey = ''; state.chatgptVisible = false; state.activeAgentInteractionId = '' }
 }
 
 function touchChatGPTEntry(entry) {
@@ -1488,7 +1491,7 @@ function createChatGPTWorkerView(slotId, windowState) {
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
   view.setVisible(false)
-  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, affinity: createChatGPTAffinityTracker() }
+  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, affinity: createChatGPTAffinityTracker() }
   windowState.window.contentView.addChildView(view)
   chatGPTWorkerEntries.push(entry)
   const wc = view.webContents
@@ -1517,6 +1520,7 @@ function createChatGPTWorkerView(slotId, windowState) {
   wc.on('render-process-gone', (_event, details) => {
     console.error(`[chat-agent] slot=${slotId} renderer-gone reason=${details.reason} exitCode=${details.exitCode}`)
     if (entry.ownerKey) noteChatGPTRendererFault(entry.ownerKey, `worker renderer process gone: ${details.reason || 'unknown'}`)
+    if (hideChatAgentInteractionEntry(entry)) publishChatAgentRuntimeState()
   })
   console.log(`[chat-agent] worker-created slot=${slotId} wc=${wc.id}`)
   return entry
@@ -1524,6 +1528,7 @@ function createChatGPTWorkerView(slotId, windowState) {
 
 function retireChatGPTWorkerView(entry) {
   if (!entry) return false
+  hideChatAgentInteractionEntry(entry)
   clearTimeout(entry.affinitySettleTimer)
   const state = windowStateForEntry(entry)
   try { state?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
@@ -1540,7 +1545,8 @@ function reconcileChatGPTWorkerPool(windowState) {
   while (chatGPTWorkerEntries.length > desiredChatAgentWorkerSlots) {
     const index = chatGPTWorkerEntries.length
     const runtime = chatAgentWorkerStates.get(index)
-    if (runtime?.task || runtime?.active !== false) break
+    const candidate = chatGPTWorkerEntries[index - 1]
+    if (candidate?.interactionWindowId || runtime?.task || runtime?.active !== false) break
     const entry = chatGPTWorkerEntries.pop()
     retireChatGPTWorkerView(entry)
     chatAgentWorkerStates.delete(index)
@@ -1575,6 +1581,106 @@ function workerEntryForIndex(worker) {
   return chatGPTWorkerEntries[Math.max(0, Number(worker || 1) - 1)]
 }
 
+function workerEntryForAgentID(agentID) {
+  const id = String(agentID || '').trim()
+  if (!/^worker-[1-6]$/.test(id)) throw new Error('Only Worker browser instances can enter interaction mode')
+  const entry = chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
+  if (!entry || entry.view.webContents.isDestroyed()) throw new Error('Worker browser instance is not available')
+  return entry
+}
+
+function hideChatAgentInteractionEntry(entry) {
+  if (!entry || entry.role !== 'worker') return false
+  const state = desktopWindows.get(entry.interactionWindowId)
+  if (state?.activeAgentInteractionId === entry.slotId) state.activeAgentInteractionId = ''
+  entry.interactionWindowId = ''
+  entry.parkedLayout = true
+  try { entry.view.setVisible(false) } catch { /* renderer may already be gone */ }
+  return true
+}
+
+function hideChatAgentInteractionsForWindow(windowState) {
+  let changed = false
+  for (const entry of chatGPTWorkerEntries) {
+    if (entry.interactionWindowId !== windowState?.id) continue
+    changed = hideChatAgentInteractionEntry(entry) || changed
+  }
+  if (windowState) windowState.activeAgentInteractionId = ''
+  if (changed) publishChatAgentRuntimeState()
+  return changed
+}
+
+function showChatAgentInteraction(agentID, rawBounds, windowState) {
+  const entry = workerEntryForAgentID(agentID)
+  const bounds = normalizeBounds(rawBounds, windowState?.window?.getContentBounds?.())
+  if (!bounds) throw new Error('Worker interaction bounds are invalid')
+  const active = String(windowState.activeAgentInteractionId || '')
+  if (active && active !== entry.slotId) {
+    const previous = chatGPTWorkerEntries.find((candidate) => candidate.slotId === active)
+    hideChatAgentInteractionEntry(previous)
+  }
+  if (entry.interactionWindowId && entry.interactionWindowId !== windowState.id) {
+    const previousState = desktopWindows.get(entry.interactionWindowId)
+    if (previousState?.activeAgentInteractionId === entry.slotId) previousState.activeAgentInteractionId = ''
+  }
+  if (entry.ownerWindowId !== windowState.id) {
+    const ownerState = windowStateForEntry(entry)
+    try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+    windowState.window.contentView.addChildView(entry.view)
+    entry.ownerWindowId = windowState.id
+  }
+  entry.interactionWindowId = windowState.id
+  windowState.activeAgentInteractionId = entry.slotId
+  entry.view.setBounds(bounds)
+  entry.parkedLayout = false
+  entry.view.setVisible(true)
+  publishChatAgentRuntimeState()
+  return { ok: true, agentId: entry.slotId, bounds }
+}
+
+function setChatAgentInteractionBounds(agentID, rawBounds, windowState) {
+  const entry = workerEntryForAgentID(agentID)
+  if (entry.interactionWindowId !== windowState?.id || windowState.activeAgentInteractionId !== entry.slotId) return { ok: false, agentId: entry.slotId }
+  const bounds = normalizeBounds(rawBounds, windowState.window.getContentBounds())
+  if (!bounds) throw new Error('Worker interaction bounds are invalid')
+  entry.view.setBounds(bounds)
+  entry.parkedLayout = false
+  return { ok: true, agentId: entry.slotId, bounds }
+}
+
+function closeChatAgentInteraction(agentID, windowState) {
+  const entry = workerEntryForAgentID(agentID)
+  if (entry.interactionWindowId !== windowState?.id) return { ok: true, agentId: entry.slotId, closed: false }
+  hideChatAgentInteractionEntry(entry)
+  reconcileChatGPTWorkerPool(windowState)
+  publishChatAgentRuntimeState()
+  return { ok: true, agentId: entry.slotId, closed: true }
+}
+
+function reconcileChatAgentWorkerTasks(tasks = []) {
+  const prefix = `${chatAgentScheduler?.instanceID || ''}:worker-`
+  if (!chatAgentScheduler?.instanceID) return
+  const activeByWorker = new Map()
+  for (const task of tasks) {
+    const status = String(task?.status || '').toUpperCase()
+    const owner = String(task?.lease_owner || '')
+    if (!['LEASED', 'RUNNING'].includes(status) || !owner.startsWith(prefix)) continue
+    const worker = Number(owner.slice(prefix.length))
+    if (!Number.isInteger(worker) || worker < 1 || worker > HARD_MAX_WORKER_SLOTS) continue
+    const current = activeByWorker.get(worker)
+    if (!current || String(task?.updated_at || '') > String(current?.updated_at || '')) activeByWorker.set(worker, task)
+  }
+  for (let worker = 1; worker <= chatGPTWorkerEntries.length; worker += 1) {
+    const prior = chatAgentWorkerStates.get(worker) || { active: worker <= desiredChatAgentWorkerSlots, task: undefined, lastTask: undefined, lastClaimAt: '', error: '' }
+    const task = activeByWorker.get(worker)
+    if (task) {
+      chatAgentWorkerStates.set(worker, { ...prior, active: true, task, lastTask: task, lastClaimAt: String(task.updated_at || prior.lastClaimAt || ''), error: '' })
+    } else if (prior.task) {
+      chatAgentWorkerStates.set(worker, { ...prior, task: undefined })
+    }
+  }
+}
+
 function publicChatAgentTask(task) {
   if (!task) return undefined
   return {
@@ -1583,7 +1689,7 @@ function publicChatAgentTask(task) {
     conversation_id: String(task.conversation_id || ''), status: String(task.status || ''),
     attempt: Math.max(0, Number(task.attempt || 0)), max_attempts: Math.max(0, Number(task.max_attempts || 0)),
     lease_expires_at: String(task.lease_expires_at || ''), not_before: String(task.not_before || ''),
-    last_error: String(task.last_error || ''), created_at: String(task.created_at || ''),
+    last_error: String(task.last_error || ''), created_at: String(task.created_at || ''), updated_at: String(task.updated_at || ''),
   }
 }
 
@@ -1614,10 +1720,17 @@ async function refreshChatAgentRuntimeState() {
     return chatAgentRuntimeState()
   }
   try {
-    const [listed, provider] = await Promise.all([chatAgentScheduler.list({ limit: 500 }), chatAgentScheduler.providerState()])
+    const [listed, leased, running, provider] = await Promise.all([
+      chatAgentScheduler.list({ limit: 500 }),
+      chatAgentScheduler.list({ status: 'LEASED', limit: 50 }),
+      chatAgentScheduler.list({ status: 'RUNNING', limit: 50 }),
+      chatAgentScheduler.providerState(),
+    ])
+    const tasks = Array.isArray(listed?.tasks) ? listed.tasks : []
+    reconcileChatAgentWorkerTasks([...(leased?.tasks || []), ...(running?.tasks || [])])
     chatAgentRuntimeDiagnostics = {
       scheduler: { running: Boolean(chatAgentScheduler.running), backend_reachable: true, last_refresh_at: now, last_error: '' },
-      queue: chatAgentQueueDiagnostics(Array.isArray(listed?.tasks) ? listed.tasks : []),
+      queue: chatAgentQueueDiagnostics(tasks),
       provider: {
         provider: String(provider?.provider || 'chatgpt'), paused: provider?.paused === true,
         paused_until: String(provider?.paused_until || ''), reason: String(provider?.reason || ''), updated_at: String(provider?.updated_at || ''),
@@ -1659,8 +1772,8 @@ function chatAgentRuntimeState() {
     const runtime = chatAgentWorkerStates.get(worker) || {}
     return {
       id: entry.slotId || `worker-${worker}`, label: `Worker ${worker}`, role: 'worker',
-      status: runtime.task ? 'running' : runtime.error ? 'error' : entry.loading ? 'loading' : 'idle',
-      draining: worker > desiredChatAgentWorkerSlots, loop_active: runtime.active !== false,
+      status: runtime.task ? (String(runtime.task.status || '').toUpperCase() === 'RUNNING' ? 'running' : 'claimed') : runtime.error ? 'error' : entry.loading ? 'loading' : runtime.active === false ? 'stopped' : 'idle',
+      draining: worker > desiredChatAgentWorkerSlots, loop_active: runtime.active !== false, interacting: Boolean(entry.interactionWindowId),
       chat_id: String(runtime.task?.chat_id || runtime.lastTask?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
       last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
       error: String(runtime.error || ''), browser: publicAgentBrowser(entry),
@@ -2088,6 +2201,7 @@ function ensureChatGPTLayoutViewport(key, entry) {
   // the renderer layout, and overwriting them makes the visible ChatGPT surface
   // jump while the user is looking at it.
   const ownerState = windowStateForEntry(entry)
+  if (entry?.interactionWindowId && ownerState?.activeAgentInteractionId === entry.slotId) return false
   if (ownerState?.activeChatGPTKey === key) return false
   const bounds = entry.view.getBounds?.() || { width: 0, height: 0 }
   if (bounds.width >= 640 && bounds.height >= 480) return false
@@ -3562,7 +3676,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     autoHideMenuBar: true,
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
-  const state = { id, window: win, projects: new Set(), activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined }
+  const state = { id, window: win, projects: new Set(), activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }
   desktopWindows.set(id, state)
   mainWindow = win
 
@@ -3592,6 +3706,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   state.rendererRestarts = 0
   state.rendererRestartTimer = undefined
   win.webContents.on('render-process-gone', (_event, details) => {
+    hideChatAgentInteractionsForWindow(state)
     console.error(`[frontend-renderer] window=${id} gone reason=${details.reason} exitCode=${details.exitCode} restarts=${state.rendererRestarts}`)
     if (quitting || details.reason === 'clean-exit') return
     if (state.rendererRestarts >= FRONTEND_RENDERER_RESTART_LIMIT) {
@@ -3616,7 +3731,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
-  win.on('close', () => { if (!quitting) rehomeChatGPTWorkers(state) })
+  win.on('close', () => { hideChatAgentInteractionsForWindow(state); if (!quitting) rehomeChatGPTWorkers(state) })
   win.on('closed', () => {
     closeInternalChatGPTBrowserForWindow(state)
     closeChatGPTViewsForWindow(state)
@@ -4085,6 +4200,9 @@ function registerIPC() {
     return publishChatAgentRuntimeState()
   })
   ipcMain.handle('wharness:agents:snapshot', async (event, request) => { trustedSender(event); return chatAgentBrowserSnapshot(request?.agentId) })
+  ipcMain.handle('wharness:agents:interaction-open', async (event, request) => showChatAgentInteraction(request?.agentId, request?.bounds, trustedSender(event)))
+  ipcMain.handle('wharness:agents:interaction-bounds', async (event, request) => setChatAgentInteractionBounds(request?.agentId, request?.bounds, trustedSender(event)))
+  ipcMain.handle('wharness:agents:interaction-close', async (event, request) => closeChatAgentInteraction(request?.agentId, trustedSender(event)))
   ipcMain.handle('wharness:data:storage', async (event) => { trustedSender(event); return desktopStorageUsage() })
   ipcMain.handle('wharness:data:export-browser-session', async (event) => { const windowState = trustedSender(event); return exportBrowserSession(windowState) })
   ipcMain.handle('wharness:data:import-browser-session', async (event) => { const windowState = trustedSender(event); return importBrowserSession(windowState) })

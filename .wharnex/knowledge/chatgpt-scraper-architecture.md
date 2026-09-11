@@ -37,3 +37,11 @@ Conclusão operacional: considerar o estado atual como **fundação implementada
 - O fallback `Runtime local` agora identifica explicitamente bridge/preload ausente, separando esse caso de backend indisponível, scheduler parado ou browser de Worker ainda não criado.
 
 Estes ajustes fecham os gaps de lifecycle, retry terminal, cancelamento, pausa/retoma e observabilidade identificados na rechecagem anterior. O princípio permanece: o Supervisor serve interação humana; trabalho de conta em background pertence aos Workers e à fila durável.
+
+## Worker claim SQL, runtime state and explicit browser interaction
+
+The pooled worker claim path uses `UPDATE ... FROM candidate`. Because both the target table and the CTE expose `task_id`, every claim `RETURNING` column must stay qualified with the target alias; otherwise PostgreSQL rejects every claim and the queue remains pending. Keep a regression around the qualified return-column contract.
+
+Worker activity shown in the runtime drawer must not depend only on transient scheduler callbacks. On refresh, reconcile `LEASED` and `RUNNING` durable tasks whose `lease_owner` matches the current Desktop instance and `worker-N`; this makes occupied/running status survive missed events and drawer reopening.
+
+A Worker `WebContentsView` exists independently of whether it already has a page URL. Diagnostics may snapshot any created browser instance, and a trusted explicit interaction mode may temporarily surface one Worker inside bounded local Agent UI. Workers remain hidden by default, scheduler ownership is unchanged, no generic navigation/DOM/session IPC is granted, manual interaction can affect the active task, and the view must be hidden on interaction exit, frontend renderer failure, or window close. Hidden snapshots/layout automation may still park a zero-sized Worker into a real layout viewport, but must not overwrite bounds while the Worker is interactively visible.
