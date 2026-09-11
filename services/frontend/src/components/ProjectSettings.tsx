@@ -216,6 +216,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
             <StorageMetric label="Navegador interno" bytes={desktopStorage?.browser_bytes || 0} />
             <StorageMetric label="Anexos de chats" bytes={desktopStorage?.attachment_bytes || 0} />
             <StorageMetric label="Artefactos MinIO" bytes={backendStorage?.artifact_bytes || 0} />
+            <StorageMetric label="Arquivos compactados" bytes={backendStorage?.archive_bytes || 0} />
             <StorageMetric label="Contextos/sandboxes" bytes={(backendStorage?.context_bytes || 0) + (backendStorage?.sandbox_bytes || 0)} />
             <StorageMetric label="Temporários/órfãos" bytes={(backendStorage?.orphan_bytes || 0) + (desktopStorage?.temp_bytes || 0)} />
           </div>

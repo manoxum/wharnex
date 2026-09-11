@@ -554,6 +554,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// before the plan comes back.
 	baseCommit := s.captureRequestBase(ctx, sessionID, item.ProjectPath, requestID)
 	var releasedBases []string
+	var prunedContexts []string
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
@@ -561,13 +562,14 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		current.RemoteRecoveryAttempt = 0
 		recordRequestLineage(current, requestID, parentRequestID, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
-		recordRequestContext(current, requestID, item.Context)
+		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		return nil
 	}); err != nil {
 		return planner.Result{}, item, err
 	}
+	s.cleanupPrunedRequestContexts(prunedContexts)
 	s.releaseRequestBaseRefs(ctx, sessionID, item.ProjectPath, releasedBases)
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA, "planning_mode": planningMode, "parent_request_id": parentRequestID})
 	expectedFilename := expectedResponseBundleFilename(item, requestID)
@@ -601,12 +603,13 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		})
 		return planner.Result{}, item, err
 	}
+	prunedContexts = nil
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastManualPrompt = result.ManualPrompt
 		current.LastRequestID = requestID
 		current.PlannerInFlight = false
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
-		recordRequestContext(current, requestID, item.Context)
+		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		current.RepairAttempt = 0
 		current.RepairParentPlanID = ""
 		clearSessionFailure(current)
@@ -652,6 +655,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		s.bus.Publish(sessionID, "plan.rejected", map[string]any{"error": err.Error()})
 		return planner.Result{}, item, err
 	}
+	s.cleanupPrunedRequestContexts(prunedContexts)
 	s.releaseSupersededRemoteInputLeases(sessionID, updated.PendingManualRequestIDs)
 	if parentRequestID == "" {
 		s.closeSupersededRemoteInputChannel(sessionID, requestID)
@@ -2139,12 +2143,13 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 		return refreshed, errors.New("workflow turns are not allowed inside automatic repair; return a corrected change or terminal result")
 	}
 
+	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
 		recordRequestLineage(item, requestID, refreshed.LastRequestID, lineageKind)
 		recordRequestKnowledge(item, requestID, knowledgeSnapshot)
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
-		recordRequestContext(item, requestID, refreshed.Context)
+		prunedContexts = append(prunedContexts, recordRequestContext(item, requestID, refreshed.Context)...)
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastRepairError = cause.Error()
 		item.RepairAttempt = attempt
@@ -2186,6 +2191,7 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 	if err != nil {
 		return refreshed, err
 	}
+	s.cleanupPrunedRequestContexts(prunedContexts)
 	if planned.Plan == nil {
 		s.bus.Publish(sessionID, "repair.prompt_ready", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID, "iteration_kind": lineageKind})
 	} else {

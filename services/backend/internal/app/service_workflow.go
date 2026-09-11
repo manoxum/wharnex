@@ -205,13 +205,14 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	if planned.Plan != nil {
 		decision = s.policy.Evaluate(*planned.Plan)
 	}
+	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
 		recordRequestLineage(item, requestID, refreshed.LastRequestID, requestKindEvidence)
 		recordRequestKnowledge(item, requestID, knowledgeSnapshot)
 		item.WorkflowRound = round
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
-		recordRequestContext(item, requestID, refreshed.Context)
+		prunedContexts = append(prunedContexts, recordRequestContext(item, requestID, refreshed.Context)...)
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastTurn = planned.Turn
 		if planned.ProviderResponseID != "" {
@@ -243,6 +244,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	if err != nil {
 		return err
 	}
+	s.cleanupPrunedRequestContexts(prunedContexts)
 	if updated.State == "workflow_pending" {
 		s.bus.Publish(sessionID, "workflow.prompt_ready", map[string]any{"request_id": requestID, "round": round, "plan_id": execution.PlanID})
 	} else if updated.LastTurn != nil {

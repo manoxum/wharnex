@@ -64,12 +64,13 @@ func (s *Service) prepareImprovementRequest(ctx context.Context, sessionID strin
 		return refreshed, errors.New("workflow turns are not allowed inside continuous improvement; return a focused change or terminal answer")
 	}
 
+	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
 		recordRequestLineage(item, requestID, refreshed.LastRequestID, requestKindImprovement)
 		recordRequestKnowledge(item, requestID, knowledgeSnapshot)
 		item.LastRequestID = requestID
 		recordRequestBaseline(item, requestID, refreshed.Context.Manifest.SHA256)
-		recordRequestContext(item, requestID, refreshed.Context)
+		prunedContexts = append(prunedContexts, recordRequestContext(item, requestID, refreshed.Context)...)
 		item.LastManualPrompt = planned.ManualPrompt
 		item.LastRepairError = ""
 		item.AutomationAttempt = nextAttempt
@@ -109,6 +110,7 @@ func (s *Service) prepareImprovementRequest(ctx context.Context, sessionID strin
 	if err != nil {
 		return refreshed, err
 	}
+	s.cleanupPrunedRequestContexts(prunedContexts)
 	if planned.Plan == nil {
 		s.bus.Publish(sessionID, "improvement.prompt_ready", map[string]any{"request_id": requestID, "attempt": nextAttempt, "round": nextRound})
 	} else {

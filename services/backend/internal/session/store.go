@@ -215,7 +215,7 @@ func (s *Store) StateBytes() int64 {
 	}
 	if s.db != nil {
 		var bytes int64
-		if err := s.db.QueryRow(`SELECT pg_total_relation_size('harness_sessions') + pg_total_relation_size('legacy_session_migrations') + pg_total_relation_size('harness_events')`).Scan(&bytes); err == nil {
+		if err := s.db.QueryRow(`SELECT pg_database_size(current_database())`).Scan(&bytes); err == nil {
 			return bytes
 		}
 		return 0

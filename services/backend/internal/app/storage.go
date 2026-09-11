@@ -20,6 +20,7 @@ type ProjectStorageUsage struct {
 	ContextBytes  int64  `json:"context_bytes"`
 	SandboxBytes  int64  `json:"sandbox_bytes"`
 	ArtifactBytes int64  `json:"artifact_bytes"`
+	ArchiveBytes  int64  `json:"archive_bytes"`
 	TotalBytes    int64  `json:"total_bytes"`
 }
 
@@ -29,6 +30,7 @@ type StorageUsage struct {
 	ContextBytes  int64                 `json:"context_bytes"`
 	SandboxBytes  int64                 `json:"sandbox_bytes"`
 	ArtifactBytes int64                 `json:"artifact_bytes"`
+	ArchiveBytes  int64                 `json:"archive_bytes"`
 	OrphanBytes   int64                 `json:"orphan_bytes"`
 	Projects      []ProjectStorageUsage `json:"projects"`
 }
@@ -49,7 +51,11 @@ func (s *Service) StorageUsage() StorageUsage {
 			project.ArtifactBytes += artifact.Size
 			usage.ArtifactBytes += artifact.Size
 		}
-		if dir := ownedContextDir(item); dir != "" {
+		if item.ArchivePackage != nil {
+			project.ArchiveBytes += item.ArchivePackage.Size
+			usage.ArchiveBytes += item.ArchivePackage.Size
+		}
+		for _, dir := range ownedContextDirs(item) {
 			if _, ok := seen[dir]; !ok {
 				bytes := directorySize(dir)
 				seen[dir] = struct{}{}
@@ -69,11 +75,11 @@ func (s *Service) StorageUsage() StorageUsage {
 	}
 	usage.OrphanBytes = orphanWharnessTempBytes(seen)
 	for _, project := range projects {
-		project.TotalBytes = project.ContextBytes + project.SandboxBytes + project.ArtifactBytes
+		project.TotalBytes = project.ContextBytes + project.SandboxBytes + project.ArtifactBytes + project.ArchiveBytes
 		usage.Projects = append(usage.Projects, *project)
 	}
 	sort.Slice(usage.Projects, func(i, j int) bool { return usage.Projects[i].ProjectPath < usage.Projects[j].ProjectPath })
-	usage.TotalBytes = usage.StateBytes + usage.ContextBytes + usage.SandboxBytes + usage.ArtifactBytes + usage.OrphanBytes
+	usage.TotalBytes = usage.StateBytes + usage.ContextBytes + usage.SandboxBytes + usage.ArtifactBytes + usage.ArchiveBytes + usage.OrphanBytes
 	return usage
 }
 
@@ -91,6 +97,11 @@ func (s *Service) ClearAllData() error {
 					return fmt.Errorf("delete artifact %s: %w", artifact.ID, err)
 				}
 			}
+			if item.ArchivePackage != nil && item.ArchivePackage.ObjectKey != "" {
+				if err := s.artifactStore.Delete(ctx, item.ArchivePackage.ObjectKey); err != nil {
+					return fmt.Errorf("delete archive package for session %s: %w", item.ID, err)
+				}
+			}
 		}
 	}
 	if err := s.store.Clear(); err != nil {
@@ -100,7 +111,7 @@ func (s *Service) ClearAllData() error {
 		s.releaseSupersededRemoteInputLeases(item.ID, nil)
 		s.closeRemoteInputChannel(item.ID, "request.cancelled")
 		s.resetDevspace(item.ID)
-		if dir := ownedContextDir(item); dir != "" {
+		for _, dir := range ownedContextDirs(item) {
 			_ = os.RemoveAll(dir)
 		}
 	}
@@ -117,7 +128,32 @@ func (s *Service) ClearAllData() error {
 }
 
 func ownedContextDir(item domain.Session) string {
-	dir := filepath.Dir(item.Context.ZipPath)
+	return ownedContextArchiveDir(item.Context.ZipPath)
+}
+
+func ownedContextDirs(item domain.Session) []string {
+	dirs := make([]string, 0, len(item.RequestContextArchives)+1)
+	seen := map[string]struct{}{}
+	add := func(path string) {
+		dir := ownedContextArchiveDir(path)
+		if dir == "" {
+			return
+		}
+		if _, ok := seen[dir]; ok {
+			return
+		}
+		seen[dir] = struct{}{}
+		dirs = append(dirs, dir)
+	}
+	add(item.Context.ZipPath)
+	for _, path := range item.RequestContextArchives {
+		add(path)
+	}
+	return dirs
+}
+
+func ownedContextArchiveDir(path string) string {
+	dir := filepath.Dir(strings.TrimSpace(path))
 	if dir == "" || dir == "." || !strings.HasPrefix(filepath.Base(dir), "wharness-context-") {
 		return ""
 	}

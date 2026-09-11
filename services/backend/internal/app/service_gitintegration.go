@@ -449,6 +449,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	// conflict can see the shape of the loop rather than restarting blind.
 	history := appendConflictAttempt(intentHistory(item), conflictAttemptRecord(item, paths))
 	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, AttemptHistory: history, CreatedAt: time.Now().UTC()}
+	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
@@ -469,10 +470,11 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		current.State = "conflict_resolution_pending"
 		current.LastRepairError = "host apply failed safely; focused conflict resolution required: " + strings.Join(paths, ", ")
 		recordRequestBaseline(current, requestID, item.Context.Manifest.SHA256)
-		recordRequestContext(current, requestID, item.Context)
+		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		return nil
 	})
 	if err == nil {
+		s.cleanupPrunedRequestContexts(prunedContexts)
 		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths, "surface_key": conflictSurfaceKey(sessionID, conflictID)})
 	}
 	return updated, err
