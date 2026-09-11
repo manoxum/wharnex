@@ -1688,6 +1688,8 @@ async function chatAgentBrowserSnapshot(agentID) {
   const entry = id === 'supervisor' ? supervisorEntry() : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
   const wc = entry?.view?.webContents
   if (!wc || wc.isDestroyed()) throw new Error('Agent browser instance is not available')
+  const layoutKey = entry.ownerKey || (entry.role === 'supervisor' ? supervisorKey() : entry.slotId || id)
+  ensureChatGPTLayoutViewport(layoutKey, entry)
   const image = await wc.capturePage()
   return { agentId: id, dataUrl: image.toDataURL(), capturedAt: new Date().toISOString() }
 }

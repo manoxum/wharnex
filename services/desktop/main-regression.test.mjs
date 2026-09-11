@@ -647,6 +647,17 @@ test('one Supervisor owns renderer IPC while bounded workers stay outside chat v
   assert.match(source, /publishPlanDownload\(\{ cacheKey: sourceCacheKey, filename/)
 })
 
+test('agent browser snapshots park hidden workers into a real layout viewport', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function chatAgentBrowserSnapshot(agentID)')
+  const end = source.indexOf('\nfunction retireChatGPTSupervisorSurface', start)
+  assert.notEqual(start, -1)
+  const snapshot = source.slice(start, end)
+  assert.match(snapshot, /ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
+  assert.match(snapshot, /await wc\.capturePage\(\)/)
+  assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor'/)
+})
+
 test('switching the Supervisor preserves the renderer visible intent', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')

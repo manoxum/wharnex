@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -10,6 +11,20 @@ func testChatAgentTask(taskType, chatID, conversationID, dedupe string) ChatAgen
 	return ChatAgentTask{
 		Type: taskType, ChatID: chatID, ConversationID: conversationID,
 		DedupeKey: dedupe, Payload: json.RawMessage(`{"test":true}`),
+	}
+}
+
+func TestPostgresClaimReturningColumnsAreQualified(t *testing.T) {
+	qualified := strings.Split(qualifiedChatAgentTaskColumns("t"), ",")
+	raw := strings.Split(chatAgentTaskColumns, ",")
+	if len(qualified) != len(raw) {
+		t.Fatalf("qualified columns=%d want %d", len(qualified), len(raw))
+	}
+	for index, column := range qualified {
+		want := "t." + strings.TrimSpace(raw[index])
+		if column != want {
+			t.Fatalf("column %d=%q want %q", index, column, want)
+		}
 	}
 }
 

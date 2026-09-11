@@ -89,3 +89,9 @@ test('agent runtime drawer inherits the Desktop bridge through the workspace ifr
   assert.match(drawer, /const bridge = desktopBridge\(\)\?\.agents/)
   assert.doesNotMatch(drawer, /window\.wharnessDesktop\?\.agents/)
 })
+
+test('agent runtime only offers browser capture after the instance has a page', async () => {
+  const drawer = await source('components/AgentRuntimeDrawer.tsx')
+  assert.match(drawer, /disabled=\{busy \|\| !selected\.browser\.available \|\| !selected\.browser\.url\}/)
+  assert.match(drawer, /A instância ainda não carregou uma página/)
+})
