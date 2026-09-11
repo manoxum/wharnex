@@ -6,12 +6,10 @@ import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from 
 const mocks = vi.hoisted(() => ({
   artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })),
   artifactPresentation: vi.fn(async (): Promise<ArtifactPresentation> => ({ protocol: 'harness.artifact-presentation/v1', fallback: true, galleries: [] as ArtifactPresentation['galleries'] })),
-  bundleQuota: vi.fn(async () => ({ window_hours: 3, limit: 80, sent: 12, received: 11, total: 23, warning: false, window_start: '2026-09-08T15:00:00Z', window_end: '2026-09-08T18:00:00Z' })),
 }))
 vi.mock('../lib/api', () => ({ api: {
   artifactEntries: mocks.artifactEntries,
   artifactPresentation: mocks.artifactPresentation,
-  bundleQuota: mocks.bundleQuota,
   artifactURL: (_sessionId: string, artifactId: string) => `/artifact/${artifactId}`,
   artifactEntryURL: (_sessionId: string, artifactId: string, path: string) => `/artifact/${artifactId}/entry?path=${encodeURIComponent(path)}`,
 } }))
@@ -20,7 +18,6 @@ afterEach(() => {
   cleanup()
   mocks.artifactEntries.mockClear()
   mocks.artifactPresentation.mockClear()
-  mocks.bundleQuota.mockClear()
 })
 
 describe('BundleExchangeBar', () => {
@@ -54,24 +51,11 @@ describe('BundleExchangeBar', () => {
     expect(screen.getByText(`whx_bundle_req_chat-1_${requestId}.zip`)).toBeTruthy()
     expect(screen.queryByText(`context-${requestId}.zip`)).toBeNull()
     expect(screen.queryByText('wharness-context-ses_123.zip')).toBeNull()
-    const summary = screen.getByRole('button', { name: 'Abrir galeria completa: 1 bundle, 1 enviado, 0 recebidos' })
-    expect(summary.textContent).not.toContain('Bundles')
-    expect(summary.textContent).toBe('1↑1↓0')
-    expect(summary.querySelector('.bundle-exchange-stats b')?.textContent).toBe('1')
+    expect(screen.queryByRole('button', { name: /Abrir galeria completa/i })).toBeNull()
+    expect(document.querySelector('.bundle-exchange-summary')).toBeNull()
+    expect(document.querySelector('.bundle-exchange-stats')).toBeNull()
+    expect(document.querySelector('.bundle-quota-indicator')).toBeNull()
     expect(screen.queryByText('Todos')).toBeNull()
-  })
-
-  it('shows the rolling account quota and warns without blocking at the configured limit', async () => {
-    mocks.bundleQuota.mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 80, received: 77, total: 157, warning: true, window_start: '2026-09-08T15:00:00Z', window_end: '2026-09-08T18:00:00Z' })
-    const requestId = 'req_20260905T220000_1234567890abcdef'
-    const bundle: ArtifactRecord = {
-      id: 'quota-bundle', request_id: requestId, direction: 'input', kind: 'bundle', name: `whx_bundle_req_chat-1_${requestId}.zip`, content_type: 'application/zip',
-      size: 1024, sha256: 'a'.repeat(64), created_at: '2026-09-05T22:00:00Z', expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1,
-    }
-    render(<BundleExchangeBar sessionId="ses_1" artifacts={[bundle]} />)
-    expect(await screen.findByText('3h ↑80/80 ↓77')).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toContain('80/80')
-    expect(screen.getByRole('status', { name: /novos pedidos continuam permitidos/i })).toBeTruthy()
   })
 
   it('assigns a distinct visual category to every request/response bundle stage', async () => {
@@ -100,7 +84,7 @@ describe('BundleExchangeBar', () => {
     expect(view.container.querySelector('.bundle-tone-request-summary')).toBeTruthy()
     expect(view.container.querySelector('.bundle-tone-response')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir galeria completa: 6 bundles, 4 enviados, 2 recebidos' }))
+    fireEvent.click(screen.getByTitle(`Explorar whx_bundle_res_chat-1_${mainRequest}_${summaryRequest}.zip`))
     await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'summary-response'))
     const selector = document.querySelector('.bundle-selector')!
     expect(selector.querySelector('.bundle-tone-request-main')).toBeTruthy()
