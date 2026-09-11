@@ -3,9 +3,19 @@ import path from 'node:path'
 function isUploadRequest(details) {
   try {
     const url = new URL(String(details?.url || ''))
-    return url.protocol === 'https:'
-      && (url.hostname === 'chatgpt.com' || url.hostname.endsWith('.chatgpt.com'))
-      && url.pathname === '/backend-api/files/process_upload_stream'
+    const method = String(details?.method || 'POST').toUpperCase()
+    if (url.protocol !== 'https:' || !(url.hostname === 'chatgpt.com' || url.hostname.endsWith('.chatgpt.com'))) return false
+    if (!['POST', 'PUT', 'PATCH'].includes(method)) return false
+
+    // ChatGPT has changed the concrete file-upload route over time. Observe a
+    // deliberately narrow family rather than one literal endpoint so a route
+    // revision cannot be mistaken for "the browser never started upload".
+    // Keep the match under /backend-api and require upload semantics so normal
+    // file metadata requests do not satisfy the delivery confirmation gate.
+    const pathname = url.pathname.toLowerCase()
+    return pathname === '/backend-api/files/process_upload_stream'
+      || /^\/backend-api\/files\/[^/]*(?:upload|process_upload)[^/]*(?:\/|$)/.test(pathname)
+      || /^\/backend-api\/uploads?(?:\/|$)/.test(pathname)
   } catch {
     return false
   }

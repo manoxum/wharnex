@@ -118,7 +118,9 @@ test('a persisted pre-v2 prompt is upgraded at the archive boundary without losi
     const prompt = storedEntries(await readFile(target)).get('prompt/wharness-planner-prompt.md').toString('utf8')
     assert.match(prompt, /Original pending task[\s\S]*harness\.knowledge\/v2 \(compatibility transport\)/)
     assert.match(prompt, /sharing=on; revision=9; entries=0/)
-    assert.match(prompt, /mode=replace/)
+    assert.match(prompt, /ONLY top-level keys protocol, base_revision, mode, entries/)
+    assert.match(prompt, /never add request_id/)
+    assert.match(prompt, /base_revision=9 and mode=replace/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
