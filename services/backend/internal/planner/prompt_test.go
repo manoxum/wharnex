@@ -171,7 +171,7 @@ func TestBuildManualPromptPinsContextBaselineAndImpactForecast(t *testing.T) {
 
 func TestBuildManualPromptAlwaysDeclaresKnowledgeV2(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-no-knowledge", Message: "update UI"})
-	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "harness.knowledge/v2", "sharing=off", "summary.md", "knowledge/index.json", "Do NOT request or expect a separate final knowledge_review turn"} {
+	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "harness.knowledge/v2", "sharing=off", "summary.md", "knowledge/index.json", "only keys are protocol, base_revision, mode, and entries", "Do NOT add request_id", "base_revision MUST be 0 and mode MUST be overlay", "Do NOT request or expect a separate final knowledge_review turn"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("knowledge protocol prompt missing %q", want)
 		}
@@ -183,7 +183,7 @@ func TestBuildManualPromptReferencesSeparateKnowledgeFilesWithoutInliningContent
 		RequestID: "req-with-knowledge", Message: "update UI", KnowledgeSharingEnabled: true, KnowledgeRevision: 7,
 		KnowledgeEntries: []domain.ProjectKnowledgeEntry{{ID: "host-node-version", Content: "Node do host tem de ser >=22.12.", Version: 2}},
 	})
-	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "sharing=on", "revision=7 entries=1", "knowledge/<id>.md", "inspect/search", "not decorative context", "mode=replace"} {
+	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "sharing=on", "revision=7 entries=1", "knowledge/<id>.md", "inspect/search", "not decorative context", "mode=replace", "base_revision MUST be 7 and mode MUST be replace", `{"protocol":"harness.knowledge/v2","base_revision":7,"mode":"replace"`} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}

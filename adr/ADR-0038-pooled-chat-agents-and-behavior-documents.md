@@ -82,8 +82,12 @@ pause the provider globally instead of producing parallel retry storms.
 
 `BOT_WRITE`/`RECOVERY_WRITE` acquire the per-conversation write lease and create
 exactly one `AWAIT_RESPONSE` only after the conversation POST is confirmed and a
-stable `conversation_id` exists. User comments remain Supervisor operations and
-do not create a second await lineage.
+stable `conversation_id` exists. That POST confirmation is the write commit point:
+remote-state persistence and await scheduling failures after it are supervision
+failures, never permission to issue the write again. Persistence is best-effort; if
+the await task cannot be durably scheduled, the submitted request moves to
+`ATTENTION` instead of spawning a duplicate `RECOVERY_WRITE`. User comments remain
+Supervisor operations and do not create a second await lineage.
 
 ### Conversation organization and lifecycle are idempotent jobs
 

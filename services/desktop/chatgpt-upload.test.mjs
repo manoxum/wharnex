@@ -151,3 +151,31 @@ test('exhausted upload failures reject instead of permitting submit', async () =
 
   assert.equal(pasteCount, 2)
 })
+
+test('ChatGPT upload observation tolerates bounded upload endpoint revisions', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  const upload = coordinator.expect(44, { startTimeoutMs: 100, completionTimeoutMs: 100 })
+  const details = {
+    id: 'upload-v2',
+    webContentsId: 44,
+    method: 'POST',
+    url: 'https://chatgpt.com/backend-api/uploads/file-123',
+  }
+
+  assert.equal(coordinator.onBeforeRequest(details), true)
+  assert.equal(coordinator.onCompleted({ ...details, statusCode: 201 }), true)
+  assert.deepEqual(await upload, { observed: true })
+})
+
+test('ChatGPT upload observation does not accept unrelated file metadata traffic', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  const upload = coordinator.expect(45, { startTimeoutMs: 20, completionTimeoutMs: 100 })
+
+  assert.equal(coordinator.onBeforeRequest({
+    id: 'metadata',
+    webContentsId: 45,
+    method: 'GET',
+    url: 'https://chatgpt.com/backend-api/files/file-123',
+  }), false)
+  await assert.rejects(() => upload, /did not start the file upload before timeout/)
+})

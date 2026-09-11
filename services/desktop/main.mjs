@@ -2534,12 +2534,16 @@ async function preparePromptForChatGPT(request) {
     }
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
-    await persistWorkspaceChatRemote(key, conversationUrl, { remoteState: 'awaiting-response' })
-    await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
-      expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
-      sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
-      projectName: request?.projectName || '', fallbackTitle: requestedTitle,
-    })
+    await persistWorkspaceChatRemoteBestEffort(key, conversationUrl, { remoteState: 'awaiting-response' })
+    try {
+      await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
+        expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
+        sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
+        projectName: request?.projectName || '', fallbackTitle: requestedTitle,
+      })
+    } catch (error) {
+      console.error(`[chatgpt-supervision] submitted request ${requestId} but durable follow-up scheduling failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
     preparedChatGPTDrafts.delete(key)
   } else {
     preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, chatTitle: requestedTitle })
@@ -2663,12 +2667,16 @@ async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, entry)
   if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
   armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap, prepared.liveTunnels || [], prepared.originalPrompt || '', prepared.sessionId || '', expectedFilename)
-  await persistWorkspaceChatRemote(key, conversationUrl, { remoteState: 'awaiting-response' })
-  await enqueueChatAgentFollowups(key, prepared.requestId, conversationUrl, {
-    expectedFilename, assistantBaseline, recoveryBootstrap: prepared.recoveryBootstrap,
-    originalPrompt: prepared.originalPrompt || '', sessionId: prepared.sessionId || '', liveTunnels: prepared.liveTunnels || [],
-    projectName: prepared.projectName || '', fallbackTitle: prepared.chatTitle || '',
-  })
+  await persistWorkspaceChatRemoteBestEffort(key, conversationUrl, { remoteState: 'awaiting-response' })
+  try {
+    await enqueueChatAgentFollowups(key, prepared.requestId, conversationUrl, {
+      expectedFilename, assistantBaseline, recoveryBootstrap: prepared.recoveryBootstrap,
+      originalPrompt: prepared.originalPrompt || '', sessionId: prepared.sessionId || '', liveTunnels: prepared.liveTunnels || [],
+      projectName: prepared.projectName || '', fallbackTitle: prepared.chatTitle || '',
+    })
+  } catch (error) {
+    console.error(`[chatgpt-supervision] submitted request ${prepared.requestId} but durable follow-up scheduling failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
   preparedChatGPTDrafts.delete(key)
   touchChatGPTEntry(entry)
   return { ok: true, cacheKey: key, expectedFilename, conversationUrl, scheduled: true }
@@ -2723,6 +2731,16 @@ async function persistWorkspaceChatRemote(chatID, conversationURL, { projectRef 
   })
   if (!response.ok) throw new Error(`workspace chat remote state HTTP ${response.status}`)
   return response.json()
+}
+
+async function persistWorkspaceChatRemoteBestEffort(chatID, conversationURL, values = {}) {
+  try {
+    return await persistWorkspaceChatRemote(chatID, conversationURL, values)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    console.warn(`[chatgpt-remote-state] non-fatal persistence failure chat=${sanitizeChatCacheKey(chatID)} state=${String(values?.remoteState || '')} error=${detail}`)
+    return { ok: false, error: detail }
+  }
 }
 
 async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId = '', conversationURL = '', parentTaskID = '', dedupeKey = '', payload = {}, maxAttempts = 8, notBefore = undefined, projectID = '', sessionID = '' }) {
@@ -2835,16 +2853,20 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL)
   if (!prompt) return { status: 'failed', error: 'chat-agent write payload is empty' }
   const result = await withChatGPTTransportPreparation(key, entry, task.request_id, () =>
     submitPromptToChatGPT(key, prompt, conversationURL, task.request_id, payload.session_id || task.session_id || '', entry))
-  await persistWorkspaceChatRemote(key, result.conversationUrl, { remoteState: 'awaiting-response' })
+  await persistWorkspaceChatRemoteBestEffort(key, result.conversationUrl, { remoteState: 'awaiting-response' })
   const nextPayload = expectedChatAgentPayload(key, task.request_id, result.conversationUrl, {
     expectedFilename: result.expectedFilename, assistantBaseline: result.assistantBaseline, recoveryBootstrap: result.recoveryBootstrap,
     originalPrompt: payload.original_prompt || prompt, sessionId: payload.session_id || task.session_id || '', liveTunnels: result.liveTunnels || payload.live_tunnels || [],
     projectName: payload.project_name || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0,
   })
-  await enqueueChatAgentTask('AWAIT_RESPONSE', {
-    key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: result.conversationUrl,
-    parentTaskID: task.task_id, dedupeKey: `await:${task.request_id}`, payload: nextPayload, maxAttempts: 30, sessionID: nextPayload.session_id,
-  })
+  try {
+    await enqueueChatAgentTask('AWAIT_RESPONSE', {
+      key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: result.conversationUrl,
+      parentTaskID: task.task_id, dedupeKey: `await:${task.request_id}`, payload: nextPayload, maxAttempts: 30, sessionID: nextPayload.session_id,
+    })
+  } catch (error) {
+    return { status: 'attention', error: `ChatGPT accepted request ${task.request_id}, but response supervision could not be scheduled: ${error instanceof Error ? error.message : String(error)}` }
+  }
   return { status: 'done' }
 }
 
@@ -3875,7 +3897,7 @@ function registerIPC() {
     if (!conversation) throw new Error('Pending bundle recovery requires a concrete trusted ChatGPT conversation URL')
     const recoveryPrompt = String(request?.recoveryBootstrap || '')
     const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
-    await persistWorkspaceChatRemote(key, conversation, { remoteState: 'awaiting-response' })
+    await persistWorkspaceChatRemoteBestEffort(key, conversation, { remoteState: 'awaiting-response' })
     const payload = expectedChatAgentPayload(key, requestId, conversation, {
       expectedFilename, recoveryBootstrap: recoveryPrompt, originalPrompt: recoveryPrompt,
       sessionId: request?.sessionId,
