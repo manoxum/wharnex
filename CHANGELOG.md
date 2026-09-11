@@ -828,3 +828,5 @@
 - Folder selection is a sender-checked trusted-renderer IPC unavailable to remote ChatGPT content.
 - Project context settings can narrow context but cannot override mandatory secret, symlink, VCS, or protected-path exclusions.
 - Clone rejects option-like/unsafe destinations, never overwrites an existing directory, suppresses interactive credential prompts, and redacts the supplied repository string from Git errors.
+
+<!-- whx-conflict-resolution: candidate residency changelog entry intentionally omitted; host changelog retained -->
