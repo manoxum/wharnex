@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { desktopBridge } from '../lib/desktop'
 import { Icon } from './Icon'
 
 type Runtime = DesktopAgentRuntimeState
@@ -26,7 +27,7 @@ function timeLabel(value?: string) {
 }
 
 export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; onError?: (message: string) => void }) {
-  const bridge = window.wharnessDesktop?.agents
+  const bridge = desktopBridge()?.agents
   const [runtime, setRuntime] = useState<Runtime>()
   const [selectedId, setSelectedId] = useState('supervisor')
   const [busy, setBusy] = useState(false)
