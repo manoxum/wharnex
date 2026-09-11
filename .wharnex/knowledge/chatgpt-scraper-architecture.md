@@ -37,3 +37,8 @@ Conclusão operacional: considerar o estado atual como **fundação implementada
 - O fallback `Runtime local` agora identifica explicitamente bridge/preload ausente, separando esse caso de backend indisponível, scheduler parado ou browser de Worker ainda não criado.
 
 Estes ajustes fecham os gaps de lifecycle, retry terminal, cancelamento, pausa/retoma e observabilidade identificados na rechecagem anterior. O princípio permanece: o Supervisor serve interação humana; trabalho de conta em background pertence aos Workers e à fila durável.
+
+## Robustez do commit point e upload (2026-09-11)
+
+- A confirmação do POST da conversa é o commit point de `BOT_WRITE`/`RECOVERY_WRITE`. Depois dela, falhas de persistência remota ou de enqueue de `AWAIT_RESPONSE` não podem disparar outro write; o caminho seguro é best-effort para metadata e `ATTENTION` quando a supervisão durável não pode ser criada.
+- A observação de upload deve seguir uma allowlist pequena de endpoints de upload ChatGPT sob `/backend-api`, com método mutável e sem headers/bodies. Fixar uma única rota literal transforma alterações legítimas do provider em falsos timeouts de 'upload não iniciado'.
