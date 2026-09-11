@@ -1,6 +1,6 @@
 # ChatGPT Worker routing and response latency
 
-## Confirmed current-state findings (2026-09-11)
+## Historical findings before the residency cutover (2026-09-11)
 
 - Response supervision is durable through `AWAIT_RESPONSE`, but a healthy “still thinking/not complete” result currently uses the generic exponential `chatAgentBackoff`: about 2s, 4s, 8s, 16s, 32s, then 60s with ±20% jitter.
 - The Desktop timer named `chatGPTDownloadPoller` runs every `DOM_DOWNLOAD_POLL_MS` but no longer invokes `pollExpectedChatGPTDownloads()`. Therefore the nominal 2s constant is not a low-latency bundle-detection SLA for autonomous Workers.
@@ -23,7 +23,7 @@
 ## Anti-burst e rate-limit dos Workers (2026-09-11)
 
 - Cada loop do scheduler espera 2,5 s depois de concluir/assentar uma task antes de reclamar a próxima. O objetivo é evitar que probes curtos liberem o mesmo Worker para trocar de chat imediatamente.
-- Inícios de navegação cross-chat dos Workers são serializados globalmente com intervalo mínimo de 2,5 s. Depois de cada load, o executor aguarda `waitForChatGPTSurfaceReady`, portanto a task só continua quando o documento deixou de carregar e a rede ficou quieta pelo settle window.
+- Inícios de navegação cross-chat dos Workers são serializados globalmente; o intervalo mínimo atual é 30 s. O cooldown de 2,5 s permanece apenas entre claims consecutivos do mesmo loop. Depois de cada load, o executor aguarda `waitForChatGPTSurfaceReady`, portanto a task só continua quando o documento deixou de carregar e a rede ficou quieta pelo settle window.
 - HTTP 429 relevante (main frame ou transporte de conversa) aciona uma pausa global do provider por 60 s, não apenas backoff local de um `expected`. Tasks já reclamadas observam o gate local e voltam para `WAITING`; a ação explícita de retoma do provider limpa também esse gate local.
 - O custo intencional é maior latência mínima no trabalho de background e em trocas cross-chat; a contrapartida é limitar burst por Worker e por perfil autenticado antes de chegar ao rate-limit do ChatGPT.
 
@@ -42,3 +42,10 @@ A revisão da versão atual confirmou estes gaps adicionais como diretamente aci
 - Workers escondidos devem garantir um viewport de layout antes de probes que dependem de geometria/visibilidade (`chatGPTExpectedDownloadScript`).
 
 Ordem recomendada: (1) exact conversation guard e remover `preferCurrentConversation` em Auto; (2) cadência `AWAIT_RESPONSE` de baixa latência, separada de retry/failure budget; (3) download intent por Worker/request; (4) assignment epoch + slot lock; (5) affinity-aware dispatch; (6) métricas e testes de races. Meta sugerida: p95 <= 2 s e p99 <= 5 s do aparecimento do bundle no DOM até ao primeiro click, fora de pausas reais do provider.
+
+## Current routing envelope after supervisor-flow consolidation (2026-09-11)
+
+- Default topology is **2 fixed Supervisor slots + 6 Workers**. Only one Supervisor is visible; the spare Supervisor is the cooperative handoff buffer for chat switches.
+- Worker churn is intentionally bounded by a **60 s default residence** (`30 s <= dwell <= 120 s`), a profile-global **30 s cross-chat navigation gate**, and a **30 s healthy `AWAIT_RESPONSE` probe cadence**. The existing 2.5 s per-worker post-task cooldown remains as a secondary anti-burst guard.
+- Switching selected chats does not tear down a Supervisor that is still writing. That slot completes its current transport and becomes standby while an idle Supervisor loads the new chat; only when both Supervisor slots are busy is the switch deferred.
+- `Seguir (flow)` is observability, not scheduling: it surfaces the exact Worker `WebContentsView` inside the normal Engine viewport using the already-bounded interaction capability. Assignment epoch, task lease, scheduler ownership and non-preemptive execution remain unchanged.

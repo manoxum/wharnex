@@ -1,7 +1,7 @@
 # Arquitetura do scraper ChatGPT: Supervisor + workers
 
-- O runtime alvo usa **1 Supervisor Browser exclusivo e 3 Worker Browsers autónomos**, globais por perfil autenticado/processo Desktop. O Supervisor é a única superfície visível e nunca é escolhido para jobs de background.
-- A afinidade durável é `chat_id -> conversation_id`; URLs `/c/<id>` e `/g/.../c/<id>` representam a mesma conversa. `chatgptViews` passa a representar apenas a superfície Supervisor; os três workers vivem num pool próprio e persistente.
+- O runtime atual usa **2 Supervisor Browsers em double-buffer e 6 Worker Browsers autónomos por defeito** (Workers configuráveis de 1 a 6), globais por perfil autenticado/processo Desktop. Exatamente um Supervisor fica visível; o segundo fica warm/standby ou termina um write já em curso. Nenhum Supervisor é escolhido para jobs de background.
+- A afinidade durável é `chat_id -> conversation_id`; URLs `/c/<id>` e `/g/.../c/<id>` representam a mesma conversa. `chatgptViews` representa até duas superfícies Supervisor residentes; os Workers vivem num pool próprio e persistente.
 - O backend persiste tarefas tipadas de chat-agent com prioridade, `not_before`, retries, dedupe, leases, parent/lineage, estado e payload. Claim/heartbeat/transição/cancelamento funcionam em memória e PostgreSQL, e um estado global do provider pausa workers perante CAPTCHA, login ou rate-limit.
 - A fila cobre `BOT_WRITE`, `RECOVERY_WRITE`, `AWAIT_RESPONSE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_BUNDLE` e `DELETE_TEMP_CHAT`. Writes nunca deduplicam; manutenção idempotente pode deduplicar.
 - `AWAIT_RESPONSE` é um probe curto. Enquanto a resposta ainda está em curso, a task volta a `WAITING` com backoff e o worker fica livre. Um `BOT_WRITE` ou `RECOVERY_WRITE` só cria o await seguinte depois de upload/submit confirmados.
@@ -50,3 +50,10 @@ A Worker `WebContentsView` exists independently of whether it already has a page
 
 - A confirmação do POST da conversa é o commit point de `BOT_WRITE`/`RECOVERY_WRITE`. Depois dela, falhas de persistência remota ou de enqueue de `AWAIT_RESPONSE` não podem disparar outro write; o caminho seguro é best-effort para metadata e `ATTENTION` quando a supervisão durável não pode ser criada.
 - A observação de upload deve seguir uma allowlist pequena de endpoints de upload ChatGPT sob `/backend-api`, com método mutável e sem headers/bodies. Fixar uma única rota literal transforma alterações legítimas do provider em falsos timeouts de 'upload não iniciado'.
+
+## Double-buffer de Supervisor, residência reforçada e Seguir (flow) (2026-09-11)
+
+- O pool padrão passa a **2 Supervisores fixos + 6 Workers**. Os Workers continuam limitados a 1–6 e são os únicos slots escaláveis pelo operador.
+- A troca de chat usa double-buffer: se o Supervisor do chat anterior ainda está a concluir um write, ele mantém a instância até terminar e depois fica standby; o outro Supervisor livre pode carregar imediatamente o novo chat. Se os dois estiverem em fase crítica, a navegação fica deferida até existir um slot reutilizável.
+- A residência de Worker sobe para **60 s por defeito**, limitada a 30–120 s. Inícios de navegação cross-chat e probes saudáveis de `AWAIT_RESPONSE` usam 30 s; o cooldown curto de 2,5 s entre claims continua apenas como amortecimento adicional, não como autorização para trocar de conversa.
+- **Seguir (flow)** reutiliza o mesmo `WebContentsView` do Worker e coloca-o na área principal do Engine em tempo real. Não cria browser, não transfere ownership do scheduler e não introduz navegação/DOM/session IPC genérico; ao sair, a vista volta a ficar escondida e o Supervisor visível é restaurado.
