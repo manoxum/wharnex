@@ -82,9 +82,13 @@ gitlink. Consequently:
 
 A patch writing inside a registered submodule is rejected at ingestion: the
 superproject's index holds a single gitlink there, so the path cannot be
-staged, committed or merged, and no planner repair can change that. A project
-Wharnex cannot inspect is admitted unchanged — a measurement failure never
-rejects a legitimate change.
+staged, committed or merged, and no planner repair can change that. The HTTP
+boundary returns a stable submodule-write rejection, the session is classified
+`submodule_write`, and Auto mode MUST stop without consuming a fresh remote
+request. Recovery is to open the indicated submodule as its own Wharness
+project, make the change in that repository, and update the superproject
+gitlink when appropriate. A project Wharnex cannot inspect is admitted
+unchanged — a measurement failure never rejects a legitimate change.
 
 ## Runner toolchain and environment disclosure
 

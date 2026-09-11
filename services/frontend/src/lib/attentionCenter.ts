@@ -91,6 +91,16 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
       }
       failureAlertAdded = true
       break
+    case 'submodule_write':
+      items.push(item(
+        chat,
+        'submodule-write',
+        'danger',
+        'Alteração pertence a outro repositório',
+        session.last_repair_error || 'Abra o submódulo indicado como projeto Wharness e repita o pedido nesse repositório.',
+      ))
+      failureAlertAdded = true
+      break
     case 'host_build_toolchain_mismatch':
       items.push(item(chat, 'host-toolchain', 'danger', 'Build do host bloqueado', 'A toolchain do host é incompatível com a dependência fixada; requer intervenção local.', 'terminal'))
       failureAlertAdded = true

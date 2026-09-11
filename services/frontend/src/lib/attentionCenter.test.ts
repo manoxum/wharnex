@@ -101,6 +101,28 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).not.toContain('Erro reparável com GPT')
   })
 
+  it('surfaces a submodule write as a repository remedy without retry actions', () => {
+    const failed = session('ses-chat-2')
+    failed.state = 'failed'
+    failed.failure_kind = 'submodule_write'
+    failed.last_request_id = 'req-submodule'
+    failed.last_repair_error = 'change writes inside a Git submodule: services/admin'
+
+    const items = collectAttentionItems([chat('chat-2', 'Submódulo')], { 'chat-2': failed })
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        title: 'Alteração pertence a outro repositório',
+        detail: failed.last_repair_error,
+        tone: 'danger',
+      }),
+    ])
+    expect(items[0].action).toBeUndefined()
+    expect(items[0].target).toBeUndefined()
+    expect(items.map((entry) => entry.title)).not.toContain('Falha na ligação ao ChatGPT')
+    expect(items.map((entry) => entry.title)).not.toContain('Erro reparável com GPT')
+  })
+
   it('maps approval and dependency recovery alerts to their popup actions', () => {
     const approval = session('ses-chat-1')
     approval.state = 'planned'

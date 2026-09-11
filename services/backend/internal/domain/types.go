@@ -116,6 +116,13 @@ const (
 	// recovery is a fresh transport request rather than a source repair turn.
 	FailureKindRemoteInputTransport = "remote_input_transport"
 
+	// FailureKindSubmoduleWrite marks a response bundle that attempted to write
+	// files owned by a registered Git submodule while the open Wharnex project
+	// is the superproject. The source change may be valid, but it belongs to a
+	// different repository, so retrying or repairing the same request against
+	// the superproject cannot succeed.
+	FailureKindSubmoduleWrite = "submodule_write"
+
 	// FailureKindSandboxResourceExhausted marks a Protected command that
 	// failed because the machine ran out of disk, memory or file descriptors
 	// mid-run — observed as a linker reporting "no space left on device"
