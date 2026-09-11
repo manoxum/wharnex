@@ -1,23 +1,30 @@
 // Global ChatGPT browser topology.
 //
 // One authenticated Desktop process owns exactly one human-facing Supervisor
-// plus three autonomous workers. Chats own durable conversation ids, not
-// renderers; slots are parked on conversations only as an affinity cache.
+// plus a bounded number of autonomous workers. Chats own durable conversation
+// ids, not renderers; slots are parked on conversations only as an affinity
+// cache.
 
 export const SUPERVISOR_SLOTS = 1
+export const MIN_WORKER_SLOTS = 1
 export const DEFAULT_WORKER_SLOTS = 3
 export const DEFAULT_TOTAL_SLOTS = SUPERVISOR_SLOTS + DEFAULT_WORKER_SLOTS
 export const HARD_MAX_WORKER_SLOTS = 6
 
+export function normalizeWorkerSlotCount(workerSlots = DEFAULT_WORKER_SLOTS) {
+  const numeric = Number(workerSlots)
+  const requested = Number.isFinite(numeric) ? Math.floor(numeric) : DEFAULT_WORKER_SLOTS
+  return Math.min(HARD_MAX_WORKER_SLOTS, Math.max(MIN_WORKER_SLOTS, requested))
+}
+
 export function desiredSlotCount(chatCount, workerSlots = DEFAULT_WORKER_SLOTS) {
   const chats = Math.max(0, Math.floor(Number(chatCount) || 0))
   if (!chats) return 0
-  const workers = Math.min(HARD_MAX_WORKER_SLOTS, Math.max(1, Math.floor(Number(workerSlots) || DEFAULT_WORKER_SLOTS)))
-  return SUPERVISOR_SLOTS + workers
+  return SUPERVISOR_SLOTS + normalizeWorkerSlotCount(workerSlots)
 }
 
 export function slotBlueprints(workerSlots = DEFAULT_WORKER_SLOTS) {
-  const workers = Math.min(HARD_MAX_WORKER_SLOTS, Math.max(1, Math.floor(Number(workerSlots) || DEFAULT_WORKER_SLOTS)))
+  const workers = normalizeWorkerSlotCount(workerSlots)
   return [
     { id: 'supervisor', role: 'supervisor' },
     ...Array.from({ length: workers }, (_, index) => ({ id: `worker-${index + 1}`, role: 'worker' })),

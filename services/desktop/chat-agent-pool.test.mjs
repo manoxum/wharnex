@@ -3,10 +3,13 @@ import test from 'node:test'
 import {
   DEFAULT_TOTAL_SLOTS,
   DEFAULT_WORKER_SLOTS,
+  HARD_MAX_WORKER_SLOTS,
+  MIN_WORKER_SLOTS,
   assignRoles,
   canonicalConversationID,
   canonicalConversationURL,
   desiredSlotCount,
+  normalizeWorkerSlotCount,
   selectSlotForJob,
   slotBlueprints,
 } from './chat-agent-pool.mjs'
@@ -60,4 +63,15 @@ test('conversation identity survives project URL changes', () => {
   assert.equal(canonicalConversationID(`https://chatgpt.com/g/g-p-project/c/${id}?x=1`), id)
   assert.equal(canonicalConversationURL(`https://chatgpt.com/g/g-p-project/c/${id}`), `https://chatgpt.com/c/${id}`)
   assert.equal(canonicalConversationID('https://chatgpt.com/c/WEB:temp'), '')
+})
+
+
+test('worker topology clamps operator scaling to the supported bounds', () => {
+  assert.equal(normalizeWorkerSlotCount(0), MIN_WORKER_SLOTS)
+  assert.equal(normalizeWorkerSlotCount(1), 1)
+  assert.equal(normalizeWorkerSlotCount(4), 4)
+  assert.equal(normalizeWorkerSlotCount(99), HARD_MAX_WORKER_SLOTS)
+  assert.equal(desiredSlotCount(1, 1), 2)
+  assert.equal(desiredSlotCount(1, 6), 7)
+  assert.deepEqual(slotBlueprints(2).map((slot) => slot.id), ['supervisor', 'worker-1', 'worker-2'])
 })

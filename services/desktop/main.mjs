@@ -20,7 +20,7 @@ import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieD
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
-import { DEFAULT_WORKER_SLOTS } from './chat-agent-pool.mjs'
+import { DEFAULT_WORKER_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_WORKER_SLOTS, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -96,6 +96,8 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow
 let chatgptViews = new Map()
 const chatGPTWorkerEntries = []
+const chatAgentWorkerStates = new Map()
+let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let chatAgentScheduler
 let deferredSupervisorNavigation
 const chatGPTAuthBrowsers = new Map()
@@ -1489,13 +1491,13 @@ function createChatGPTWorkerView(slotId, windowState) {
   })
   wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) advanceChatGPTConversationTransportGeneration(entry) })
   wc.on('will-navigate', (event, url) => { if (chatGPTNavigationDisposition(url).kind === 'external') { event.preventDefault(); void shell.openExternal(url) } })
-  wc.on('did-start-loading', () => { entry.loading = true; entry.loadingSince = Date.now(); entry.loadingFaultNoted = false; touchChatGPTEntry(entry) })
+  wc.on('did-start-loading', () => { entry.loading = true; entry.loadingSince = Date.now(); entry.loadingFaultNoted = false; touchChatGPTEntry(entry); publishChatAgentRuntimeState() })
   wc.on('did-stop-loading', () => {
-    entry.loading = false; entry.loadingSince = 0; entry.loadingFaultNoted = false; touchChatGPTEntry(entry)
+    entry.loading = false; entry.loadingSince = 0; entry.loadingFaultNoted = false; touchChatGPTEntry(entry); publishChatAgentRuntimeState()
     if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, wc.getURL()); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) }
   })
-  wc.on('did-navigate', (_event, url) => { if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, url); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) } })
-  wc.on('did-navigate-in-page', (_event, url) => { if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, url); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) } })
+  wc.on('did-navigate', (_event, url) => { if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, url); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) }; publishChatAgentRuntimeState() })
+  wc.on('did-navigate-in-page', (_event, url) => { if (entry.ownerKey) { observeChatGPTAffinityURL(entry.ownerKey, entry, url); scheduleChatGPTAffinitySettlement(entry.ownerKey, entry) }; publishChatAgentRuntimeState() })
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     console.warn(`[chat-agent] slot=${slotId} load-failed code=${code} main=${Boolean(isMainFrame)} url=${sanitizeDiagnosticURL(url)} error=${description}`)
     if (entry.ownerKey && isMainFrame && isRecoverableChatGPTNetworkError(description)) noteChatGPTRendererFault(entry.ownerKey, description)
@@ -1508,9 +1510,33 @@ function createChatGPTWorkerView(slotId, windowState) {
   return entry
 }
 
+function retireChatGPTWorkerView(entry) {
+  if (!entry) return false
+  clearTimeout(entry.affinitySettleTimer)
+  const state = windowStateForEntry(entry)
+  try { state?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+  if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
+  return true
+}
+
+function reconcileChatGPTWorkerPool(windowState) {
+  const host = windowState?.window && !windowState.window.isDestroyed()
+    ? windowState
+    : [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+  if (!host) return
+  for (let index = chatGPTWorkerEntries.length; index < desiredChatAgentWorkerSlots; index += 1) createChatGPTWorkerView(`worker-${index + 1}`, host)
+  while (chatGPTWorkerEntries.length > desiredChatAgentWorkerSlots) {
+    const index = chatGPTWorkerEntries.length
+    const runtime = chatAgentWorkerStates.get(index)
+    if (runtime?.task || runtime?.active !== false) break
+    const entry = chatGPTWorkerEntries.pop()
+    retireChatGPTWorkerView(entry)
+    chatAgentWorkerStates.delete(index)
+  }
+}
+
 function ensureChatGPTWorkerPool(windowState) {
-  if (!windowState?.window || windowState.window.isDestroyed()) return
-  for (let index = chatGPTWorkerEntries.length; index < DEFAULT_WORKER_SLOTS; index += 1) createChatGPTWorkerView(`worker-${index + 1}`, windowState)
+  reconcileChatGPTWorkerPool(windowState)
 }
 
 function assignChatGPTWorker(entry, task) {
@@ -1535,6 +1561,67 @@ function assignChatGPTWorker(entry, task) {
 
 function workerEntryForIndex(worker) {
   return chatGPTWorkerEntries[Math.max(0, Number(worker || 1) - 1)]
+}
+
+function publicChatAgentTask(task) {
+  if (!task) return undefined
+  return {
+    task_id: String(task.task_id || ''), type: String(task.type || ''), chat_id: String(task.chat_id || ''),
+    request_id: String(task.request_id || ''), status: String(task.status || ''),
+  }
+}
+
+function publicAgentBrowser(entry) {
+  const wc = entry?.view?.webContents
+  if (!wc || wc.isDestroyed()) return { available: false, web_contents_id: 0, url: '', title: '', loading: false }
+  const currentURL = wc.getURL() || ''
+  return {
+    available: true,
+    web_contents_id: wc.id,
+    url: currentURL ? sanitizeDiagnosticURL(currentURL) : '',
+    title: wc.getTitle() || '',
+    loading: Boolean(entry.loading),
+  }
+}
+
+function chatAgentRuntimeState() {
+  const supervisor = supervisorEntry()
+  const supervisorState = {
+    id: 'supervisor', label: 'Supervisor', role: 'supervisor', status: supervisor?.loading ? 'loading' : 'idle',
+    draining: false, chat_id: String(supervisor?.ownerKey || ''), task: undefined, error: '', browser: publicAgentBrowser(supervisor),
+  }
+  const workers = chatGPTWorkerEntries.map((entry, offset) => {
+    const worker = offset + 1
+    const runtime = chatAgentWorkerStates.get(worker) || {}
+    return {
+      id: entry.slotId || `worker-${worker}`, label: `Worker ${worker}`, role: 'worker',
+      status: runtime.task ? 'running' : runtime.error ? 'error' : entry.loading ? 'loading' : 'idle',
+      draining: worker > desiredChatAgentWorkerSlots,
+      chat_id: String(runtime.task?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
+      error: String(runtime.error || ''), browser: publicAgentBrowser(entry),
+    }
+  })
+  return {
+    instance_id: String(chatAgentScheduler?.instanceID || ''),
+    desired_workers: desiredChatAgentWorkerSlots,
+    limits: { min_workers: MIN_WORKER_SLOTS, max_workers: HARD_MAX_WORKER_SLOTS, supervisors: 1 },
+    agents: [supervisorState, ...workers],
+  }
+}
+
+function publishChatAgentRuntimeState() {
+  const state = chatAgentRuntimeState()
+  for (const windowState of desktopWindows.values()) sendToWindowState(windowState, 'wharness:agents:state', state)
+  return state
+}
+
+async function chatAgentBrowserSnapshot(agentID) {
+  const id = String(agentID || '').trim()
+  const entry = id === 'supervisor' ? supervisorEntry() : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
+  const wc = entry?.view?.webContents
+  if (!wc || wc.isDestroyed()) throw new Error('Agent browser instance is not available')
+  const image = await wc.capturePage()
+  return { agentId: id, dataUrl: image.toDataURL(), capturedAt: new Date().toISOString() }
 }
 
 function retireChatGPTSupervisorSurface(cacheKey) {
@@ -1596,10 +1683,11 @@ function ensureChatGPTView(cacheKey, windowState) {
   return { key, entry }
 }
 
-// The remote runtime has one human-facing Supervisor. The three autonomous
-// workers live outside chatgptViews and are never exposed through renderer IPC.
-// Switching chats retires/rebinds only the Supervisor surface; durable request
-// state stays keyed by chat/request and workers continue independently.
+// The remote runtime has one human-facing Supervisor. The bounded autonomous
+// worker pool lives outside chatgptViews. Renderer access is limited to the
+// named agent-management IPC capabilities (runtime metadata, worker target,
+// explicit snapshot). Switching chats retires/rebinds only the Supervisor;
+// durable request state stays keyed by chat/request and workers continue independently.
 const MAX_RESIDENT_CHATGPT_VIEWS = 1
 
 function evictIdleChatGPTViews() {
@@ -3842,6 +3930,15 @@ function registerIPC() {
     trustedSender(event)
     return cancelChatGPTRequestState(request?.cacheKey, request?.requestId)
   })
+  ipcMain.handle('wharness:agents:state', (event) => { trustedSender(event); return chatAgentRuntimeState() })
+  ipcMain.handle('wharness:agents:set-worker-count', (event, request) => {
+    const windowState = trustedSender(event)
+    desiredChatAgentWorkerSlots = normalizeWorkerSlotCount(request?.count)
+    chatAgentScheduler?.setWorkerCount(desiredChatAgentWorkerSlots)
+    reconcileChatGPTWorkerPool(windowState)
+    return publishChatAgentRuntimeState()
+  })
+  ipcMain.handle('wharness:agents:snapshot', async (event, request) => { trustedSender(event); return chatAgentBrowserSnapshot(request?.agentId) })
   ipcMain.handle('wharness:data:storage', async (event) => { trustedSender(event); return desktopStorageUsage() })
   ipcMain.handle('wharness:data:export-browser-session', async (event) => { const windowState = trustedSender(event); return exportBrowserSession(windowState) })
   ipcMain.handle('wharness:data:import-browser-session', async (event) => { const windowState = trustedSender(event); return importBrowserSession(windowState) })
@@ -3987,10 +4084,21 @@ app.whenReady().then(async () => {
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   ensureChatGPTWorkerPool(workerHost)
   chatAgentScheduler = new ChatAgentSchedulerClient({
-    baseURL: BACKEND_URL, workerCount: DEFAULT_WORKER_SLOTS, execute: executeChatAgentTask,
+    baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: executeChatAgentTask,
     onState: (state) => {
-      const publicState = { kind: state?.kind || '', worker: state?.worker || 0, task: state?.task ? { task_id: state.task.task_id, type: state.task.type, chat_id: state.task.chat_id, request_id: state.task.request_id, status: state.task.status } : undefined, error: state?.error ? String(state.error?.message || state.error) : '' }
+      const worker = Number(state?.worker || 0)
+      if (worker) {
+        const prior = chatAgentWorkerStates.get(worker) || { active: true, task: undefined, error: '' }
+        if (state.kind === 'worker-started') chatAgentWorkerStates.set(worker, { ...prior, active: true })
+        else if (state.kind === 'worker-stopped') chatAgentWorkerStates.set(worker, { ...prior, active: false, task: undefined })
+        else if (state.kind === 'running') chatAgentWorkerStates.set(worker, { ...prior, active: true, task: state.task, error: '' })
+        else if (state.kind === 'settled') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, error: '' })
+        else if (state.kind === 'task-error' || state.kind === 'worker-error') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, error: String(state?.error?.message || state?.error || '') })
+      }
+      const publicState = { kind: state?.kind || '', worker, task: publicChatAgentTask(state?.task), error: state?.error ? String(state.error?.message || state.error) : '' }
       for (const windowState of desktopWindows.values()) sendToWindowState(windowState, 'wharness:chat-agent:state', publicState)
+      reconcileChatGPTWorkerPool(workerHost)
+      publishChatAgentRuntimeState()
     },
   })
   chatAgentScheduler.start()

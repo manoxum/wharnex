@@ -128,6 +128,17 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       return () => ipcRenderer.removeListener('wharness:chatgpt:comment-sent', handler)
     },
   }),
+  agents: Object.freeze({
+    state: () => invoke('wharness:agents:state'),
+    setWorkerCount: (count) => invoke('wharness:agents:set-worker-count', { count: Number(count) }),
+    snapshot: (agentId) => invoke('wharness:agents:snapshot', { agentId: String(agentId || '') }),
+    onState: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('wharness:agents:state', handler)
+      return () => ipcRenderer.removeListener('wharness:agents:state', handler)
+    },
+  }),
   data: Object.freeze({
     storage: () => invoke('wharness:data:storage'),
     exportBrowserSession: () => invoke('wharness:data:export-browser-session'),

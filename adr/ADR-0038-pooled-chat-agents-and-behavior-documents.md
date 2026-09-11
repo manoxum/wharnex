@@ -21,13 +21,15 @@ Renderers should execute work for those identities rather than own them.
 
 ## Decision
 
-### One Supervisor and three autonomous workers
+### One Supervisor and a bounded autonomous worker pool
 
 For one authenticated ChatGPT profile/Desktop process, Wharnex owns exactly one
-human-facing **Supervisor** browser plus three hidden persistent **Worker**
-browsers. They share only the dedicated authenticated ChatGPT browser partition.
-The pool is global across projects and windows, so chat count does not change
-remote renderer count.
+human-facing **Supervisor** browser plus a configurable pool of one to six hidden
+persistent **Worker** browsers, with three workers as the default. They share only
+the dedicated authenticated ChatGPT browser partition. The pool is global across
+projects and windows, so chat count does not change remote renderer count. Operators
+may resize only the Worker pool; the Supervisor remains exactly one exclusive human
+surface.
 
 The Supervisor is exclusively the interactive surface: selected-chat
 navigation, the first user submission, and user comments. Background scheduler
@@ -35,7 +37,9 @@ jobs never use it. During composer/upload/submit critical phases it holds a
 navigation/write lease. If the user switches chats meanwhile, Wharnex records
 the latest desired chat and navigates there only after submission is confirmed.
 
-Workers execute autonomous jobs. Affinity is only a cache preference:
+Workers execute autonomous jobs. Scaling up creates additional hidden slots without
+restarting the scheduler. Scaling down is non-preemptive: excess busy workers finish
+their current job before their renderer is retired. Affinity is only a cache preference:
 `chat_id -> conversation_id` is durable state, and a worker may be rebound after
 finishing its non-preemptive job. Project-scoped ChatGPT URLs do not change the
 canonical conversation identity.
@@ -74,7 +78,7 @@ finishes quickly. While generation is active it returns to `WAITING` with
 `not_before` plus bounded backoff/jitter so the worker is released. A completed
 turn without the canonical bundle may create one bounded `RECOVERY_WRITE`
 child. CAPTCHA/auth/rate-limit/provider-wide gates move work to `ATTENTION` and
-pause the provider globally instead of producing three retry storms.
+pause the provider globally instead of producing parallel retry storms.
 
 `BOT_WRITE`/`RECOVERY_WRITE` acquire the per-conversation write lease and create
 exactly one `AWAIT_RESPONSE` only after the conversation POST is confirmed and a
@@ -106,13 +110,15 @@ remain outside the automation inspection boundary.
 
 ## Consequences
 
-- Thirty or more chats still use one Supervisor plus three workers.
+- Thirty or more chats still use one Supervisor plus a bounded one-to-six Worker pool (three by default).
 - Browser lifetime is no longer chat lifetime; durable identity and queue state
   survive Desktop restart independently of renderer state.
 - Background work can never navigate the user's visible browser.
 - `not_before`, leases, dedupe keys, lineage, and provider pause make recovery
   observable and retry-safe instead of timer-driven.
-- React renders only the selected Supervisor surface; background liveness is a
-  Desktop/backend concern.
+- React renders only the selected Supervisor surface; a local management drawer may
+  display bounded runtime metadata and a user-triggered browser snapshot for each slot.
+  Snapshot capture is local, explicit, and is not automation inspection or persistence
+  of generated assistant prose.
 - Worker jobs remain non-preemptive. Their probes/actions are therefore bounded
   so a newly arrived P0 write is delayed only by a short current job.

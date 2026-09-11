@@ -37,6 +37,7 @@ export class ChatAgentSchedulerClient {
     fetchImpl = fetch,
     execute,
     workerCount = DEFAULT_CHAT_AGENT_WORKERS,
+    maxWorkers = 6,
     leaseSeconds = DEFAULT_CHAT_AGENT_LEASE_SECONDS,
     idleMs = 750,
     onState = () => {},
@@ -46,13 +47,20 @@ export class ChatAgentSchedulerClient {
     this.baseURL = baseURL
     this.fetchImpl = fetchImpl
     this.execute = execute
-    this.workerCount = Math.max(1, Math.floor(workerCount) || DEFAULT_CHAT_AGENT_WORKERS)
+    this.maxWorkers = Math.max(1, Math.floor(maxWorkers) || 1)
+    this.workerCount = this.#normalizeWorkerCount(workerCount)
     this.leaseSeconds = leaseSeconds
     this.idleMs = idleMs
     this.onState = onState
     this.instanceID = `desktop-${randomUUID()}`
     this.running = false
-    this.loops = []
+    this.loops = new Map()
+  }
+
+  #normalizeWorkerCount(value) {
+    const numeric = Number(value)
+    const requested = Number.isFinite(numeric) ? Math.floor(numeric) : DEFAULT_CHAT_AGENT_WORKERS
+    return Math.min(this.maxWorkers, Math.max(1, requested))
   }
 
   async enqueue(task) {
@@ -87,18 +95,41 @@ export class ChatAgentSchedulerClient {
   start() {
     if (this.running) return
     this.running = true
-    this.loops = Array.from({ length: this.workerCount }, (_, index) => this.#workerLoop(index + 1))
+    this.#reconcileLoops()
+    this.onState({ kind: 'scaled', workerCount: this.workerCount })
   }
 
   async stop() {
     this.running = false
-    await Promise.allSettled(this.loops)
-    this.loops = []
+    await Promise.allSettled([...this.loops.values()])
+    this.loops.clear()
+  }
+
+  setWorkerCount(value) {
+    const next = this.#normalizeWorkerCount(value)
+    if (next === this.workerCount) return this.workerCount
+    this.workerCount = next
+    if (this.running) this.#reconcileLoops()
+    this.onState({ kind: 'scaled', workerCount: this.workerCount })
+    return this.workerCount
+  }
+
+  #reconcileLoops() {
+    for (let index = 1; index <= this.workerCount; index += 1) {
+      if (this.loops.has(index)) continue
+      this.onState({ kind: 'worker-started', worker: index })
+      const loop = this.#workerLoop(index).finally(() => {
+        this.loops.delete(index)
+        this.onState({ kind: 'worker-stopped', worker: index })
+        if (this.running && index <= this.workerCount) this.#reconcileLoops()
+      })
+      this.loops.set(index, loop)
+    }
   }
 
   async #workerLoop(index) {
     const owner = `${this.instanceID}:worker-${index}`
-    while (this.running) {
+    while (this.running && index <= this.workerCount) {
       try {
         const claimed = await requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/tasks/claim', {
           method: 'POST',

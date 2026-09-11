@@ -19,6 +19,10 @@ type DesktopStoredAttachment = { name: string; size: number; mime: string; stora
 type DesktopAttachmentPreview = { available: boolean; dataUrl: string; previewKind: 'thumbnail' | 'icon' | 'none' }
 type DesktopStorageUsage = { total_bytes: number; user_data_bytes: number; browser_bytes: number; attachment_bytes: number; temp_bytes: number; other_user_data_bytes: number }
 type DesktopBrowserSessionResult = { cancelled: boolean; filename?: string; bytes?: number; files?: number; restarting?: boolean }
+type DesktopAgentRuntimeTask = { task_id: string; type: string; chat_id: string; request_id: string; status: string }
+type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number; url: string; title: string; loading: boolean }
+type DesktopAgentRuntimeAgent = { id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'running' | 'error' | string; draining: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; error: string; browser: DesktopAgentRuntimeBrowser }
+type DesktopAgentRuntimeState = { instance_id: string; desired_workers: number; limits: { min_workers: number; max_workers: number; supervisors: number }; agents: DesktopAgentRuntimeAgent[] }
 
 interface WharnessDesktopBridge {
   platform: string
@@ -90,6 +94,12 @@ interface WharnessDesktopBridge {
     onHumanAction(callback: (notice: DesktopChatGPTHumanAction) => void): () => void
     onAccountAction(callback: (result: DesktopChatGPTAccountAction) => void): () => void
     onCommentSent(callback: (status: DesktopChatGPTCommentStatus) => void): () => void
+  }
+  agents: {
+    state(): Promise<DesktopAgentRuntimeState>
+    setWorkerCount(count: number): Promise<DesktopAgentRuntimeState>
+    snapshot(agentId: string): Promise<{ agentId: string; dataUrl: string; capturedAt: string }>
+    onState(callback: (state: DesktopAgentRuntimeState) => void): () => void
   }
   data: {
     storage(): Promise<DesktopStorageUsage>

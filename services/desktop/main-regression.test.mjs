@@ -612,22 +612,26 @@ test('Portuguese spell checking is configured from Chromium dictionaries', async
 })
 
 
-test('one Supervisor owns renderer IPC while three hidden workers stay outside chat view ownership', async () => {
+test('one Supervisor owns renderer IPC while bounded workers stay outside chat view ownership', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
   const ensureEnd = source.indexOf('\nfunction evictIdleChatGPTViews', ensureStart)
   const ensure = source.slice(ensureStart, ensureEnd)
-  const workerStart = source.indexOf('function ensureChatGPTWorkerPool(windowState)')
+  const workerStart = source.indexOf('function reconcileChatGPTWorkerPool(windowState)')
   const workerEnd = source.indexOf('\nfunction assignChatGPTWorker', workerStart)
   const workers = source.slice(workerStart, workerEnd)
   assert.match(source, /const chatGPTWorkerEntries = \[\]/)
   assert.match(source, /const MAX_RESIDENT_CHATGPT_VIEWS = 1/)
+  assert.match(source, /let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS/)
   assert.match(ensure, /entry\.role = 'supervisor'/)
   assert.match(ensure, /entry\.slotId = 'supervisor'/)
   assert.match(ensure, /retireChatGPTSupervisorSurface\(currentKey\)/)
-  assert.match(workers, /DEFAULT_WORKER_SLOTS/)
+  assert.match(workers, /index < desiredChatAgentWorkerSlots/)
   assert.match(workers, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`/)
+  assert.match(workers, /while \(chatGPTWorkerEntries\.length > desiredChatAgentWorkerSlots\)/)
+  assert.match(workers, /if \(runtime\?\.task \|\| runtime\?\.active !== false\) break/)
+  assert.match(workers, /reconcileChatGPTWorkerPool\(windowState\)/)
   assert.match(source, /function workerEntryForIndex\(worker\)/)
   assert.match(source, /entry\.role !== 'worker'/)
 

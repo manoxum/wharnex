@@ -9,6 +9,7 @@ import { ProjectActivityDrawer, type ProjectActivityKind } from './ProjectActivi
 import { EvolutionEvidenceDrawer } from './EvolutionEvidenceDrawer'
 import { ProjectKnowledgeDrawer } from './ProjectKnowledgeDrawer'
 import { GitDrawer } from './GitDrawer'
+import { AgentRuntimeDrawer } from './AgentRuntimeDrawer'
 import { FilePreviewModal } from './FilePreviewModal'
 import { loadChat } from '../lib/workspaceMemory'
 import { MarkdownContent } from './MarkdownContent'
@@ -19,7 +20,7 @@ import { AttentionPopover } from './AttentionPopover'
 import { api } from '../lib/api'
 import { executionQueueActiveCount, visibleExecutionQueueItems, type ExecutionFIFOItem } from '../lib/executionQueueView'
 
-type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'git' | 'fifo' | 'evolution' | ProjectActivityKind | ''
+type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'git' | 'agents' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
 const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
@@ -255,18 +256,20 @@ export function AgentWorkspace({ session, busy, executionFIFO = [], attentionSes
       <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggleDrawer('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
       <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggleDrawer('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>
       <button type="button" className={drawer === 'git' ? 'active' : ''} onClick={() => toggleDrawer('git')} aria-label="Git do projeto" title="Git do projeto"><Icon name="git" size={18}/>{pendingCommitCount > 0 && <b>{pendingCommitCount}</b>}</button>
+      <button type="button" className={drawer === 'agents' ? 'active' : ''} onClick={() => toggleDrawer('agents')} aria-label="Gestão de agentes" title="Supervisor e Workers"><Icon name="agent" size={18}/></button>
       <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggleDrawer('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>
       <button type="button" className={drawer === 'executions' ? 'active' : ''} onClick={() => toggleDrawer('executions')} aria-label="Execuções do projeto" title="Execuções do projeto"><Icon name="terminal" size={18}/></button>
       <button type="button" className={drawer === 'fifo' ? 'active' : ''} onClick={() => toggleDrawer('fifo')} aria-label="Fila FIFO de execução" title="Fila FIFO de execução"><Icon name="play" size={18}/>{activeExecutionCount > 0 && <b>{activeExecutionCount}</b>}</button>
       {session.self_evolution && <button type="button" className={drawer === 'evolution' ? 'active' : ''} onClick={() => toggleDrawer('evolution')} aria-label="Logs de auto-evolução" title="Logs e análise de auto-evolução"><Icon name="refresh" size={18}/></button>}
     </aside>
 
-    {drawer && <aside className={`agent-drawer ${drawer === 'plans' || drawer === 'executions' ? 'activity-wide' : drawer === 'evolution' ? 'evidence-wide' : drawer === 'knowledge' ? 'knowledge-wide' : drawer === 'git' ? 'git-wide' : drawer === 'attention' ? 'attention-wide' : ''}`}>
+    {drawer && <aside className={`agent-drawer ${drawer === 'plans' || drawer === 'executions' ? 'activity-wide' : drawer === 'evolution' ? 'evidence-wide' : drawer === 'knowledge' ? 'knowledge-wide' : drawer === 'git' ? 'git-wide' : drawer === 'agents' ? 'agents-wide' : drawer === 'attention' ? 'attention-wide' : ''}`}>
       {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onClose={() => setDrawer('')}/> : null}
       {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archived} busy={busy} onRestore={chatProps.onRestoreChat} onDelete={chatProps.onDeleteArchivedChat} onRename={chatProps.onRenameChat} onGenerate={chatProps.onGenerateChatTitle} onClose={() => setDrawer('')}/> : null}
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={() => setDrawer('')}/> : null}
       {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={() => setDrawer('')} onError={onError}/> : null}
+      {drawer === 'agents' ? <AgentRuntimeDrawer onClose={() => setDrawer('')} onError={onError}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={activityChats} currentSession={session} activeChatId={chatProps.activeChatId} activeEvents={inspectorProps.events} onClose={() => setDrawer('')}/> : null}
       {drawer === 'fifo' ? <ExecutionQueueDrawer items={visibleExecutionFIFO} onClose={() => setDrawer('')} onError={onError}/> : null}
       {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={onAnalyzeEvolution || (async () => undefined)} onClose={() => setDrawer('')}/> : null}
