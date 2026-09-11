@@ -43,17 +43,23 @@ describe('App ChatGPT affinity ownership', () => {
     expect(source).toMatch(/title: 'Autorizar nova vinculação ChatGPT\?'/)
   })
 
-  it('organizes the first remote conversation and attempts the remote archive', () => {
+  it('keeps remote account lifecycle operations on the durable worker queue', () => {
     expect(source).toMatch(/firstRequest, chatTitle: generatedChatTitle, projectName: chatGPTProjectName\(projectPath\)/)
-    expect(source).toMatch(/bridge\.chatgpt\.archiveConversation\(chatId, target\.chatgptUrl\)/)
+    expect(source).toMatch(/bridge\.chatgpt\.queueArchive\(\{ cacheKey: chatId/)
+    expect(source).toMatch(/chatgpt\.queueRename\(\{ cacheKey: target\.id/)
+    expect(source).toMatch(/chatgpt\.queueDelete\(\{ cacheKey: chatId/)
+    expect(source).not.toMatch(/chatgpt\.archiveConversation\(/)
+    expect(source).not.toMatch(/chatgpt\.organizeConversation\(/)
   })
 
-  // Closing a chat is a local decision: an unavailable remote control must not
-  // be able to hold the chat open. The unconfirmed remote archive is parked as
-  // durable state for the retry job instead of aborting the local archive.
-  it('never blocks the local archive on an unconfirmed remote archive', () => {
-    expect(source).not.toMatch(/A conversa local não foi arquivada/)
-    expect(source).toMatch(/remoteArchive = \{ state: remote\.ok \? 'archived' : 'pending'/)
-    expect(source).toMatch(/archiveStoredChat\(projectPath, chatId, remoteArchive\)/)
+  // Closing a chat is a local decision: enqueue failure may be recorded, but
+  // it cannot hold the local chat open or resurrect the visible Supervisor.
+  it('archives locally before awaiting the remote worker queue', () => {
+    const archiveStart = source.indexOf('async function archiveChat(chatId: string)')
+    const archiveEnd = source.indexOf('async function restoreArchivedChat', archiveStart)
+    const archive = source.slice(archiveStart, archiveEnd)
+    expect(archive).toMatch(/const moved = archiveStoredChat\(projectPath, chatId, remoteArchive\)/)
+    expect(archive).toMatch(/await bridge\.chatgpt\.queueArchive/)
+    expect(archive.indexOf('archiveStoredChat')).toBeLessThan(archive.indexOf('queueArchive'))
   })
 })

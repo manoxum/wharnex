@@ -17,7 +17,7 @@ import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
   loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
-  conflictChatGPTCacheKey, enabledTunnelIds, loadTransportOptions, recordRemoteArchiveAttempt, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
+  conflictChatGPTCacheKey, enabledTunnelIds, loadTransportOptions, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
@@ -53,8 +53,6 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
 
 const ATTENTION_REFRESH_INTERVAL_MS = 15_000
 
-const CHAT_MAINTENANCE_INTERVAL_MS = 5 * 60_000
-import { dueRemoteArchives } from './lib/chatMaintenance'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
@@ -543,23 +541,26 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const projectPath = session.project_path
       const bridge = desktopBridge()
-      // Closing a chat is the user's own local decision. The remote ChatGPT
-      // archive is an account operation on a surface whose controls Wharnex
-      // does not own; a refusal there used to abort the local archive and left
-      // the user unable to close the chat at all. The local archive is
-      // authoritative and always proceeds; an unconfirmed remote archive is
-      // parked as durable pending state for the retry job to finish later.
-      let remoteArchive: RemoteArchive = { state: 'not-applicable', attempts: 0 }
+      // Local close is authoritative and completes before any remote account
+      // work. Remote archive is represented only by a durable worker task;
+      // the visible Supervisor is never resurrected or navigated for it.
+      let remoteArchive: RemoteArchive = bridge && target.chatgptUrl
+        ? { state: 'pending', attempts: 0, lastState: 'queue-pending' }
+        : { state: 'not-applicable', attempts: 0 }
+      const moved = archiveStoredChat(projectPath, chatId, remoteArchive)
+      setArchivedChats(moved.archived)
+      setExecutionFIFO((current) => current.filter((item) => item.chatId !== chatId))
       if (bridge && target.chatgptUrl) {
         try {
-          const remote = await bridge.chatgpt.archiveConversation(chatId, target.chatgptUrl)
-          remoteArchive = { state: remote.ok ? 'archived' : 'pending', attempts: 1, lastState: remote.state, lastAttemptAt: new Date().toISOString() }
+          const queued = await bridge.chatgpt.queueArchive({ cacheKey: chatId, url: target.chatgptUrl, sessionId: target.sessionId, projectId: projectPath })
+          remoteArchive = { state: 'pending', attempts: 0, lastState: queued.state, lastAttemptAt: new Date().toISOString() }
         } catch (cause) {
-          remoteArchive = { state: 'pending', attempts: 1, lastState: messageOf(cause).slice(0, 200), lastAttemptAt: new Date().toISOString() }
+          remoteArchive = { state: 'pending', attempts: 0, lastState: `queue-error: ${messageOf(cause).slice(0, 180)}`, lastAttemptAt: new Date().toISOString() }
         }
+        moved.archived = moved.archived.map((chat) => chat.id === chatId ? { ...chat, remoteArchive } : chat)
+        saveArchivedWorkspaceChats(projectPath, moved.archived)
+        setArchivedChats(moved.archived)
       }
-      const moved = archiveStoredChat(projectPath, chatId, remoteArchive)
-      setExecutionFIFO((current) => current.filter((item) => item.chatId !== chatId))
       // Best-effort: the local transcript archive above stays authoritative
       // and is never blocked on this. It only gives the backend a trigger
       // to eventually compact this session's own artifacts/logs (ADR-0031).
@@ -647,18 +648,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!target) return
     if (!(await confirmDialog({
       title: 'Eliminar Harness Chat?',
-      message: `“${target.title}” será eliminado definitivamente do histórico local e os anexos do Wharness serão apagados. A conversa correspondente na tua conta ChatGPT continuará intacta.`,
+      message: `“${target.title}” será eliminado definitivamente do histórico local e os anexos do Wharness serão apagados. Se existir uma conversa ChatGPT associada, a eliminação remota será colocada na fila durável dos Workers.`,
       tone: 'danger',
       confirmLabel: 'Eliminar chat',
     }))) return
 
     setBusy(true); setError(undefined)
     try {
+      if (target.chatgptUrl && isDesktop()) {
+        const queued = await desktopBridge()?.chatgpt.queueDelete({ cacheKey: chatId, url: target.chatgptUrl, sessionId: target.sessionId, projectId: session.project_path })
+        if (!queued?.ok) throw new Error('Não foi possível colocar a eliminação remota na fila dos Workers.')
+      }
       try { await api.deleteSession(target.sessionId) }
       catch (error) { if (!(error instanceof APIError) || error.status !== 404) throw error }
       if (isDesktop()) {
         try { await desktopBridge()?.attachments.removeChat({ cacheKey: chatId }) } catch { /* permanent local deletion should continue even if orphan cleanup fails */ }
-        try { await desktopBridge()?.chatgpt.release?.(chatId) } catch { /* the remote conversation itself remains intact */ }
+        try { await desktopBridge()?.chatgpt.release?.(chatId) } catch { /* the lifecycle task is durable; releasing the Supervisor is best-effort */ }
       }
       setArchivedChats(removeStoredArchivedChat(session.project_path, chatId))
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
@@ -672,57 +677,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!target) return
     setBusy(true); setError(undefined)
     try {
-      if (target.chatgptUrl && isDesktop()) {
-        const renamed = await desktopBridge()?.chatgpt.organizeConversation(target.id, chatGPTProjectName(session.project_path), title, target.chatgptUrl)
-        if (renamed && !renamed.ok) throw new Error(`O nome local não foi alterado porque o ChatGPT não confirmou a renomeação (${renamed.state}).`)
-      }
       const updatedAt = new Date().toISOString()
-      // An explicitly chosen title is definitive: the background naming job
-      // must never revisit and overwrite it.
+      // The local title is definitive immediately. Remote organization is a
+      // durable background task and cannot veto or roll back the user's title.
       const naming: ChatNaming = { state: 'definitive', attempts: (target.naming?.attempts || 0) + 1, lastAttemptAt: updatedAt, projectAssigned: true }
       setChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt, naming } : chat); saveWorkspaceChats(session.project_path, next); return next })
       setArchivedChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt, naming } : chat); saveArchivedWorkspaceChats(session.project_path, next); return next })
+      if (target.chatgptUrl && isDesktop()) {
+        try {
+          await desktopBridge()?.chatgpt.queueRename({ cacheKey: target.id, url: target.chatgptUrl, sessionId: target.sessionId, projectId: session.project_path, projectName: chatGPTProjectName(session.project_path), title })
+        } catch (cause) {
+          setError(`Nome local alterado; a renomeação remota não entrou na fila: ${messageOf(cause)}`)
+        }
+      }
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
-
-  // Background chat maintenance only retries the remote half of an explicit
-  // archive. Automatic title discovery/project organization belongs to the
-  // durable Desktop worker queue created after a confirmed first submission.
-  // A maintenance failure remains silent durable state for the next tick.
-  const maintenanceRunningRef = useRef(false)
-  useEffect(() => {
-    if (!session || !isDesktop()) return
-    const projectPath = session.project_path
-
-    async function runMaintenance() {
-      if (maintenanceRunningRef.current || busyRef.current) return
-      maintenanceRunningRef.current = true
-      try {
-        const bridge = desktopBridge()
-        if (!bridge) return
-        const now = Date.now()
-
-        const [pendingArchive] = dueRemoteArchives(loadArchivedWorkspaceChats(projectPath), now)
-        if (pendingArchive?.chatgptUrl) {
-          let outcome = { ok: false, state: 'unavailable' }
-          try { outcome = await bridge.chatgpt.archiveConversation(pendingArchive.id, pendingArchive.chatgptUrl) }
-          catch (cause) { outcome = { ok: false, state: messageOf(cause).slice(0, 120) } }
-          setArchivedChats(recordRemoteArchiveAttempt(projectPath, pendingArchive.id, outcome))
-          if (outcome.ok) try { await bridge.chatgpt.release(pendingArchive.id) } catch { /* the conversation is archived either way */ }
-          return
-        }
-
-        // Native title discovery and project organization are durable Desktop
-        // worker tasks created after the first confirmed submission. The
-        // renderer maintenance loop must never navigate the visible Supervisor
-        // to perform background naming or project assignment.
-      } finally { maintenanceRunningRef.current = false }
-    }
-
-    const timer = window.setInterval(() => { void runMaintenance() }, CHAT_MAINTENANCE_INTERVAL_MS)
-    const warmup = window.setTimeout(() => { void runMaintenance() }, 30_000)
-    return () => { window.clearInterval(timer); window.clearTimeout(warmup) }
-  }, [session?.project_path])
 
   async function generateWorkspaceChatTitle(chatId: string) {
     if (!session || !isDesktop()) return
@@ -2354,7 +2323,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		if (!targetChat) return
 		setBusy(true); setError(undefined)
 		try {
-			const updated = await api.cancelPendingRequest(session.id, requestId)
+      const desktopCancellation = isDesktop() ? desktopBridge()?.chatgpt.cancelRequest(targetChat.id, requestId) : undefined
+			const [updated] = await Promise.all([api.cancelPendingRequest(session.id, requestId), desktopCancellation || Promise.resolve(undefined)])
 			setSession(updated); setManualPrompt('')
 			for (const key of [...resumedBundleKeysRef.current]) if (key.includes(`:${requestId}:`)) resumedBundleKeysRef.current.delete(key)
 			for (const key of [...failedPromptDeliveryKeysRef.current]) if (key.includes(`:${requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)

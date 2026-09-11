@@ -19,10 +19,25 @@ type DesktopStoredAttachment = { name: string; size: number; mime: string; stora
 type DesktopAttachmentPreview = { available: boolean; dataUrl: string; previewKind: 'thumbnail' | 'icon' | 'none' }
 type DesktopStorageUsage = { total_bytes: number; user_data_bytes: number; browser_bytes: number; attachment_bytes: number; temp_bytes: number; other_user_data_bytes: number }
 type DesktopBrowserSessionResult = { cancelled: boolean; filename?: string; bytes?: number; files?: number; restarting?: boolean }
-type DesktopAgentRuntimeTask = { task_id: string; type: string; chat_id: string; request_id: string; status: string }
+type DesktopAgentRuntimeTask = {
+  task_id: string; type: string; chat_id: string; request_id: string; root_request_id: string; conversation_id: string; status: string
+  attempt: number; max_attempts: number; lease_expires_at: string; not_before: string; last_error: string; created_at: string
+}
 type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number; url: string; title: string; loading: boolean }
-type DesktopAgentRuntimeAgent = { id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'running' | 'error' | string; draining: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; error: string; browser: DesktopAgentRuntimeBrowser }
-type DesktopAgentRuntimeState = { instance_id: string; desired_workers: number; limits: { min_workers: number; max_workers: number; supervisors: number }; agents: DesktopAgentRuntimeAgent[] }
+type DesktopAgentRuntimeAgent = {
+  id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'running' | 'error' | string
+  draining: boolean; loop_active?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
+  error: string; browser: DesktopAgentRuntimeBrowser
+}
+type DesktopAgentRuntimeState = {
+  instance_id: string; desired_workers: number; limits: { min_workers: number; max_workers: number; supervisors: number }
+  scheduler: { running: boolean; backend_reachable: boolean; last_refresh_at: string; last_error: string }
+  queue: { total: number; counts: Record<string, number>; oldest_created_at: string; next_not_before: string }
+  provider: { provider: string; paused: boolean; paused_until: string; reason: string; updated_at: string }
+  agents: DesktopAgentRuntimeAgent[]
+}
+type DesktopChatAgentLifecycleRequest = { cacheKey: string; url: string; sessionId?: string; projectId?: string; projectName?: string; title?: string; requestId?: string }
+type DesktopChatAgentLifecycleResult = { ok: boolean; state: string; task_id: string; type: string }
 
 interface WharnessDesktopBridge {
   platform: string
@@ -59,10 +74,11 @@ interface WharnessDesktopBridge {
     state(cacheKey: string): Promise<DesktopChatGPTState>
     release(cacheKey: string): Promise<{ ok: boolean; released: boolean }>
     liveKeys(): Promise<string[]>
-    archiveConversation(cacheKey: string, url?: string): Promise<{ ok: boolean; state: string }>
+    queueArchive(request: DesktopChatAgentLifecycleRequest): Promise<DesktopChatAgentLifecycleResult>
     stopConversation(cacheKey: string): Promise<{ ok: boolean; state: string }>
-    cancelRequest(cacheKey: string, requestId: string): Promise<{ ok: boolean; cacheKey: string; requestId: string; cleared: boolean }>
-    organizeConversation(cacheKey: string, projectName: string, title: string, url?: string): Promise<{ ok: boolean; state: string; project?: string; title?: string }>
+    cancelRequest(cacheKey: string, requestId: string): Promise<{ ok: boolean; cacheKey: string; requestId: string; cleared: boolean; cancelledTasks: number }>
+    queueRename(request: DesktopChatAgentLifecycleRequest): Promise<DesktopChatAgentLifecycleResult>
+    queueDelete(request: DesktopChatAgentLifecycleRequest): Promise<DesktopChatAgentLifecycleResult>
     suggestTitle(cacheKey: string, url?: string): Promise<{ ok: boolean; state: string; title: string }>
     hideSidebar(cacheKey: string): Promise<{ ok: boolean; state: string }>
     setAuthMode(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
@@ -98,6 +114,7 @@ interface WharnessDesktopBridge {
   agents: {
     state(): Promise<DesktopAgentRuntimeState>
     setWorkerCount(count: number): Promise<DesktopAgentRuntimeState>
+    resumeProvider(): Promise<DesktopAgentRuntimeState>
     snapshot(agentId: string): Promise<{ agentId: string; dataUrl: string; capturedAt: string }>
     onState(callback: (state: DesktopAgentRuntimeState) => void): () => void
   }
