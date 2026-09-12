@@ -2580,6 +2580,23 @@ async function stopChatGPTConversation(cacheKey) {
   })
 }
 
+async function reloadOwnedChatGPTConversation(cacheKey, entry, reason = 'reload') {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const { wc } = requireOwnedChatGPTEntry(key, entry)
+  const linkedConversation = canonicalChatGPTConversationURL(entry.affinity.boundURL || '')
+  if (linkedConversation && !sameConversationURL(wc.getURL(), linkedConversation)) {
+    await loadOwnedChatGPTURL(key, entry, linkedConversation, `${reason}-linked`)
+    return { restoredLinkedConversation: true, conversationUrl: linkedConversation }
+  }
+  if (isTrustedChatGPTOrigin(wc.getURL())) {
+    wc.reload()
+    return { restoredLinkedConversation: false, conversationUrl: canonicalChatGPTConversationURL(wc.getURL()) }
+  }
+  const fallbackURL = linkedConversation || CHATGPT_URL
+  await loadOwnedChatGPTURL(key, entry, fallbackURL, `${reason}-fallback`)
+  return { restoredLinkedConversation: Boolean(linkedConversation), conversationUrl: canonicalChatGPTConversationURL(fallbackURL) }
+}
+
 async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentConversation = false, entryOverride = undefined) {
   const key = sanitizeChatCacheKey(cacheKey)
   const entry = entryOverride || ensureChatGPTView(key).entry
@@ -2725,20 +2742,31 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
 // that relied on their own try/catch or on the shared DOM-probe-failure
 // counter in pollExpectedChatGPTDownloadKey already handle a thrown error
 // correctly.
-async function submitChatGPTDraft(key, entryOverride = undefined) {
+async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '') {
   const target = await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
+  const expectedConversation = canonicalChatGPTConversationURL(expectedURL)
+  const assertExpectedConversation = () => {
+    if (!expectedConversation) return
+    if (!sameConversationURL(wc.getURL(), expectedConversation)) {
+      throw new Error('A conversa ChatGPT mudou durante a preparação; o pedido não foi enviado para evitar escrever noutra conversa.')
+    }
+  }
+  assertExpectedConversation()
   markChatGPTAffinitySubmitted(target.entry.affinity)
   let method = 'dom-click'
   const result = await submitWithRetry({
     beforeAttempt: async (attempt) => {
-      if (attempt === 1) return
-      await waitForChatGPTSurfaceReady(key, target.entry)
-      const focused = await wc.executeJavaScript(chatGPTFocusComposerScript(), true)
-      if (!focused) throw new Error('ChatGPT composer DOM was not found before submit retry')
+      if (attempt > 1) {
+        await waitForChatGPTSurfaceReady(key, target.entry)
+        const focused = await wc.executeJavaScript(chatGPTFocusComposerScript(), true)
+        if (!focused) throw new Error('ChatGPT composer DOM was not found before submit retry')
+      }
+      assertExpectedConversation()
     },
     beginSubmission: () => chatGPTSubmissions.expect(wc.id),
     submit: async () => {
+      assertExpectedConversation()
       const clicked = await wc.executeJavaScript(chatGPTSubmitScript(), true)
       method = clicked ? 'dom-click' : 'native-enter'
       if (!clicked) dispatchChatGPTSubmit(wc)
@@ -2801,7 +2829,7 @@ async function preparePromptForChatGPT(request) {
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename)
     try {
-      await submitChatGPTDraft(key)
+      await submitChatGPTDraft(key, target.entry, target.conversationUrl)
     } catch (error) {
       disarmExpectedChatGPTBundle(key, requestId)
       throw error
@@ -2820,7 +2848,7 @@ async function preparePromptForChatGPT(request) {
     }
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, chatTitle: requestedTitle })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, chatTitle: requestedTitle, conversationUrl: target.conversationUrl })
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=1 archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
@@ -2866,7 +2894,7 @@ async function retryPersistedChatGPTPrompt(request) {
   await wait(chatInputSettleDelay(bytes.byteLength, 1))
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, [], String(request?.recoveryPrompt || ''), sessionId, expectedFilename)
-  try { await submitChatGPTDraft(key) }
+  try { await submitChatGPTDraft(key, target.entry, target.conversationUrl) }
   catch (error) { disarmExpectedChatGPTBundle(key, requestId); throw error }
   clearChatGPTHumanAction(key, 'entrada persistida reenviada')
   return { ok: true, cacheKey: key, requestId, attachmentCount: 1, submitted: true, expectedFilename, includedContext: true, conversationUrl: targetURL, durable: true }
@@ -2900,7 +2928,7 @@ async function attachContextToChatGPT(request) {
   await writeFile(filePath, context.bytes, { mode: 0o600 })
   await pasteChatGPTFile(target.entry, filePath, 1, 1)
   await wait(chatInputSettleDelay(context.bytes.byteLength, 1))
-  const submission = await submitChatGPTDraft(key)
+  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl)
   if (!submission.accepted) throw new Error('ChatGPT context submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   touchChatGPTEntry(target.entry)
@@ -2921,7 +2949,7 @@ async function attachPromptToChatGPT(request) {
   await writeFile(filePath, prompt.bytes, { mode: 0o600 })
   await pasteChatGPTFile(target.entry, filePath, 1, 1)
   await wait(chatInputSettleDelay(prompt.bytes.byteLength, 1))
-  const submission = await submitChatGPTDraft(key)
+  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl)
   if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   touchChatGPTEntry(target.entry)
@@ -2936,7 +2964,7 @@ async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
   requireOwnedChatGPTEntry(key, entry)
   const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
   const expectedFilename = authoritativeBundleFilename(prepared.expectedFilename, prepared.requestId, key)
-  const submission = await submitChatGPTDraft(key)
+  const submission = await submitChatGPTDraft(key, entry, prepared.conversationUrl || entry.affinity.boundURL)
   if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, entry)
   if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
@@ -2969,7 +2997,7 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   const liveTunnels = prior?.requestId === requestId && Array.isArray(prior.liveTunnels) ? prior.liveTunnels : []
   const bundled = await fillBundledChatGPTComposer(key, target.entry, sessionId, requestId, text, expectedFilename, [], liveTunnels)
   await wait(100)
-  const submission = await submitChatGPTDraft(key, target.entry)
+  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl)
   if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
@@ -3427,7 +3455,7 @@ async function flushQueuedChatGPTComments() {
     const pending = queue[0]
     try {
       await withChatGPTTransportPreparation(key, ownedEntry, pending.requestId, async () => {
-        const target = await targetChatGPTComposer(key, pending.url, true)
+        const target = await targetChatGPTComposer(key, pending.url, false)
         const ready = await executeChatGPTDOMScript(key, target.entry, 'comment-composer-ready', chatGPTComposerReadyScript())
         if (!ready) return
         const expected = expectedChatGPTBundles.get(key)
@@ -3439,7 +3467,7 @@ async function flushQueuedChatGPTComments() {
         const bundled = await fillBundledChatGPTComposer(key, target.entry, pending.sessionId, pending.requestId, commentPrompt, expectedFilename, pending.attachments, liveTunnels)
         const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
         await wait(80)
-        await submitChatGPTDraft(key)
+        await submitChatGPTDraft(key, target.entry, target.conversationUrl)
         if (pending.sessionId) {
           try { await publishRemoteChannelComment(pending.sessionId, pending.requestId, pending.comment) }
           catch (error) { console.warn(`[remote-channel-comment] ${error instanceof Error ? error.message : String(error)}`) }
@@ -3528,7 +3556,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
     expected.settledAt = 0
     expected.lastDOMClick = 0
     console.warn(`[chatgpt-recovery] reload key=${key} request=${expected.requestId} reason=${action.reason} attempt=${expected.recovery.reloadCount}`)
-    wc.reload()
+    await reloadOwnedChatGPTConversation(key, entry, 'recovery-reload')
     const text = action.reason === 'transport'
       ? 'Falha de ligação detetada no ChatGPT. A conversa foi recarregada automaticamente para re-hidratar o processamento.'
       : action.reason === 'surface'
@@ -3555,7 +3583,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
       await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, prompt, expected.filename, [], expected.liveTunnels || [])
       await wait(80)
       if (expectedChatGPTBundles.get(key) !== expected) return
-      await submitChatGPTDraft(key)
+      await submitChatGPTDraft(key, entry, entry.affinity.boundURL)
     })
   } catch (error) {
     escalateChatGPTContinuationFailure(key, expected, error, 'automatic-recovery')
@@ -3731,7 +3759,7 @@ The previous ChatGPT turn finished without a detected validated downloadable bun
           await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, continuation, expected.filename, [], expected.liveTunnels || [])
           await wait(80)
           if (expectedChatGPTBundles.get(key) !== expected) return
-          await submitChatGPTDraft(key)
+          await submitChatGPTDraft(key, entry, entry.affinity.boundURL)
         })
       } catch (error) {
         // Continuation assembly/submission is an operational transport failure,
@@ -4144,11 +4172,7 @@ function registerIPC() {
   ipcMain.handle('wharness:chatgpt:reload', async (event, request) => {
     const windowState = trustedSender(event)
     const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
-    const { wc } = requireOwnedChatGPTEntry(key, entry)
-    if (isTrustedChatGPTOrigin(wc.getURL())) wc.reload()
-    else void loadOwnedChatGPTURL(key, entry, entry.affinity.boundURL || CHATGPT_URL, 'reload-from-blank').catch((error) => {
-      console.error(`[chatgpt-load] reload-from-blank failed key=${key} error=${error?.message || 'unknown'}`)
-    })
+    await reloadOwnedChatGPTConversation(key, entry, 'manual-reload')
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:focus', (event, request) => { const windowState = trustedSender(event); const { entry } = ensureChatGPTView(request?.cacheKey, windowState); requireOwnedChatGPTEntry(request?.cacheKey, entry).wc.focus(); return { ok: true } })
@@ -4369,7 +4393,7 @@ function registerIPC() {
         return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'continuation_failed' }
       }
       await wait(80)
-      await submitChatGPTDraft(key)
+      await submitChatGPTDraft(key, entry, affinityURL)
       expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion?.assistantCount) || 0)
       expected.settledAt = 0
       expected.lastDOMClick = 0

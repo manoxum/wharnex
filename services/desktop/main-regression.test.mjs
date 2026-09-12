@@ -24,6 +24,22 @@ test('prepare-prompt uses the background composer targeting helper', async () =>
   assert.doesNotMatch(preparePrompt, /focusChatGPTComposer/)
 })
 
+test('reloading a bound Supervisor restores its linked conversation before refreshing', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helperStart = source.indexOf('async function reloadOwnedChatGPTConversation(')
+  const helperEnd = source.indexOf('\nasync function targetChatGPTComposer', helperStart)
+  const helper = source.slice(helperStart, helperEnd)
+  assert.notEqual(helperStart, -1)
+  assert.match(helper, /canonicalChatGPTConversationURL\(entry\.affinity\.boundURL \|\| ''\)/)
+  assert.match(helper, /linkedConversation && !sameConversationURL\(wc\.getURL\(\), linkedConversation\)/)
+  assert.match(helper, /await loadOwnedChatGPTURL\(key, entry, linkedConversation, `\$\{reason\}-linked`\)/)
+
+  const reloadStart = source.indexOf("ipcMain.handle('wharness:chatgpt:reload'")
+  const reloadEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:focus'", reloadStart)
+  const reload = source.slice(reloadStart, reloadEnd)
+  assert.match(reload, /await reloadOwnedChatGPTConversation\(key, entry, 'manual-reload'\)/)
+})
+
 test('a failed prompt delivery remains retryable without asking the planner for a new prompt', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request)')
@@ -119,7 +135,7 @@ test('manual toolbar send actions submit only after their upload is confirmed', 
   const promptSend = source.slice(promptStart, preparedStart)
   for (const action of [contextSend, promptSend]) {
     const upload = action.indexOf('await pasteChatGPTFile')
-    const submit = action.indexOf('await submitChatGPTDraft(key)')
+    const submit = action.indexOf('await submitChatGPTDraft(key, target.entry, target.conversationUrl)')
     assert.notEqual(upload, -1)
     assert.notEqual(submit, -1)
     assert.ok(upload < submit)
@@ -174,7 +190,7 @@ test('bundle fallback snapshots assistant-turn baseline before each planner subm
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const prepare = source.slice(prepareStart, prepareEnd)
   const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
-  const submit = prepare.indexOf('await submitChatGPTDraft(key)')
+  const submit = prepare.indexOf('await submitChatGPTDraft(key, target.entry, target.conversationUrl)')
   const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename)')
   assert.ok(baseline >= 0 && arm > baseline && submit > arm)
 
@@ -391,11 +407,11 @@ test('expected bundle polling rehydrates recoverable ChatGPT transport and stall
   assert.match(recovery, /transportActive: transport\.state === 'active'/)
   assert.match(recovery, /const completionSettled = completion\?\.complete === true/)
   assert.match(recovery, /now - expected\.settledAt >= BUNDLE_COMPLETION_GRACE_MS/)
-  assert.match(recovery, /wc\.reload\(\)/)
+  assert.match(recovery, /await reloadOwnedChatGPTConversation\(key, entry, 'recovery-reload'\)/)
   assert.match(recovery, /chatGPTStalledRecoveryPrompt\(expected\.requestId, expected\.filename, expected\.originalPrompt\)/)
   assert.match(recovery, /fillBundledChatGPTComposer\(key, entry, expected\.sessionId, expected\.requestId, prompt, expected\.filename/)
   assert.match(recovery, /escalateChatGPTContinuationFailure\(key, expected, error, 'automatic-recovery'\)/)
-  assert.match(recovery, /await submitChatGPTDraft\(key\)/)
+  assert.match(recovery, /await submitChatGPTDraft\(key, entry, entry\.affinity\.boundURL\)/)
   assert.match(recovery, /awaitingConversationAffinity: isChatGPTAffinityAwaitingSettlement\(entry\.affinity\)/)
   assert.match(recovery, /CHATGPT_AFFINITY_RECOVERY_GRACE_MS/)
 })
@@ -545,7 +561,7 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   const commentEnd = source.indexOf('\nasync function pollChatGPTVisibleActivity', commentStart)
   const comments = source.slice(commentStart, commentEnd)
   assert.match(comments, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
-  assert.match(comments, /await submitChatGPTDraft\(key\)/)
+  assert.match(comments, /await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl\)/)
   assert.match(comments, /armExpectedChatGPTBundle\(key, pending\.requestId, assistantBaseline, '', \[\], '', pending\.sessionId, expectedFilename\)/)
 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
@@ -577,7 +593,7 @@ test('manual pending-request continuation classifies active versus stale transpo
   assert.match(handler, /chatGPTStalledRecoveryPrompt\(requestId, expected\.filename/)
   assert.match(handler, /escalateChatGPTContinuationFailure\(key, expected, error, 'manual-continuation'\)/)
   assert.match(handler, /reason: 'continuation_failed'/)
-  assert.match(handler, /await submitChatGPTDraft\(key\)/)
+  assert.match(handler, /await submitChatGPTDraft\(key, entry, affinityURL\)/)
   assert.match(handler, /reason: 'submitted'/)
 })
 
@@ -840,7 +856,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
 
 test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function submitChatGPTDraft(key, entryOverride = undefined)')
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '')")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)
@@ -854,6 +870,9 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
   // failure (e.g. a repair prompt) into a stale expected-bundle wait that
   // later got "resolved" with an unrelated generic continuation nudge.
   assert.match(body, /beforeAttempt: async \(attempt\) => \{/)
+  assert.match(body, /const expectedConversation = canonicalChatGPTConversationURL\(expectedURL\)/)
+  assert.match(body, /assertExpectedConversation\(\)/)
+  assert.match(body, /sameConversationURL\(wc\.getURL\(\), expectedConversation\)/)
   // The old implementation swallowed a failed submit into `{ accepted: false }`
   // instead of throwing — every caller must see a real error now.
   assert.doesNotMatch(body, /return \{ accepted: false/)
@@ -866,7 +885,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   assert.notEqual(prepareStart, -1)
   assert.notEqual(prepareEnd, -1)
   const prepare = source.slice(prepareStart, prepareEnd)
-  const submitCount = (prepare.match(/await submitChatGPTDraft\(key\)/g) || []).length
+  const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl\)/g) || []).length
   const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
   assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
   assert.equal(disarmCount, 1, 'a failed autoSubmit disarms the bundle armed before dispatch')
@@ -874,7 +893,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
   const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
   const prepared = source.slice(preparedStart, preparedEnd)
-  const preparedSubmit = prepared.indexOf('await submitChatGPTDraft(key)')
+  const preparedSubmit = prepared.indexOf('await submitChatGPTDraft(key, entry, prepared.conversationUrl || entry.affinity.boundURL)')
   const preparedArm = prepared.indexOf('armExpectedChatGPTBundle(key, prepared.requestId')
   assert.ok(preparedSubmit >= 0 && preparedArm > preparedSubmit, 'manual prepared submit arms supervision only after submit confirmation')
   assert.doesNotMatch(prepared, /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
@@ -882,7 +901,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
   const repair = source.slice(repairStart, repairEnd)
-  const repairSubmit = repair.indexOf('await submitChatGPTDraft(key, target.entry)')
+  const repairSubmit = repair.indexOf('await submitChatGPTDraft(key, target.entry, target.conversationUrl)')
   const repairArm = repair.indexOf('armExpectedChatGPTBundle(key, requestId')
   assert.ok(repairSubmit >= 0 && repairArm > repairSubmit, 'repair submission arms supervision only after submit confirmation')
 })
