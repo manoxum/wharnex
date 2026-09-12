@@ -156,6 +156,7 @@ export type AgentTurn = {
   protocol: 'harness.turn/v1'
   request_id: string
   kind: TurnKind
+  chat_title?: string
   message: string
   outcome?: { status: 'completed' | 'failed' | 'partial'; reason_code?: string; message?: string; retryable: boolean }
 }

@@ -96,14 +96,15 @@ a 6 h ceiling, 8 attempts). Because the owned view is normally released when the
 chat is archived, the retry recreates it from the stored conversation URL; a
 released view with a known URL must not be reported as a successful archive.
 
-### Chat naming and project assignment are a background job
+### Chat naming comes from the planner result; remote rename remains queued
 
-A chat opens with a provisional title derived locally from its first prompt. A
-background job assigns a definitive title and moves the conversation into the
-project. A title the user typed is definitive and is never revisited. The job
-processes one chat per tick, skips the chat the user is currently viewing, and
-fails silently into durable state rather than raising an error toast over
-unrelated work.
+A chat opens with a provisional title derived locally from its first prompt. The
+planner's accepted `turn.chat_title` becomes definitive and the existing durable
+rename/project-assignment queue applies it to the linked ChatGPT conversation. A
+title the user typed is definitive and is never overwritten by a later planner
+turn. New requests do not schedule `TITLE_DISCOVER`, and persisted legacy
+`TITLE_GENERATE_TEMP` tasks are compatibility sinks: they must never create a
+second ChatGPT conversation just to manufacture a name.
 
 ### Library retention is bounded by proven ownership
 
@@ -124,6 +125,6 @@ an expired archived chat is never touched.
 - A remote surface outage degrades to deferred work instead of a blocked user
   action; the cost is that a chat may stay archived locally while still visible
   in the ChatGPT sidebar until a retry succeeds.
-- The naming job reads ChatGPT's own conversation title, which is a user-owned
-  label. A richer title derived from the user's original prompt requires the
-  support engine, which is a separate decision and is not part of this ADR.
+- Chat naming no longer consumes a separate ChatGPT conversation. The planner
+  response carries the semantic title, while the durable lifecycle queue remains
+  responsible only for applying that accepted title/project organization remotely.

@@ -76,7 +76,7 @@ func TestParseRejectsTraversalAndMissingStructuredContent(t *testing.T) {
 func TestParseAnswerTurnWithoutExecutionPlan(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md": "# Answer\n",
-		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"A série limita a consulta aos últimos 12 registos mensais.","outcome":{"status":"completed","retryable":false}}`,
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","chat_title":"Limitar consulta mensal","message":"A série limita a consulta aos últimos 12 registos mensais.","outcome":{"status":"completed","retryable":false}}`,
 	})
 	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestParseAnswerTurnWithoutExecutionPlan(t *testing.T) {
 	if parsed.Plan != nil {
 		t.Fatalf("answer turn must not contain an execution plan: %#v", parsed.Plan)
 	}
-	if parsed.Turn.Kind != domain.TurnKindAnswer || parsed.Turn.Message == "" {
+	if parsed.Turn.Kind != domain.TurnKindAnswer || parsed.Turn.ChatTitle != "Limitar consulta mensal" || parsed.Turn.Message == "" {
 		t.Fatalf("unexpected answer turn: %#v", parsed.Turn)
 	}
 }

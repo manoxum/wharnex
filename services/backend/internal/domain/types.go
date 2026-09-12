@@ -33,6 +33,7 @@ type AgentTurn struct {
 	Protocol            string       `json:"protocol"`
 	RequestID           string       `json:"request_id"`
 	Kind                TurnKind     `json:"kind"`
+	ChatTitle           string       `json:"chat_title,omitempty"`
 	Message             string       `json:"message"`
 	Outcome             *TurnOutcome `json:"outcome"`
 	ResolvedEvidenceIDs []string     `json:"resolved_evidence_ids,omitempty"`

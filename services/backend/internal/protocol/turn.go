@@ -18,6 +18,10 @@ func ValidateTurn(turn domain.AgentTurn) error {
 	if !domain.ValidTurnKind(turn.Kind) {
 		return fmt.Errorf("unsupported turn kind %q", turn.Kind)
 	}
+	chatTitle := strings.TrimSpace(turn.ChatTitle)
+	if len([]rune(chatTitle)) > 82 {
+		return errors.New("turn chat_title exceeds 82 characters")
+	}
 	message := strings.TrimSpace(turn.Message)
 	if message == "" {
 		return errors.New("turn message is required")

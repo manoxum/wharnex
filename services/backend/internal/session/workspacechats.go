@@ -170,8 +170,8 @@ func (s *Store) UpdateWorkspaceChatRemote(chatID, chatGPTURL, conversationID, pr
 				list[i].ConversationID = conversationID
 				list[i].RemoteProjectRef = projectRef
 				list[i].RemoteTitle = remoteTitle
-				if strings.TrimSpace(remoteTitle) != "" {
-					list[i].Title = remoteTitle
+				if localTitle := workspaceLocalTitle(remoteTitle); localTitle != "" {
+					list[i].Title = localTitle
 				}
 				list[i].RemoteState = remoteState
 				list[i].UpdatedAt = now
@@ -181,11 +181,12 @@ func (s *Store) UpdateWorkspaceChatRemote(chatID, chatGPTURL, conversationID, pr
 		}
 		return fmt.Errorf("workspace chat not found")
 	}
+	localTitle := workspaceLocalTitle(remoteTitle)
 	result, err := s.db.Exec(`UPDATE harness_workspace_chats
 		SET chatgpt_url=$2, conversation_id=$3, remote_project_ref=$4, remote_title=$5,
-			title=CASE WHEN BTRIM($5) <> '' THEN $5 ELSE title END,
+			title=CASE WHEN BTRIM($8) <> '' THEN $8 ELSE title END,
 			remote_state=$6, updated_at=$7
-		WHERE id=$1`, id, chatGPTURL, conversationID, projectRef, remoteTitle, remoteState, now)
+		WHERE id=$1`, id, chatGPTURL, conversationID, projectRef, remoteTitle, remoteState, now, localTitle)
 	if err != nil {
 		return fmt.Errorf("update workspace chat remote state: %w", err)
 	}
@@ -193,6 +194,14 @@ func (s *Store) UpdateWorkspaceChatRemote(chatID, chatGPTURL, conversationID, pr
 		return fmt.Errorf("workspace chat not found")
 	}
 	return nil
+}
+
+func workspaceLocalTitle(remoteTitle string) string {
+	title := strings.TrimSpace(remoteTitle)
+	if len(title) >= 4 && strings.EqualFold(title[:4], "WHX:") {
+		title = strings.TrimSpace(title[4:])
+	}
+	return title
 }
 
 // DeleteWorkspaceChat removes a chat and its transcript. Used by permanent

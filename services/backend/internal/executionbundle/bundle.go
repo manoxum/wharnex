@@ -62,6 +62,7 @@ type turnWire struct {
 	Protocol            string              `json:"protocol"`
 	RequestID           string              `json:"request_id"`
 	Kind                domain.TurnKind     `json:"kind"`
+	ChatTitle           string              `json:"chat_title,omitempty"`
 	Message             string              `json:"message"`
 	Outcome             *domain.TurnOutcome `json:"outcome"`
 	ResolvedEvidenceIDs []string            `json:"resolved_evidence_ids,omitempty"`
@@ -316,7 +317,7 @@ func parseTurn(raw []byte) (domain.AgentTurn, bool, error) {
 	if err := decoder.Decode(&wire); err != nil {
 		return domain.AgentTurn{}, false, fmt.Errorf("decode turn.json: %w", err)
 	}
-	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, Message: wire.Message, Outcome: wire.Outcome, ResolvedEvidenceIDs: wire.ResolvedEvidenceIDs}
+	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, ChatTitle: wire.ChatTitle, Message: wire.Message, Outcome: wire.Outcome, ResolvedEvidenceIDs: wire.ResolvedEvidenceIDs}
 	if err := protocol.ValidateTurn(turn); err != nil {
 		return domain.AgentTurn{}, false, err
 	}

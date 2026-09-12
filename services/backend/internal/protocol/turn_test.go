@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -52,5 +53,27 @@ func TestValidateTurnRequiresOutcomeAndFailureDetail(t *testing.T) {
 	turn.Outcome.Message = "O contexto necessário não estava disponível."
 	if err := ValidateTurn(turn); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateTurnAcceptsBoundedChatTitle(t *testing.T) {
+	turn := domain.AgentTurn{
+		Protocol: domain.TurnProtocolV1, RequestID: "req_12345678", Kind: domain.TurnKindAnswer,
+		ChatTitle: "Eliminar chats temporários de título", Message: "Resposta útil.",
+		Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted},
+	}
+	if err := ValidateTurn(turn); err != nil {
+		t.Fatalf("expected chat_title to be valid: %v", err)
+	}
+}
+
+func TestValidateTurnRejectsOversizedChatTitle(t *testing.T) {
+	turn := domain.AgentTurn{
+		Protocol: domain.TurnProtocolV1, RequestID: "req_12345678", Kind: domain.TurnKindAnswer,
+		ChatTitle: strings.Repeat("a", 83), Message: "Resposta útil.",
+		Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted},
+	}
+	if err := ValidateTurn(turn); err == nil {
+		t.Fatal("expected oversized chat_title to be rejected")
 	}
 }
