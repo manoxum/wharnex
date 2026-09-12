@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
+const inspectorSource = readFileSync(resolve(process.cwd(), 'src/components/Inspector.tsx'), 'utf8')
 const selectChat = source.slice(source.indexOf('async function selectChat('), source.indexOf('const updateWorkspaceChat ='))
 
 describe('chat switching stays local and immediate', () => {
@@ -44,8 +45,19 @@ describe('chat switching stays local and immediate', () => {
     expect(apply).toMatch(/sessionCacheRef\.current\[chatId\] = restored/)
   })
 
-  it('keeps the cache warm from every path that establishes a session', () => {
-    expect(source).toMatch(/if \(session && activeChatId\) sessionCacheRef\.current\[activeChatId\] = session/)
+  it('keeps the cache warm only when the session belongs to the active chat', () => {
+    expect(source).toMatch(/const activeChatOwnsSession = Boolean\(activeChatRecord && session && activeChatRecord\.sessionId === session\.id\)/)
+    expect(source).toMatch(/if \(activeChatOwnsSession && session && activeChatId\) sessionCacheRef\.current\[activeChatId\] = session/)
+  })
+
+  it('never derives a conflict surface from the previous chat during an uncached switch', () => {
+    expect(source).toMatch(/const activeConflictKey = activeChatOwnsSession && session\?\.integration_conflict/)
+    expect(source).toMatch(/const activeConflict = activeChat\?\.sessionId === session\.id \? session\.integration_conflict : undefined/)
+  })
+
+  it('does not seed an unbound dedicated conflict surface with the primary conversation URL', () => {
+    expect(inspectorSource).toContain('chatgptUrl={surface ? surface.url : activeChat.chatgptUrl}')
+    expect(inspectorSource).not.toContain('chatgptUrl={surface?.url || activeChat.chatgptUrl}')
   })
 
   it('evicts a chat from the cache when it is archived', () => {

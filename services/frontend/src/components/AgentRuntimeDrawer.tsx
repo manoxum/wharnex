@@ -162,8 +162,10 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
         {/* Backlog is only the work a worker could actually claim now. A task
             deferred behind not_before (every bundle-retention cleanup is
             deferred for days by design) is waiting on a clock, not on a worker,
-            so it is reported as "agendadas" and never ages the backlog. */}
-        <div className="agent-runtime-queue"><span><b>{runtime.queue?.due || 0}</b> por executar</span><span><b>{runtime.queue?.scheduled || 0}</b> agendadas</span>{(runtime.queue?.blocked || 0) > 0 && <span><b>{runtime.queue.blocked}</b> sem tentativas</span>}</div>
+            so it is reported as "agendadas" and never ages the backlog. Work
+            protected by provider/account/conversation guards is also not
+            claimable merely because another Worker is idle. */}
+        <div className="agent-runtime-queue"><span><b>{runtime.queue?.due || 0}</b> por executar</span><span><b>{runtime.queue?.scheduled || 0}</b> agendadas</span>{(runtime.queue?.guarded || 0) > 0 && <span><b>{runtime.queue.guarded}</b> aguardam liberação</span>}{(runtime.queue?.blocked || 0) > 0 && <span><b>{runtime.queue.blocked}</b> sem tentativas</span>}</div>
         <div className="agent-runtime-queue-times"><span>Mais antiga por executar: {timeLabel(runtime.queue?.oldest_due_created_at)}</span><span>Próxima agendada: {timeLabel(runtime.queue?.next_not_before)}</span></div>
       </div>
       <div className="agent-runtime-scale">

@@ -77,6 +77,20 @@ describe('AgentRuntimeDrawer', () => {
     expect(rows).toContain('0 por executar36 agendadas')
   })
 
+  it('reports exclusivity-guarded work separately from Worker backlog', async () => {
+    const state = runtime()
+    state.queue = {
+      queued: 2, counts: { PENDING: 1, WAITING: 1 }, due: 0, scheduled: 1, guarded: 1, blocked: 0,
+      oldest_due_created_at: '', next_not_before: '2026-09-13T22:32:18Z',
+    }
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    const { container } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    await screen.findByText('Worker 1')
+    const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
+    expect(rows).toContain('0 por executar1 agendadas1 aguardam liberação')
+  })
+
   it('counts only queued work, never settled tasks or a lifetime total', async () => {
     // A settled task has left the queue; its tally described past throughput
     // while saying nothing about what is waiting to run now.

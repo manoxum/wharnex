@@ -2694,7 +2694,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* Durable ChatGPT task queue, kept separate from the Worker inspector so the
    operator can read queue state without selecting an agent. */
 .chat-agent-tasks-drawer { height:100%; min-height:0; display:grid; grid-template-rows:46px auto minmax(0,1fr); background:var(--theme-bg); color:var(--theme-text); }
-.chat-agent-tasks-summary { min-height:36px; padding:6px 12px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); }
+.chat-agent-tasks-summary { min-height:36px; padding:6px 12px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); }
 .chat-agent-tasks-summary span { display:inline-flex; align-items:baseline; gap:5px; white-space:nowrap; }
 .chat-agent-tasks-summary b { color:var(--theme-text); font:750 calc(9.2px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
 .chat-agent-tasks-summary small { margin-left:auto; color:var(--theme-text-muted); font-size:calc(7.1px * var(--ui-font-scale)); white-space:nowrap; }
@@ -2705,8 +2705,18 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-agent-task-section > header strong { font-size:calc(8px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.075em; }
 .chat-agent-task-section > header span { min-width:22px; padding:2px 6px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-surface); text-align:center; font:750 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); }
 .chat-agent-task-section > p { margin:0; padding:9px 10px; border:1px dashed var(--theme-border-soft); border-radius:8px; color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); }
+.chat-agent-task-scheduled-section { padding:0 2px; border:1px solid var(--theme-border-soft); border-radius:9px; background:color-mix(in srgb,var(--theme-surface) 58%,transparent); }
+.chat-agent-task-scheduled-section > summary { min-height:40px; padding:6px 8px; display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--theme-text-soft); cursor:pointer; list-style:none; user-select:none; }
+.chat-agent-task-scheduled-section > summary::-webkit-details-marker { display:none; }
+.chat-agent-task-scheduled-section > summary > span { min-width:0; display:grid; gap:2px; }
+.chat-agent-task-scheduled-section > summary strong { font-size:calc(8px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.075em; }
+.chat-agent-task-scheduled-section > summary small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(7px * var(--ui-font-scale)); font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
+.chat-agent-task-scheduled-section > summary em { min-width:24px; padding:3px 6px; border:1px solid color-mix(in srgb,var(--warning) 24%,var(--theme-border-soft)); border-radius:999px; background:var(--theme-bg); color:color-mix(in srgb,var(--warning) 70%,var(--theme-text)); text-align:center; font:750 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); font-style:normal; }
+.chat-agent-task-scheduled-section[open] { padding-bottom:6px; }
+.chat-agent-task-scheduled-section[open] > summary { border-bottom:1px solid var(--theme-border-soft); }
+.chat-agent-task-scheduled-section > .chat-agent-task-list { padding:6px 6px 0; }
 .chat-agent-task-list { display:grid; gap:6px; }
-.chat-agent-task-card { min-width:0; padding:9px 10px 7px; display:grid; gap:6px; border:1px solid var(--theme-border-soft); border-radius:9px; background:var(--theme-surface); box-shadow:0 1px 1px color-mix(in srgb,var(--theme-shadow) 55%,transparent); transition:border-color .14s ease,background .14s ease; }
+.chat-agent-task-card { min-width:0; padding:9px 10px 7px; display:grid; gap:6px; border:1px solid var(--theme-border-soft); border-radius:9px; background:var(--theme-surface); box-shadow:0 1px 1px color-mix(in srgb,var(--theme-shadow) 55%,transparent); content-visibility:auto; contain-intrinsic-size:128px; transition:border-color .14s ease,background .14s ease; }
 .chat-agent-task-card:hover { border-color:var(--theme-border); background:color-mix(in srgb,var(--theme-surface) 92%,var(--theme-elevated)); }
 .chat-agent-task-heading { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .chat-agent-task-identity { min-width:0; display:flex; align-items:center; gap:7px; }
@@ -2717,7 +2727,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-agent-task-heading-meta em { min-width:27px; padding:3px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font:750 calc(6.8px * var(--ui-font-scale))/1 var(--mono-font-family); font-style:normal; text-align:center; }
 .chat-agent-task-state { padding:3px 6px; border:1px solid var(--theme-border-soft); border-radius:999px; background:transparent; color:var(--theme-text-soft); font-size:calc(7px * var(--ui-font-scale)); font-weight:700; white-space:nowrap; }
 .chat-agent-task-card.running .chat-agent-task-state,.chat-agent-task-card.leased .chat-agent-task-state { border-color:color-mix(in srgb,var(--success) 30%,var(--theme-border)); color:color-mix(in srgb,var(--success) 70%,var(--theme-text)); }
-.chat-agent-task-card.waiting .chat-agent-task-state { border-color:color-mix(in srgb,var(--warning) 30%,var(--theme-border)); color:color-mix(in srgb,var(--warning) 70%,var(--theme-text)); }
+.chat-agent-task-card.waiting .chat-agent-task-state,.chat-agent-task-card.scheduled .chat-agent-task-state { border-color:color-mix(in srgb,var(--warning) 30%,var(--theme-border)); color:color-mix(in srgb,var(--warning) 70%,var(--theme-text)); }
+.chat-agent-task-card.guarded .chat-agent-task-state { border-color:color-mix(in srgb,var(--warning) 30%,var(--theme-border)); color:color-mix(in srgb,var(--warning) 70%,var(--theme-text)); }
+.chat-agent-task-card.blocked .chat-agent-task-state { border-color:color-mix(in srgb,var(--danger) 30%,var(--theme-border)); color:color-mix(in srgb,var(--danger) 70%,var(--theme-text)); }
 .chat-agent-task-worker { min-width:0; display:flex; align-items:center; gap:8px; color:var(--theme-text-soft); }
 .chat-agent-task-worker > span { min-width:0; display:inline-flex; align-items:center; gap:5px; }
 .chat-agent-task-worker b { overflow:hidden; font-size:calc(8px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }

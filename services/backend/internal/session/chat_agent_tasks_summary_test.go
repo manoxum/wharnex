@@ -87,6 +87,58 @@ func TestChatAgentQueueSummaryCountsExhaustedTasksAsBlocked(t *testing.T) {
 	}
 }
 
+// A title task may be past not_before and still be ineligible: driving that
+// conversation while its response supervision is alive would navigate the
+// renderer away from a generating answer. Idle Workers cannot claim it, so it
+// must not be reported as due backlog.
+func TestChatAgentQueueSummaryDoesNotCountQuietConversationWorkAsDue(t *testing.T) {
+	store := NewStore()
+	supervision, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("TITLE_DISCOVER", "chat-a", "conv-a", "title:conv-a")); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	deferred := store.chatAgentTasks[supervision.TaskID]
+	deferred.NotBefore = time.Now().UTC().Add(30 * time.Second)
+	store.chatAgentTasks[supervision.TaskID] = deferred
+	store.mu.Unlock()
+
+	summary, err := store.ChatAgentQueueSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Due != 0 || summary.Scheduled != 1 || summary.Guarded != 1 {
+		t.Fatalf("due=%d scheduled=%d guarded=%d want 0/1/1 while title waits for supervision", summary.Due, summary.Scheduled, summary.Guarded)
+	}
+	if summary.OldestDueCreatedAt != nil {
+		t.Fatalf("oldest_due_created_at=%v want none", summary.OldestDueCreatedAt)
+	}
+}
+
+func TestChatAgentQueueSummaryCountsProviderPausedWorkAsGuarded(t *testing.T) {
+	store := NewStore()
+	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetChatAgentProviderPause(true, nil, "operator pause"); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := store.ChatAgentQueueSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Due != 0 || summary.Guarded != 1 {
+		t.Fatalf("due=%d guarded=%d want 0/1 while provider is paused", summary.Due, summary.Guarded)
+	}
+	if summary.OldestDueCreatedAt != nil {
+		t.Fatalf("oldest_due_created_at=%v want none", summary.OldestDueCreatedAt)
+	}
+}
+
 // Settled rows are bookkeeping; live ones are the queue. Pruning must never
 // touch work that can still be claimed, however old it is.
 func TestPruneChatAgentTasksRemovesOnlySettledRows(t *testing.T) {

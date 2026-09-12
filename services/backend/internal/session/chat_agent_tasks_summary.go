@@ -21,7 +21,7 @@ type ChatAgentQueueSummary struct {
 	// yesterday's throughput while saying nothing about what is waiting now.
 	Queued int            `json:"queued"`
 	Counts map[string]int `json:"counts"`
-	// Due, Scheduled and Blocked partition the claimable statuses
+	// Due, Scheduled, Guarded and Blocked partition the claimable statuses
 	// (PENDING/WAITING) by the very predicate the claim query uses, so the
 	// reported backlog is the backlog a worker could actually take.
 	//
@@ -30,6 +30,10 @@ type ChatAgentQueueSummary struct {
 	// backlog is what makes a completely idle queue read as a stuck one.
 	Due       int `json:"due"`
 	Scheduled int `json:"scheduled"`
+	// Guarded work has reached not_before and has attempt budget, but cannot
+	// run until a provider, account or conversation exclusivity guard clears.
+	// It is not Worker backlog: adding Workers cannot make it claimable.
+	Guarded int `json:"guarded"`
 	// Blocked counts tasks that are past their attempt budget and can never be
 	// claimed again. They are backlog that will never drain, which is a
 	// different operational fact from work that is merely waiting.
@@ -65,6 +69,8 @@ func (s *Store) ChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
 	defer s.mu.RUnlock()
 	now := time.Now().UTC()
 	summary := ChatAgentQueueSummary{Counts: make(map[string]int)}
+	providerGuarded := s.chatAgentProvider.Paused &&
+		(s.chatAgentProvider.PausedUntil == nil || s.chatAgentProvider.PausedUntil.After(now))
 	for _, task := range s.chatAgentTasks {
 		if !chatAgentTaskActive(task.Status) {
 			continue
@@ -80,6 +86,8 @@ func (s *Store) ChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
 		case task.NotBefore.After(now):
 			summary.Scheduled++
 			summary.NextNotBefore = earliest(summary.NextNotBefore, task.NotBefore)
+		case providerGuarded || chatAgentBlockedByActiveTask(task, s.chatAgentTasks, now):
+			summary.Guarded++
 		default:
 			summary.Due++
 			summary.OldestDueCreatedAt = earliest(summary.OldestDueCreatedAt, task.CreatedAt)
@@ -116,13 +124,24 @@ func (s *Store) PruneChatAgentTasks(before time.Time) (int, error) {
 }
 
 func (s *Store) postgresChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
-	rows, err := s.db.Query(`SELECT status, count(*),
-			count(*) FILTER (WHERE not_before<=now() AND attempt<max_attempts),
+	rows, err := s.db.Query(`WITH classified AS (
+		SELECT t.status,t.not_before,t.attempt,t.max_attempts,t.created_at,
+			(EXISTS (
+				SELECT 1 FROM harness_chat_agent_provider_state p
+				WHERE p.provider='chatgpt' AND p.paused=true
+				  AND (p.paused_until IS NULL OR p.paused_until>now())
+			) OR ` + chatAgentBlockedByActiveTaskSQL("t") + `) AS guarded
+		FROM harness_chat_agent_tasks t
+		WHERE t.status IN ('PENDING','LEASED','RUNNING','WAITING')
+	)
+		SELECT status, count(*),
+			count(*) FILTER (WHERE not_before<=now() AND attempt<max_attempts AND NOT guarded),
 			count(*) FILTER (WHERE not_before>now() AND attempt<max_attempts),
+			count(*) FILTER (WHERE not_before<=now() AND attempt<max_attempts AND guarded),
 			count(*) FILTER (WHERE attempt>=max_attempts),
-			min(created_at) FILTER (WHERE not_before<=now() AND attempt<max_attempts),
+			min(created_at) FILTER (WHERE not_before<=now() AND attempt<max_attempts AND NOT guarded),
 			min(not_before) FILTER (WHERE not_before>now() AND attempt<max_attempts)
-		FROM harness_chat_agent_tasks GROUP BY status`)
+		FROM classified GROUP BY status`)
 	if err != nil {
 		return ChatAgentQueueSummary{}, fmt.Errorf("summarize chat agent queue: %w", err)
 	}
@@ -130,9 +149,9 @@ func (s *Store) postgresChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
 	summary := ChatAgentQueueSummary{Counts: make(map[string]int)}
 	for rows.Next() {
 		var status string
-		var total, due, scheduled, blocked int
+		var total, due, scheduled, guarded, blocked int
 		var oldestDue, nextNotBefore sql.NullTime
-		if err := rows.Scan(&status, &total, &due, &scheduled, &blocked, &oldestDue, &nextNotBefore); err != nil {
+		if err := rows.Scan(&status, &total, &due, &scheduled, &guarded, &blocked, &oldestDue, &nextNotBefore); err != nil {
 			return ChatAgentQueueSummary{}, fmt.Errorf("scan chat agent queue summary: %w", err)
 		}
 		// A settled task has left the queue; only work still in it is depth.
@@ -148,6 +167,7 @@ func (s *Store) postgresChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
 		}
 		summary.Due += due
 		summary.Scheduled += scheduled
+		summary.Guarded += guarded
 		summary.Blocked += blocked
 		if oldestDue.Valid {
 			summary.OldestDueCreatedAt = earliest(summary.OldestDueCreatedAt, oldestDue.Time)

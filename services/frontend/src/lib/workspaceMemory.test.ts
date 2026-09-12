@@ -1,12 +1,30 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
 	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
+  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
 
 describe('workspace memory', () => {
+	it('round-trips every orchestration field through the durable chat record', () => {
+		const local = {
+			...newWorkspaceChat('ses-1', 'Principal', 'chat-1'),
+			chatgptUrl: 'https://chatgpt.com/c/main',
+			pendingPlan: { requestId: 'req-1', originalMessage: 'corrigir' },
+			conflictSurfaces: { 'conflict-1': { cacheKey: 'chat-1_cf_conflict-1', url: 'https://chatgpt.com/c/conflict' } },
+		}
+		const record = durableWorkspaceChat('/tmp/project', local)
+		const restored = mergeDurableWorkspaceChats([], [record])
+		expect(restored).toEqual([local])
+	})
+
+	it('keeps local ordering while adding durable-only chats instead of losing them', () => {
+		const local = newWorkspaceChat('ses-local', 'Local', 'chat-local')
+		const durableOnly = durableWorkspaceChat('/tmp/project', newWorkspaceChat('ses-durable', 'Durável', 'chat-durable'))
+		expect(mergeDurableWorkspaceChats([local], [durableOnly]).map((chat) => chat.id)).toEqual(['chat-local', 'chat-durable'])
+	})
+
 	it('creates stable isolated cache keys for dedicated conflict surfaces', () => {
 		const key = conflictChatGPTCacheKey('chat-123', 'conflict-456')
 		expect(key).toBe('chat-123_cf_conflict-456')

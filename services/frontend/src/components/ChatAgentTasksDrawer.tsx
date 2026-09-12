@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ChatAgentTask } from '../types'
+import type { ChatAgentQueueSummary, ChatAgentTask } from '../types'
 import { api } from '../lib/api'
 import { Icon } from './Icon'
 
 const RUNNING = new Set(['LEASED', 'RUNNING'])
 const QUEUED = new Set(['PENDING', 'WAITING'])
+const ACCOUNT_TASKS = new Set(['ORGANIZE_CHAT', 'RENAME_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT'])
+const WRITER_TASKS = new Set(['TRANSLATE_MARKDOWN', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORGANIZE_CHAT', 'RENAME_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_TEMP_CHAT'])
+const QUIET_WHILE_AWAITING = new Set(['ORGANIZE_CHAT', 'RENAME_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'TITLE_DISCOVER', 'TITLE_GENERATE_TEMP'])
 const REFRESH_MS = 5_000
+type TaskDisposition = 'running' | 'due' | 'scheduled' | 'guarded' | 'blocked'
 const TASK_LABELS: Record<string, string> = {
   BOT_WRITE: 'Enviar pedido', RECOVERY_WRITE: 'Enviar correção', AWAIT_RESPONSE: 'Aguardar resposta',
   TITLE_DISCOVER: 'Ler título', TITLE_GENERATE_TEMP: 'Gerar título', TITLE_AWAIT: 'Aguardar título',
@@ -15,13 +19,18 @@ const TASK_LABELS: Record<string, string> = {
 
 export function ChatAgentTasksDrawer({ onClose, onError }: { onClose: () => void; onError?: (message: string) => void }) {
   const [tasks, setTasks] = useState<ChatAgentTask[]>([])
+  const [queueSummary, setQueueSummary] = useState<ChatAgentQueueSummary>()
   const [loading, setLoading] = useState(true)
   const [refreshedAt, setRefreshedAt] = useState(Date.now())
 
   const refresh = useCallback(async () => {
     try {
-      const result = await api.chatAgentTasks(true)
+      const [result, summary] = await Promise.all([
+        api.chatAgentTasks(true),
+        api.chatAgentTaskSummary(),
+      ])
       setTasks(Array.isArray(result.tasks) ? result.tasks : [])
+      setQueueSummary(summary)
       setRefreshedAt(Date.now())
     } catch (error) {
       onError?.(error instanceof Error ? error.message : 'Não foi possível carregar as tarefas')
@@ -36,42 +45,104 @@ export function ChatAgentTasksDrawer({ onClose, onError }: { onClose: () => void
     return () => window.clearInterval(timer)
   }, [refresh])
 
-  const running = useMemo(() => tasks.filter((task) => RUNNING.has(task.status)).sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [tasks])
-  const queued = useMemo(() => tasks.filter((task) => QUEUED.has(task.status)).sort(compareQueueTasks), [tasks])
+  const groups = useMemo(() => {
+    const next = {
+      running: [] as ChatAgentTask[],
+      due: [] as ChatAgentTask[],
+      scheduled: [] as ChatAgentTask[],
+      guarded: [] as ChatAgentTask[],
+      blocked: [] as ChatAgentTask[],
+      guardReasons: new Map<string, string>(),
+    }
+    for (const task of tasks) {
+      if (RUNNING.has(task.status)) {
+        next.running.push(task)
+      } else if (QUEUED.has(task.status)) {
+        if (task.attempt >= task.max_attempts) next.blocked.push(task)
+        else if (isScheduled(task, refreshedAt)) next.scheduled.push(task)
+        else {
+          const reason = taskGuardReason(task, tasks, refreshedAt)
+          if (reason) {
+            next.guarded.push(task)
+            next.guardReasons.set(task.task_id, reason)
+          } else next.due.push(task)
+        }
+      }
+    }
+    // The provider-wide pause is visible only in the aggregate. If every
+    // locally unguarded due task is accounted for by the summary's remaining
+    // guarded count, reconcile those cards without inventing Worker backlog.
+    const aggregateGuardRemainder = (queueSummary?.guarded ?? 0) - next.guarded.length
+    if (queueSummary?.due === 0 && aggregateGuardRemainder === next.due.length) {
+      for (const task of next.due) {
+        next.guarded.push(task)
+        next.guardReasons.set(task.task_id, 'A aguardar liberação do provider')
+      }
+      next.due = []
+    }
+    next.running.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    next.due.sort(compareDueTasks)
+    next.scheduled.sort(compareScheduledTasks)
+    next.guarded.sort(compareDueTasks)
+    next.blocked.sort(compareDueTasks)
+    return next
+  }, [queueSummary, refreshedAt, tasks])
+
+  const runningCount = queueSummary
+    ? (queueSummary.counts.RUNNING || 0) + (queueSummary.counts.LEASED || 0)
+    : groups.running.length
+  const dueCount = queueSummary?.due ?? groups.due.length
+  const scheduledCount = queueSummary?.scheduled ?? groups.scheduled.length
+  const guardedCount = queueSummary?.guarded ?? groups.guarded.length
+  const blockedCount = queueSummary?.blocked ?? groups.blocked.length
 
   return <section className="chat-agent-tasks-drawer" aria-label="Tarefas do runtime ChatGPT">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Tarefas</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar tarefas"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></div></header>
-    <div className="chat-agent-tasks-summary"><span><b>{running.length}</b> em execução</span><span><b>{queued.length}</b> na fila</span><small>Atualizado {relativeAge(refreshedAt)}</small></div>
+    <div className="chat-agent-tasks-summary"><span><b>{runningCount}</b> em execução</span><span><b>{dueCount}</b> por executar</span><span><b>{scheduledCount}</b> {scheduledCount === 1 ? 'agendada' : 'agendadas'}</span>{guardedCount > 0 ? <span><b>{guardedCount}</b> {guardedCount === 1 ? 'aguarda liberação' : 'aguardam liberação'}</span> : null}{blockedCount > 0 ? <span><b>{blockedCount}</b> sem tentativas</span> : null}<small>Atualizado {relativeAge(refreshedAt)}</small></div>
     <div className="chat-agent-tasks-body">
       {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas.</strong><span>A fila e os Workers estão livres neste momento.</span></div> : <>
-        <TaskSection title="Em execução" tasks={running} empty="Nenhum Worker está a executar uma tarefa."/>
-        <TaskSection title="Fila" tasks={queued} empty="Nenhuma tarefa está à espera." showPosition/>
+        <TaskSection title="Em execução" tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running"/>
+        <TaskSection title="Por executar" tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition/>
+        <ScheduledTaskSection tasks={groups.scheduled} nextNotBefore={queueSummary?.next_not_before}/>
+        {groups.guarded.length ? <TaskSection title="Aguardam liberação" tasks={groups.guarded} empty="" disposition="guarded" guardReasons={groups.guardReasons}/> : null}
+        {groups.blocked.length ? <TaskSection title="Sem tentativas" tasks={groups.blocked} empty="" disposition="blocked"/> : null}
       </>}
     </div>
   </section>
 }
 
-function TaskSection({ title, tasks, empty, showPosition = false }: { title: string; tasks: ChatAgentTask[]; empty: string; showPosition?: boolean }) {
-  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} queuePosition={showPosition ? index + 1 : undefined}/>)}</div> : <p>{empty}</p>}</section>
+function TaskSection({ title, tasks, empty, disposition, guardReasons, showPosition = false }: { title: string; tasks: ChatAgentTask[]; empty: string; disposition: TaskDisposition; guardReasons?: Map<string, string>; showPosition?: boolean }) {
+  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} disposition={disposition} guardReason={guardReasons?.get(task.task_id)} queuePosition={showPosition ? index + 1 : undefined}/>)}</div> : <p>{empty}</p>}</section>
 }
 
-function TaskCard({ task, queuePosition }: { task: ChatAgentTask; queuePosition?: number }) {
-  const running = RUNNING.has(task.status)
-  const waiting = task.status === 'WAITING'
+function ScheduledTaskSection({ tasks, nextNotBefore }: { tasks: ChatAgentTask[]; nextNotBefore?: string }) {
+  if (!tasks.length) return null
+  return <details className="chat-agent-task-section chat-agent-task-scheduled-section">
+    <summary><span><strong>Agendadas</strong><small>Aguardam a data de execução, não um Worker. Próxima: {timeLabel(nextNotBefore || tasks[0].not_before)}</small></span><em>{tasks.length}</em></summary>
+    <div className="chat-agent-task-list">{tasks.map((task) => <TaskCard key={task.task_id} task={task} disposition="scheduled"/>)}</div>
+  </details>
+}
+
+function TaskCard({ task, disposition, guardReason, queuePosition }: { task: ChatAgentTask; disposition: TaskDisposition; guardReason?: string; queuePosition?: number }) {
+  const running = disposition === 'running'
   const schedule = running
     ? `Lease ${relativeMoment(task.lease_expires_at)}`
-    : waiting && Date.parse(task.not_before) > Date.now()
-      ? `Próxima tentativa ${relativeMoment(task.not_before)}`
-      : 'A aguardar disponibilidade'
+    : disposition === 'scheduled'
+      ? `Execução agendada ${relativeMoment(task.not_before)}`
+      : disposition === 'guarded'
+        ? guardReason || 'A aguardar liberação do runtime'
+      : disposition === 'blocked'
+        ? 'Limite de tentativas atingido'
+        : 'Pronta para atribuição'
 
-  return <article className={`chat-agent-task-card ${task.status.toLowerCase()}`}>
+  return <article className={`chat-agent-task-card ${task.status.toLowerCase()} ${disposition}`}>
     <div className="chat-agent-task-heading">
       <div className="chat-agent-task-identity"><span className={`agent-runtime-dot ${running ? (task.status === 'RUNNING' ? 'running' : 'claimed') : 'loading'}`} aria-hidden="true"/><div><strong>{taskTypeLabel(task.type)}</strong><code>{task.type}</code></div></div>
-      <div className="chat-agent-task-heading-meta">{queuePosition ? <em aria-label={`Posição ${queuePosition} na fila`}>#{String(queuePosition).padStart(2, '0')}</em> : null}<span className="chat-agent-task-state">{statusLabel(task.status)}</span></div>
+      <div className="chat-agent-task-heading-meta">{queuePosition ? <em aria-label={`Posição ${queuePosition} na fila`}>#{String(queuePosition).padStart(2, '0')}</em> : null}<span className="chat-agent-task-state">{statusLabel(task.status, disposition)}</span></div>
     </div>
-    <div className="chat-agent-task-worker"><span><Icon name="agent" size={13}/><b>{workerLabel(task.lease_owner)}</b></span><small title={schedule}>{schedule}</small></div>
+    <div className="chat-agent-task-worker"><span><Icon name="agent" size={13}/><b>{assignmentLabel(task, disposition)}</b></span><small title={schedule}>{schedule}</small></div>
     <div className="chat-agent-task-metrics" aria-label="Resumo da tarefa">
-      <TaskMetric label="Fila" value={relativeAge(task.created_at)}/>
+      <TaskMetric label={disposition === 'scheduled' ? 'Criada' : 'Fila'} value={relativeAge(task.created_at)}/>
       <TaskMetric label="Atividade" value={relativeAge(task.updated_at)}/>
       <TaskMetric label="Tentativa" value={`${task.attempt}/${task.max_attempts}`}/>
     </div>
@@ -79,9 +150,9 @@ function TaskCard({ task, queuePosition }: { task: ChatAgentTask; queuePosition?
     <details className="chat-agent-task-details"><summary><span>Detalhes</span></summary><div className="chat-agent-task-detail-grid">
       <TaskDetails title="Execução" rows={[
         ['Entrou na fila', `${timeLabel(task.created_at)} · ${relativeAge(task.created_at)}`],
-        ['Último trabalho', `${statusLabel(task.status)} · ${timeLabel(task.updated_at)} · ${relativeAge(task.updated_at)}`],
+        ['Último trabalho', `${statusLabel(task.status, disposition)} · ${timeLabel(task.updated_at)} · ${relativeAge(task.updated_at)}`],
         ['Tentativa', `${task.attempt}/${task.max_attempts} · prioridade ${task.priority}`],
-        ['Not before', timeLabel(task.not_before)],
+        ['Executar após', timeLabel(task.not_before)],
       ]}/>
       <TaskDetails title="Identificadores" rows={[
         ['Task', task.task_id], ['Request', task.request_id || '—'], ['Chat', task.chat_id || '—'], ['Lineage', task.root_request_id || '—'],
@@ -101,11 +172,32 @@ function TaskDetails({ title, rows }: { title: string; rows: Array<[string, stri
   return <section><strong>{title}</strong><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl></section>
 }
 
-function compareQueueTasks(a: ChatAgentTask, b: ChatAgentTask) {
-  const due = Date.now()
-  const aDue = Date.parse(a.not_before) <= due ? 0 : 1
-  const bDue = Date.parse(b.not_before) <= due ? 0 : 1
-  return aDue - bDue || a.priority - b.priority || a.created_at.localeCompare(b.created_at)
+function isScheduled(task: ChatAgentTask, now: number) {
+  const notBefore = Date.parse(task.not_before)
+  return Number.isFinite(notBefore) && notBefore > now
+}
+
+function taskGuardReason(candidate: ChatAgentTask, tasks: ChatAgentTask[], now: number) {
+  if (candidate.conversation_id && QUIET_WHILE_AWAITING.has(candidate.type)) {
+    const supervised = tasks.some((task) => task.task_id !== candidate.task_id && task.conversation_id === candidate.conversation_id && task.type === 'AWAIT_RESPONSE' && (RUNNING.has(task.status) || (QUEUED.has(task.status) && task.attempt < task.max_attempts)))
+    if (supervised) return 'A aguardar conclusão da resposta'
+  }
+  for (const task of tasks) {
+    if (task.task_id === candidate.task_id || !RUNNING.has(task.status)) continue
+    const leaseExpiresAt = Date.parse(String(task.lease_expires_at || ''))
+    if (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= now) continue
+    if (ACCOUNT_TASKS.has(candidate.type) && ACCOUNT_TASKS.has(task.type)) return 'A aguardar tarefa protegida da conta'
+    if (candidate.conversation_id && candidate.conversation_id === task.conversation_id && (WRITER_TASKS.has(candidate.type) || WRITER_TASKS.has(task.type))) return 'A aguardar exclusividade da conversa'
+  }
+  return ''
+}
+
+function compareDueTasks(a: ChatAgentTask, b: ChatAgentTask) {
+  return a.priority - b.priority || a.created_at.localeCompare(b.created_at)
+}
+
+function compareScheduledTasks(a: ChatAgentTask, b: ChatAgentTask) {
+  return Date.parse(a.not_before) - Date.parse(b.not_before) || compareDueTasks(a, b)
 }
 
 function taskTypeLabel(type: string) { return TASK_LABELS[type] || type.replaceAll('_', ' ') }
@@ -116,11 +208,20 @@ function workerLabel(owner: string) {
   return match ? `Worker ${match[1]}` : value || 'Por atribuir'
 }
 
-function statusLabel(status: string) {
+function assignmentLabel(task: ChatAgentTask, disposition: TaskDisposition) {
+  if (disposition === 'scheduled') return 'Atribuição futura'
+  if (disposition === 'guarded') return 'Atribuição protegida'
+  if (disposition === 'blocked') return 'Sem atribuição'
+  return workerLabel(task.lease_owner)
+}
+
+function statusLabel(status: string, disposition: TaskDisposition) {
   if (status === 'RUNNING') return 'Em execução'
   if (status === 'LEASED') return 'A iniciar'
-  if (status === 'WAITING') return 'Agendada'
-  return 'Na fila'
+  if (disposition === 'scheduled') return 'Agendada'
+  if (disposition === 'guarded') return 'Protegida'
+  if (disposition === 'blocked') return 'Sem tentativas'
+  return 'Por executar'
 }
 
 function timeLabel(value?: string) {

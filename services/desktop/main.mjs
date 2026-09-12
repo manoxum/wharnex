@@ -109,7 +109,7 @@ let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let chatAgentScheduler
 let chatAgentRuntimeDiagnostics = {
   scheduler: { running: false, backend_reachable: false, last_refresh_at: '', last_error: '' },
-  queue: { queued: 0, counts: {}, due: 0, scheduled: 0, blocked: 0, oldest_due_created_at: '', next_not_before: '' },
+  queue: { queued: 0, counts: {}, due: 0, scheduled: 0, guarded: 0, blocked: 0, oldest_due_created_at: '', next_not_before: '' },
   provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', rate_limit_level: 0, last_rate_limit_at: '', last_rate_limit_source: '', last_valid_bundle_at: '', average_processing_ms: 0, valid_sample_count: 0, initial_wait_ms: 60_000, updated_at: '' },
 }
 let deferredSupervisorNavigation
@@ -1886,6 +1886,7 @@ function chatAgentQueueDiagnostics(summary = {}) {
     counts,
     due: Math.max(0, Number(summary?.due) || 0),
     scheduled: Math.max(0, Number(summary?.scheduled) || 0),
+    guarded: Math.max(0, Number(summary?.guarded) || 0),
     blocked: Math.max(0, Number(summary?.blocked) || 0),
     oldest_due_created_at: String(summary?.oldest_due_created_at || ''),
     next_not_before: String(summary?.next_not_before || ''),

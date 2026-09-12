@@ -315,6 +315,17 @@ export type ChatAgentTask = {
   updated_at: string
 }
 
+export type ChatAgentQueueSummary = {
+  queued: number
+  counts: Record<string, number>
+  due: number
+  scheduled: number
+  guarded: number
+  blocked: number
+  oldest_due_created_at?: string
+  next_not_before?: string
+}
+
 export type BundleQuota = {
   window_hours: number
   limit: number

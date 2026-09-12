@@ -141,22 +141,29 @@ func chatAgentTaskNeverDedupe(taskType string) bool {
 	}
 }
 
-func chatAgentTaskWriter(taskType string) bool {
-	switch taskType {
-	case "TRANSLATE_MARKDOWN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT":
-		return true
-	default:
-		return false
+var chatAgentWriterTypes = []string{
+	"TRANSLATE_MARKDOWN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
+}
+
+var chatAgentAccountTypes = []string{
+	"ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_BUNDLE", "DELETE_TEMP_CHAT",
+}
+
+func chatAgentTaskTypeIn(taskType string, values []string) bool {
+	for _, value := range values {
+		if taskType == value {
+			return true
+		}
 	}
+	return false
+}
+
+func chatAgentTaskWriter(taskType string) bool {
+	return chatAgentTaskTypeIn(taskType, chatAgentWriterTypes)
 }
 
 func chatAgentTaskAccount(taskType string) bool {
-	switch taskType {
-	case "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_BUNDLE", "DELETE_TEMP_CHAT":
-		return true
-	default:
-		return false
-	}
+	return chatAgentTaskTypeIn(taskType, chatAgentAccountTypes)
 }
 
 // chatAgentQuietWhileAwaiting lists the task types that drive a conversation's
@@ -175,23 +182,30 @@ func chatAgentTaskAccount(taskType string) bool {
 // are absent too — a write is the point of the conversation, and the existing
 // per-conversation write lease already orders them.
 func chatAgentQuietWhileAwaiting(taskType string) bool {
-	switch taskType {
-	case "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP":
-		return true
-	default:
-		return false
-	}
+	return chatAgentTaskTypeIn(taskType, chatAgentQuietTypes)
 }
 
 // chatAgentQuietWhileAwaitingSQL renders chatAgentQuietWhileAwaiting as a SQL
 // predicate over the given type column, so the claim query and the in-memory
 // fallback can never drift apart on which types have to stand back.
 func chatAgentQuietWhileAwaitingSQL(column string) string {
-	quoted := make([]string, 0, len(chatAgentQuietTypes))
-	for _, value := range chatAgentQuietTypes {
+	return chatAgentTaskTypesSQL(column, chatAgentQuietTypes)
+}
+
+func chatAgentTaskTypesSQL(column string, values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
 		quoted = append(quoted, "'"+value+"'")
 	}
 	return column + " IN (" + strings.Join(quoted, ",") + ")"
+}
+
+func chatAgentTaskWriterSQL(column string) string {
+	return chatAgentTaskTypesSQL(column, chatAgentWriterTypes)
+}
+
+func chatAgentTaskAccountSQL(column string) string {
+	return chatAgentTaskTypesSQL(column, chatAgentAccountTypes)
 }
 
 var chatAgentQuietTypes = []string{

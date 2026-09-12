@@ -188,48 +188,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			WHERE p.provider='chatgpt' AND p.paused=true
 			  AND (p.paused_until IS NULL OR p.paused_until>now())
 		  )
-		  AND NOT (
-			t.type IN ('ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_BUNDLE','DELETE_TEMP_CHAT')
-			AND EXISTS (
-				SELECT 1 FROM harness_chat_agent_tasks a
-				WHERE a.status IN ('LEASED','RUNNING') AND a.lease_expires_at>now()
-				  AND a.type IN ('ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_BUNDLE','DELETE_TEMP_CHAT')
-			)
-		  )
-		  AND NOT (
-			t.conversation_id<>'' AND EXISTS (
-				SELECT 1 FROM harness_chat_agent_tasks w
-				WHERE w.task_id<>t.task_id AND w.status IN ('LEASED','RUNNING') AND w.lease_expires_at>now()
-				  AND w.conversation_id=t.conversation_id
-				  AND (
-					t.type IN ('TRANSLATE_MARKDOWN','BOT_WRITE','RECOVERY_WRITE','ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_TEMP_CHAT')
-					OR w.type IN ('TRANSLATE_MARKDOWN','BOT_WRITE','RECOVERY_WRITE','ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_TEMP_CHAT')
-				  )
-			)
-		  )
-		  -- A conversation under live response supervision is quiet: nothing but
-		  -- that supervision (and the recovery write it authorises) may drive it.
-		  -- The lease lock above cannot express this, because AWAIT_RESPONSE
-		  -- spends almost all of its life in WAITING so the worker is released
-		  -- between observations — which opened a 30-second window, every cycle,
-		  -- in which account work could claim the very conversation the model was
-		  -- still writing into, navigate its renderer to a project URL or to a new
-		  -- chat, and destroy the response.
-		  AND NOT (
-			t.conversation_id<>'' AND ` + chatAgentQuietWhileAwaitingSQL("t.type") + `
-			AND EXISTS (
-				SELECT 1 FROM harness_chat_agent_tasks s
-				WHERE s.task_id<>t.task_id AND s.conversation_id=t.conversation_id
-				  AND s.type='AWAIT_RESPONSE'
-				  AND (
-					s.status IN ('LEASED','RUNNING')
-					-- A supervision past its attempt budget can never run again,
-					-- so treating it as live would silence the conversation for
-					-- good rather than until the response settles.
-					OR (s.status IN ('PENDING','WAITING') AND s.attempt<s.max_attempts)
-				  )
-			)
-		  )
+		  AND NOT ` + chatAgentBlockedByActiveTaskSQL("t") + `
 		ORDER BY CASE WHEN $3<>'' AND ` + laneExpr + `=$3 THEN 0 ELSE 1 END,
 		CASE
 			WHEN t.priority<=1 THEN t.priority

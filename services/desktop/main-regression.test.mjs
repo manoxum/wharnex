@@ -1244,6 +1244,7 @@ test('runtime queue diagnostics separate deferred work from claimable backlog', 
   // A task deferred behind not_before waits on a clock, not on a worker.
   assert.match(diagnostics, /due:/)
   assert.match(diagnostics, /scheduled:/)
+  assert.match(diagnostics, /guarded:/)
   assert.match(diagnostics, /oldest_due_created_at:/)
   assert.doesNotMatch(diagnostics, /oldest_created_at:/)
 
@@ -1487,6 +1488,21 @@ test('supervision scheduled after a write waits for the turn to start', async ()
   // Measured: a recovery write at 12:42:56 reached ATTENTION at 12:43:17 because
   // its supervision was claimable in the same second and read the turn before it.
   assert.match(write, /notBefore: new Date\(Date\.now\(\) \+ chatAgentInitialRequestWaitMs\(\)\)\.toISOString\(\)/)
+})
+
+test('auxiliary conflict surfaces never overwrite the primary durable chat affinity', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helper = source.slice(source.indexOf('function durableWorkspaceChatID('), source.indexOf('\nfunction chatAgentTaskPayload', source.indexOf('function durableWorkspaceChatID(')))
+  assert.match(helper, /_cf_/)
+  assert.match(helper, /return ''/)
+
+  const prepare = source.slice(source.indexOf('async function preparePromptForChatGPT(request)'), source.indexOf('\nasync function retryPersistedChatGPTPrompt', source.indexOf('async function preparePromptForChatGPT(request)')))
+  assert.match(prepare, /durableWorkspaceChatID\(key, request\?\.workspaceChatId\)/)
+  assert.match(prepare, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort/)
+
+  const write = source.slice(source.indexOf('async function executeChatAgentWrite('), source.indexOf('\nasync function enqueueOrganizeFromTitle', source.indexOf('async function executeChatAgentWrite(')))
+  assert.match(write, /durableWorkspaceChatID\(key, payload\.workspace_chat_id\)/)
+  assert.match(write, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort/)
 })
 
 test('a slot between two observations of a live response keeps its conversation', async () => {

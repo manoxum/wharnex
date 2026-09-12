@@ -227,6 +227,36 @@ func chatAgentBlockedByActiveTask(candidate ChatAgentTask, tasks map[string]Chat
 	return false
 }
 
+// chatAgentBlockedByActiveTaskSQL is the durable PostgreSQL equivalent of
+// chatAgentBlockedByActiveTask. Both the claim and queue summary use it: a task
+// protected by account/conversation exclusivity is waiting on that guard, not
+// on an idle Worker, and must not be reported as immediately claimable.
+func chatAgentBlockedByActiveTaskSQL(candidate string) string {
+	return `(
+		(` + chatAgentTaskAccountSQL(candidate+".type") + ` AND EXISTS (
+			SELECT 1 FROM harness_chat_agent_tasks a
+			WHERE a.task_id<>` + candidate + `.task_id
+			  AND a.status IN ('LEASED','RUNNING') AND a.lease_expires_at>now()
+			  AND ` + chatAgentTaskAccountSQL("a.type") + `
+		))
+		OR (` + candidate + `.conversation_id<>'' AND EXISTS (
+			SELECT 1 FROM harness_chat_agent_tasks w
+			WHERE w.task_id<>` + candidate + `.task_id
+			  AND w.status IN ('LEASED','RUNNING') AND w.lease_expires_at>now()
+			  AND w.conversation_id=` + candidate + `.conversation_id
+			  AND (` + chatAgentTaskWriterSQL(candidate+".type") + ` OR ` + chatAgentTaskWriterSQL("w.type") + `)
+		))
+		OR (` + candidate + `.conversation_id<>'' AND ` + chatAgentQuietWhileAwaitingSQL(candidate+".type") + ` AND EXISTS (
+			SELECT 1 FROM harness_chat_agent_tasks s
+			WHERE s.task_id<>` + candidate + `.task_id
+			  AND s.conversation_id=` + candidate + `.conversation_id
+			  AND s.type='AWAIT_RESPONSE'
+			  AND (s.status IN ('LEASED','RUNNING')
+				OR (s.status IN ('PENDING','WAITING') AND s.attempt<s.max_attempts))
+		))
+	)`
+}
+
 func (s *Store) StartChatAgentTask(taskID, owner string) (ChatAgentTask, error) {
 	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskRunning, time.Time{}, "", false)
 }

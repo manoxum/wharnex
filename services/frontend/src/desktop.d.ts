@@ -33,7 +33,7 @@ type DesktopAgentRuntimeAgent = {
 type DesktopAgentRuntimeState = {
   instance_id: string; desired_workers: number; limits: { min_workers: number; max_workers: number; supervisors: number }
   scheduler: { running: boolean; backend_reachable: boolean; last_refresh_at: string; last_error: string }
-  queue: { queued: number; counts: Record<string, number>; due: number; scheduled: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
+  queue: { queued: number; counts: Record<string, number>; due: number; scheduled: number; guarded?: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
   provider: { provider: string; paused: boolean; paused_until: string; reason: string; updated_at: string; rate_limit_level?: number; last_rate_limit_at?: string; last_rate_limit_source?: string; last_valid_bundle_at?: string; average_processing_ms?: number; valid_sample_count?: number; initial_wait_ms?: number }
   agents: DesktopAgentRuntimeAgent[]
 }

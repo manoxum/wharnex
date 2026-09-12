@@ -65,3 +65,59 @@ func TestChatAgentAffinityClaimsMatchMemoryAndPostgres(t *testing.T) {
 		}
 	}
 }
+
+func TestPostgresChatAgentSummaryUsesConversationClaimGuard(t *testing.T) {
+	databaseURL := os.Getenv("WHARNESS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("WHARNESS_TEST_DATABASE_URL is not configured")
+	}
+	schema := fmt.Sprintf("chat_agent_summary_%d", time.Now().UnixNano())
+	admin, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	if _, err := admin.Exec(`CREATE SCHEMA ` + schema); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`)
+	testURL, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := testURL.Query()
+	query.Set("search_path", schema)
+	testURL.RawQuery = query.Encode()
+
+	store, err := NewPostgresStore(context.Background(), testURL.String(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	supervision := testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1")
+	supervision.NotBefore = time.Now().UTC().Add(30 * time.Second)
+	if _, err := store.EnqueueChatAgentTask(supervision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("TITLE_DISCOVER", "chat-a", "conv-a", "title:conv-a")); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := store.ChatAgentQueueSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Due != 0 || summary.Scheduled != 1 || summary.Guarded != 1 {
+		t.Fatalf("due=%d scheduled=%d guarded=%d want 0/1/1", summary.Due, summary.Scheduled, summary.Guarded)
+	}
+	if summary.OldestDueCreatedAt != nil {
+		t.Fatalf("oldest_due_created_at=%v want none", summary.OldestDueCreatedAt)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed != nil {
+		t.Fatalf("guarded title must not be claimed while supervision is deferred: %+v", claimed)
+	}
+}

@@ -199,6 +199,9 @@ remain outside the automation inspection boundary.
 - Background work can never navigate the user's visible browser.
 - `not_before`, leases, dedupe keys, lineage, and provider pause make recovery
   observable and retry-safe instead of timer-driven.
+- Queue diagnostics distinguish work claimable by another Worker from work waiting
+  on `not_before` or on the same provider/account/conversation guards enforced by
+  the durable claim; idle capacity is never offered as the remedy for protected work.
 - React renders the normal Supervisor surface; a local management drawer may display
   bounded runtime metadata, capture a user-triggered browser snapshot, and temporarily
   surface exactly one Worker for explicit direct interaction. Snapshot/interaction are
