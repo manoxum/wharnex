@@ -61,6 +61,8 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
   const [selectedId, setSelectedId] = useState('supervisor-1')
   const [interactionId, setInteractionId] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [pauseMode, setPauseMode] = useState<'timed' | 'manual'>('timed')
+  const [pauseMinutes, setPauseMinutes] = useState('60')
   const [snapshot, setSnapshot] = useState<Snapshot>()
 
   const refresh = useCallback(async () => {
@@ -119,10 +121,25 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
     try { setRuntime(await bridge.setWorkerCount(next)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível escalar os workers') } finally { setBusy(false) }
   }
 
+  const suspendProvider = async () => {
+    if (!bridge) return
+    let pausedUntil: string | undefined
+    if (pauseMode === 'timed') {
+      const minutes = Number(pauseMinutes)
+      if (!Number.isFinite(minutes) || minutes < 1 || minutes > 10_080) {
+        onError?.('Defina uma duração entre 1 minuto e 7 dias.')
+        return
+      }
+      pausedUntil = new Date(Date.now() + Math.floor(minutes) * 60_000).toISOString()
+    }
+    setBusy(true)
+    try { setRuntime(await bridge.pauseProvider(pausedUntil)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os trabalhos agentic') } finally { setBusy(false) }
+  }
+
   const resumeProvider = async () => {
     if (!bridge) return
     setBusy(true)
-    try { setRuntime(await bridge.resumeProvider()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível retomar o provider') } finally { setBusy(false) }
+    try { setRuntime(await bridge.resumeProvider()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível retomar os trabalhos agentic') } finally { setBusy(false) }
   }
 
   const capture = async () => {
@@ -153,7 +170,7 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
       <div className="agent-runtime-summary"><span><b>{runtime.agents.length}</b><small>instâncias</small></span><span><b>{running}</b><small>ocupadas</small></span><span><b>{runtime.desired_workers}</b><small>workers</small></span></div>
       <div className="agent-runtime-diagnostics">
         <div className={`agent-runtime-diagnostic-row tone-${runtime.scheduler?.backend_reachable ? (runtime.scheduler.running ? 'success' : 'warning') : 'danger'}`}><div><strong>Scheduler</strong><small>{runtime.scheduler?.backend_reachable ? (runtime.scheduler.running ? 'Online' : 'Parado') : 'Backend indisponível'}</small></div><span title={runtime.scheduler?.last_error || ''}>{runtime.scheduler?.last_error ? short(runtime.scheduler.last_error) : timeLabel(runtime.scheduler?.last_refresh_at)}</span></div>
-        <div className={`agent-runtime-diagnostic-row tone-${runtime.provider?.paused ? 'warning' : 'success'}`}><div><strong>Provider {runtime.provider?.provider || 'chatgpt'}</strong><small>{runtime.provider?.paused ? 'Pausado globalmente' : 'Ativo'}</small></div><div className="agent-runtime-provider-action"><span title={runtime.provider?.reason || ''}>{runtime.provider?.paused ? short(runtime.provider.reason, 'Atenção humana') : 'Sem bloqueio global'}</span>{runtime.provider?.paused && <button type="button" disabled={busy} onClick={() => void resumeProvider()}>Retomar provider</button>}</div></div>
+        <div className={`agent-runtime-diagnostic-row tone-${runtime.provider?.paused ? 'warning' : 'success'}`}><div><strong>Provider {runtime.provider?.provider || 'chatgpt'}</strong><small>{runtime.provider?.paused ? 'Pausado globalmente' : 'Ativo'}</small></div><div className="agent-runtime-provider-action"><span title={runtime.provider?.reason || ''}>{runtime.provider?.paused ? short(runtime.provider.reason, 'Suspensão ativa') : 'Sem bloqueio global'}</span></div></div>
         <div className={`agent-runtime-diagnostic-row tone-${(runtime.provider?.rate_limit_level || 0) > 0 ? 'warning' : 'neutral'}`}><div><strong>Pacing</strong><small>{runtime.provider?.valid_sample_count || 0} bundles válidos medidos</small></div><span>espera {durationLabel(runtime.provider?.initial_wait_ms)} · média {durationLabel(runtime.provider?.average_processing_ms)} · 429 L{runtime.provider?.rate_limit_level || 0}</span></div>
         {/* Only work still in the queue. A settled task has left it, and its
             lifetime tally described past throughput while saying nothing about
@@ -167,6 +184,11 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
             claimable merely because another Worker is idle. */}
         <div className="agent-runtime-queue"><span><b>{runtime.queue?.due || 0}</b> por executar</span><span><b>{runtime.queue?.scheduled || 0}</b> agendadas</span>{(runtime.queue?.guarded || 0) > 0 && <span><b>{runtime.queue.guarded}</b> aguardam liberação</span>}{(runtime.queue?.blocked || 0) > 0 && <span><b>{runtime.queue.blocked}</b> sem tentativas</span>}</div>
         <div className="agent-runtime-queue-times"><span>Mais antiga por executar: {timeLabel(runtime.queue?.oldest_due_created_at)}</span><span>Próxima agendada: {timeLabel(runtime.queue?.next_not_before)}</span></div>
+      </div>
+      <div className={`agent-runtime-pause${runtime.provider?.paused ? ' is-paused' : ''}`}>
+        <div className="agent-runtime-pause-copy"><strong>Trabalhos agentic</strong><small>{runtime.provider?.paused ? (runtime.provider.paused_until ? `Suspensos · retoma automática em ${timeLabel(runtime.provider.paused_until)}` : 'Suspensos · retoma manual') : 'Suspende novos claims globalmente; trabalhos já em curso terminam sem perder estado.'}</small></div>
+        {!runtime.provider?.paused && <div className="agent-runtime-pause-controls"><select aria-label="Modo de retoma" value={pauseMode} disabled={busy} onChange={(event) => setPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Retoma manual</option></select>{pauseMode === 'timed' && <label><input aria-label="Minutos até retoma automática" type="number" min="1" max="10080" step="1" value={pauseMinutes} disabled={busy} onChange={(event) => setPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" disabled={busy} onClick={() => void suspendProvider()}>Suspender trabalhos</button></div>}
+        {runtime.provider?.paused && <button type="button" className="agent-runtime-resume" disabled={busy} onClick={() => void resumeProvider()}>Retomar agora</button>}
       </div>
       <div className="agent-runtime-scale">
         <div className="agent-runtime-scale-card"><div><strong>Supervisores</strong><small>Duplo buffer: um ativo, outro pronto/standby</small></div><div className="agent-runtime-stepper locked"><button disabled aria-label="Diminuir supervisores">−</button><b>{runtime.limits.supervisors}</b><button disabled aria-label="Aumentar supervisores">+</button></div></div>

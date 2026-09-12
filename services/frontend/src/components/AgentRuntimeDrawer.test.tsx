@@ -28,6 +28,7 @@ function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
   return {
     state: vi.fn(async () => state),
     setWorkerCount: vi.fn(async (count: number) => runtime(count)),
+    pauseProvider: vi.fn(async (_pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true } })),
     resumeProvider: vi.fn(async () => runtime()),
     snapshot: vi.fn(async (agentId: string) => ({ agentId, dataUrl: 'data:image/png;base64,AA==', capturedAt: '2026-09-10T23:00:00Z' })),
     openInteraction: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
@@ -169,18 +170,43 @@ describe('AgentRuntimeDrawer', () => {
     expect(await screen.findByRole('img', { name: /Captura do navegador de Supervisor 1/ })).toBeTruthy()
   })
 
-  it('shows queue/provider health and explicitly resumes a paused provider', async () => {
-    const paused = runtime()
-    paused.provider = { ...paused.provider, paused: true, reason: 'Verificação humana necessária' }
-    const agents = agentsBridge(paused)
-    agents.resumeProvider = vi.fn(async () => runtime())
+  it('suspends all new agentic work with an automatic resume deadline', async () => {
+    const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    await screen.findByText('Trabalhos agentic')
+    fireEvent.change(screen.getByLabelText('Minutos até retoma automática'), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
+
+    await waitFor(() => expect(agents.pauseProvider).toHaveBeenCalledTimes(1))
+    const pausedUntil = String(agents.pauseProvider.mock.calls[0][0] || '')
+    expect(Date.parse(pausedUntil)).toBeGreaterThan(Date.now() + 29 * 60_000)
+    expect(Date.parse(pausedUntil)).toBeLessThan(Date.now() + 31 * 60_000)
+  })
+
+  it('supports indefinite suspension and explicit resume from the Agents panel', async () => {
+    const agents = agentsBridge()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    const { unmount } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    await screen.findByText('Trabalhos agentic')
+    fireEvent.change(screen.getByLabelText('Modo de retoma'), { target: { value: 'manual' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
+    await waitFor(() => expect(agents.pauseProvider).toHaveBeenCalledWith(undefined))
+    unmount()
+
+    const paused = runtime()
+    paused.provider = { ...paused.provider, paused: true, paused_until: '', reason: 'Suspenso pelo utilizador até retoma manual' }
+    const pausedAgents = agentsBridge(paused)
+    pausedAgents.resumeProvider = vi.fn(async () => runtime())
+    window.wharnessDesktop = { agents: pausedAgents } as unknown as WharnessDesktopBridge
+    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+
     const pausedLabel = await screen.findByText('Pausado globalmente')
     expect(pausedLabel.closest('.agent-runtime-diagnostic-row')?.className).toContain('tone-warning')
-    expect(screen.getByText('WAITING', { selector: '.agent-runtime-queue span' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Retomar provider' }))
-    await waitFor(() => expect(agents.resumeProvider).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Suspensos · retoma manual')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar agora' }))
+    await waitFor(() => expect(pausedAgents.resumeProvider).toHaveBeenCalledTimes(1))
   })
 })

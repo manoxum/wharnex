@@ -5579,6 +5579,23 @@ function registerIPC() {
     await refreshChatAgentRuntimeState()
     return publishChatAgentRuntimeState()
   })
+  ipcMain.handle('wharness:agents:pause-provider', async (event, request) => {
+    trustedSender(event)
+    if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
+    const rawUntil = String(request?.pausedUntil || '').trim()
+    let pausedUntil = null
+    if (rawUntil) {
+      const deadline = Date.parse(rawUntil)
+      if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new Error('Agent resume deadline must be in the future')
+      pausedUntil = new Date(deadline).toISOString()
+    }
+    const reason = pausedUntil
+      ? `Suspenso pelo utilizador até ${pausedUntil}`
+      : 'Suspenso pelo utilizador até retoma manual'
+    await chatAgentScheduler.setProviderPause(true, { pausedUntil, reason })
+    await refreshChatAgentRuntimeState()
+    return publishChatAgentRuntimeState()
+  })
   ipcMain.handle('wharness:agents:resume-provider', async (event) => {
     trustedSender(event)
     if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
