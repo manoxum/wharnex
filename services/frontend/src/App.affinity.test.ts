@@ -52,6 +52,13 @@ describe('App ChatGPT affinity ownership', () => {
     expect(source).not.toMatch(/chatgpt\.organizeConversation\(/)
   })
 
+  it('promotes the planner bundle title and queues the remote rename once', () => {
+    expect(source).toMatch(/const resultTitle = plannerChatTitle\(updated\.last_turn\?\.chat_title\)/)
+    expect(source).toMatch(/resultTitle && targetChat\.naming\?\.state !== 'definitive'/)
+    expect(source).toMatch(/chatgpt\.queueRename\(\{[\s\S]*title: resultTitle/)
+    expect(source).toMatch(/state: 'provisional', attempts: targetChat\.naming\?\.attempts \|\| 0/)
+  })
+
   // Closing a chat is a local decision: enqueue failure may be recorded, but
   // it cannot hold the local chat open or resurrect the visible Supervisor.
   it('archives locally before awaiting the remote worker queue', () => {

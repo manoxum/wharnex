@@ -147,3 +147,22 @@ func TestWorkspaceChatsRejectMissingIdentity(t *testing.T) {
 		t.Fatal("expected listing without a project to be refused")
 	}
 }
+
+func TestUpdateWorkspaceChatRemoteKeepsWHXPrefixOutOfLocalTitle(t *testing.T) {
+	store := NewStore()
+	project := "/home/u/project"
+	chat := chatFixture("a", project)
+	if err := store.SaveWorkspaceChat(chat); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateWorkspaceChatRemote(chat.ID, "https://chatgpt.com/c/abc", "abc", "project", "WHX: Títulos pelo bundle", "ready"); err != nil {
+		t.Fatal(err)
+	}
+	chats, err := store.ListWorkspaceChats(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chats) != 1 || chats[0].Title != "Títulos pelo bundle" || chats[0].RemoteTitle != "WHX: Títulos pelo bundle" {
+		t.Fatalf("unexpected remote title projection: %+v", chats)
+	}
+}

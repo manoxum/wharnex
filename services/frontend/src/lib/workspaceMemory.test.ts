@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
+	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
   durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
 } from './workspaceMemory'
 
@@ -175,9 +175,16 @@ describe('workspace memory', () => {
     expect(loadExecutionHistory('/tmp/project', 'chat-2')).toEqual([])
   })
 
-  it('derives compact chat titles from the first request', () => {
+  it('derives compact provisional chat titles from the first request', () => {
     expect(deriveChatTitle('  corrigir   o erro do login  ')).toBe('corrigir o erro do login')
     expect(deriveChatTitle('x'.repeat(80)).length).toBeLessThanOrEqual(46)
+  })
+
+  it('accepts semantic planner titles and rejects transport boilerplate', () => {
+    expect(plannerChatTitle('WHX: Melhorar títulos dos chats')).toBe('Melhorar títulos dos chats')
+    expect(plannerChatTitle('Processar ZIP')).toBe('')
+    expect(plannerChatTitle('WHARNEX INPUT req_123')).toBe('')
+    expect(plannerChatTitle('req_20260912T222335_af9bc62ec2a19770')).toBe('')
   })
 })
 

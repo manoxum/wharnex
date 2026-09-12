@@ -40,9 +40,9 @@ export type RemoteArchive = {
   lastAttemptAt?: string
 }
 
-// Chats start with a title derived locally from the prompt. A definitive title
-// is one the support engine produced (or the user typed), which is what the
-// naming job looks for.
+// Chats start with a provisional title derived locally from the prompt. A
+// definitive title is the planner-proposed chat_title accepted from the result
+// bundle (or a title the user typed manually).
 export type ChatNaming = {
   state: 'provisional' | 'definitive' | 'unavailable'
   attempts: number
@@ -371,6 +371,15 @@ export function deriveChatTitle(message: string) {
   const compact = message.replace(/\s+/g, ' ').trim()
   if (!compact) return 'Novo chat'
   return compact.length > 46 ? `${compact.slice(0, 43)}…` : compact
+}
+
+export function plannerChatTitle(value: string | undefined) {
+  const compact = String(value || '').replace(/\s+/g, ' ').trim().replace(/^WHX:\s*/i, '')
+  if (!compact) return ''
+  if (/^(?:WHARNEX INPUT|(?:PROCESSAR|PROCESS|RETURN|READ|LER)\s+(?:ZIP|BUNDLE|ARQUIVO|ARCHIVE))(?:\b|$)/i.test(compact)) return ''
+  if (/^(?:ZIP|BUNDLE|NEW TASK|NOVA TAREFA|NOVO CHAT)$/i.test(compact)) return ''
+  if (/^req_[a-z0-9_]+$/i.test(compact)) return ''
+  return Array.from(compact).slice(0, 82).join('')
 }
 
 function validChat(value: WorkspaceChat) {

@@ -153,7 +153,6 @@ const chatGPTOrchestratorPlanInbox = new Map()
 const ORCHESTRATOR_PLAN_INBOX_MAX = 16
 const ORCHESTRATOR_PLAN_INBOX_TTL_MS = 6 * 60 * 60 * 1000
 const pollingExpectedChatGPTBundles = new Set()
-const chatAgentTitleSamples = new Map()
 const chatGPTTransportTails = new Map()
 const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
 let chatGPTSupervisorTransportTail = Promise.resolve()
@@ -3450,11 +3449,7 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
 }
 
 async function preparePromptForChatGPT(request, entryOverride = undefined) {
-  const rawText = String(request?.text || '').trim()
-  const requestedTitle = request?.firstRequest ? normalizeWHXTitle(request?.chatTitle || request?.bootstrapText) : ''
-  const text = requestedTitle
-    ? `${rawText}\n\nWHX CONVERSATION IDENTITY: use the conversation title ${JSON.stringify(requestedTitle)}. Keep this title stable for the full request.`
-    : rawText
+  const text = String(request?.text || '').trim()
   if (!text) throw new Error('Prepared prompt is empty')
   if (text.length > 1024 * 1024) throw new Error('Prepared prompt exceeds 1 MiB limit')
   const key = sanitizeChatCacheKey(request?.cacheKey)
@@ -3512,7 +3507,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
       await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
         expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
         sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
-        projectName: request?.projectName || '', fallbackTitle: requestedTitle, workspaceChatId,
+        projectName: request?.projectName || '', workspaceChatId,
       })
     } catch (error) {
       console.error(`[chatgpt-supervision] submitted request ${requestId} but durable follow-up scheduling failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -3859,7 +3854,6 @@ async function enqueueChatAgentFollowups(key, requestId, conversationURL, values
   const payload = expectedChatAgentPayload(key, requestId, conversationURL, { ...values, requestEligibleAt })
   const common = { key, requestId, rootRequestId: requestId, conversationURL, sessionID: payload.session_id, projectID: values.projectName || '', payload, notBefore: requestEligibleAt }
   await enqueueChatAgentTask('AWAIT_RESPONSE', { ...common, dedupeKey: `await:${requestId}`, maxAttempts: 30 })
-  await enqueueChatAgentTask('TITLE_DISCOVER', { ...common, dedupeKey: `title:${chatAgentConversationID(conversationURL) || key}`, maxAttempts: 8 })
 }
 
 function hydrateExpectedChatAgentBundle(key, task, payload) {
@@ -4077,64 +4071,30 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL)
   return { status: 'done' }
 }
 
-async function enqueueOrganizeFromTitle(task, key, payload, conversationURL, title, parentTaskID = task.task_id) {
-  return enqueueChatAgentTask('ORGANIZE_CHAT', {
-    key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL,
-    parentTaskID, dedupeKey: `organize:${chatAgentConversationID(conversationURL) || key}`,
-    payload: { ...payload, title: normalizeWHXTitle(title), target_url: conversationURL }, maxAttempts: 8,
-  })
-}
-
-async function executeChatAgentTitleDiscover(task, entry, key, payload, conversationURL) {
-  const title = await suggestChatGPTConversationTitle(key, conversationURL, entry)
-  if (title.ok) {
-    const prior = chatAgentTitleSamples.get(task.task_id)
-    if (!prior || prior.title !== title.title) {
-      chatAgentTitleSamples.set(task.task_id, { title: title.title, reads: 1 })
-      return { status: 'waiting', delayMs: 1_500 }
-    }
-    prior.reads += 1
-    if (prior.reads < 2) return { status: 'waiting', delayMs: 1_500 }
-    await enqueueOrganizeFromTitle(task, key, payload, conversationURL, title.title)
-    chatAgentTitleSamples.delete(task.task_id)
-    return { status: 'done' }
-  }
-  if (Number(task.attempt || 0) < 3) return { status: 'waiting', delayMs: 2_500 }
-  if (!(await chatAgentChildExists(task, 'TITLE_GENERATE_TEMP'))) {
-    await enqueueChatAgentTask('TITLE_GENERATE_TEMP', {
-      key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL,
-      parentTaskID: task.task_id, dedupeKey: `title-temp:${chatAgentConversationID(conversationURL) || key}`,
-      payload, maxAttempts: 4,
-    })
-  }
+async function executeChatAgentTitleDiscover() {
+  // Compatibility sink for durable pre-upgrade discovery tasks. Accepted
+  // planner bundles now own naming through turn.chat_title.
   return { status: 'done' }
 }
 
-async function executeChatAgentTempTitle(task, entry, key, payload, conversationURL) {
-  const capsule = String(payload.fallback_title || payload.project_name || `WHX ${task.request_id}`).slice(0, 160)
-  const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
-  const prompt = `Create a concise conversation title for this Wharnex task context. Do not perform the task itself. Context label: ${capsule}`
-  const filled = await target.wc.executeJavaScript(chatGPTFillComposerScript(prompt), true)
-  if (!filled) return { status: 'failed', error: 'temporary title composer could not be filled' }
-  const submitted = await submitChatGPTDraft(key, entry)
-  if (!submitted.accepted) return { status: 'waiting', delayMs: 2_000 }
-  const tempURL = await waitForSubmittedChatGPTConversation(key, entry, target.conversationUrl)
-  if (!tempURL) return { status: 'waiting', delayMs: 2_000 }
-  await enqueueChatAgentTask('TITLE_AWAIT', {
-    key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: tempURL,
-    parentTaskID: task.task_id, dedupeKey: `title-await:${chatAgentConversationID(tempURL)}`,
-    payload: { ...payload, target_url: conversationURL, temp_url: tempURL }, maxAttempts: 8,
-  })
+async function executeChatAgentTempTitle() {
+  // Compatibility sink for durable pre-upgrade tasks. The planner response now
+  // carries chat_title, so this task must never open a temporary conversation.
   return { status: 'done' }
 }
 
 async function executeChatAgentTitleAwait(task, entry, key, payload) {
+  // A temporary conversation may predate this upgrade. Do not use it as a
+  // naming source; only queue its cleanup if it still exists.
   const tempURL = canonicalChatGPTConversationURL(payload.temp_url || '')
-  const targetURL = canonicalChatGPTConversationURL(payload.target_url || '')
-  const suggested = await suggestChatGPTConversationTitle(key, tempURL, entry)
-  if (!suggested.ok && Number(task.attempt || 0) < 4) return { status: 'waiting', delayMs: 2_500 }
-  const title = suggested.ok ? suggested.title : normalizeWHXTitle(payload.fallback_title || task.request_id)
-  await enqueueOrganizeFromTitle(task, key, payload, targetURL, title)
+  if (tempURL && !(await chatAgentChildExists(task, 'DELETE_TEMP_CHAT'))) {
+    await enqueueChatAgentTask('DELETE_TEMP_CHAT', {
+      key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id,
+      conversationURL: tempURL, parentTaskID: task.task_id,
+      dedupeKey: `delete-temp:${chatAgentConversationID(tempURL)}`,
+      payload: { ...payload, target_url: tempURL }, maxAttempts: 8,
+    })
+  }
   return { status: 'done' }
 }
 

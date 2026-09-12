@@ -63,7 +63,7 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 			if responses.Load() == 2 {
 				requestID = "req2"
 			}
-			turn := domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindAnswer, Message: "Resposta baseada no projeto.", Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}}
+			turn := domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: requestID, Kind: domain.TurnKindAnswer, ChatTitle: "Resposta baseada no projeto", Message: "Resposta baseada no projeto.", Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}}
 			encoded, _ := json.Marshal(struct {
 				domain.AgentTurn
 				Plan *domain.ExecutionPlan `json:"plan"`
@@ -89,7 +89,7 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Plan != nil || first.Turn == nil || first.Turn.Kind != domain.TurnKindAnswer || first.ProviderResponseID != "resp1" {
+	if first.Plan != nil || first.Turn == nil || first.Turn.Kind != domain.TurnKindAnswer || first.Turn.ChatTitle != "Resposta baseada no projeto" || first.ProviderResponseID != "resp1" {
 		t.Fatalf("unexpected first result: %#v", first)
 	}
 	second, err := client.Plan(context.Background(), planner.Request{RequestID: "req2", Message: "continue", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}, PreviousResponseID: "resp1"})
@@ -116,6 +116,15 @@ func TestExecutionFormatRequiresExplicitPlannerOutcome(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("outcome missing from structured output requirements: %#v", required)
+	}
+	titleRequired := false
+	for _, field := range required {
+		if field == "chat_title" {
+			titleRequired = true
+		}
+	}
+	if !titleRequired {
+		t.Fatalf("chat_title missing from structured output requirements: %#v", required)
 	}
 	properties := schema["properties"].(map[string]any)
 	outcome := properties["outcome"].(map[string]any)

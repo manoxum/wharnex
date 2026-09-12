@@ -200,10 +200,11 @@ For workflow, use the same shape but EVERY operation.type MUST be command, EVERY
 const ProviderTurnContract = `
 
 PROVIDER TURN OUTPUT — MANDATORY:
-Return one harness.turn/v1 JSON object with: protocol, request_id, kind, message, outcome, plan, plus optional resolved_evidence_ids only for a WHX self-evolution review.
+Return one harness.turn/v1 JSON object with: protocol, request_id, kind, chat_title, message, outcome, plan, plus optional resolved_evidence_ids only for a WHX self-evolution review.
 - protocol is harness.turn/v1.
 - request_id exactly matches the request.
 - kind is answer, clarification, investigation, plan, workflow, change, or blocked.
+- chat_title is mandatory for every new result. Produce a short, human-readable title (normally 3–8 words, maximum 82 characters) that represents the user's actual objective. Derive it from the semantic Main Request, never from transport/bootstrap/archive wording, request ids, filenames, or delivery mechanics. Do not use generic logistics such as "Processar ZIP", "Process ZIP", "Return ZIP", "WHARNEX INPUT", "bundle", or "new task" as the title. Do not prefix it with "WHX:". Keep the title stable across continuation/repair rounds for the same Main Request. Choose this as the name of this conversation; Wharnex will use the returned value to rename the linked ChatGPT conversation after accepting the result.
 - message is the complete user-facing Markdown response for answer/clarification/investigation/plan/blocked; for workflow/change it briefly explains the next step.
 - outcome is required: status is completed, failed, or partial; include a short message, optional machine-readable reason_code, and retryable. This reports planner completion only, never host execution. Set retryable=true only when another fresh request could materially change the evidence/strategy/transient capability; structural or operator-action blockers are retryable=false.
 - plan is null for answer, clarification, investigation, plan and blocked.
@@ -398,7 +399,8 @@ VISIBLE RESPONSE CONTRACT:
 ZIP ROOT CONTRACT:
 - Do NOT wrap the required files inside another top-level directory.
 - README.md MUST exist at ZIP root and MUST contain non-whitespace UTF-8 Markdown.
-- turn.json MUST exist at ZIP root and MUST be UTF-8 harness.turn/v1 with protocol, request_id, kind, message, outcome, plus optional resolved_evidence_ids only when the active WHX review supplied those event IDs.
+- turn.json MUST exist at ZIP root and MUST be UTF-8 harness.turn/v1 with protocol, request_id, kind, chat_title, message, outcome, plus optional resolved_evidence_ids only when the active WHX review supplied those event IDs.
+- chat_title MUST follow the PROVIDER TURN OUTPUT title rules: concise, representative of the actual Main Request, never derived from WHARNEX/ZIP/bundle transport wording, and never prefixed with WHX:.
 - resolved_evidence_ids MUST contain only reviewed events actually fixed by this change. Wharnex validates the selection and records resolution only after successful host Apply.
 - outcome MUST truthfully report whether you completed this request: {"status":"completed","reason_code":"","message":"","retryable":false}, or status=failed/partial with a concrete message and accurate retryable flag. It reports planner completion, never host execution. A failed/partial outcome MUST NOT include plan.json or patches.
 - For kind=change OR kind=workflow, plan.json MUST exist at ZIP root.

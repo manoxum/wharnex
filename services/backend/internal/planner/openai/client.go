@@ -95,6 +95,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 		Protocol  string                `json:"protocol"`
 		RequestID string                `json:"request_id"`
 		Kind      domain.TurnKind       `json:"kind"`
+		ChatTitle string                `json:"chat_title"`
 		Message   string                `json:"message"`
 		Outcome   *domain.TurnOutcome   `json:"outcome"`
 		Plan      *domain.ExecutionPlan `json:"plan"`
@@ -104,7 +105,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	if err := decoder.Decode(&wire); err != nil {
 		return planner.Result{}, fmt.Errorf("decode agent turn: %w", err)
 	}
-	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, Message: wire.Message, Outcome: wire.Outcome}
+	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, ChatTitle: wire.ChatTitle, Message: wire.Message, Outcome: wire.Outcome}
 	return planner.Result{Plan: wire.Plan, Turn: &turn, ProviderResponseID: decoded.ID}, nil
 }
 
@@ -200,11 +201,12 @@ func executionFormat(requestID, baselineSHA256 string) map[string]any {
 	plan := executionPlanSchema(requestID, baselineSHA256)
 	schema := map[string]any{
 		"type": "object", "additionalProperties": false,
-		"required": []string{"protocol", "request_id", "kind", "message", "outcome", "plan"},
+		"required": []string{"protocol", "request_id", "kind", "chat_title", "message", "outcome", "plan"},
 		"properties": map[string]any{
 			"protocol":   map[string]any{"type": "string", "const": domain.TurnProtocolV1},
 			"request_id": map[string]any{"type": "string", "const": requestID},
 			"kind":       map[string]any{"type": "string", "enum": []string{"answer", "clarification", "investigation", "plan", "workflow", "change", "blocked"}},
+			"chat_title": map[string]any{"type": "string", "minLength": 2, "maxLength": 82},
 			"message":    map[string]any{"type": "string"},
 			"outcome": map[string]any{
 				"type": "object", "additionalProperties": false,

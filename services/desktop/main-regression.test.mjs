@@ -886,7 +886,7 @@ test('direct Supervisor writes serialize across chats and preserve the selected 
   }
 })
 
-test('auto submit persists binding and delegates response/title followups to workers', async () => {
+test('auto submit persists binding and delegates response supervision to workers', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
   const end = source.indexOf('\nasync function retryPersistedChatGPTPrompt', start)
@@ -895,8 +895,28 @@ test('auto submit persists binding and delegates response/title followups to wor
   assert.match(prepare, /const workspaceChatId = durableWorkspaceChatID\(key, request\?\.workspaceChatId\)/)
   assert.match(prepare, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort\(workspaceChatId, conversationUrl, \{ remoteState: 'awaiting-response' \}\)/)
   assert.match(prepare, /await enqueueChatAgentFollowups\(key, requestId, conversationUrl/)
+  assert.doesNotMatch(prepare, /WHX CONVERSATION IDENTITY/)
   assert.doesNotMatch(prepare, /organizeChatGPTConversation\(/)
   assert.doesNotMatch(prepare, /publishChatGPTAccountAction\(key, 'organize'/)
+
+  const followups = source.slice(source.indexOf('async function enqueueChatAgentFollowups('), source.indexOf('\nfunction hydrateExpectedChatAgentBundle', source.indexOf('async function enqueueChatAgentFollowups(')))
+  assert.match(followups, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
+  assert.doesNotMatch(followups, /TITLE_DISCOVER/)
+})
+
+test('legacy title tasks cannot create temporary ChatGPT conversations', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const discoverStart = source.indexOf('async function executeChatAgentTitleDiscover(')
+  const discoverEnd = source.indexOf('\nasync function executeChatAgentTempTitle', discoverStart)
+  const discover = source.slice(discoverStart, discoverEnd)
+  assert.match(discover, /Compatibility sink/)
+  assert.doesNotMatch(discover, /suggestChatGPTConversationTitle|TITLE_GENERATE_TEMP|ORGANIZE_CHAT/)
+
+  const tempStart = source.indexOf('async function executeChatAgentTempTitle(')
+  const tempEnd = source.indexOf('\nasync function executeChatAgentTitleAwait', tempStart)
+  const temp = source.slice(tempStart, tempEnd)
+  assert.match(temp, /Compatibility sink/)
+  assert.doesNotMatch(temp, /targetChatGPTComposer|submitChatGPTDraft|TITLE_AWAIT/)
 })
 
 test('confirmed ChatGPT submits treat remote-state and supervision failures as post-submit failures instead of resending', async () => {

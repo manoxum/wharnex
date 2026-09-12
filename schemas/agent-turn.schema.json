@@ -30,6 +30,11 @@
         "blocked"
       ]
     },
+    "chat_title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 82
+    },
     "message": {
       "type": "string",
       "minLength": 1,

@@ -18,7 +18,7 @@ import { RestartConfirmation } from './components/RestartConfirmation'
 import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
-  archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
+  archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
   loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
   conflictChatGPTCacheKey, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
@@ -1285,7 +1285,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     appendChatItem(targetChat, projectPath, userItem)
     const firstRequest = targetChat.title === 'Novo chat' || targetChat.title === 'Chat principal'
     const generatedChatTitle = firstRequest ? deriveChatTitle(message) : targetChat.title
-    if (firstRequest) updateWorkspaceChat(targetChat.id, projectPath, { title: generatedChatTitle })
+    if (firstRequest) updateWorkspaceChat(targetChat.id, projectPath, {
+      title: generatedChatTitle,
+      naming: { state: 'provisional', attempts: targetChat.naming?.attempts || 0 },
+    })
     try {
       const response = await api.message(targetSession.id, message + attachmentPromptSuffix(attachments) + projectFileReferenceSuffix(projectFiles), requestMode)
       const prompt = response.manual_prompt || response.session.last_manual_prompt || ''
@@ -1615,6 +1618,26 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const knowledgeReviewResult = targetSession.pending_knowledge_review_request_id === requestId
       const submission = await api.executionBundle(targetSession.id, filename, contentBase64)
       const updated = submission.session
+      const resultTitle = plannerChatTitle(updated.last_turn?.chat_title)
+      if (resultTitle && targetChat.naming?.state !== 'definitive') {
+        const updatedAt = new Date().toISOString()
+        const naming: ChatNaming = {
+          state: 'definitive', attempts: (targetChat.naming?.attempts || 0) + 1,
+          lastAttemptAt: updatedAt, projectAssigned: Boolean(targetChat.chatgptUrl),
+        }
+        updateWorkspaceChat(targetChat.id, updated.project_path, { title: resultTitle, naming })
+        targetChat = { ...targetChat, title: resultTitle, naming, updatedAt }
+        if (targetChat.chatgptUrl && isDesktop()) {
+          try {
+            await desktopBridge()?.chatgpt.queueRename({
+              cacheKey: targetChat.id, url: targetChat.chatgptUrl, sessionId: updated.id,
+              projectId: updated.project_path, projectName: chatGPTProjectName(updated.project_path), title: resultTitle,
+            })
+          } catch (cause) {
+            console.warn(`[chat-title] planner title accepted locally but remote rename was not queued: ${messageOf(cause)}`)
+          }
+        }
+      }
       // A pending-approval pause (network access, high-risk command, an
       // offline Go module cache that needs a restricted-network retry) is not
       // a failure: the commandbar already shows the exact action to take.
