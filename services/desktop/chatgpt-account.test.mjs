@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  accountFailureDetail,
   chatGPTCommitConversationTitleScript,
   chatGPTConversationTitleScript,
   chatGPTHideSidebarScript,
@@ -125,4 +126,28 @@ test('library cleanup requires exact artifact identity and returns native click 
   assert.match(locate, /rect\(/)
   assert.doesNotMatch(locate, /\.includes\(wantedName\)|startsWith\(wantedName\)/)
   assert.match(state, /artifact-absent/)
+})
+
+// A bare state string cannot tell "this slot has no layout viewport" apart from
+// "this control is genuinely scrolled out of view", which is what let dozens of
+// identical ORGANIZE_CHAT failures accumulate carrying nothing actionable.
+test('an account failure records the shape of the page, never its text', () => {
+  assert.equal(
+    accountFailureDetail({ ok: false, state: 'action-offscreen', viewport: { w: 0, h: 0 } }),
+    'action-offscreen (viewport=0x0)',
+  )
+  assert.equal(
+    accountFailureDetail({ ok: false, state: 'action-offscreen', viewport: { w: 1280, h: 900 } }),
+    'action-offscreen (viewport=1280x900)',
+  )
+
+  // The label set missed every item: the count is what says "retrain the
+  // labels", and it says so without recording what any control reads.
+  const detail = accountFailureDetail({ ok: false, state: 'action-unavailable', available: ['Rename', 'Archive', 'Delete'] })
+  assert.equal(detail, 'action-unavailable (items=3)')
+  for (const label of ['Rename', 'Archive', 'Delete']) assert.ok(!detail.includes(label))
+
+  assert.equal(accountFailureDetail({ ok: false, state: 'project-missing', count: 7 }), 'project-missing (anchors=7)')
+  assert.equal(accountFailureDetail({ ok: false, state: 'menu-unavailable' }), 'menu-unavailable')
+  assert.equal(accountFailureDetail(undefined), 'unknown')
 })
