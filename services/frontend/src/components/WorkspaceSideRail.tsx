@@ -9,6 +9,7 @@ import { EvolutionEvidenceDrawer } from './EvolutionEvidenceDrawer'
 import { ProjectKnowledgeDrawer } from './ProjectKnowledgeDrawer'
 import { GitDrawer } from './GitDrawer'
 import { AgentRuntimeDrawer } from './AgentRuntimeDrawer'
+import { ChatAgentTasksDrawer } from './ChatAgentTasksDrawer'
 import { FilePreviewModal } from './FilePreviewModal'
 import { MarkdownContent } from './MarkdownContent'
 import { loadChat } from '../lib/workspaceMemory'
@@ -22,7 +23,7 @@ import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 // Orchestrator never changes which panel is open or how wide it is. Rendering
 // it once is also what keeps the polling drawers (runtime, Git) from being
 // mounted three times over, which is what a per-mode copy would cost.
-export type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'git' | 'agents' | 'fifo' | 'evolution' | ProjectActivityKind | ''
+export type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 42
@@ -122,6 +123,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggle('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>
       <button type="button" className={drawer === 'git' ? 'active' : ''} onClick={() => toggle('git')} aria-label="Git do projeto" title="Git do projeto"><Icon name="git" size={18}/>{pendingCommitCount > 0 && <b>{pendingCommitCount}</b>}</button>
       <button type="button" className={drawer === 'agents' ? 'active' : ''} onClick={() => toggle('agents')} aria-label="Gestão de agentes" title="Supervisor e Workers"><Icon name="agent" size={18}/></button>
+      <button type="button" className={drawer === 'tasks' ? 'active' : ''} onClick={() => toggle('tasks')} aria-label="Tarefas do runtime" title="Fila e tarefas em execução"><Icon name="list" size={18}/></button>
       <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggle('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>
       <button type="button" className={drawer === 'executions' ? 'active' : ''} onClick={() => toggle('executions')} aria-label="Execuções do projeto" title="Execuções do projeto"><Icon name="terminal" size={18}/></button>
       <button type="button" className={drawer === 'fifo' ? 'active' : ''} onClick={() => toggle('fifo')} aria-label="Fila FIFO de execução" title="Fila FIFO de execução"><Icon name="play" size={18}/>{activeExecutionCount > 0 && <b>{activeExecutionCount}</b>}</button>
@@ -141,6 +143,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
       {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError}/> : null}
       {drawer === 'agents' ? <AgentRuntimeDrawer onClose={close} onError={onError}/> : null}
+      {drawer === 'tasks' ? <ChatAgentTasksDrawer onClose={close} onError={onError}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}
       {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
       {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}

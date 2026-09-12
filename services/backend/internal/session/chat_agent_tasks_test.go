@@ -188,6 +188,36 @@ func TestChatAgentAffinityClaimPrefersResidentLaneAndExcludesOthers(t *testing.T
 	}
 }
 
+func TestListChatAgentTasksActiveOnlyExcludesSettledHistory(t *testing.T) {
+	store := NewStore()
+	done, err := store.EnqueueChatAgentTask(testChatAgentTask("BOT_WRITE", "chat-done", "conv-done", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil || claimed == nil || claimed.TaskID != done.TaskID {
+		t.Fatalf("claim done task: %#v %v", claimed, err)
+	}
+	if _, err := store.StartChatAgentTask(done.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteChatAgentTask(done.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-active", "conv-active", "await:active"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := store.ListChatAgentTasks(ChatAgentTaskFilter{ActiveOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].TaskID != active.TaskID {
+		t.Fatalf("active items=%#v want only %s", items, active.TaskID)
+	}
+}
+
 func TestChatAgentClaimOptionsValidation(t *testing.T) {
 	if _, err := normalizeChatAgentClaimOptions(ChatAgentClaimOptions{FallbackMode: ChatAgentClaimResidentOnly}); err == nil {
 		t.Fatal("resident_only without preferred lane must fail")

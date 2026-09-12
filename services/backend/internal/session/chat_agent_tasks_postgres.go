@@ -88,13 +88,22 @@ func (s *Store) postgresListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAg
 	add("chat_id", filter.ChatID)
 	add("request_id", filter.RequestID)
 	add("status", filter.Status)
+	if filter.ActiveOnly {
+		where = append(where, "status IN ('PENDING','LEASED','RUNNING','WAITING')")
+	}
+	query := `SELECT ` + chatAgentTaskColumns + ` FROM harness_chat_agent_tasks WHERE ` +
+		strings.Join(where, " AND ") + ` ORDER BY created_at, task_id`
 	limit := filter.Limit
-	if limit <= 0 || limit > 500 {
+	if limit > 500 {
+		limit = 500
+	}
+	if limit <= 0 && !filter.ActiveOnly {
 		limit = 200
 	}
-	args = append(args, limit)
-	query := `SELECT ` + chatAgentTaskColumns + ` FROM harness_chat_agent_tasks WHERE ` +
-		strings.Join(where, " AND ") + fmt.Sprintf(` ORDER BY created_at, task_id LIMIT $%d`, len(args))
+	if limit > 0 {
+		args = append(args, limit)
+		query += fmt.Sprintf(` LIMIT $%d`, len(args))
+	}
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list chat agent tasks: %w", err)
