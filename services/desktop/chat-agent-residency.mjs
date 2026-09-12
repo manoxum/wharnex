@@ -203,6 +203,26 @@ export class ChatAgentResidency {
     return true
   }
 
+  /**
+   * Explicitly gives a resident lane back to the pool when another trusted
+   * surface temporarily owns passive observation of that exact conversation.
+   * This is a handoff, so it intentionally bypasses the affinity dwell while
+   * preserving non-preemptive/navigation safety and invalidating stale epochs.
+   */
+  releaseResidentLane(slotId, lane = '') {
+    const state = this.register(slotId)
+    const expected = String(lane || '').trim()
+    if (!state.residentLane || state.nonPreemptive > 0 || state.navigationInProgress) return false
+    if (expected && state.residentLane !== expected) return false
+    state.assignmentEpoch += 1
+    state.residentLane = ''
+    state.pendingLane = ''
+    state.residentSince = 0
+    state.minResidentUntil = 0
+    state.idleSince = 0
+    return true
+  }
+
   cancelAssignment(slotId, epoch) {
     const state = this.register(slotId)
     if (Number(epoch) !== state.assignmentEpoch) return false
