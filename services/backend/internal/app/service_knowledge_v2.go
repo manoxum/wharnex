@@ -7,7 +7,6 @@ import (
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
-	"kernl.local/harness/backend/internal/projectknowledge"
 	"kernl.local/harness/backend/internal/session"
 )
 
@@ -149,24 +148,19 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 				current = domain.ProjectKnowledgeCatalog{ProjectPath: item.ProjectPath, Entries: []domain.ProjectKnowledgeEntry{}}
 			}
 			desired := reconcileKnowledgeCandidate(*candidate, baseEntries, current)
-			// The shareable project files are written at the same terminal boundary
-			// as the DB records. If CAS races, the next iteration reconciles the
-			// concurrent DB catalog and rewrites the files to the final result.
-			if err := projectknowledge.Save(item.ProjectPath, desired); err != nil {
-				return item, fmt.Errorf("persist %s: %w", projectknowledge.DirectoryName, err)
-			}
+			// The local database is the only store. Knowledge is no longer
+			// written into the project tree, so committing it can never dirty
+			// the operator's working tree, collide in a merge, or arrive in
+			// someone else's checkout without them choosing to import it.
 			if sameKnowledgeCatalog(desired, current.Entries) {
 				newRevision = current.Revision
-				if s.bus != nil {
-					s.bus.Publish(sessionID, "knowledge.files_written", map[string]any{"request_id": terminalRequestID, "revision": current.Revision, "entries": len(desired), "path": projectknowledge.DirectoryName})
-				}
 				break
 			}
 			saved, err := s.store.CompareAndSwapProjectKnowledgeCatalog(item.ProjectPath, desired, terminalRequestID, current.Revision)
 			if err == nil {
 				newRevision = saved.Revision
 				if s.bus != nil {
-					s.bus.Publish(sessionID, "knowledge.updated", map[string]any{"request_id": terminalRequestID, "revision": saved.Revision, "entries": len(saved.Entries), "sha256": knowledgeCatalogDigest(saved.Entries), "path": projectknowledge.DirectoryName})
+					s.bus.Publish(sessionID, "knowledge.updated", map[string]any{"request_id": terminalRequestID, "revision": saved.Revision, "entries": len(saved.Entries), "sha256": knowledgeCatalogDigest(saved.Entries), "store": "database"})
 				}
 				break
 			}

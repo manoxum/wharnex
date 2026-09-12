@@ -832,6 +832,12 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if lineage, ok := current.RequestLineages[parsed.Turn.RequestID]; ok && lineage.Kind == requestKindKnowledgeReview {
 		return s.ingestKnowledgeReviewResponse(ctx, sessionID, parsed)
 	}
+	// A consolidation round has no execution to succeed or fail, so it has no
+	// later terminal boundary to stage against: it commits the reorganized
+	// catalog directly and leaves the task's own state untouched.
+	if lineage, ok := current.RequestLineages[parsed.Turn.RequestID]; ok && lineage.Kind == requestKindKnowledgeConsolidation {
+		return s.ingestKnowledgeConsolidationResponse(sessionID, parsed)
+	}
 	// Project knowledge is auxiliary learning metadata staged alongside the
 	// result; it is committed only at the real terminal boundary. Its most
 	// common failure is a pure concurrency artefact — a peer chat advanced the

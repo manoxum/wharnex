@@ -256,6 +256,9 @@ func BuildManualPrompt(req Request) string {
 	if req.PlanningMode == "knowledge_review" {
 		return buildKnowledgeReviewPrompt(req)
 	}
+	if req.PlanningMode == "knowledge_consolidation" {
+		return buildKnowledgeConsolidationPrompt(req)
+	}
 	expectedFilename := req.ExpectedBundleFilename
 	if expectedFilename == "" {
 		// Defensive fallback only: every manual/ZIP-transport caller sets

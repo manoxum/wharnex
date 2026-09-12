@@ -327,7 +327,11 @@ func TestProjectKnowledgeFilesAreImportedBeforePlanning(t *testing.T) {
 	}
 }
 
-func TestCommitPendingKnowledgeWritesShareableProjectFiles(t *testing.T) {
+// Knowledge lives in the local database. Committing it must not touch the
+// project tree: a store inside the repository made every catalog write a
+// working-tree mutation, which is what forced knowledge to carry its own
+// merge-conflict partitioning and its own capture exclusions.
+func TestCommitPendingKnowledgePersistsToTheDatabaseAndNotTheProjectTree(t *testing.T) {
 	root := t.TempDir()
 	store := session.NewStore()
 	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
@@ -354,16 +358,15 @@ func TestCommitPendingKnowledgeWritesShareableProjectFiles(t *testing.T) {
 	if committed.LastMainRequestSummary != "Resumo cumulativo." {
 		t.Fatalf("summary not committed: %q", committed.LastMainRequestSummary)
 	}
-	entries, present, err := projectknowledge.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !present || len(entries) != 1 || entries[0].ID != "apply-order" || !strings.Contains(entries[0].Content, "depois do Apply") {
-		t.Fatalf("shareable project knowledge was not written: present=%v entries=%#v", present, entries)
-	}
 	catalog, ok, err := store.GetProjectKnowledgeCatalog(root)
 	if err != nil || !ok || len(catalog.Entries) != 1 || catalog.Entries[0].ID != "apply-order" {
 		t.Fatalf("DB knowledge record was not committed: ok=%v err=%v catalog=%#v", ok, err, catalog)
+	}
+	if !strings.Contains(catalog.Entries[0].Content, "depois do Apply") {
+		t.Fatalf("committed record lost its content: %#v", catalog.Entries[0])
+	}
+	if _, present, loadErr := projectknowledge.Load(root); loadErr != nil || present {
+		t.Fatalf("committing knowledge must not write into the project tree: present=%v err=%v", present, loadErr)
 	}
 }
 

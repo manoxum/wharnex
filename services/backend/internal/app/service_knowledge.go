@@ -180,38 +180,57 @@ func (s *Service) loadRequestKnowledge(sessionID, projectPath string) (domain.Re
 	return snapshot, nil
 }
 
+// loadProjectKnowledgeCatalog reads the authoritative catalog.
+//
+// The local database is the store. Project files under `.wharnex/knowledge/`
+// are no longer a synchronized mirror: a store that lived in the repository
+// made every catalog write a working-tree mutation, which is why knowledge
+// needed its own merge-conflict partitioning, its own request-base exclusion,
+// and its own context-capture exclusion. Sharing is now an explicit export /
+// import instead of a side effect of checking out a branch.
+//
+// A project that still carries those committed files adopts them exactly once,
+// so upgrading does not look like losing every lesson the project had earned.
+// After adoption the files are never read as a store and never written again.
 func (s *Service) loadProjectKnowledgeCatalog(sessionID, projectPath string) (domain.ProjectKnowledgeCatalog, error) {
-	// The project-side files are the collaboration surface. Read the DB first
-	// and the files second on every CAS attempt: if another chat commits between
-	// those reads, CAS fails and the next iteration observes both fresh states
-	// instead of writing an older file snapshot back over the newer catalog.
-	for attempt := 0; attempt < 3; attempt++ {
-		current, ok, err := s.store.GetProjectKnowledgeCatalog(projectPath)
-		if err != nil {
-			return domain.ProjectKnowledgeCatalog{}, err
-		}
-		if !ok {
-			current = domain.ProjectKnowledgeCatalog{ProjectPath: projectPath, Entries: []domain.ProjectKnowledgeEntry{}}
-		}
-		fileEntries, filesPresent, err := projectknowledge.Load(projectPath)
-		if err != nil {
-			return domain.ProjectKnowledgeCatalog{}, fmt.Errorf("read %s: %w", projectknowledge.DirectoryName, err)
-		}
-		if !filesPresent || (ok && sameKnowledgeCatalog(fileEntries, current.Entries)) {
-			return current, nil
-		}
-		saved, err := s.store.CompareAndSwapProjectKnowledgeCatalog(projectPath, fileEntries, "project-file-sync", current.Revision)
-		if err == nil {
-			if s.bus != nil {
-				s.bus.Publish(sessionID, "knowledge.files_imported", map[string]any{"revision": saved.Revision, "entries": len(saved.Entries), "path": projectknowledge.DirectoryName})
-			}
-			return saved, nil
-		}
-		if !errors.Is(err, session.ErrProjectKnowledgeConflict) {
-			return domain.ProjectKnowledgeCatalog{}, err
-		}
+	current, ok, err := s.store.GetProjectKnowledgeCatalog(projectPath)
+	if err != nil {
+		return domain.ProjectKnowledgeCatalog{}, err
 	}
-	return domain.ProjectKnowledgeCatalog{}, session.ErrProjectKnowledgeConflict
+	if ok {
+		return current, nil
+	}
+	empty := domain.ProjectKnowledgeCatalog{ProjectPath: projectPath, Entries: []domain.ProjectKnowledgeEntry{}}
+	fileEntries, filesPresent, err := projectknowledge.Load(projectPath)
+	if err != nil {
+		// Unreadable legacy files are not equivalent to an empty catalog, but
+		// they must not block a request either: the database is the store, and
+		// it is legitimately empty for a new project.
+		if s.bus != nil {
+			s.bus.Publish(sessionID, "knowledge.legacy_files_unreadable", map[string]any{"path": projectknowledge.DirectoryName, "error": err.Error()})
+		}
+		return empty, nil
+	}
+	if !filesPresent || len(fileEntries) == 0 {
+		return empty, nil
+	}
+	saved, err := s.store.CompareAndSwapProjectKnowledgeCatalog(projectPath, fileEntries, "legacy-file-adoption", 0)
+	if err != nil {
+		if errors.Is(err, session.ErrProjectKnowledgeConflict) {
+			// A peer adopted first. Its result is the catalog.
+			if adopted, found, readErr := s.store.GetProjectKnowledgeCatalog(projectPath); readErr == nil && found {
+				return adopted, nil
+			}
+		}
+		return domain.ProjectKnowledgeCatalog{}, fmt.Errorf("adopt %s: %w", projectknowledge.DirectoryName, err)
+	}
+	if s.bus != nil {
+		s.bus.Publish(sessionID, "knowledge.legacy_files_adopted", map[string]any{
+			"revision": saved.Revision, "entries": len(saved.Entries), "path": projectknowledge.DirectoryName,
+			"note": "project knowledge now lives in the local database; these files are no longer synchronized",
+		})
+	}
+	return saved, nil
 }
 
 func withPlannerKnowledge(request planner.Request, snapshot domain.RequestKnowledgeSnapshot) planner.Request {
