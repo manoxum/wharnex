@@ -31,7 +31,7 @@ type DesktopAgentRuntimeAgent = {
   keep_flowing?: boolean; keep_flowing_active?: boolean; error: string; browser: DesktopAgentRuntimeBrowser; residency?: DesktopAgentRuntimeResidency
 }
 type DesktopAgentRuntimeState = {
-  instance_id: string; desired_workers: number; configured_workers: number; policies: { auto_scale: boolean; keep_flowing_global: boolean; keep_flowing_workers: string[]; auto_scaled_workers: number }; limits: { min_workers: number; max_workers: number; supervisors: number }
+  instance_id: string; desired_workers: number; configured_workers: number; policies: { auto_scale: boolean; auto_scale_max_workers: number; keep_flowing_global: boolean; keep_flowing_workers: string[]; auto_scaled_workers: number }; limits: { min_workers: number; max_workers: number; supervisors: number }
   scheduler: { running: boolean; backend_reachable: boolean; last_refresh_at: string; last_error: string }
   queue: { queued: number; counts: Record<string, number>; due: number; scheduled: number; guarded?: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
   provider: { provider: string; paused: boolean; paused_until: string; reason: string; updated_at: string; rate_limit_level?: number; last_rate_limit_at?: string; last_rate_limit_source?: string; last_valid_bundle_at?: string; average_processing_ms?: number; valid_sample_count?: number; initial_wait_ms?: number }
@@ -115,7 +115,7 @@ interface WharnessDesktopBridge {
   agents: {
     state(): Promise<DesktopAgentRuntimeState>
     setWorkerCount(count: number): Promise<DesktopAgentRuntimeState>
-    setPolicies(policies: { auto_scale?: boolean; keep_flowing_global?: boolean }): Promise<DesktopAgentRuntimeState>
+    setPolicies(policies: { auto_scale?: boolean; auto_scale_max_workers?: number; keep_flowing_global?: boolean }): Promise<DesktopAgentRuntimeState>
     setWorkerKeepFlowing(agentId: string, enabled: boolean): Promise<DesktopAgentRuntimeState>
     pauseProvider(pausedUntil?: string): Promise<DesktopAgentRuntimeState>
     resumeProvider(): Promise<DesktopAgentRuntimeState>

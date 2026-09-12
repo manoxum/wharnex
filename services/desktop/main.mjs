@@ -2048,7 +2048,7 @@ async function reconcileChatAgentAutoScale() {
     const queue = chatAgentQueueDiagnostics(summary)
     chatAgentRuntimeDiagnostics = { ...chatAgentRuntimeDiagnostics, queue }
     const grow = autoScaleTarget({
-      enabled: true, due: queue.due, available: chatAgentAvailableWorkers(), current: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS,
+      enabled: true, due: queue.due, available: chatAgentAvailableWorkers(), current: desiredChatAgentWorkerSlots, maxWorkers: chatAgentPolicies.auto_scale_max_workers,
     })
     if (grow > desiredChatAgentWorkerSlots) {
       console.log(`[chat-agent] auto-scale grow from=${desiredChatAgentWorkerSlots} to=${grow} due=${queue.due}`)

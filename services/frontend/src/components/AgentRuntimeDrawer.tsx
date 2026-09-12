@@ -122,10 +122,18 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
     try { setRuntime(await bridge.setWorkerCount(next)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível escalar os workers') } finally { setBusy(false) }
   }
 
-  const updatePolicies = async (changes: { auto_scale?: boolean; keep_flowing_global?: boolean }) => {
+  const updatePolicies = async (changes: { auto_scale?: boolean; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => {
     if (!bridge) return
     setBusy(true)
     try { setRuntime(await bridge.setPolicies(changes)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível atualizar as políticas dos Workers') } finally { setBusy(false) }
+  }
+
+  const scaleAutoScaleCeiling = async (delta: number) => {
+    if (!runtime) return
+    const ceiling = runtime.policies.auto_scale_max_workers || runtime.limits.max_workers
+    const next = Math.max(runtime.limits.min_workers, Math.min(runtime.limits.max_workers, ceiling + delta))
+    if (next === ceiling) return
+    await updatePolicies({ auto_scale_max_workers: next })
   }
 
   const setWorkerKeepFlowing = async (agentId: string, enabled: boolean) => {
@@ -208,7 +216,8 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
         <div className="agent-runtime-scale-card"><div><strong>Workers</strong><small>Base configurada; extras podem ser geridos por Auto scale</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.configured_workers <= runtime.limits.min_workers} onClick={() => void scaleWorkers(-1)} aria-label="Diminuir workers">−</button><b>{runtime.configured_workers}</b><button disabled={busy || runtime.configured_workers >= runtime.limits.max_workers} onClick={() => void scaleWorkers(1)} aria-label="Aumentar workers">+</button></div></div>
       </div>
       <div className="agent-runtime-scale" aria-label="Políticas dos Workers">
-        <div className="agent-runtime-scale-card"><div><strong>Auto scale</strong><small>Cria um Worker extra quando chega trabalho executável e todos os Workers ativos estão ocupados; nunca ultrapassa {runtime.limits.max_workers}.</small></div><button type="button" className="agent-runtime-resume" aria-pressed={runtime.policies.auto_scale} disabled={busy} onClick={() => void updatePolicies({ auto_scale: !runtime.policies.auto_scale })}>{runtime.policies.auto_scale ? 'Ativo' : 'Inativo'}</button></div>
+        <div className="agent-runtime-scale-card"><div><strong>Auto scale</strong><small>Cria um Worker extra quando chega trabalho executável e todos os Workers ativos estão ocupados, até ao teto configurado.</small></div><button type="button" className="agent-runtime-resume" aria-pressed={runtime.policies.auto_scale} disabled={busy} onClick={() => void updatePolicies({ auto_scale: !runtime.policies.auto_scale })}>{runtime.policies.auto_scale ? 'Ativo' : 'Inativo'}</button></div>
+        <div className="agent-runtime-scale-card"><div><strong>Teto Auto scale</strong><small>Máximo total de Workers que o Auto scale pode atingir; a base manual nunca é reduzida por este teto.</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.policies.auto_scale_max_workers <= runtime.limits.min_workers} onClick={() => void scaleAutoScaleCeiling(-1)} aria-label="Diminuir teto Auto scale">−</button><b>{runtime.policies.auto_scale_max_workers}</b><button disabled={busy || runtime.policies.auto_scale_max_workers >= runtime.limits.max_workers} onClick={() => void scaleAutoScaleCeiling(1)} aria-label="Aumentar teto Auto scale">+</button></div></div>
         <div className="agent-runtime-scale-card"><div><strong>Keep flowing</strong><small>Globalmente fixa cada Worker ao pedido até existir um bundle válido entregue ao processamento; 429 suspende sem abandonar a tarefa.</small></div><button type="button" className="agent-runtime-resume" aria-pressed={runtime.policies.keep_flowing_global} disabled={busy} onClick={() => void updatePolicies({ keep_flowing_global: !runtime.policies.keep_flowing_global })}>{runtime.policies.keep_flowing_global ? 'Global ativo' : 'Global inativo'}</button></div>
       </div>
       <div className="agent-runtime-body">

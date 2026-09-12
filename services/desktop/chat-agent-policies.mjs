@@ -1,8 +1,9 @@
 import { HARD_MAX_WORKER_SLOTS } from './chat-agent-pool.mjs'
 
 export const DEFAULT_CHAT_AGENT_POLICIES = Object.freeze({
-  auto_scale: false,
-  keep_flowing_global: false,
+  auto_scale: true,
+  auto_scale_max_workers: HARD_MAX_WORKER_SLOTS,
+  keep_flowing_global: true,
   keep_flowing_workers: Object.freeze([]),
 })
 
@@ -11,7 +12,7 @@ function workerNumber(value) {
   return match ? Number(match[1]) : 0
 }
 
-export function normalizeChatAgentPolicies(value = {}, maxWorkers = HARD_MAX_WORKER_SLOTS) {
+export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, maxWorkers = HARD_MAX_WORKER_SLOTS) {
   const limit = Math.max(1, Math.floor(Number(maxWorkers) || HARD_MAX_WORKER_SLOTS))
   const workers = Array.isArray(value?.keep_flowing_workers) ? value.keep_flowing_workers : []
   const keepFlowingWorkers = [...new Set(workers
@@ -19,8 +20,13 @@ export function normalizeChatAgentPolicies(value = {}, maxWorkers = HARD_MAX_WOR
     .filter((worker) => worker >= 1 && worker <= limit))]
     .sort((a, b) => a - b)
     .map((worker) => `worker-${worker}`)
+  const requestedAutoScaleMax = Number(value?.auto_scale_max_workers)
+  const autoScaleMaxWorkers = Number.isFinite(requestedAutoScaleMax)
+    ? Math.min(limit, Math.max(1, Math.floor(requestedAutoScaleMax)))
+    : Math.min(limit, DEFAULT_CHAT_AGENT_POLICIES.auto_scale_max_workers)
   return {
     auto_scale: value?.auto_scale === true,
+    auto_scale_max_workers: autoScaleMaxWorkers,
     keep_flowing_global: value?.keep_flowing_global === true,
     keep_flowing_workers: keepFlowingWorkers,
   }

@@ -69,11 +69,13 @@ the latest desired chat and navigates there only after submission is confirmed.
 
 Workers execute autonomous jobs. Scaling up creates additional hidden-by-default slots without
 restarting the scheduler. Scaling down is non-preemptive: excess busy workers finish
-their current job before their renderer is retired. **Auto scale** is an optional runtime
-policy layered on top of the operator's configured Worker count: when claimable work is
-due and no active Worker is available, Wharnex adds one Worker at a time up to the same
-hard maximum of six. When the due backlog clears, auto-created slots drain back to the
-configured count without preempting work already in flight. A provider suspension or 429
+their current job before their renderer is retired. **Auto scale** is enabled globally by
+default and is layered on top of the operator's configured Worker count: when claimable
+work is due and no active Worker is available, Wharnex adds one Worker at a time up to a
+persisted operator-configurable ceiling, itself bounded by the hard maximum of six. The
+default ceiling is six; lowering it constrains only auto-created capacity and never forces
+the manually configured base down. When the due backlog clears, auto-created slots drain
+back to the configured count without preempting work already in flight. A provider suspension or 429
 cooldown never causes Auto scale growth, because extra renderers cannot make a gated
 provider available. Affinity is only a cache preference:
 `chat_id -> conversation_id` is durable state, and a worker may be rebound after
@@ -83,7 +85,7 @@ free slots claim unresident lanes before any resident slot is evicted; and, when
 outnumber slots, only the head of a fair in-memory rotation may rebind after its dwell.
 
 Residency stays a cache and never becomes ownership by default. **Keep flowing** is the
-explicit bounded exception, configurable globally or for an individual Worker. While a
+explicit bounded exception, enabled globally by default and still configurable globally or for an individual Worker. While a
 Worker sponsors a request that still expects its validated response bundle, that Worker
 keeps the resident conversation lane across observation sleeps and same-request recovery
 children instead of rotating to unrelated work. Network/renderer faults reuse the bounded
