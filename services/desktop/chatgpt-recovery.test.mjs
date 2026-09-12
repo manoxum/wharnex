@@ -194,7 +194,7 @@ test('stalled recovery prompt preserves the request and canonical file contract'
   const prompt = chatGPTStalledRecoveryPrompt(
     'req_123',
     'wharness-bundle-req_123.zip',
-    'WHARNESS REMOTE INPUT\nDownload the direct binary ZIP:\nhttps://files.example/input.zip',
+    'WHARNEX REMOTE INPUT\nDownload the direct binary ZIP:\nhttps://files.example/input.zip',
   )
   assert.match(prompt, /SAME REQUEST req_123/)
   assert.match(prompt, /ORIGINAL request/)

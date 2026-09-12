@@ -2,7 +2,7 @@
 set -eu
 
 # Docker socket activation is useful for general CLI ergonomics, but it is unsafe
-# for Wharness to trigger implicitly: starting dockerd can recreate bridges,
+# for Wharnex to trigger implicitly: starting dockerd can recreate bridges,
 # routes, NAT rules and veth devices while Electron/Chromium has live requests.
 if [ "$(uname -s 2>/dev/null || printf unknown)" != "Linux" ]; then
   exit 0
@@ -24,7 +24,7 @@ fi
 
 if systemctl is-active --quiet docker.socket 2>/dev/null; then
   cat >&2 <<'MSG'
-Wharness refused to socket-activate Docker.
+Wharnex refused to socket-activate Docker.
 
 docker.socket is active but docker.service is stopped. Invoking Docker here can
 start dockerd and recreate host bridges/routes/veth interfaces, which may cause

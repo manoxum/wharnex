@@ -367,7 +367,7 @@ func TestRollbackProceedsWhenUnrelatedGitCommitsDoNotOverlapBackupPaths(t *testi
 }
 
 // fakeGitRoot mirrors fakeRoot but as a real Git repository, so
-// PreTransactionSHA is actually captured — every real Wharness project has
+// PreTransactionSHA is actually captured — every real Wharnex project has
 // one (projectgit.Ensure).
 func fakeGitRoot(t *testing.T) string {
 	t.Helper()

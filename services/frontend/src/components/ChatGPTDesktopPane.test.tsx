@@ -235,10 +235,10 @@ describe('ChatGPTDesktopPane', () => {
 
     expect(await screen.findByText('A recuperar a conversa ChatGPT…')).toBeTruthy()
     act(() => authHandler?.({ cacheKey: 'chat-1', provider: 'Google', url: 'https://accounts.google.com/', authMode: 'external', managedWindow: false, managedBrowser: true }))
-    expect(await screen.findByText('Google: conclua a autenticação no navegador seguro aberto pelo Wharness.')).toBeTruthy()
+    expect(await screen.findByText('Google: conclua a autenticação no navegador seguro aberto pelo Wharnex.')).toBeTruthy()
     act(() => resolveNavigation?.({ ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/right' }))
 
-    await waitFor(() => expect(screen.getByText('Google: conclua a autenticação no navegador seguro aberto pelo Wharness.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Google: conclua a autenticação no navegador seguro aberto pelo Wharnex.')).toBeTruthy())
   })
 
   it('covers the Engine while another chat owns the Supervisor transport lease', async () => {

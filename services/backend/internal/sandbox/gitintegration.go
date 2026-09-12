@@ -13,10 +13,10 @@ import (
 
 // gitCommitAuthor* mirror the identity already used for the synthetic
 // sandbox baseline commit (see cloneGitBaseline/initializeWorkspaceGit in
-// copy.go): a fixed, non-human identity for commits Wharness itself makes,
+// copy.go): a fixed, non-human identity for commits Wharnex itself makes,
 // never the operator's own configured Git identity.
 const (
-	gitCommitAuthorName  = "Wharness"
+	gitCommitAuthorName  = "Wharnex"
 	gitCommitAuthorEmail = "wharness@localhost"
 )
 
@@ -125,7 +125,7 @@ func PushBranchToHost(ctx context.Context, sandboxPath, hostPath, branch string)
 
 // hostSnapshotMessage labels the commit that preserves an operator's
 // uncommitted host work before an integration merges on top of it.
-const hostSnapshotMessage = "Wharness host snapshot before integration"
+const hostSnapshotMessage = "Wharnex host snapshot before integration"
 
 // FetchBranchFromHost pulls one branch from the host's own .git directly
 // into repoPath as a plain local branch of the same name (not a
@@ -269,7 +269,7 @@ type CommitSummary struct {
 // This is what turns a conflict capsule from "here are three versions of a
 // file" into "here is what the change you are colliding with was trying to
 // achieve". Resolving a conflict semantically requires knowing the other
-// side's purpose, and for a Wharness-integrated change that purpose is already
+// side's purpose, and for a Wharnex-integrated change that purpose is already
 // recorded — as the commit message the protocol obliges the planner to write.
 func CommitsTouching(ctx context.Context, repoPath, fromSHA, toSHA string, paths []string) ([]CommitSummary, error) {
 	fromSHA = strings.TrimSpace(fromSHA)

@@ -332,7 +332,7 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 	targetCache := filepath.Join(workspace.Path, ".kernl", "go-mod")
 	if command.Network {
 		// A network-approved command resolves modules inside the isolated runner.
-		// Seed it from the Wharness-owned cache when available, but never require
+		// Seed it from the Wharnex-owned cache when available, but never require
 		// either that cache or the host cache before the container can start.
 		if err := os.MkdirAll(targetCache, 0o755); err != nil {
 			return err
@@ -352,7 +352,7 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 		return nil
 	}
 	if workspace.GoModuleCachePath != "" {
-		if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, workspace.GoModuleCachePath, "private Wharness Go module cache"); err == nil {
+		if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, workspace.GoModuleCachePath, "private Wharnex Go module cache"); err == nil {
 			return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
 		}
 		// A failed private-cache attempt may have copied a prefix before finding
@@ -649,7 +649,7 @@ func initializeWorkspaceGit(root string) error {
 	commands := [][]string{
 		{"git", "-C", root, "init", "-q"},
 		{"git", "-C", root, "add", "-A"},
-		{"git", "-C", root, "-c", "user.name=Wharness", "-c", "user.email=wharness@localhost", "-c", "commit.gpgSign=false", "commit", "-q", "--allow-empty", "-m", "Wharness sandbox baseline"},
+		{"git", "-C", root, "-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost", "-c", "commit.gpgSign=false", "commit", "-q", "--allow-empty", "-m", "Wharnex sandbox baseline"},
 	}
 	for _, argv := range commands {
 		cmd := exec.Command(argv[0], argv[1:]...)

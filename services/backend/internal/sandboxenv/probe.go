@@ -92,7 +92,7 @@ func (p *Prober) describeSandbox() Sandbox {
 		Notes: []string{
 			"the workspace is an isolated copy/clone of the project, mounted read-write at /workspace; the container root filesystem is read-only",
 			"all Linux capabilities are dropped and no-new-privileges is set; there is no Docker socket and no host mount",
-			"network is disabled for every command unless the plan explicitly sets network=true, which requires approval; with network off GOPROXY=off, so only modules already in the Wharness-owned cache resolve",
+			"network is disabled for every command unless the plan explicitly sets network=true, which requires approval; with network off GOPROXY=off, so only modules already in the Wharnex-owned cache resolve",
 			"GOCACHE and GOMODCACHE live on the workspace volume, not on the /tmp tmpfs, so a large build is bounded by host disk rather than by tmpfs_size",
 		},
 	}
@@ -139,7 +139,7 @@ func describeBudgets() ProtocolBudgets {
 
 // toolchain returns the runner image's self-declared inventory, probing at
 // most once per toolchainCacheTTL. The image describes itself (via the
-// kernl-toolchain entrypoint baked into it) rather than Wharness maintaining a
+// kernl-toolchain entrypoint baked into it) rather than Wharnex maintaining a
 // parallel list that silently drifts from the Dockerfile.
 func (p *Prober) toolchain(ctx context.Context) ([]Tool, string) {
 	p.mu.Lock()
@@ -316,7 +316,7 @@ func deviceID(path string) (uint64, bool) {
 	return uint64(stat.Dev), true
 }
 
-// backendRunsInContainer reports whether the Wharness backend itself is
+// backendRunsInContainer reports whether the Wharnex backend itself is
 // containerized. It changes what the reported paths mean (the backend's view
 // of a path may differ from the operator's), so the planner is told.
 func backendRunsInContainer() bool {

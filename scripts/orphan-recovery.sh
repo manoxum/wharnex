@@ -22,7 +22,7 @@ verified_process() {
     # A force rebuild may replace the running backend binary atomically. Linux
     # then reports the verified executable with a literal " (deleted)" suffix
     # until the old process exits; retain the environment/root proof rather
-    # than leaving that Wharness process orphaned.
+    # than leaving that Wharnex process orphaned.
     backend)
       environment_matches_root "$pid" || return 1
       case "$executable" in
@@ -54,7 +54,7 @@ terminate_group() {
   verified_process "$label" "$pid" || { echo "Refusing to stop unverified $label process $pid." >&2; exit 1; }
   pgid=$(ps -o pgid= -p "$pid" | tr -d ' ')
   [ -n "$pgid" ] || { echo "Cannot resolve process group for $label process $pid." >&2; exit 1; }
-  printf 'Recovering orphaned Wharness %s process %s...\n' "$label" "$pid"
+  printf 'Recovering orphaned Wharnex %s process %s...\n' "$label" "$pid"
   kill -TERM "-$pgid" 2>/dev/null || true
   attempts=0
   while kill -0 "$pid" 2>/dev/null && [ "$attempts" -lt 40 ]; do

@@ -101,7 +101,7 @@ type RemoteInputChannelSetStore interface {
 }
 
 // RemoteInputSessionStore owns transient transport infrastructure shared by
-// all chats for the lifetime of one running Wharness backend session.
+// all chats for the lifetime of one running Wharnex backend session.
 type RemoteInputSessionStore interface {
 	StartRemoteInputSession(context.Context) error
 	StopRemoteInputSession(context.Context) error

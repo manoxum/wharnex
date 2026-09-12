@@ -47,11 +47,11 @@ fi
 
 # A destructive, irreversible action gets an explicit typed confirmation rather
 # than a yes/no keypress, so it cannot happen by reflex or by a stray Enter.
-if [ "${WHARNESS_RESET_CONFIRM:-}" != "RESET WHARNESS" ]; then
+if [ "${WHARNESS_RESET_CONFIRM:-}" != "RESET WHARNEX" ]; then
   printf '\nThis destroys every session, artifact and local chat in this checkout.\n'
-  printf 'Type exactly: RESET WHARNESS\n> '
+  printf 'Type exactly: RESET WHARNEX\n> '
   read -r answer
-  [ "$answer" = "RESET WHARNESS" ] || { printf 'reset-data: confirmation mismatch; nothing was changed.\n' >&2; exit 1; }
+  [ "$answer" = "RESET WHARNEX" ] || { printf 'reset-data: confirmation mismatch; nothing was changed.\n' >&2; exit 1; }
 fi
 
 if [ "$BACKUP" -eq 1 ] && running "$DB_CONTAINER"; then

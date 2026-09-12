@@ -452,7 +452,7 @@ func randomToken() (string, error) {
 }
 
 func remoteBootstrapPrompt(publicURL, digest, requestID string) string {
-	return fmt.Sprintf(`WHARNESS INPUT %s
+	return fmt.Sprintf(`WHARNEX INPUT %s
 ZIP: %s
 SHA-256: %s
 Download the raw ZIP, read prompt/wharness-planner-prompt.md, then return only wharness-bundle-%s.zip.`, requestID, publicURL, digest, requestID)

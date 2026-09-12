@@ -29,7 +29,7 @@ type quickTunnelStarter interface {
 	Start(context.Context, string) (*url.URL, func(), error)
 }
 
-// TryCloudflareProvider exposes only Wharness-managed ZIP objects through a
+// TryCloudflareProvider exposes only Wharnex-managed ZIP objects through a
 // Cloudflare Quick Tunnel. It never forwards the backend's general HTTP API.
 type TryCloudflareProvider struct {
 	dir            string

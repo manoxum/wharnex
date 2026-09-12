@@ -151,10 +151,10 @@ func TestCanFastForwardBaselineAcrossDisjointCompleteTransitions(t *testing.T) {
 	}
 }
 
-// A project actively developed alongside Wharness (e.g. Wharness's own
+// A project actively developed alongside Wharnex (e.g. Wharnex's own
 // self-evolution against its own source, edited concurrently by a human or
 // another tool) drifts its baseline through edits that never go through
-// Wharness's own Host Apply pipeline, so BaselineNotices — populated only by
+// Wharnex's own Host Apply pipeline, so BaselineNotices — populated only by
 // a peer session's tracked apply — never records them. ProjectRevisions is
 // populated on every context refresh regardless of what caused the SHA to
 // change, so it must be able to reconcile on its own when BaselineNotices is

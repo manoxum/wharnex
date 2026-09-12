@@ -701,7 +701,7 @@ func (a *API) clearStorage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := app.ValidateStorageClearConfirmation(body.Confirm); err != nil {
-		writeError(w, http.StatusBadRequest, "storage_clear_confirmation_required", "type APAGAR WHARNESS to confirm complete Wharness data removal")
+		writeError(w, http.StatusBadRequest, "storage_clear_confirmation_required", "type APAGAR WHARNEX to confirm complete Wharnex data removal")
 		return
 	}
 	if err := a.service.ClearAllData(); err != nil {

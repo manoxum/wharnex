@@ -13,7 +13,7 @@ const inspection = {
     { path: 'src/util.ts', kind: 'file', status: 'included', size: 200 },
     { path: 'node_modules', kind: 'directory', status: 'excluded', reason: 'mandatory security/context exclusion', rule: 'mandatory' },
   ],
-  rules: [{ id: 'mandatory-directories', source: 'Wharness', label: 'Pastas protegidas', enabled: true, patterns: ['node_modules/'], description: 'Nunca entram.' }],
+  rules: [{ id: 'mandatory-directories', source: 'Wharnex', label: 'Pastas protegidas', enabled: true, patterns: ['node_modules/'], description: 'Nunca entram.' }],
 }
 
 describe('ContextInspector', () => {

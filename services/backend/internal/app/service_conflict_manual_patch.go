@@ -176,7 +176,7 @@ func augmentConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPl
 }
 
 func buildHybridConflictResolutionMessage(capsule []byte, remaining, manual []string) string {
-	return fmt.Sprintf(`WHARNESS HYBRID CONFLICT RESOLUTION — harness.conflict/v1
+	return fmt.Sprintf(`WHARNEX HYBRID CONFLICT RESOLUTION — harness.conflict/v1
 
 The operator already resolved these paths manually and they are LOCKED:
 - %s

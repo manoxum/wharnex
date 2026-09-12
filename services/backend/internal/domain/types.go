@@ -39,7 +39,7 @@ type AgentTurn struct {
 }
 
 // TurnOutcome describes whether the planner completed its response. It never
-// claims host execution, which remains an authoritative Wharness result.
+// claims host execution, which remains an authoritative Wharnex result.
 type TurnOutcome struct {
 	Status     string `json:"status"`
 	ReasonCode string `json:"reason_code,omitempty"`
@@ -53,13 +53,13 @@ const (
 	TurnOutcomePartial   = "partial"
 )
 
-// FailureKind is Wharness's own closed-set classification of a terminal
-// session failure. It is always derived by Wharness itself — from a sandbox
+// FailureKind is Wharnex's own closed-set classification of a terminal
+// session failure. It is always derived by Wharnex itself — from a sandbox
 // error via errors.Is, or from a planner turn outcome's reason code — and
 // never copied verbatim from planner-supplied text. Consumers (including the
 // frontend) MUST key recovery affordances on this field, never on error
 // message substrings: message text is free-form prose that can be rephrased
-// or translated, but this field is a value Wharness itself commits to.
+// or translated, but this field is a value Wharnex itself commits to.
 const (
 	// FailureKindOfflineGoModuleCache marks a failure caused by the host Go
 	// module cache being unable to satisfy the project's build list while
@@ -72,7 +72,7 @@ const (
 	// running `make build-stage`) cannot satisfy a pinned dependency's
 	// engine requirement (e.g. Electron requiring a newer Node than the
 	// host has installed). Unlike FailureKindOfflineGoModuleCache, there is
-	// no Wharness-grantable recovery: no source patch can change the host's
+	// no Wharnex-grantable recovery: no source patch can change the host's
 	// installed runtime, so this must never consume a ChatGPT repair round.
 	FailureKindHostBuildToolchain = "host_build_toolchain_mismatch"
 
@@ -96,7 +96,7 @@ const (
 	FailureKindSelfEvolutionMetadata = "self_evolution_transaction_metadata_mismatch"
 
 	// FailureKindStaleHostBaseline marks a retained legacy candidate that could
-	// not be safely replayed/reverified on the current host baseline. Wharness
+	// not be safely replayed/reverified on the current host baseline. Wharnex
 	// must preserve the candidate for explicit retry/review rather than spend a
 	// ChatGPT repair round on baseline metadata.
 	FailureKindStaleHostBaseline = "stale_host_baseline"
@@ -201,7 +201,7 @@ func ValidEffortLevel(level EffortLevel) bool {
 // (Manual — the prompt is only ever shown to the human to copy/paste, and a
 // completed response bundle is only ever imported by the human uploading
 // it). Independent of AutomationMode: Auto+Manual is a valid, meaningful
-// combination — Wharness still decides execute/apply automatically, only
+// combination — Wharnex still decides execute/apply automatically, only
 // the conversation transport itself is human-driven.
 type ChatTransportMode string
 
@@ -530,7 +530,7 @@ func (r ExecutionResult) MarshalJSON() ([]byte, error) {
 }
 
 // BaselineNotice records one project-context transition observed by a peer
-// session. CompleteDelta is false when Wharness could not prove that the peer
+// session. CompleteDelta is false when Wharnex could not prove that the peer
 // observed the immediately preceding baseline, disabling optimistic fast-forward.
 type BaselineNotice struct {
 	ID              string    `json:"id"`

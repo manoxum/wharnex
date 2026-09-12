@@ -289,7 +289,7 @@ func synthesizeREADME(turn domain.AgentTurn, plan *domain.ExecutionPlan) []byte 
 	if message == "" {
 		return nil
 	}
-	return []byte("# Wharness result\n\n> README.md synthesized by Wharness from structured bundle metadata because the transport omitted the documentation file. No executable semantics were inferred.\n\n" + message + "\n")
+	return []byte("# Wharnex result\n\n> README.md synthesized by Wharnex from structured bundle metadata because the transport omitted the documentation file. No executable semantics were inferred.\n\n" + message + "\n")
 }
 
 func normalizedPatchName(value string) (string, error) {

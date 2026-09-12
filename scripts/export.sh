@@ -43,7 +43,7 @@ excludes=(
 source_entries="$(unzip -Z1 "$archive" | awk 'NF {count++} END {print count+0}')"
 source_bytes="$(unzip -l "$archive" | awk 'END {print $1+0}')"
 {
-  printf '# Wharness Export Index\n\n'
+  printf '# Wharnex Export Index\n\n'
   printf -- '- Schema: `wharness.export-index/v1`\n'
   printf -- '- Source entries before synthetic metadata: `%s`\n' "$source_entries"
   printf -- '- Source bytes before ZIP compression: `%s`\n' "$source_bytes"

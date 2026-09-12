@@ -136,5 +136,5 @@ ORIGINAL GOAL:
 
 LAST APPLIED PLAN: %s
 
-Cost/benefit rule: the effort budget is a ceiling, not a quota. Do not create cosmetic churn, speculative rewrites, unrelated refactors, or changes whose expected benefit is weaker than their risk/cost. If no meaningful automated improvement remains, or no safe automated solution exists, STOP by returning a terminal kind=answer with no plan. If a worthwhile improvement remains, return one focused kind=change bundle through the normal Wharness contract.`, effortAttemptLabel(item, attempt), normalizeEffortLevel(item.EffortLevel), round, truncateRepairText(goal, 6000), appliedPlanID)
+Cost/benefit rule: the effort budget is a ceiling, not a quota. Do not create cosmetic churn, speculative rewrites, unrelated refactors, or changes whose expected benefit is weaker than their risk/cost. If no meaningful automated improvement remains, or no safe automated solution exists, STOP by returning a terminal kind=answer with no plan. If a worthwhile improvement remains, return one focused kind=change bundle through the normal Wharnex contract.`, effortAttemptLabel(item, attempt), normalizeEffortLevel(item.EffortLevel), round, truncateRepairText(goal, 6000), appliedPlanID)
 }

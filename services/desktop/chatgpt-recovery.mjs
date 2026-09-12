@@ -261,7 +261,7 @@ export function chatGPTStalledRecoveryPrompt(requestId, filename, originalPrompt
   const repeated = original
     ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this recovery bundle:\n\n${original}`
     : ''
-  return `WHARNESS PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request without restarting or changing scope.${repeated}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharness file-first contract. Finish with the file attachment only.`
+  return `WHARNEX PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request without restarting or changing scope.${repeated}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharnex file-first contract. Finish with the file attachment only.`
 }
 
 function finiteGeneration(value) {

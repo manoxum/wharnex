@@ -189,6 +189,6 @@ func disabledHooksPath(topology Topology) string {
 // CommitAuthorName/CommitAuthorEmail is the fixed non-human identity for every
 // commit Wharnex makes on a host repository, never the operator's own.
 const (
-	CommitAuthorName  = "Wharness"
+	CommitAuthorName  = "Wharnex"
 	CommitAuthorEmail = "wharness@localhost"
 )

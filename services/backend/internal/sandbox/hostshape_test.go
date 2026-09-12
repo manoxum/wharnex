@@ -203,7 +203,7 @@ func TestCaptureWorkingTreeCommitWorksInALinkedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commit, err := CaptureWorkingTreeCommit(context.Background(), linked, "Wharness request base")
+	commit, err := CaptureWorkingTreeCommit(context.Background(), linked, "Wharnex request base")
 	if err != nil {
 		t.Fatalf("request-base capture must work in a linked worktree: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestCaptureWorkingTreeCommitExcludesEmbeddedRepositories(t *testing.T) {
 	mustGit(t, nested, "add", "-A")
 	mustGit(t, nested, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "nested")
 
-	commit, err := CaptureWorkingTreeCommit(context.Background(), host, "Wharness request base")
+	commit, err := CaptureWorkingTreeCommit(context.Background(), host, "Wharnex request base")
 	if err != nil {
 		t.Fatal(err)
 	}

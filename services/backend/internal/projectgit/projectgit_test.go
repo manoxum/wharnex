@@ -101,7 +101,7 @@ func TestCloneRecursivelyInitializesSubmodules(t *testing.T) {
 			t.Fatal(err)
 		}
 		runGit(t, repo, "config", "user.email", "test@example.invalid")
-		runGit(t, repo, "config", "user.name", "Wharness Test")
+		runGit(t, repo, "config", "user.name", "Wharnex Test")
 	}
 	if err := os.WriteFile(filepath.Join(sub, "sub.txt"), []byte("submodule\n"), 0o600); err != nil {
 		t.Fatal(err)

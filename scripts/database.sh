@@ -15,9 +15,9 @@ PROJECT=${WHARNESS_COMPOSE_PROJECT_NAME:-}
 CONTAINER="wharness-postgres-$PROJECT"
 
 require_docker() {
-  command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharness PostgreSQL database.' >&2; exit 1; }
+  command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharnex PostgreSQL database.' >&2; exit 1; }
   WHARNESS_ROOT="$ROOT" "$ROOT/scripts/docker-daemon-guard.sh"
-  docker info >/dev/null 2>&1 || { echo 'The Docker daemon is not available for the Wharness PostgreSQL database.' >&2; exit 1; }
+  docker info >/dev/null 2>&1 || { echo 'The Docker daemon is not available for the Wharnex PostgreSQL database.' >&2; exit 1; }
 }
 
 container_exists() {
@@ -74,15 +74,15 @@ ensure_database() {
   until docker exec "$CONTAINER" pg_isready -q -U wharness -d wharness; do
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 120 ]; then
-      echo 'Wharness PostgreSQL did not become ready.' >&2
+      echo 'Wharnex PostgreSQL did not become ready.' >&2
       exit 1
     fi
     sleep 0.25
   done
   port=$(docker port "$CONTAINER" 5432/tcp | sed -n 's/^127\.0\.0\.1:\([0-9][0-9]*\)$/\1/p' | head -n 1)
-  [ -n "$port" ] || { echo 'Wharness PostgreSQL has no validated loopback port.' >&2; exit 1; }
+  [ -n "$port" ] || { echo 'Wharnex PostgreSQL has no validated loopback port.' >&2; exit 1; }
   password=$(sed -n 's/^POSTGRES_PASSWORD=//p' "$ENV_FILE" | head -n 1)
-  [ -n "$password" ] || { echo 'Wharness PostgreSQL credentials are incomplete.' >&2; exit 1; }
+  [ -n "$password" ] || { echo 'Wharnex PostgreSQL credentials are incomplete.' >&2; exit 1; }
   printf 'postgres://wharness:%s@127.0.0.1:%s/wharness?sslmode=disable\n' "$password" "$port"
 }
 
@@ -93,7 +93,7 @@ stop_database() {
   running=$(docker inspect -f '{{.State.Running}}' "$CONTAINER")
   [ "$running" = true ] || exit 0
   docker stop --time 10 "$CONTAINER" >/dev/null
-  echo 'Wharness PostgreSQL stopped.'
+  echo 'Wharnex PostgreSQL stopped.'
 }
 
 status_database() {

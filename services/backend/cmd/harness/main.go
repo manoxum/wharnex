@@ -32,7 +32,7 @@ import (
 func main() {
 	cfg := config.Load()
 	if cfg.DatabaseURL == "" {
-		log.Fatal("HARNESS_DATABASE_URL is required; start Wharness with the canonical Docker-backed lifecycle")
+		log.Fatal("HARNESS_DATABASE_URL is required; start Wharnex with the canonical Docker-backed lifecycle")
 	}
 	storeCtx, storeCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	store, err := session.NewPostgresStore(storeCtx, cfg.DatabaseURL, cfg.StateFile)

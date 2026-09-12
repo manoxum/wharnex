@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// NewTailscaleFunnelProvider serves the Wharness loopback resource server on
+// NewTailscaleFunnelProvider serves the Wharnex loopback resource server on
 // a port that the user has explicitly configured in Tailscale Funnel. We do
 // not invoke `tailscale funnel` ourselves: it changes shared tailnet ingress
 // state and could overwrite an operator's existing Funnel configuration.

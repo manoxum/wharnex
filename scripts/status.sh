@@ -19,7 +19,7 @@ pid_status() {
   fi
 }
 
-printf 'Wharness status\n'
+printf 'Wharnex status\n'
 pid_status coordinator "$RUN_DIR/coordinator.pid"
 pid_status electron "$RUN_DIR/electron.pid"
 

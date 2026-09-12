@@ -75,7 +75,7 @@ type BundleSubmission struct {
 // maxRetainedProjectRevisions bounds the self-observed baseline history a
 // session keeps (domain.Session.ProjectRevisions). canFastForwardBaseline
 // walks this history to reconcile a pending plan against external filesystem
-// changes it never saw applied through Wharness's own Host Apply pipeline —
+// changes it never saw applied through Wharnex's own Host Apply pipeline —
 // a co-editing tool, a manual git operation, another IDE. A long-pending plan
 // under active concurrent development needs a window wide enough to still
 // find an unbroken chain back to the SHA it was verified against; 64 was
@@ -437,7 +437,7 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 	}
 	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		if mode == domain.ExecutionModeUnprotected && s.isSelfEvolution(*current) {
-			return errors.New("Wharness self-evolution is locked to Protected execution mode")
+			return errors.New("Wharnex self-evolution is locked to Protected execution mode")
 		}
 		if mode == domain.ExecutionModeUnprotected && len(pendingHostChanges(*current)) > 0 {
 			return errors.New("apply or reject the pending Protected changes before switching to Unprotected mode")
@@ -494,7 +494,7 @@ func (s *Service) SetAutomationMode(sessionID string, mode domain.AutomationMode
 // touches that DOM; the prompt is only ever shown for the human to
 // copy/paste, and a response bundle is only ever imported by explicit
 // human upload). No invariant with AutomationMode/ExecutionMode: Manual
-// transport combines validly with any of them, including Auto — Wharness
+// transport combines validly with any of them, including Auto — Wharnex
 // still decides execute/apply automatically, only the conversation
 // transport is human-driven.
 func (s *Service) SetChatTransportMode(sessionID string, mode domain.ChatTransportMode) (domain.Session, error) {
@@ -1305,7 +1305,7 @@ FAILURE REASON:
 RECOVERY STRATEGY RULES:
 - Address the failure reason above directly. Do not repeat a semantically equivalent plan, the same blocked project/root/path strategy, the same unsupported command approach, or merely restate the same blocker.
 - Before returning a new executable result, choose a materially different strategy and make sure it removes the named failure condition.
-- If the blocker cannot be overcome inside the current project root, policy, execution environment, or available evidence, stop and return a terminal blocked result with retryable=false plus the concrete operator action required. Do not ask Wharness to send the same task around again.
+- If the blocker cannot be overcome inside the current project root, policy, execution environment, or available evidence, stop and return a terminal blocked result with retryable=false plus the concrete operator action required. Do not ask Wharnex to send the same task around again.
 - Set retryable=true only when another future request could materially change evidence, strategy, or a transient capability.`, failedRequestID, failureKind, truncateRepairText(current.LastRepairError, 12000))
 	if clean := truncateRepairText(guidance, 4000); clean != "" {
 		message += "\n\nOPTIONAL OPERATOR GUIDANCE:\n" + clean
@@ -1477,7 +1477,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	}
 	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
 	if unprotected && s.isSelfEvolution(item) {
-		return result, item, errors.New("Wharness self-evolution cannot execute in Unprotected mode")
+		return result, item, errors.New("Wharnex self-evolution cannot execute in Unprotected mode")
 	}
 	if (item.Policy.RequiresApproval || unprotected) && !approved {
 		return result, item, ErrApprovalRequired
@@ -1586,7 +1586,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	}
 	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
 	if unprotected && s.isSelfEvolution(item) {
-		return domain.ExecutionResult{}, item, errors.New("Wharness self-evolution cannot execute in Unprotected mode")
+		return domain.ExecutionResult{}, item, errors.New("Wharnex self-evolution cannot execute in Unprotected mode")
 	}
 	if (item.Policy.RequiresApproval || unprotected) && !approved {
 		return domain.ExecutionResult{}, item, ErrApprovalRequired
@@ -2372,21 +2372,21 @@ func buildRepairMessage(item domain.Session, result domain.ExecutionResult, caus
 		}
 		return fmt.Sprintf(`%s
 
-The previous execution bundle was rejected by the Wharness Policy Engine BEFORE any operation was executed.
-Do not ask to relax, bypass, disable, or work around the Policy Engine. Produce a replacement plan for the SAME user intent using only operations and verification commands that are permitted by Wharness policy.
+The previous execution bundle was rejected by the Wharnex Policy Engine BEFORE any operation was executed.
+Do not ask to relax, bypass, disable, or work around the Policy Engine. Produce a replacement plan for the SAME user intent using only operations and verification commands that are permitted by Wharnex policy.
 
 BLOCKED PLAN ID: %s
 POLICY REASONS:
 %s
 
-Use the current Wharness project context as authoritative. Replace denied commands with safe project-local alternatives where possible. Return the corrected plan through the normal Wharness file-first delivery contract.%s`, requestHeading, result.PlanID, truncateRepairText(strings.TrimPrefix(cause.Error(), "policy denied plan:"), 12000), operatorGuidance)
+Use the current Wharnex project context as authoritative. Replace denied commands with safe project-local alternatives where possible. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, result.PlanID, truncateRepairText(strings.TrimPrefix(cause.Error(), "policy denied plan:"), 12000), operatorGuidance)
 	}
-	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharness context."
+	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharnex context."
 	if len(item.PendingHostChanges) > 0 {
-		modeNote = "Verified host-pending changes are retained. Build the correction incrementally against the candidate state produced by the pending patches listed below; Wharness will replay and verify the complete chain in a fresh Protected sandbox before offering Apply again."
+		modeNote = "Verified host-pending changes are retained. Build the correction incrementally against the candidate state produced by the pending patches listed below; Wharnex will replay and verify the complete chain in a fresh Protected sandbox before offering Apply again."
 	}
 	if item.ExecutionMode == domain.ExecutionModeUnprotected {
-		modeNote = "The failed Unprotected execution may have partially changed the host. Wharness refreshed the project context before creating this repair request; use that current context as authoritative."
+		modeNote = "The failed Unprotected execution may have partially changed the host. Wharnex refreshed the project context before creating this repair request; use that current context as authoritative."
 	}
 	var diagnostics strings.Builder
 	for index, command := range result.Commands {
@@ -2400,7 +2400,7 @@ Use the current Wharness project context as authoritative. Replace denied comman
 	}
 	return fmt.Sprintf(`%s
 
-The previous execution plan failed and Wharness captured the failure automatically.
+The previous execution plan failed and Wharnex captured the failure automatically.
 Do not repeat the failed plan unchanged or submit a semantically equivalent strategy. Produce a corrected replacement plan for the SAME user intent, and make the new approach directly eliminate the named failure cause. If the cause cannot be fixed inside the current project/policy/environment, stop with a terminal blocked result using retryable=false and name the operator action required instead of starting another loop.
 %s
 
@@ -2413,7 +2413,7 @@ CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
 
 %s
 
-Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharness file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
+Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
 }
 
 func truncateRepairText(value string, limit int) string {
@@ -2421,7 +2421,7 @@ func truncateRepairText(value string, limit int) string {
 	if len(value) <= limit {
 		return value
 	}
-	return value[:limit] + "\n...[truncated by Wharness]"
+	return value[:limit] + "\n...[truncated by Wharnex]"
 }
 
 func patchPaths(patch string) []string {
@@ -2594,7 +2594,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if selfEvolution {
 		transaction, err = s.selfEvolution.Prepare(sessionID, latestPlanID, patches)
 		if err != nil {
-			return item, fmt.Errorf("prepare Wharness self-evolution transaction: %w", err)
+			return item, fmt.Errorf("prepare Wharnex self-evolution transaction: %w", err)
 		}
 		s.bus.Publish(sessionID, "self_evolution.transaction_started", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 	}
@@ -2840,7 +2840,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 	}
 	if selfEvolution {
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "building", "verified patch applied; building real Wharness host runtime")
+		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "building", "verified patch applied; building real Wharnex host runtime")
 		s.bus.Publish(sessionID, "self_evolution.host_build_started", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 		buildStarted := time.Now().UTC()
 		output, buildErr := s.selfEvolution.BuildHost(ctx, transaction, func(stream, text string) {
@@ -3067,16 +3067,16 @@ func (s *Service) RestartSelfEvolution(sessionID string) (domain.Session, error)
 		return item, err
 	}
 	if !s.isSelfEvolution(item) || (item.SelfEvolutionActivation != "restart_pending" && item.State != "restart_pending") {
-		return item, errors.New("no Wharness self-evolution restart is pending confirmation")
+		return item, errors.New("no Wharnex self-evolution restart is pending confirmation")
 	}
 	transaction, pending, err := s.selfEvolution.ClaimPendingForSession(sessionID)
 	if err != nil {
-		return item, fmt.Errorf("recover pending Wharness self-evolution transaction: %w", err)
+		return item, fmt.Errorf("recover pending Wharnex self-evolution transaction: %w", err)
 	}
 	if err := s.selfEvolution.ScheduleRestart(transaction, sessionID, pending.PlanID); err != nil {
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_pending", "restart confirmation accepted but detached handoff failed: "+err.Error())
 		transaction.ReleaseStage()
-		return item, fmt.Errorf("schedule Wharness restart: %w", err)
+		return item, fmt.Errorf("schedule Wharnex restart: %w", err)
 	}
 	_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_scheduled", "detached restart supervisor accepted the pending self-evolution batch")
 	s.updateSelfEvolutionBatchSessions(transaction, "restart_scheduled", "")

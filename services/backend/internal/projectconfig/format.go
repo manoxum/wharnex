@@ -85,7 +85,7 @@ func parseScalar(value string) (string, error) {
 
 func render(cfg Config) string {
 	var b strings.Builder
-	b.WriteString("# Wharness project configuration. Managed by Wharness; safe to edit.\n")
+	b.WriteString("# Wharnex project configuration. Managed by Wharnex; safe to edit.\n")
 	b.WriteString("version: ")
 	b.WriteString(strconv.Itoa(cfg.Version))
 	b.WriteString("\nproject:\n  name: ")

@@ -20,7 +20,7 @@ func buildKnowledgeConsolidationPrompt(req Request) string {
 	}
 	return fmt.Sprintf(`%s
 
-WHARNESS OUTPUT MODE: FILE_ONLY
+WHARNEX OUTPUT MODE: FILE_ONLY
 EXPECTED_FILE: %s
 Do not answer with chat prose. Build the required ZIP, self-check it, attach exactly that file, and finish.
 

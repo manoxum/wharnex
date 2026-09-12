@@ -39,8 +39,8 @@ export async function restoreBrowserSession(root, raw) {
   if (!Buffer.isBuffer(raw)) raw = Buffer.from(raw)
   if (raw.byteLength > MAX_BROWSER_SESSION_EXPORT_BYTES * 1.5) throw new Error('Browser session import is too large')
   let envelope
-  try { envelope = JSON.parse(raw.toString('utf8')) } catch { throw new Error('Invalid Wharness browser session file') }
-  if (envelope?.format !== BROWSER_SESSION_FORMAT || !Array.isArray(envelope.files)) throw new Error('Unsupported Wharness browser session format')
+  try { envelope = JSON.parse(raw.toString('utf8')) } catch { throw new Error('Invalid Wharnex browser session file') }
+  if (envelope?.format !== BROWSER_SESSION_FORMAT || !Array.isArray(envelope.files)) throw new Error('Unsupported Wharnex browser session format')
   if (envelope.files.length > MAX_BROWSER_SESSION_FILES) throw new Error('Browser session import contains too many files')
   const decoded = []
   let bytes = 0

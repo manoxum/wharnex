@@ -29,7 +29,7 @@ func TestValidateCommitMessageRejectsBookkeepingSubjects(t *testing.T) {
 	// emit. Prose rules that nothing enforces are how they kept appearing.
 	for _, subject := range []string{
 		"chore: update files", "chore: apply patch", "fix: requested changes",
-		"feat: implement task", "fix: miscellaneous fixes", "chore: Wharness-verified change",
+		"feat: implement task", "fix: miscellaneous fixes", "chore: Wharnex-verified change",
 		"chore: updates", "fix: various fixes", "chore: cleanup",
 	} {
 		if err := ValidateCommitMessage(subject); err == nil {

@@ -103,7 +103,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     const unsubscribeAuth = bridge.chatgpt.onExternalAuth(({ cacheKey, provider, url }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
       setExternalAuth({ provider, url })
-      setNotice(`${provider}: conclua a autenticação no navegador seguro aberto pelo Wharness.`)
+      setNotice(`${provider}: conclua a autenticação no navegador seguro aberto pelo Wharnex.`)
     })
     const unsubscribeAuthComplete = bridge.chatgpt.onAuthComplete(({ cacheKey }) => {
       if (cacheKey && cacheKey !== chatIdRef.current) return
@@ -305,7 +305,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
         const confirmed = await confirmDialog({
           title: 'O estado de processamento é ambíguo',
           message: staleTransport
-            ? 'O Wharness detetou um transporte antigo sem atividade enquanto a conversa parece ociosa. Confirme apenas se verificou que a tarefa realmente parou.'
+            ? 'O Wharnex detetou um transporte antigo sem atividade enquanto a conversa parece ociosa. Confirme apenas se verificou que a tarefa realmente parou.'
             : 'O ChatGPT ainda mostra um controlo de processamento, mas esse sinal pode estar desatualizado. Confirme apenas se verificou que a tarefa realmente parou.',
           tone: 'warning', confirmLabel: 'Continuar mesmo assim', cancelLabel: 'Aguardar',
         })
@@ -420,7 +420,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
     {followedAgentId && <div className="desktop-chatgpt-follow"><div><Icon name="monitor" size={13}/><strong>Seguindo {followedAgentId.replace('worker-', 'Worker ')}</strong><small>Instância real do Worker em tempo real; o scheduler continua proprietário.</small></div><button type="button" className="text-button" onClick={() => setFollowedAgentId('')}>Parar de seguir</button></div>}
-    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharness retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
+    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharnex retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
   </div>
 }
 

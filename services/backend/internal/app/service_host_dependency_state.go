@@ -46,7 +46,7 @@ func wrapHostDependencyState(cause error, diagnostic string) error {
 // hostDependencyRemediationSite locates the working directory of the npm/npx
 // project whose host-only dependency state failed verification, by scanning
 // the same pending host changes ApplyToHost itself verifies. It never
-// inspects planner-supplied text: the directory comes only from Wharness's
+// inspects planner-supplied text: the directory comes only from Wharnex's
 // own verified plan data.
 func hostDependencyRemediationSite(pending []domain.PendingHostChange) (cwd string, ok bool) {
 	for index := range pending {

@@ -32,7 +32,7 @@ type Provider interface {
 }
 
 // RequestLeaseProvider keeps a transient transport endpoint alive while a
-// published Wharness request is awaiting its terminal bundle. Providers that
+// published Wharnex request is awaiting its terminal bundle. Providers that
 // do not own a transient endpoint simply do not implement this optional port.
 type RequestLeaseProvider interface {
 	Retain(objectName string) error
@@ -48,7 +48,7 @@ type ChannelProvider interface {
 }
 
 // SessionProvider owns transport infrastructure shared across request
-// channels and releases it only when the Wharness runtime session ends.
+// channels and releases it only when the Wharnex runtime session ends.
 type SessionProvider interface {
 	StartSession(context.Context) error
 	StopSession(context.Context) error

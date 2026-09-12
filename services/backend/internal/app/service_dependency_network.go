@@ -16,7 +16,7 @@ import (
 const goDependencyHydrationTimeoutSeconds = 900
 
 // offlineGoModuleCacheReasonCodes is the closed set of planner-reported
-// reason codes that Wharness recognizes as the same local infrastructure
+// reason codes that Wharnex recognizes as the same local infrastructure
 // fault the sandbox itself raises as sandbox.ErrOfflineDependenciesUnavailable.
 // This set is intentionally small and reviewed by hand: a reason code is
 // planner-supplied text, so admitting it here is a deliberate trust decision,
@@ -48,9 +48,9 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 	"submodule_write":                              domain.FailureKindSubmoduleWrite,
 }
 
-// classifyExecutionFailure derives a domain.FailureKind from a Wharness
+// classifyExecutionFailure derives a domain.FailureKind from a Wharnex
 // sandbox-raised execution error. It is the authoritative classifier: the
-// error originates entirely inside Wharness, never from planner text.
+// error originates entirely inside Wharnex, never from planner text.
 func classifyExecutionFailure(cause error) string {
 	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
 		return domain.FailureKindOfflineGoModuleCache
@@ -107,8 +107,8 @@ func isArtifactStorageFullDiagnostic(text string) bool {
 
 // classifyPlannerOutcomeFailure derives a domain.FailureKind from a planner
 // turn outcome. The reason_code lookup is the primary signal; the message
-// substring fallback catches a planner that echoes Wharness's own error text
-// under a reason code Wharness does not yet recognize. It is deliberately a
+// substring fallback catches a planner that echoes Wharnex's own error text
+// under a reason code Wharnex does not yet recognize. It is deliberately a
 // fallback and not the primary key: reason_code is a stable, closed-vocabulary
 // field the planner is instructed to set, while message is free prose.
 func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {

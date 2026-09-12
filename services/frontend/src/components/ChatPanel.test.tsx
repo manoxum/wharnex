@@ -516,7 +516,7 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('status').textContent).toContain('provider')
   })
 
-  it('keeps system artifact selectors inside the Wharness composer and marks automatic payloads', () => {
+  it('keeps system artifact selectors inside the Wharnex composer and marks automatic payloads', () => {
     render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} artifactSelection={{ context: true, prompt: true, result: false, error: false }} artifactRequired={{ context: true }} onSend={async () => undefined} {...chatActions} />,
     )

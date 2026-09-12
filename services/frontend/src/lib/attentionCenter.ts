@@ -97,7 +97,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
         'submodule-write',
         'danger',
         'Alteração pertence a outro repositório',
-        session.last_repair_error || 'Abra o submódulo indicado como projeto Wharness e repita o pedido nesse repositório.',
+        session.last_repair_error || 'Abra o submódulo indicado como projeto Wharnex e repita o pedido nesse repositório.',
       ))
       failureAlertAdded = true
       break
@@ -110,7 +110,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
       failureAlertAdded = true
       break
     case 'offline_go_module_cache':
-      // RetryDependencyNetwork only recovers a failure raised by Wharness's
+      // RetryDependencyNetwork only recovers a failure raised by Wharnex's
       // own sandbox execution of a plan (see service_dependency_network.go);
       // per SoT/AI_PROTOCOL.md a `blocked`/`failed` planner turn can never
       // carry a plan, so a planner-reported offline_go_module_cache never has
@@ -179,7 +179,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   }
 
   if (session.self_evolution_activation === 'restart_pending') {
-    items.push(item(chat, 'restart-pending', 'warning', 'Reinício do Wharness pendente', 'As alterações já foram aplicadas e construídas; falta confirmar o reinício.', 'plan'))
+    items.push(item(chat, 'restart-pending', 'warning', 'Reinício do Wharnex pendente', 'As alterações já foram aplicadas e construídas; falta confirmar o reinício.', 'plan'))
   }
   if (session.last_turn?.kind === 'clarification') {
     items.push(item(chat, 'clarification', 'warning', 'Resposta necessária', session.last_turn.message || 'O pedido aguarda um esclarecimento para continuar.'))

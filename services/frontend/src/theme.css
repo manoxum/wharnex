@@ -1,5 +1,5 @@
 /*
- * Wharness colour system
+ * Wharnex colour system
  *
  * The base stylesheet owns layout. This layer owns appearance so the light and
  * dark experiences stay visually complete without duplicating component geometry.
@@ -1403,7 +1403,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .theme-preference-control { grid-template-columns: 1fr; }
 }
 
-/* Monaco change diff chrome follows the local Wharness appearance. */
+/* Monaco change diff chrome follows the local Wharnex appearance. */
 :root[data-theme='light'] .change-diff-shell,
 :root[data-theme='light'] .change-diff-loading { background: #f7f8f4; color: #687064; }
 :root[data-theme='light'] .change-diff-toolbar { border-color: #cfd5ca; background: #e7ebe3; }

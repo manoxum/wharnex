@@ -122,7 +122,7 @@ func (s *Service) ClearAllData() error {
 	}
 	// Only remove artifacts explicitly owned by this Service instance above.
 	// A global kernl-workspace-* sweep can delete an active Protected workspace
-	// belonging to another Wharness instance or a concurrent verification.
+	// belonging to another Wharnex instance or a concurrent verification.
 	s.bus.ClearAll()
 	return nil
 }
@@ -208,7 +208,7 @@ func wharnessTempName(name string) bool {
 var errStorageClearConfirmation = errors.New("storage clear confirmation mismatch")
 
 func ValidateStorageClearConfirmation(value string) error {
-	if strings.TrimSpace(value) != "APAGAR WHARNESS" {
+	if strings.TrimSpace(value) != "APAGAR WHARNEX" {
 		return errStorageClearConfirmation
 	}
 	return nil

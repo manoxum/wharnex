@@ -530,11 +530,11 @@ func (s *Service) exhaustConflictResolution(sessionID string, item domain.Sessio
 }
 
 func buildConflictResolutionMessage(capsule []byte, paths []string) string {
-	return fmt.Sprintf(`WHARNESS CONFLICT RESOLUTION PROTOCOL — harness.conflict/v1
+	return fmt.Sprintf(`WHARNEX CONFLICT RESOLUTION PROTOCOL — harness.conflict/v1
 
 This is a focused support turn for a real integration conflict. Preserve the original task intent while reconciling CURRENT with RESULT using BASE as the common ancestor.
 
-Return one normal canonical Wharness change bundle for this request. The plan base_context_sha256 must equal CURRENT REVISION. Its patches may modify ONLY these conflict paths:
+Return one normal canonical Wharnex change bundle for this request. The plan base_context_sha256 must equal CURRENT REVISION. Its patches may modify ONLY these conflict paths:
 - %s
 
 Do not repeat unrelated project work, do not modify non-conflict paths, and do not return a workflow. Resolve every listed conflict in one deliberate bundle. The dedicated conflict surface is independent from the main planning conversation.

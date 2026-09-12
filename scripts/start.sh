@@ -19,7 +19,7 @@ alive() {
 if [ -f "$PID_FILE" ]; then
   pid=$(cat "$PID_FILE" 2>/dev/null || true)
   if alive "$pid"; then
-    printf 'Wharness Desktop is already running (pid %s).\n' "$pid"
+    printf 'Wharnex Desktop is already running (pid %s).\n' "$pid"
     printf 'Use: make status | make logs | make stop\n'
     exit 0
   fi
@@ -29,7 +29,7 @@ fi
 WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
 
 if [ ! -f "$BUILD_STAMP" ]; then
-  echo 'No successful Wharness build is recorded. Run: make build' >&2
+  echo 'No successful Wharnex build is recorded. Run: make build' >&2
   exit 1
 fi
 
@@ -54,7 +54,7 @@ if find \
   ! -name '*.log' \
   ! -name '*.tsbuildinfo' \
   -print -quit 2>/dev/null | grep -q .; then
-  echo 'Wharness build is stale because source/configuration files changed. Run: make build' >&2
+  echo 'Wharnex build is stale because source/configuration files changed. Run: make build' >&2
   exit 1
 fi
 
@@ -107,7 +107,7 @@ pid=$(cat "$PID_FILE")
 i=0
 while [ "$i" -lt 120 ]; do
   if ! alive "$pid"; then
-    echo 'Wharness Desktop failed to start. Last log lines:' >&2
+    echo 'Wharnex Desktop failed to start. Last log lines:' >&2
     tail -n 60 "$LOG_FILE" >&2 || true
     rm -f "$PID_FILE"
     exit 1
@@ -120,7 +120,7 @@ while [ "$i" -lt 120 ]; do
   if [ "$electron_ok" -eq 1 ] && \
      curl -fsS "http://127.0.0.1:$HTTP_PORT/api/health" >/dev/null 2>&1 && \
      curl -fsS "http://127.0.0.1:$WEB_PORT/" >/dev/null 2>&1; then
-    printf 'Wharness Desktop started.\n'
+    printf 'Wharnex Desktop started.\n'
     printf '  coordinator: %s\n' "$pid"
     printf '  backend:     http://127.0.0.1:%s (Compose)\n' "$HTTP_PORT"
     printf '  frontend:    http://127.0.0.1:%s (Compose)\n' "$WEB_PORT"
@@ -131,6 +131,6 @@ while [ "$i" -lt 120 ]; do
   sleep 0.25
 done
 
-echo 'Wharness Desktop did not become fully ready. Last log lines:' >&2
+echo 'Wharnex Desktop did not become fully ready. Last log lines:' >&2
 tail -n 60 "$LOG_FILE" >&2 || true
 exit 1

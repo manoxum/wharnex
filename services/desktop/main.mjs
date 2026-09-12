@@ -219,9 +219,9 @@ function activeChatGPTEntry(windowState) {
 }
 
 // "Supervised" mirrors the desktop composition invariant: a hidden/inactive
-// owned view keeps running at full speed only while Wharness genuinely needs
+// owned view keeps running at full speed only while Wharnex genuinely needs
 // to observe it (an expected bundle download, a pending human action, an
-// in-flight transport request, or account automation). Wharness's own
+// in-flight transport request, or account automation). Wharnex's own
 // detection (executeJavaScript health probes, will-navigate/did-navigate,
 // download events) is driven from this main process on its own timers, not
 // from the ChatGPT page's own JS timers, so it is unaffected by Chromium's
@@ -347,7 +347,7 @@ function acquireProjectForWindow(windowState, value) {
   if (!lock.ok) {
     const owner = desktopWindows.get(lock.ownerWindowId)
     if (owner?.window && !owner.window.isDestroyed()) { owner.window.show(); owner.window.focus() }
-    return { ...lock, message: 'Este projeto já está aberto noutra janela do Wharness. A janela proprietária foi trazida para a frente.' }
+    return { ...lock, message: 'Este projeto já está aberto noutra janela do Wharnex. A janela proprietária foi trazida para a frente.' }
   }
   windowState.projects.add(lock.path)
   return lock
@@ -404,7 +404,7 @@ function consumeRestartIntent() {
 function canonicalBundleFilename(chatId, requestId) {
   const id = String(requestId || '').trim()
   const filename = buildBundleName('res', safeChatId(chatId), id)
-  if (wharnessBundleRequestIdFromFilename(filename) !== id) throw new Error('Invalid Wharness request id for bundle transport')
+  if (wharnessBundleRequestIdFromFilename(filename) !== id) throw new Error('Invalid Wharnex request id for bundle transport')
   return filename
 }
 
@@ -450,7 +450,7 @@ function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, re
 // ChatGPT (submitChatGPTDraft threw before the message was sent) must not be
 // left behind: the DOM poll otherwise treats the still-open, already-settled
 // prior turn as "finished without a bundle" and overwrites the unsent draft
-// with a content-free WHARNESS DELIVERY CONTINUATION nudge instead of
+// with a content-free WHARNEX DELIVERY CONTINUATION nudge instead of
 // surfacing the real send failure to the human.
 function disarmExpectedChatGPTBundle(cacheKey, requestId) {
   const key = sanitizeChatCacheKey(cacheKey)
@@ -717,7 +717,7 @@ function releaseChatGPTView(cacheKey, ownerState) {
   const key = sanitizeChatCacheKey(cacheKey)
   const entry = chatgptViews.get(key)
   if (!entry) return false
-  if (ownerState && entry.ownerWindowId !== ownerState.id) throw new Error('ChatGPT view belongs to another Wharness window')
+  if (ownerState && entry.ownerWindowId !== ownerState.id) throw new Error('ChatGPT view belongs to another Wharnex window')
   if (entry.humanAction?.active) sendToChatGPTKey(key, 'wharness:chatgpt:human-action', { cacheKey: key, active: false, requestId: entry.humanAction.requestId || '', clearedAt: new Date().toISOString(), reason: 'surface released' })
   cancelExternalAuthentication(key)
   clearTimeout(entry.authProbeTimer)
@@ -756,7 +756,7 @@ function currentChatGPTState(cacheKey = '', windowState) {
   const defaultKey = windowState?.activeChatGPTKey || ''
   const key = cacheKey ? sanitizeChatCacheKey(cacheKey) : defaultKey
   const entry = key ? chatgptViews.get(key) : undefined
-  if (entry && windowState && entry.ownerWindowId !== windowState.id) throw new Error('ChatGPT view belongs to another Wharness window')
+  if (entry && windowState && entry.ownerWindowId !== windowState.id) throw new Error('ChatGPT view belongs to another Wharnex window')
   const surfaceDeferred = Boolean(key && deferredSupervisorNavigation?.key === key && (!windowState || deferredSupervisorNavigation.windowState === windowState))
   const wc = entry?.view.webContents
   return {
@@ -833,12 +833,12 @@ function noteChatGPTRendererFault(cacheKey, reason) {
 function chatGPTHumanActionMessage(kind, detail = '') {
   const suffix = String(detail || '').trim()
   if (kind === 'verification') return 'O ChatGPT exige uma verificação humana/anti-robô. Abra o separador ChatGPT e conclua a verificação; a recuperação automática ficou pausada para não reiniciar o desafio.'
-  if (kind === 'authentication') return 'A sessão do ChatGPT precisa de autenticação humana. Abra o separador ChatGPT e conclua o login para o Wharness retomar o pedido.'
+  if (kind === 'authentication') return 'A sessão do ChatGPT precisa de autenticação humana. Abra o separador ChatGPT e conclua o login para o Wharnex retomar o pedido.'
   if (kind === 'access') return 'O ChatGPT bloqueou o acesso ao pedido. Abra o separador ChatGPT e conclua qualquer verificação apresentada antes de continuar.'
   if (kind === 'surface') return 'A interface do ChatGPT deixou de expor o compositor mesmo após uma recarga de recuperação. Abra o separador ChatGPT e confirme se existe um aviso, bloqueio ou alteração de interface.'
   if (kind === 'transport') return `A ligação ao ChatGPT continuou a falhar após as tentativas automáticas${suffix ? ` (${suffix})` : ''}. Verifique a ligação/VPN/proxy e abra o ChatGPT antes de continuar.`
   if (kind === 'stalled') return 'O pedido do ChatGPT continuou sem progresso após a recarga e a única continuação automática permitida. Abra o separador ChatGPT e conclua/retome o pedido manualmente.'
-  return 'O ChatGPT requer uma ação humana antes de o Wharness poder continuar.'
+  return 'O ChatGPT requer uma ação humana antes de o Wharnex poder continuar.'
 }
 
 function setChatGPTHumanAction(cacheKey, kind, detail = '', source = 'dom') {
@@ -1100,14 +1100,14 @@ function registerChatGPTPlanDownloads(chatSession) {
     // Manual chat transport mode: let the download proceed as an ordinary
     // Chromium download (goes to the user's normal Downloads folder) rather
     // than intercepting/validating/auto-importing it — the human is expected
-    // to hand the file to Wharness themselves via the Manual upload UI.
+    // to hand the file to Wharnex themselves via the Manual upload UI.
     if (sourceCacheKey && chatgptTransportModes.get(sourceCacheKey) === 'manual') return
     let bundleCandidate
     try {
       bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '', sourceCacheKey || '', expectedBundle?.filename || '')
     } catch (error) {
       if (error instanceof BundleOwnershipError && error.requestId && error.filename) {
-        // The name is a valid Wharness response bundle; it simply belongs to
+        // The name is a valid Wharnex response bundle; it simply belongs to
         // another request or chat in this workspace — the normal shape of
         // running several chats at once. Cancelling it discarded completed
         // model work and reported a spurious transport failure against the
@@ -1143,7 +1143,7 @@ function registerChatGPTPlanDownloads(chatSession) {
       const total = item.getTotalBytes()
       if (total > MAX_EXECUTION_BUNDLE_BYTES) {
         item.cancel()
-        publishBundleDownloadError('Bundle Wharness excede o limite de 16 MiB.', filename, sourceCacheKey)
+        publishBundleDownloadError('Bundle Wharnex excede o limite de 16 MiB.', filename, sourceCacheKey)
         return
       }
       const dir = pendingBundleDirectory()
@@ -1159,7 +1159,7 @@ function registerChatGPTPlanDownloads(chatSession) {
       item.on('updated', () => {
         if (item.getReceivedBytes() > MAX_EXECUTION_BUNDLE_BYTES) {
           item.cancel()
-          publishBundleDownloadError('Bundle Wharness excede o limite de 16 MiB.', filename, sourceCacheKey)
+          publishBundleDownloadError('Bundle Wharnex excede o limite de 16 MiB.', filename, sourceCacheKey)
         }
       })
       item.once('done', async (_doneEvent, state) => {
@@ -1175,7 +1175,7 @@ function registerChatGPTPlanDownloads(chatSession) {
         let retainedForAcknowledgement = false
         try {
           const bytes = await readFile(savePath)
-          if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharness excede o limite de 16 MiB.')
+          if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharnex excede o limite de 16 MiB.')
           const validated = validateWharnessBundleDownload(filename, bytes)
           if (chatAgentScheduler) {
             const expectedEntry = expectedBundle?.key
@@ -1232,7 +1232,7 @@ function registerChatGPTPlanDownloads(chatSession) {
     const total = item.getTotalBytes()
     if (total > MAX_PLAN_BYTES) {
       item.cancel()
-      publishPlanDownloadError('Plano Wharness excede o limite de 2 MiB.', filename, sourceCacheKey)
+      publishPlanDownloadError('Plano Wharnex excede o limite de 2 MiB.', filename, sourceCacheKey)
       return
     }
 
@@ -1250,7 +1250,7 @@ function registerChatGPTPlanDownloads(chatSession) {
     item.on('updated', () => {
       if (item.getReceivedBytes() > MAX_PLAN_BYTES) {
         item.cancel()
-        publishPlanDownloadError('Plano Wharness excede o limite de 2 MiB.', filename, sourceCacheKey)
+        publishPlanDownloadError('Plano Wharnex excede o limite de 2 MiB.', filename, sourceCacheKey)
       }
     })
 
@@ -1261,7 +1261,7 @@ function registerChatGPTPlanDownloads(chatSession) {
       }
       try {
         const bytes = await readFile(savePath)
-        if (bytes.byteLength > MAX_PLAN_BYTES) throw new Error('Plano Wharness excede o limite de 2 MiB.')
+        if (bytes.byteLength > MAX_PLAN_BYTES) throw new Error('Plano Wharnex excede o limite de 2 MiB.')
         const text = bytes.toString('utf8')
         const validated = validateWharnessPlanFile(filename, text)
         publishPlanDownload({ cacheKey: sourceCacheKey, filename, requestId: validated.requestId, text: validated.text, bytes: bytes.byteLength })
@@ -1560,7 +1560,7 @@ function advanceChatGPTConversationTransportGeneration(entry) {
 }
 
 function createChatGPTView(cacheKey, windowState) {
-  if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT view without an owning Wharness window')
+  if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT view without an owning Wharnex window')
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
   const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, layoutViewportGranted: true, affinity: createChatGPTAffinityTracker() }
@@ -2256,17 +2256,17 @@ function decodeChatAttachmentSet(values) {
 }
 
 function decodeChatArtifactSet(values) {
-  if (!Array.isArray(values) || values.length > MAX_CHAT_ARTIFACTS) throw new Error(`At most ${MAX_CHAT_ARTIFACTS} Wharness artifacts are allowed`)
+  if (!Array.isArray(values) || values.length > MAX_CHAT_ARTIFACTS) throw new Error(`At most ${MAX_CHAT_ARTIFACTS} Wharnex artifacts are allowed`)
   const decoded = values.map((value) => decodeUserAttachment(value, MAX_CHAT_ARTIFACT_BYTES))
   const names = new Set()
   let total = 0
   for (const artifact of decoded) {
     const portableName = artifact.name.toLocaleLowerCase('en-US')
-    if (names.has(portableName)) throw new Error(`Duplicate Wharness artifact filename: ${artifact.name}`)
+    if (names.has(portableName)) throw new Error(`Duplicate Wharnex artifact filename: ${artifact.name}`)
     names.add(portableName)
     total += artifact.bytes.byteLength
   }
-  if (total > MAX_CHAT_ARTIFACTS_BYTES) throw new Error('Wharness artifacts exceed the 6 MiB total limit')
+  if (total > MAX_CHAT_ARTIFACTS_BYTES) throw new Error('Wharnex artifacts exceed the 6 MiB total limit')
   return { decoded, total }
 }
 
@@ -2715,7 +2715,7 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentCo
   const entry = entryOverride || ensureChatGPTView(key).entry
   requireOwnedChatGPTEntry(key, entry)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
-  if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharness.`)
+  if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharnex.`)
   if (expectedURL) {
     const target = requireTrustedChatGPTURL(expectedURL)
     const linkedConversation = canonicalChatGPTConversationURL(target)
@@ -3323,7 +3323,7 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
     return { status: 'waiting', delayMs: continuationDelay, observation: true }
   }
   if (!(await chatAgentChildExists(task, 'RECOVERY_WRITE'))) {
-    const continuation = `WHARNESS DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}\n\nThe previous ChatGPT turn finished without a detected validated downloadable bundle named ${expected.filename}.\nDo not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharness file-first contract. Finish with the file attachment only.${expected.originalPrompt ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${expected.originalPrompt}` : ''}`
+    const continuation = `WHARNEX DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}\n\nThe previous ChatGPT turn finished without a detected validated downloadable bundle named ${expected.filename}.\nDo not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharnex file-first contract. Finish with the file attachment only.${expected.originalPrompt ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${expected.originalPrompt}` : ''}`
     await enqueueChatAgentTask('RECOVERY_WRITE', {
       key, requestId: expected.requestId, rootRequestId: task.root_request_id || expected.requestId,
       conversationURL, parentTaskID: task.task_id, sessionID: expected.sessionId, maxAttempts: 6,
@@ -3636,7 +3636,7 @@ async function queueChatGPTComment(request) {
   if (!comment) throw new Error('Task comment is empty')
   if (comment.length > 16_000) throw new Error('Task comment exceeds 16 KiB limit')
   const expectedFilename = canonicalBundleFilename(key, requestId)
-  const text = `USER COMMENT FOR THE ACTIVE WHARNESS TASK:
+  const text = `USER COMMENT FOR THE ACTIVE WHARNEX TASK:
 ${comment}
 
 Treat this as additional guidance for the SAME task and SAME request. Do not replace, cancel or downgrade the original deliverable. Continue the work and still return the required canonical bundle ${expectedFilename}.`
@@ -3810,7 +3810,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
   expected.settledAt = 0
   expected.lastDOMClick = 0
   console.warn(`[chatgpt-recovery] prompt key=${key} request=${expected.requestId} accepted=true`)
-  sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: 'O ChatGPT continuou parado após a recarga. O Wharness enviou uma instrução automática para retomar o pedido original e concluir a entrega.', capturedAt: new Date().toISOString() })
+  sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: 'O ChatGPT continuou parado após a recarga. O Wharnex enviou uma instrução automática para retomar o pedido original e concluir a entrega.', capturedAt: new Date().toISOString() })
   return true
 }
 
@@ -3837,7 +3837,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
     if (chatgptTransportModes.get(key) === 'manual') { expectedChatGPTBundles.delete(key); return }
     if (now - expected.armedAt > EXPECTED_BUNDLE_TTL_MS) {
       expectedChatGPTBundles.delete(key)
-      sendToChatGPTKey(key, 'wharness:chatgpt:bundle-download-error', { cacheKey: key, requestId: expected.requestId, error: 'Tempo limite excedido enquanto o Wharness aguardava o bundle canónico.' })
+      sendToChatGPTKey(key, 'wharness:chatgpt:bundle-download-error', { cacheKey: key, requestId: expected.requestId, error: 'Tempo limite excedido enquanto o Wharnex aguardava o bundle canónico.' })
       return
     }
     const entry = chatgptViews.get(key)
@@ -3931,7 +3931,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
         return
       }
       if (completion?.thinking === true && completion?.composerReady === true && transport.state !== 'active' && now - lastMeaningfulProgress >= PROCESSING_STALE_ATTENTION_MS) {
-        setChatGPTHumanAction(key, 'stalled', 'O controlo de processamento continua visível, mas não existe atividade de rede nem progresso estrutural recente. O Wharness não interrompeu a tarefa; confirme a conversa ou use “Retomar pedido”.', 'ambiguous-processing-control')
+        setChatGPTHumanAction(key, 'stalled', 'O controlo de processamento continua visível, mas não existe atividade de rede nem progresso estrutural recente. O Wharnex não interrompeu a tarefa; confirme a conversa ou use “Retomar pedido”.', 'ambiguous-processing-control')
         return
       }
       const responseStarted = Number(completion?.assistantCount || 0) > Number(expected.assistantBaseline || 0)
@@ -3964,10 +3964,10 @@ async function pollExpectedChatGPTDownloadKey(key) {
       const continuationDelay = Math.min(30_000, BUNDLE_CONTINUATION_BASE_MS + Number(expected.continuationCount || 0) * 3_000)
       if (expected.lastContinuationAt && now - expected.lastContinuationAt < continuationDelay) return
 
-      const continuation = `WHARNESS DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}
+      const continuation = `WHARNEX DELIVERY CONTINUATION — SAME REQUEST ${expected.requestId}
 
 The previous ChatGPT turn finished without a detected validated downloadable bundle named ${expected.filename}.
-      Do not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharness file-first contract. Finish with the file attachment only.${expected.originalPrompt ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${expected.originalPrompt}` : ''}`
+      Do not restart the analysis, change scope, or answer with prose. Continue from the work already completed and create/attach exactly ${expected.filename} according to the existing Wharnex file-first contract. Finish with the file attachment only.${expected.originalPrompt ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${expected.originalPrompt}` : ''}`
       try {
         await withChatGPTTransportPreparation(key, entry, expected.requestId, async () => {
           if (expectedChatGPTBundles.get(key) !== expected) return
@@ -4015,9 +4015,9 @@ async function exportBrowserSession(windowState) {
   closeAllInternalChatGPTBrowsers()
   const snapshot = await snapshotBrowserSession(chatGPTPartitionPath())
   const result = await dialog.showSaveDialog(windowState?.window, {
-    title: 'Exportar sessão do navegador Wharness',
+    title: 'Exportar sessão do navegador Wharnex',
     defaultPath: path.join(app.getPath('downloads'), `wharness-browser-session-${new Date().toISOString().slice(0, 10)}.whbs`),
-    filters: [{ name: 'Wharness Browser Session', extensions: ['whbs'] }],
+    filters: [{ name: 'Wharnex Browser Session', extensions: ['whbs'] }],
   })
   if (result.canceled || !result.filePath) return { cancelled: true }
   await writeFile(result.filePath, snapshot, { mode: 0o600 })
@@ -4026,10 +4026,10 @@ async function exportBrowserSession(windowState) {
 
 async function importBrowserSession(windowState) {
   const result = await dialog.showOpenDialog(windowState?.window, {
-    title: 'Importar sessão do navegador Wharness',
+    title: 'Importar sessão do navegador Wharnex',
     defaultPath: app.getPath('downloads'),
     properties: ['openFile'],
-    filters: [{ name: 'Wharness Browser Session', extensions: ['whbs'] }],
+    filters: [{ name: 'Wharnex Browser Session', extensions: ['whbs'] }],
   })
   if (result.canceled || result.filePaths.length === 0) return { cancelled: true }
   const raw = await readFile(result.filePaths[0])
@@ -4126,7 +4126,7 @@ function sameConversationURL(left, right) {
 }
 
 function openInternalChatGPTBrowser(windowState, value) {
-  if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot open internal ChatGPT browser without an owning Wharness window')
+  if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot open internal ChatGPT browser without an owning Wharnex window')
   const target = requireTrustedChatGPTURL(value || CHATGPT_URL)
   const existing = internalChatGPTBrowsers.get(windowState.id)
   if (existing && !existing.isDestroyed()) {
@@ -4336,7 +4336,7 @@ function registerIPC() {
     if (deferSupervisorNavigationIfBusy(key, windowState, request)) {
       return currentChatGPTState(key, windowState)
     }
-    // Navigation may already be in flight when a blocking Wharness overlay
+    // Navigation may already be in flight when a blocking Wharnex overlay
     // hides the native WebContentsView. Preserve that visibility decision here:
     // only the explicit show IPC may make the remote view visible again.
     const entry = activateChatGPTView(key, request?.bounds, windowState)
@@ -4630,15 +4630,15 @@ function registerIPC() {
       title: `Selecionar ${expectedFilename}`,
       defaultPath: app.getPath('downloads'),
       properties: ['openFile'],
-      filters: [{ name: 'Wharness bundle ZIP', extensions: ['zip'] }],
+      filters: [{ name: 'Wharnex bundle ZIP', extensions: ['zip'] }],
     })
     if (result.canceled || result.filePaths.length === 0) return { cancelled: true }
     const filePath = result.filePaths[0]
     const sourceFilename = path.basename(filePath)
     const bytes = await readFile(filePath)
-    if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharness excede o limite de 16 MiB.')
+    if (bytes.byteLength > MAX_EXECUTION_BUNDLE_BYTES) throw new Error('Bundle Wharnex excede o limite de 16 MiB.')
     const candidate = canonicalWharnessBundleDownload(sourceFilename, requestId, 'application/zip')
-    if (!candidate) throw new Error('O ficheiro selecionado não é um bundle ZIP Wharness reconhecível.')
+    if (!candidate) throw new Error('O ficheiro selecionado não é um bundle ZIP Wharnex reconhecível.')
     const validated = validateWharnessBundleDownload(candidate.filename, bytes)
     if (validated.requestId !== requestId) throw new Error('O bundle selecionado não pertence ao pedido ativo.')
     return {
@@ -4730,7 +4730,7 @@ function registerIPC() {
   ipcMain.handle('wharness:data:clear-browser-session', async (event) => { trustedSender(event); return clearBrowserSession() })
   ipcMain.handle('wharness:data:clear-all', async (event, request) => {
     trustedSender(event)
-    if (String(request?.confirm || '').trim() !== 'APAGAR WHARNESS') throw new Error('Complete Wharness reset confirmation mismatch')
+    if (String(request?.confirm || '').trim() !== 'APAGAR WHARNEX') throw new Error('Complete Wharnex reset confirmation mismatch')
     return clearDesktopWharnessData()
   })
   ipcMain.handle('wharness:attachments:persist', async (event, request) => {
@@ -4818,7 +4818,7 @@ app.whenReady().then(async () => {
   // Remote ChatGPT gets the minimum browser permissions it needs. In particular,
   // navigator.clipboard.writeText() maps to clipboard-sanitized-write in Electron.
   // We deliberately do NOT grant clipboard-read: importing a response remains an
-  // explicit Wharness action owned by the trusted local renderer/main process.
+  // explicit Wharnex action owned by the trusted local renderer/main process.
   chatSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const requestingURL = details?.requestingUrl || webContents?.getURL() || ''
     const trusted = isTrustedChatGPTOrigin(requestingURL)
@@ -4834,7 +4834,7 @@ app.whenReady().then(async () => {
     return trusted && (permission === 'notifications' || permission === 'clipboard-sanitized-write')
   })
 
-  // Keep the local Wharness composer useful in Portuguese while preserving
+  // Keep the local Wharnex composer useful in Portuguese while preserving
   // English for code/technical terms. Electron only accepts dictionaries that
   // are actually available in the current Chromium build.
   try {

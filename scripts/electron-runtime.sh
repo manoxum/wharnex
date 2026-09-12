@@ -159,7 +159,7 @@ print_failure() {
   cat >&2 <<EOF_FAILURE
 Electron Linux sandbox runtime is unavailable.
 
-Wharness does not make node_modules privileged. npm install/npm ci may replace that
+Wharnex does not make node_modules privileged. npm install/npm ci may replace that
 entire tree, so a SUID chrome-sandbox inside the workspace is not durable.
 
 Required immutable runtime:
@@ -172,7 +172,7 @@ Install/synchronize it once for the current Electron version:
 
 After installation, normal make build / npm install / npm ci operations do not touch
 this runtime. A new install is required only when the pinned Electron version changes.
-Wharness never falls back to --no-sandbox.
+Wharnex never falls back to --no-sandbox.
 EOF_FAILURE
   print_runtime_status >&2 || true
 }
@@ -183,7 +183,7 @@ install_runtime() {
     return 0
   }
   command -v sudo >/dev/null 2>&1 || {
-    echo 'sudo is required for the root-owned Wharness Electron runtime.' >&2
+    echo 'sudo is required for the root-owned Wharnex Electron runtime.' >&2
     exit 1
   }
   command -v sha256sum >/dev/null 2>&1 || {
@@ -299,7 +299,7 @@ EOF_MANIFEST
   chmod 0755 "$source_helper_path"
 
   if ! runtime_is_secure; then
-    echo 'Installed Electron runtime failed the Wharness security validation.' >&2
+    echo 'Installed Electron runtime failed the Wharnex security validation.' >&2
     print_runtime_status >&2 || true
     exit 1
   fi

@@ -102,7 +102,7 @@ export function TunnelProviderSettings({
   async function save() {
     if (!instances || saving) return;
     if (!instanceName.trim())
-      return onError("Dê um nome a esta instância Wharness antes de guardar.");
+      return onError("Dê um nome a esta instância Wharnex antes de guardar.");
     const ids = new Set<string>();
     for (const instance of instances) {
       if (!ID_PATTERN.test(instance.id))
@@ -233,7 +233,7 @@ export function TunnelProviderSettings({
         </span>
       </div>
       <label className="tunnel-instance-identity">
-        <span>Nome desta instância Wharness</span>
+        <span>Nome desta instância Wharnex</span>
         <input
           value={instanceName}
           maxLength={80}
@@ -254,7 +254,7 @@ export function TunnelProviderSettings({
           <div>
             <strong>Configuração guardada</strong>
             <small>
-              Reinicie o Wharness para ativar o novo provider de túnel.
+              Reinicie o Wharnex para ativar o novo provider de túnel.
             </small>
           </div>
         </div>
@@ -378,7 +378,7 @@ export function TunnelProviderSettings({
                     <strong>O provider não está ativo nesta instalação</strong>
                     <small>
                       {health.error ||
-                        "Instale e autentique o cliente standalone antes de reiniciar o Wharness."}
+                        "Instale e autentique o cliente standalone antes de reiniciar o Wharnex."}
                     </small>
                   </div>
                 </div>
@@ -432,7 +432,7 @@ export function TunnelProviderSettings({
                   <div>
                     <strong>Autenticação standalone</strong>
                     <small>
-                      O Wharness reutiliza a sessão local do cliente e não
+                      O Wharnex reutiliza a sessão local do cliente e não
                       guarda credenciais desta conta.
                     </small>
                     {provider.auth_url ? (

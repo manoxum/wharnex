@@ -91,7 +91,7 @@ export function WorkspaceShell() {
     try {
       const bridge = desktopBridge()
       const lock = bridge ? await bridge.projects.acquire(requested) as ProjectLockResult : { ok: true, path: requested }
-      if (!lock.ok) throw new Error(lock.message || 'Este projeto já está aberto noutra janela do Wharness.')
+      if (!lock.ok) throw new Error(lock.message || 'Este projeto já está aberto noutra janela do Wharnex.')
       const canonical = lock.path || requested
       if (!projects.includes(canonical) && projects.length >= MAX_BOUND_PROJECTS) {
         if (bridge) await bridge.projects.release(canonical)
