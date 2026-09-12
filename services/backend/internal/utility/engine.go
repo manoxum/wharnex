@@ -1,7 +1,6 @@
 package utility
 
 import (
-	"context"
 	"errors"
 	"fmt"
 )
@@ -12,7 +11,7 @@ const (
 	MaxMarkdownBytes      = 4 << 20
 )
 
-var ErrUnavailable = errors.New("utility engine is unavailable")
+var ErrUnavailable = errors.New("utility worker is unavailable")
 
 type LanguageCode string
 
@@ -33,10 +32,6 @@ type Result struct {
 	Task           string       `json:"task"`
 	TargetLanguage LanguageCode `json:"target_language"`
 	Markdown       string       `json:"markdown"`
-}
-
-type Engine interface {
-	Execute(context.Context, Request) (Result, error)
 }
 
 func ValidateRequest(request Request) error {

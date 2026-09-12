@@ -236,7 +236,9 @@ export class ChatAgentSchedulerClient {
       } else if (result?.status === 'failed') {
         await this.#transition(task.task_id, 'fail', { owner, error: String(result.error || '') })
       } else {
-        await this.#transition(task.task_id, 'complete', { owner })
+        await this.#transition(task.task_id, 'complete', {
+          owner, ...(result?.payload !== undefined ? { payload: result.payload } : {}),
+        })
       }
       this.onState({ kind: 'settled', worker, task, result })
     } catch (error) {

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -216,7 +217,42 @@ func (s *Store) WaitChatAgentTask(taskID, owner string, notBefore time.Time, det
 }
 
 func (s *Store) CompleteChatAgentTask(taskID, owner string) (ChatAgentTask, error) {
-	return s.transitionChatAgentTask(taskID, owner, ChatAgentTaskDone, time.Time{}, "", false)
+	return s.completeChatAgentTask(taskID, owner, nil)
+}
+
+func (s *Store) CompleteChatAgentTaskWithPayload(taskID, owner string, payload json.RawMessage) (ChatAgentTask, error) {
+	if len(payload) == 0 || !json.Valid(payload) {
+		return ChatAgentTask{}, errors.New("chat agent completion payload must be valid JSON")
+	}
+	return s.completeChatAgentTask(taskID, owner, payload)
+}
+
+func (s *Store) completeChatAgentTask(taskID, owner string, payload json.RawMessage) (ChatAgentTask, error) {
+	if s.db != nil {
+		if len(payload) == 0 {
+			return s.postgresTransitionChatAgentTask(taskID, owner, ChatAgentTaskDone, time.Time{}, "", false)
+		}
+		return s.postgresCompleteChatAgentTask(taskID, owner, payload)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.chatAgentFallback()[taskID]
+	if !ok {
+		return ChatAgentTask{}, ErrChatAgentTaskNotFound
+	}
+	if task.LeaseOwner != owner || strings.TrimSpace(owner) == "" || (task.Status != ChatAgentTaskLeased && task.Status != ChatAgentTaskRunning) {
+		return ChatAgentTask{}, ErrChatAgentLeaseOwner
+	}
+	if len(payload) > 0 {
+		task.Payload = append(json.RawMessage(nil), payload...)
+	}
+	task.Status = ChatAgentTaskDone
+	task.LastError = ""
+	task.LeaseOwner = ""
+	task.LeaseExpiresAt = nil
+	task.UpdatedAt = time.Now().UTC()
+	s.chatAgentFallback()[task.TaskID] = task
+	return task, nil
 }
 
 func (s *Store) FailChatAgentTask(taskID, owner, detail string, attention bool) (ChatAgentTask, error) {

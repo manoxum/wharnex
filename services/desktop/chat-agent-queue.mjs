@@ -5,12 +5,13 @@
 // write non-deduplication and aging rules.
 
 export const TASK_TYPES = Object.freeze([
-  'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER',
+  'TRANSLATE_MARKDOWN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER',
   'TITLE_GENERATE_TEMP', 'TITLE_AWAIT', 'ORGANIZE_CHAT', 'RENAME_CHAT',
   'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT',
 ])
 
 export const TASK_PRIORITY = Object.freeze({
+  TRANSLATE_MARKDOWN: -1,
   BOT_WRITE: 0,
   RECOVERY_WRITE: 0,
   AWAIT_RESPONSE: 1,
@@ -40,7 +41,7 @@ function legacyType(kind) {
 }
 
 function isWrite(type) {
-  return type === 'BOT_WRITE' || type === 'RECOVERY_WRITE'
+  return type === 'TRANSLATE_MARKDOWN' || type === 'BOT_WRITE' || type === 'RECOVERY_WRITE'
 }
 
 function effectivePriority(item, now) {

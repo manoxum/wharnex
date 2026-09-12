@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -111,7 +112,6 @@ type Service struct {
 	orchestratorMu          sync.Mutex
 	orchestratorLocks       map[string]*sync.Mutex
 	artifactStore           ArtifactObjectStore
-	utilityEngine           utility.Engine
 	environment             *sandboxenv.Prober
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
@@ -123,16 +123,65 @@ type Service struct {
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
 
-func (s *Service) SetUtilityEngine(engine utility.Engine) { s.utilityEngine = engine }
-
 func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, target utility.LanguageCode, markdown string) (utility.Result, error) {
 	if _, err := s.GetSession(sessionID); err != nil {
 		return utility.Result{}, err
 	}
-	if s.utilityEngine == nil {
-		return utility.Result{}, utility.ErrUnavailable
+	request := utility.Request{Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown}
+	if err := utility.ValidateRequest(request); err != nil {
+		return utility.Result{}, err
 	}
-	return s.utilityEngine.Execute(ctx, utility.Request{Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown})
+	if markdown == "" {
+		return utility.Result{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target}, nil
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return utility.Result{}, fmt.Errorf("encode markdown translation task: %w", err)
+	}
+	task, err := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
+		Type: "TRANSLATE_MARKDOWN", ChatID: sessionID, SessionID: sessionID,
+		Payload: payload, MaxAttempts: 2,
+	})
+	if err != nil {
+		return utility.Result{}, fmt.Errorf("enqueue markdown translation worker: %w", err)
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(12 * time.Minute)
+	defer timeout.Stop()
+	for {
+		current, getErr := s.store.GetChatAgentTask(task.TaskID)
+		if getErr != nil {
+			return utility.Result{}, fmt.Errorf("read markdown translation worker: %w", getErr)
+		}
+		switch current.Status {
+		case session.ChatAgentTaskDone:
+			var result utility.Result
+			if err := json.Unmarshal(current.Payload, &result); err != nil {
+				return utility.Result{}, fmt.Errorf("decode markdown translation worker result: %w", err)
+			}
+			if result.Protocol != utility.ProtocolV1 || result.Task != utility.TaskTranslateMarkdown || result.TargetLanguage != target {
+				return utility.Result{}, errors.New("markdown translation worker returned mismatched protocol metadata")
+			}
+			if len(result.Markdown) > utility.MaxMarkdownBytes*2 {
+				return utility.Result{}, errors.New("markdown translation worker result exceeds size limit")
+			}
+			return result, nil
+		case session.ChatAgentTaskFailed, session.ChatAgentTaskAttention, session.ChatAgentTaskCancelled:
+			detail := strings.TrimSpace(current.LastError)
+			if detail == "" {
+				detail = "markdown translation worker did not complete"
+			}
+			return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, detail)
+		}
+		select {
+		case <-ctx.Done():
+			return utility.Result{}, ctx.Err()
+		case <-timeout.C:
+			return utility.Result{}, fmt.Errorf("%w: markdown translation worker timed out", utility.ErrUnavailable)
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {

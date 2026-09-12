@@ -20,6 +20,20 @@ test('typed queue prioritizes bot write over due await and lifecycle', async () 
   await Promise.all([archive, awaitResponse, write])
 })
 
+
+test('markdown translation outranks ordinary chat writes', async () => {
+  const queue = new ChatAgentQueue()
+  const write = queue.enqueueTask({ type: 'BOT_WRITE', chatId: 'write' })
+  const translation = queue.enqueueTask({ type: 'TRANSLATE_MARKDOWN', chatId: 'translation' })
+  const first = queue.take()
+  const second = queue.take()
+  assert.equal(first.type, 'TRANSLATE_MARKDOWN')
+  assert.equal(second.type, 'BOT_WRITE')
+  settleJob(first, null, true)
+  settleJob(second, null, true)
+  await Promise.all([write, translation])
+})
+
 test('not_before keeps bounded probes out of contention', async () => {
   let now = 1_000
   const queue = new ChatAgentQueue({ now: () => now })
@@ -62,7 +76,7 @@ test('aging promotes maintenance without overtaking P0 writes', async () => {
 })
 
 test('task catalog covers approved scheduler verbs', () => {
-  for (const type of ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
+  for (const type of ['TRANSLATE_MARKDOWN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
     assert.ok(TASK_TYPES.includes(type), type)
   }
 })

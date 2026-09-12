@@ -1377,3 +1377,23 @@ test('a worker that takes a task yields its place in the rotation', async () => 
   const execute = source.slice(start, source.indexOf('\n  switch (task.type)', start))
   assert.match(execute, /chatAgentResidency\.noteAssignment\(entry\.slotId\)/)
 })
+
+
+test('markdown translation worker imports only an exact bounded UTF-8 artifact, never assistant prose', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const executeStart = source.indexOf('async function executeChatAgentMarkdownTranslation(')
+  const executeEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', executeStart)
+  const worker = source.slice(executeStart, executeEnd)
+  assert.notEqual(executeStart, -1)
+  assert.match(worker, /chatGPTExpectedDownloadScript\(filename, assistantBaseline\)/)
+  assert.match(worker, /chatGPTResponseCompletionScript\(assistantBaseline\)/)
+  assert.doesNotMatch(worker, /textContent|innerText|chatGPTVisibleActivityScript/)
+  assert.match(worker, /expectedChatGPTTranslations\.set\(filename, expected\)/)
+
+  const downloadStart = source.indexOf('function registerChatGPTMarkdownTranslationDownload(')
+  const downloadEnd = source.indexOf('\nfunction registerChatGPTPlanDownloads', downloadStart)
+  const download = source.slice(downloadStart, downloadEnd)
+  assert.match(download, /MAX_MARKDOWN_TRANSLATION_RESULT_BYTES/)
+  assert.match(download, /new TextDecoder\('utf-8', \{ fatal: true \}\)/)
+  assert.match(download, /\^whx_translation_cat_/)
+})

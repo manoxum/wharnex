@@ -75,6 +75,17 @@ func (s *Store) postgresEnqueueChatAgentTask(task ChatAgentTask) (ChatAgentTask,
 	return task, nil
 }
 
+func (s *Store) postgresGetChatAgentTask(taskID string) (ChatAgentTask, error) {
+	task, err := scanChatAgentTask(s.db.QueryRow(`SELECT `+chatAgentTaskColumns+` FROM harness_chat_agent_tasks WHERE task_id=$1`, taskID))
+	if err == sql.ErrNoRows {
+		return ChatAgentTask{}, ErrChatAgentTaskNotFound
+	}
+	if err != nil {
+		return ChatAgentTask{}, fmt.Errorf("get chat agent task: %w", err)
+	}
+	return task, nil
+}
+
 func (s *Store) postgresListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask, error) {
 	where := []string{"TRUE"}
 	args := make([]any, 0, 4)
@@ -191,8 +202,8 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 				WHERE w.task_id<>t.task_id AND w.status IN ('LEASED','RUNNING') AND w.lease_expires_at>now()
 				  AND w.conversation_id=t.conversation_id
 				  AND (
-					t.type IN ('BOT_WRITE','RECOVERY_WRITE','ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_TEMP_CHAT')
-					OR w.type IN ('BOT_WRITE','RECOVERY_WRITE','ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_TEMP_CHAT')
+					t.type IN ('TRANSLATE_MARKDOWN','BOT_WRITE','RECOVERY_WRITE','ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_TEMP_CHAT')
+					OR w.type IN ('TRANSLATE_MARKDOWN','BOT_WRITE','RECOVERY_WRITE','ORGANIZE_CHAT','RENAME_CHAT','ARCHIVE_CHAT','DELETE_CHAT','DELETE_TEMP_CHAT')
 				  )
 			)
 		  )
@@ -223,6 +234,21 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 		return nil, fmt.Errorf("commit chat agent claim: %w", err)
 	}
 	return &task, nil
+}
+
+func (s *Store) postgresCompleteChatAgentTask(taskID, owner string, payload []byte) (ChatAgentTask, error) {
+	row := s.db.QueryRow(`UPDATE harness_chat_agent_tasks
+		SET status='DONE', payload=$3::jsonb, last_error='', lease_owner='', lease_expires_at=NULL, updated_at=now()
+		WHERE task_id=$1 AND lease_owner=$2 AND status IN ('LEASED','RUNNING')
+		RETURNING `+chatAgentTaskColumns, taskID, owner, payload)
+	task, err := scanChatAgentTask(row)
+	if err == sql.ErrNoRows {
+		return ChatAgentTask{}, ErrChatAgentLeaseOwner
+	}
+	if err != nil {
+		return ChatAgentTask{}, fmt.Errorf("complete chat agent task with payload: %w", err)
+	}
+	return task, nil
 }
 
 func (s *Store) postgresTransitionChatAgentTask(taskID, owner, status string, notBefore time.Time, detail string, observation bool) (ChatAgentTask, error) {
