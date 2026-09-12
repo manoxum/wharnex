@@ -190,6 +190,17 @@ describe('AgentWorkspace', () => {
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
   })
 
+  it('removes execute affordances while the active plan is already being dispatched or executed', () => {
+    const running = session()
+    running.interrupted_execution = { plan_id: running.plan!.plan_id, requested_at: '2026-09-12T19:00:00.000Z', approved: false, status: 'running' }
+    const runningView = props(running)
+    const rendered = render(runningView.element)
+    expect(screen.queryByRole('button', { name: 'Executar plano na sandbox' })).toBeNull()
+
+    rendered.rerender(props(session(), {}, true).element)
+    expect(screen.queryByRole('button', { name: 'Executar plano na sandbox' })).toBeNull()
+  })
+
   it('lets users manually reorder chat tabs by drag and keyboard', () => {
     const view = props()
     render(view.element)

@@ -8,6 +8,7 @@ import { desktopWindowScope } from '../lib/projectBindings'
 import { ATTENTION_ACTION_LABEL, sessionCanApplyHost, sessionHostResolutionBlocked, summarizeAttention, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { AttentionPopover } from './AttentionPopover'
 import { api } from '../lib/api'
+import { sessionCanExecutePlan } from '../lib/executionRecovery'
 
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
 const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
@@ -106,7 +107,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     if (!inspectorAttention?.nonce) return
     setInspectorTab(inspectorAttention.tab)
   }, [inspectorAttention])
-  const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
+  const canExecute = sessionCanExecutePlan(session)
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
   const pendingCount = session.pending_host_changes?.length || 0
@@ -215,7 +216,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
           {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention} onClose={closeAttentionPopover}/>}
         </div>}
         {session.policy && <span className={`agent-policy-icon ${session.policy.allowed ? '' : 'blocked'}`} title={session.policy.allowed ? `Policy autorizada · risco ${session.policy.risk}` : 'Policy bloqueada'} aria-label={session.policy.allowed ? `Policy autorizada, risco ${session.policy.risk}` : 'Policy bloqueada'}><Icon name="shield" size={14}/></span>}
-        {canExecute && !needsApproval && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}
+        {canExecute && !needsApproval && !busy && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}
         {canApply && activeCommandAttention?.action !== 'retry-host-apply' && <button type="button" className="agent-command-icon apply" disabled={busy} onClick={() => void inspectorProps.onApply()} aria-label="Aplicar alterações verificadas no host" title={`Aplicar ${pendingCount > 1 ? `${pendingCount} alterações verificadas` : 'alteração verificada'} no host`}><Icon name="apply" size={15}/>{pendingCount > 1 && <b>{pendingCount}</b>}</button>}
         {activeCommandAttention?.action && <button type="button" className={`agent-command-icon attention ${activeCommandAttention.tone}`} disabled={busy} onClick={() => void runAttentionAction(activeCommandAttention)} aria-label={`Ação disponível: ${ATTENTION_ACTION_LABEL[activeCommandAttention.action]}`} title={`${activeCommandAttention.title} · ${ATTENTION_ACTION_LABEL[activeCommandAttention.action]}`}><Icon name={activeCommandAttention.action.includes('host') ? 'apply' : activeCommandAttention.action.includes('dependency') || activeCommandAttention.action === 'retry-transport' ? 'network' : 'play'} size={15}/></button>}
         {canReject && <button type="button" className="agent-command-icon reject" disabled={busy} onClick={() => void inspectorProps.onRejectPendingChanges?.()} aria-label={session.integration_conflict ? 'Cancelar resolução e rejeitar alterações' : 'Rejeitar alterações verificadas'} title={session.integration_conflict ? 'Cancelar conflito e rejeitar a candidata' : 'Rejeitar alterações verificadas'}><Icon name="trash" size={14}/></button>}

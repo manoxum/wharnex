@@ -53,6 +53,26 @@ describe('Inspector plan compatibility', () => {
   })
 })
 
+it('hides the execute control while the active plan already has a durable execution intent', () => {
+  const session = legacySession()
+  session.interrupted_execution = { plan_id: session.plan!.plan_id, requested_at: '2026-09-12T19:00:00.000Z', approved: false, status: 'running' }
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onApply={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
+})
+
 it('shows workflow as a local probe without exposing change execution controls', () => {
   const session = legacySession()
   session.automation_mode = 'auto'
@@ -234,19 +254,21 @@ describe('Inspector ChatGPT engine pool (desktop)', () => {
     const desktop = desktopBridge(); window.wharnessDesktop = desktop
     const chatA = workspaceChat('chat-a', 'Chat A')
     const chatB = workspaceChat('chat-b', 'Chat B')
+    const sessionA = { ...legacySession(), id: chatA.sessionId }
+    const sessionB = { ...legacySession(), id: chatB.sessionId }
     const props = {
       config: { planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false } as const,
-      session: legacySession(), events: [], manualPrompt: '', busy: false, chats: [chatA, chatB],
+      events: [], manualPrompt: '', busy: false, chats: [chatA, chatB],
       onChatGPTURL: () => true, onExecute: async () => undefined, onApply: async () => undefined,
       onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
     }
-    const view = render(<Inspector {...props} chat={chatA} />)
+    const view = render(<Inspector {...props} session={sessionA} chat={chatA} />)
 
     await waitFor(() => expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(1))
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-a', expect.anything()))
     expect(desktop.chatgpt.state).toHaveBeenCalledTimes(1)
 
-    act(() => { view.rerender(<Inspector {...props} chat={chatB} />) })
+    act(() => { view.rerender(<Inspector {...props} session={sessionB} chat={chatB} />) })
 
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-b', expect.anything()))
     expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(1)
@@ -286,9 +308,10 @@ describe('Inspector Manual chat transport mode', () => {
   it('never shows the active native ChatGPT view even when Desktop is present', async () => {
     const desktop = desktopBridge(); window.wharnessDesktop = desktop
     const chatA = workspaceChat('chat-a', 'Chat A')
+    const session = { ...manualSession(), id: chatA.sessionId }
     render(<Inspector
       config={{ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
-      session={manualSession()}
+      session={session}
       events={[]}
       manualPrompt="prompt para copiar"
       busy={false}

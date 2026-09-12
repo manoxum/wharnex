@@ -1486,16 +1486,26 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		return result, item, ErrApprovalRequired
 	}
 	planID := item.Plan.PlanID
-	item, err = s.store.Update(sessionID, func(current *domain.Session) error {
+	updated, updateErr := s.store.Update(sessionID, func(current *domain.Session) error {
 		if current.Plan == nil || current.Plan.PlanID != planID {
 			return errors.New("plan changed before execution intent could be recorded")
+		}
+		if planExecutionAlreadyCompleted(*current, planID) {
+			return fmt.Errorf("plan %s already executed successfully; submit a new change request instead of executing it again", planID)
+		}
+		if current.InterruptedExecution != nil && current.InterruptedExecution.PlanID == planID {
+			return fmt.Errorf("plan %s already has an execution in progress or pending recovery", planID)
 		}
 		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: planID, RequestedAt: time.Now().UTC(), Approved: approved, Status: domain.InterruptedExecutionRunning}
 		return nil
 	})
-	if err != nil {
-		return result, item, err
+	if updateErr != nil {
+		if current, getErr := s.store.Get(sessionID); getErr == nil {
+			item = current
+		}
+		return result, item, updateErr
 	}
+	item = updated
 
 	result, item, err = s.executeRecorded(ctx, sessionID, approved)
 	// Cancellation is ambiguous: the frontend, Desktop, backend, or runner may

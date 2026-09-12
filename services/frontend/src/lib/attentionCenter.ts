@@ -1,6 +1,6 @@
 import type { Session } from '../types'
 import type { WorkspaceChat } from './workspaceMemory'
-import { executionNeedsAttention } from './executionRecovery'
+import { executionNeedsAttention, sessionCanExecutePlan } from './executionRecovery'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
@@ -117,7 +117,7 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
 
   const pendingCount = session.pending_host_changes?.length || 0
   const canApply = sessionCanApplyHost(session)
-  const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
+  const canExecute = sessionCanExecutePlan(session)
   let failureAlertAdded = false
 
   if (session.integration_conflict) {
