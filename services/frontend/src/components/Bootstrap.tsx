@@ -3,6 +3,7 @@ import type { AppConfig } from '../types'
 import { desktopBridge, isDesktop } from '../lib/desktop'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
+import { SignalCore } from './SignalCore'
 
 type SetupMode = 'open' | 'create' | 'clone'
 
@@ -57,7 +58,8 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
     <main className="bootstrap-shell">
       <section className="bootstrap-card bootstrap-card-wide">
         <div className="bootstrap-theme-toggle"><ThemeToggle /></div>
-        <div className="brand-lockup"><div className="brand-mark">WHX</div><div><strong>Wharnex</strong><span>Local Agent Harness</span></div></div>
+        <SignalCore size="watermark" decorative />
+        <div className="brand-lockup"><SignalCore size="large" decorative /><div><strong>Wharnex</strong><span>Local Agent Harness</span></div></div>
         <div className="bootstrap-copy">
           <span className="eyebrow">Execution workspace</span>
           <h1>{restoring ? 'A reabrir o seu workspace…' : <>Abra, crie ou clone.<br />O contexto vem depois.</>}</h1>

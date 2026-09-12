@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
 import { InstanceBadge } from './InstanceBadge'
+import { SignalCore } from './SignalCore'
 
 export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, instanceID, restartPending = false, restartBlocked = false, busy, onMode, onRestartPending, onSettings, onClose }: {
   config?: AppConfig
@@ -32,7 +33,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
   }, [session.id, session.artifacts?.length])
   return <header className="workspace-topbar">
     <div className="workspace-identity">
-      <div className="brand-mark">K</div>
+      <SignalCore size="regular" decorative />
       <div><strong>{projectName}</strong><span title={session.project_path}>{session.project_path}</span></div>
     </div>
     <div className="workspace-switches">
