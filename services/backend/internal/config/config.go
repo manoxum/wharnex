@@ -30,6 +30,7 @@ type Config struct {
 	AllowLocalSandbox     bool
 	FrontendOrigin        string
 	InstanceID            string
+	Version               string
 	StateFile             string
 	LanguageSettingsFile  string
 	ExecutionSettingsFile string
@@ -135,6 +136,7 @@ func Load() Config {
 		Addr:                  env("HARNESS_ADDR", "127.0.0.1:8080"),
 		FrontendOrigin:        env("HARNESS_FRONTEND_ORIGIN", "http://127.0.0.1:5173"),
 		InstanceID:            env("HARNESS_INSTANCE_ID", ""),
+		Version:               readProjectVersion(os.Getenv("WHARNESS_ROOT")),
 		DatabaseURL:           strings.TrimSpace(os.Getenv("HARNESS_DATABASE_URL")),
 		Planner:               env("HARNESS_PLANNER", "manual"),
 		Sandbox:               env("HARNESS_SANDBOX", "docker"),

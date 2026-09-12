@@ -361,6 +361,7 @@ export type AppConfig = {
   planner: 'manual' | 'openai' | string
   sandbox: 'docker' | 'local' | string
   model: string
+  version?: string
   api_configured: boolean
   chatgpt_web_embed: boolean
   remote_input?: {

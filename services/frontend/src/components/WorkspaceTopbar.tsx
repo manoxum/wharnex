@@ -37,7 +37,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       <div><strong>{projectName}</strong><span title={session.project_path}>{session.project_path}</span></div>
     </div>
     <div className="workspace-switches">
-      <InstanceBadge instanceID={instanceID} />
+      <InstanceBadge instanceID={instanceID} version={config?.version} />
       <div className="mode-switch" role="group" aria-label="Modo do workspace">
         <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
         <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>
