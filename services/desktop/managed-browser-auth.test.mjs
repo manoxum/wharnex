@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { chatGPTSessionProbeExpression, electronCookieDetails, isChatGPTCookie, managedBrowserProfileDirectory, resolveManagedBrowserExecutable } from './managed-browser-auth.mjs'
 
 
-test('managed auth profile is persistent below Wharness userData rather than a temporary directory', () => {
-  assert.equal(managedBrowserProfileDirectory('/home/demo/.config/Wharness'), '/home/demo/.config/Wharness/ManagedBrowser/AuthProfile')
+test('managed auth profile is persistent below Wharnex userData rather than a temporary directory', () => {
+  assert.equal(managedBrowserProfileDirectory('/home/demo/.config/Wharnex'), '/home/demo/.config/Wharnex/ManagedBrowser/AuthProfile')
   assert.throws(() => managedBrowserProfileDirectory('/'), /userData inválido/)
 })
 

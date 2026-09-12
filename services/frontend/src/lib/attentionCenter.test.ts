@@ -163,7 +163,7 @@ describe('attention center', () => {
     current.failure_kind = 'self_evolution_transaction_metadata_mismatch'
     current.last_turn = {
       protocol: 'harness.turn/v1', request_id: 'req-stuck', kind: 'blocked',
-      message: 'prepare Wharness self-evolution transaction: self-evolution transaction metadata does not match transaction',
+      message: 'prepare Wharnex self-evolution transaction: self-evolution transaction metadata does not match transaction',
     }
     current.pending_host_changes = [{
       plan: { protocol: 'harness.execution/v1', plan_id: 'plan-1', request_id: 'req-1', status: 'ready', summary: 'Mudança', risk: 'low', requires_approval: false, operations: [], verification: [] },

@@ -9,7 +9,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 )
 
-const chatExportReadme = `# Wharness chat audit export
+const chatExportReadme = `# Wharnex chat audit export
 
 Schema: wharness.chat-export/v1
 
@@ -17,12 +17,12 @@ This archive is a user-requested diagnostic export of one Harness chat. It conta
 
 - the local transcript and GPT responses correlated to request ids when available;
 - backend operational events plus the frontend cached event history;
-- execution results with argv, stdout, stderr, exit codes, success and errors retained by Wharness;
+- execution results with argv, stdout, stderr, exit codes, success and errors retained by Wharnex;
 - Policy/approval/blocking events and the current Policy decision;
 - request lineage (main request, repair/correction, conflict/evidence derivatives);
 - every persisted chat artifact, including the original request/response ZIP bytes.
 
-Persisted artifact bytes are copied unchanged. Operational event fields keep the normal Wharness audit redaction rules. The export does not read ChatGPT cookies, browser storage, or unrelated conversations.
+Persisted artifact bytes are copied unchanged. Operational event fields keep the normal Wharnex audit redaction rules. The export does not read ChatGPT cookies, browser storage, or unrelated conversations.
 `
 
 func renderChatTranscript(title string, items []map[string]any) string {
@@ -39,7 +39,7 @@ func renderChatTranscript(title string, items []map[string]any) string {
 		if source == "" {
 			source = stringField(item, "role")
 		}
-		label := map[string]string{"user": "User", "chatgpt": "ChatGPT", "wharness": "Wharness", "harness": "Wharness"}[source]
+		label := map[string]string{"user": "User", "chatgpt": "ChatGPT", "wharness": "Wharnex", "harness": "Wharnex"}[source]
 		if label == "" {
 			label = source
 		}

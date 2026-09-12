@@ -119,8 +119,8 @@ async function main() {
       waitFor(frontendURL, 'stack frontend'),
     ])
   } else {
-    if (await ready(`${apiURL}/api/health`)) throw new Error(`An untracked process already owns Wharness backend ${apiURL}. Stop that verified Wharness process before starting.`)
-    if (await ready(frontendURL)) throw new Error(`An untracked process already owns Wharness frontend ${frontendURL}. Stop that verified Wharness process before starting.`)
+    if (await ready(`${apiURL}/api/health`)) throw new Error(`An untracked process already owns Wharnex backend ${apiURL}. Stop that verified Wharnex process before starting.`)
+    if (await ready(frontendURL)) throw new Error(`An untracked process already owns Wharnex frontend ${frontendURL}. Stop that verified Wharnex process before starting.`)
 
     const backend = backendCommand()
     run('backend', backend.command, backend.args, backendDir, {

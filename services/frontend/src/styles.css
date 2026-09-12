@@ -815,7 +815,7 @@ button:disabled { opacity: .46; cursor: not-allowed; }
   .public-access { grid-template-columns: 1fr; }
 }
 
-/* Wharness local data / storage management. */
+/* Wharnex local data / storage management. */
 .wharness-data-section { padding: 18px 20px 20px; border-top: 1px solid #383838; background: #212121; }
 .wharness-data-section > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .wharness-data-section > header > div { display: flex; flex-direction: column; gap: 2px; }

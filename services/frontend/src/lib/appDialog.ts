@@ -222,5 +222,5 @@ function toneLabel(tone: DialogTone) {
   if (tone === 'danger') return 'Ação crítica'
   if (tone === 'warning') return 'Atenção'
   if (tone === 'info') return 'Informação'
-  return 'Wharness'
+  return 'Wharnex'
 }

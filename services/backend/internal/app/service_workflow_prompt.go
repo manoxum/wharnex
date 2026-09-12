@@ -54,7 +54,7 @@ func normalizePlannerResult(requestID string, result *planner.Result) error {
 func buildWorkflowObservationMessage(result domain.ExecutionResult, round int) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "LOCAL WORKFLOW OBSERVATIONS — round %d of %d\n\n", round, maxWorkflowRounds)
-	out.WriteString("Wharness executed the previous workflow step only inside a disposable Protected sandbox. Nothing from this workflow step was applied to the host project. Treat the following as execution evidence for the ORIGINAL user request in this same conversation.\n\n")
+	out.WriteString("Wharnex executed the previous workflow step only inside a disposable Protected sandbox. Nothing from this workflow step was applied to the host project. Treat the following as execution evidence for the ORIGINAL user request in this same conversation.\n\n")
 	fmt.Fprintf(&out, "PREVIOUS WORKFLOW PLAN: %s\nSUCCESS: %t\n", result.PlanID, result.Success)
 	if result.Error != "" {
 		fmt.Fprintf(&out, "ERROR: %s\n", truncateRepairText(result.Error, 6000))

@@ -25,7 +25,7 @@ import (
 const SchemaVersion = "wharness.environment/v1"
 
 // Manifest is the complete environment description attached to a planner
-// request. Every field is Wharness-derived; none of it is planner-supplied.
+// request. Every field is Wharnex-derived; none of it is planner-supplied.
 type Manifest struct {
 	Schema   string          `json:"schema"`
 	Host     Host            `json:"host"`
@@ -51,7 +51,7 @@ type Host struct {
 }
 
 // Volume is one filesystem the execution path depends on. purpose says why
-// Wharness cares about it, so a planner can tell "the project disk is nearly
+// Wharnex cares about it, so a planner can tell "the project disk is nearly
 // full" apart from "the sandbox scratch disk is nearly full".
 type Volume struct {
 	Purpose  string `json:"purpose"`
@@ -158,8 +158,8 @@ func (m Manifest) Render() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\nLOCAL EXECUTION ENVIRONMENT — AUTHORITATIVE, WHARNESS-MEASURED:\n")
-	b.WriteString("- This section describes the real machine and the real Protected container your plan will run in. It is measured by Wharness, not guessed, and it overrides any assumption you hold about a generic Linux box.\n")
+	b.WriteString("\nLOCAL EXECUTION ENVIRONMENT — AUTHORITATIVE, WHARNEX-MEASURED:\n")
+	b.WriteString("- This section describes the real machine and the real Protected container your plan will run in. It is measured by Wharnex, not guessed, and it overrides any assumption you hold about a generic Linux box.\n")
 	b.WriteString("- Every operation and verification command MUST use only the executables listed under tools, plus the language toolchains they belong to. An executable that is not listed is NOT installed: proposing it wastes the whole round trip on exit code 127.\n")
 	b.WriteString("- policy.denied_executables are rejected before execution. Never propose them, not even inside a verification step. Use the listed equivalents instead.\n")
 	b.WriteString("- budgets are hard protocol limits. A command_timeout outside the published range, or a plan over a listed maximum, is rejected as a protocol error and the entire bundle is discarded.\n")

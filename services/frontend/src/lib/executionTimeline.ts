@@ -55,16 +55,16 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.transaction_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'command', title: 'Build do Wharness no host', detail: '', badge: 'BUILD', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
+        entry = { id: runID, kind: 'command', title: 'Build do Wharnex no host', detail: '', badge: 'BUILD', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'self_evolution.host_build_output') {
         const text = String(event.data.text || '')
         if (text) entry.output += `${event.data.stream === 'stderr' ? '[stderr]' : '[stdout]'} ${text}`
       } else if (event.type === 'self_evolution.host_build_completed') {
-        entry.title = 'Build do Wharness concluído'; entry.badge = 'OK'; entry.tone = 'ok'; entry.running = false
+        entry.title = 'Build do Wharnex concluído'; entry.badge = 'OK'; entry.tone = 'ok'; entry.running = false
       } else if (event.type === 'self_evolution.host_build_failed') {
-        entry.title = 'Build do Wharness falhou'; entry.badge = 'FAIL'; entry.tone = 'fail'; entry.running = false
+        entry.title = 'Build do Wharnex falhou'; entry.badge = 'FAIL'; entry.tone = 'fail'; entry.running = false
         if (!entry.output) entry.output = joinedFallback(event)
       }
       continue

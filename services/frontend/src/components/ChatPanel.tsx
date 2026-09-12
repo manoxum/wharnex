@@ -257,7 +257,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     if (!files.length) return
     event.preventDefault()
     if (!attachmentsEnabled) {
-      setAttachmentError('Colar ficheiros requer o Wharness Desktop com o planner manual.')
+      setAttachmentError('Colar ficheiros requer o Wharnex Desktop com o planner manual.')
       return
     }
     addFiles(uniquifyPastedChatFiles(attachments, files))
@@ -393,7 +393,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           {renderChatEntry(item)}
         </Fragment>
       })}
-      {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharness</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
+      {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharnex</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
     </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
 
@@ -447,7 +447,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <span className="composer-mode-group" role="group" aria-label="Proteção de execução">
             <button type="button" className={`composer-round-action mode-protected ${currentExecutionMode === 'protected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode} aria-pressed={currentExecutionMode === 'protected'} aria-label="Protected" title="Protected · executar e verificar primeiro na sandbox" onClick={() => onExecutionMode?.('protected')}><Icon name="shield" size={12}/></button>
-            <button type="button" className={`composer-round-action mode-unprotected ${currentExecutionMode === 'unprotected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode || Boolean(session.self_evolution)} aria-pressed={currentExecutionMode === 'unprotected'} aria-label="Unprotected" title={session.self_evolution ? 'Unprotected indisponível · auto-evolução do Wharness é sempre Protected' : 'Unprotected · executar diretamente no projeto real'} onClick={() => onExecutionMode?.('unprotected')}><Icon name="external" size={12}/></button>
+            <button type="button" className={`composer-round-action mode-unprotected ${currentExecutionMode === 'unprotected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode || Boolean(session.self_evolution)} aria-pressed={currentExecutionMode === 'unprotected'} aria-label="Unprotected" title={session.self_evolution ? 'Unprotected indisponível · auto-evolução do Wharnex é sempre Protected' : 'Unprotected · executar diretamente no projeto real'} onClick={() => onExecutionMode?.('unprotected')}><Icon name="external" size={12}/></button>
           </span>
           <span className="composer-mode-group" role="group" aria-label="Automação de execução">
             <button type="button" className={`composer-round-action mode-manual ${currentAutomationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
@@ -466,11 +466,11 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
             </select>
           </label>
           <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
-            <button type="button" className={`composer-round-action mode-scraper ${currentChatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharness interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
+            <button type="button" className={`composer-round-action mode-scraper ${currentChatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharnex interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
             <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>
           </span>
           <span className="composer-action-divider" />
-          <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharness pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>
+          <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharnex pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>
           <button type="button" className={`composer-round-action ${queueOpen ? 'selected' : ''}`} aria-label="Fila de espera" title="Fila de requests principais" onClick={() => setQueueOpen((current) => !current)}><Icon name="clipboard" size={12}/>{queuedRequests.length > 0 && <b>{queuedRequests.length}</b>}</button>
           <button type="button" className={`composer-round-action ${todoOpen ? 'selected' : ''}`} aria-label="Tarefas TODO" title="Tarefas da iteração" disabled={!todos.length} onClick={() => setTodoOpen((current) => !current)}><Icon name="check" size={12}/>{todos.length > 0 && <b>{todos.filter((todo) => !todo.done).length}</b>}</button>
           {taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name="chatgpt" size={12}/> Request ativa · Ctrl+Enter comenta</span>}
@@ -521,7 +521,7 @@ function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRe
   if (presentation === 'notice') return <details id={`chat-item-${item.id}`} className={`chat-notice notice-${source} notice-${item.turnKind || 'status'}`}><summary><span className="notice-mark"><Icon name={noticeIcon(item)} size={12}/></span><strong>{source === 'chatgpt' ? 'ChatGPT' : 'WHX'}</strong><span className="notice-kind">{item.meta || item.turnKind || 'estado'}</span><span className="notice-summary">{compactNoticeText(visibleText)}</span><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><Icon name="chevron-right" size={11}/></summary><div className="notice-content"><ExpandableMarkdown markdown={visibleText || 'Atualização da execução.'}/><div className="notice-actions">{canRepairWithGPT && onRepairWithGPT && isFailureNotice(item) && <button type="button" className="text-button" disabled={busy || taskInFlight} onClick={() => void requestGPTRepair(onRepairWithGPT)}><Icon name="agent" size={12}/> Corrigir com GPT</button>}{canRetryDependencyNetwork && onRetryDependencyNetwork && isFailureNotice(item) && <button type="button" className="text-button" disabled={busy} onClick={() => void onRetryDependencyNetwork()}><Icon name="network" size={12}/> Permitir rede e repetir</button>}{isPolicyBlockedNotice(item) && canReprocessPolicyBlock && onReprocessPolicyBlock && <button type="button" className="text-button" disabled={busy} onClick={() => void onReprocessPolicyBlock()}><Icon name="refresh" size={12}/> Reprocessar</button>}{isTransportFailureNotice(item) && item.iteration && onRetryTransportFailure && <button type="button" className="text-button" disabled={busy || taskInFlight} title={taskInFlight ? 'Existe um pedido mais recente em processamento' : undefined} onClick={() => void onRetryTransportFailure(item.iteration!.requestId)}><Icon name="refresh" size={12}/> Retomar pedido</button>}{item.iteration && onResendPendingRequest && <button type="button" className="text-button" disabled={busy || taskInFlight} title={taskInFlight ? 'Existe um pedido mais recente em processamento' : 'Reenvia o mesmo pedido ao ChatGPT, caso o envio automático não tenha sido entregue'} onClick={() => void onResendPendingRequest(item.iteration!.requestId)}><Icon name="refresh" size={12}/> Reenviar request</button>}{item.iteration && onCancelPendingRequest && <button type="button" className="text-button danger" disabled={busy} onClick={() => void onCancelPendingRequest(item.iteration!.requestId)}><Icon name="close" size={12}/> Cancelar pedido</button>}</div>{item.iteration && <IterationReference item={item} onInspectArtifact={onInspectArtifact} artifactContent={artifactContent}/>}</div></details>
   if (presentation === 'thought') return <div className="chat-thought"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Raciocínio visível do ChatGPT</strong><MarkdownContent markdown={visibleText}/>{item.meta && <span>{item.meta}</span>}</div></div>
 
-  const label = source === 'user' ? 'Você' : source === 'chatgpt' ? 'ChatGPT' : 'Wharness'
+  const label = source === 'user' ? 'Você' : source === 'chatgpt' ? 'ChatGPT' : 'Wharnex'
   return <article id={`chat-item-${item.id}`} tabIndex={-1} className={`message message-${source} ${presentation === 'plan' ? 'message-plan' : ''}`}>
     <div className="message-heading"><div className="message-label">{label}</div><div className="message-tools"><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><button type="button" onClick={() => void onCopy(item)} title="Copiar mensagem" aria-label="Copiar mensagem"><Icon name={copied ? 'check' : 'copy'} size={12}/></button></div></div>
     <div className="message-body">{item.role === 'harness' ? <ExpandableMarkdown markdown={visibleText || 'Atualização de tarefas.'} /> : visibleText}</div>
@@ -559,7 +559,7 @@ async function requestPlanCorrection(item: ChatItem, onCorrectPlan?: (item: Chat
   if (!onCorrectPlan) return
   const guidance = await promptDialog({
     title: 'Solicitar correção do plano',
-    message: 'Indique o que deve ser corrigido. O Wharness manterá a mesma Main Request e pedirá apenas uma nova proposta de plano, sem executar alterações.',
+    message: 'Indique o que deve ser corrigido. O Wharnex manterá a mesma Main Request e pedirá apenas uma nova proposta de plano, sem executar alterações.',
     inputLabel: 'Correção pretendida',
     placeholder: 'Ex.: dividir a migração em duas fases e incluir rollback',
     confirmLabel: 'Solicitar correção',
@@ -572,7 +572,7 @@ async function requestPlanCorrection(item: ChatItem, onCorrectPlan?: (item: Chat
 async function requestGPTRepair(onRepairWithGPT: (detail: string) => Promise<void>) {
   const detail = await promptDialog({
     title: 'Corrigir erro com GPT',
-    message: 'O Wharness enviará o erro, os resultados da execução e o contexto atual. Pode acrescentar um detalhe para orientar a correção ou deixar em branco.',
+    message: 'O Wharnex enviará o erro, os resultados da execução e o contexto atual. Pode acrescentar um detalhe para orientar a correção ou deixar em branco.',
     inputLabel: 'Detalhe opcional',
     placeholder: 'Ex.: verifique também o comportamento no Windows',
     confirmLabel: 'Enviar para correção',

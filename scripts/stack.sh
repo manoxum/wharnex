@@ -38,10 +38,10 @@ WEB_PORT=${WHARNESS_WEB_PORT:-5173}
 INSTANCE_ID=${WHARNESS_INSTANCE_ID:-}
 
 require_docker() {
-  command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharness service stack.' >&2; exit 1; }
-  docker compose version >/dev/null 2>&1 || { echo 'Docker Compose v2 is required for the Wharness service stack.' >&2; exit 1; }
+  command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharnex service stack.' >&2; exit 1; }
+  docker compose version >/dev/null 2>&1 || { echo 'Docker Compose v2 is required for the Wharnex service stack.' >&2; exit 1; }
   WHARNESS_ROOT="$ROOT" "$ROOT/scripts/docker-daemon-guard.sh"
-  docker info >/dev/null 2>&1 || { echo 'The Docker daemon is not available for the Wharness service stack.' >&2; exit 1; }
+  docker info >/dev/null 2>&1 || { echo 'The Docker daemon is not available for the Wharnex service stack.' >&2; exit 1; }
 }
 
 secret_hex() {
@@ -65,7 +65,7 @@ ensure_credentials() {
   database=$(sed -n 's/^POSTGRES_DB=//p' "$POSTGRES_ENV" | head -n 1)
   password=$(sed -n 's/^POSTGRES_PASSWORD=//p' "$POSTGRES_ENV" | head -n 1)
   [ "$user" = wharness ] && [ "$database" = wharness ] && [ -n "$password" ] || {
-    echo 'Wharness PostgreSQL credentials are incomplete or incompatible.' >&2
+    echo 'Wharnex PostgreSQL credentials are incomplete or incompatible.' >&2
     exit 1
   }
 
@@ -121,7 +121,7 @@ stop_owned_legacy_database() {
   [ "$owner" = "$ROOT" ] || { echo "Refusing unowned legacy PostgreSQL container: $LEGACY_CONTAINER" >&2; exit 1; }
   running=$(docker inspect -f '{{.State.Running}}' "$LEGACY_CONTAINER")
   if [ "$running" = true ]; then
-    printf 'Stopping legacy Wharness PostgreSQL for one-time stack migration...\n'
+    printf 'Stopping legacy Wharnex PostgreSQL for one-time stack migration...\n'
     docker stop --time 30 "$LEGACY_CONTAINER" >/dev/null
   fi
 }
@@ -334,7 +334,7 @@ wait_service() {
   if service_ready "$service" "$limit"; then
     return 0
   fi
-  echo "Wharness stack service $service did not become healthy." >&2
+  echo "Wharnex stack service $service did not become healthy." >&2
   compose logs --tail=80 "$service" >&2 || true
   exit 1
 }
@@ -344,7 +344,7 @@ images_ready() {
 }
 
 build_images() {
-  printf 'Building Wharness backend/frontend/tunnel images...\n'
+  printf 'Building Wharnex backend/frontend/tunnel images...\n'
   compose build backend frontend tunnel
 }
 
@@ -368,7 +368,7 @@ activate_application() {
   ensure_credentials
   ensure_durable_services
   docker image inspect "$BACKEND_IMAGE" "$FRONTEND_IMAGE" >/dev/null 2>&1 || {
-    echo 'Wharness application images are missing; run make build-stage first.' >&2
+    echo 'Wharnex application images are missing; run make build-stage first.' >&2
     return 1
   }
 
@@ -389,19 +389,19 @@ activate_application() {
     if [ "$running_backend" = "$desired_backend" ] && [ "$running_frontend" = "$desired_frontend" ]; then
       return 0
     fi
-    printf 'Wharness application rollout selected stale image IDs: backend=%s/%s frontend=%s/%s.\n' \
+    printf 'Wharnex application rollout selected stale image IDs: backend=%s/%s frontend=%s/%s.\n' \
       "$running_backend" "$desired_backend" "$running_frontend" "$desired_frontend" >&2
   fi
 
-  echo 'Wharness application rollout failed; restoring previous backend/frontend images when available.' >&2
+  echo 'Wharnex application rollout failed; restoring previous backend/frontend images when available.' >&2
   compose logs --tail=80 backend frontend >&2 || true
   if [ -n "$old_backend" ] && [ -n "$old_frontend" ]; then
     docker image tag "$old_backend" "$BACKEND_IMAGE"
     docker image tag "$old_frontend" "$FRONTEND_IMAGE"
     if compose up -d --force-recreate --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
-      echo 'Previous Wharness application containers restored after failed rollout.' >&2
+      echo 'Previous Wharnex application containers restored after failed rollout.' >&2
     else
-      echo 'Previous Wharness application containers could not be restored automatically.' >&2
+      echo 'Previous Wharnex application containers could not be restored automatically.' >&2
       compose logs --tail=80 backend frontend >&2 || true
     fi
   fi

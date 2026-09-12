@@ -115,7 +115,7 @@ func SnapshotPaths(root string, paths []string) (string, func(), error) {
 	return dir, cleanup, nil
 }
 
-// ExtractArchive restores a trusted Wharness context archive into a private
+// ExtractArchive restores a trusted Wharnex context archive into a private
 // directory. Archive paths are still validated defensively.
 func ExtractArchive(archivePath string) (string, func(), error) {
 	reader, err := zip.OpenReader(archivePath)

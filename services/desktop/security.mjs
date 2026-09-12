@@ -2,7 +2,7 @@ import { buildBundleName, parseBundleName, parseBundleNameWithDuplicateSuffix, r
 
 export function sanitizeSessionId(value) {
   const id = String(value || '')
-  if (!/^[a-zA-Z0-9_-]{3,160}$/.test(id)) throw new Error('Invalid Wharness session id')
+  if (!/^[a-zA-Z0-9_-]{3,160}$/.test(id)) throw new Error('Invalid Wharnex session id')
   return id
 }
 
@@ -138,7 +138,7 @@ export function wharnessBundleRequestIdFromFilename(value) {
 }
 
 // BundleOwnershipError marks a downloaded bundle whose NAME is a perfectly
-// valid Wharness response bundle, but which belongs to a different request or
+// valid Wharnex response bundle, but which belongs to a different request or
 // chat than the surface that produced the download currently expects.
 //
 // This is not corruption and not a security failure: it is the normal outcome
@@ -196,7 +196,7 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
   const duplicate = parseBundleNameWithDuplicateSuffix(filename)
   if (duplicate) {
     if (duplicate.kind !== 'res') {
-      throw new Error('Nome do bundle Wharness contém um request_id ou chat_id inválido e não pode ser normalizado.')
+      throw new Error('Nome do bundle Wharnex contém um request_id ou chat_id inválido e não pode ser normalizado.')
     }
     const duplicateRequestId = duplicate.subrequestId || duplicate.requestId
     if (duplicateRequestId !== expected) {
@@ -209,7 +209,7 @@ export function canonicalWharnessBundleDownload(value, expectedRequestId = '', m
     return { requestId: expected, filename: canonical, normalized: true, sourceFilename: filename }
   }
   if (/^whx_bundle_(req|res)_/i.test(filename) || /^wharness-bundle-/i.test(filename)) {
-    throw new Error('Nome do bundle Wharness contém um request_id ou chat_id inválido e não pode ser normalizado.')
+    throw new Error('Nome do bundle Wharnex contém um request_id ou chat_id inválido e não pode ser normalizado.')
   }
   const mime = String(mimeType || '').toLowerCase()
   const zipLike = /\.zip$/i.test(filename) || mime === 'application/zip' || mime === 'application/x-zip-compressed'
@@ -221,7 +221,7 @@ export function validateWharnessBundleDownload(filename, bytes) {
   const requestId = requestIdFromBundleName(filename)
   if (!requestId) throw new Error('Nome de ficheiro de bundle inválido.')
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || [])
-  if (data.byteLength < 4 || data[0] !== 0x50 || data[1] !== 0x4b) throw new Error('O bundle Wharness não é um ficheiro ZIP válido.')
+  if (data.byteLength < 4 || data[0] !== 0x50 || data[1] !== 0x4b) throw new Error('O bundle Wharnex não é um ficheiro ZIP válido.')
   return { requestId }
 }
 

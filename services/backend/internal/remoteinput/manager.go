@@ -378,7 +378,7 @@ func (m *Manager) channelProvider(instanceID string) (ChannelProvider, error) {
 }
 
 // RetainRemoteInput ties an optional transient provider endpoint to an active
-// Wharness request. It is deliberately separate from publication so regular
+// Wharnex request. It is deliberately separate from publication so regular
 // object retention policies continue to apply unchanged.
 func (m *Manager) RetainRemoteInput(instanceID, objectName string) error {
 	return m.updateRequestLease(instanceID, objectName, true)

@@ -2646,7 +2646,7 @@ func TestStorageUsageAndClearAllDataDoNotDeleteProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("host project must survive Wharness reset: %v", err)
+		t.Fatalf("host project must survive Wharnex reset: %v", err)
 	}
 	if _, err := store.Get(started.ID); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("session state was not cleared: %v", err)
@@ -2742,7 +2742,7 @@ func TestAutoSelfEvolutionRunsProjectVerificationAndReachesRestartPending(t *tes
 	if !started.SelfEvolution {
 		t.Fatal("expected self-evolution session")
 	}
-	_, updated, err := service.SubmitMessage(context.Background(), started.ID, "Atualize o próprio Wharness")
+	_, updated, err := service.SubmitMessage(context.Background(), started.ID, "Atualize o próprio Wharnex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2770,7 +2770,7 @@ func TestAutoSelfEvolutionRunsProjectVerificationAndReachesRestartPending(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.selfEvolution.RecordStatus(transaction, started.ID, updated.Plan.PlanID, "restarted", "new Wharness runtime is healthy"); err != nil {
+	if err := service.selfEvolution.RecordStatus(transaction, started.ID, updated.Plan.PlanID, "restarted", "new Wharnex runtime is healthy"); err != nil {
 		t.Fatal(err)
 	}
 	restarted := NewService(service.store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})

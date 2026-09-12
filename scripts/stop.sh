@@ -10,20 +10,20 @@ alive() {
 }
 
 if [ ! -f "$PID_FILE" ]; then
-  echo 'Wharness Desktop is not running (no coordinator pid file).'
+  echo 'Wharnex Desktop is not running (no coordinator pid file).'
   WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
   exit 0
 fi
 
 pid=$(cat "$PID_FILE" 2>/dev/null || true)
 if ! alive "$pid"; then
-  echo 'Wharness Desktop coordinator is not running; cleaning stale runtime files.'
+  echo 'Wharnex Desktop coordinator is not running; cleaning stale runtime files.'
   WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
   rm -f "$RUN_DIR"/*.pid
   exit 0
 fi
 
-printf 'Stopping Wharness Desktop coordinator %s...\n' "$pid"
+printf 'Stopping Wharnex Desktop coordinator %s...\n' "$pid"
 kill -TERM "$pid" 2>/dev/null || true
 
 i=0
@@ -38,4 +38,4 @@ if alive "$pid"; then
 fi
 
 rm -f "$RUN_DIR"/*.pid
-printf 'Wharness Desktop stopped. Compose services remain running.\n'
+printf 'Wharnex Desktop stopped. Compose services remain running.\n'

@@ -91,8 +91,8 @@ func (b *Builder) rules(root string, cfg projectconfig.Config) []ContextRule {
 	}
 	sort.Strings(autoDirs)
 	return []ContextRule{
-		{ID: "mandatory-directories", Source: "Wharness", Label: "Pastas protegidas", Enabled: true, Patterns: slashSuffix(mandatoryBlockedDirs), Description: "Nunca entram no contexto e não podem ser reativadas pelo projeto."},
-		{ID: "mandatory-files", Source: "Wharness", Label: "Ficheiros/segredos protegidos", Enabled: true, Patterns: append(append([]string{}, mandatoryBlockedNames...), prefixStar(mandatoryBlockedExtensions)...), Description: "Credenciais, bases locais e material secreto são sempre bloqueados."},
+		{ID: "mandatory-directories", Source: "Wharnex", Label: "Pastas protegidas", Enabled: true, Patterns: slashSuffix(mandatoryBlockedDirs), Description: "Nunca entram no contexto e não podem ser reativadas pelo projeto."},
+		{ID: "mandatory-files", Source: "Wharnex", Label: "Ficheiros/segredos protegidos", Enabled: true, Patterns: append(append([]string{}, mandatoryBlockedNames...), prefixStar(mandatoryBlockedExtensions)...), Description: "Credenciais, bases locais e material secreto são sempre bloqueados."},
 		{ID: "harnessignore", Source: ".harnessignore", Label: "Regras .harnessignore", Enabled: len(LoadIgnorePatterns(root)) > 0, Patterns: nonNilPatterns(LoadIgnorePatterns(root)), Description: "Padrões adicionais definidos pelo próprio projeto."},
 		{ID: "config-include", Source: projectconfig.FileName, Label: "Incluir apenas", Enabled: len(cfg.Context.Include) > 0, Patterns: nonNilPatterns(cfg.Context.Include), Description: "Quando definido, ficheiros que não casam com estes padrões ficam fora do snapshot."},
 		{ID: "config-exclude", Source: projectconfig.FileName, Label: "Excluir do contexto", Enabled: len(cfg.Context.Exclude) > 0, Patterns: nonNilPatterns(cfg.Context.Exclude), Description: "Exclusões explícitas configuradas no projeto."},
@@ -100,8 +100,8 @@ func (b *Builder) rules(root string, cfg projectconfig.Config) []ContextRule {
 		{ID: "auto-generated-files", Source: "Reconhecimento automático", Label: "Artefactos gerados", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticGeneratedSuffixes), Description: "Logs, temporários, bytecode e binários gerados."},
 		{ID: "auto-assets", Source: "Reconhecimento automático", Label: "Assets não-fonte", Enabled: cfg.Context.AutoExclude, Patterns: prefixStar(automaticAssetSuffixes), Description: "Arquivos, media e fontes que normalmente só aumentam o contexto."},
 		{ID: "file-size", Source: projectconfig.FileName, Label: "Limite por ficheiro", Enabled: true, Patterns: []string{fmt.Sprintf("ficheiro > %d bytes", cfg.Context.MaxFileBytes)}, Description: "Ficheiros individuais acima do limite configurado são excluídos."},
-		{ID: "bundle-limit", Source: "Wharness", Label: "Limite total do bundle", Enabled: true, Patterns: []string{fmt.Sprintf("bundle > %d bytes", b.maxBundleBytes)}, Description: "Impede um ZIP de contexto excessivamente grande."},
-		{ID: "content-safety", Source: "Wharness", Label: "Inspeção de segurança de conteúdo", Enabled: true, Patterns: []string{"secret-like content", "symlink"}, Description: "Marcadores de segredo e symlinks são removidos antes do ZIP."},
+		{ID: "bundle-limit", Source: "Wharnex", Label: "Limite total do bundle", Enabled: true, Patterns: []string{fmt.Sprintf("bundle > %d bytes", b.maxBundleBytes)}, Description: "Impede um ZIP de contexto excessivamente grande."},
+		{ID: "content-safety", Source: "Wharnex", Label: "Inspeção de segurança de conteúdo", Enabled: true, Patterns: []string{"secret-like content", "symlink"}, Description: "Marcadores de segredo e symlinks são removidos antes do ZIP."},
 		{ID: "binary-content", Source: "Reconhecimento automático", Label: "Conteúdo binário", Enabled: cfg.Context.AutoExclude, Patterns: []string{"non-text/binary content not explicitly included"}, Description: "Quando o reconhecimento automático está ativo, conteúdo binário sem inclusão explícita fica fora do contexto."},
 	}
 }

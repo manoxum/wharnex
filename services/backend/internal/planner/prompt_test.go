@@ -79,7 +79,7 @@ func TestBuildManualPromptMakesAskDistinctFromChange(t *testing.T) {
 		"questions, explanations, architecture discussion, comparisons, recommendations",
 		"do not invent a coding task",
 		"Only explicit mutation intent may end in kind=change",
-		"turn.message is the actual response the user will read inside Wharness",
+		"turn.message is the actual response the user will read inside Wharnex",
 		"Write polished, human-readable Markdown",
 		"Summarize long logs, execution evidence, patches and repeated status",
 		"do not create a heading for every sentence",
@@ -94,15 +94,15 @@ func TestBuildManualPromptMakesAskDistinctFromChange(t *testing.T) {
 func TestBuildManualPromptDeclaresSelfEvolutionModeAndLifecycleOwnership(t *testing.T) {
 	prompt := BuildManualPrompt(Request{
 		RequestID:      "req-self-evolution",
-		Message:        "melhorar o próprio Wharness",
+		Message:        "melhorar o próprio Wharnex",
 		AutomationMode: domain.AutomationModeAuto,
 		SelfEvolution:  true,
 	})
 	for _, want := range []string{
 		"SELF-EVOLUTION MODE: true",
-		"linked project is exactly the root of the currently running Wharness instance",
+		"linked project is exactly the root of the currently running Wharnex instance",
 		"Never request Unprotected execution",
-		"do NOT put Wharness lifecycle commands",
+		"do NOT put Wharnex lifecycle commands",
 		"detached transactional supervisor",
 		"do not mutate .harness runtime/state/log/self-evolution files",
 	} {
@@ -265,9 +265,9 @@ func TestBuildManualPromptRequiresUsefulCommitMessageForChangePlans(t *testing.T
 		"fix for a bug/corrective patch",
 		"Do not default to chore",
 		"what was implemented or corrected",
-		"Wharness-verified change",
+		"Wharnex-verified change",
 		"fix(auth): preserve session during concurrent token refresh",
-		"Wharness commits your verified patch to its own integration branch",
+		"Wharnex commits your verified patch to its own integration branch",
 		"becomes the real commit message in the project's Git history",
 	} {
 		if !strings.Contains(prompt, want) {

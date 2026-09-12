@@ -130,7 +130,7 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
   const automatic = config?.planner === 'openai' && config.api_configured
   return <div className="chatgpt-view">
     <div className="section-heading"><div><span className="panel-kicker">Browser mode</span><h3>ChatGPT</h3></div><StatusPill tone={automatic ? 'success' : 'neutral'}>{automatic ? 'API automática' : 'Bridge web'}</StatusPill></div>
-    <div className="provider-card warning-card"><Icon name="workspace" size={18}/><div><strong>ChatGPT incorporado requer Wharness Desktop</strong><span>O modo web continua disponível, mas navegadores comuns não permitem compor a sessão remota do ChatGPT com os controles desktop do Wharness. Inicie `services/desktop` para trabalhar com as duas superfícies na mesma janela.</span></div></div>
+    <div className="provider-card warning-card"><Icon name="workspace" size={18}/><div><strong>ChatGPT incorporado requer Wharnex Desktop</strong><span>O modo web continua disponível, mas navegadores comuns não permitem compor a sessão remota do ChatGPT com os controles desktop do Wharnex. Inicie `services/desktop` para trabalhar com as duas superfícies na mesma janela.</span></div></div>
     {automatic && <div className="provider-card success-card"><Icon name="check" size={18}/><div><strong>Planner automático ativo</strong><span>Os pedidos do Agent continuam a ser processados pela Responses API mesmo no navegador.</span></div></div>}
     <div className="bridge-actions">
       <a className="text-button" href={api.bundleURL(session.id)}><Icon name="download" size={15}/> Contexto ZIP</a>
@@ -144,7 +144,7 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
   </div>
 }
 
-// Manual chat transport mode: Wharness never touches the ChatGPT DOM for
+// Manual chat transport mode: Wharnex never touches the ChatGPT DOM for
 // this chat. The prompt is only ever shown here for the human to copy into
 // ChatGPT themselves; a completed response bundle is only ever imported by
 // the human downloading it and dropping/selecting it here — never
@@ -189,7 +189,7 @@ function ManualChatGPTPane({ session, manualPrompt, manualJSON, setManualJSON, b
 
   return <div className="chatgpt-view manual-transport-view">
     <div className="section-heading"><div><span className="panel-kicker">Chat transport</span><h3>Manual</h3></div><StatusPill tone="warning">Sem automação DOM</StatusPill></div>
-    <div className="provider-card warning-card"><Icon name="clipboard" size={18}/><div><strong>O Wharness não interage com o ChatGPT neste chat</strong><span>Copie o prompt abaixo e cole-o você mesmo no ChatGPT. Quando a resposta terminar, descarregue o bundle gerado e solte-o (ou selecione-o) aqui para o entregar ao Wharness.</span></div></div>
+    <div className="provider-card warning-card"><Icon name="clipboard" size={18}/><div><strong>O Wharnex não interage com o ChatGPT neste chat</strong><span>Copie o prompt abaixo e cole-o você mesmo no ChatGPT. Quando a resposta terminar, descarregue o bundle gerado e solte-o (ou selecione-o) aqui para o entregar ao Wharnex.</span></div></div>
     <div className="bridge-actions">
       <a className="text-button" href={api.bundleURL(session.id)}><Icon name="download" size={15}/> Contexto ZIP</a>
       <a className="text-button" href="https://chatgpt.com/" target="_blank" rel="noreferrer"><Icon name="external" size={15}/> Abrir ChatGPT</a>

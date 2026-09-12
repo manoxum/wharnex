@@ -82,13 +82,13 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, read
     })
     instance.addAction({
       id: 'wharness.save',
-      label: 'Wharness: Save file',
+      label: 'Wharnex: Save file',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
       run: () => onSaveRef.current(),
     })
     instance.addAction({
       id: 'wharness.toggle-word-wrap',
-      label: 'Wharness: Toggle word wrap',
+      label: 'Wharnex: Toggle word wrap',
       keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
       run: () => instance.trigger('keyboard', 'editor.action.toggleWordWrap', null),
     })

@@ -11,7 +11,7 @@ import (
 // provably unable to fix: the sandbox ran out of a machine resource.
 //
 // Production evidence (chat f71a84f7e635): `go test -race ./...` failed with
-// "link: mapping output file failed: no space left on device". Wharness
+// "link: mapping output file failed: no space left on device". Wharnex
 // reported it as an ordinary verification failure, spent a repair round asking
 // the planner to fix source that was never broken, and the retry failed
 // identically. Like the offline Go module cache before it, this is an

@@ -150,7 +150,7 @@ test('local bootstrap exposes selected tunnel links directly without duplicating
 })
 
 test('input archive filename rejects non-canonical request ids', () => {
-  assert.throws(() => chatInputArchiveFilename('chat-1', 'request-1'), /Invalid Wharness request id/)
+  assert.throws(() => chatInputArchiveFilename('chat-1', 'request-1'), /Invalid Wharnex request id/)
 })
 
 test('a task comment with several attachments still becomes one ZIP', async () => {

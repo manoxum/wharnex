@@ -593,7 +593,7 @@ describe('AgentWorkspace', () => {
       { path: 'services', name: 'services', kind: 'directory', size: 0 },
       { path: 'services/frontend', name: 'frontend', kind: 'directory', size: 0 },
     ] })
-    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'README.md', content: '# Wharness', sha256: 'abc', size: 100 })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'README.md', content: '# Wharnex', sha256: 'abc', size: 100 })
     const view = props()
     render(view.element)
     fireEvent.click(screen.getByRole('button', { name: 'Explorador do projeto' }))

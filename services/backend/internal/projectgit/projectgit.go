@@ -16,7 +16,7 @@ var ErrGitUnavailable = errors.New("git executable not found")
 
 // Ensure initializes a Git repository at root when that project does not
 // already own a .git directory/file, and guarantees it has at least one
-// commit. A parent repository does not count: the Wharness project root
+// commit. A parent repository does not count: the Wharnex project root
 // receives its own repository so host apply and IDE Git operations have a
 // stable boundary.
 //
@@ -25,7 +25,7 @@ var ErrGitUnavailable = errors.New("git executable not found")
 // needs one — including the sandbox-to-host integration merge (see
 // internal/sandbox/gitintegration.go), which every Protected project now
 // goes through. A brand-new project (just `git init`, nothing committed
-// yet, e.g. one created via Wharness's own "Create Project") is exactly the
+// yet, e.g. one created via Wharnex's own "Create Project") is exactly the
 // case that would otherwise hit this on its very first change.
 func Ensure(ctx context.Context, root string) (initialized bool, err error) {
 	abs, err := filepath.Abs(root)
@@ -80,9 +80,9 @@ func ensureInitialCommit(ctx context.Context, abs string) error {
 		stageArgs = hostrepo.StageArgs(state.EmbeddedRepositories)
 	}
 	commit := []string{
-		"-c", "user.name=Wharness", "-c", "user.email=wharness@localhost",
+		"-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost",
 		"-c", "commit.gpgSign=false", "-c", "core.hooksPath=" + filepath.Join(abs, ".git", "wharnex-hooks-disabled"),
-		"commit", "-q", "--no-verify", "--allow-empty", "-m", "Wharness project baseline",
+		"commit", "-q", "--no-verify", "--allow-empty", "-m", "Wharnex project baseline",
 	}
 	commands := [][]string{
 		append([]string{"git", "-C", abs}, stageArgs...),

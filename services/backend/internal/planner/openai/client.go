@@ -57,7 +57,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 			"role": "user",
 			"content": []any{
 				map[string]any{"type": "input_file", "file_id": fileID},
-				map[string]any{"type": "input_text", "text": "REQUEST ID: " + request.RequestID + "\nAUTOMATION MODE: " + string(request.AutomationMode) + "\nEFFORT LEVEL: " + string(request.EffortLevel) + "\nSELF-EVOLUTION MODE: " + fmt.Sprintf("%t", request.SelfEvolution) + "\nUSER REQUEST OR WHARNESS CONTINUATION:\n" + request.Message},
+				map[string]any{"type": "input_text", "text": "REQUEST ID: " + request.RequestID + "\nAUTOMATION MODE: " + string(request.AutomationMode) + "\nEFFORT LEVEL: " + string(request.EffortLevel) + "\nSELF-EVOLUTION MODE: " + fmt.Sprintf("%t", request.SelfEvolution) + "\nUSER REQUEST OR WHARNEX CONTINUATION:\n" + request.Message},
 			},
 		}},
 	}

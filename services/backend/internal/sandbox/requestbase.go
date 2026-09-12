@@ -13,7 +13,7 @@ import (
 	"kernl.local/harness/backend/internal/projectknowledge"
 )
 
-// requestBaseRefPrefix namespaces the refs Wharness anchors a request's base
+// requestBaseRefPrefix namespaces the refs Wharnex anchors a request's base
 // tree under. Refs outside refs/heads/* and refs/tags/* are invisible to
 // `git branch`, `git tag` and a default `git log`, so anchoring here keeps a
 // project's ordinary Git UX unchanged while still protecting the commit
@@ -31,7 +31,7 @@ func RequestBaseRef(requestID string) string {
 //
 // This is the counterpart to the context bundle: the bundle is what the model
 // reads, this commit is what the model's patch is authored against. Recording
-// it is what later lets Wharness apply that patch to the tree it was actually
+// it is what later lets Wharnex apply that patch to the tree it was actually
 // written for instead of to whatever the host has drifted to since, turning a
 // dead-end "patch does not apply cleanly" into an ordinary three-way merge.
 //
@@ -52,7 +52,7 @@ func CaptureRequestBase(ctx context.Context, hostPath, requestID string) (commit
 	if requestID == "" {
 		return "", errors.New("request id is required")
 	}
-	commit, err := captureWorkingTreeCommit(ctx, hostPath, "Wharness request base "+requestID, []string{projectknowledge.DirectoryName})
+	commit, err := captureWorkingTreeCommit(ctx, hostPath, "Wharnex request base "+requestID, []string{projectknowledge.DirectoryName})
 	if err != nil {
 		return "", err
 	}
@@ -165,7 +165,7 @@ func captureWorkingTreeCommit(ctx context.Context, repoPath, message string, exc
 // on planner-resolvable paths never reaches the host and never leaves a
 // pre-merge snapshot commit behind for nothing.
 func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*MergeConflictError, error) {
-	comparison, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharness merge preflight")
+	comparison, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharnex merge preflight")
 	if err != nil {
 		return nil, err
 	}

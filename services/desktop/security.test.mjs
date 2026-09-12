@@ -92,7 +92,7 @@ test('ChatGPT navigation URLs are restricted to the trusted remote surface', () 
 })
 
 
-test('Wharness plan filenames are strict and expose the request id', () => {
+test('Wharnex plan filenames are strict and expose the request id', () => {
   assert.equal(wharnessPlanRequestIdFromFilename('wharness-plan-req_20260902T222529_d18d51d84abc677c.json'), 'req_20260902T222529_d18d51d84abc677c')
   assert.equal(wharnessPlanRequestIdFromFilename('plan.json'), '')
   assert.equal(wharnessPlanRequestIdFromFilename('wharness-plan-../../evil.json'), '')
@@ -137,7 +137,7 @@ test('automatic ChatGPT submission waits longer for larger attachment sets and r
 })
 
 
-test('Wharness execution bundle filenames are strict and ZIP bytes are checked', () => {
+test('Wharnex execution bundle filenames are strict and ZIP bytes are checked', () => {
   const name = 'whx_bundle_res_chat_req_20260903T005500_abcdef1234567890.zip'
   assert.equal(wharnessBundleRequestIdFromFilename(name), 'req_20260903T005500_abcdef1234567890')
   assert.equal(validateWharnessBundleDownload(name, Uint8Array.from([0x50, 0x4b, 0x03, 0x04])).requestId, 'req_20260903T005500_abcdef1234567890')
@@ -148,11 +148,11 @@ test('Wharness execution bundle filenames are strict and ZIP bytes are checked',
 
 test('generic ChatGPT ZIP names normalize only against the active expected request', () => {
   const requestId = 'req_20260903T112307_7f79e5fe040d3e2d'
-  assert.deepEqual(canonicalWharnessBundleDownload('Baixar o bundle Wharness.zip', requestId, 'application/zip'), {
+  assert.deepEqual(canonicalWharnessBundleDownload('Baixar o bundle Wharnex.zip', requestId, 'application/zip'), {
     requestId,
     filename: `whx_bundle_res_chat_${requestId}.zip`,
     normalized: true,
-    sourceFilename: 'Baixar o bundle Wharness.zip',
+    sourceFilename: 'Baixar o bundle Wharnex.zip',
   })
   assert.equal(canonicalWharnessBundleDownload('notes.pdf', requestId, 'application/pdf'), undefined)
   assert.throws(() => canonicalWharnessBundleDownload('whx_bundle_res_chat_req_20260903T112307_a1a1a1a1a1a1a1a1.zip', requestId, 'application/zip'), /pedido ativo/)

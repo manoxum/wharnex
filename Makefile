@@ -17,7 +17,7 @@ BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
 help:
 	@printf '%s\n' \
-		'Wharness lifecycle:' \
+		'Wharnex lifecycle:' \
 		'  make build    Build application/stack images and reconcile backend/frontend services' \
 		'  make build-stage  Build artifacts/images without replacing running services (self-evolution)' \
 		'  make deps-status   Show dependency fingerprint cache state' \
@@ -42,7 +42,7 @@ help:
 		'Data reset (destructive):' \
 		'  make reset-data   Drop every Wharnex table, empty the artifact bucket and reset' \
 		'                    the Electron userData. Keeps the authenticated ChatGPT session' \
-		'                    and backs PostgreSQL up first. Requires typing RESET WHARNESS.' \
+		'                    and backs PostgreSQL up first. Requires typing RESET WHARNEX.' \
 		'                    RESET_BROWSER_SESSION=1 also destroys the ChatGPT login' \
 		'                    RESET_BACKUP=0 skips the PostgreSQL backup' \
 		'  make clean        Remove build output only; runtime data is untouched' \
@@ -255,7 +255,7 @@ export-check:
 		test -s "$$tmp_dir/wharness.zip"; \
 		unzip -tqq "$$tmp_dir/wharness.zip"; \
 		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -F 'Schema: `wharness.exports/v1`' >/dev/null; \
-		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -F '## Wharness recent logs' >/dev/null; \
+		unzip -p "$$tmp_dir/wharness.zip" EXPORTS.md | grep -F '## Wharnex recent logs' >/dev/null; \
 		unzip -p "$$tmp_dir/wharness.zip" EXPORT_INDEX.md | grep -F 'Schema: `wharness.export-index/v1`' >/dev/null; \
 		unzip -Z1 "$$tmp_dir/wharness.zip" > "$$tmp_dir/entries.txt"; \
 		if grep -E '(^|/)\.harness/|(^|/)\.idea/|\.(orig|rej)$$|(^|/)(kernl-context-|wharness-input-|wharness-bundle-)' "$$tmp_dir/entries.txt" >/dev/null; then \

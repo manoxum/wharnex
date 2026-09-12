@@ -201,7 +201,7 @@ test('bundle fallback snapshots assistant-turn baseline before each planner subm
   assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, liveTunnels, text, sessionId, expectedFilename\)/)
 })
 
-test('external auth reuses the persistent Wharness browser profile and clear-session owns deletion', async () => {
+test('external auth reuses the persistent Wharnex browser profile and clear-session owns deletion', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const externalStart = source.indexOf('function startExternalAuthentication(entry, provider')
   const externalEnd = source.indexOf('\nfunction routeChatGPTNavigation', externalStart)
@@ -421,7 +421,7 @@ test('a failed delivery continuation escalates once instead of looping behind a 
   const start = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
   const end = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', start)
   const poll = source.slice(start, end)
-  const continuation = poll.indexOf('const continuation = `WHARNESS DELIVERY CONTINUATION')
+  const continuation = poll.indexOf('const continuation = `WHARNEX DELIVERY CONTINUATION')
   const escalation = poll.indexOf("escalateChatGPTContinuationFailure(key, expected, error, 'delivery-continuation')", continuation)
   const genericCatch = poll.indexOf('expected.domProbeFailures = Number(expected.domProbeFailures || 0) + 1', continuation)
   assert.notEqual(continuation, -1)
@@ -471,7 +471,7 @@ test('background ChatGPT views disable renderer throttling and escalate structur
   assert.match(preload, /wharness:chatgpt:human-action/)
 })
 
-test('idle backgrounded ChatGPT views may re-enable normal throttling, but never the active view or one Wharness still needs to supervise', async () => {
+test('idle backgrounded ChatGPT views may re-enable normal throttling, but never the active view or one Wharnex still needs to supervise', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
 
   const needsStart = source.indexOf('function chatGPTEntryNeedsSupervision(key, entry)')
@@ -569,7 +569,7 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   const polling = source.slice(pollStart, pollEnd)
   assert.match(polling, /hasPendingChatGPTComments\(key\)\) return/)
   assert.match(polling, /chatGPTResponseCompletionScript\(expected\.assistantBaseline\)/)
-  assert.match(polling, /WHARNESS DELIVERY CONTINUATION/)
+  assert.match(polling, /WHARNEX DELIVERY CONTINUATION/)
   assert.match(polling, /MAX_BUNDLE_CONTINUATIONS/)
 })
 

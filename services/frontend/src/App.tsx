@@ -660,7 +660,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!target) return
     if (!(await confirmDialog({
       title: 'Eliminar Harness Chat?',
-      message: `“${target.title}” será eliminado definitivamente do histórico local e os anexos do Wharness serão apagados. Se existir uma conversa ChatGPT associada, a eliminação remota será colocada na fila durável dos Workers.`,
+      message: `“${target.title}” será eliminado definitivamente do histórico local e os anexos do Wharnex serão apagados. Se existir uma conversa ChatGPT associada, a eliminação remota será colocada na fila durável dos Workers.`,
       tone: 'danger',
       confirmLabel: 'Eliminar chat',
     }))) return
@@ -933,7 +933,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		const [conflictId, surface] = entry
 		const occupied = [...chats, ...archivedChats].some((chat) => sameChatGPTConversation(chat.chatgptUrl, conversation) || Object.entries(chat.conflictSurfaces || {}).some(([id, candidate]) => (chat.id !== owner.id || id !== conflictId) && sameChatGPTConversation(candidate.url, conversation)))
 		if (occupied) {
-			setError('Esta conversa ChatGPT já pertence a outra superfície do Wharness. Abra uma conversa nova para resolver o conflito.')
+			setError('Esta conversa ChatGPT já pertence a outra superfície do Wharnex. Abra uma conversa nova para resolver o conflito.')
 			void desktopBridge()?.chatgpt.rejectAffinity(cacheKey, conversation)
 			return false
 		}
@@ -1119,7 +1119,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   async function send(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode = 'direct') {
     if (!session) return
     if (attachments.length && (!isDesktop() || config?.planner !== 'manual')) {
-      setError('Anexos diretos requerem o Wharness Desktop com o planner manual.')
+      setError('Anexos diretos requerem o Wharnex Desktop com o planner manual.')
       throw new Error('Anexos diretos indisponíveis neste modo.')
     }
     const targetSession = session
@@ -1241,7 +1241,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
               ? `O ChatGPT está aberto, mas ainda não expõe um campo de escrita utilizável: ${transportFailure}`
               : `O prompt foi preparado, mas não foi possível montar o rascunho no ChatGPT: ${transportFailure}`
             : autoSubmitted
-              ? 'Entrada do planner submetida automaticamente ao ChatGPT em modo Auto. O Wharness aguarda agora o download validado do bundle.'
+              ? 'Entrada do planner submetida automaticamente ao ChatGPT em modo Auto. O Wharnex aguarda agora o download validado do bundle.'
             : draftCount
               ? 'A preparação foi enviada ao composer do ChatGPT. Verifique visualmente a entrada preparada antes de confirmar o envio.'
               : 'Prompt do planner preparado. No ChatGPT, gere o bundle ZIP solicitado e clique em Download; o Desktop irá importá-lo automaticamente.',
@@ -1502,15 +1502,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const autoText = submission.remote_recovery_prepared
         ? `O resultado remoto terminou como retryable. O WHX registou a causa e preparou automaticamente um único pedido novo com contexto e base imutável atuais.`
         : submission.policy_blocked
-        ? `Bundle bloqueado pela Policy antes da execução: ${policyReason || 'plano não permitido'}.${submission.repair_prepared ? ' O Wharness preparou automaticamente um novo pedido de correção.' : ''}`
+        ? `Bundle bloqueado pela Policy antes da execução: ${policyReason || 'plano não permitido'}.${submission.repair_prepared ? ' O Wharnex preparou automaticamente um novo pedido de correção.' : ''}`
 		: submission.conflict_prepared
-		  ? `O ChangeSet foi verificado, mas encontrou um conflito real. O Wharness preparou uma janela ChatGPT dedicada para resolver apenas ${updated.integration_conflict?.paths.join(', ') || 'os caminhos conflitantes'}.`
+		  ? `O ChangeSet foi verificado, mas encontrou um conflito real. O Wharnex preparou uma janela ChatGPT dedicada para resolver apenas ${updated.integration_conflict?.paths.join(', ') || 'os caminhos conflitantes'}.`
         : submission.workflow_prepared
-          ? `Passo local ${workflowRound}/6 concluído na sandbox Protected. Os resultados foram incorporados numa continuação para o mesmo ChatGPT; o Wharness vai submetê-la automaticamente.`
+          ? `Passo local ${workflowRound}/6 concluído na sandbox Protected. Os resultados foram incorporados numa continuação para o mesmo ChatGPT; o Wharnex vai submetê-la automaticamente.`
           : submission.workflow_executed
             ? `Passo local ${workflowRound}/6 executado na sandbox Protected. Nenhuma alteração deste passo foi aplicada ao host.`
             : submission.auto_applied
-              ? (submission.restart_required ? 'Bundle validado. O plano foi verificado na sandbox, aplicado ao próprio Wharness e reconstruído no host. O reinício aguarda confirmação.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
+              ? (submission.restart_required ? 'Bundle validado. O plano foi verificado na sandbox, aplicado ao próprio Wharnex e reconstruído no host. O reinício aguarda confirmação.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
               : pendingApproval
                 ? (updated.failure_kind === 'offline_go_module_cache'
                   ? 'Bundle validado. A execução automática pausou porque a verificação Go precisa do cache de módulos, que ainda não está hidratado offline. Abra o resumo de alertas e use "Permitir rede e repetir" para continuar.'
@@ -1611,7 +1611,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
       }
       return submission.auto_applied
-        ? (submission.restart_required ? `Bundle ${filename} aplicado ao próprio Wharness; build do host concluído e reinício pendente de confirmação.` : `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`)
+        ? (submission.restart_required ? `Bundle ${filename} aplicado ao próprio Wharnex; build do host concluído e reinício pendente de confirmação.` : `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`)
         : submission.workflow_prepared
           ? workflowSubmitted
             ? `Passo ${workflowRound}/6 executado e continuação submetida no Harness Chat “${targetChat.title}”.`
@@ -1726,7 +1726,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (activeChatIdRef.current === target.chat.id) setSession(updated)
       appendChatItem(target.chat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-        text: decision === 'continue' ? `Retomada iniciada em segundo plano: ${intent.plan_id}. Pode continuar a trabalhar enquanto o Wharness acompanha a execução.` : `Execução pendente descartada: ${intent.plan_id}.`,
+        text: decision === 'continue' ? `Retomada iniciada em segundo plano: ${intent.plan_id}. Pode continuar a trabalhar enquanto o Wharnex acompanha a execução.` : `Execução pendente descartada: ${intent.plan_id}.`,
       })
     } catch (resolveError) {
       // A session the backend no longer has (e.g. cleared/reset data) can
@@ -1768,7 +1768,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const text = promptSession.last_manual_prompt || ''
     if (!text) throw new Error('Continuação do planner vazia.')
     if (promptSession.chat_transport_mode === 'manual') throw new Error('Este chat está em modo Manual: copie o prompt e submeta o bundle de resposta manualmente.')
-    if (!isDesktop()) throw new Error('O loop automático com ChatGPT requer Wharness Desktop.')
+    if (!isDesktop()) throw new Error('O loop automático com ChatGPT requer Wharnex Desktop.')
     await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
     const bridge = desktopBridge()
     if (!bridge) throw new Error('Desktop bridge indisponível')
@@ -1810,7 +1810,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		})
 		appendChatItem(targetChat, conflictedSession.project_path, {
 			id: `conflict-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. O Wharness abriu uma janela ChatGPT dedicada e enviará apenas o capsule harness.conflict/v1 para resolução.`,
+			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. O Wharnex abriu uma janela ChatGPT dedicada e enviará apenas o capsule harness.conflict/v1 para resolução.`,
 			meta: `Conflito ${conflict.id} · superfície dedicada`,
 			iteration: iterationRef(conflict.request_id, 'conflict', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), existing?.url || targetChat.chatgptUrl),
 		})
@@ -1851,7 +1851,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (requestAlreadyRecorded(workflowSession.project_path, targetChat.id, requestId, ['workflow'])) return false
     appendChatItem(targetChat, workflowSession.project_path, {
       id: `workflow-${requestId || round}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-      text: `O Wharness terminou o passo local ${round}/6 e vai devolver stdout, stderr e códigos de saída ao mesmo ChatGPT para decidir o próximo passo.`,
+      text: `O Wharnex terminou o passo local ${round}/6 e vai devolver stdout, stderr e códigos de saída ao mesmo ChatGPT para decidir o próximo passo.`,
       meta: workflowSession.last_request_id ? `Workflow ${round}/6 · ${workflowSession.last_request_id}` : `Workflow ${round}/6`,
       turnKind: 'workflow',
       iteration: workflowSession.last_request_id ? iterationRef(workflowSession.last_request_id, 'workflow', selectedArtifactKinds(continuationArtifactSelection(workflowSession)), targetChat.chatgptUrl) : undefined,
@@ -1861,7 +1861,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       appendChatItem(targetChat, workflowSession.project_path, {
         id: `workflow-dispatch-${requestId || round}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: prepared.submitted
-          ? 'Resultados locais submetidos automaticamente ao ChatGPT. O Wharness aguarda a próxima decisão ou o encerramento do fluxo.'
+          ? 'Resultados locais submetidos automaticamente ao ChatGPT. O Wharnex aguarda a próxima decisão ou o encerramento do fluxo.'
           : 'A continuação foi preparada no ChatGPT, mas ainda precisa de confirmação manual.',
         meta: prepared.submitted ? `Workflow ${round}/6 · ChatGPT acionado` : `Workflow ${round}/6 · confirmação pendente`,
         turnKind: 'workflow',
@@ -1900,13 +1900,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const cause = truncateRepairCause(failedSession.last_repair_error || failedSession.last_execution?.error)
     appendChatItem(targetChat, failedSession.project_path, {
       id: `repair-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-      text: improvement ? `O Wharness preparou a ronda de melhoria contínua ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado. O ChatGPT deve parar se já não houver melhoria material com bom custo/benefício.` : restoringRevert ? `A reposição direta da alteração revertida encontrou um conflito. O Wharness preparou um pedido de conciliação ${attemptLabel} e vai enviá-lo automaticamente ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}` : `O Wharness preparou a requisição de correção ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
+      text: improvement ? `O Wharnex preparou a ronda de melhoria contínua ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado. O ChatGPT deve parar se já não houver melhoria material com bom custo/benefício.` : restoringRevert ? `A reposição direta da alteração revertida encontrou um conflito. O Wharnex preparou um pedido de conciliação ${attemptLabel} e vai enviá-lo automaticamente ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}` : `O Wharnex preparou a requisição de correção ${attemptLabel} e vai enviá-la ao mesmo ChatGPT vinculado.${cause ? `\n\n**O que falhou:**\n\n${cause}` : ''}`,
       meta: improvement ? `Melhoria contínua ${failedSession.last_request_id || ''}`.trim() : restoringRevert ? `Reposição ${failedSession.last_request_id || ''}`.trim() : (failedSession.last_request_id ? `Repair ${failedSession.last_request_id}` : 'Repair automático'),
       iteration: failedSession.last_request_id ? iterationRef(failedSession.last_request_id, 'repair', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined,
     })
     try {
       const prepared = await transportPlannerContinuation(failedSession, targetChat)
-      appendChatItem(targetChat, failedSession.project_path, { id: `repair-dispatch-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: improvement ? (prepared.submitted ? 'Ronda de melhoria contínua enviada automaticamente ao ChatGPT. O Wharness aguarda o novo bundle ou a indicação de que não há mais melhorias materiais.' : 'Ronda de melhoria contínua preparada no ChatGPT; confirme o envio para continuar.') : (prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharness vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.'), meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: requestId ? iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
+      appendChatItem(targetChat, failedSession.project_path, { id: `repair-dispatch-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: improvement ? (prepared.submitted ? 'Ronda de melhoria contínua enviada automaticamente ao ChatGPT. O Wharnex aguarda o novo bundle ou a indicação de que não há mais melhorias materiais.' : 'Ronda de melhoria contínua preparada no ChatGPT; confirme o envio para continuar.') : (prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharnex vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.'), meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: requestId ? iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (sendError) {
       appendChatItem(targetChat, failedSession.project_path, { id: `repair-failed-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT para retomar', iteration: requestId ? iterationRef(requestId, 'failed', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined })
       setError(messageOf(sendError))
@@ -1922,18 +1922,18 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const repaired = await api.retryPolicyRepair(session.id)
       setSession(repaired)
       setManualPrompt(repaired.last_manual_prompt || '')
-      if (!repaired.last_manual_prompt) throw new Error('O Wharness não conseguiu preparar o reprocessamento deste bundle.')
+      if (!repaired.last_manual_prompt) throw new Error('O Wharnex não conseguiu preparar o reprocessamento deste bundle.')
       if (repaired.state === 'awaiting_plan') {
         const prepared = await transportPlannerContinuation(repaired, targetChat)
         appendChatItem(targetChat, repaired.project_path, {
           id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-          text: prepared.submitted ? 'O pedido original foi reenviado ao ChatGPT. O Wharness aguarda um novo bundle ZIP.' : 'O pedido original foi preparado no ChatGPT; confirme o envio para receber um novo bundle ZIP.',
+          text: prepared.submitted ? 'O pedido original foi reenviado ao ChatGPT. O Wharnex aguarda um novo bundle ZIP.' : 'O pedido original foi preparado no ChatGPT; confirme o envio para receber um novo bundle ZIP.',
           meta: prepared.submitted ? 'Reprocessamento enviado' : 'Reprocessamento · confirmação pendente',
           iteration: repaired.last_request_id ? iterationRef(repaired.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds(continuationArtifactSelection(repaired)), prepared.conversationUrl || targetChat.chatgptUrl) : undefined,
         })
         return
       }
-      if (repaired.state !== 'repair_pending') throw new Error('O Wharness não encontrou um bloqueio que possa ser reprocessado.')
+      if (repaired.state !== 'repair_pending') throw new Error('O Wharnex não encontrou um bloqueio que possa ser reprocessado.')
       await submitRepairPrompt(repaired, targetChat, true)
     } catch (error) {
       setError(messageOf(error))
@@ -1959,7 +1959,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         return
       }
       if (!repaired.last_manual_prompt) {
-        throw new Error('O Wharness não conseguiu preparar uma requisição de correção para este erro.')
+        throw new Error('O Wharnex não conseguiu preparar uma requisição de correção para este erro.')
       }
       if (repaired.state === 'repair_pending') {
         await submitRepairPrompt(repaired, targetChat, true)
@@ -1967,12 +1967,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const prepared = await transportPlannerContinuation(repaired, targetChat)
         appendChatItem(targetChat, repaired.project_path, {
           id: `manual-repair-${repaired.last_request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-          text: prepared.submitted ? 'Correção manual enviada ao ChatGPT. O Wharness aguarda o novo bundle ZIP.' : 'Correção manual preparada no ChatGPT; confirme o envio para continuar.',
+          text: prepared.submitted ? 'Correção manual enviada ao ChatGPT. O Wharnex aguarda o novo bundle ZIP.' : 'Correção manual preparada no ChatGPT; confirme o envio para continuar.',
           meta: prepared.submitted ? 'Correção GPT enviada' : 'Correção GPT · confirmação pendente',
           iteration: repaired.last_request_id ? iterationRef(repaired.last_request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds(continuationArtifactSelection(repaired)), prepared.conversationUrl || targetChat.chatgptUrl) : undefined,
         })
       } else {
-        throw new Error('O Wharness não conseguiu preparar uma requisição de correção para este erro.')
+        throw new Error('O Wharnex não conseguiu preparar uma requisição de correção para este erro.')
       }
     } catch (error) {
       setError(messageOf(error))
@@ -2048,7 +2048,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   async function retryHostDependencyRepair() {
 	if (!session || busy || !(await confirmDialog({
 		title: 'Reinstalar dependências do host?',
-		message: 'A mesma verificação passou na sandbox Protected mas falhou no host por uma dependência npm nativa/opcional ausente em node_modules (bug conhecido do npm com dependências opcionais). O Wharness vai rodar, direto no host e sem sudo:\n\n  rm -rf node_modules\n  rm -f package-lock.json\n  npm install\n\nSe a build passar de novo, o Apply é repetido automaticamente.',
+		message: 'A mesma verificação passou na sandbox Protected mas falhou no host por uma dependência npm nativa/opcional ausente em node_modules (bug conhecido do npm com dependências opcionais). O Wharnex vai rodar, direto no host e sem sudo:\n\n  rm -rf node_modules\n  rm -f package-lock.json\n  npm install\n\nSe a build passar de novo, o Apply é repetido automaticamente.',
 		tone: 'warning',
 		confirmLabel: 'Reinstalar e repetir',
 	}))) return
@@ -2129,7 +2129,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function changeExecutionMode(next: ExecutionMode) {
     if (!session || next === executionMode || busy) return
-    if (session.self_evolution && next === 'unprotected') { setError('A auto-evolução do próprio Wharness é bloqueada em Unprotected. Use Protected para manter sandbox, build transacional e rollback.'); return }
+    if (session.self_evolution && next === 'unprotected') { setError('A auto-evolução do próprio Wharnex é bloqueada em Unprotected. Use Protected para manter sandbox, build transacional e rollback.'); return }
     let nextAutomation = automationMode
     if (next === 'unprotected') {
       const warning = automationMode === 'auto'
@@ -2199,7 +2199,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const updated = await api.setChatTransportMode(session.id, next)
       setSession(updated); setChatTransportMode(next)
       if (isDesktop() && activeChatId) { try { await desktopBridge()?.chatgpt.setTransportMode(activeChatId, next) } catch { /* best-effort defense in depth; the primary guard is never calling preparePrompt while manual */ } }
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'manual' ? 'Modo Manual ativado para este chat. O Wharness deixa de interagir com o ChatGPT — copie o prompt e entregue o bundle de resposta manualmente.' : 'Modo Scraper ativado para este chat. O Wharness volta a interagir diretamente com o ChatGPT.', meta: next === 'manual' ? 'Manual' : 'Scraper' }])
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'manual' ? 'Modo Manual ativado para este chat. O Wharnex deixa de interagir com o ChatGPT — copie o prompt e entregue o bundle de resposta manualmente.' : 'Modo Scraper ativado para este chat. O Wharnex volta a interagir diretamente com o ChatGPT.', meta: next === 'manual' ? 'Manual' : 'Scraper' }])
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -2243,7 +2243,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!active || !requestId) throw new Error('Nenhuma tarefa ChatGPT ativa para comentar.')
     try {
       const bridge = desktopBridge()
-      if (!bridge) throw new Error('Comentários de tarefa requerem Wharness Desktop.')
+      if (!bridge) throw new Error('Comentários de tarefa requerem Wharnex Desktop.')
       const encoded = attachments.length ? await encodeChatAttachments(attachments) : []
       const result = await bridge.chatgpt.queueComment({ cacheKey: active.id, sessionId: session.id, text: message, url: active.chatgptUrl, requestId, commentId: crypto.randomUUID(), attachments: encoded })
       const item: ChatItem = { id: crypto.randomUUID(), role: 'user', source: 'user', text: message, createdAt: new Date().toISOString(), meta: `${result.queued ? 'Comentário em fila' : 'Comentário enviado'} para a tarefa ativa${attachments.length ? ` · ${attachments.length} anexo(s)` : ''}`, iteration: iterationRef(requestId, 'submitted', ['prompt'], active.chatgptUrl) }
@@ -2281,7 +2281,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         appendChatItem(active, updated.project_path, {
           id: itemId, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
 		  text: submoduleBlocked
-		    ? `O bundle foi recusado porque a alteração tenta escrever dentro de um submódulo Git, que pertence a outro repositório. Nenhuma correção automática foi lançada. Abra o submódulo indicado na causa como projeto Wharness, repita a alteração nesse repositório e, se necessário, atualize depois o ponteiro no superprojeto.\n\nCausa: ${reason}`
+		    ? `O bundle foi recusado porque a alteração tenta escrever dentro de um submódulo Git, que pertence a outro repositório. Nenhuma correção automática foi lançada. Abra o submódulo indicado na causa como projeto Wharnex, repita a alteração nesse repositório e, se necessário, atualize depois o ponteiro no superprojeto.\n\nCausa: ${reason}`
 		    : automaticallyRecovered
 		      ? `O bundle foi recusado com segurança. O WHX preservou a falha como diagnóstico, criou uma nova base imutável e preparou automaticamente um único pedido de correção.\n\nCausa: ${reason}`
 		      : `O pedido remoto terminou por falha de protocolo ou comunicação. Nenhum bundle foi executado. Ao repetir, o WHX enviará esta causa para que o ChatGPT corrija o contrato antes de gerar outro ZIP.\n\nCausa: ${reason}`,
@@ -2307,7 +2307,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
               // appear if the automatic delivery below silently fails.
               appendChatItem(active, updated.project_path, {
                 id: `auto-recovery-dispatch-${updated.last_request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-                text: prepared.submitted ? 'O pedido de correção automática foi enviado ao ChatGPT em segundo plano. O Wharness vigia agora o download do novo bundle ZIP.' : 'O pedido de correção automática foi preparado no ChatGPT; confirme o envio para continuar.',
+                text: prepared.submitted ? 'O pedido de correção automática foi enviado ao ChatGPT em segundo plano. O Wharnex vigia agora o download do novo bundle ZIP.' : 'O pedido de correção automática foi preparado no ChatGPT; confirme o envio para continuar.',
                 meta: prepared.submitted ? `Pedido ${updated.last_request_id} enviado automaticamente` : `Pedido ${updated.last_request_id} · confirmação pendente`,
                 iteration: updated.last_request_id ? iterationRef(updated.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], prepared.conversationUrl || active.chatgptUrl) : undefined,
               })
@@ -2680,7 +2680,7 @@ function contextArtifact(session: Session) {
   const manifest = session.context.manifest
   const files = manifest.files.slice(0, 240).map((file) => `- ${file.path} · ${file.size} B · ${file.sha256.slice(0, 12)}`).join('\n')
   const omitted = manifest.files.length > 240 ? `\n- ... ${manifest.files.length - 240} ficheiro(s) adicionais` : ''
-  return `# Wharness context snapshot\n\n- id: ${manifest.id}\n- project: ${manifest.project_root}\n- sha256: ${manifest.sha256}\n- files: ${manifest.files.length}\n- text truncated: ${manifest.text_truncated}\n\n## Included files\n\n${files}${omitted}\n`
+  return `# Wharnex context snapshot\n\n- id: ${manifest.id}\n- project: ${manifest.project_root}\n- sha256: ${manifest.sha256}\n- files: ${manifest.files.length}\n- text truncated: ${manifest.text_truncated}\n\n## Included files\n\n${files}${omitted}\n`
 }
 
 function requestChainActive(session: Session) {
@@ -2723,7 +2723,7 @@ function turnMeta(kind: NonNullable<Session['last_turn']>['kind']) {
 }
 
 function welcomeItem(session: Session): ChatItem {
-  return { id: 'welcome', role: 'harness', source: 'wharness', presentation: 'notice', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharness. Mudanças permanecem Protected e, após Apply + build do host, o Wharness pede confirmação antes de reiniciar; o rollback continua disponível até a nova versão ficar saudável.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
+  return { id: 'welcome', role: 'harness', source: 'wharness', presentation: 'notice', text: session.self_evolution ? 'Auto-evolução detetada: este workspace é o próprio root da instância Wharnex. Mudanças permanecem Protected e, após Apply + build do host, o Wharnex pede confirmação antes de reiniciar; o rollback continua disponível até a nova versão ficar saudável.' : 'Contexto preparado. Pode perguntar, pedir uma análise, explorar uma ideia, diagnosticar o projecto ou solicitar uma alteração.', createdAt: new Date().toISOString(), meta: session.self_evolution ? `AUTO-EVOLUÇÃO · ${session.context.manifest.files.length} ficheiros elegíveis` : `${session.context.manifest.files.length} ficheiros elegíveis no snapshot` }
 }
 
 function truncateRepairCause(cause?: string, limit = 800) {

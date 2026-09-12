@@ -316,7 +316,7 @@ func TestRemoteInputPublishesFreshRequestArchiveInsteadOfSharedContext(t *testin
 	if len(objects) != 1 || !strings.HasPrefix(objectName, "whx_bundle_req_system_"+prompted.LastRequestID+"-") || !entries["context/main.txt"] || !entries["prompt/wharness-planner-prompt.md"] {
 		t.Fatalf("request must publish a fresh archive with context and prompt: objects=%#v entries=%#v", objects, entries)
 	}
-	if !strings.Contains(first.BootstrapPrompt, "WHARNESS INPUT") || strings.Contains(first.BootstrapPrompt, prompted.LastManualPrompt) || !first.IncludedContext {
+	if !strings.Contains(first.BootstrapPrompt, "WHARNEX INPUT") || strings.Contains(first.BootstrapPrompt, prompted.LastManualPrompt) || !first.IncludedContext {
 		t.Fatalf("request bootstrap is invalid: %#v", first)
 	}
 	if got := remote.contextFile("main.txt"); got != "edited while preparing remote input" {

@@ -217,7 +217,7 @@ func TestTryCloudflareRequestChannelServesTypedSecretResourcesAndEvents(t *testi
 		t.Fatal(err)
 	}
 	if starter.stops != 1 {
-		t.Fatalf("closing the Wharness session must stop the tunnel: %d", starter.stops)
+		t.Fatalf("closing the Wharnex session must stop the tunnel: %d", starter.stops)
 	}
 }
 

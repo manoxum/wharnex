@@ -28,7 +28,7 @@ func requireGit(t *testing.T) {
 }
 
 // newTestHostRepo creates a real Git repository with one commit, mirroring
-// what every Wharness project already guarantees (internal/projectgit.Ensure).
+// what every Wharnex project already guarantees (internal/projectgit.Ensure).
 func newTestHostRepo(t *testing.T, fileName, content string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -71,7 +71,7 @@ func TestCommitVerifiedPatchCreatesRealCommitOnNewBranch(t *testing.T) {
 		t.Fatalf("expected to be on the new branch, got %q", branch)
 	}
 	author := mustGit(t, sandbox, "log", "-1", "--format=%an <%ae>")
-	if author != "Wharness <wharness@localhost>" {
+	if author != "Wharnex <wharness@localhost>" {
 		t.Fatalf("unexpected commit author: %q", author)
 	}
 	message := mustGit(t, sandbox, "log", "-1", "--format=%s")

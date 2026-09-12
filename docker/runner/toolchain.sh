@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # kernl-toolchain prints the runner image's own executable inventory as JSON.
 #
-# The image describes itself so Wharness never maintains a second, drifting
+# The image describes itself so Wharnex never maintains a second, drifting
 # copy of this list: `sandboxenv` runs this entrypoint once per image and
 # publishes the result to the planner, which then proposes only executables
 # that genuinely exist. Before this existed, plans routinely proposed absent

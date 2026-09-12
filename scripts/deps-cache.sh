@@ -21,7 +21,7 @@ require() {
 # with a bare ERR_REQUIRE_ESM stack that names neither Node nor the
 # requirement — and a self-evolution host build runs with the backend
 # CONTAINER's Node, not the operator's, so the same repository can build by
-# hand and fail under Wharness. Fail loudly here instead.
+# hand and fail under Wharnex. Fail loudly here instead.
 MIN_NODE_MAJOR=22
 MIN_NODE_MINOR=12
 
@@ -37,7 +37,7 @@ node_version_satisfies_minimum() {
 }
 
 # Tries to align the HOST's own Node with what this repository needs, using
-# the operator's own nvm install (never installed or invoked by Wharness
+# the operator's own nvm install (never installed or invoked by Wharnex
 # itself, and never touched from inside a container: nvm is bash-only and
 # per-user, so this only ever matters for a human-invoked `make build`/`make
 # deps` on the host — a container-scoped build, such as self-evolution's
@@ -86,7 +86,7 @@ require_supported_node() {
   {
     printf '[deps] Node %s is too old for this repository: the pinned Electron requires >= %s.%s, and nvm-based alignment was unavailable or failed.\n' "$found_version" "$MIN_NODE_MAJOR" "$MIN_NODE_MINOR"
     printf '[deps] node in use: %s\n' "$(command -v node 2>/dev/null || echo 'not found')"
-    printf '[deps] A Wharness self-evolution host build runs with the backend CONTAINER Node,\n'
+    printf '[deps] A Wharnex self-evolution host build runs with the backend CONTAINER Node,\n'
     printf '[deps] not the one on your shell PATH. If this fired during self-evolution, rebuild\n'
     printf '[deps] the backend image (services/backend/Dockerfile pins the Alpine release that\n'
     printf '[deps] provides Node). Otherwise install nvm or upgrade the Node on PATH.\n'

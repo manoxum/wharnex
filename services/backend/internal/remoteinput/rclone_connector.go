@@ -94,7 +94,7 @@ func (c *RcloneConnector) Connect(ctx context.Context, request app.RemoteStorage
 
 func (c *RcloneConnector) Disconnect(ctx context.Context, remote string) error {
 	if !validManagedRemote(remote) {
-		return errors.New("only Wharness-managed storage connections can be removed")
+		return errors.New("only Wharnex-managed storage connections can be removed")
 	}
 	if err := c.runner.Run(ctx, "config", "delete", remote); err != nil {
 		return errors.New("disconnect storage provider failed")

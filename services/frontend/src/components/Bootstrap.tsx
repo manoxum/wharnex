@@ -61,7 +61,7 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
         <div className="bootstrap-copy">
           <span className="eyebrow">Execution workspace</span>
           <h1>{restoring ? 'A reabrir o seu workspace…' : <>Abra, crie ou clone.<br />O contexto vem depois.</>}</h1>
-          <p>{restoring ? 'A recuperar a última sessão e o projeto local.' : 'Escolha o projeto através do explorador nativo. O Wharness prepara Git, cria whaness.yml quando necessário e monta um contexto enxuto para o agente.'}</p>
+          <p>{restoring ? 'A recuperar a última sessão e o projeto local.' : 'Escolha o projeto através do explorador nativo. O Wharnex prepara Git, cria whaness.yml quando necessário e monta um contexto enxuto para o agente.'}</p>
         </div>
         {!restoring && <>
           <div className="project-source-tabs" role="tablist" aria-label="Origem do projeto">

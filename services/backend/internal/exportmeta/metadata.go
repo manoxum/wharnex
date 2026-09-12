@@ -61,7 +61,7 @@ func Capture(root, kind string, generatedAt time.Time) Metadata {
 
 func (m Metadata) Markdown() []byte {
 	var out bytes.Buffer
-	fmt.Fprintln(&out, "# Wharness Export Metadata")
+	fmt.Fprintln(&out, "# Wharnex Export Metadata")
 	fmt.Fprintln(&out)
 	fmt.Fprintf(&out, "- Schema: `%s`\n", Schema)
 	fmt.Fprintf(&out, "- Kind: `%s`\n", fallback(m.Kind, "context"))
@@ -99,20 +99,20 @@ func (m Metadata) Markdown() []byte {
 	writeFence(&out, m.Git.Worktrees, "Not a Git repository or worktree information unavailable.")
 	if m.Runtime != nil {
 		fmt.Fprintln(&out)
-		fmt.Fprintln(&out, "## Wharness status")
+		fmt.Fprintln(&out, "## Wharnex status")
 		fmt.Fprintln(&out)
-		writeFence(&out, m.Runtime.Status, "Wharness status unavailable.")
+		writeFence(&out, m.Runtime.Status, "Wharnex status unavailable.")
 		fmt.Fprintln(&out)
-		fmt.Fprintln(&out, "## Wharness recent logs")
+		fmt.Fprintln(&out, "## Wharnex recent logs")
 		fmt.Fprintln(&out)
 		fmt.Fprintf(&out, "Last up to %d lines / %d KiB from `.harness/logs/desktop.log`; secret-like values are redacted.\n\n", maxRuntimeLogLines, maxRuntimeOutputBytes/1024)
-		writeFence(&out, m.Runtime.Logs, "No Wharness desktop log available.")
+		writeFence(&out, m.Runtime.Logs, "No Wharnex desktop log available.")
 		if m.Runtime.SelfEvolutionLogs != "" {
 			fmt.Fprintln(&out)
-			fmt.Fprintln(&out, "## Wharness self-evolution logs")
+			fmt.Fprintln(&out, "## Wharnex self-evolution logs")
 			fmt.Fprintln(&out)
 			fmt.Fprintf(&out, "Last up to %d lines / %d KiB from `.harness/logs/self-evolution.log`; secret-like values are redacted.\n\n", maxRuntimeLogLines, maxRuntimeOutputBytes/1024)
-			writeFence(&out, m.Runtime.SelfEvolutionLogs, "No Wharness self-evolution log available.")
+			writeFence(&out, m.Runtime.SelfEvolutionLogs, "No Wharnex self-evolution log available.")
 		}
 		if m.Runtime.Error != "" {
 			fmt.Fprintln(&out)
@@ -184,7 +184,7 @@ func runCommand(root string, timeout time.Duration, name string, args ...string)
 	err := cmd.Run()
 	value := strings.TrimSpace(out.String())
 	if out.truncated {
-		value += "\n...[truncated by Wharness]"
+		value += "\n...[truncated by Wharnex]"
 	}
 	if ctx.Err() != nil {
 		return value, fmt.Errorf("timed out")

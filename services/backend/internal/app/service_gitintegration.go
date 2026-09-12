@@ -15,7 +15,7 @@ import (
 	"kernl.local/harness/backend/internal/sandbox"
 )
 
-// integrationBranchName is the Git branch Wharness creates inside a
+// integrationBranchName is the Git branch Wharnex creates inside a
 // verification sandbox for one candidate's verified patch, and later merges
 // into the host under that exact same name (see ADR-0028/29 and
 // SoT/SANDBOX_MODEL.md). request_id already matches req_<timestamp>_<hex>,
@@ -45,7 +45,7 @@ const (
 //
 // The body's line structure is deliberately preserved. Flattening newlines into
 // spaces — as this previously did — made a commit body structurally impossible,
-// so every Wharness commit was a bare subject no matter what the planner wrote,
+// so every Wharnex commit was a bare subject no matter what the planner wrote,
 // and the reasoning that makes history worth reading was silently discarded.
 // The subject is still collapsed to a single line, because Git treats the first
 // line as the subject and a multi-line one has no meaning.

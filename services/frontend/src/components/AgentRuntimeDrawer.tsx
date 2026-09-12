@@ -144,7 +144,7 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
 
   if (!bridge) return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime local</span><strong>Agentes</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></header>
-    <div className="agent-drawer-empty"><strong>Bridge preload indisponível.</strong><span>Abra esta área no Wharness Desktop/Electron. Sem a bridge não é possível distinguir o scheduler, o backend ou os browsers dos Workers.</span></div>
+    <div className="agent-drawer-empty"><strong>Bridge preload indisponível.</strong><span>Abra esta área no Wharnex Desktop/Electron. Sem a bridge não é possível distinguir o scheduler, o backend ou os browsers dos Workers.</span></div>
   </section>
 
   return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">

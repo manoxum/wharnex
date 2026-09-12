@@ -23,7 +23,7 @@ type ephemeralTunnelProfile struct {
 }
 
 // NewEphemeralTunnelProvider starts one allowlisted tunnel client for the
-// loopback-only Wharness resource server. It deliberately has no facility for
+// loopback-only Wharnex resource server. It deliberately has no facility for
 // user-provided command fragments, hosts, or SSH options.
 func NewEphemeralTunnelProvider(provider, storageDir string, landing TunnelLanding) (*TryCloudflareProvider, error) {
 	profile, ok := ephemeralTunnelProfiles()[provider]

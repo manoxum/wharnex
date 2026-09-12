@@ -104,7 +104,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
 
   async function exportBrowserSession() {
     const bridge = desktopBridge()
-    if (!bridge) return onError('Exportação da sessão do navegador requer Wharness Desktop.')
+    if (!bridge) return onError('Exportação da sessão do navegador requer Wharnex Desktop.')
     setStorageBusy(true)
     try {
       const result = await bridge.data.exportBrowserSession()
@@ -121,10 +121,10 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
 
   async function importBrowserSession() {
     const bridge = desktopBridge()
-    if (!bridge) return onError('Importação da sessão do navegador requer Wharness Desktop.')
+    if (!bridge) return onError('Importação da sessão do navegador requer Wharnex Desktop.')
     if (!(await confirmDialog({
       title: 'Importar sessão do navegador?',
-      message: 'A sessão atual do navegador interno será substituída e o Wharness será reiniciado para ativar a sessão importada.',
+      message: 'A sessão atual do navegador interno será substituída e o Wharnex será reiniciado para ativar a sessão importada.',
       tone: 'warning',
       confirmLabel: 'Importar e reiniciar',
     }))) return
@@ -135,7 +135,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
 
   async function clearBrowserSession() {
     const bridge = desktopBridge()
-    if (!bridge) return onError('Limpeza da sessão do navegador requer Wharness Desktop.')
+    if (!bridge) return onError('Limpeza da sessão do navegador requer Wharnex Desktop.')
     if (!(await confirmDialog({
       title: 'Limpar sessão do navegador?',
       message: 'Cookies, cache e armazenamento da sessão do navegador interno serão removidos. Será necessário autenticar novamente no ChatGPT.',
@@ -153,22 +153,22 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
   }
 
   async function clearAllWharnessData() {
-    if (resetConfirm.trim() !== 'APAGAR WHARNESS') return
+    if (resetConfirm.trim() !== 'APAGAR WHARNEX') return
     const bridge = desktopBridge()
-    if (!bridge) return onError('Limpeza completa requer Wharness Desktop.')
+    if (!bridge) return onError('Limpeza completa requer Wharnex Desktop.')
     setStorageBusy(true)
     try {
       await api.clearStorage(resetConfirm.trim())
       await bridge.data.clearAll(resetConfirm.trim())
       localStorage.clear()
       window.location.reload()
-    } catch (error) { onError(messageOf(error, 'Falha ao limpar todos os dados do Wharness')); setStorageBusy(false) }
+    } catch (error) { onError(messageOf(error, 'Falha ao limpar todos os dados do Wharnex')); setStorageBusy(false) }
   }
 
   return <div className="project-settings-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
     <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
       <header>
-        <div><span className="eyebrow">Wharness</span><h2 id="project-settings-title">Configurações</h2><p>Preferências do projeto, transporte de contexto e dados locais num só lugar.</p></div>
+        <div><span className="eyebrow">Wharnex</span><h2 id="project-settings-title">Configurações</h2><p>Preferências do projeto, transporte de contexto e dados locais num só lugar.</p></div>
         <button className="icon-button" onClick={onClose} title="Fechar"><Icon name="close" size={16}/></button>
       </header>
       <div className="project-settings-body settings-layout">
@@ -182,7 +182,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
         <main className="settings-content">
         {activeSection === 'language' ? <LanguageSettingsPanel onError={onError}/> : null}
         {activeSection === 'appearance' ? <section className="appearance-settings-section">
-          <div className="context-section-title"><div><strong>Aparência e tipografia</strong><span>Ajuste a leitura da interface sem alterar o projeto. As preferências são locais ao Wharness.</span></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
+          <div className="context-section-title"><div><strong>Aparência e tipografia</strong><span>Ajuste a leitura da interface sem alterar o projeto. As preferências são locais ao Wharnex.</span></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
           <ThemePreferenceControl value={uiPreferences.theme} onChange={(theme) => { const next = saveUIPreferences({ ...uiPreferences, theme }); setUIPreferences(next) }} />
           <div className="typography-settings-grid">
             <label><span>Fonte da interface</span><select value={uiPreferences.uiFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, uiFont: event.target.value as UIPreferences['uiFont'] }); setUIPreferences(next) }}><option value="elegant">Elegante · Inter / Manrope</option><option value="system">Sistema · Segoe / nativa</option><option value="humanist">Humanista · Aptos / Calibri</option></select></label>
@@ -210,9 +210,9 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
         {activeSection === 'tunnel-provider' ? <TunnelProviderSettings onError={onError}/> : null}
         {activeSection === 'remote-storage' ? <RemoteStorageSettings onError={onError}/> : null}
         {activeSection === 'data' ? <section className="wharness-data-section">
-          <div className="context-section-title"><div><strong>Dados e armazenamento</strong><span>Sessão do navegador, métricas de disco e operações de limpeza do Wharness.</span></div><button className="icon-button" disabled={storageBusy} onClick={() => void refreshStorage()} title="Atualizar métricas"><Icon name="refresh" size={15}/></button></div>
+          <div className="context-section-title"><div><strong>Dados e armazenamento</strong><span>Sessão do navegador, métricas de disco e operações de limpeza do Wharnex.</span></div><button className="icon-button" disabled={storageBusy} onClick={() => void refreshStorage()} title="Atualizar métricas"><Icon name="refresh" size={15}/></button></div>
           <div className="storage-metrics">
-            <StorageMetric label="Wharness total" bytes={(backendStorage?.total_bytes || 0) + (desktopStorage?.total_bytes || 0)} />
+            <StorageMetric label="Wharnex total" bytes={(backendStorage?.total_bytes || 0) + (desktopStorage?.total_bytes || 0)} />
             <StorageMetric label="Navegador interno" bytes={desktopStorage?.browser_bytes || 0} />
             <StorageMetric label="Anexos de chats" bytes={desktopStorage?.attachment_bytes || 0} />
             <StorageMetric label="Artefactos MinIO" bytes={backendStorage?.artifact_bytes || 0} />
@@ -229,7 +229,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
             <div><input type="number" min={1} max={3650} value={artifactRetentionDays} onChange={(event) => setArtifactRetentionDays(Math.max(1, Math.min(3650, Number(event.target.value) || 30)))} style={{ width: 92 }}/><span> dias </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar retenção')))}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
-            <div><strong>Quota de bundles do ChatGPT</strong><span>Janela móvel de 3 horas. Esta é uma estimativa local do Wharness: mede bundles enviados e recebidos em todos os chats conhecidos pela instância; o limite configurável aplica-se aos enviados e gera apenas alerta, sem bloquear novos pedidos.</span></div>
+            <div><strong>Quota de bundles do ChatGPT</strong><span>Janela móvel de 3 horas. Esta é uma estimativa local do Wharnex: mede bundles enviados e recebidos em todos os chats conhecidos pela instância; o limite configurável aplica-se aos enviados e gera apenas alerta, sem bloquear novos pedidos.</span></div>
             <div><input aria-label="Máximo de bundles enviados em 3 horas" type="number" min={1} max={10000} value={bundleWindowLimit} onChange={(event) => setBundleWindowLimit(Math.max(1, Math.min(10000, Number(event.target.value) || 80)))} style={{ width: 92 }}/><span> envios / 3 h </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar quota de bundles')))}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
@@ -237,9 +237,9 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
             <div><button className="secondary-button" disabled={storageBusy || !desktopBridge()} onClick={() => void exportBrowserSession()}><Icon name="download" size={14}/> Exportar</button><button className="secondary-button" disabled={storageBusy || !desktopBridge()} onClick={() => void importBrowserSession()}><Icon name="apply" size={14}/> Importar</button><button className="secondary-button" disabled={storageBusy || !desktopBridge()} onClick={() => void clearBrowserSession()}><Icon name="close" size={14}/> Limpar sessão</button></div>
           </div>
           <div className="danger-zone">
-            <div><strong>Limpar todos os dados do Wharness</strong><span>Remove sessões, histórico local, contextos, sandboxes, anexos, temporários e sessão do navegador. Os ficheiros dos projetos reais não são apagados.</span></div>
-            <label><span>Digite <code>APAGAR WHARNESS</code></span><input value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} placeholder="APAGAR WHARNESS" /></label>
-            <button className="danger-button" disabled={storageBusy || resetConfirm.trim() !== 'APAGAR WHARNESS'} onClick={() => void clearAllWharnessData()}>Limpar tudo</button>
+            <div><strong>Limpar todos os dados do Wharnex</strong><span>Remove sessões, histórico local, contextos, sandboxes, anexos, temporários e sessão do navegador. Os ficheiros dos projetos reais não são apagados.</span></div>
+            <label><span>Digite <code>APAGAR WHARNEX</code></span><input value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} placeholder="APAGAR WHARNEX" /></label>
+            <button className="danger-button" disabled={storageBusy || resetConfirm.trim() !== 'APAGAR WHARNEX'} onClick={() => void clearAllWharnessData()}>Limpar tudo</button>
           </div>
         </section> : null}
         </main>

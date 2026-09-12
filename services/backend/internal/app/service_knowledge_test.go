@@ -124,7 +124,7 @@ func TestIngestKnowledgeReviewResponseUpdatesKnowledgeWithoutTouchingState(t *te
 		t.Fatal("expected a pending knowledge review request")
 	}
 
-	bundle := makeKnowledgeReviewAnswerBundle(t, requestID, "Resumo do trabalho.", "# Wharness knowledge\n\n- Node do host tem de ser >=22.12.\n")
+	bundle := makeKnowledgeReviewAnswerBundle(t, requestID, "Resumo do trabalho.", "# Wharnex knowledge\n\n- Node do host tem de ser >=22.12.\n")
 	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle)
 	if err != nil {
 		t.Fatal(err)

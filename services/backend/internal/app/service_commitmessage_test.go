@@ -6,7 +6,7 @@ import (
 )
 
 // The body is the reason a commit message is worth reading. Flattening it into
-// the subject — which this used to do unconditionally — made every Wharness
+// the subject — which this used to do unconditionally — made every Wharnex
 // commit a bare one-liner regardless of what the planner wrote.
 func TestSanitizeCommitMessagePreservesTheBody(t *testing.T) {
 	raw := "fix(auth): rotate the refresh token atomically\n" +

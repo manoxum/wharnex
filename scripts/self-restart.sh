@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-ROOT=${1:?Wharness root is required}
+ROOT=${1:?Wharnex root is required}
 TXN=${2:?transaction directory is required}
 SESSION_ID=${3:-unknown}
 PLAN_ID=${4:-unknown}
@@ -65,7 +65,7 @@ recover_old_runtime() {
   fi
   status rollback_restored "previous source/artifacts restored; restarting known-good runtime"
   if WHARNESS_ROOT="$ROOT" "$KNOWN_START" >>"$LOG" 2>&1 && runtime_healthy; then
-    status rolled_back_runtime "previous Wharness runtime restored"
+    status rolled_back_runtime "previous Wharnex runtime restored"
     cleanup_lock
     return 0
   fi
@@ -74,7 +74,7 @@ recover_old_runtime() {
   (cd "$ROOT" && make deps) >>"$LOG" 2>&1 || true
   WHARNESS_ROOT="$ROOT" "$KNOWN_STOP" >>"$LOG" 2>&1 || true
   if WHARNESS_ROOT="$ROOT" "$KNOWN_START" >>"$LOG" 2>&1 && runtime_healthy; then
-    status rolled_back_runtime "previous Wharness runtime restored after dependency reconciliation"
+    status rolled_back_runtime "previous Wharnex runtime restored after dependency reconciliation"
     cleanup_lock
     return 0
   fi
@@ -129,13 +129,13 @@ sleep 2
 status restarting "host build passed; handing off to detached restart supervisor"
 
 if ! WHARNESS_ROOT="$ROOT" "$KNOWN_STOP" >>"$LOG" 2>&1; then
-  status restart_failed "could not stop current Wharness coordinator; pending batch retained for retry or extension"
+  status restart_failed "could not stop current Wharnex coordinator; pending batch retained for retry or extension"
   release_stage_lock
   exit 1
 fi
 
 if WHARNESS_ROOT="$ROOT" "$ROOT/scripts/start.sh" >>"$LOG" 2>&1 && runtime_healthy; then
-  status restarted "new Wharness runtime is healthy"
+  status restarted "new Wharnex runtime is healthy"
   cleanup_lock
   find "$BASE" -mindepth 1 -maxdepth 1 -type d -name 'txn-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true
   exit 0

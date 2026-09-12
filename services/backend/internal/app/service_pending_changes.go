@@ -28,7 +28,7 @@ func pendingHostChangePrompt(changes []domain.PendingHostChange) string {
 	}
 	var out strings.Builder
 	out.WriteString("HOST-PENDING PROTECTED CANDIDATE:\n")
-	out.WriteString("The following verified plans are not yet in the host. Any new change plan must be incremental against the state after these patches. Do not repeat them. Wharness will replay the entire ordered chain in a fresh sandbox and Apply or Reject it as one pending candidate.\n")
+	out.WriteString("The following verified plans are not yet in the host. Any new change plan must be incremental against the state after these patches. Do not repeat them. Wharnex will replay the entire ordered chain in a fresh sandbox and Apply or Reject it as one pending candidate.\n")
 	for index := range changes {
 		change := changes[index]
 		fmt.Fprintf(&out, "\nPlan %d: %s — %s\n", index+1, change.Plan.PlanID, change.Plan.Summary)
@@ -36,7 +36,7 @@ func pendingHostChangePrompt(changes []domain.PendingHostChange) string {
 			fmt.Fprintf(&out, "Patch %d:\n```diff\n%s\n```\n", patchIndex+1, truncateRepairText(patch, 24000))
 		}
 		if out.Len() > 60000 {
-			out.WriteString("\n...[pending candidate truncated by Wharness]\n")
+			out.WriteString("\n...[pending candidate truncated by Wharnex]\n")
 			break
 		}
 	}

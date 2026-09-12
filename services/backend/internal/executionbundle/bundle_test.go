@@ -94,7 +94,7 @@ func TestParseExposesOptionalKnowledgeFileAtRoot(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md":    "# Knowledge review\n",
 		"turn.json":    `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"answer","message":"Sem alterações necessárias.","outcome":{"status":"completed","retryable":false}}`,
-		"knowledge.md": "# Wharness knowledge\n\n- Node do host tem de ser >=22.12 para o Electron fixado.\n",
+		"knowledge.md": "# Wharnex knowledge\n\n- Node do host tem de ser >=22.12 para o Electron fixado.\n",
 	})
 	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
 	if err != nil {
@@ -203,7 +203,7 @@ func TestParseSynthesizesMissingReadmeFromStructuredTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(parsed.Info.README, "synthesized by Wharness") || !strings.Contains(parsed.Info.README, "Resposta útil") {
+	if !strings.Contains(parsed.Info.README, "synthesized by Wharnex") || !strings.Contains(parsed.Info.README, "Resposta útil") {
 		t.Fatalf("unexpected synthesized README: %q", parsed.Info.README)
 	}
 	if !slices.Contains(parsed.Info.Files, "README.md") {

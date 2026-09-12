@@ -325,13 +325,13 @@ func canFastForwardBaseline(item domain.Session, fromSHA, toSHA string, impact [
 	if fromSHA == "" || toSHA == "" || fromSHA == toSHA || len(impact) == 0 {
 		return fromSHA != "" && fromSHA == toSHA
 	}
-	// BaselineNotices only records a hop when ANOTHER Wharness session on the
+	// BaselineNotices only records a hop when ANOTHER Wharnex session on the
 	// same project applied a plan through the tracked Host Apply pipeline.
 	// ProjectRevisions records a hop on every context refresh that observes a
 	// new SHA256, regardless of what caused it — a peer session's apply, a
-	// manual git operation, or an external edit made outside Wharness
+	// manual git operation, or an external edit made outside Wharnex
 	// entirely (a co-editing tool, another IDE, a background script). A plan
-	// pending against a project actively developed alongside Wharness must be
+	// pending against a project actively developed alongside Wharnex must be
 	// reconcilable against that second, always-populated source too, or every
 	// external edit permanently strands it behind a "stale baseline" block
 	// that neither ChatGPT nor a human can retry their way out of. Trying

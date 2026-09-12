@@ -22,8 +22,8 @@ import (
 )
 
 var (
-	ErrBusy                            = errors.New("another Wharness self-evolution transaction is already active")
-	ErrSelfEvolutionInProgress         = errors.New("a Wharness self-evolution restart is already in progress")
+	ErrBusy                            = errors.New("another Wharnex self-evolution transaction is already active")
+	ErrSelfEvolutionInProgress         = errors.New("a Wharnex self-evolution restart is already in progress")
 	errTransactionDirectoryUnavailable = errors.New("self-evolution transaction directory is unavailable")
 	// ErrHostBuildToolchainMismatch marks a BuildHost failure that no source
 	// patch can fix: the host's installed toolchain (observed: Node.js) is
@@ -142,7 +142,7 @@ func (m *Manager) IsProject(project string) bool {
 
 func (m *Manager) Prepare(sessionID, planID string, patches []string) (Transaction, error) {
 	if !m.Enabled() {
-		return Transaction{}, errors.New("Wharness runtime root is not available")
+		return Transaction{}, errors.New("Wharnex runtime root is not available")
 	}
 	if len(patches) == 0 {
 		return Transaction{}, errors.New("self-evolution requires at least one patch")
@@ -303,7 +303,7 @@ func (m *Manager) extendPendingBatch(base, lockPath, stageLockPath, sessionID, p
 
 func (m *Manager) LastStatus() (Status, error) {
 	if !m.Enabled() {
-		return Status{}, errors.New("Wharness runtime root is not available")
+		return Status{}, errors.New("Wharnex runtime root is not available")
 	}
 	data, err := os.ReadFile(filepath.Join(m.root, ".harness", "self-evolution", "status"))
 	if err != nil {
@@ -324,7 +324,7 @@ func (m *Manager) LastStatus() (Status, error) {
 
 func (m *Manager) PendingTransaction(sessionID, planID string) (Transaction, error) {
 	if !m.Enabled() {
-		return Transaction{}, errors.New("Wharness runtime root is not available")
+		return Transaction{}, errors.New("Wharnex runtime root is not available")
 	}
 	status, err := m.LastStatus()
 	if err != nil || !extendablePendingPhase(status.Phase) {
@@ -351,7 +351,7 @@ func (m *Manager) PendingTransaction(sessionID, planID string) (Transaction, err
 
 func (m *Manager) PendingPlanForSession(sessionID string) (Transaction, PendingPlan, error) {
 	if !m.Enabled() {
-		return Transaction{}, PendingPlan{}, errors.New("Wharness runtime root is not available")
+		return Transaction{}, PendingPlan{}, errors.New("Wharnex runtime root is not available")
 	}
 	status, err := m.LastStatus()
 	if err != nil || !extendablePendingPhase(status.Phase) {
@@ -450,7 +450,7 @@ func (m *Manager) repairTransactionMetadata(status Status, tx Transaction) (tran
 		return transactionMetadata{}, fmt.Errorf("%w: phase %s is not safe for automatic identity repair", ErrTransactionMetadataMismatch, status.Phase)
 	}
 	if !m.retainedMetadataRootMatches(metadata) {
-		return transactionMetadata{}, fmt.Errorf("%w: retained metadata root does not resolve to the active Wharness root", ErrTransactionMetadataMismatch)
+		return transactionMetadata{}, fmt.Errorf("%w: retained metadata root does not resolve to the active Wharnex root", ErrTransactionMetadataMismatch)
 	}
 	memberFound := false
 	for _, pending := range metadata.Plans {
@@ -541,7 +541,7 @@ func validateRetainedTransactionArtifacts(tx Transaction) error {
 
 func (m *Manager) TransactionForStatus(status Status) (Transaction, error) {
 	if !m.Enabled() {
-		return Transaction{}, errors.New("Wharness runtime root is not available")
+		return Transaction{}, errors.New("Wharnex runtime root is not available")
 	}
 	return m.transactionFromStatus(status)
 }
@@ -756,7 +756,7 @@ func (m *Manager) scheduleStackRestart(tx Transaction, sessionID, planID string)
 // Rollback restores this transaction's captured pre-patch file snapshots by
 // raw file copy — it does not go through Git at all, by design, since it
 // must work even when Root has no Git repository. When Root IS a Git
-// repository (every real Wharness project, since projectgit.Ensure
+// repository (every real Wharnex project, since projectgit.Ensure
 // guarantees it) and PreTransactionSHA was captured, Rollback first checks
 // whether host HEAD has advanced past that baseline. If it has, an
 // unrelated integration merge may have landed since this transaction

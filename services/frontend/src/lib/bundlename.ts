@@ -1,7 +1,7 @@
 // Frontend-only port of services/desktop/bundlename.mjs (itself a mirror of
 // services/backend/internal/bundlename), narrowed to the parsing this side
 // needs: extracting the request_id from a bundle filename a human manually
-// downloaded from ChatGPT and is now uploading back to Wharness in Manual
+// downloaded from ChatGPT and is now uploading back to Wharnex in Manual
 // chat transport mode. Never used to construct a filename — only Desktop
 // and the backend do that.
 //
@@ -31,7 +31,7 @@ export function parseBundleNameWithDuplicateSuffix(filename: string): ParsedBund
 }
 
 /** The request id to submit this bundle under, or '' if the filename does
- *  not match the canonical Wharness bundle naming (with or without a
+ *  not match the canonical Wharnex bundle naming (with or without a
  *  browser duplicate-download suffix). */
 export function requestIdFromBundleName(filename: string): string {
   const parsed = parseBundleName(filename) || parseBundleNameWithDuplicateSuffix(filename)
