@@ -161,6 +161,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/overview", a.orchestratorOverview)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/propose", a.orchestratorProposePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/import", a.orchestratorImportPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/import-bundle", a.orchestratorImportPlanBundle)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/planning/{request_id}/retry", a.orchestratorRetryPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/{plan_id}/approve", a.orchestratorApprovePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks", a.orchestratorCreateTask)

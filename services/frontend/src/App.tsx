@@ -2806,7 +2806,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           session={session}
           chats={chats}
           onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
-          onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
           focusNonce={orchestratorFocusNonce}
           onError={setError}
         />

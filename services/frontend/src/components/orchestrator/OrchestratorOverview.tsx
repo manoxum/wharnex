@@ -3,8 +3,9 @@ import { api } from '../../lib/api'
 import type { ChatAgentTask, OrchestratorOverview as OverviewData, OrchestratorProposal, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
 import { Icon } from '../Icon'
 import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
+import { WorkerFollowViewer } from '../WorkerFollowViewer'
 
-export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], onGoToChat, onFollowInstance, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask }: {
+export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask }: {
   session: Session
   overview: OverviewData
   // The durable ORCHESTRATOR_PLAN task backing each planning request, carrying
@@ -13,7 +14,7 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   planningTasks?: ChatAgentTask[]
   chats?: ChatAgentTaskChatRef[]
   onGoToChat?: (chatId?: string, sessionId?: string) => void
-  onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
+  onError?: (message?: string) => void
   proposal?: OrchestratorProposalResult
   busy: boolean
   onProposal: (value?: OrchestratorProposalResult) => void
@@ -23,6 +24,9 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
 }) {
   const [objective, setObjective] = useState('')
   const [manualJSON, setManualJSON] = useState('')
+  // Following a Worker stays right here — Orchestrator embeds its own live
+  // instance viewer instead of sending the operator to Agent · Engine.
+  const [followedInstance, setFollowedInstance] = useState<string>()
   const active = overview.tasks.filter((task) => task.status === 'DOING')
   const ready = overview.tasks.filter((task) => task.status === 'READY')
   const review = overview.tasks.filter((task) => task.status === 'REVIEW')
@@ -87,8 +91,8 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
               <strong>{planning.objective || `Pedido ${planning.request_id}`}</strong>
               <span>Request <code translate="no">{planning.request_id}</code> · prioridade máxima · tentativa {planning.attempt}/{planning.max_attempts}</span>
               {planning.last_error ? <small>{planning.last_error}</small> : <small>{['DONE', 'CANCELLED'].includes(planning.status) ? 'Planejamento encerrado.' : 'Pode sair do Orchestrator: um Worker continuará esta entrega.'}</small>}
-              {((workerId && onFollowInstance) || (resolvedChatId && onGoToChat)) && <div className="orchestrator-planning-nav">
-                {workerId && onFollowInstance ? <button type="button" onClick={() => onFollowInstance(workerId, resolvedChatId, backingTask?.session_id)} title="Acompanhar em tempo real a instância do Worker que gera este plano"><Icon name="monitor" size={13}/> Acompanhar instância</button> : null}
+              {(workerId || (resolvedChatId && onGoToChat)) && <div className="orchestrator-planning-nav">
+                {workerId ? <button type="button" aria-pressed={followedInstance === workerId} onClick={() => setFollowedInstance((current) => current === workerId ? undefined : workerId)} title="Acompanhar aqui mesmo, em tempo real, a instância do Worker que gera este plano"><Icon name="monitor" size={13}/> {followedInstance === workerId ? 'A acompanhar' : 'Acompanhar instância'}</button> : null}
                 {resolvedChatId && onGoToChat ? <button type="button" onClick={() => onGoToChat(resolvedChatId, backingTask?.session_id)} title="Abrir o chat Harness deste planeamento"><Icon name="bridge" size={13}/> Ver chat</button> : null}
               </div>}
             </div>
@@ -100,6 +104,8 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
         })}
       </div>
     </section> : null}
+
+    {followedInstance && <WorkerFollowViewer agentId={followedInstance} onStop={() => setFollowedInstance(undefined)} onError={onError}/>}
 
     {proposal?.manual_prompt && !proposal.worker_task_id && <section className="orchestrator-manual-plan">
       <header><div><strong>Planner manual</strong><span>Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>

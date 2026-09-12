@@ -326,6 +326,24 @@ func (s *Store) FailChatAgentTask(taskID, owner, detail string, attention bool) 
 	return s.transitionChatAgentTask(taskID, owner, status, time.Time{}, detail, false)
 }
 
+// Diagnostic precedence for `last_error`.
+//
+// An observation is the outcome of a lease that attempted nothing, so its note
+// explains why the task is waiting — not what went wrong. Letting that note
+// overwrite the error of a real, attempt-consuming failure erases the only
+// record of why the budget is draining: a task reads as "waiting for the
+// provider cooldown" at attempt 7/8 while the failures that actually spent
+// those seven attempts have each been overwritten by the next benign note.
+// A real failure therefore holds the field until another real outcome replaces
+// it, and an observation fills it only while it is empty.
+func chatAgentTransitionError(current, detail, status string, observation bool) string {
+	next := strings.TrimSpace(detail)
+	if status == ChatAgentTaskWaiting && observation && strings.TrimSpace(current) != "" {
+		return current
+	}
+	return next
+}
+
 func (s *Store) transitionChatAgentTask(taskID, owner, status string, notBefore time.Time, detail string, observation bool) (ChatAgentTask, error) {
 	if s.db != nil {
 		return s.postgresTransitionChatAgentTask(taskID, owner, status, notBefore, detail, observation)
@@ -353,7 +371,7 @@ func (s *Store) transitionChatAgentTask(taskID, owner, status string, notBefore 
 	}
 	now := time.Now().UTC()
 	task.Status = status
-	task.LastError = strings.TrimSpace(detail)
+	task.LastError = chatAgentTransitionError(task.LastError, detail, status, observation)
 	if status == ChatAgentTaskWaiting {
 		task.NotBefore = notBefore.UTC()
 		if observation && task.Attempt > 0 {

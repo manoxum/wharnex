@@ -2242,7 +2242,15 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-composer footer button, .orchestrator-proposal-card > header button, .orchestrator-manual-plan .primary, .orchestrator-tasks-toolbar > .primary, .orchestrator-drawer .primary { min-height:34px; padding:0 13px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; background:var(--theme-accent); color:var(--theme-accent-contrast, #fff); font-size:calc(9px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
 .orchestrator-composer footer button:disabled, .orchestrator-proposal-card > header button:disabled, .orchestrator-manual-plan .primary:disabled, .orchestrator-drawer .primary:disabled { opacity:.48; cursor:default; }
 
-.orchestrator-manual-plan, .orchestrator-planning-queue, .orchestrator-proposal-card, .orchestrator-cockpit { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
+.orchestrator-manual-plan, .orchestrator-planning-queue, .orchestrator-proposal-card, .orchestrator-cockpit, .worker-follow-viewer { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
+.worker-follow-viewer { overflow:hidden; }
+.worker-follow-viewer-banner { min-height:44px; padding:9px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface)); }
+.worker-follow-viewer-banner > div { min-width:0; display:flex; align-items:center; gap:8px; color:var(--theme-accent); }
+.worker-follow-viewer-banner strong { display:block; color:var(--theme-text); font-size:calc(8px * var(--ui-font-scale)); }
+.worker-follow-viewer-banner small { color:var(--theme-text-muted); font-size:calc(6.8px * var(--ui-font-scale)); }
+.worker-follow-viewer-banner button { flex:0 0 auto; min-height:28px; padding:0 10px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-elevated); color:var(--theme-text); font-size:calc(7px * var(--ui-font-scale)); font-weight:600; cursor:pointer; }
+.worker-follow-viewer-banner button:hover { background:var(--theme-hover); }
+.worker-follow-viewer-host { width:100%; height:460px; background:#fff; }
 .orchestrator-planning-queue { overflow:hidden; }
 .orchestrator-planning-queue > header { min-height:62px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-elevated); }
 .orchestrator-planning-queue > header > div { display:grid; gap:2px; }
@@ -2261,6 +2269,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-planning-nav { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }
 .orchestrator-planning-nav button { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-elevated); color:var(--theme-text-soft); font-size:calc(7px * var(--ui-font-scale)); font-weight:600; cursor:pointer; }
 .orchestrator-planning-nav button:hover { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
+.orchestrator-planning-nav button[aria-pressed="true"] { border-color:color-mix(in srgb, var(--theme-accent) 55%, var(--theme-border)); background:color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface)); color:var(--theme-text); font-weight:700; }
 .orchestrator-planning-actions { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
 .orchestrator-planning-actions button { min-height:27px; padding:0 9px; border:1px solid color-mix(in srgb,#d46b5f 48%,var(--theme-border)); border-radius:7px; background:transparent; color:var(--theme-text); font-size:calc(7.5px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
 .orchestrator-planning-actions button:hover { background:color-mix(in srgb,#d46b5f 11%,transparent); }

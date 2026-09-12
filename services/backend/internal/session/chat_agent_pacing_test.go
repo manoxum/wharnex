@@ -125,3 +125,28 @@ func TestChatAgentRateLimitKindDefaultsToTransport(t *testing.T) {
 		t.Fatalf("unknown kind did not fall back to the transport ladder: %#v", state)
 	}
 }
+
+// Diagnosing the orchestrator stall was blocked by exactly this: four planning
+// requests sat at attempt 3/8 and 7/8 reporting only "ChatGPT rate-limit
+// cooldown is active", a note written by leases that attempted nothing, while
+// the failures that actually spent those attempts had each been overwritten.
+func TestObservationNoteNeverOverwritesARealFailure(t *testing.T) {
+	const realFailure = "ChatGPT did not provide whx_orchestrator_plan_cat_x.json before the timeout"
+	if got := chatAgentTransitionError(realFailure, "ChatGPT rate-limit cooldown is active", ChatAgentTaskWaiting, true); got != realFailure {
+		t.Fatalf("observation overwrote the real failure: %q", got)
+	}
+	// An empty field still records why the task is waiting.
+	if got := chatAgentTransitionError("", "ChatGPT rate-limit cooldown is active", ChatAgentTaskWaiting, false); got != "ChatGPT rate-limit cooldown is active" {
+		t.Fatalf("waiting note was dropped: %q", got)
+	}
+	if got := chatAgentTransitionError("", "cooldown", ChatAgentTaskWaiting, true); got != "cooldown" {
+		t.Fatalf("observation must fill an empty field: %q", got)
+	}
+	// Another real outcome always replaces it, so the field cannot go stale.
+	if got := chatAgentTransitionError(realFailure, "composer unavailable", ChatAgentTaskWaiting, false); got != "composer unavailable" {
+		t.Fatalf("a real failure must replace the previous one: %q", got)
+	}
+	if got := chatAgentTransitionError(realFailure, "", ChatAgentTaskFailed, false); got != "" {
+		t.Fatalf("terminal transitions own the field: %q", got)
+	}
+}

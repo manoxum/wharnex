@@ -9,7 +9,10 @@
 // unambiguously after it.
 
 const PREFIX = 'whx_bundle_'
-const ID_SEGMENT = 'req_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}'
+// "req" is an Agent request; "orp" is an Orchestrator planning request, which
+// exchanges its plan through this same bundle contract rather than a protocol
+// of its own. Kept identical to services/backend/internal/bundlename.
+const ID_SEGMENT = '(?:req|orp)_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}'
 
 export const CHAT_ID_PATTERN = /^[A-Za-z0-9-]{1,128}$/
 

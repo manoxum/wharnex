@@ -1481,7 +1481,17 @@ test('orchestrator planning survives as an exact artifact-only Worker delivery',
   assert.match(worker, /harness\.orchestrator-planning\/v1/)
   assert.match(worker, /chatGPTExpectedDownloadScript\(filename, assistantBaseline\)/)
   assert.match(worker, /chatGPTResponseCompletionScript\(assistantBaseline\)/)
-  assert.match(worker, /importOrchestratorWorkerPlan\(sessionId, requestId, proposal\)/)
+  // One import path for the live download, a retained artifact and both
+  // deliveries, so nothing reaches the backend through a weaker check.
+  assert.match(worker, /importOrchestratorPlanArtifact\(sessionId, requestId, delivery, outcome\.value\)/)
+  const dispatch = source.slice(source.indexOf('async function importOrchestratorPlanArtifact('), source.indexOf('\n// A retained artifact is best-effort'))
+  assert.match(dispatch, /delivery === 'bundle'/)
+  assert.match(dispatch, /importOrchestratorWorkerPlanBundle\(sessionId, requestId, bytes\)/)
+  // The legacy artifact still goes through the strict JSON parser.
+  assert.match(dispatch, /parseOrchestratorPlanProposal\(text\)/)
+  const parser = source.slice(source.indexOf('function parseOrchestratorPlanProposal('), source.indexOf('\nfunction orchestratorPlanResult('))
+  assert.match(parser, /harness\.orchestrator-plan\/v1/)
+  assert.match(parser, /Array\.isArray\(proposal\.tasks\)/)
   assert.match(worker, /checkpointChatAgentTask\(task\.task_id, owner/)
   assert.match(worker, /canonicalChatGPTConversationURL\(payload\.conversation_url/)
   assert.match(worker, /orchestrator-checkpoint/)
@@ -1492,7 +1502,11 @@ test('orchestrator planning survives as an exact artifact-only Worker delivery',
   const downloadEnd = source.indexOf('\nfunction registerChatGPTPlanDownloads', downloadStart)
   const download = source.slice(downloadStart, downloadEnd)
   assert.match(download, /MAX_ORCHESTRATOR_PLAN_BYTES/)
-  assert.match(download, /new TextDecoder\('utf-8', \{ fatal: true \}\)/)
+  // Strict UTF-8 validation moved to the import dispatch with the rest of the
+  // legacy JSON handling; the download layer now carries raw bytes so a bundle
+  // can be uploaded verbatim.
+  const dispatchDecode = source.slice(source.indexOf('async function importOrchestratorPlanArtifact('), source.indexOf('\n// A retained artifact is best-effort'))
+  assert.match(dispatchDecode, /new TextDecoder\('utf-8', \{ fatal: true \}\)/)
   assert.match(download, /\^whx_orchestrator_plan_cat_/)
   assert.match(source, /case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan/)
 })
@@ -1687,6 +1701,128 @@ test('a Desktop restart during a suspension adopts the durable deadline instead 
   const refresh = source.slice(start, source.indexOf('\nfunction publicAgentBrowser(', start))
   // The local clock is a mirror reset by every restart; the backend owns the
   // cooldown, so the persisted deadline has to be adopted on refresh.
-  assert.match(refresh, /if \(provider\?\.paused === true\)/)
+  assert.match(refresh, /provider\?\.paused === true && Number\.isFinite\(pausedUntil\)/)
   assert.match(refresh, /chatGPTRateLimitUntil = Math\.max\(chatGPTRateLimitUntil, pausedUntil\)/)
+  // Measured: pausing the provider and then resuming it left every worker
+  // skipping its claim until a local deadline nobody could see expired. The
+  // mirror must follow the durable state down as well as up.
+  assert.match(refresh, /else if \(provider\?\.paused === false\) \{[\s\S]*?chatGPTRateLimitUntil = 0/)
+  // A refresh already in flight while a 429 is being persisted still reports
+  // paused:false. Obeying it would release the pool into the burst the gate
+  // was just raised against, so only a reading that knows about the newest
+  // local gate may clear the mirror.
+  assert.match(refresh, /observedAt >= chatGPTRateLimitAppliedAt/)
+  const apply = source.slice(source.indexOf('function applyChatGPTRateLimit('), source.indexOf('\nfunction noteChatGPTRateLimitGate('))
+  assert.match(apply, /chatGPTRateLimitAppliedAt = now/)
+})
+
+test('a plan delivered between attempts is retained instead of cancelled', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function registerChatGPTOrchestratorPlanDownload(')
+  const download = source.slice(start, source.indexOf('\nfunction registerChatGPTPlanDownloads', start))
+  // Measured: four planning requests reached attempt 7/8 with zero plans
+  // imported, because ChatGPT delivers when it finishes rather than while a
+  // lease is open, and an unarmed artifact was cancelled.
+  assert.match(download, /return retainChatGPTOrchestratorPlanDownload\(item, filename\)/)
+  assert.doesNotMatch(download.slice(0, download.indexOf('const total')), /item\.cancel\(\)/)
+
+  const retain = source.slice(source.indexOf('function retainChatGPTOrchestratorPlanDownload('), source.indexOf('\n// Claim a retained artifact'))
+  // The filename carries its own task id, so a retained plan can only be
+  // claimed by the attempt that owns it.
+  assert.match(retain, /whx_orchestrator_plan_\(cat_\[a-f0-9\]\{20\}\)\\\.json/)
+  assert.match(retain, /MAX_ORCHESTRATOR_PLAN_BYTES/)
+  assert.match(retain, /chatGPTOrchestratorPlanInbox\.set\(filename/)
+})
+
+test('a retained plan is imported before spending another provider request', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function executeChatAgentOrchestratorPlan(')
+  const worker = source.slice(start, source.indexOf('\nasync function executeChatAgentMarkdownTranslation', start))
+  const retainIndex = worker.indexOf('takeRetainedChatGPTOrchestratorPlan(filename)')
+  const submitIndex = worker.indexOf('targetChatGPTComposer(')
+  assert.ok(retainIndex > -1, 'the attempt must look for a retained plan')
+  assert.ok(retainIndex < submitIndex, 'the retained plan must be claimed before any new submission')
+
+  // The inbox is bounded so a retained artifact cannot accumulate forever.
+  assert.match(source, /const ORCHESTRATOR_PLAN_INBOX_MAX = \d+/)
+  assert.match(source, /const ORCHESTRATOR_PLAN_INBOX_TTL_MS/)
+  assert.match(source, /function pruneChatGPTOrchestratorPlanInbox\(/)
+})
+
+test('a plan still being produced at the lease deadline is observed, not failed', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function executeChatAgentOrchestratorPlan(')
+  const worker = source.slice(start, source.indexOf('\nasync function executeChatAgentMarkdownTranslation', start))
+  // An 8-minute lease is shorter than a large DAG takes to plan. Throwing at
+  // the deadline charged an attempt for a page that was visibly still working,
+  // and sent the next lease to reload a conversation mid-generation.
+  assert.match(worker, /if \(completion\?\.thinking === true\) thinkingObservedAt = Date\.now\(\)/)
+  assert.match(worker, /thinkingObservedAt && Date\.now\(\) - thinkingObservedAt < ORCHESTRATOR_PLAN_GENERATING_GRACE_MS/)
+  const observeIndex = worker.indexOf('ORCHESTRATOR_PLAN_GENERATING_GRACE_MS')
+  const throwIndex = worker.indexOf('did not provide ${filename} before the orchestrator planning timeout')
+  assert.ok(observeIndex < throwIndex, 'the still-generating check must precede the timeout failure')
+  assert.match(worker.slice(observeIndex, throwIndex), /observation: true/)
+})
+
+test('a slot rebound before execution never charges the task attempt budget', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function executeChatAgentTask(')
+  const execute = source.slice(start, source.indexOf('\n  switch (task.type)', start))
+  // Nothing reached ChatGPT, so AGENTS.md requires this outcome to be free.
+  assert.match(execute, /stale worker assignment/i)
+  assert.match(execute, /status: 'waiting', observation: true, delayMs: CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS/)
+})
+
+test('an expired ChatGPT artifact is re-requested instead of clicked forever', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  // Measured live: 134 clicks against two dead file cards in one lease. The
+  // card stays rendered after ChatGPT collects the artifact behind it, so the
+  // 404 on its own download endpoint is the only evidence the file is gone.
+  const detector = source.slice(source.indexOf('function chatGPTInterpreterDownloadConversation('), source.indexOf('\nfunction noteChatGPTExpiredArtifact('))
+  assert.match(detector, /backend-api\\\/conversation\\\/\(\[A-Za-z0-9-\]\{1,128\}\)\\\/interpreter\\\/download/)
+
+  const httpStatus = source.slice(source.indexOf('function noteChatGPTHTTPStatus('), source.indexOf('\nfunction settleChatGPTAffinityAfterSubmit'))
+  assert.match(httpStatus, /status === 404/)
+  assert.match(httpStatus, /noteChatGPTExpiredArtifact\(expiredConversation\)/)
+
+  const worker = source.slice(source.indexOf('async function executeChatAgentOrchestratorPlan('), source.indexOf('\nasync function executeChatAgentMarkdownTranslation'))
+  assert.match(worker, /chatGPTArtifactExpiredSince\(chatAgentConversationID\(conversationUrl\), lastRequestedAt\)/)
+  // Bounded, and it must not restart the planning work it already did.
+  assert.match(worker, /rerequests >= MAX_BUNDLE_CONTINUATIONS/)
+  // Once the artifacts are collected the conversation can never deliver again,
+  // so exhaustion clears the checkpoint and the next attempt starts fresh
+  // instead of resuming the same dead conversation until the budget runs out.
+  assert.match(worker, /conversation_url: '', expected_filename: '', assistant_baseline: 0/)
+  assert.match(worker, /orchestratorPlanInstruction\(prompt, filename, true\)/)
+  const instruction = source.slice(source.indexOf('function orchestratorPlanInstruction('), source.indexOf('\n// Validate and import one orchestrator plan artifact'))
+  assert.match(instruction, /Do not re-plan and do not change the plan/)
+  // One definition, so a re-request cannot ask for something else.
+  assert.match(worker, /orchestratorPlanInstruction\(prompt, filename, false\)/)
+})
+
+test('orchestrator planning delivers the project standard response bundle', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  // The planning result uses the same ZIP transport and naming contract as
+  // every other planner artifact instead of a bare JSON file of its own.
+  const naming = source.slice(source.indexOf('function orchestratorBundleFilename('), source.indexOf('\n// A checkpoint written under the old contract'))
+  assert.match(naming, /buildBundleName\('res', 'orchestrator', id\)/)
+  assert.match(naming, /\^orp_\[0-9\]\{8\}T\[0-9\]\{6\}_\[0-9a-f\]\{16\}\$/)
+
+  // A request already checkpointed under the legacy contract finishes on it.
+  const delivery = source.slice(source.indexOf('function orchestratorDeliveryFor('), source.indexOf('\nasync function importOrchestratorWorkerPlanBundle('))
+  assert.match(delivery, /endsWith\('\.json'\) \? 'json' : 'bundle'/)
+
+  const worker = source.slice(source.indexOf('async function executeChatAgentOrchestratorPlan('), source.indexOf('\nasync function executeChatAgentMarkdownTranslation'))
+  assert.match(worker, /delivery === 'bundle' \? orchestratorBundleFilename\(requestId\) : orchestratorPlanFilename\(task\.task_id\)/)
+
+  // The Desktop is transport: it uploads the archive verbatim and the backend
+  // is the single place untrusted planner bytes are opened and validated.
+  const upload = source.slice(source.indexOf('async function importOrchestratorWorkerPlanBundle('), source.indexOf('\n// Legacy per-task JSON artifact') + 1) || source.slice(source.indexOf('async function importOrchestratorWorkerPlanBundle('))
+  assert.match(upload.slice(0, 900), /orchestrator\/plans\/import-bundle/)
+  assert.match(upload.slice(0, 900), /'Content-Type': 'application\/zip'/)
+  assert.doesNotMatch(worker, /JSZip|unzip|inflate/i)
+
+  const instruction = source.slice(source.indexOf('function orchestratorPlanInstruction('), source.indexOf('\n// Validate and import one orchestrator plan artifact'))
+  assert.match(instruction, /BUNDLE ONLY/)
+  assert.match(instruction, /single UTF-8 entry named exactly plan\.json/)
 })

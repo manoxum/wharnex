@@ -143,6 +143,14 @@ func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orches
 		return orchestrator.PlanningRequest{}, fmt.Errorf("decode orchestrator planning request: %w", err)
 	}
 	payload["session_id"] = sessionID
+	// The checkpoint belongs to the attempt that wrote it, not to the request.
+	// Its expected filename is derived from that task's own id, so carrying it
+	// into a retry makes the new task fail its own filename check immediately
+	// and permanently; the conversation and baseline are equally task-scoped.
+	// A retry is therefore a fresh submission, never a resume of a dead lease.
+	for _, field := range []string{"conversation_url", "expected_filename", "assistant_baseline", "submitted_at"} {
+		delete(payload, field)
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return orchestrator.PlanningRequest{}, fmt.Errorf("encode orchestrator planning retry: %w", err)

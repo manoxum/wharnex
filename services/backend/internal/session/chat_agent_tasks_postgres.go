@@ -239,8 +239,10 @@ func (s *Store) postgresCompleteChatAgentTask(taskID, owner string, payload []by
 func (s *Store) postgresTransitionChatAgentTask(taskID, owner, status string, notBefore time.Time, detail string, observation bool) (ChatAgentTask, error) {
 	// A passive observation gives back the increment the claim charged it, so
 	// watching a healthy remote response for as long as it takes never spends
-	// the budget reserved for real attempts.
-	query := `UPDATE harness_chat_agent_tasks SET status=$3, last_error=$4,
+	// the budget reserved for real attempts. It also must not overwrite the
+	// error of a real failure: see chatAgentTransitionError.
+	query := `UPDATE harness_chat_agent_tasks SET status=$3,
+		last_error=CASE WHEN $3='WAITING' AND $6 AND last_error <> '' THEN last_error ELSE $4 END,
 		not_before=CASE WHEN $3='WAITING' THEN $5 ELSE not_before END,
 		attempt=CASE WHEN $3='WAITING' AND $6 THEN GREATEST(0, attempt-1) ELSE attempt END,
 		lease_owner=CASE WHEN $3='RUNNING' THEN lease_owner ELSE '' END,

@@ -162,6 +162,14 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     const agents = bridge?.agents
     const host = hostRef.current
     if (!agents || !host || !followedAgentId) return
+    // A trusted overlay/suspension always wins over a followed Worker: like
+    // the Supervisor pane below, its WebContentsView paints above React and
+    // must be closed — not merely resized behind the blocker — while one is
+    // active, and reopened once it clears.
+    if (suspended || overlayBlocked || externalAuth) {
+      void agents.closeInteraction(followedAgentId).catch(() => {})
+      return
+    }
     let active = true
     let frame = 0
     const sync = () => {
@@ -187,9 +195,9 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       window.removeEventListener('resize', sync)
       window.removeEventListener('scroll', sync, true)
       void agents.closeInteraction(followedAgentId).catch(() => {})
-      if (!suspended && !overlayBlocked && !externalAuth && hostRef.current) {
-        void bridge.chatgpt.show(elementBounds(hostRef.current), chatIdRef.current, linkedURLRef.current || CHATGPT_HOME)
-      }
+      // Supervisor visibility itself is fully owned by the show/hide effect
+      // below, which reacts to this same set of flags — re-showing it here
+      // too would race that effect using this render's now-stale values.
     }
   }, [bridge, followedAgentId, suspended, overlayBlocked, externalAuth])
 

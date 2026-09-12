@@ -31,9 +31,13 @@ const (
 
 const prefix = "whx_bundle_"
 
-// idSegment matches the ids.New("req") shape: "req_" + a UTC compact
+// idSegment matches the ids.New(prefix) shape: a known prefix + a UTC compact
 // timestamp + "_" + 16 lowercase hex characters.
-const idSegment = `req_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}`
+//
+// "req" is an Agent request. "orp" is an Orchestrator planning request, which
+// exchanges its plan through this same bundle contract rather than a
+// protocol of its own: one transport, one validator, one naming scheme.
+const idSegment = `(?:req|orp)_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}`
 
 // ChatIDPattern is the allowed shape of the chat_id segment: no '_', so the
 // first '_' after it always starts the request_id's own "req_" prefix.

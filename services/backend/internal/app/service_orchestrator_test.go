@@ -220,3 +220,66 @@ func taskByTitle(t *testing.T, tasks []orchestrator.Task, title string) orchestr
 	t.Fatalf("task %q not found", title)
 	return orchestrator.Task{}
 }
+
+// A checkpoint records where one attempt left off: its expected filename is
+// derived from that task's own id. Copying it into a retry made the new task
+// fail its own filename check on the first line of the worker, permanently —
+// a planning request that could never recover no matter how often it retried.
+func TestOrchestratorPlanningRetryStartsFreshInsteadOfResumingADeadCheckpoint(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorManualTestPlanner{}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "resume must not inherit a dead checkpoint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", time.Minute)
+	if err != nil || claimed == nil {
+		t.Fatalf("claim orchestrator planning task: task=%#v err=%v", claimed, err)
+	}
+	if _, err := store.StartChatAgentTask(claimed.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	// The attempt submitted to ChatGPT and checkpointed before it failed.
+	checkpoint, err := json.Marshal(map[string]any{
+		"conversation_url":   "https://chatgpt.com/c/6aa57854-43d0-83e9-985e-4505d5b70c47",
+		"expected_filename":  "whx_orchestrator_plan_" + claimed.TaskID + ".json",
+		"assistant_baseline": 0,
+		"submitted_at":       time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CheckpointChatAgentTask(claimed.TaskID, "worker-1", checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FailChatAgentTask(claimed.TaskID, "worker-1", "plan not delivered before the timeout", true); err != nil {
+		t.Fatal(err)
+	}
+
+	retried, err := service.RetryOrchestratorPlanning(started.ID, result.RequestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := store.GetChatAgentTask(retried.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(queued.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"conversation_url", "expected_filename", "assistant_baseline", "submitted_at"} {
+		if _, present := payload[field]; present {
+			t.Fatalf("retry inherited task-scoped checkpoint field %q: %#v", field, payload)
+		}
+	}
+	// The request identity and the objective are what a retry must preserve.
+	if payload["request_id"] != result.RequestID || payload["prompt"] == "" {
+		t.Fatalf("retry lost the request identity or objective: %#v", payload)
+	}
+}

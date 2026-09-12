@@ -10,6 +10,10 @@ import (
 	"kernl.local/harness/backend/internal/orchestrator"
 )
 
+// Transport-level bound for a planning response bundle, mirroring the decoder's
+// own limit so an oversized upload is refused before it is buffered.
+const orchestratorPlanBundleLimit = 2 << 20
+
 func (a *API) orchestratorOverview(w http.ResponseWriter, r *http.Request) {
 	overview, err := a.service.OrchestratorOverview(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -46,6 +50,33 @@ func (a *API) orchestratorImportPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := a.service.ImportOrchestratorProposal(r.Context(), r.PathValue("id"), body.RequestID, body.Proposal)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_import_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+// orchestratorImportPlanBundle ingests the planning result as the project's
+// standard response bundle: the Desktop uploads the downloaded ZIP verbatim and
+// never opens it, so the archive is validated in exactly one place.
+func (a *API) orchestratorImportPlanBundle(w http.ResponseWriter, r *http.Request) {
+	requestID := strings.TrimSpace(r.URL.Query().Get("request_id"))
+	if requestID == "" {
+		writeError(w, http.StatusBadRequest, "orchestrator_import_invalid", "request_id is required")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, orchestratorPlanBundleLimit+1)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_import_invalid", err.Error())
+		return
+	}
+	if int64(len(raw)) > orchestratorPlanBundleLimit {
+		writeError(w, http.StatusBadRequest, "orchestrator_import_invalid", "orchestrator plan bundle is too large")
+		return
+	}
+	result, err := a.service.ImportOrchestratorProposalBundle(r.Context(), r.PathValue("id"), requestID, raw)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "orchestrator_import_failed", err.Error())
 		return

@@ -46,6 +46,13 @@ const MARKDOWN_TRANSLATION_TIMEOUT_MS = 5 * 60 * 1000
 const MARKDOWN_TRANSLATION_POLL_MS = 1_000
 const MAX_ORCHESTRATOR_PLAN_BYTES = 2 * 1024 * 1024
 const ORCHESTRATOR_PLAN_TIMEOUT_MS = 8 * 60 * 1000
+// How recently the page must have been producing for reaching the lease
+// deadline to count as healthy progress rather than a failed attempt.
+const ORCHESTRATOR_PLAN_GENERATING_GRACE_MS = 60_000
+// Spacing between passive re-observations of a plan that is still generating.
+const ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS = 30_000
+// Re-claim spacing after a worker slot was rebound before the task started.
+const CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS = 5_000
 const MAX_CHAT_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const MAX_CHAT_ATTACHMENTS_BYTES = 100 * 1024 * 1024
 const MAX_CHAT_ATTACHMENTS = 10
@@ -131,6 +138,16 @@ const chatGPTActivityFingerprints = new Map()
 const expectedChatGPTBundles = new Map()
 const expectedChatGPTTranslations = new Map()
 const expectedChatGPTOrchestratorPlans = new Map()
+// Plan artifacts that arrived while no attempt held the lease.
+//
+// ChatGPT delivers when it finishes, not when a Wharnex lease happens to be
+// open, and an orchestrator attempt lives only 8 minutes. Cancelling the file
+// because nothing was armed threw away the exact artifact the next attempt
+// would then spend another attempt asking ChatGPT to produce again — which is
+// how four planning requests reached attempt 7/8 with zero plans imported.
+const chatGPTOrchestratorPlanInbox = new Map()
+const ORCHESTRATOR_PLAN_INBOX_MAX = 16
+const ORCHESTRATOR_PLAN_INBOX_TTL_MS = 6 * 60 * 60 * 1000
 const pollingExpectedChatGPTBundles = new Set()
 const chatAgentTitleSamples = new Map()
 const chatGPTTransportTails = new Map()
@@ -141,11 +158,25 @@ let chatGPTWorkerLastNavigationAt = 0
 let chatGPTWorkerSubmissionTail = Promise.resolve()
 let chatGPTWorkerLastSubmissionAt = 0
 let chatGPTRateLimitUntil = 0
+// Conversations whose generated-file artifact ChatGPT no longer serves.
+//
+// A file card stays rendered in the transcript long after ChatGPT has collected
+// the artifact behind it, so the card is not evidence the file still exists.
+// Clicking it produces a 404 on ChatGPT's own download endpoint and no
+// `will-download` event at all, which a poll loop cannot distinguish from "the
+// file has not appeared yet" — measured: 134 clicks against two dead cards in a
+// single lease. The 404 is the only signal that the artifact must be asked for
+// again rather than waited for.
+const chatGPTExpiredArtifactConversations = new Map()
+const EXPIRED_ARTIFACT_TTL_MS = 10 * 60_000
 // Recent provider refusals, used to tell one throttled request apart from an
 // account-wide gate. Ephemeral Desktop state; the resulting suspension is
 // durable backend state.
 let chatGPTRateLimitHits = []
 let chatGPTRateLimitKind = ''
+// When the newest local gate was applied, so a stale provider reading cannot
+// clear a suspension that has not reached the backend yet.
+let chatGPTRateLimitAppliedAt = 0
 const pendingChatGPTBundleDeliveries = new Map()
 // requestId -> deliveredAt. A second concurrent download of the same file
 // (see downloadInFlight above) can still slip through as a genuine race
@@ -960,6 +991,7 @@ function applyChatGPTRateLimit(cacheKey, { source = 'unknown', domGate = false }
   const localUntil = now + (gate ? CHATGPT_RATE_LIMIT_GATE_MS : CHATGPT_RATE_LIMIT_BACKOFF_MS)
   chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, localUntil)
   chatGPTRateLimitKind = classification.kind
+  chatGPTRateLimitAppliedAt = now
 
   const expected = expectedChatGPTBundles.get(cacheKey)
   if (expected) {
@@ -1002,6 +1034,30 @@ function noteChatGPTRateLimitGate(cacheKey, health) {
   return true
 }
 
+// ChatGPT's own generated-file download endpoint for one conversation.
+function chatGPTInterpreterDownloadConversation(value) {
+  try {
+    const url = new URL(String(value || ''))
+    if (url.protocol !== 'https:') return ''
+    if (url.hostname !== 'chatgpt.com' && !url.hostname.endsWith('.chatgpt.com')) return ''
+    return String(url.pathname.match(/^\/backend-api\/conversation\/([A-Za-z0-9-]{1,128})\/interpreter\/download$/)?.[1] || '')
+  } catch { return '' }
+}
+
+function noteChatGPTExpiredArtifact(conversationID, now = Date.now()) {
+  if (!conversationID) return false
+  chatGPTExpiredArtifactConversations.set(conversationID, now)
+  for (const [id, at] of [...chatGPTExpiredArtifactConversations]) {
+    if (now - at > EXPIRED_ARTIFACT_TTL_MS) chatGPTExpiredArtifactConversations.delete(id)
+  }
+  return true
+}
+
+function chatGPTArtifactExpiredSince(conversationID, since) {
+  const at = Number(chatGPTExpiredArtifactConversations.get(String(conversationID || '')) || 0)
+  return at > 0 && at >= Number(since || 0)
+}
+
 function noteChatGPTHTTPStatus(details) {
   const match = chatGPTEntryForWebContentsID(details?.webContentsId)
   if (!match) return false
@@ -1017,6 +1073,15 @@ function noteChatGPTHTTPStatus(details) {
       source: details?.resourceType === 'mainFrame' ? 'main_frame' : conversationTransport ? 'conversation_transport' : 'backend_api',
     })
     return true
+  }
+  // A generated file ChatGPT no longer serves. Recorded per conversation so the
+  // task that owns it stops clicking a dead card and asks for the file again.
+  if (status === 404) {
+    const expiredConversation = chatGPTInterpreterDownloadConversation(details?.url)
+    if (expiredConversation) {
+      noteChatGPTExpiredArtifact(expiredConversation)
+      return true
+    }
   }
   if (!conversationTransport) return false
   const expected = expectedChatGPTBundles.get(key)
@@ -1175,14 +1240,90 @@ function registerChatGPTMarkdownTranslationDownload(item, sourceFilename) {
   return true
 }
 
+function orchestratorPlanInboxDirectory() {
+  return path.join(app.getPath('temp'), 'wharness-orchestrator-plans', 'inbox')
+}
+
+function pruneChatGPTOrchestratorPlanInbox(now = Date.now()) {
+  for (const [name, entry] of [...chatGPTOrchestratorPlanInbox]) {
+    if (now - Number(entry?.receivedAt || 0) <= ORCHESTRATOR_PLAN_INBOX_TTL_MS) continue
+    chatGPTOrchestratorPlanInbox.delete(name)
+    void rm(entry.savePath, { force: true }).catch(() => undefined)
+  }
+  while (chatGPTOrchestratorPlanInbox.size > ORCHESTRATOR_PLAN_INBOX_MAX) {
+    const [name, entry] = chatGPTOrchestratorPlanInbox.entries().next().value
+    chatGPTOrchestratorPlanInbox.delete(name)
+    void rm(entry.savePath, { force: true }).catch(() => undefined)
+  }
+}
+
+// Keep an artifact that nothing is waiting for, instead of cancelling it. The
+// filename carries its own task id, so a retained plan can only ever be claimed
+// by the attempt it belongs to.
+function retainChatGPTOrchestratorPlanDownload(item, filename) {
+  // Either shape is self-identifying: the legacy artifact carries its task id,
+  // the bundle carries its request id. Neither can be claimed by another task.
+  const taskId = String(filename.match(/^whx_orchestrator_plan_(cat_[a-f0-9]{20})\.json$/)?.[1] || '')
+    || String(parseBundleName(filename)?.requestId || '')
+  if (!taskId) {
+    item.cancel()
+    return true
+  }
+  if (Number(item.getTotalBytes?.() || 0) > MAX_ORCHESTRATOR_PLAN_BYTES) {
+    item.cancel()
+    return true
+  }
+  const savePath = path.join(orchestratorPlanInboxDirectory(), filename)
+  try {
+    mkdirSync(orchestratorPlanInboxDirectory(), { recursive: true, mode: 0o700 })
+    item.setSavePath(savePath)
+  } catch (error) {
+    item.cancel()
+    console.warn(`[orchestrator-worker] could not retain unclaimed plan ${filename}: ${error instanceof Error ? error.message : String(error)}`)
+    return true
+  }
+  item.on('updated', () => {
+    if (item.getReceivedBytes() > MAX_ORCHESTRATOR_PLAN_BYTES) item.cancel()
+  })
+  item.once('done', (_doneEvent, state) => {
+    if (state !== 'completed') {
+      void rm(savePath, { force: true }).catch(() => undefined)
+      return
+    }
+    chatGPTOrchestratorPlanInbox.set(filename, { taskId, savePath, receivedAt: Date.now() })
+    pruneChatGPTOrchestratorPlanInbox()
+    console.log(`[orchestrator-worker] retained unclaimed plan task=${taskId} file=${filename}`)
+  })
+  return true
+}
+
+// Claim a retained artifact for the attempt that owns it, if one is waiting.
+async function takeRetainedChatGPTOrchestratorPlan(filename) {
+  pruneChatGPTOrchestratorPlanInbox()
+  const entry = chatGPTOrchestratorPlanInbox.get(filename)
+  if (!entry) return ''
+  chatGPTOrchestratorPlanInbox.delete(filename)
+  try {
+    const bytes = await readFile(entry.savePath)
+    if (bytes.byteLength > MAX_ORCHESTRATOR_PLAN_BYTES) throw new Error('Orchestrator plan exceeds the 2 MiB result limit')
+    return bytes
+  } catch (error) {
+    console.warn(`[orchestrator-worker] retained plan ${filename} was unusable: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  } finally {
+    await rm(entry.savePath, { force: true }).catch(() => undefined)
+  }
+}
+
 function registerChatGPTOrchestratorPlanDownload(item, sourceFilename) {
   const filename = path.basename(String(sourceFilename || ''))
   const expected = expectedChatGPTOrchestratorPlans.get(filename)
+  const parsedBundle = parseBundleName(filename)
   const looksInternal = /^whx_orchestrator_plan_cat_[a-f0-9]{20}\.json$/.test(filename)
+    || (parsedBundle?.chatId === 'orchestrator' && parsedBundle?.kind === 'res')
   if (!expected && !looksInternal) return false
   if (!expected || Date.now() - expected.armedAt > ORCHESTRATOR_PLAN_TIMEOUT_MS + 60_000) {
-    item.cancel()
-    return true
+    return retainChatGPTOrchestratorPlanDownload(item, filename)
   }
   const total = Number(item.getTotalBytes?.() || 0)
   if (total > MAX_ORCHESTRATOR_PLAN_BYTES) {
@@ -1214,7 +1355,7 @@ function registerChatGPTOrchestratorPlanDownload(item, sourceFilename) {
     try {
       const bytes = await readFile(savePath)
       if (bytes.byteLength > MAX_ORCHESTRATOR_PLAN_BYTES) throw new Error('Orchestrator plan exceeds the 2 MiB result limit')
-      expected.resolve(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+      expected.resolve(bytes)
     } catch (error) {
       expected.reject(error instanceof Error ? error : new Error(String(error)))
     } finally {
@@ -2036,9 +2177,25 @@ async function refreshChatAgentRuntimeState() {
     // persisted deadline here, restarting during a 30-minute gate resumed the
     // whole pool immediately — which is exactly how a restart-heavy workflow
     // walks straight back into the block it was waiting out.
-    if (provider?.paused === true) {
-      const pausedUntil = Date.parse(String(provider?.paused_until || ''))
-      if (Number.isFinite(pausedUntil)) chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, pausedUntil)
+    //
+    // The mirror has to follow the durable state in BOTH directions. Only ever
+    // raising it means an explicit resume — a human lifting the pause, or the
+    // backend expiring it — leaves the pool skipping every claim until a local
+    // deadline nobody can see finally passes.
+    const pausedUntil = Date.parse(String(provider?.paused_until || ''))
+    if (provider?.paused === true && Number.isFinite(pausedUntil)) {
+      chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, pausedUntil)
+    } else if (provider?.paused === false) {
+      // Only a reading that already knows about the newest local gate may clear
+      // the mirror. A refresh in flight while a 429 is being persisted still
+      // reports `paused: false`; obeying it would release the whole pool into
+      // the burst the gate was just raised against.
+      const observedAt = Date.parse(String(provider?.updated_at || '')) || 0
+      if (!chatGPTRateLimitAppliedAt || observedAt >= chatGPTRateLimitAppliedAt) {
+        chatGPTRateLimitUntil = 0
+        chatGPTRateLimitKind = ''
+        chatGPTRateLimitAppliedAt = 0
+      }
     }
   } catch (error) {
     chatAgentRuntimeDiagnostics = {
@@ -3832,10 +3989,45 @@ function markdownTranslationFilename(taskID) {
   return `whx_translation_${id}.md`
 }
 
+// Legacy per-task JSON artifact. Retained only so a planning request that was
+// already checkpointed under the old contract can finish on it; nothing new is
+// ever asked for in this shape.
 function orchestratorPlanFilename(taskID) {
   const id = String(taskID || '').trim()
   if (!/^cat_[a-f0-9]{20}$/.test(id)) throw new Error('invalid orchestrator planning task id')
   return `whx_orchestrator_plan_${id}.json`
+}
+
+// The planning result is a response bundle like every other planner artifact.
+// The chat segment is the literal "orchestrator": a planning request owns no
+// Harness chat, and the segment may not contain '_'.
+function orchestratorBundleFilename(requestID) {
+  const id = String(requestID || '').trim()
+  if (!/^orp_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}$/.test(id)) throw new Error('invalid orchestrator request id')
+  return buildBundleName('res', 'orchestrator', id)
+}
+
+// A checkpoint written under the old contract names a `.json` artifact; anything
+// else — including a fresh request — uses the bundle.
+function orchestratorDeliveryFor(checkpointFilename) {
+  return String(checkpointFilename || '').endsWith('.json') ? 'json' : 'bundle'
+}
+
+async function importOrchestratorWorkerPlanBundle(sessionID, requestID, bytes) {
+  const sessionId = sanitizeSessionId(sessionID)
+  const requestId = String(requestID || '').trim()
+  if (!/^orp_[A-Za-z0-9_-]{8,180}$/.test(requestId)) throw new Error('invalid orchestrator request id')
+  const target = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/orchestrator/plans/import-bundle`, BACKEND_URL)
+  target.searchParams.set('request_id', requestId)
+  const response = await fetch(target, {
+    method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/zip' }, body: bytes,
+  })
+  if (!response.ok) {
+    let detail = ''
+    try { detail = String((await response.json())?.error?.message || '') } catch {}
+    throw new Error(`orchestrator plan bundle import HTTP ${response.status}${detail ? `: ${detail}` : ''}`)
+  }
+  return response.json()
 }
 
 async function importOrchestratorWorkerPlan(sessionID, requestID, proposal) {
@@ -3872,6 +4064,61 @@ async function checkpointChatAgentTask(taskID, owner, payload) {
   return response.json()
 }
 
+// The delivery instruction, written once so the first submission and a
+// re-request cannot drift into asking for different things.
+function orchestratorPlanInstruction(prompt, filename, rerequest) {
+  const delivery = filename.endsWith('.zip')
+    ? `WHARNEX ORCHESTRATOR DELIVERY — BUNDLE ONLY\nCreate and attach one ZIP archive named exactly ${filename}. It must contain a single UTF-8 entry named exactly plan.json at the archive root, whose content is the single harness.orchestrator-plan/v1 object requested above. Do not put the JSON or other answer prose in the conversation. Self-check the archive name, the plan.json entry, JSON syntax, unique task ids, dependency references and acyclicity before attaching it.`
+    : `WHARNEX ORCHESTRATOR DELIVERY — FILE ONLY\nCreate and attach one UTF-8 JSON file named exactly ${filename}. The file content must be the single harness.orchestrator-plan/v1 object requested above. Do not put the JSON or other answer prose in the conversation. Self-check the filename, JSON syntax, unique task ids, dependency references and acyclicity before attaching it.`
+  if (!rerequest) return `${prompt}\n\n${delivery}`
+  // The plan was produced; only its file is no longer downloadable. Ask for the
+  // artifact again without restarting the planning work.
+  return `WHARNEX ORCHESTRATOR RE-DELIVERY — SAME PLAN\n\nThe file you attached earlier is no longer downloadable. Do not re-plan and do not change the plan: attach the same harness.orchestrator-plan/v1 result again as a fresh file.\n\n${delivery}`
+}
+
+// Validate and import one orchestrator plan artifact. Shared by the live
+// download and by an artifact retained between attempts, so both reach the
+// backend through exactly the same protocol checks.
+function parseOrchestratorPlanProposal(value) {
+  let proposal
+  try { proposal = JSON.parse(value) } catch { throw new Error('orchestrator worker returned invalid JSON') }
+  if (!proposal || proposal.protocol !== 'harness.orchestrator-plan/v1' || !Array.isArray(proposal.tasks)) {
+    throw new Error('orchestrator worker returned mismatched protocol metadata')
+  }
+  return proposal
+}
+
+function orchestratorPlanResult(requestId, imported) {
+  return {
+    status: 'done',
+    payload: {
+      protocol: 'harness.orchestrator-planning-result/v1', request_id: requestId,
+      plan_id: String(imported?.plan?.id || ''), task_count: Number(imported?.tasks?.length || 0),
+    },
+  }
+}
+
+// One import path for both deliveries, so the bundle and the legacy artifact
+// reach the backend through the same identity checks. The bundle is uploaded
+// verbatim: the Desktop is transport and never opens the archive.
+async function importOrchestratorPlanArtifact(sessionId, requestId, delivery, bytes) {
+  if (delivery === 'bundle') return importOrchestratorWorkerPlanBundle(sessionId, requestId, bytes)
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  return importOrchestratorWorkerPlan(sessionId, requestId, parseOrchestratorPlanProposal(text))
+}
+
+// A retained artifact is best-effort: if it is unusable the attempt continues
+// to the live path rather than failing a request that can still be answered.
+async function importRetainedOrchestratorPlan(sessionId, requestId, delivery, value) {
+  try {
+    const imported = await importOrchestratorPlanArtifact(sessionId, requestId, delivery, value)
+    return orchestratorPlanResult(requestId, imported)
+  } catch (error) {
+    console.warn(`[orchestrator-worker] retained plan for request=${requestId} could not be imported: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
 async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner) {
   if (payload?.protocol !== 'harness.orchestrator-planning/v1') {
     return { status: 'failed', error: 'invalid orchestrator planning worker protocol payload' }
@@ -3883,13 +4130,28 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     return { status: 'failed', error: 'orchestrator planning worker payload is incomplete' }
   }
 
-  const filename = orchestratorPlanFilename(task.task_id)
+  // A request already checkpointed under the legacy contract finishes on it;
+  // everything new is born as the project's standard response bundle.
   const checkpointFilename = String(payload.expected_filename || '').trim()
+  const delivery = orchestratorDeliveryFor(checkpointFilename)
+  const filename = delivery === 'bundle' ? orchestratorBundleFilename(requestId) : orchestratorPlanFilename(task.task_id)
   if (checkpointFilename && checkpointFilename !== filename) {
     return { status: 'failed', error: 'orchestrator planning checkpoint filename does not match its task' }
   }
   const checkpointURL = canonicalChatGPTConversationURL(payload.conversation_url || '')
   const checkpointBaseline = Number(payload.assistant_baseline)
+  // A plan ChatGPT delivered between attempts is already on disk. Importing it
+  // here costs no provider request at all and is the difference between a
+  // planning request that completes and one that asks again until it retires.
+  const retained = await takeRetainedChatGPTOrchestratorPlan(filename)
+  if (retained) {
+    const imported = await importRetainedOrchestratorPlan(sessionId, requestId, delivery, retained)
+    if (imported) {
+      console.log(`[orchestrator-worker] imported retained plan task=${task.task_id} request=${requestId}`)
+      return imported
+    }
+  }
+
   const dir = path.join(app.getPath('temp'), 'wharness-orchestrator-plans', task.task_id)
   await rm(dir, { recursive: true, force: true }).catch(() => undefined)
   await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -3918,8 +4180,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       const rateLimitDelay = chatAgentRateLimitDelayMs()
       if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
       target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
-      const instruction = `${prompt}\n\nWHARNEX ORCHESTRATOR DELIVERY — FILE ONLY\nCreate and attach one UTF-8 JSON file named exactly ${filename}. The file content must be the single harness.orchestrator-plan/v1 object requested above. Do not put the JSON or other answer prose in the conversation. Self-check the filename, JSON syntax, unique task ids, dependency references and acyclicity before attaching it.`
-      const filled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-fill-composer', chatGPTFillComposerScript(instruction))
+      const filled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-fill-composer', chatGPTFillComposerScript(orchestratorPlanInstruction(prompt, filename, false)))
       if (!filled) throw new Error('ChatGPT orchestrator composer could not be populated')
       await wait(150)
       assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
@@ -3936,6 +4197,11 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     }
 
     const deadline = Date.now() + ORCHESTRATOR_PLAN_TIMEOUT_MS
+    let thinkingObservedAt = 0
+    let rerequests = 0
+    // Only a 404 observed after this moment means *this* request's artifact is
+    // gone; an older one belongs to a turn we already replaced.
+    let lastRequestedAt = Date.now()
     while (Date.now() < deadline) {
       const outcome = await Promise.race([
         download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
@@ -3943,20 +4209,9 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       ])
       if (outcome.done) {
         if (outcome.error) throw outcome.error
-        let proposal
-        try { proposal = JSON.parse(outcome.value) } catch { throw new Error('orchestrator worker returned invalid JSON') }
-        if (!proposal || proposal.protocol !== 'harness.orchestrator-plan/v1' || !Array.isArray(proposal.tasks)) {
-          throw new Error('orchestrator worker returned mismatched protocol metadata')
-        }
-        const imported = await importOrchestratorWorkerPlan(sessionId, requestId, proposal)
+        const imported = await importOrchestratorPlanArtifact(sessionId, requestId, delivery, outcome.value)
         terminalCleanup = true
-        return {
-          status: 'done',
-          payload: {
-            protocol: 'harness.orchestrator-planning-result/v1', request_id: requestId,
-            plan_id: String(imported?.plan?.id || ''), task_count: Number(imported?.tasks?.length || 0),
-          },
-        }
+        return orchestratorPlanResult(requestId, imported)
       }
       const health = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-health', chatGPTHumanActionScript())
       if (noteChatGPTRateLimitGate(key, health)) {
@@ -3968,8 +4223,46 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(kind) }
       }
       const completion = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-completion', chatGPTResponseCompletionScript(assistantBaseline))
+      if (completion?.thinking === true) thinkingObservedAt = Date.now()
+      // A card whose artifact ChatGPT has collected answers every click with a
+      // 404 and never fires a download. Clicking it until the deadline is the
+      // one thing guaranteed not to produce the plan; the file has to be asked
+      // for again, in the same conversation, a bounded number of times.
+      if (chatGPTArtifactExpiredSince(chatAgentConversationID(conversationUrl), lastRequestedAt)) {
+        if (rerequests >= MAX_BUNDLE_CONTINUATIONS) {
+          // This conversation cannot deliver the file any more. Clearing the
+          // checkpoint is what stops every remaining attempt from resuming the
+          // same dead conversation: the next one starts a fresh submission,
+          // which is the only recovery left once the artifacts are collected.
+          await checkpointChatAgentTask(task.task_id, owner, {
+            conversation_url: '', expected_filename: '', assistant_baseline: 0,
+          }).catch((error) => console.warn(`[orchestrator-worker] could not clear the dead checkpoint: ${error instanceof Error ? error.message : String(error)}`))
+          throw new Error(`ChatGPT no longer serves ${filename}; the planning request will start a new conversation`)
+        }
+        rerequests += 1
+        lastRequestedAt = Date.now()
+        console.warn(`[orchestrator-worker] artifact expired task=${task.task_id} request=${requestId} re-request=${rerequests}`)
+        await paceChatGPTWorkerSubmission()
+        const refilled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-refill-composer', chatGPTFillComposerScript(orchestratorPlanInstruction(prompt, filename, true)))
+        if (!refilled) throw new Error('ChatGPT orchestrator composer could not be populated for the re-request')
+        await wait(150)
+        assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+        await submitChatGPTDraft(key, target.entry, conversationUrl)
+        continue
+      }
       if (Number(completion?.assistantCount || 0) > assistantBaseline) {
         await executeChatGPTDOMScript(key, target.entry, 'orchestrator-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
+      }
+    }
+    // Reaching the deadline while the page is provably still producing the plan
+    // is not a failed attempt — nothing went wrong and nothing was re-sent. The
+    // lease is handed back as an observation so a plan that legitimately takes
+    // longer than one lease is not retired as exhausted, and so the next lease
+    // resumes the same conversation instead of reloading one mid-generation.
+    if (thinkingObservedAt && Date.now() - thinkingObservedAt < ORCHESTRATOR_PLAN_GENERATING_GRACE_MS) {
+      return {
+        status: 'waiting', observation: true, delayMs: ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS,
+        error: `ChatGPT is still producing ${filename}`,
       }
     }
     throw new Error(`ChatGPT did not provide ${filename} before the orchestrator planning timeout`)
@@ -4119,6 +4412,16 @@ async function executeChatAgentTask(task, { worker, owner }) {
     chatAgentResidency.noteAssignment(entry.slotId)
   } catch (error) {
     chatAgentResidency.cancelAssignment(entry.slotId, assigned.assignment.epoch)
+    // A slot rebound before execution began is a Wharnex-side race: nothing
+    // reached ChatGPT, so this is one of the outcomes AGENTS.md requires to be
+    // free. Rethrowing charged the attempt budget of a task that never made a
+    // request, which is how healthy work retires as exhausted.
+    if (/stale worker assignment/i.test(String(error?.message || ''))) {
+      return {
+        status: 'waiting', observation: true, delayMs: CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS,
+        error: 'worker slot was reassigned before the task reached ChatGPT',
+      }
+    }
     throw error
   }
   switch (task.type) {
@@ -5284,6 +5587,7 @@ function registerIPC() {
     chatGPTRateLimitUntil = 0
     chatGPTRateLimitHits = []
     chatGPTRateLimitKind = ''
+    chatGPTRateLimitAppliedAt = 0
     await chatAgentScheduler.setProviderPause(false)
     await refreshChatAgentRuntimeState()
     return publishChatAgentRuntimeState()

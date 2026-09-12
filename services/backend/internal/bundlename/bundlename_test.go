@@ -89,3 +89,38 @@ func TestParseWithDuplicateSuffix(t *testing.T) {
 		t.Fatal("canonical name must remain the responsibility of Parse")
 	}
 }
+
+// Orchestrator planning exchanges its plan through the same bundle contract as
+// every other planner artifact, so its own request ids must round-trip here.
+// The chat segment is the literal "orchestrator": a planning request has no
+// Harness chat, and the segment may not contain '_'.
+func TestOrchestratorPlanningBundleNameRoundTrips(t *testing.T) {
+	const requestID = "orp_20260912T150343_1dbe8a471bf68dd3"
+	filename := Build(KindResponse, "orchestrator", requestID, "")
+	if filename != "whx_bundle_res_orchestrator_"+requestID+".zip" {
+		t.Fatalf("unexpected orchestrator bundle name %q", filename)
+	}
+	name, ok := Parse(filename)
+	if !ok {
+		t.Fatalf("orchestrator bundle name did not parse: %q", filename)
+	}
+	if name.Kind != KindResponse || name.ChatID != "orchestrator" || name.RequestID != requestID || name.SubrequestID != "" {
+		t.Fatalf("unexpected parse result: %#v", name)
+	}
+	if got := RequestIDFromFilename(filename); got != requestID {
+		t.Fatalf("request id = %q want %q", got, requestID)
+	}
+	// The browser duplicate suffix must stay recognisable for these too.
+	if _, ok := ParseWithDuplicateSuffix("whx_bundle_res_orchestrator_" + requestID + " (2).zip"); !ok {
+		t.Fatal("duplicate-suffixed orchestrator bundle name did not parse")
+	}
+	// Agent request ids are unaffected.
+	agent := Build(KindResponse, "chat-1", "req_20260912T150343_1dbe8a471bf68dd3", "")
+	if _, ok := Parse(agent); !ok {
+		t.Fatalf("agent bundle name regressed: %q", agent)
+	}
+	// A prefix outside the closed set is still rejected.
+	if _, ok := Parse("whx_bundle_res_orchestrator_zzz_20260912T150343_1dbe8a471bf68dd3.zip"); ok {
+		t.Fatal("an unknown id prefix must not parse")
+	}
+}
