@@ -1,8 +1,0 @@
-# Gestão do footprint de armazenamento
-
-- `RequestContextArchives` referencia arquivos de contexto em diretórios temporários `wharness-context-*`. Quando uma referência é substituída ou podada, a limpeza física deve ocorrer **apenas depois** de `Store.Update` persistir com sucesso e só se nenhuma sessão ainda referenciar o ficheiro/diretório; assim evita-se tanto vazamento quanto apagar uma baseline ainda necessária.
-- As métricas de armazenamento precisam contar todos os contextos de request ainda retidos, os `ArchivePackage.Size` produzidos pela compactação de chats e o tamanho real da base PostgreSQL. Somar apenas algumas tabelas ou apenas o contexto corrente mascara consumo relevante.
-- `ClearAllData` deve remover também o pacote MinIO de chats já compactados e todos os diretórios de contexto pertencentes às referências históricas da sessão, não apenas artefactos ativos e o contexto corrente.
-- Os ZIPs `wharness-chat-protocol` do Desktop são payloads transitórios usados somente durante o upload ao ChatGPT. Devem ser apagados em `finally` após o upload/settle, resíduos de crash devem ser limpos no arranque, e esse root deve participar das métricas e da limpeza total.
-- Caches reutilizáveis (Go, npm/node_modules, `.harness/cache/*`) precisam de orçamento/TTL explícito em vez de pruning agressivo automático, porque a remoção pode degradar builds ou exigir rede.
-- Docker/BuildKit é armazenamento partilhado ao nível do host e pode superar amplamente o footprint próprio do Wharnex. O Wharnex pode medir/diagnosticar essa pressão, mas não deve fazer pruning automático sem uma política explícita de ownership/orçamento que proteja outros projetos e volumes.

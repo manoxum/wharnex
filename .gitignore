@@ -15,3 +15,7 @@ kernl-context-*/
 kernl-context-*.zip
 wharness-bundle-*/
 wharness-bundle-*.zip
+
+# Project knowledge lives in the local Wharnex database (adr/ADR-0042).
+# A pre-migration backend may still recreate this directory; it is no longer a store.
+/.wharnex/knowledge/

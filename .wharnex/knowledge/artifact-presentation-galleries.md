@@ -1,9 +1,0 @@
-# Galerias declarativas de artefactos
-
-- O contrato de apresentação de artefactos é opcional e separado do turno executável: `metadata/artifact-presentation.json` usa `harness.artifact-presentation/v1`, enquanto os ficheiros reais permanecem em `artifacts/`.
-- O manifesto pode agrupar itens com `label`, `description`, `alt`, `preview_path` e hints `auto|grid|masonry|strip` / `uniform|adaptive`; não pode declarar MIME, capacidades executáveis, permissões ou URLs remotas.
-- O backend valida referências contra entradas reais do mesmo ZIP, rejeita traversal/URLs/dangling refs/duplicados/limites, deriva tamanho, MIME e tipo de preview, e cai para uma galeria automática segura quando o manifesto falta ou é inválido.
-- O frontend usa um registry de tipos/capacidades e um viewer modal navegável; transformações de imagem são estado local não destrutivo, HTML continua sandboxed e o original permanece sempre disponível para download.
-- Desenho/anotação, waveform e viewer PDF dedicado são extensões posteriores sobre o mesmo núcleo e não devem enfraquecer o sandbox nem sobrescrever o original.
-- Numa repair round, a implementação deve ser rebaseada contra a baseline atual em vez de reaplicar um diff antigo. Se a baseline tiver evoluído na mesma superfície, como aconteceu com `BundleQuota`, o merge deve preservar os dois contratos: tipos/imports, mocks, API/settings e UI concorrentes continuam intactos enquanto a galeria é integrada.
-- Em Vitest/TypeScript, um mock assíncrono inicializado com `galleries: []` pode reter `never[]` na inferência de `vi.fn`/`vi.hoisted`. Nesta base, anotar apenas o retorno assíncrono como `Promise<ArtifactPresentation>` não foi suficiente; tipar o array vazio no próprio valor (`[] as ArtifactPresentation['galleries']`) ou devolver uma constante já tipada evita TS2322 sem afrouxar os tipos de produção.
