@@ -51,4 +51,28 @@ describe('chat switching stays local and immediate', () => {
   it('evicts a chat from the cache when it is archived', () => {
     expect(source).toMatch(/delete sessionCacheRef\.current\[chatId\]/)
   })
+
+  // Apply can take minutes for a self-evolution build. The operator is free to
+  // switch chats while it runs, so every result item must remain owned by the
+  // chat/session that initiated the request instead of whichever chat happens
+  // to be active when the Promise resolves.
+  it('routes a completed Apply back to its initiating chat after a chat switch', () => {
+    const apply = source.slice(source.indexOf('async function apply()'), source.indexOf('async function retryDependencyNetwork()'))
+    const targetCapture = apply.indexOf('const targetSession = session')
+    const request = apply.indexOf('await api.apply(targetSession.id)')
+
+    expect(targetCapture).toBeGreaterThan(-1)
+    expect(request).toBeGreaterThan(targetCapture)
+    expect(apply).toContain('mutateChatItems(targetChat, updated.project_path')
+    expect(apply).not.toMatch(/setItems\(\(current\) => \[\.\.\.current,/)
+    expect(apply).not.toContain('markContextDirtyForOtherChats(updated.project_path, activeChatId)')
+  })
+
+  it('keeps every long-running chat action off the active transcript directly', () => {
+    const asyncActions = source.slice(source.indexOf('async function confirmPreparedDraft()'), source.indexOf('async function commentOnActiveTask('))
+
+    expect(asyncActions).not.toMatch(/setItems\(/)
+    expect(asyncActions).toContain('acceptSessionForChat(')
+    expect(asyncActions).toMatch(/(?:appendChatItem|mutateChatItems)\(/)
+  })
 })

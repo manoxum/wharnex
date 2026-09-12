@@ -2478,13 +2478,10 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	item = refreshedBeforeApply
 	currentBaseline := strings.TrimSpace(item.Context.Manifest.SHA256)
-	// useIntegrationBranches is checked first and is mutually exclusive with
-	// useChangeSets in practice: a candidate verified after this feature
-	// shipped never has ChangeSet set, and one verified before it never has
-	// IntegrationBranch set. A genuinely mixed batch (straddling a deploy)
-	// satisfies neither and falls through to the legacy per-patch path
-	// below unchanged — the same fallback a mixed batch already fell to
-	// before this feature existed.
+	// Candidates created before Git-native integration carry ChangeSets. They
+	// are promoted below to real integration branches before any host file is
+	// changed, so commit mode and rollback have one contract regardless of the
+	// version that originally verified the candidate.
 	useIntegrationBranches := allPendingHaveIntegrationBranches(pending)
 	useChangeSets := !useIntegrationBranches && allPendingHaveChangeSets(pending)
 	var stagedIntegration stagedHostIntegration
@@ -2510,6 +2507,24 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				_ = s.runner.Cleanup(stagedIntegration.workspace)
 			}
 		}()
+		pending = stagedIntegration.pending
+		promoted, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
+			for index := range pending {
+				current.PendingHostChanges = upsertPendingHostChange(current.PendingHostChanges, pending[index])
+			}
+			return nil
+		})
+		if persistErr != nil {
+			return item, fmt.Errorf("persist promoted legacy integration branches: %w", persistErr)
+		}
+		item = promoted
+		useIntegrationBranches = allPendingHaveIntegrationBranches(pending)
+		useChangeSets = false
+		if !useIntegrationBranches {
+			return item, errors.New("promoted legacy candidates did not produce a complete Git integration chain")
+		}
+		_ = s.runner.Cleanup(stagedIntegration.workspace)
+		stagedIntegrationCleaned = true
 	}
 	reverify := false
 	for index := range pending {
@@ -2620,7 +2635,6 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	defer s.hostRunner.Cleanup(workspace)
 	appliedPatches := make([]string, 0, len(patches))
 	hostCommands := make([]domain.CommandResult, 0)
-	var integrationJournal *changeset.Journal
 	// mergedIntegrationBranches/preMergeIntegrationSHA are set by the
 	// useIntegrationBranches block below, once real merges have actually
 	// happened, so failApply (defined before that block runs) can revert
@@ -2650,12 +2664,6 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			}
 		case selfEvolution:
 			failure = rollback(cause)
-		case integrationJournal != nil:
-			if rollbackErr := integrationJournal.Rollback(item.ProjectPath); rollbackErr != nil {
-				failure = fmt.Errorf("%w; ChangeSet rollback failed: %v", cause, rollbackErr)
-			} else {
-				failure = cause
-			}
 		default:
 			failure = s.rollbackHostPatches(ctx, item.ProjectPath, appliedPatches, cause)
 		}
@@ -2701,69 +2709,6 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				return s.failHostStateBlocked(sessionID, item, latestPlanID, blocked, abortPreparedTransaction)
 			}
 			return item, abortPreparedTransaction(fmt.Errorf("merge integration branch: %w", mergeErr))
-		}
-	}
-	if useChangeSets {
-		var journal changeset.Journal
-		var commitErr error
-		raceExhausted := false
-		for attempt := 1; attempt <= 3; attempt++ {
-			journal, commitErr = changeset.Commit(item.ProjectPath, stagedIntegration.prepared)
-			_ = s.runner.Cleanup(stagedIntegration.workspace)
-			stagedIntegrationCleaned = true
-			if commitErr == nil {
-				break
-			}
-			s.bus.Publish(sessionID, "integration.race", map[string]any{"plan_id": latestPlanID, "outcome": journal.Outcome, "attempt": attempt, "error": commitErr.Error()})
-			if journal.Outcome != domain.IntegrationRetryableRace || attempt == 3 {
-				raceExhausted = journal.Outcome == domain.IntegrationRetryableRace && attempt == 3
-				break
-			}
-			item, err = s.refreshContext(sessionID)
-			if err != nil {
-				commitErr = fmt.Errorf("refresh after integration race: %w", err)
-				break
-			}
-			stagedIntegration, err = s.stageHostIntegration(ctx, sessionID, item, pending)
-			if err != nil {
-				commitErr = fmt.Errorf("restage after integration race: %w", err)
-				break
-			}
-			if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
-				updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
-				if prepareErr != nil {
-					return item, abortPreparedTransaction(fmt.Errorf("prepare focused conflict resolution after integration race: %w", prepareErr))
-				}
-				cause := fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflictPaths(stagedIntegration.prepared.Conflicts), ", "))
-				return updated, abortPreparedTransaction(cause)
-			}
-			stagedIntegrationCleaned = false
-		}
-		if commitErr != nil {
-			if raceExhausted {
-				// A race that survived every restage is not a transient
-				// collision another identical retry can win: the candidate and
-				// the host have genuinely diverged on this path, and replaying
-				// the same diff against the same host reproduces it forever.
-				// Escalate to the same bounded focused resolution a detected
-				// conflict uses, with the host's current content as CURRENT, so
-				// there is a way out instead of an endless retry affordance.
-				if updated, escalated, escalateErr := s.escalateExhaustedIntegrationRace(ctx, sessionID, item, pending, commitErr); escalateErr != nil {
-					return item, abortPreparedTransaction(escalateErr)
-				} else if escalated {
-					return updated, abortPreparedTransaction(fmt.Errorf("%w: %v", ErrIntegrationConflict, commitErr))
-				}
-				commitErr = fmt.Errorf("%w: %v", ErrHostIntegrationRace, commitErr)
-			}
-			_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
-				current.LastRepairError = commitErr.Error()
-				return nil
-			})
-			return item, abortPreparedTransaction(commitErr)
-		}
-		integrationJournal = &journal
-		for _, write := range stagedIntegration.prepared.Writes {
-			s.bus.Publish(sessionID, "changeset.integrated", map[string]any{"plan_id": latestPlanID, "path": write.Path, "deleted": !write.ResultExists})
 		}
 	}
 	for _, change := range pending {

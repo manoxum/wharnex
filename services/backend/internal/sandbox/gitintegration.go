@@ -80,6 +80,20 @@ func CurrentHeadSHA(ctx context.Context, repoPath string) (string, error) {
 // paths — producing a spurious merge conflict on files the plan never
 // touched.
 func CommitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string) (commitSHA string, err error) {
+	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, false)
+}
+
+// CommitVerifiedPatchAllowEmpty preserves the history of a legacy candidate
+// whose result is already present in the current host baseline. New candidates
+// never need this: their patch necessarily changes their request base. During
+// migration, however, a peer may already have produced the same bytes; an
+// empty, traceable commit is safer than falling back to a host write path that
+// silently bypasses commit mode.
+func CommitVerifiedPatchAllowEmpty(ctx context.Context, workspacePath, branch, message string, paths []string) (commitSHA string, err error) {
+	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, true)
+}
+
+func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string, allowEmpty bool) (commitSHA string, err error) {
 	if strings.TrimSpace(branch) == "" {
 		return "", errors.New("branch name is required")
 	}
@@ -100,8 +114,12 @@ func CommitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 		"-c", "user.name=" + gitCommitAuthorName,
 		"-c", "user.email=" + gitCommitAuthorEmail,
 		"-c", "commit.gpgSign=false",
-		"commit", "-q", "-m", message,
+		"commit", "-q",
 	}
+	if allowEmpty {
+		commitArgs = append(commitArgs, "--allow-empty")
+	}
+	commitArgs = append(commitArgs, "-m", message)
 	if output, err := runGit(ctx, workspacePath, commitArgs...); err != nil {
 		return "", fmt.Errorf("commit verified changes: %s", output)
 	}

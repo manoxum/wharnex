@@ -564,8 +564,9 @@ type PendingHostChange struct {
 	VerifiedAt time.Time       `json:"verified_at"`
 	// ChangeSet is the legacy CAS-based integration record. New candidates
 	// no longer set it (see IntegrationBranch); it is kept only so a
-	// candidate already persisted before this field existed keeps
-	// integrating through its original mechanism instead of being stranded.
+	// candidate already persisted before this field existed can be promoted
+	// to the Git-native branch contract at Apply time instead of being
+	// stranded or bypassing the selected commit mode.
 	ChangeSet *ChangeSet `json:"change_set,omitempty"`
 	// IntegrationBranch is the Git branch holding this candidate's verified
 	// commit, already pushed into the host's own .git (never a remote) at

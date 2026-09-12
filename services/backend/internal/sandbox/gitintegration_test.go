@@ -80,6 +80,23 @@ func TestCommitVerifiedPatchCreatesRealCommitOnNewBranch(t *testing.T) {
 	}
 }
 
+func TestCommitVerifiedPatchAllowEmptyKeepsLegacyCandidateTraceable(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "hello.txt", "already present\n")
+	workspace := cloneSandbox(t, host)
+	before := mustGit(t, workspace, "rev-parse", "HEAD")
+	sha, err := CommitVerifiedPatchAllowEmpty(context.Background(), workspace, "whx/req-legacy-noop", "fix: retain legacy candidate", []string{"hello.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha == "" || sha == before {
+		t.Fatalf("expected a distinct traceable commit, before=%s after=%s", before, sha)
+	}
+	if changed := mustGit(t, workspace, "diff", "--name-only", before, sha); changed != "" {
+		t.Fatalf("the compatibility commit must stay content-empty, got %q", changed)
+	}
+}
+
 // TestCommitVerifiedPatchIgnoresUnrelatedDirtyFiles reproduces a real
 // production incident: copyProject overlays the host's current on-disk
 // content onto the sandbox's working tree (so it matches the content-hash

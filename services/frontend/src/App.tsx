@@ -233,6 +233,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     saveChat(projectPath, targetChat.id, mutate(loadChat(projectPath, targetChat.id)))
   }
 
+  // Async work remains owned by the chat that started it. A self-evolution
+  // Apply can take several minutes, during which the operator is free to
+  // select another chat. Updating the screen's undifferentiated Session state
+  // after that switch makes the new chat look like it owns the completed
+  // request and was the root cause of a real cross-chat result delivery.
+  function acceptSessionForChat(targetChat: WorkspaceChat, updated: Session) {
+    sessionCacheRef.current[targetChat.id] = updated
+    if (activeChatIdRef.current === targetChat.id) setSession(updated)
+  }
+
   const connectEvents = useCallback((id: string, projectPath: string, chatId: string) => {
     sourceRef.current?.close()
     setEvents(loadExecutionHistory(projectPath, chatId))
@@ -1166,7 +1176,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const deliveryKey = `${response.session.id}:${requestId}:${targetChat.id}`
       const ownsLiveDelivery = Boolean(prompt && requestId && isDesktop() && response.session.chat_transport_mode !== 'manual')
       if (ownsLiveDelivery) livePromptDeliveryKeysRef.current.add(deliveryKey)
-      if (activeChatIdRef.current === targetChat.id) setSession(response.session)
+      acceptSessionForChat(targetChat, response.session)
       updateWorkspaceChat(targetChat.id, response.session.project_path, { sessionId: response.session.id })
       if (activeChatIdRef.current === targetChat.id) setManualPrompt(prompt)
       if (requestId) {
@@ -1192,7 +1202,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           })
           try {
             const artifactSession = await api.getSession(response.session.id)
-            if (activeChatIdRef.current === targetChat.id) setSession(artifactSession)
+            acceptSessionForChat(targetChat, artifactSession)
           } catch { /* artifact metadata refresh is best effort; transport result remains authoritative */ }
           draftCount = prepared.attachmentCount
           autoSubmitted = prepared.submitted
@@ -1335,6 +1345,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function confirmPreparedDraft() {
     if (!activeChatId || busy) return
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat || !session) return
     setBusy(true); setError(undefined)
     try {
       const bridge = desktopBridge()
@@ -1342,7 +1354,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const submitted = await bridge.chatgpt.submitPrepared({ cacheKey: activeChatId })
       if (submitted.conversationUrl) bindChatGPTURL(submitted.conversationUrl)
       setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' }])
+      appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -1396,10 +1408,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function submitManualPlan(raw: string) {
     if (!session) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.manualPlan(session.id, raw)
-      setSession(updated); setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' }])
+      const updated = await api.manualPlan(targetSession.id, raw)
+      acceptSessionForChat(targetChat, updated)
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: updated.plan?.summary || 'Plano manual validado.', meta: updated.policy?.allowed ? 'Policy validada' : 'Policy bloqueou o plano' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -1441,18 +1457,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         meta: updated.policy?.allowed ? 'Ficheiro importado · Policy validada' : 'Ficheiro importado · Policy bloqueou o plano',
       }
 
-      if (targetChat.id === activeChatIdRef.current) {
-        setSession(updated)
-        setItems((current) => [...current, planItem])
-      } else {
-        const prior = loadChat(updated.project_path, targetChat.id)
-        saveChat(updated.project_path, targetChat.id, [...prior, planItem])
-        setChats((current) => {
-          const next = current.map((chat) => chat.id === targetChat!.id ? { ...chat, updatedAt: new Date().toISOString() } : chat)
-          saveWorkspaceChats(updated.project_path, next)
-          return next
-        })
-      }
+      acceptSessionForChat(targetChat, updated)
+      appendChatItem(targetChat, updated.project_path, planItem)
       return `Plano ${updated.plan?.plan_id || requestId} importado e validado no Harness Chat “${targetChat.title}”.`
     } catch (e) {
       const message = messageOf(e)
@@ -1543,9 +1549,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         turnKind: updated.last_turn?.kind,
         iteration: updated.last_turn?.request_id ? iterationRef(updated.last_turn.request_id, plannerFailed ? 'failed' : 'result', plannerFailed || updated.last_execution?.success === false ? ['error', 'result'] : ['result'], targetChat.chatgptUrl) : undefined,
       }
-      if (targetChat.id === activeChatIdRef.current) {
-        setSession(updated); setManualPrompt(updated.last_manual_prompt || '')
-      }
+      acceptSessionForChat(targetChat, updated)
+      if (targetChat.id === activeChatIdRef.current) setManualPrompt(updated.last_manual_prompt || '')
       const waitingForKnowledgeReview = submission.auto_applied && Boolean(updated.pending_knowledge_review_request_id)
       if (waitingForKnowledgeReview && updated.automation_mode === 'auto' && updated.last_manual_prompt) {
         const dispatchKey = `knowledge:${targetChat.id}:${updated.pending_knowledge_review_request_id}`
@@ -1679,7 +1684,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setChatBusy(targetChat.id, true); setError(undefined)
     try {
       const response = await api.execute(targetSession.id, approved || direct)
-      if (activeChatIdRef.current === targetChat.id) setSession(response.session)
+      acceptSessionForChat(targetChat, response.session)
       const ok = response.session.last_execution?.success
       terminalStatus = ok ? 'completed' : 'failed'
       const warnings = response.session.last_execution?.warnings || []
@@ -1699,10 +1704,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const payload = e instanceof APIError ? e.data as { session?: Session } | undefined : undefined
       const failedSession = payload?.session
       if (failedSession) {
-        if (activeChatIdRef.current === targetChat.id) { setSession(failedSession); setManualPrompt(failedSession.last_manual_prompt || '') }
+        acceptSessionForChat(targetChat, failedSession)
+        if (activeChatIdRef.current === targetChat.id) setManualPrompt(failedSession.last_manual_prompt || '')
         updateWorkspaceChat(targetChat.id, failedSession.project_path, { sessionId: failedSession.id, artifactSelection: { ...targetChat.artifactSelection, result: Boolean(failedSession.last_execution), error: true } })
       } else if (activeChatIdRef.current === targetChat.id) {
-        try { setSession(await api.getSession(targetSession.id)) } catch { /* retain last known target state */ }
+        try { acceptSessionForChat(targetChat, await api.getSession(targetSession.id)) } catch { /* retain last known target state */ }
       }
       reportChatError(failedSession ? errorArtifact(failedSession) || message : message, 'Execução falhou', targetChat, failedSession?.project_path || targetSession.project_path)
       if (failedSession?.state === 'repair_pending' && failedSession.last_manual_prompt) await submitRepairPrompt(failedSession, targetChat)
@@ -1723,7 +1729,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setInterruptedExecutions((current) => decision === 'discard' || !updated.interrupted_execution
         ? current.filter((candidate) => candidate.session.id !== target.session.id)
         : current.map((candidate) => candidate.session.id === target.session.id ? { ...candidate, session: updated } : candidate))
-      if (activeChatIdRef.current === target.chat.id) setSession(updated)
+      acceptSessionForChat(target.chat, updated)
       appendChatItem(target.chat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: decision === 'continue' ? `Retomada iniciada em segundo plano: ${intent.plan_id}. Pode continuar a trabalhar enquanto o Wharnex acompanha a execução.` : `Execução pendente descartada: ${intent.plan_id}.`,
@@ -1747,7 +1753,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       try {
         const refreshed = await api.getSession(target.session.id)
         setInterruptedExecutions((current) => current.map((candidate) => candidate.session.id === refreshed.id ? { ...candidate, session: refreshed } : candidate).filter((candidate) => Boolean(candidate.session.interrupted_execution)))
-        if (activeChatIdRef.current === target.chat.id) setSession(refreshed)
+        acceptSessionForChat(target.chat, refreshed)
       } catch (refreshError) {
         if (refreshError instanceof APIError && refreshError.status === 404) {
           setInterruptedExecutions((current) => current.filter((candidate) => candidate.session.id !== target.session.id))
@@ -1915,13 +1921,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function reprocessPolicyBlock() {
     if (!session || !activeChatId) return
+    const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const repaired = await api.retryPolicyRepair(session.id)
-      setSession(repaired)
-      setManualPrompt(repaired.last_manual_prompt || '')
+      const repaired = await api.retryPolicyRepair(targetSession.id)
+      acceptSessionForChat(targetChat, repaired)
+      if (activeChatIdRef.current === targetChat.id) setManualPrompt(repaired.last_manual_prompt || '')
       if (!repaired.last_manual_prompt) throw new Error('O Wharnex não conseguiu preparar o reprocessamento deste bundle.')
       if (repaired.state === 'awaiting_plan') {
         const prepared = await transportPlannerContinuation(repaired, targetChat)
@@ -1942,13 +1949,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function repairFailureWithGPT(detail: string) {
     if (!session || !activeChatId) return
+    const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const repaired = await api.requestFailureRepair(session.id, detail)
-      setSession(repaired)
-      setManualPrompt(repaired.last_manual_prompt || '')
+      const repaired = await api.requestFailureRepair(targetSession.id, detail)
+      acceptSessionForChat(targetChat, repaired)
+      if (activeChatIdRef.current === targetChat.id) setManualPrompt(repaired.last_manual_prompt || '')
       if (repaired.state === 'planned' && repaired.plan) {
         appendChatItem(targetChat, repaired.project_path, {
           id: `manual-repair-plan-${repaired.plan.plan_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
@@ -1980,7 +1988,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function apply() {
-    if (!session || !(await confirmDialog({
+    if (!session) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat || !(await confirmDialog({
       title: 'Aplicar alterações verificadas?',
       message: 'Os patches já verificados na sandbox serão incorporados no projeto real.',
       tone: 'warning',
@@ -1988,13 +1999,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }))) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.apply(session.id)
-      setSession(updated)
-      markContextDirtyForOtherChats(updated.project_path, activeChatId)
-      void syncPeerBaselineUpdates(updated.project_path, activeChatId)
-      const targetChat = chats.find((chat) => chat.id === activeChatId)
+      const updated = await api.apply(targetSession.id)
+      acceptSessionForChat(targetChat, updated)
+      markContextDirtyForOtherChats(updated.project_path, targetChat.id)
+      void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
       const waitingForKnowledgeReview = Boolean(updated.pending_knowledge_review_request_id)
-      if (waitingForKnowledgeReview && updated.automation_mode === 'auto' && updated.last_manual_prompt && targetChat) {
+      if (waitingForKnowledgeReview && updated.automation_mode === 'auto' && updated.last_manual_prompt) {
         const dispatchKey = `knowledge:${targetChat.id}:${updated.pending_knowledge_review_request_id}`
         if (!baselineSeenRef.current.has(dispatchKey)) {
           baselineSeenRef.current.add(dispatchKey)
@@ -2007,66 +2017,76 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
       }
       const change = waitingForKnowledgeReview ? undefined : buildAppliedChangeSummary(updated)
-      setItems((current) => [...current,
+      const resultItems: ChatItem[] = [
         { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: waitingForKnowledgeReview ? (updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.') : (updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.'), meta: waitingForKnowledgeReview ? 'Host aplicado · revisão final' : (updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado') },
         ...(!waitingForKnowledgeReview && updated.last_main_request_summary?.trim() ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'chatgpt' as const, presentation: 'message' as const, createdAt: new Date().toISOString(), text: updated.last_main_request_summary.trim(), meta: 'Resumo cumulativo da Main Request' }] : []),
         ...(change ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, createdAt: change.appliedAt, text: 'Alterações e comandos aplicados ao host.', change }] : []),
-      ])
-	} catch (e) {
-	  setError(messageOf(e))
-	  try {
-		const latest = await api.getSession(session.id)
-		setSession(latest); setManualPrompt(latest.last_manual_prompt || '')
-		const targetChat = chats.find((chat) => chat.id === activeChatId)
-		if (latest.state === 'repair_pending' && latest.last_manual_prompt && targetChat) {
-		  await submitRepairPrompt(latest, targetChat)
-		}
-	  } catch { /* retain the original Apply error */ }
-	} finally { setBusy(false) }
+      ]
+      mutateChatItems(targetChat, updated.project_path, (current) => [...current, ...resultItems])
+    } catch (e) {
+      setError(messageOf(e))
+      try {
+        const latest = await api.getSession(targetSession.id)
+        acceptSessionForChat(targetChat, latest)
+        if (activeChatIdRef.current === targetChat.id) setManualPrompt(latest.last_manual_prompt || '')
+        if (latest.state === 'repair_pending' && latest.last_manual_prompt) {
+          await submitRepairPrompt(latest, targetChat)
+        }
+      } catch { /* retain the original Apply error */ }
+    } finally { setBusy(false) }
   }
 
   async function retryDependencyNetwork() {
-	if (!session || busy || !(await confirmDialog({
-		title: 'Permitir rede temporária na sandbox?',
-		message: 'Somente comandos Go de dependências, build e teste deste plano serão repetidos com rede. A sandbox continua sem Docker socket, sem privilégios e sem acesso ao projeto original.',
-		tone: 'warning',
-		confirmLabel: 'Permitir e repetir',
-	}))) return
-	setBusy(true); setError(undefined)
-	try {
-		setSession(await api.retryDependencyNetwork(session.id))
-	} catch (cause) {
-		setError(messageOf(cause))
-		// The dependency retry may have executed successfully and then failed on
-		// a later verification command. Refresh before unlocking the UI so a
-		// stale offline_go_module_cache session cannot expose the retry button a
-		// second time after the backend has already advanced to repair_pending.
-		try { setSession(await api.getSession(session.id)) } catch { /* keep the original retry error */ }
-	} finally { setBusy(false) }
+    if (!session || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat || !(await confirmDialog({
+      title: 'Permitir rede temporária na sandbox?',
+      message: 'Somente comandos Go de dependências, build e teste deste plano serão repetidos com rede. A sandbox continua sem Docker socket, sem privilégios e sem acesso ao projeto original.',
+      tone: 'warning',
+      confirmLabel: 'Permitir e repetir',
+    }))) return
+    setBusy(true); setError(undefined)
+    try {
+      acceptSessionForChat(targetChat, await api.retryDependencyNetwork(targetSession.id))
+    } catch (cause) {
+      setError(messageOf(cause))
+      // The dependency retry may have executed successfully and then failed on
+      // a later verification command. Refresh before unlocking the UI so a
+      // stale offline_go_module_cache session cannot expose the retry button a
+      // second time after the backend has already advanced to repair_pending.
+      try { acceptSessionForChat(targetChat, await api.getSession(targetSession.id)) } catch { /* keep the original retry error */ }
+    } finally { setBusy(false) }
   }
 
   async function retryHostDependencyRepair() {
-	if (!session || busy || !(await confirmDialog({
-		title: 'Reinstalar dependências do host?',
-		message: 'A mesma verificação passou na sandbox Protected mas falhou no host por uma dependência npm nativa/opcional ausente em node_modules (bug conhecido do npm com dependências opcionais). O Wharnex vai rodar, direto no host e sem sudo:\n\n  rm -rf node_modules\n  rm -f package-lock.json\n  npm install\n\nSe a build passar de novo, o Apply é repetido automaticamente.',
-		tone: 'warning',
-		confirmLabel: 'Reinstalar e repetir',
-	}))) return
-	setBusy(true); setError(undefined)
-	try {
-		setSession(await api.retryHostDependencyRepair(session.id))
-	} catch (cause) {
-		setError(messageOf(cause))
-		// The repair may have reinstalled cleanly and then failed a later
-		// reverification/apply step. Refresh before unlocking the UI so a
-		// stale host_dependency_state session cannot expose this button a
-		// second time after the backend already advanced past it.
-		try { setSession(await api.getSession(session.id)) } catch { /* keep the original repair error */ }
-	} finally { setBusy(false) }
+    if (!session || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat || !(await confirmDialog({
+      title: 'Reinstalar dependências do host?',
+      message: 'A mesma verificação passou na sandbox Protected mas falhou no host por uma dependência npm nativa/opcional ausente em node_modules (bug conhecido do npm com dependências opcionais). O Wharnex vai rodar, direto no host e sem sudo:\n\n  rm -rf node_modules\n  rm -f package-lock.json\n  npm install\n\nSe a build passar de novo, o Apply é repetido automaticamente.',
+      tone: 'warning',
+      confirmLabel: 'Reinstalar e repetir',
+    }))) return
+    setBusy(true); setError(undefined)
+    try {
+      acceptSessionForChat(targetChat, await api.retryHostDependencyRepair(targetSession.id))
+    } catch (cause) {
+      setError(messageOf(cause))
+      // The repair may have reinstalled cleanly and then failed a later
+      // reverification/apply step. Refresh before unlocking the UI so a
+      // stale host_dependency_state session cannot expose this button a
+      // second time after the backend already advanced past it.
+      try { acceptSessionForChat(targetChat, await api.getSession(targetSession.id)) } catch { /* keep the original repair error */ }
+    } finally { setBusy(false) }
   }
 
   async function rejectPendingChanges() {
-    if (!session || !(await confirmDialog({
+    if (!session) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat || !(await confirmDialog({
       title: 'Rejeitar alterações pendentes?',
       message: 'Todas as alterações verificadas que ainda não foram aplicadas serão descartadas. O projeto real permanecerá inalterado.',
       tone: 'warning',
@@ -2074,21 +2094,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }))) return
     setBusy(true); setError(undefined)
     try {
-	  const cancelledConflict = session.integration_conflict
-      const updated = await api.rejectPendingChanges(session.id)
-      setSession(updated)
-	  if (cancelledConflict && activeChat) {
-		const surface = activeChat.conflictSurfaces?.[cancelledConflict.id]
-		if (surface) {
-		  updateWorkspaceChat(activeChat.id, updated.project_path, { conflictSurfaces: { ...activeChat.conflictSurfaces, [cancelledConflict.id]: { ...surface, resolvedAt: new Date().toISOString() } } })
-		  void desktopBridge()?.chatgpt.release(surface.cacheKey)
-		}
-	  }
-      setItems((current) => [...current, {
+      const cancelledConflict = targetSession.integration_conflict
+      const updated = await api.rejectPendingChanges(targetSession.id)
+      acceptSessionForChat(targetChat, updated)
+      if (cancelledConflict) {
+        const surface = targetChat.conflictSurfaces?.[cancelledConflict.id]
+        if (surface) {
+          updateWorkspaceChat(targetChat.id, updated.project_path, { conflictSurfaces: { ...targetChat.conflictSurfaces, [cancelledConflict.id]: { ...surface, resolvedAt: new Date().toISOString() } } })
+          void desktopBridge()?.chatgpt.release(surface.cacheKey)
+        }
+      }
+      appendChatItem(targetChat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: 'Todas as alterações pendentes foram rejeitadas. A candidata verificada foi descartada e nada foi incorporado no host.',
         meta: 'Host inalterado',
-      }])
+      })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -2100,9 +2120,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function revertChange(item: ChatItem) {
     if (!session || !item.change || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     const restoring = Boolean(item.change.reverted)
-    const changes = restoring ? session.last_reverted_changes : session.last_applied_changes
-    const latestPlanId = changes?.[changes.length - 1]?.plan.plan_id || (!restoring ? session.plan?.plan_id : undefined)
+    const changes = restoring ? targetSession.last_reverted_changes : targetSession.last_applied_changes
+    const latestPlanId = changes?.[changes.length - 1]?.plan.plan_id || (!restoring ? targetSession.plan?.plan_id : undefined)
     if (!latestPlanId || latestPlanId !== item.change.planId) {
       setError(restoring
         ? 'Este resumo já não corresponde à última reversão disponível para reposição segura.'
@@ -2117,19 +2140,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }))) return
     setBusy(true); setError(undefined)
     try {
-      const updated = restoring ? await api.restoreReverted(session.id) : await api.revert(session.id)
-      setSession(updated)
+      const updated = restoring ? await api.restoreReverted(targetSession.id) : await api.revert(targetSession.id)
+      acceptSessionForChat(targetChat, updated)
       if (!restoring || updated.state === 'applied') {
-        setItems((current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: !restoring } } : candidate))
+        mutateChatItems(targetChat, updated.project_path, (current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: !restoring } } : candidate))
       }
-      markContextDirtyForOtherChats(updated.project_path, activeChatId)
-      void syncPeerBaselineUpdates(updated.project_path, activeChatId)
+      markContextDirtyForOtherChats(updated.project_path, targetChat.id)
+      void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
     } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
   }
 
   async function changeExecutionMode(next: ExecutionMode) {
     if (!session || next === executionMode || busy) return
-    if (session.self_evolution && next === 'unprotected') { setError('A auto-evolução do próprio Wharnex é bloqueada em Unprotected. Use Protected para manter sandbox, build transacional e rollback.'); return }
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    if (targetSession.self_evolution && next === 'unprotected') { setError('A auto-evolução do próprio Wharnex é bloqueada em Unprotected. Use Protected para manter sandbox, build transacional e rollback.'); return }
     let nextAutomation = automationMode
     if (next === 'unprotected') {
       const warning = automationMode === 'auto'
@@ -2145,18 +2171,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
     setBusy(true); setError(undefined)
     try {
-      const updated = await syncSessionModes(session, next, nextAutomation)
-      setSession(updated); setExecutionMode(next); setAutomationMode(nextAutomation)
+      const updated = await syncSessionModes(targetSession, next, nextAutomation)
+      acceptSessionForChat(targetChat, updated); setExecutionMode(next); setAutomationMode(nextAutomation)
       saveExecutionMode(updated.project_path, next); saveAutomationMode(updated.project_path, nextAutomation)
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, next, nextAutomation) } catch { /* stale chat is repaired on selection */ }
       }))
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' }])
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
   async function changeAutomationMode(next: AutomationMode) {
     if (!session || next === automationMode || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     if (next === 'auto' && !(await confirmDialog({
       title: 'Ativar modo Auto?',
       message: 'Somente pedidos classificados como mudança, com plano válido, serão executados na sandbox Protected e aplicados após verificação. Perguntas e análises nunca serão executadas. No ChatGPT web, ainda é necessário iniciar o download do resultado; com provider API não há download.',
@@ -2166,13 +2195,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setBusy(true); setError(undefined)
     try {
       const nextExecution: ExecutionMode = next === 'auto' ? 'protected' : executionMode
-      const updated = await syncSessionModes(session, nextExecution, next)
-      setSession(updated); setExecutionMode(nextExecution); setAutomationMode(next)
+      const updated = await syncSessionModes(targetSession, nextExecution, next)
+      acceptSessionForChat(targetChat, updated); setExecutionMode(nextExecution); setAutomationMode(next)
       saveExecutionMode(updated.project_path, nextExecution); saveAutomationMode(updated.project_path, next)
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, nextExecution, next) } catch { /* stale chat is repaired on selection */ }
       }))
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' }])
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -2180,10 +2209,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // workspace must use the same autonomous-attempt budget.
   async function changeEffortLevel(next: EffortLevel) {
     if (!session || next === effortLevel || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.setEffortLevel(session.id, next)
-      setSession(updated); setEffortLevel(next); saveEffortLevel(updated.project_path, next)
+      const updated = await api.setEffortLevel(targetSession.id, next)
+      acceptSessionForChat(targetChat, updated); setEffortLevel(next); saveEffortLevel(updated.project_path, next)
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { await api.setEffortLevel(chat.sessionId, next) } catch { /* stale chat is repaired on selection */ }
       }))
@@ -2194,28 +2226,35 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // Desktop DOM automation runs, so switching it must never touch peer sessions.
   async function changeChatTransportMode(next: ChatTransportMode) {
     if (!session || next === chatTransportMode || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.setChatTransportMode(session.id, next)
-      setSession(updated); setChatTransportMode(next)
-      if (isDesktop() && activeChatId) { try { await desktopBridge()?.chatgpt.setTransportMode(activeChatId, next) } catch { /* best-effort defense in depth; the primary guard is never calling preparePrompt while manual */ } }
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'manual' ? 'Modo Manual ativado para este chat. O Wharnex deixa de interagir com o ChatGPT — copie o prompt e entregue o bundle de resposta manualmente.' : 'Modo Scraper ativado para este chat. O Wharnex volta a interagir diretamente com o ChatGPT.', meta: next === 'manual' ? 'Manual' : 'Scraper' }])
+      const updated = await api.setChatTransportMode(targetSession.id, next)
+      acceptSessionForChat(targetChat, updated)
+      if (activeChatIdRef.current === targetChat.id) setChatTransportMode(next)
+      if (isDesktop()) { try { await desktopBridge()?.chatgpt.setTransportMode(targetChat.id, next) } catch { /* best-effort defense in depth; the primary guard is never calling preparePrompt while manual */ } }
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'manual' ? 'Modo Manual ativado para este chat. O Wharnex deixa de interagir com o ChatGPT — copie o prompt e entregue o bundle de resposta manualmente.' : 'Modo Scraper ativado para este chat. O Wharnex volta a interagir diretamente com o ChatGPT.', meta: next === 'manual' ? 'Manual' : 'Scraper' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
   async function changeKnowledgeSharing(enabled: boolean) {
     if (!session || busy || (session.knowledge_sharing_enabled !== false) === enabled) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.setKnowledgeSharing(session.id, enabled)
-      setSession(updated)
-      setItems((current) => [...current, {
+      const updated = await api.setKnowledgeSharing(targetSession.id, enabled)
+      acceptSessionForChat(targetChat, updated)
+      appendChatItem(targetChat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: enabled
           ? 'Conhecimento do projeto ligado para este chat. O próximo pedido incluirá o catálogo incremental atual em ficheiros separados.'
           : 'Conhecimento do projeto desligado para este chat. O catálogo existente deixa de ser enviado até reativação ou até existir uma revisão mais recente criada por outro chat.',
         meta: enabled ? 'Conhecimento ligado' : 'Conhecimento desligado',
-      }])
+      })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -2226,13 +2265,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function confirmSelfRestart(scope: 'all' | 'current') {
     if (!session || !isRestartPending(session) || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
       await desktopBridge()?.windows.prepareRestart(scope)
-      const updated = await api.restartSelfEvolution(session.id)
-      setSession(updated); setRestartModalOpen(false)
+      const updated = await api.restartSelfEvolution(targetSession.id)
+      acceptSessionForChat(targetChat, updated); setRestartModalOpen(false)
       const detail = scope === 'current' ? 'As outras janelas serão restauradas com os respetivos projetos e estado de trabalho.' : 'Todas as janelas serão restauradas na nova runtime.'
-      setItems((current) => [...current, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Reinício confirmado. ${detail} O supervisor transacional valida a nova runtime e restaura automaticamente a versão anterior se a ativação falhar.`, meta: 'AUTO-EVOLUÇÃO · reinício confirmado' }])
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Reinício confirmado. ${detail} O supervisor transacional valida a nova runtime e restaura automaticamente a versão anterior se a ativação falhar.`, meta: 'AUTO-EVOLUÇÃO · reinício confirmado' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -2273,8 +2315,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const updated = await api.remoteInputFailure(requestedSession.id, requestId, reason.slice(0, 512), kind)
       const active = requestedChat || chats.find((chat) => chat.id === activeChatId)
-      if (active?.id === activeChatIdRef.current) setSession(updated)
       if (active) {
+        acceptSessionForChat(active, updated)
         const submoduleBlocked = updated.failure_kind === 'submodule_write'
         const automaticallyRecovered = !submoduleBlocked && updated.last_request_id && updated.last_request_id !== requestId && updated.state === 'awaiting_plan'
         const itemId = `error-${crypto.randomUUID()}`
@@ -2298,7 +2340,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           const dispatchKey = `auto-protocol-recovery:${active.id}:${updated.last_request_id}`
           if (!repairDispatchRef.current.has(dispatchKey)) {
             repairDispatchRef.current.add(dispatchKey)
-            setManualPrompt(updated.last_manual_prompt || '')
+            if (activeChatIdRef.current === active.id) setManualPrompt(updated.last_manual_prompt || '')
             try {
               const prepared = await transportPlannerContinuation(updated, active)
               // A dedicated notice for the recovered request id, distinct from
@@ -2326,12 +2368,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function retryTransportFailure(requestId: string) {
     if (!session || busy || requestChainActive(session)) return
+    const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const retried = await api.retryFailedRequest(session.id)
-      setSession(retried); setManualPrompt(retried.last_manual_prompt || '')
+      const retried = await api.retryFailedRequest(targetSession.id)
+      acceptSessionForChat(targetChat, retried)
+      if (activeChatIdRef.current === targetChat.id) setManualPrompt(retried.last_manual_prompt || '')
       const prepared = await transportPlannerContinuation(retried, targetChat)
       appendChatItem(targetChat, retried.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
@@ -2348,13 +2392,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
 	async function cancelPendingRequest(requestId: string) {
 		if (!session || busy) return
+		const targetSession = session
 		const targetChat = chats.find((chat) => chat.id === activeChatId)
 		if (!targetChat) return
 		setBusy(true); setError(undefined)
 		try {
       const desktopCancellation = isDesktop() ? desktopBridge()?.chatgpt.cancelRequest(targetChat.id, requestId) : undefined
-			const [updated] = await Promise.all([api.cancelPendingRequest(session.id, requestId), desktopCancellation || Promise.resolve(undefined)])
-			setSession(updated); setManualPrompt('')
+      const [updated] = await Promise.all([api.cancelPendingRequest(targetSession.id, requestId), desktopCancellation || Promise.resolve(undefined)])
+			acceptSessionForChat(targetChat, updated)
+			if (activeChatIdRef.current === targetChat.id) setManualPrompt('')
 			for (const key of [...resumedBundleKeysRef.current]) if (key.includes(`:${requestId}:`)) resumedBundleKeysRef.current.delete(key)
 			for (const key of [...failedPromptDeliveryKeysRef.current]) if (key.includes(`:${requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)
 			appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'O pedido foi cancelado. A conversa está livre para receber um novo pedido principal; alterações Protected já verificadas foram preservadas.', meta: 'Pedido cancelado', iteration: iterationRef(requestId, 'failed', [], targetChat.chatgptUrl) })
@@ -2398,15 +2444,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function approvePlanProposal(item: ChatItem) {
     if (!session || !item.approval || item.approval.status !== 'pending') return
+    const targetSession = session
     const active = chats.find((chat) => chat.id === activeChatId)
     if (!active) return
     setBusy(true); setError(undefined)
     let approvalCreated = false
     try {
-      const response = await api.approvePlan(session.id, item.approval.requestId)
+      const response = await api.approvePlan(targetSession.id, item.approval.requestId)
       approvalCreated = true
-      setSession(response.session); setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
-      setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'approved' } } : entry))
+      acceptSessionForChat(active, response.session)
+      if (activeChatIdRef.current === active.id) setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+      mutateChatItems(active, response.session.project_path, (current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'approved' } } : entry))
       updateChat({ pendingPlan: undefined, requestMode: 'direct' })
       if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) {
         const prepared = await transportPlannerContinuation(response.session, active)
@@ -2426,22 +2474,24 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (cause) {
       setError(messageOf(cause))
       if (!approvalCreated) {
-        setItems((current) => current.map((entry) => entry.id === item.id && entry.approval?.status === 'approved' ? { ...entry, approval: { ...entry.approval, status: 'pending' } } : entry))
+        mutateChatItems(active, targetSession.project_path, (current) => current.map((entry) => entry.id === item.id && entry.approval?.status === 'approved' ? { ...entry, approval: { ...entry.approval, status: 'pending' } } : entry))
       }
     } finally { setBusy(false) }
   }
 
   async function correctPlanProposal(item: ChatItem, guidance: string) {
     if (!session || !item.approval || item.approval.status !== 'pending') return
+    const targetSession = session
     const active = chats.find((chat) => chat.id === activeChatId)
     if (!active) return
     setBusy(true); setError(undefined)
     let correctionCreated = false
     try {
-      const response = await api.correctPlan(session.id, item.approval.requestId, guidance)
+      const response = await api.correctPlan(targetSession.id, item.approval.requestId, guidance)
       correctionCreated = true
-      setSession(response.session); setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
-      setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'superseded' } } : entry))
+      acceptSessionForChat(active, response.session)
+      if (activeChatIdRef.current === active.id) setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+      mutateChatItems(active, response.session.project_path, (current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'superseded' } } : entry))
       updateChat({ pendingPlan: { requestId: response.session.last_request_id || item.approval.requestId, originalMessage: item.approval.originalMessage }, requestMode: 'direct' })
       if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) {
         const prepared = await transportPlannerContinuation(response.session, active)
@@ -2461,18 +2511,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (cause) {
       setError(messageOf(cause))
       if (!correctionCreated) {
-        setItems((current) => current.map((entry) => entry.id === item.id && entry.approval?.status === 'superseded' ? { ...entry, approval: { ...entry.approval, status: 'pending' } } : entry))
+        mutateChatItems(active, targetSession.project_path, (current) => current.map((entry) => entry.id === item.id && entry.approval?.status === 'superseded' ? { ...entry, approval: { ...entry.approval, status: 'pending' } } : entry))
       }
     } finally { setBusy(false) }
   }
 
   async function rejectPlanProposal(item: ChatItem) {
     if (!session || !item.approval || item.approval.status !== 'pending') return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.rejectPlan(session.id, item.approval.requestId)
-      setSession(updated)
-      setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'rejected' } } : entry))
+      const updated = await api.rejectPlan(targetSession.id, item.approval.requestId)
+      acceptSessionForChat(targetChat, updated)
+      mutateChatItems(targetChat, updated.project_path, (current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'rejected' } } : entry))
       updateChat({ pendingPlan: undefined, requestMode: 'direct' })
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }

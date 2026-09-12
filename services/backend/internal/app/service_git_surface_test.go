@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/audit"
+	"kernl.local/harness/backend/internal/changeset"
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/gitsettings"
@@ -68,6 +70,81 @@ func TestCommitModeDefaultsToAutoAndRoundTrips(t *testing.T) {
 	}
 	if _, err := service.SetGitCommitMode("/w/alpha", "sometimes"); err == nil {
 		t.Fatal("an unsupported mode must be refused")
+	}
+}
+
+// Sessions verified before Git-native integration was introduced still carry
+// a durable ChangeSet instead of an integration branch. A production
+// self-evolution went through that compatibility path while the Git surface
+// reported Auto, changed the host, and left no commit at all. Compatibility
+// must not weaken the commit-mode contract.
+func TestLegacyChangeSetApplyHonoursAutoCommitMode(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Opening the project materializes its validated config. Keep the fixture
+	// clean so any new HEAD below can only be the legacy candidate.
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "chore: add project config")
+	before := headOf(t, root)
+
+	resultRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(resultRoot, "app.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	set, err := changeset.Materialize("chg_legacy", "legacy-base", root, resultRoot, []string{"app.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "plan_legacy_auto", RequestID: "req_legacy_auto", Status: "ready",
+		Summary: "Add the application entry point.", CommitMessage: "feat(app): add entry point", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/app.go\n+++ b/app.go\n@@ -1 +1,3 @@\n package main\n+\n+func main() {}\n"}},
+	}
+	if _, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "verified"
+		item.Plan = &plan
+		item.LastRequestID = plan.RequestID
+		item.PendingHostChanges = []domain.PendingHostChange{{
+			Plan: plan, Execution: domain.ExecutionResult{PlanID: plan.PlanID, Success: true, CompletedAt: time.Now().UTC()},
+			VerifiedAt: time.Now().UTC(), ChangeSet: &set,
+		}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.ApplyToHost(context.Background(), started.ID); err != nil {
+		t.Fatal(err)
+	}
+	after := headOf(t, root)
+	if after == before {
+		t.Fatal("Auto mode applied the legacy ChangeSet without creating a commit")
+	}
+	commits, err := hostrepo.Log(context.Background(), root, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, commit := range commits {
+		if commit.Subject == "feat(app): add entry point" && commit.RequestID == plan.RequestID && commit.PlanID == plan.PlanID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("legacy candidate lost its planner-authored history: %+v", commits)
+	}
+	working, err := hostrepo.Working(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !working.Clean() {
+		t.Fatalf("Auto mode left the applied candidate uncommitted: %+v", working)
 	}
 }
 

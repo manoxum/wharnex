@@ -39,8 +39,13 @@ describe('App policy-repair recovery', () => {
   })
 
   it('retries a terminal protocol failure through a fresh durable backend request', () => {
-	expect(source).toMatch(/api\.retryFailedRequest\(session\.id\)/)
-	expect(source).toMatch(/transportPlannerContinuation\(retried, targetChat\)/)
-	expect(source).not.toMatch(/const original = \[\.\.\.items\]\.reverse\(\)/)
+    const retry = source.slice(source.indexOf('async function retryTransportFailure('), source.indexOf('async function cancelPendingRequest('))
+    const targetCapture = retry.indexOf('const targetSession = session')
+    const request = retry.indexOf('await api.retryFailedRequest(targetSession.id)')
+
+    expect(targetCapture).toBeGreaterThan(-1)
+    expect(request).toBeGreaterThan(targetCapture)
+    expect(retry).toMatch(/transportPlannerContinuation\(retried, targetChat\)/)
+    expect(source).not.toMatch(/const original = \[\.\.\.items\]\.reverse\(\)/)
   })
 })

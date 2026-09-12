@@ -214,6 +214,7 @@ func materializePlanChangeSet(plan domain.ExecutionPlan, baseRoot, resultRoot st
 type stagedHostIntegration struct {
 	workspace sandbox.Workspace
 	prepared  changeset.Prepared
+	pending   []domain.PendingHostChange
 }
 
 func (s *Service) stageHostIntegration(ctx context.Context, sessionID string, item domain.Session, pending []domain.PendingHostChange) (stagedHostIntegration, error) {
@@ -237,9 +238,50 @@ func (s *Service) stageHostIntegration(ctx context.Context, sessionID string, it
 		_ = s.runner.Cleanup(workspace)
 		return stagedHostIntegration{prepared: prepared}, nil
 	}
-	if err := changeset.ApplyToWorkspace(workspace.Path, prepared); err != nil {
-		_ = s.runner.Cleanup(workspace)
-		return stagedHostIntegration{}, err
+	// A persisted ChangeSet predates Git-native integration. Rebuild its
+	// ordered candidate chain inside this isolated clone and promote every
+	// effective change to the same whx/<request_id> branch contract new plans
+	// use. Applying the aggregate directly to the host used to bypass both Auto
+	// commits and Manual pending-commit records entirely.
+	converted := append([]domain.PendingHostChange(nil), pending...)
+	for index := range converted {
+		set := converted[index].ChangeSet
+		if set == nil {
+			_ = s.runner.Cleanup(workspace)
+			return stagedHostIntegration{}, errors.New("legacy pending candidate requires a ChangeSet")
+		}
+		candidate, candidateErr := changeset.Prepare(workspace.Path, []domain.ChangeSet{*set})
+		if candidateErr != nil {
+			_ = s.runner.Cleanup(workspace)
+			return stagedHostIntegration{}, candidateErr
+		}
+		if candidate.Outcome == domain.IntegrationConflict {
+			_ = s.runner.Cleanup(workspace)
+			return stagedHostIntegration{prepared: candidate}, nil
+		}
+		if candidateErr = changeset.ApplyToWorkspace(workspace.Path, candidate); candidateErr != nil {
+			_ = s.runner.Cleanup(workspace)
+			return stagedHostIntegration{}, candidateErr
+		}
+		paths := actualPatchFiles(&converted[index].Plan)
+		if len(paths) == 0 {
+			continue
+		}
+		branch := integrationBranchName(converted[index].Plan.RequestID)
+		var commit string
+		var commitErr error
+		if len(candidate.Writes) == 0 {
+			commit, commitErr = sandbox.CommitVerifiedPatchAllowEmpty(ctx, workspace.Path, branch, commitMessageForPlan(&converted[index].Plan), paths)
+		} else {
+			commit, commitErr = sandbox.CommitVerifiedPatch(ctx, workspace.Path, branch, commitMessageForPlan(&converted[index].Plan), paths)
+		}
+		if commitErr != nil {
+			_ = s.runner.Cleanup(workspace)
+			return stagedHostIntegration{}, fmt.Errorf("commit legacy ChangeSet %s to integration branch: %w", set.ID, commitErr)
+		}
+		converted[index].IntegrationBranch = branch
+		converted[index].IntegrationCommit = commit
+		converted[index].ChangeSet = nil
 	}
 	if len(prepared.SemanticFiles) > 0 || len(prepared.BarrierFiles) > 0 {
 		s.bus.Publish(sessionID, "integration.semantic_recheck", map[string]any{"read_files": prepared.SemanticFiles, "barrier_files": prepared.BarrierFiles})
@@ -285,7 +327,23 @@ func (s *Service) stageHostIntegration(ctx context.Context, sessionID string, it
 		_ = s.runner.Cleanup(workspace)
 		return stagedHostIntegration{}, fmt.Errorf("integration verification failed for plan %s: %s", pending[index].Plan.PlanID, commandResultDiagnostic(result))
 	}
-	return stagedHostIntegration{workspace: workspace, prepared: prepared}, nil
+	// Only a fully verified chain may publish refs into the host repository.
+	// ApplyToHost already holds the per-project integration lock, so these
+	// local-only pushes cannot race another Wharnex Apply.
+	for index := range converted {
+		if converted[index].IntegrationBranch == "" {
+			continue
+		}
+		if err := sandbox.PushBranchToHost(ctx, workspace.Path, item.ProjectPath, converted[index].IntegrationBranch); err != nil {
+			_ = s.runner.Cleanup(workspace)
+			return stagedHostIntegration{}, fmt.Errorf("publish promoted legacy candidate: %w", err)
+		}
+		s.bus.Publish(sessionID, "integration.branch_committed", map[string]any{
+			"plan_id": converted[index].Plan.PlanID, "branch": converted[index].IntegrationBranch,
+			"commit": converted[index].IntegrationCommit, "source": "legacy_changeset",
+		})
+	}
+	return stagedHostIntegration{workspace: workspace, prepared: prepared, pending: converted}, nil
 }
 
 // integrationVerification is one gate to run against the merged integration
