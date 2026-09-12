@@ -64,7 +64,7 @@ function prioritizedChangeFiles(files: ChatChangeFile[]) {
     .map(({ file }) => file)
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -73,6 +73,10 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   busy: boolean
   embedded?: boolean
   hideSwitcher?: boolean
+  composerOnly?: boolean
+  composerPlaceholder?: string
+  composerSendLabel?: string
+  composerHint?: string
   historyViewportStore?: ChatViewportStore
   executionMode?: ExecutionMode
   automationMode?: AutomationMode
@@ -336,8 +340,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     {item.iteration?.phase === 'result' && item.turnKind !== 'workflow' && <ChatItemBoundary label="Os artefactos desta iteração não puderam ser apresentados"><ReturnedArtifactGallery sessionId={session.id} artifacts={session.artifacts} requestId={item.iteration.requestId}/></ChatItemBoundary>}
   </Fragment>
 
-  return <section className={`chat-panel ${embedded ? 'embedded' : ''}`}>
-    <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
+  return <section className={`chat-panel ${embedded ? 'embedded' : ''} ${composerOnly ? 'composer-only' : ''}`}>
+    {!composerOnly && <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
       <div className="chat-header-context" aria-label="Contexto isolado">
         <span className="chat-header-context-icon"><Icon name="shield" size={13}/></span>
         <span><strong>Contexto isolado</strong><small>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</small></span>
@@ -347,9 +351,9 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
         <StatusPill tone={session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'}>{stateLabel(session.state)}</StatusPill>
         {onExportChat && <button type="button" className="chat-export-button" disabled={busy} onClick={() => void onExportChat()} aria-label="Exportar ZIP" title="Exportar chat completo, execuções e bundles em ZIP"><Icon name="download" size={13}/></button>}
       </div>
-    </header>
+    </header>}
 
-    {!hideSwitcher && <div className="chat-switcher" aria-label="Conversas do Harness">
+    {!composerOnly && !hideSwitcher && <div className="chat-switcher" aria-label="Conversas do Harness">
       <button className="chat-new-button" disabled={busy} onClick={() => void onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
       {archivedChats.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void onRestoreChat(archivedChats[0].id)} title={`Reabrir último chat fechado: ${archivedChats[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
       <div className="chat-tabs">
@@ -364,7 +368,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     </div>}
 
 
-    {!embedded && archiveOpen && <div className="chat-archive-panel">
+    {!composerOnly && !embedded && archiveOpen && <div className="chat-archive-panel">
       <div className="chat-archive-heading"><div><strong>Chats arquivados</strong><span>Fechar um chat preserva o histórico, o vínculo ChatGPT e os anexos locais.</span></div><button className="icon-button light" onClick={() => setArchiveOpen(false)} title="Fechar área de arquivados"><Icon name="close" size={13}/></button></div>
       {archivedChats.length ? <div className="chat-archive-list">{archivedChats.map((chat) => <div className="chat-archive-row" key={chat.id}>
         <div className="chat-archive-copy"><strong>{chat.title}</strong><span>{chat.chatgptUrl ? 'ChatGPT vinculado' : 'Sem vínculo ChatGPT'} · fechado em {formatMessageTime(chat.updatedAt)}</span></div>
@@ -372,12 +376,12 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       </div>)}</div> : <div className="chat-archive-empty">Nenhum chat fechado.</div>}
     </div>}
 
-    <div className="chat-content-tabs" role="tablist" aria-label="Conteúdo do chat">
+    {!composerOnly && <div className="chat-content-tabs" role="tablist" aria-label="Conteúdo do chat">
       <button type="button" role="tab" aria-selected={contentView === 'conversation'} className={contentView === 'conversation' ? 'active' : ''} onClick={() => setContentView('conversation')}><Icon name="chatgpt" size={12}/> Conversa</button>
       <button type="button" role="tab" aria-selected={contentView === 'files'} className={contentView === 'files' ? 'active' : ''} onClick={() => setContentView('files')}><Icon name="folder" size={12}/> Ficheiros</button>
-    </div>
+    </div>}
 
-    {contentView === 'conversation' ? <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
+    {!composerOnly && (contentView === 'conversation' ? <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
       {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar anteriores</button></div>}
       {visibleItems.map((item) => {
         const previousNotices = whxNoticeRuns.previousByLatestId.get(item.id) || []
@@ -395,10 +399,12 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       })}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharnex</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
-    </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
+    </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>)}
 
-    {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery.kind === 'storage' ? 'Armazenamento local sem espaço' : failedPromptDelivery.kind === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery.kind === 'storage' ? 'O bundle foi preservado, mas o backend não consegue guardá-lo. Liberte espaço no disco e tente a ingestão novamente.' : failedPromptDelivery.kind === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.(failedPromptDelivery.requestId)}><Icon name="refresh" size={14}/> {failedPromptDelivery.kind === 'storage' ? 'Tentar após liberar espaço' : failedPromptDelivery.kind === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
-    {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>{preparedAttachmentCount} item(ns) de entrada preparados. O contexto é incluído automaticamente apenas quando necessário.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}
+    {!composerOnly && <>
+      {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery.kind === 'storage' ? 'Armazenamento local sem espaço' : failedPromptDelivery.kind === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery.kind === 'storage' ? 'O bundle foi preservado, mas o backend não consegue guardá-lo. Liberte espaço no disco e tente a ingestão novamente.' : failedPromptDelivery.kind === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.(failedPromptDelivery.requestId)}><Icon name="refresh" size={14}/> {failedPromptDelivery.kind === 'storage' ? 'Tentar após liberar espaço' : failedPromptDelivery.kind === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
+      {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>{preparedAttachmentCount} item(ns) de entrada preparados. O contexto é incluído automaticamente apenas quando necessário.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}
+    </>}
 
     {queueOpen && queuedRequests.length > 0 && <QueuePanel requests={queuedRequests} editingId={editingQueueId} editingText={editingQueueText} onEditing={(id, text) => { setEditingQueueId(id); setEditingQueueText(text) }} onEditingText={setEditingQueueText} onSave={() => { if (editingQueueId && editingQueueText.trim()) onQueueEdit?.(editingQueueId, editingQueueText.trim()); setEditingQueueId('') }} onCancel={() => setEditingQueueId('')} onMove={onQueueMove} onRemove={onQueueRemove} onMerge={onQueueMerge} onPromote={onQueuePromote} onClose={() => setQueueOpen(false)} />}
     {todoOpen && todos.length > 0 && <TodoPanel todos={todos} onClose={() => setTodoOpen(false)} />}
@@ -432,7 +438,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
         event.preventDefault()
         if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
         else event.currentTarget.form?.requestSubmit()
-      }} placeholder="Pergunte, analise, diagnostique ou descreva uma alteração…" rows={3}/>{fileQuery && <div className="file-reference-menu" role="listbox" aria-label="Localizar ficheiro do projeto" data-chatgpt-overlay-blocker="true"><header><span>@file</span><small>{fileSuggestions.length ? 'Escolha um ficheiro do contexto' : 'Nenhum ficheiro elegível encontrado'}</small></header>{fileSuggestions.map((path, index) => <button type="button" role="option" aria-selected={index === 0} key={path} onMouseDown={(event) => event.preventDefault()} onClick={() => selectProjectFile(path)}><Icon name="file" size={12}/><span>{path}</span>{index === 0 && <kbd>Enter</kbd>}</button>)}</div>}</div>
+      }} placeholder={composerPlaceholder || "Pergunte, analise, diagnostique ou descreva uma alteração…"} rows={3}/>{fileQuery && <div className="file-reference-menu" role="listbox" aria-label="Localizar ficheiro do projeto" data-chatgpt-overlay-blocker="true"><header><span>@file</span><small>{fileSuggestions.length ? 'Escolha um ficheiro do contexto' : 'Nenhum ficheiro elegível encontrado'}</small></header>{fileSuggestions.map((path, index) => <button type="button" role="option" aria-selected={index === 0} key={path} onMouseDown={(event) => event.preventDefault()} onClick={() => selectProjectFile(path)}><Icon name="file" size={12}/><span>{path}</span>{index === 0 && <kbd>Enter</kbd>}</button>)}</div>}</div>
       </div>
       <div className="composer-footer">
         <div className="composer-toolbar-row"><div className="composer-action-row" aria-label="Opções da próxima iteração">
@@ -474,8 +480,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <button type="button" className={`composer-round-action ${queueOpen ? 'selected' : ''}`} aria-label="Fila de espera" title="Fila de requests principais" onClick={() => setQueueOpen((current) => !current)}><Icon name="clipboard" size={12}/>{queuedRequests.length > 0 && <b>{queuedRequests.length}</b>}</button>
           <button type="button" className={`composer-round-action ${todoOpen ? 'selected' : ''}`} aria-label="Tarefas TODO" title="Tarefas da iteração" disabled={!todos.length} onClick={() => setTodoOpen((current) => !current)}><Icon name="check" size={12}/>{todos.length > 0 && <b>{todos.filter((todo) => !todo.done).length}</b>}</button>
           {taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name="chatgpt" size={12}/> Request ativa · Ctrl+Enter comenta</span>}
-        </div><button className="send-button" disabled={commentBusy || (!message.trim() && !attachments.length) || Boolean(preparedAttachmentCount)} aria-label={taskInFlight ? 'Adicionar request à fila' : 'Enviar ao agente'} title={taskInFlight ? 'Adicionar à fila' : 'Enviar'}><Icon name="send" size={15}/></button></div>
-        <div className="composer-hint">{taskInFlight ? 'Enter adiciona à fila · Ctrl+Enter envia comentário · Shift+Enter cria linha' : requestMode === 'plan_first' ? 'Enter inicia a próxima request · Plan first aguarda aprovação' : 'Enter inicia a próxima request · Shift+Enter cria linha'}</div>
+        </div><button className="send-button" disabled={commentBusy || (!message.trim() && !attachments.length) || Boolean(preparedAttachmentCount)} aria-label={composerSendLabel || (taskInFlight ? 'Adicionar request à fila' : 'Enviar ao agente')} title={composerSendLabel || (taskInFlight ? 'Adicionar à fila' : 'Enviar')}><Icon name="send" size={15}/></button></div>
+        <div className="composer-hint">{composerHint || (taskInFlight ? 'Enter adiciona à fila · Ctrl+Enter envia comentário · Shift+Enter cria linha' : requestMode === 'plan_first' ? 'Enter inicia a próxima request · Plan first aguarda aprovação' : 'Enter inicia a próxima request · Shift+Enter cria linha')}</div>
       </div>
     </form>
 

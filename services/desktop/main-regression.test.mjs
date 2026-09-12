@@ -1882,3 +1882,15 @@ test('orchestrator planning delivers the project standard response bundle', asyn
   assert.match(instruction, /BUNDLE ONLY/)
   assert.match(instruction, /single UTF-8 entry named exactly plan\.json/)
 })
+
+test('orchestrator planning carries shared-composer context and attachments into ChatGPT', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function executeChatAgentOrchestratorPlan(')
+  const worker = source.slice(start, source.indexOf('\nasync function executeChatAgentMarkdownTranslation', start))
+
+  assert.match(worker, /const includeContext = payload\.include_context === true/)
+  assert.match(worker, /storedAttachmentPath\(chatAttachmentRoot\(\), String\(attachment\?\.storage_ref \|\| ''\)\)/)
+  assert.match(worker, /const context = await fetchContextZip\(sessionId\)/)
+  assert.match(worker, /await pasteChatGPTFile\(target\.entry, uploadPaths\[index\], index \+ 1, uploadPaths\.length\)/)
+  assert.match(worker, /removeStoredChatAttachments\(chatAttachmentRoot\(\), attachmentCacheKey\)/)
+})

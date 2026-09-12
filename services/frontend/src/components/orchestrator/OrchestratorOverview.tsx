@@ -1,13 +1,18 @@
-import { useMemo, useState } from 'react'
+import { type ComponentProps, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
-import type { ChatAgentTask, OrchestratorOverview as OverviewData, OrchestratorProposal, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
+import type { ChatAgentTask, ChatArtifactSelection, OrchestratorOverview as OverviewData, OrchestratorProposal, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
 import { Icon } from '../Icon'
 import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { WorkerFollowViewer } from '../WorkerFollowViewer'
+import { ChatPanel } from '../ChatPanel'
+import { encodeChatAttachments } from '../../lib/chatAttachments'
+import { desktopBridge } from '../../lib/desktop'
+import { errorMessage } from '../../lib/errorMessage'
 
-export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask }: {
+export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], chatProps, onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask }: {
   session: Session
   overview: OverviewData
+  chatProps: ComponentProps<typeof ChatPanel>
   // The durable ORCHESTRATOR_PLAN task backing each planning request, carrying
   // the lease owner/chat/session identifiers the planning request itself does
   // not — see OrchestratorWorkspace's combined refresh.
@@ -22,7 +27,6 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   onOpenTasks: () => void
   onSelectTask: (task: OrchestratorTask) => void
 }) {
-  const [objective, setObjective] = useState('')
   const [manualJSON, setManualJSON] = useState('')
   // Following a Worker stays right here — Orchestrator embeds its own live
   // instance viewer instead of sending the operator to Agent · Engine.
@@ -37,11 +41,49 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   const activePlanningCount = planningRequests.filter((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status)).length
   const recent = useMemo(() => [...overview.tasks].filter((task) => task.status !== 'ARCHIVED').sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5), [overview.tasks])
 
-  async function propose() {
-    const value = objective.trim()
+  async function propose(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) {
+    const value = message.trim()
     if (!value || busy) return
-    const result = await onRun(() => api.proposeOrchestratorPlan(session.id, value))
-    if (result) { onProposal(result); setObjective('') }
+
+    const bridge = desktopBridge()
+    if (attachments.length && !bridge) {
+      onError?.('Anexos do Orchestrator requerem o Wharnex Desktop.')
+      return
+    }
+
+    const evidenceFiles: File[] = []
+    if (bridge && artifacts.result && chatProps.artifactContent?.result) {
+      evidenceFiles.push(new File([chatProps.artifactContent.result], 'wharnex-execution-result.md', { type: 'text/markdown' }))
+    }
+    if (bridge && artifacts.error && chatProps.artifactContent?.error) {
+      evidenceFiles.push(new File([chatProps.artifactContent.error], 'wharnex-execution-error.md', { type: 'text/markdown' }))
+    }
+    const files = [...attachments, ...evidenceFiles]
+    const attachmentCacheKey = files.length ? `orch_${crypto.randomUUID().replaceAll('-', '_')}` : ''
+    let persisted: Array<{ name: string; size: number; mime: string; storage_ref: string }> = []
+
+    try {
+      if (files.length) {
+        if (!bridge) throw new Error('Desktop bridge indisponível')
+        const encoded = await encodeChatAttachments(files)
+        const stored = await bridge.attachments.persist({ cacheKey: attachmentCacheKey, messageId: crypto.randomUUID(), attachments: encoded })
+        persisted = stored.attachments.map((file) => ({ name: file.name, size: file.size, mime: file.mime, storage_ref: file.storageRef }))
+      }
+
+      const result = await onRun(() => api.proposeOrchestratorPlan(session.id, value, {
+        include_context: Boolean(artifacts.context),
+        project_files: projectFiles,
+        attachment_cache_key: attachmentCacheKey || undefined,
+        attachments: persisted.length ? persisted : undefined,
+      }))
+      if (result) onProposal(result)
+      if (result && !result.worker_task_id && attachmentCacheKey && bridge) {
+        await bridge.attachments.removeChat({ cacheKey: attachmentCacheKey }).catch(() => undefined)
+      }
+    } catch (reason) {
+      if (attachmentCacheKey && bridge) await bridge.attachments.removeChat({ cacheKey: attachmentCacheKey }).catch(() => undefined)
+      onError?.(errorMessage(reason, 'Não foi possível preparar o pedido do Orchestrator.'))
+    }
   }
 
   async function importManual() {
@@ -61,14 +103,23 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
         <h1>O que pretende realizar neste projeto?</h1>
         <p>Descreva o objetivo. O Planner transforma-o em tarefas, dependências e critérios de conclusão antes de qualquer execução.</p>
       </div>
-      <div className="orchestrator-composer">
-        <textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="Ex.: migrar o módulo de autenticação para Go, preservar compatibilidade e validar o cutover…" rows={4} onKeyDown={(event) => {
-          if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void propose()
-        }}/>
-        <footer>
-          <span><Icon name="shield" size={13}/> Primeiro propõe · depois aprova · só então executa</span>
-          <button type="button" disabled={busy || !objective.trim()} onClick={() => void propose()}><Icon name="plan" size={15}/> Gerar plano</button>
-        </footer>
+      <div className="orchestrator-composer-shell">
+        <ChatPanel
+          {...chatProps}
+          session={session}
+          activeChatId={`orchestrator-${session.id}`}
+          busy={busy}
+          embedded
+          hideSwitcher
+          composerOnly
+          taskInFlight={false}
+          preparedAttachmentCount={undefined}
+          failedPromptDelivery={undefined}
+          composerPlaceholder="Ex.: migrar o módulo de autenticação para Go, preservar compatibilidade e validar o cutover…"
+          composerSendLabel="Gerar plano"
+          composerHint="Enter gera o plano · Shift+Enter cria linha"
+          onSend={propose}
+        />
       </div>
     </section>
 

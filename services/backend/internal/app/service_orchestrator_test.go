@@ -35,6 +35,13 @@ func (orchestratorManualTestPlanner) Plan(_ context.Context, request planner.Req
 	return planner.Result{}, nil
 }
 
+type orchestratorCapturePlanner struct{ request planner.Request }
+
+func (p *orchestratorCapturePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
+	p.request = request
+	return planner.Result{ManualPrompt: "produce the orchestrator DAG"}, nil
+}
+
 func TestManualOrchestratorProposalQueuesDurableUrgentWorker(t *testing.T) {
 	root := t.TempDir()
 	store := session.NewStore()
@@ -70,6 +77,50 @@ func TestManualOrchestratorProposalQueuesDurableUrgentWorker(t *testing.T) {
 	}
 	if len(overview.PlanningRequests) != 1 || overview.PlanningRequests[0].TaskID != result.WorkerTaskID || overview.PlanningRequests[0].Objective != "ship a durable objective" || overview.PlanningRequests[0].Status != session.ChatAgentTaskPending {
 		t.Fatalf("queued planning request disappeared from orchestrator overview: %#v", overview.PlanningRequests)
+	}
+}
+
+func TestOrchestratorComposerContextFlowsToPlannerAndWorker(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	capture := &orchestratorCapturePlanner{}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), capture, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := OrchestratorComposerContext{
+		IncludeContext:     true,
+		ProjectFiles:       []string{"services/frontend/src/App.tsx"},
+		AttachmentCacheKey: "orch_test",
+		Attachments: []OrchestratorPlanningAttachment{{
+			Name: "design-notes.md", Size: 128, MIME: "text/markdown", StorageRef: "orch_test/msg_1/0",
+		}},
+	}
+	result, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "reuse the Agent composer", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(capture.request.Message, "reuse the Agent composer") || !strings.Contains(capture.request.Message, "services/frontend/src/App.tsx") || !strings.Contains(capture.request.Message, "design-notes.md") || !strings.Contains(capture.request.Message, "untrusted") {
+		t.Fatalf("planner request lost composer context: %q", capture.request.Message)
+	}
+	if capture.request.EffortLevel != started.EffortLevel {
+		t.Fatalf("planner effort = %q, expected %q", capture.request.EffortLevel, started.EffortLevel)
+	}
+	queued, err := store.GetChatAgentTask(result.WorkerTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		IncludeContext     bool                             `json:"include_context"`
+		AttachmentCacheKey string                           `json:"attachment_cache_key"`
+		Attachments        []OrchestratorPlanningAttachment `json:"attachments"`
+	}
+	if err := json.Unmarshal(queued.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.IncludeContext || payload.AttachmentCacheKey != input.AttachmentCacheKey || len(payload.Attachments) != 1 || payload.Attachments[0].StorageRef != input.Attachments[0].StorageRef {
+		t.Fatalf("worker payload lost composer context: %#v", payload)
 	}
 }
 
