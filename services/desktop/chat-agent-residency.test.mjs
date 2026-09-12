@@ -144,6 +144,23 @@ test('a resident lane that produces no work is released back to the free pool', 
   assert.equal(residency.claimOptions('worker-1').fallback_mode, 'unresident_only')
 })
 
+test('a trusted observation handoff releases a resident lane immediately without breaking non-preemptive work', () => {
+  let now = 1_000
+  const residency = new ChatAgentResidency({ now: () => now, minResidenceMs: 120_000 })
+  const bind = residency.beginAssignment('worker-1', 'c:watched')
+  residency.settleAssignment('worker-1', bind.epoch, bind.lane, now)
+
+  assert.equal(residency.releaseResidentLane('worker-1', 'c:other'), false, 'a handoff may only release the exact resident lane')
+  residency.setNonPreemptive('worker-1', true)
+  assert.equal(residency.releaseResidentLane('worker-1', 'c:watched'), false, 'non-preemptive work is never interrupted')
+  residency.setNonPreemptive('worker-1', false)
+
+  assert.equal(residency.releaseResidentLane('worker-1', 'c:watched'), true)
+  assert.equal(residency.snapshot('worker-1').resident_lane, '')
+  assert.equal(residency.claimOptions('worker-1').fallback_mode, 'unresident_only')
+  assert.equal(residency.epochCurrent('worker-1', bind.epoch), false, 'handoff invalidates stale assignment callbacks')
+})
+
 test('the dwell protects a freshly bound lane from idle release', () => {
   let now = 1_000
   const residency = new ChatAgentResidency({ now: () => now, minResidenceMs: 60_000, idleReleaseMs: 5_000 })

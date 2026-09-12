@@ -480,6 +480,8 @@ test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating 
   assert.ok(resumeStart >= 0, 'resume expected bundle IPC must exist')
   assert.match(resume, /const conversation = canonicalChatGPTConversationURL\(target\)/)
   assert.match(resume, /persistWorkspaceChatRemoteBestEffort\(key, conversation, \{ remoteState: 'awaiting-response' \}\)/)
+  assert.match(resume, /armExpectedChatGPTBundle\(key, requestId, 0, recoveryPrompt/)
+  assert.match(resume, /recoveryEligibleAt = Date\.now\(\) \+ chatAgentInitialRequestWaitMs\(\)/)
   assert.match(resume, /expectedChatAgentPayload\(key, requestId, conversation/)
   assert.match(resume, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
   assert.match(resume, /dedupeKey: `await:\$\{requestId\}`/)
@@ -488,6 +490,36 @@ test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating 
   assert.doesNotMatch(resume, /ensureChatGPTView\(/)
   assert.doesNotMatch(resume, /setVisible\(false\)/)
   assert.doesNotMatch(resume, /pollExpectedChatGPTDownloadKey\(key\)/)
+})
+
+test('the visible Supervisor temporarily owns expected-bundle observation and Workers stand down from that lane', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const ownershipStart = source.indexOf('function chatGPTSupervisorOwnsExpectedResponse(')
+  const ownershipEnd = source.indexOf('\nfunction reconcileChatGPTThrottle', ownershipStart)
+  const ownership = source.slice(ownershipStart, ownershipEnd)
+  assert.match(ownership, /chatGPTEntryIsActiveVisible\(key, entry\)/)
+  assert.match(ownership, /expectedChatGPTBundles\.get\(key\)/)
+  assert.match(ownership, /sameConversationURL\(currentURL, expectedURL\)/)
+  assert.match(ownership, /lanes\.add\(`h:\$\{key\}`\)/)
+  assert.match(ownership, /lanes\.add\(`c:\$\{conversationID\}`\)/)
+
+  const executeStart = source.indexOf('async function executeChatAgentTask(')
+  const assignIndex = source.indexOf('const assigned = assignChatGPTWorker', executeStart)
+  const handoffGuard = source.indexOf("task.type === 'AWAIT_RESPONSE' && chatGPTSupervisorOwnsExpectedResponse", executeStart)
+  assert.ok(handoffGuard > executeStart && handoffGuard < assignIndex, 'a visible Supervisor must stop an await before Worker assignment/navigation')
+
+  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
+  const claimOptions = scheduler.slice(scheduler.indexOf('claimOptions: (worker)'), scheduler.indexOf('onIdle:'))
+  assert.match(claimOptions, /const supervisorLanes = chatGPTSupervisorAwaitLanes\(\)/)
+  assert.match(claimOptions, /releaseResidentLane\(entry\.slotId, residentLane\)/)
+  assert.match(claimOptions, /excluded_lanes: \[\.\.\.new Set\(\[\.\.\.\(options\.excluded_lanes \|\| \[\]\), \.\.\.supervisorLanes\]\)\]\.slice\(0, 32\)/)
+
+  const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
+  const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', pollStart)
+  const poll = source.slice(pollStart, pollEnd)
+  assert.match(poll, /if \(!entry \|\| !chatGPTEntryIsActiveVisible\(key, entry\)\) return/)
+  assert.match(source, /setInterval\(\(\) => \{ void flushQueuedChatGPTComments\(\); void pollChatGPTVisibleActivity\(\); void pollExpectedChatGPTDownloads\(\) \}, DOM_DOWNLOAD_POLL_MS\)/)
 })
 
 test('background ChatGPT views disable renderer throttling and escalate structural or exhausted transport failures to human attention', async () => {
@@ -525,7 +557,7 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   assert.match(needs, /entry\.transportPreparationCount > 0/)
   assert.match(needs, /entry\.conversationRequests\.size > 0/)
   assert.match(needs, /pendingChatGPTComments\.has\(key\)/)
-  assert.match(needs, /expectedChatGPTBundles\.has\(key\)/)
+  assert.match(needs, /expectedChatGPTBundles\.has\(key\) && chatGPTEntryIsActiveVisible\(key, entry\)/)
 
   const reconcileStart = source.indexOf('function reconcileChatGPTThrottle(key, entry)')
   const reconcileEnd = source.indexOf('\nfunction sendToWindowState', reconcileStart)
@@ -1588,8 +1620,8 @@ test('an empty claim releases a resident lane that has run dry', async () => {
 
   // Without this the pool degraded to one effective worker: a resident slot can
   // only claim its own lane, so it could never be rebound by claiming elsewhere.
-  assert.match(scheduler.slice(0, 2400), /onIdle: \(worker\) => \{/)
-  assert.match(scheduler.slice(0, 2400), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
+  assert.match(scheduler.slice(0, 3600), /onIdle: \(worker\) => \{/)
+  assert.match(scheduler.slice(0, 3600), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
 })
 
 test('a conversation still producing a response is never concluded without evidence it ran', async () => {

@@ -301,12 +301,33 @@ function activeChatGPTEntry(windowState) {
 // background throttling either way; only the remote page's own idle
 // timers/rAF slow down once nothing here is waiting on it.
 function chatGPTEntryNeedsSupervision(key, entry) {
-  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.conversationRequests.size > 0 || pendingChatGPTComments.has(key) || expectedChatGPTBundles.has(key))
+  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.conversationRequests.size > 0 || pendingChatGPTComments.has(key) || (expectedChatGPTBundles.has(key) && chatGPTEntryIsActiveVisible(key, entry)))
 }
 
 function chatGPTEntryIsActiveVisible(key, entry) {
   const windowState = windowStateForEntry(entry)
   return Boolean(windowState && windowState.activeChatGPTKey === key && windowState.chatgptVisible)
+}
+
+function chatGPTSupervisorOwnsExpectedResponse(key, requestId = '', conversationURL = '') {
+  const entry = chatgptViews.get(key)
+  if (!entry || !chatGPTEntryIsActiveVisible(key, entry) || entry.view.webContents.isDestroyed()) return false
+  const expected = expectedChatGPTBundles.get(key)
+  if (!expected || (requestId && expected.requestId !== String(requestId))) return false
+  const currentURL = canonicalChatGPTConversationURL(entry.affinity.boundURL || entry.view.webContents.getURL())
+  const expectedURL = canonicalChatGPTConversationURL(conversationURL)
+  return Boolean(currentURL && (!expectedURL || sameConversationURL(currentURL, expectedURL)))
+}
+
+function chatGPTSupervisorAwaitLanes() {
+  const lanes = new Set()
+  for (const [key, entry] of chatgptViews) {
+    if (!chatGPTSupervisorOwnsExpectedResponse(key)) continue
+    lanes.add(`h:${key}`)
+    const conversationID = chatAgentConversationID(entry.affinity.boundURL || entry.view.webContents.getURL())
+    if (conversationID) lanes.add(`c:${conversationID}`)
+  }
+  return lanes
 }
 
 function reconcileChatGPTThrottle(key, entry) {
@@ -3749,6 +3770,9 @@ async function captureChatGPTProcessingDuration(entry, expected) {
 
 async function probeChatAgentResponse(task, entry, key, payload, conversationURL) {
   const expected = hydrateExpectedChatAgentBundle(key, task, payload)
+  if (chatGPTSupervisorOwnsExpectedResponse(key, expected.requestId, conversationURL)) {
+    return { status: 'waiting', delayMs: DOM_DOWNLOAD_POLL_MS, observation: true, error: 'visible Supervisor owns response supervision' }
+  }
   if (recentlyDeliveredChatGPTBundleRequestId(expected.requestId) || pendingChatGPTBundleDeliveries.has(expected.requestId)) {
     disarmExpectedChatGPTBundle(key, expected.requestId)
     return { status: 'done' }
@@ -4387,9 +4411,14 @@ async function executeChatAgentTask(task, { worker, owner }) {
     return { status: 'waiting', delayMs: initialRateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
   }
   const payload = chatAgentTaskPayload(task)
+  const taskKey = sanitizeChatCacheKey(task?.chat_id || task?.chatId)
+  const taskConversationURL = chatAgentConversationURL(task, payload)
+  if (task.type === 'AWAIT_RESPONSE' && chatGPTSupervisorOwnsExpectedResponse(taskKey, task.request_id, taskConversationURL)) {
+    return { status: 'waiting', delayMs: DOM_DOWNLOAD_POLL_MS, observation: true, error: 'visible Supervisor owns response supervision' }
+  }
   const assigned = assignChatGPTWorker(entry, { ...task, payload })
   const key = assigned.key
-  const conversationURL = chatAgentConversationURL(task, payload) || assigned.conversationURL
+  const conversationURL = taskConversationURL || assigned.conversationURL
   try {
     if (assigned.assignment.rebind) {
       if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
@@ -4696,6 +4725,10 @@ async function pollExpectedChatGPTDownloadKey(key) {
       return
     }
     const entry = chatgptViews.get(key)
+    // A visible Supervisor temporarily owns passive response observation for
+    // its selected chat. Hidden/warm Supervisor slots stand down so background
+    // work remains the durable Worker's responsibility.
+    if (!entry || !chatGPTEntryIsActiveVisible(key, entry)) return
     // Recovery reloads and DOM probes must not race the serialized upload or
     // prompt preparation currently owning this surface. The next main-process
     // sweep will resume supervision after the transport boundary is released.
@@ -5398,6 +5431,9 @@ function registerIPC() {
     if (!conversation) throw new Error('Pending bundle recovery requires a concrete trusted ChatGPT conversation URL')
     const recoveryPrompt = String(request?.recoveryBootstrap || '')
     const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
+    armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename)
+    const resumedExpected = expectedChatGPTBundles.get(key)
+    if (resumedExpected) resumedExpected.recoveryEligibleAt = Date.now() + chatAgentInitialRequestWaitMs()
     await persistWorkspaceChatRemoteBestEffort(key, conversation, { remoteState: 'awaiting-response' })
     const payload = expectedChatAgentPayload(key, requestId, conversation, {
       expectedFilename, recoveryBootstrap: recoveryPrompt, originalPrompt: recoveryPrompt,
@@ -5744,7 +5780,7 @@ app.whenReady().then(async () => {
 
   console.log(`ChatGPT compatibility UA: Chrome/${CHATGPT_CHROMIUM_VERSION}`)
   registerIPC()
-  chatGPTDownloadPoller = setInterval(() => { void flushQueuedChatGPTComments(); void pollChatGPTVisibleActivity() }, DOM_DOWNLOAD_POLL_MS)
+  chatGPTDownloadPoller = setInterval(() => { void flushQueuedChatGPTComments(); void pollChatGPTVisibleActivity(); void pollExpectedChatGPTDownloads() }, DOM_DOWNLOAD_POLL_MS)
 
   const layout = loadWindowLayout()
   const restartIntent = consumeRestartIntent()
@@ -5775,10 +5811,18 @@ app.whenReady().then(async () => {
       if (chatAgentRateLimitDelayMs() > 0) return { skip: true }
       const entry = workerEntryForIndex(worker)
       if (!entry) return { skip: true }
-      return chatAgentResidency.claimOptions(entry.slotId, {
-        blocked: Boolean(entry.interactionWindowId || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.loading),
+      const blocked = Boolean(entry.interactionWindowId || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.loading)
+      const supervisorLanes = chatGPTSupervisorAwaitLanes()
+      const residentLane = chatAgentResidency.snapshot(entry.slotId).resident_lane
+      if (!blocked && residentLane && supervisorLanes.has(residentLane)) {
+        chatAgentResidency.releaseResidentLane(entry.slotId, residentLane)
+      }
+      const options = chatAgentResidency.claimOptions(entry.slotId, {
+        blocked,
         pinResident: chatAgentSupervisingLiveResponse(worker),
       })
+      if (options.skip || supervisorLanes.size === 0) return options
+      return { ...options, excluded_lanes: [...new Set([...(options.excluded_lanes || []), ...supervisorLanes])].slice(0, 32) }
     },
     // An empty claim is the only proof a resident lane has run dry. Without it
     // residency never expired, so a slot stayed bound to a chat that had been

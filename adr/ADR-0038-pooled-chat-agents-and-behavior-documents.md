@@ -131,6 +131,20 @@ and never focuses the composer or reloads a healthy page. While generation is ac
 returns to `WAITING` on a fixed roughly 30-second observation cadence so the worker is
 released without turning normal generation into failure backoff.
 
+The selected visible Supervisor is an explicit temporary exception to Worker observation
+ownership. If that Supervisor is showing the same chat/conversation and an expected bundle
+is armed, the main process polls that visible surface on the normal bounded DOM cadence and
+can trigger the exact canonical download immediately. Hidden/warm Supervisor surfaces do not
+participate. While this handoff is active, scheduler claims exclude both the chat fallback
+lane and the canonical conversation lane; a preemptible Worker resident on that lane releases
+its residency so it can serve other conversations. An await already claimed at the handoff
+boundary checks the same ownership before Worker assignment/probing and returns a free
+observation instead of navigating. As soon as the Supervisor is hidden, another chat becomes
+selected, or exact conversation affinity no longer matches, the exclusion disappears and the
+durable `AWAIT_RESPONSE` resumes normal ownership. The Supervisor never becomes the durable
+scheduler owner: bundle acknowledgement still cancels the request lineage through the same
+backend path.
+
 A conversation that is producing a response is quiet. While an `AWAIT_RESPONSE` for a
 conversation is still claimable, no task that drives that conversation's own surface —
 `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `TITLE_DISCOVER`,
