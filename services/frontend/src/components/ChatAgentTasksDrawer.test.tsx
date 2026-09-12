@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../lib/api'
 import type { ChatAgentTask } from '../types'
@@ -16,7 +16,7 @@ function task(patch: Partial<ChatAgentTask>): ChatAgentTask {
 describe('ChatAgentTasksDrawer', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('shows every active task with worker, queue age and latest durable work', async () => {
+  it('shows a compact readable summary and keeps operational detail expandable', async () => {
     vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [
       task({ task_id: 'cat-running', type: 'BOT_WRITE', status: 'RUNNING', lease_owner: 'desktop-1:worker-2', lease_expires_at: '2026-09-11T20:10:00Z' }),
       task({ task_id: 'cat-waiting', type: 'AWAIT_RESPONSE', status: 'WAITING', lease_owner: '', attempt: 3 }),
@@ -25,11 +25,15 @@ describe('ChatAgentTasksDrawer', () => {
     render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
 
     expect(await screen.findByText('Worker 2')).toBeTruthy()
-    expect(screen.getByText('BOT_WRITE')).toBeTruthy()
-    expect(screen.getByText('AWAIT_RESPONSE')).toBeTruthy()
-    expect(screen.getAllByText('Último trabalho').length).toBe(2)
+    expect(screen.getByText('Enviar pedido')).toBeTruthy()
+    expect(screen.getByText('Aguardar resposta')).toBeTruthy()
+    expect(screen.getAllByText('Atividade').length).toBe(2)
+    expect(screen.getByLabelText('Posição 1 na fila')).toBeTruthy()
+    const details = screen.getAllByText('Ver informações completas')[0].closest('details')
+    expect(details?.hasAttribute('open')).toBe(false)
+    fireEvent.click(screen.getAllByText('Ver informações completas')[0])
+    expect(details?.hasAttribute('open')).toBe(true)
     expect(screen.getByText('cat-running')).toBeTruthy()
-    expect(screen.getAllByText('Detalhes técnicos').length).toBe(2)
     await waitFor(() => expect(api.chatAgentTasks).toHaveBeenCalledWith(true))
   })
 

@@ -6,6 +6,12 @@ import { Icon } from './Icon'
 const RUNNING = new Set(['LEASED', 'RUNNING'])
 const QUEUED = new Set(['PENDING', 'WAITING'])
 const REFRESH_MS = 5_000
+const TASK_LABELS: Record<string, string> = {
+  BOT_WRITE: 'Enviar pedido', RECOVERY_WRITE: 'Enviar correção', AWAIT_RESPONSE: 'Aguardar resposta',
+  TITLE_DISCOVER: 'Ler título', TITLE_GENERATE_TEMP: 'Gerar título', TITLE_AWAIT: 'Aguardar título',
+  ORGANIZE_CHAT: 'Organizar chat', RENAME_CHAT: 'Renomear chat', ARCHIVE_CHAT: 'Arquivar chat',
+  DELETE_CHAT: 'Eliminar chat', DELETE_BUNDLE: 'Limpar bundle', DELETE_TEMP_CHAT: 'Limpar chat temporário',
+}
 
 export function ChatAgentTasksDrawer({ onClose, onError }: { onClose: () => void; onError?: (message: string) => void }) {
   const [tasks, setTasks] = useState<ChatAgentTask[]>([])
@@ -39,43 +45,60 @@ export function ChatAgentTasksDrawer({ onClose, onError }: { onClose: () => void
     <div className="chat-agent-tasks-body">
       {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas.</strong><span>A fila e os Workers estão livres neste momento.</span></div> : <>
         <TaskSection title="Em execução" tasks={running} empty="Nenhum Worker está a executar uma tarefa."/>
-        <TaskSection title="Fila" tasks={queued} empty="Nenhuma tarefa está à espera."/>
+        <TaskSection title="Fila" tasks={queued} empty="Nenhuma tarefa está à espera." showPosition/>
       </>}
     </div>
   </section>
 }
 
-function TaskSection({ title, tasks, empty }: { title: string; tasks: ChatAgentTask[]; empty: string }) {
-  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task) => <TaskCard key={task.task_id} task={task}/>)}</div> : <p>{empty}</p>}</section>
+function TaskSection({ title, tasks, empty, showPosition = false }: { title: string; tasks: ChatAgentTask[]; empty: string; showPosition?: boolean }) {
+  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} queuePosition={showPosition ? index + 1 : undefined}/>)}</div> : <p>{empty}</p>}</section>
 }
 
-function TaskCard({ task }: { task: ChatAgentTask }) {
+function TaskCard({ task, queuePosition }: { task: ChatAgentTask; queuePosition?: number }) {
   const running = RUNNING.has(task.status)
   const waiting = task.status === 'WAITING'
-  const next = waiting && Date.parse(task.not_before) > Date.now() ? `Próxima tentativa ${timeLabel(task.not_before)} · ${relativeAge(task.not_before, true)}` : ''
+  const schedule = running
+    ? `Lease até ${timeLabel(task.lease_expires_at)}`
+    : waiting && Date.parse(task.not_before) > Date.now()
+      ? `Próxima tentativa ${timeLabel(task.not_before)} · ${relativeAge(task.not_before, true)}`
+      : 'A aguardar disponibilidade'
+
   return <article className={`chat-agent-task-card ${task.status.toLowerCase()}`}>
-    <div className="chat-agent-task-heading"><div><span className={`agent-runtime-dot ${running ? (task.status === 'RUNNING' ? 'running' : 'claimed') : 'loading'}`} aria-hidden="true"/><strong>{task.type}</strong></div><span>{statusLabel(task.status)}</span></div>
-    <div className="chat-agent-task-worker"><Icon name="agent" size={12}/><b>{workerLabel(task.lease_owner)}</b><small>{running ? `lease até ${timeLabel(task.lease_expires_at)}` : next || 'A aguardar disponibilidade'}</small></div>
-    <dl>
-      <div><dt>Entrou na fila</dt><dd>{timeLabel(task.created_at)} · {relativeAge(task.created_at)}</dd></div>
-      <div><dt>Último trabalho</dt><dd>{statusLabel(task.status)} · {timeLabel(task.updated_at)} · {relativeAge(task.updated_at)}</dd></div>
-      <div><dt>Tentativa</dt><dd>{task.attempt}/{task.max_attempts} · prioridade {task.priority}</dd></div>
-      <div><dt>Task</dt><dd title={task.task_id}>{task.task_id}</dd></div>
-      <div><dt>Request</dt><dd title={task.request_id}>{task.request_id || '—'}</dd></div>
-      <div><dt>Chat</dt><dd title={task.chat_id}>{task.chat_id || '—'}</dd></div>
-      <div><dt>Lineage</dt><dd title={task.root_request_id}>{task.root_request_id || '—'}</dd></div>
-    </dl>
-    {task.last_error ? <div className="chat-agent-task-error"><Icon name="bell" size={12}/><span>{task.last_error}</span></div> : null}
-    <details className="chat-agent-task-details"><summary>Detalhes técnicos</summary><dl>
-      <div><dt>Project</dt><dd title={task.project_id}>{task.project_id || '—'}</dd></div>
-      <div><dt>Session</dt><dd title={task.session_id}>{task.session_id || '—'}</dd></div>
-      <div><dt>Conversation</dt><dd title={task.conversation_id}>{task.conversation_id || '—'}</dd></div>
-      <div><dt>Parent task</dt><dd title={task.parent_task_id}>{task.parent_task_id || '—'}</dd></div>
-      <div><dt>Dedupe</dt><dd title={task.dedupe_key}>{task.dedupe_key || '—'}</dd></div>
-      <div><dt>Lease owner</dt><dd title={task.lease_owner}>{task.lease_owner || '—'}</dd></div>
-      <div><dt>Not before</dt><dd>{timeLabel(task.not_before)}</dd></div>
-    </dl><pre>{formatPayload(task.payload)}</pre></details>
+    <div className="chat-agent-task-heading">
+      <div className="chat-agent-task-identity"><span className={`agent-runtime-dot ${running ? (task.status === 'RUNNING' ? 'running' : 'claimed') : 'loading'}`} aria-hidden="true"/><div><strong>{taskTypeLabel(task.type)}</strong><code>{task.type}</code></div></div>
+      <span className="chat-agent-task-state">{statusLabel(task.status)}</span>
+    </div>
+    <div className="chat-agent-task-worker"><span><Icon name="agent" size={13}/><b>{workerLabel(task.lease_owner)}</b></span><small title={schedule}>{schedule}</small>{queuePosition ? <em aria-label={`Posição ${queuePosition} na fila`}>#{String(queuePosition).padStart(2, '0')}</em> : null}</div>
+    <div className="chat-agent-task-metrics" aria-label="Resumo da tarefa">
+      <TaskMetric label="Na fila" value={relativeAge(task.created_at)}/>
+      <TaskMetric label="Atividade" value={relativeAge(task.updated_at)}/>
+      <TaskMetric label="Tentativa" value={`${task.attempt}/${task.max_attempts}`}/>
+    </div>
+    {task.last_error ? <div className="chat-agent-task-error"><Icon name="bell" size={13}/><span>{task.last_error}</span></div> : null}
+    <details className="chat-agent-task-details"><summary><span>Ver informações completas</span></summary><div className="chat-agent-task-detail-grid">
+      <TaskDetails title="Execução" rows={[
+        ['Entrou na fila', `${timeLabel(task.created_at)} · ${relativeAge(task.created_at)}`],
+        ['Último trabalho', `${statusLabel(task.status)} · ${timeLabel(task.updated_at)} · ${relativeAge(task.updated_at)}`],
+        ['Tentativa', `${task.attempt}/${task.max_attempts} · prioridade ${task.priority}`],
+        ['Not before', timeLabel(task.not_before)],
+      ]}/>
+      <TaskDetails title="Identificadores" rows={[
+        ['Task', task.task_id], ['Request', task.request_id || '—'], ['Chat', task.chat_id || '—'], ['Lineage', task.root_request_id || '—'],
+        ['Project', task.project_id || '—'], ['Session', task.session_id || '—'], ['Conversation', task.conversation_id || '—'],
+        ['Parent task', task.parent_task_id || '—'], ['Dedupe', task.dedupe_key || '—'], ['Lease owner', task.lease_owner || '—'],
+      ]}/>
+      <pre>{formatPayload(task.payload)}</pre>
+    </div></details>
   </article>
+}
+
+function TaskMetric({ label, value }: { label: string; value: string }) {
+  return <span><small>{label}</small><b>{value}</b></span>
+}
+
+function TaskDetails({ title, rows }: { title: string; rows: Array<[string, string]> }) {
+  return <section><strong>{title}</strong><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl></section>
 }
 
 function compareQueueTasks(a: ChatAgentTask, b: ChatAgentTask) {
@@ -84,6 +107,8 @@ function compareQueueTasks(a: ChatAgentTask, b: ChatAgentTask) {
   const bDue = Date.parse(b.not_before) <= due ? 0 : 1
   return aDue - bDue || a.priority - b.priority || a.created_at.localeCompare(b.created_at)
 }
+
+function taskTypeLabel(type: string) { return TASK_LABELS[type] || type.replaceAll('_', ' ') }
 
 function workerLabel(owner: string) {
   const value = String(owner || '').trim()
