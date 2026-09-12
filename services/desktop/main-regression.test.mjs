@@ -791,6 +791,20 @@ test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle
   assert.match(preload, /wharness:chatgpt:open-devtools/)
 })
 
+test('Agents panel suspension uses the durable provider pause with optional deadline', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
+  const start = source.indexOf("ipcMain.handle('wharness:agents:pause-provider'")
+  const end = source.indexOf("ipcMain.handle('wharness:agents:resume-provider'", start)
+  const handler = source.slice(start, end)
+
+  assert.ok(start >= 0, 'pause-provider IPC handler must exist')
+  assert.match(handler, /Date\.parse\(rawUntil\)/)
+  assert.match(handler, /setProviderPause\(true, \{ pausedUntil, reason \}\)/)
+  assert.match(handler, /deadline <= Date\.now\(\)/)
+  assert.match(preload, /pauseProvider: \(pausedUntil\) => invoke\('wharness:agents:pause-provider'/)
+})
+
 test('switching chats uses an idle Supervisor slot and preserves visible intent when recycling', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')

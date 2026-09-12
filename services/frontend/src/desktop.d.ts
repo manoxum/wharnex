@@ -115,6 +115,7 @@ interface WharnessDesktopBridge {
   agents: {
     state(): Promise<DesktopAgentRuntimeState>
     setWorkerCount(count: number): Promise<DesktopAgentRuntimeState>
+    pauseProvider(pausedUntil?: string): Promise<DesktopAgentRuntimeState>
     resumeProvider(): Promise<DesktopAgentRuntimeState>
     snapshot(agentId: string): Promise<{ agentId: string; dataUrl: string; capturedAt: string }>
     openDevTools(agentId: string): Promise<{ ok: boolean; agentId: string }>
