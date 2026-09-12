@@ -9,3 +9,9 @@ export function executionNeedsAttention(session?: Session): session is Session &
   const intent = session?.interrupted_execution
   return Boolean(intent && intent.status !== 'running')
 }
+
+export function sessionCanExecutePlan(session: Session) {
+  const planID = session.plan?.plan_id
+  const pendingSamePlan = Boolean(planID && session.interrupted_execution?.plan_id === planID)
+  return Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow' && !pendingSamePlan)
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +94,53 @@ func TestCancelledQueuedExecutionRemainsRecoverableUntilExplicitDiscard(t *testi
 	}
 	if discarded.InterruptedExecution != nil {
 		t.Fatalf("discard did not clear execution intent: %#v", discarded.InterruptedExecution)
+	}
+}
+
+func TestExecuteRejectsDuplicateWhileSamePlanIsAlreadyPending(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "single-flight-plan", RequestID: "single-flight-request", Status: "ready", Summary: "single flight", Risk: "low", Operations: []domain.Operation{}}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), started.ID, "prepare"); err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := service.executionQueue.acquire(context.Background(), root, "blocker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, executeErr := service.Execute(context.Background(), started.ID, false)
+		done <- executeErr
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		current, getErr := service.store.Get(started.ID)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if current.InterruptedExecution != nil && current.InterruptedExecution.PlanID == plan.PlanID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first execution did not record its durable intent")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if _, _, err = service.Execute(context.Background(), started.ID, false); err == nil || !strings.Contains(err.Error(), "already has an execution in progress or pending recovery") {
+		t.Fatalf("duplicate execution error = %v", err)
+	}
+	blocker.release()
+	if err := <-done; err != nil {
+		t.Fatalf("first execution failed after duplicate was rejected: %v", err)
 	}
 }
 

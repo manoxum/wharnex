@@ -15,6 +15,7 @@ import { buildExecutionTimeline } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
 import { sessionCanApplyHost, sessionHostResolutionBlocked } from '../lib/attentionCenter'
 import { activePendingRequestId } from '../lib/pendingRequest'
+import { sessionCanExecutePlan } from '../lib/executionRecovery'
 
 export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
@@ -54,7 +55,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [conflictResolverOpen, setConflictResolverOpen] = useState(false)
   useEffect(() => { setManualJSON('') }, [chat?.id])
   const terminalEvents = useMemo(() => events.filter((e) => ['execution.queued', 'execution.dequeued', 'execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'execution.recovery_discarded', 'execution.recovery_reconciled', 'automation.execution_failed', 'automation.infrastructure_blocked', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'host.restore_started', 'host.restore_failed', 'host.restore_recovery_started', 'host.restored', 'self_evolution.host_build_started', 'self_evolution.host_build_output', 'self_evolution.host_build_completed', 'self_evolution.host_build_failed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed', 'changeset.base_restored', 'changeset.verified', 'changeset.replayed', 'changeset.integrated', 'integration.verification_started', 'integration.verification_baseline_unchanged', 'integration.verification_baseline_compare_failed', 'integration.race', 'self_evolution.transaction_aborted', 'conflict.prompt_ready', 'host_dependency_repair.started', 'host_dependency_repair.command_started', 'host_dependency_repair.command_completed', 'host_dependency_repair.completed', 'host_dependency_repair.failed', 'host_dependency_repair.reverify_failed'].includes(e.type)), [events])
-  const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
+  const canExecute = sessionCanExecutePlan(session)
   const needsApproval = Boolean(session.policy?.requires_approval)
   const direct = session.execution_mode === 'unprotected'
   const pendingCount = session.pending_host_changes?.length || 0
@@ -77,7 +78,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
           {direct && <StatusPill tone="warning">Unprotected</StatusPill>}
           {session.automation_mode === 'auto' && <StatusPill tone="success">Auto</StatusPill>}
           {session.chat_transport_mode === 'manual' && <StatusPill tone="warning">Manual (sem DOM)</StatusPill>}
-          {canExecute && <button className={direct ? 'danger-button' : 'secondary-button'} disabled={busy} onClick={() => onExecute(needsApproval || direct)}><Icon name="play" size={15}/> {direct ? 'Executar no host' : (needsApproval ? 'Aprovar e executar' : 'Executar')}</button>}
+          {canExecute && !busy && <button className={direct ? 'danger-button' : 'secondary-button'} onClick={() => onExecute(needsApproval || direct)}><Icon name="play" size={15}/> {direct ? 'Executar no host' : (needsApproval ? 'Aprovar e executar' : 'Executar')}</button>}
           {canReject && <button className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={14}/> {session.integration_conflict ? 'Cancelar conflito' : 'Rejeitar'}</button>}
           {canApply && <button className="apply-button" disabled={busy} onClick={onApply}><Icon name="apply" size={16}/> Aplicar no host{pendingCount > 1 ? ` (${pendingCount})` : ''}</button>}
         </div>

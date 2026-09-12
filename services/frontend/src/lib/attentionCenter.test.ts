@@ -79,6 +79,16 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).not.toContain('Execução interrompida')
   })
 
+  it('does not offer execution approval again while the same plan has a durable execution intent', () => {
+    const running = session('ses-chat-2')
+    running.state = 'planned'
+    running.plan = { protocol: 'harness.execution/v1', plan_id: 'plan-running', request_id: 'req-running', status: 'ready', summary: 'Mudança', risk: 'high', requires_approval: true, operations: [], verification: [] }
+    running.policy = { allowed: true, requires_approval: true, risk: 'high', reasons: ['approval required'] }
+    running.interrupted_execution = { plan_id: 'plan-running', requested_at: '2026-09-12T19:00:00.000Z', approved: true, status: 'running' }
+    const items = collectAttentionItems([chat('chat-2', 'Em execução')], { 'chat-2': running })
+    expect(items.find((entry) => entry.action === 'approve-execution')).toBeUndefined()
+  })
+
   it('keeps a manual GPT fallback after automatic repair stops', () => {
     const failed = session('ses-chat-2')
     failed.state = 'failed'
