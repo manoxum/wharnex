@@ -23,7 +23,6 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     confirmAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:confirm-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
     rejectAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:reject-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
     reload: (cacheKey) => invoke('wharness:chatgpt:reload', { cacheKey }),
-    focus: (cacheKey) => invoke('wharness:chatgpt:focus', { cacheKey }),
     back: (cacheKey) => invoke('wharness:chatgpt:back', { cacheKey }),
     forward: (cacheKey) => invoke('wharness:chatgpt:forward', { cacheKey }),
     paste: (cacheKey) => invoke('wharness:chatgpt:paste', { cacheKey }),

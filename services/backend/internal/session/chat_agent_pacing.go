@@ -154,6 +154,7 @@ func (s *Store) RecordChatAgentValidBundle(requestID, conversationID string, dur
 	}
 	now := time.Now().UTC()
 	if s.db != nil {
+		healthyBefore := now.Add(-chatAgentHealthyWindow)
 		tx, err := s.db.Begin()
 		if err != nil {
 			return ChatAgentProviderState{}, fmt.Errorf("begin valid chat agent bundle sample: %w", err)
@@ -172,8 +173,8 @@ func (s *Store) RecordChatAgentValidBundle(requestID, conversationID string, dur
 			}
 		}
 		if _, err := tx.Exec(`UPDATE harness_chat_agent_provider_state SET last_valid_bundle_at=$1,
-			rate_limit_level=CASE WHEN last_rate_limit_at IS NOT NULL AND last_rate_limit_at <= $1-interval '15 minutes' THEN 0 ELSE rate_limit_level END,
-			updated_at=$1 WHERE provider='chatgpt'`, now); err != nil {
+			rate_limit_level=CASE WHEN last_rate_limit_at IS NOT NULL AND last_rate_limit_at <= $2 THEN 0 ELSE rate_limit_level END,
+			updated_at=$1 WHERE provider='chatgpt'`, now, healthyBefore); err != nil {
 			return ChatAgentProviderState{}, fmt.Errorf("persist valid chat agent bundle time: %w", err)
 		}
 		if err := tx.Commit(); err != nil {

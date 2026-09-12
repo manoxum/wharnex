@@ -184,9 +184,10 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 // branch into the host's currently checked-out branch, in order, stopping
 // at the first failure (mirrors the ordering/short-circuit semantics the
 // legacy ChangeSet path already had). On success it returns the branches
-// that were merged (for later deletion) and the host's HEAD immediately
-// before this call, so a later post-merge verification failure can revert
-// the whole batch with one git reset. On a real merge conflict it returns
+// that were merged (for later deletion) and the first merge's exact
+// PreMergeSHA, so a later post-merge verification failure can revert the whole
+// batch with one git reset without discarding the operator state preserved by
+// MergeBranchOnHost. On a real merge conflict it returns
 // *sandbox.MergeConflictError for the specific candidate that conflicted;
 // the host is left exactly as it was before that attempt.
 // integratedCandidate records one candidate's own contribution to the host,
@@ -210,10 +211,11 @@ type integratedCandidate struct {
 }
 
 func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, projectPath string, pending []domain.PendingHostChange) (integrated []integratedCandidate, preMergeSHA string, failedPlanID string, err error) {
-	preMergeSHA, err = sandbox.CurrentHeadSHA(ctx, projectPath)
+	originalHead, err := sandbox.CurrentHeadSHA(ctx, projectPath)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("resolve host HEAD before merge: %w", err)
 	}
+	preMergeSHA = originalHead
 	for index := range pending {
 		branch := pending[index].IntegrationBranch
 		if branch == "" {
@@ -238,6 +240,14 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 		}
 		merge, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch)
 		s.publishHostStatePreservation(sessionID, planID, merge.Preservation)
+		// Preserve() may have committed an operator's dirty tree immediately
+		// before the first merge. That snapshot is the true rollback boundary:
+		// resetting to originalHead would erase the very work preservation was
+		// designed to protect, which is what made successful auto commits appear
+		// to vanish after a later verification/build failure.
+		if len(integrated) == 0 && merge.PreMergeSHA != "" {
+			preMergeSHA = merge.PreMergeSHA
+		}
 		if mergeErr != nil {
 			return integrated, preMergeSHA, planID, mergeErr
 		}

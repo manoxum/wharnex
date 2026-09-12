@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  chatGPTDeliveryContinuationPrompt,
   chatGPTStalledRecoveryPrompt,
   classifyChatGPTConversationTransport,
   chooseChatGPTRecoveryAction,
@@ -13,6 +14,15 @@ import {
   reconcileChatGPTConversationTransport,
   recordChatGPTConversationTransport,
 } from './chatgpt-recovery.mjs'
+
+test('delivery continuation resumes interrupted work before requesting the same bundle', () => {
+  const prompt = chatGPTDeliveryContinuationPrompt('req_20260912T140000_abcd1234', 'whx_bundle_res_chat_req_20260912T140000_abcd1234.zip', 'Fix the scheduler')
+  assert.match(prompt, /SAME REQUEST req_20260912T140000_abcd1234/)
+  assert.match(prompt, /Continue exactly where it stopped/)
+  assert.match(prompt, /analysis, tool use, implementation, or verification is incomplete/)
+  assert.match(prompt, /ORIGINAL REQUEST CONTENT[\s\S]*Fix the scheduler/)
+  assert.match(prompt, /Only after the ORIGINAL request is fully satisfied/)
+})
 
 
 test('conversation transport tracker distinguishes active, stale, and idle without trusting a timeout alone', () => {

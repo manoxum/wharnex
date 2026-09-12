@@ -116,6 +116,13 @@ anything, leaving the change in the working tree as uncommitted work. The
 integration is never skipped: the merge is what reconciles the change with host
 drift, and skipping it would reintroduce the failure `adr/ADR-0035` removed.
 
+For a failed post-merge verification, the rollback boundary is the first real
+merge's `PreMergeSHA`. When preservation committed dirty operator work just
+before that merge, this is the preservation snapshot commit rather than the
+older HEAD sampled before Apply began. Resetting to the older commit is
+forbidden because it discards the operator work the snapshot was created to
+protect and can also erase the visible auto-commit history of the failed batch.
+
 Each integrated candidate is recorded before the unwind with its
 planner-authored commit message, its declared paths and its own diff, so the
 history the change protocol obliges the planner to write survives even though
@@ -196,6 +203,9 @@ from the workspace queue view or through
 `WHARNESS_PROJECT_EXECUTION_CONCURRENCY`. Lowering it never interrupts work
 already running: the project admits nothing new until it drains under the new
 limit. Raising it admits plans already waiting, not only later submissions.
+An operator change made through the workspace is durable Wharnex operational
+state and survives backend/Desktop restart; the environment value remains the
+initial fallback until such a setting is stored.
 
 The ceiling is deliberately small. Each concurrent runner claims a full
 container memory allowance plus a complete project clone, so raising it trades

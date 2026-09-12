@@ -118,6 +118,12 @@ test('staged values are JSON-encoded so quotes in a title cannot break out', () 
   assert.match(script, /const value = "a\\"b\\\\c\\nd"/)
 })
 
+test('background scripts never steal focus from the local editor', () => {
+  for (const script of [fillComposerScript(BASE, 'prompt'), titleEditorScript(BASE, 'WHX: title')]) {
+    assert.doesNotMatch(script, /\.focus\(|\.select\(/)
+  }
+})
+
 // The offscreen repair is behavioural, so it is proven by running the script
 // against a fake document rather than by matching its source text.
 function runScript(script, { nodes, viewport = { w: 1280, h: 900 } }) {

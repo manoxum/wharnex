@@ -52,16 +52,19 @@ type ChatAgentTask struct {
 }
 
 type ChatAgentTaskFilter struct {
+	ProjectID  string
 	ChatID     string
+	SessionID  string
 	RequestID  string
+	Type       string
 	Status     string
 	ActiveOnly bool
 	Limit      int
 }
 
 var chatAgentPriorities = map[string]int{
-	"TRANSLATE_MARKDOWN": -1,
-	"BOT_WRITE":          0, "RECOVERY_WRITE": 0,
+	"TRANSLATE_MARKDOWN": -1, "ORCHESTRATOR_PLAN": -1,
+	"BOT_WRITE": 0, "RECOVERY_WRITE": 0,
 	"AWAIT_RESPONSE": 1,
 	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
 	"ORGANIZE_CHAT": 2, "RENAME_CHAT": 2,
@@ -142,7 +145,7 @@ func chatAgentTaskNeverDedupe(taskType string) bool {
 }
 
 var chatAgentWriterTypes = []string{
-	"TRANSLATE_MARKDOWN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
+	"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
 }
 
 var chatAgentAccountTypes = []string{
@@ -294,10 +297,19 @@ func (s *Store) ListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask,
 	defer s.mu.RUnlock()
 	items := make([]ChatAgentTask, 0, len(s.chatAgentTasks))
 	for _, task := range s.chatAgentTasks {
+		if filter.ProjectID != "" && task.ProjectID != filter.ProjectID {
+			continue
+		}
 		if filter.ChatID != "" && task.ChatID != filter.ChatID {
 			continue
 		}
+		if filter.SessionID != "" && task.SessionID != filter.SessionID {
+			continue
+		}
 		if filter.RequestID != "" && task.RequestID != filter.RequestID {
+			continue
+		}
+		if filter.Type != "" && task.Type != filter.Type {
 			continue
 		}
 		if filter.Status != "" && task.Status != filter.Status {

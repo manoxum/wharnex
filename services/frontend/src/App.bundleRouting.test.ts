@@ -34,6 +34,14 @@ describe('App bundle routing', () => {
     expect(effect).toContain('}, [bundleRoutingReadyKey])')
   })
 
+  it('keeps workspace bundle routing active while Orchestrator or Editor owns the visible session', () => {
+    const keyStart = source.indexOf('const bundleRoutingReadyKey =')
+    expect(keyStart).toBeGreaterThan(-1)
+    const keyDefinition = source.slice(keyStart, source.indexOf('\n', keyStart))
+    expect(keyDefinition).toContain('session && chats.length > 0')
+    expect(keyDefinition).not.toContain('activeChatOwnsSession && session')
+  })
+
   it('falls back to durable request input and retires only an unrecoverable legacy retry', () => {
     const retry = source.indexOf('async function retryPreparedPromptDelivery')
     expect(retry).toBeGreaterThan(-1)
@@ -55,9 +63,9 @@ describe('App bundle routing', () => {
   })
 
   it('does not rehydrate an unbound conflict surface through the primary conversation', () => {
-    const recoveryStart = source.indexOf('void Promise.all(chats.map(async (chat) =>')
+    const recoveryStart = source.indexOf('const candidates = await Promise.all(chats.map(async (chat) =>')
     expect(recoveryStart).toBeGreaterThan(-1)
-    const recovery = source.slice(recoveryStart, recoveryStart + 1800)
+    const recovery = source.slice(recoveryStart, recoveryStart + 3200)
     expect(recovery).toContain('const url = conflict ? surface?.url : chat.chatgptUrl')
     expect(recovery).not.toContain('const url = surface?.url || chat.chatgptUrl')
   })

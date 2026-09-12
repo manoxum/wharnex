@@ -252,7 +252,10 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
 }) {
   const activeChat = chats.find((chat) => chat.id === activeChatId)
-  if (!activeChat) return <div className="desktop-chatgpt-pool" hidden />
+  // React commits the selected chat id before an uncached Session fetch can
+  // finish. Never mount a remote surface using the previous chat's Session in
+  // that interval: its pending request/conflict identity belongs elsewhere.
+  if (!activeChat || activeChat.sessionId !== session.id) return <div className="desktop-chatgpt-pool" hidden />
   const surface = chatgptSurface
   const manualTransport = session.chat_transport_mode === 'manual'
   return <div className="desktop-chatgpt-pool" hidden={!visible}>
@@ -262,7 +265,7 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
         busy={busy}
         chatId={surface?.cacheKey || activeChat.id}
         chatTitle={surface?.title || activeChat.title}
-        chatgptUrl={surface?.url || activeChat.chatgptUrl}
+        chatgptUrl={surface ? surface.url : activeChat.chatgptUrl}
         pendingRequestId={activePendingRequestId(session)}
         sessionId={session.id}
         recoveryBootstrap={session.last_manual_prompt}

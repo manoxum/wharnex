@@ -139,7 +139,7 @@ Orchestrator is a project-level application capability, not a second executor. I
 
 `Objective -> orchestrator proposal -> durable Plan/Task DAG -> approval/readiness -> Agent Session -> existing execution pipeline`
 
-The proposal contract is `harness.orchestrator-plan/v1` and contains planning metadata only. Planner adapters may produce it automatically or as a manual copy/paste prompt, but they MUST NOT use the Orchestrator protocol to execute commands.
+The proposal contract is `harness.orchestrator-plan/v1` and contains planning metadata only. Planner adapters may produce it automatically. When the configured adapter produces a manual prompt, the backend MUST first persist that request as a highest-priority durable `ORCHESTRATOR_PLAN` browser-agent task; a hidden Worker requests one exact task-scoped JSON artifact and imports it through the same validator. Leaving Orchestrator or restarting Desktop MUST NOT lose the request. Manual copy/paste remains an explicit fallback after delivery trouble. Neither path may use the Orchestrator protocol to execute commands.
 
 Durable Orchestrator Plans, Tasks, dependency edges and TaskRuns are stored project-scoped in PostgreSQL and are independent from chat Session lifecycle. Transport handlers resolve project scope through an existing Session, while the application service and `internal/orchestrator` package own validation, readiness and persistence.
 

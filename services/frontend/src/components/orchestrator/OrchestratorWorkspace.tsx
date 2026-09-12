@@ -8,7 +8,7 @@ import { OrchestratorTasks } from './OrchestratorTasks'
 
 export function OrchestratorWorkspace({ session, onError }: { session: Session; onError: (message?: string) => void }) {
   const [section, setSection] = useState<'overview' | 'tasks'>('overview')
-  const [overview, setOverview] = useState<OverviewData>({ plans: [], tasks: [], mutation_slots: 1, mutation_slots_used: 0 })
+  const [overview, setOverview] = useState<OverviewData>({ plans: [], tasks: [], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 })
   const [proposal, setProposal] = useState<OrchestratorProposalResult>()
   const [selectedTask, setSelectedTask] = useState<OrchestratorTask>()
   const [busy, setBusy] = useState(false)

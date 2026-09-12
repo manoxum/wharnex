@@ -106,13 +106,12 @@ export function inspectScript(behavior) {
   `)
 }
 
-/** Stages composer text. Submission itself is a trusted native key event. */
+/** Stages composer text without changing the focused WebContents. */
 export function fillComposerScript(behavior, value) {
   return script(behavior, `
     const value = ${json(String(value ?? ''))};
     const node = pick(S.composer);
     if (!node) return { ok: false, state: 'composer-unavailable' };
-    node.focus();
     if (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT') {
       const setter = Object.getOwnPropertyDescriptor(node.constructor.prototype, 'value')?.set;
       if (setter) setter.call(node, value); else node.value = value;
@@ -182,7 +181,6 @@ export function titleEditorScript(behavior, title) {
     const input = pick(S.titleEditor);
     if (!input) return { ok: false, state: 'title-input-unavailable' };
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-    input.focus(); input.select?.();
     if (setter) setter.call(input, value); else input.value = value;
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
     input.dispatchEvent(new Event('change', { bubbles: true }));

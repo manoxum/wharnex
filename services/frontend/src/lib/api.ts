@@ -1,4 +1,5 @@
-import type { AgentTurn, AppConfig, AttentionRecord, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult } from '../types'
+import type { AgentTurn, AppConfig, AttentionRecord, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult } from '../types'
+import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8888'
 
@@ -57,6 +58,7 @@ export function normalizeOrchestratorOverview(overview: OrchestratorOverview): O
     ...overview,
     plans: Array.isArray(overview?.plans) ? overview.plans : [],
     tasks: Array.isArray(overview?.tasks) ? overview.tasks.map((task) => ({ ...task, depends_on: Array.isArray(task?.depends_on) ? task.depends_on : [] })) : [],
+    planning_requests: Array.isArray(overview?.planning_requests) ? overview.planning_requests : [],
   }
 }
 
@@ -78,6 +80,7 @@ export const api = {
   config: () => request<AppConfig>('/api/config'),
   executionConcurrency: () => request<ExecutionConcurrency>('/api/execution-concurrency'),
   chatAgentTasks: (activeOnly = false) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${activeOnly ? '?active=1' : ''}`),
+  chatAgentTasksForRequest: (requestID: string) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks?request_id=${encodeURIComponent(requestID)}&limit=50`),
   chatAgentTaskSummary: () => request<ChatAgentQueueSummary>('/api/chat-agent/tasks/summary'),
   updateExecutionConcurrency: (concurrency: number) => request<ExecutionConcurrency>('/api/execution-concurrency', { method: 'PUT', body: JSON.stringify({ concurrency }) }),
   tunnelConfig: () => request<TunnelProviderConfigResponse>('/api/tunnel-config'),
@@ -110,6 +113,14 @@ export const api = {
   createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'auto', chatId?: string, effortLevel: EffortLevel = 'medium') =>
     request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode, automation_mode: automationMode, effort_level: effortLevel, chat_id: chatId }) }),
   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
+  workspaceChats: (projectPath: string) => request<{ chats: DurableWorkspaceChatRecord[] }>(`/api/workspace-chats?project_path=${encodeURIComponent(projectPath)}`),
+  saveWorkspaceChat: (chat: DurableWorkspaceChatRecord) => request<DurableWorkspaceChatRecord>(`/api/workspace-chats/${encodeURIComponent(chat.id)}`, { method: 'PUT', body: JSON.stringify(chat) }),
+  workspaceChatItems: (chatId: string) => request<{ items: Array<{ id: string; chat_id: string; created_at: string; payload: ChatItem }> }>(`/api/workspace-chats/${encodeURIComponent(chatId)}/items`),
+  replaceWorkspaceChatItems: (chatId: string, items: ChatItem[]) => request<{ ok: boolean; count: number }>(`/api/workspace-chats/${encodeURIComponent(chatId)}/items`, {
+    method: 'PUT',
+    body: JSON.stringify({ items: items.map((item) => ({ id: item.id, chat_id: chatId, created_at: item.createdAt || new Date().toISOString(), payload: item })) }),
+  }),
+  deleteWorkspaceChat: (chatId: string) => request<{ ok: boolean }>(`/api/workspace-chats/${encodeURIComponent(chatId)}`, { method: 'DELETE' }),
   workspaceAttention: (projectPath: string) => request<{ records: AttentionRecord[] }>(`/api/workspace-attention?project_path=${encodeURIComponent(projectPath)}`),
   projectKnowledge: (id: string) => request<{ knowledge: ProjectKnowledge | null }>(`/api/sessions/${id}/knowledge`),
   deleteSession: (id: string) => request<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
@@ -191,6 +202,7 @@ export const api = {
   gitMerge: (id: string, ref: string) => request<GitMergeResult>(`/api/sessions/${id}/git/merge`, { method: 'POST', body: JSON.stringify({ ref }) }),
   orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`).then(normalizeOrchestratorOverview),
   proposeOrchestratorPlan: (id: string, objective: string) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/propose`, { method: 'POST', body: JSON.stringify({ objective }) }),
+  retryOrchestratorPlanning: (id: string, requestId: string) => request<OrchestratorPlanningRequest>(`/api/sessions/${id}/orchestrator/planning/${encodeURIComponent(requestId)}/retry`, { method: 'POST', body: '{}' }),
   importOrchestratorPlan: (id: string, requestId: string, proposal: OrchestratorProposal) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/import`, { method: 'POST', body: JSON.stringify({ request_id: requestId, proposal }) }),
   approveOrchestratorPlan: (id: string, planId: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/approve`, { method: 'POST', body: '{}' }).then(normalizeOrchestratorOverview),
   createOrchestratorTask: (id: string, input: { plan_id?: string; title: string; description?: string; acceptance_criteria?: string[]; priority?: OrchestratorPriority; depends_on?: string[]; capability?: string }) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks`, { method: 'POST', body: JSON.stringify(input) }),

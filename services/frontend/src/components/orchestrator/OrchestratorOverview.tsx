@@ -21,13 +21,15 @@ export function OrchestratorOverview({ session, overview, proposal, busy, onProp
   const completed = overview.tasks.filter((task) => task.status === 'COMPLETE')
   const draftPlan = proposal?.plan || overview.plans.find((plan) => plan.status === 'DRAFT')
   const draftTasks = draftPlan ? overview.tasks.filter((task) => task.plan_id === draftPlan.id) : []
+  const planningRequests = useMemo(() => [...overview.planning_requests].sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [overview.planning_requests])
+  const activePlanningCount = planningRequests.filter((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status)).length
   const recent = useMemo(() => [...overview.tasks].filter((task) => task.status !== 'ARCHIVED').sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5), [overview.tasks])
 
   async function propose() {
     const value = objective.trim()
-    if (!value) return
+    if (!value || busy) return
     const result = await onRun(() => api.proposeOrchestratorPlan(session.id, value))
-    if (result) { onProposal(result); if (result.plan) setObjective('') }
+    if (result) { onProposal(result); setObjective('') }
   }
 
   async function importManual() {
@@ -58,7 +60,28 @@ export function OrchestratorOverview({ session, overview, proposal, busy, onProp
       </div>
     </section>
 
-    {proposal?.manual_prompt && <section className="orchestrator-manual-plan">
+    {planningRequests.length ? <section className="orchestrator-planning-queue" aria-live="polite">
+      <header>
+        <div><span>Fila durável</span><h2>Em planejamento</h2></div>
+        <strong>{activePlanningCount} ativo{activePlanningCount === 1 ? '' : 's'} · {planningRequests.length} pedido{planningRequests.length === 1 ? '' : 's'}</strong>
+      </header>
+      <div className="orchestrator-planning-list">
+        {planningRequests.map((planning) => <article key={planning.task_id} className={`orchestrator-planning-status status-${planning.status.toLowerCase()}`}>
+          <span className="orchestrator-planning-pulse" aria-hidden="true"/>
+          <div>
+            <strong>{planning.objective || `Pedido ${planning.request_id}`}</strong>
+            <span>Request <code translate="no">{planning.request_id}</code> · prioridade máxima · tentativa {planning.attempt}/{planning.max_attempts}</span>
+            {planning.last_error ? <small>{planning.last_error}</small> : <small>{['DONE', 'CANCELLED'].includes(planning.status) ? 'Planejamento encerrado.' : 'Pode sair do Orchestrator: um Worker continuará esta entrega.'}</small>}
+          </div>
+          <div className="orchestrator-planning-actions">
+            <span className="orchestrator-planning-badge">{planning.status}</span>
+            {['FAILED', 'ATTENTION'].includes(planning.status) ? <button type="button" disabled={busy} onClick={() => void onRun(() => api.retryOrchestratorPlanning(session.id, planning.request_id))}>Retentar</button> : null}
+          </div>
+        </article>)}
+      </div>
+    </section> : null}
+
+    {proposal?.manual_prompt && !proposal.worker_task_id && <section className="orchestrator-manual-plan">
       <header><div><strong>Planner manual</strong><span>Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>
       <details><summary>Ver prompt</summary><pre>{proposal.manual_prompt}</pre></details>
       <textarea value={manualJSON} onChange={(event) => setManualJSON(event.target.value)} placeholder='{"protocol":"harness.orchestrator-plan/v1", ...}' rows={7}/>

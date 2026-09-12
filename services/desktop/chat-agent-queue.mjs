@@ -5,13 +5,14 @@
 // write non-deduplication and aging rules.
 
 export const TASK_TYPES = Object.freeze([
-  'TRANSLATE_MARKDOWN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER',
+  'TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER',
   'TITLE_GENERATE_TEMP', 'TITLE_AWAIT', 'ORGANIZE_CHAT', 'RENAME_CHAT',
   'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT',
 ])
 
 export const TASK_PRIORITY = Object.freeze({
   TRANSLATE_MARKDOWN: -1,
+  ORCHESTRATOR_PLAN: -1,
   BOT_WRITE: 0,
   RECOVERY_WRITE: 0,
   AWAIT_RESPONSE: 1,
@@ -40,8 +41,10 @@ function legacyType(kind) {
   return 'AWAIT_RESPONSE'
 }
 
-function isWrite(type) {
-  return type === 'TRANSLATE_MARKDOWN' || type === 'BOT_WRITE' || type === 'RECOVERY_WRITE'
+function neverDedupe(type) {
+  // Continuations are intentional repeated writes. Exact artifact utilities
+  // are idempotent by task/request identity and must collapse after restart.
+  return type === 'BOT_WRITE' || type === 'RECOVERY_WRITE'
 }
 
 function effectivePriority(item, now) {
@@ -72,7 +75,7 @@ export class ChatAgentQueue {
     const normalized = String(type || '').toUpperCase()
     if (!TASK_TYPES.includes(normalized)) throw new Error(`Unsupported chat-agent task type ${normalized}`)
     if (this.items.length >= this.maxDepth) throw new Error('Chat agent queue is full')
-    if (dedupeKey && !isWrite(normalized)) {
+    if (dedupeKey && !neverDedupe(normalized)) {
       const existing = this.items.find((item) => item.dedupeKey === dedupeKey)
       if (existing) return existing.promise
     }

@@ -17,21 +17,22 @@ import (
 )
 
 type Config struct {
-	Addr                 string
-	DatabaseURL          string
-	Planner              string
-	Sandbox              string
-	RunnerImage          string
-	OpenAIAPIKey         string
-	OpenAIModel          string
-	OpenAIBaseURL        string
-	MaxContextBytes      int64
-	MaxBundleBytes       int64
-	AllowLocalSandbox    bool
-	FrontendOrigin       string
-	InstanceID           string
-	StateFile            string
-	LanguageSettingsFile string
+	Addr                  string
+	DatabaseURL           string
+	Planner               string
+	Sandbox               string
+	RunnerImage           string
+	OpenAIAPIKey          string
+	OpenAIModel           string
+	OpenAIBaseURL         string
+	MaxContextBytes       int64
+	MaxBundleBytes        int64
+	AllowLocalSandbox     bool
+	FrontendOrigin        string
+	InstanceID            string
+	StateFile             string
+	LanguageSettingsFile  string
+	ExecutionSettingsFile string
 	// GitSettingsFile holds per-project Git surface configuration (auto vs
 	// manual commit mode). GitPendingCommitsFile holds the queue of changes
 	// applied but deliberately not committed. Both live beside the state file
@@ -77,6 +78,11 @@ type ArtifactSettingsDocument struct {
 	Version           int `json:"version"`
 	RetentionDays     int `json:"retention_days"`
 	BundleWindowLimit int `json:"bundle_window_limit"`
+}
+
+type ExecutionSettingsDocument struct {
+	Version            int `json:"version"`
+	ProjectConcurrency int `json:"project_execution_concurrency"`
 }
 
 type RemoteStorageConfig struct {
@@ -141,6 +147,7 @@ func Load() Config {
 		AllowLocalSandbox:     envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
 		StateFile:             stateFile,
 		LanguageSettingsFile:  filepath.Join(filepath.Dir(stateFile), "language-settings.json"),
+		ExecutionSettingsFile: filepath.Join(filepath.Dir(stateFile), "execution-settings.json"),
 		GitSettingsFile:       filepath.Join(filepath.Dir(stateFile), "git-settings.json"),
 		GitPendingCommitsFile: filepath.Join(filepath.Dir(stateFile), "git-pending-commits.json"),
 		DependencyCacheDir:    env("HARNESS_DEPENDENCY_CACHE_DIR", filepath.Join(filepath.Dir(stateFile), "dependency-cache")),
@@ -527,4 +534,73 @@ func SaveArtifactSettings(cfg ArtifactStorageConfig, document ArtifactSettingsDo
 		return err
 	}
 	return os.Rename(name, cfg.SettingsFile)
+}
+
+// ReadExecutionSettings loads the runtime execution admission setting. The
+// supplied fallback preserves the environment/default value until the
+// operator changes it through the UI for the first time.
+func ReadExecutionSettings(path string, fallback int) (ExecutionSettingsDocument, error) {
+	if fallback < 1 || fallback > 8 {
+		fallback = 1
+	}
+	defaults := ExecutionSettingsDocument{Version: 1, ProjectConcurrency: fallback}
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return defaults, nil
+	}
+	if err != nil {
+		return ExecutionSettingsDocument{}, fmt.Errorf("read execution settings: %w", err)
+	}
+	var document ExecutionSettingsDocument
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return ExecutionSettingsDocument{}, fmt.Errorf("decode execution settings: %w", err)
+	}
+	if err := validateExecutionSettings(document); err != nil {
+		return ExecutionSettingsDocument{}, err
+	}
+	return document, nil
+}
+
+func validateExecutionSettings(document ExecutionSettingsDocument) error {
+	if document.Version != 1 || document.ProjectConcurrency < 1 || document.ProjectConcurrency > 8 {
+		return errors.New("execution settings require version 1 and project_execution_concurrency between 1 and 8")
+	}
+	return nil
+}
+
+// SaveExecutionSettings persists the operator knob atomically in Wharnex's
+// private state directory, so a Desktop/backend restart cannot silently reset
+// a live queue to the default capacity.
+func SaveExecutionSettings(path string, document ExecutionSettingsDocument) error {
+	if err := validateExecutionSettings(document); err != nil {
+		return err
+	}
+	if strings.TrimSpace(path) == "" {
+		return errors.New("execution settings file is not configured")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create execution settings directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".execution-settings-*.json")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	encoder := json.NewEncoder(tmp)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(document); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }

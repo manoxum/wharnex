@@ -88,7 +88,7 @@ func (s *Store) postgresGetChatAgentTask(taskID string) (ChatAgentTask, error) {
 
 func (s *Store) postgresListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask, error) {
 	where := []string{"TRUE"}
-	args := make([]any, 0, 4)
+	args := make([]any, 0, 7)
 	add := func(column, value string) {
 		if strings.TrimSpace(value) == "" {
 			return
@@ -96,8 +96,11 @@ func (s *Store) postgresListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAg
 		args = append(args, value)
 		where = append(where, fmt.Sprintf("%s=$%d", column, len(args)))
 	}
+	add("project_id", filter.ProjectID)
 	add("chat_id", filter.ChatID)
+	add("session_id", filter.SessionID)
 	add("request_id", filter.RequestID)
+	add("type", filter.Type)
 	add("status", filter.Status)
 	if filter.ActiveOnly {
 		where = append(where, "status IN ('PENDING','LEASED','RUNNING','WAITING')")

@@ -73,6 +73,60 @@ func TestCommitModeDefaultsToAutoAndRoundTrips(t *testing.T) {
 	}
 }
 
+func TestMergeRollbackAnchorKeepsPreservedOperatorWork(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	host := gitRepo(t, "app.go", "package main\n")
+	originalHead := headOf(t, host)
+
+	if err := os.WriteFile(filepath.Join(host, "operator.txt"), []byte("keep this work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cloneParent := t.TempDir()
+	candidate := filepath.Join(cloneParent, "candidate")
+	runGitForApp(t, cloneParent, "clone", "-q", "--local", host, candidate)
+	runGitForApp(t, candidate, "checkout", "-qb", "whx/req_preserve")
+	if err := os.WriteFile(filepath.Join(candidate, "app.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, candidate, "add", "app.go")
+	runGitForApp(t, candidate, "commit", "-qm", "feat(app): add entry point")
+	runGitForApp(t, candidate, "push", "-q", "--", host, "whx/req_preserve:refs/heads/whx/req_preserve")
+
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "plan_preserve", RequestID: "req_preserve", Status: "ready",
+		Summary: "Add the application entry point.", CommitMessage: "feat(app): add entry point", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/app.go\n+++ b/app.go\n@@ -1 +1,3 @@\n package main\n+\n+func main() {}\n"}},
+	}
+	integrated, rollbackSHA, failedPlanID, err := service.mergeIntegrationBranches(context.Background(), "ses_preserve", host, []domain.PendingHostChange{{Plan: plan, IntegrationBranch: "whx/req_preserve"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failedPlanID != "" || len(integrated) != 1 {
+		t.Fatalf("unexpected merge result: failed=%q integrated=%+v", failedPlanID, integrated)
+	}
+	if rollbackSHA == originalHead {
+		t.Fatal("rollback anchor ignored the dirty-tree preservation snapshot")
+	}
+	if rollbackSHA != integrated[0].beforeSHA {
+		t.Fatalf("rollback anchor %s does not match first exact pre-merge SHA %s", rollbackSHA, integrated[0].beforeSHA)
+	}
+	if err := service.revertHostMerge(context.Background(), "ses_preserve", plan.PlanID, host, rollbackSHA); err != nil {
+		t.Fatal(err)
+	}
+	if got := headOf(t, host); got != rollbackSHA {
+		t.Fatalf("expected rollback at preserved snapshot %s, got %s", rollbackSHA, got)
+	}
+	operatorWork, err := os.ReadFile(filepath.Join(host, "operator.txt"))
+	if err != nil || string(operatorWork) != "keep this work\n" {
+		t.Fatalf("operator work was lost by rollback: body=%q err=%v", operatorWork, err)
+	}
+	application, err := os.ReadFile(filepath.Join(host, "app.go"))
+	if err != nil || string(application) != "package main\n" {
+		t.Fatalf("candidate merge was not reverted: body=%q err=%v", application, err)
+	}
+}
+
 // Sessions verified before Git-native integration was introduced still carry
 // a durable ChangeSet instead of an integration branch. A production
 // self-evolution went through that compatibility path while the Git surface

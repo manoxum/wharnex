@@ -14,6 +14,7 @@ describe('normalizeOrchestratorOverview', () => {
     const overview = normalizeOrchestratorOverview(raw)
     expect(overview.plans).toEqual([])
     expect(overview.tasks).toEqual([])
+    expect(overview.planning_requests).toEqual([])
     expect(() => overview.tasks.filter((task) => task.status === 'DOING')).not.toThrow()
     expect(overview.mutation_slots).toBe(1)
   })
@@ -24,9 +25,10 @@ describe('normalizeOrchestratorOverview', () => {
   })
 
   it('leaves a well-formed overview untouched', () => {
-    const raw = { plans: [], tasks: [{ id: 't1', depends_on: ['t0'] }], mutation_slots: 2, mutation_slots_used: 1 } as unknown as OrchestratorOverview
+    const raw = { plans: [], tasks: [{ id: 't1', depends_on: ['t0'] }], planning_requests: [{ request_id: 'orp_1' }], mutation_slots: 2, mutation_slots_used: 1 } as unknown as OrchestratorOverview
     const overview = normalizeOrchestratorOverview(raw)
     expect(overview.tasks[0].depends_on).toEqual(['t0'])
+    expect(overview.planning_requests).toHaveLength(1)
     expect(overview.mutation_slots_used).toBe(1)
   })
 })

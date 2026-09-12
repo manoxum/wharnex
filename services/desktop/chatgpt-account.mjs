@@ -76,8 +76,9 @@ export function chatGPTHideSidebarScript() {
     const controls = ['button[data-testid="close-sidebar-button"]','button[data-testid="sidebar-toggle-button"][aria-expanded="true"]','button[aria-controls*="sidebar"][aria-expanded="true"]'];
     const button = controls.map((s) => document.querySelector(s)).find((node) => node && !node.disabled && visible(node));
     if (!button) return { ok: false, state: 'unsupported' };
-    button.click();
-    return { ok: true, state: 'closing' };
+    const point = rect(button);
+    if (!point) return { ok: false, state: 'sidebar-toggle-offscreen', viewport: viewport() };
+    return { ok: true, state: 'closing', rect: point };
   })()`
 }
 
@@ -87,8 +88,9 @@ export function chatGPTShowSidebarScript() {
     if (sidebar) return { ok: true, state: 'visible' };
     const button = ['button[data-testid="open-sidebar-button"]','button[data-testid="sidebar-toggle-button"][aria-expanded="false"]','button[aria-controls*="sidebar"][aria-expanded="false"]'].map((s) => document.querySelector(s)).find((node) => node && !node.disabled && visible(node));
     if (!button) return { ok: false, state: 'sidebar-toggle-unavailable' };
-    button.click();
-    return { ok: true, state: 'opening' };
+    const point = rect(button);
+    if (!point) return { ok: false, state: 'sidebar-toggle-offscreen', viewport: viewport() };
+    return { ok: true, state: 'opening', rect: point };
   })()`
 }
 
@@ -96,8 +98,9 @@ export function chatGPTStopConversationScript() {
   return `(() => {${PRELUDE}
     const stop = [...document.querySelectorAll('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button[aria-label*="stop generating" i], button[aria-label*="parar de gerar" i]')].find(usable);
     if (stop) {
-      stop.click();
-      return { ok: true, state: 'stopping' };
+      const point = rect(stop);
+      if (!point) return { ok: false, state: 'stop-offscreen', viewport: viewport() };
+      return { ok: true, state: 'stopping', rect: point };
     }
     const composers = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'].flatMap((selector) => [...document.querySelectorAll(selector)]);
     return composers.some(usable) ? { ok: true, state: 'idle' } : { ok: false, state: 'surface-unavailable' };
@@ -119,8 +122,9 @@ export function chatGPTOpenConversationMenuScript(conversationId = '') {
     const header = document.querySelector('button[data-testid="conversation-options-button"]');
     const trigger = [owned, header].find((node) => node && usable(node) && visible(node));
     if (!trigger) return { ok: false, state: 'menu-unavailable', boundToConversation: Boolean(owned) };
-    trigger.click();
-    return { ok: true, state: 'menu-opened', boundToConversation: trigger === owned };
+    const point = rect(trigger);
+    if (!point) return { ok: false, state: 'menu-offscreen', viewport: viewport(), boundToConversation: trigger === owned };
+    return { ok: true, state: 'menu-opened', rect: point, boundToConversation: trigger === owned };
   })()`
 }
 
@@ -203,8 +207,6 @@ export function chatGPTCommitConversationTitleScript(title) {
     const input = [...document.querySelectorAll('input[name="title-editor"], input[aria-label="Chat title"]')].find((node) => usable(node) && visible(node));
     if (!input) return { ok: false, state: 'title-input-unavailable' };
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-    input.focus();
-    input.select?.();
     if (setter) setter.call(input, value); else input.value = value;
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -237,7 +239,6 @@ export function chatGPTNewProjectDialogScript(projectName) {
     const input = [...dialog.querySelectorAll('input[type="text"], input:not([type]), input[name*="name" i]')].find((node) => usable(node) && visible(node));
     if (!input) return { ok: false, state: 'project-input-unavailable' };
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-    input.focus();
     if (setter) setter.call(input, wanted); else input.value = wanted;
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: wanted }));
     input.dispatchEvent(new Event('change', { bubbles: true }));

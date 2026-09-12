@@ -36,6 +36,24 @@ TUNNEL_IMAGE="wharness-tunnel:$PROJECT"
 HTTP_PORT=${WHARNESS_HTTP_PORT:-8888}
 WEB_PORT=${WHARNESS_WEB_PORT:-5173}
 INSTANCE_ID=${WHARNESS_INSTANCE_ID:-}
+STACK_OPERATION_LOCK="$STATE_DIR/stack-operation.lock"
+
+acquire_stack_operation_lock() {
+  command -v flock >/dev/null 2>&1 || {
+    echo 'flock is required to serialize Wharnex stack lifecycle operations.' >&2
+    exit 1
+  }
+  mkdir -p "$STATE_DIR"
+  # Build, activation, rollback and teardown all address the same Compose
+  # project. Without one checkout-scoped lock, concurrent make build/start
+  # calls can remove a container after the other process resolved its id,
+  # producing Docker's misleading "No such container" recreate failure.
+  exec 9>"$STACK_OPERATION_LOCK"
+  if ! flock -w 1800 9; then
+    echo 'Timed out waiting for another Wharnex lifecycle operation to finish.' >&2
+    exit 1
+  fi
+}
 
 require_docker() {
   command -v docker >/dev/null 2>&1 || { echo 'Docker is required for the Wharnex service stack.' >&2; exit 1; }
@@ -417,6 +435,12 @@ stack_status() {
   ensure_credentials
   compose ps
 }
+
+case ${1:-} in
+  prepare|build|ensure|up|activate-app|stop|down)
+    acquire_stack_operation_lock
+    ;;
+esac
 
 case ${1:-} in
   prepare)

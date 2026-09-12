@@ -34,9 +34,30 @@ surface.
 The active Supervisor is the normal interactive chat surface: selected-chat navigation,
 the first user submission, and user comments. Background scheduler jobs never use either
 Supervisor slot. On chat switch, a Supervisor that is still committing a write finishes
-that write and then becomes standby; the other idle Supervisor can load the newly selected
-chat immediately. If both slots are writing, navigation is deferred fail-closed until one
-slot is reusable.
+that write and then becomes standby. The new local chat opens immediately, but its remote
+Supervisor remains hidden/deferred until the different chat's composer transaction ends.
+The authenticated provider partition is shared, and live evidence showed that exposing the
+standby surface mid-write can reflect provider cross-tab draft state even while the physical
+write stays correctly addressed to the original `WebContents`. If both slots are writing,
+navigation remains deferred fail-closed until one slot is reusable. The switch intent hides
+the outgoing native view before the frontend
+waits for the selected chat's Session. This is required even though the old write remains
+correctly keyed: otherwise its native pixels keep painting above the newly selected React
+chat and present a correctly isolated write as visible cross-chat contamination.
+
+The transport captures one physical Supervisor entry before preparation and carries that
+same reference through every asynchronous fill, upload, submit and retry step. Each step
+revalidates ownership against the original chat key; mutable selected-chat lookup is never
+used as an ownership mechanism.
+
+Planner workflow, repair and delivery continuations are background scheduler work even
+when the frontend orchestration loop originates them. They are durable
+`BOT_WRITE`/`RECOVERY_WRITE` jobs executed by hidden Workers. Sending them through the
+Supervisor lets an old chat rebind the visible surface while the operator types in a new
+chat, producing focus theft and apparent cross-chat input. Automated DOM scripts stage
+values without `focus()` or selection mutation and submit only through the owned,
+structurally located send control; a missing control fails closed instead of emitting an
+unscoped Enter key.
 For diagnosis and recovery, the trusted local Agent runtime drawer may explicitly
 surface exactly one existing Worker view inside a bounded interaction host, or choose
 **Seguir (flow)** to move that same live Worker instance into the main Engine browser area. This does
@@ -84,17 +105,18 @@ The backend persists typed tasks with `task_id`, `type`, `project_id`, `chat_id`
 claims leases and executes browser work.
 
 Task states are `PENDING`, `LEASED`, `RUNNING`, `WAITING`, `DONE`, `FAILED`,
-`ATTENTION`, and `CANCELLED`. Expired leases are safely reclaimed. Writes are
-never deduplicated; idempotent work uses a dedupe key. Child tasks are created
+`ATTENTION`, and `CANCELLED`. Expired leases are safely reclaimed. Conversation
+writes are never deduplicated; exact idempotent artifact work uses a dedupe key. Child tasks are created
 instead of mutating a task into a new type.
 
 Scheduling priority is:
 
-1. P0 `BOT_WRITE`, `RECOVERY_WRITE`;
-2. P1 due `AWAIT_RESPONSE`;
-3. P2 `TITLE_DISCOVER`, title fallback, `ORGANIZE_CHAT`, `RENAME_CHAT`;
-4. P3 `ARCHIVE_CHAT`, `DELETE_CHAT`;
-5. P4 `DELETE_BUNDLE`, `DELETE_TEMP_CHAT`.
+1. P-1 exact artifact utilities `TRANSLATE_MARKDOWN`, `ORCHESTRATOR_PLAN`;
+2. P0 `BOT_WRITE`, `RECOVERY_WRITE`;
+3. P1 due `AWAIT_RESPONSE`;
+4. P2 `TITLE_DISCOVER`, title fallback, `ORGANIZE_CHAT`, `RENAME_CHAT`;
+5. P3 `ARCHIVE_CHAT`, `DELETE_CHAT`;
+6. P4 `DELETE_BUNDLE`, `DELETE_TEMP_CHAT`.
 
 FIFO applies inside effective priority and lower-priority maintenance ages
 toward P1. A global account-operation lock serializes rename/move/archive/delete
@@ -142,7 +164,10 @@ attempts while waiting" while the model was still working. Because observations 
 the ambiguous state carries its own evidence-shaped bound instead: a page showing no
 structural sign of life at all for a bounded stall window moves to `ATTENTION`, and any
 generating, completion or download signal resets that window. A completed turn
-without the canonical bundle may create one bounded `RECOVERY_WRITE` child.
+without the canonical bundle may create up to three spaced, same-request
+`RECOVERY_WRITE` children. Each continuation resumes unfinished analysis,
+tool use, implementation and verification before requesting delivery; it never
+changes scope or starts a new main request.
 Request-bound follow-ups are initially ineligible for at least one minute. Once three
 valid samples exist, the delay is `clamp(max(60s, (60s + average)/2), 60s, 15m)`, using
 only the newest 50 structurally parsed processing-duration disclosures associated with

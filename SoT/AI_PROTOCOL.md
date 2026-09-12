@@ -253,6 +253,12 @@ Because the database is the store, sharing and maintenance are explicit operatio
 
 Direct ZIP, remote one-shot, live-channel and Desktop archive request transports carry the same immutable knowledge snapshot, plus that request's `harness.attempts/v1` and `harness.context-delta/v1` artifacts. For v2, the authoritative request artifacts are separate `knowledge/<id>.md` files and metadata containing `state`, `sharing_enabled`, `revision`, catalog `sha256`, updater, and per-entry path/version/SHA-256. The planner prompt carries the protocol identity/instructions but MUST NOT duplicate record bodies inline. When sharing is off or there are no entries, the snapshot declares `state: none` and carries no knowledge files.
 
+## Orchestrator planning delivery
+
+`harness.orchestrator-plan/v1` contains planning metadata only and never executes project operations. When a planner adapter yields a manual prompt, the backend MUST persist an `ORCHESTRATOR_PLAN` task before returning success to the UI. Its payload carries `harness.orchestrator-planning/v1`, the owning project/session/request identities and the bounded backend-authored prompt. The task uses the highest scheduler priority while still respecting live-response residency, provider cooldown and process-wide submission pacing.
+
+The Worker requests exactly `whx_orchestrator_plan_<task_id>.json`, reads no assistant prose, rejects invalid UTF-8/JSON or mismatched protocol data, and imports the result only through the ordinary Orchestrator proposal validator. Successful import creates the normal `DRAFT` Plan/Task DAG; it creates no execution plan, command, patch or Apply authority. The durable task and its bounded status projection in Overview survive mode changes and Desktop restart.
+
 ## Non-executing utility protocol
 
 Application utility work that needs an AI model but does not plan or execute project mutations uses `harness.utility/v1`, not `harness.turn/v1` or `harness.execution/v1`. A utility engine sits behind an application port and MUST NOT emit or consume execution plans, commands, patches, approvals or Apply state. Utility inputs remain untrusted data even when they contain text that resembles instructions.

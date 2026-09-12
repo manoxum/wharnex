@@ -474,7 +474,11 @@ export type OrchestratorTaskRun = {
   attempt: number; status: string; error?: string; started_at: string; completed_at?: string
 }
 
-export type OrchestratorOverview = { plans: OrchestratorPlan[]; tasks: OrchestratorTask[]; mutation_slots: number; mutation_slots_used: number }
+export type OrchestratorPlanningRequest = {
+  request_id: string; task_id: string; objective?: string; status: string; attempt: number; max_attempts: number; last_error?: string; created_at: string; updated_at: string
+}
+
+export type OrchestratorOverview = { plans: OrchestratorPlan[]; tasks: OrchestratorTask[]; planning_requests: OrchestratorPlanningRequest[]; mutation_slots: number; mutation_slots_used: number }
 
 export type OrchestratorProposalTask = {
   id: string; title: string; description: string; acceptance_criteria: string[]; depends_on: string[]; priority: OrchestratorPriority
@@ -482,7 +486,7 @@ export type OrchestratorProposalTask = {
 }
 
 export type OrchestratorProposal = { protocol: 'harness.orchestrator-plan/v1'; title: string; objective: string; assumptions: string[]; tasks: OrchestratorProposalTask[] }
-export type OrchestratorProposalResult = { request_id: string; plan?: OrchestratorPlan; tasks?: OrchestratorTask[]; manual_prompt?: string }
+export type OrchestratorProposalResult = { request_id: string; plan?: OrchestratorPlan; tasks?: OrchestratorTask[]; manual_prompt?: string; worker_task_id?: string; delivery_status?: string }
 export type OrchestratorRunResult = { task: OrchestratorTask; run: OrchestratorTaskRun; manual_prompt?: string }
 
 export type ChatArtifactKind = 'context' | 'prompt' | 'result' | 'error'
@@ -511,14 +515,20 @@ export type AttentionRecord = {
   session_id: string
   chat_id: string
   state: string
+  execution_mode?: ExecutionMode
   failure_kind?: string
   last_request_id?: string
+  last_repair_error?: string
   last_turn?: Session['last_turn']
   policy?: Session['policy']
   has_plan: boolean
   plan_id?: string
   last_execution_plan_id?: string
   pending_host_changes: number
+  pending_manual_requests?: number
+  planner_in_flight?: boolean
+  has_manual_prompt?: boolean
+  self_evolution_activation?: Session['self_evolution_activation']
   integration_conflict?: { id: string; path_count: number }
   interrupted_execution?: { plan_id: string; status: string }
 }

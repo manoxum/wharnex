@@ -26,6 +26,13 @@ export type AttentionItem = {
   requestId?: string
 }
 
+export type AttentionSummary = {
+  total: number
+  urgent: number
+  actionable: number
+  chats: number
+}
+
 export type AttentionHumanAction = {
   cacheKey: string
   active: boolean
@@ -61,7 +68,44 @@ export function collectAttentionItems(
     const humanAction = Object.values(humanActions).find((action) => action.active && actionKeys.has(action.cacheKey))
     return attentionItemsForChat(chat, session, humanAction)
   })
-  return items.sort((left, right) => attentionRank(left.tone) - attentionRank(right.tone) || left.chatTitle.localeCompare(right.chatTitle) || left.title.localeCompare(right.title))
+  // localStorage and the durable chat index are reconciled asynchronously. A
+  // duplicated chat during that narrow window must not double the visible
+  // alert count or render duplicate React keys. The semantic alert id is the
+  // stable consolidation boundary: distinct problems in one chat remain
+  // distinct, while duplicate projections collapse to one card.
+  const unique = new Map<string, AttentionItem>()
+  for (const entry of items) if (!unique.has(entry.id)) unique.set(entry.id, entry)
+  return [...unique.values()].sort(compareAttentionItems)
+}
+
+export function summarizeAttention(items: AttentionItem[]): AttentionSummary {
+  const chats = new Set<string>()
+  let urgent = 0
+  let actionable = 0
+  for (const entry of items) {
+    chats.add(entry.chatId)
+    if (entry.tone === 'danger') urgent += 1
+    if (entry.action) actionable += 1
+  }
+  return { total: items.length, urgent, actionable, chats: chats.size }
+}
+
+// The popup is a triage surface, not a second full alert center. Put concrete
+// recovery actions first, then urgent inspection-only alerts, and keep the
+// remainder bounded behind the full drawer so fourteen alerts do not turn a
+// command-bar popup into an unreadable viewport-length wall.
+export function attentionPreviewItems(items: AttentionItem[], limit = 8): AttentionItem[] {
+  return [...items]
+    .sort((left, right) => Number(Boolean(right.action)) - Number(Boolean(left.action)) || compareAttentionItems(left, right))
+    .slice(0, Math.max(0, limit))
+}
+
+export function attentionResolutionLabel(item: AttentionItem) {
+  if (item.action) return ATTENTION_ACTION_LABEL[item.action]
+  if (item.target === 'chatgpt') return 'Abrir o Engine e resolver'
+  if (item.target === 'terminal') return 'Abrir a execução'
+  if (item.target === 'plan') return 'Abrir o plano'
+  return 'Abrir o chat e responder'
 }
 
 export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, humanAction?: AttentionHumanAction): AttentionItem[] {
@@ -198,4 +242,10 @@ function attentionRank(tone: AttentionTone) {
   if (tone === 'danger') return 0
   if (tone === 'warning') return 1
   return 2
+}
+
+function compareAttentionItems(left: AttentionItem, right: AttentionItem) {
+  return attentionRank(left.tone) - attentionRank(right.tone)
+    || left.chatTitle.localeCompare(right.chatTitle)
+    || left.title.localeCompare(right.title)
 }

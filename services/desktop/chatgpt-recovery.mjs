@@ -264,6 +264,16 @@ export function chatGPTStalledRecoveryPrompt(requestId, filename, originalPrompt
   return `WHARNEX PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request without restarting or changing scope.${repeated}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharnex file-first contract. Finish with the file attachment only.`
 }
 
+export function chatGPTDeliveryContinuationPrompt(requestId, filename, originalPrompt = '') {
+  const id = String(requestId || '').trim()
+  const expected = String(filename || '').trim()
+  const original = String(originalPrompt || '').trim()
+  const repeated = original
+    ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${original}`
+    : ''
+  return `WHARNEX WORK CONTINUATION — SAME REQUEST ${id}\n\nThe previous ChatGPT turn stopped without a detected validated downloadable bundle named ${expected}. Continue exactly where it stopped. If analysis, tool use, implementation, or verification is incomplete, finish that work from the existing conversation state; do not restart completed work and do not change scope.${repeated}\n\nOnly after the ORIGINAL request is fully satisfied, create and attach exactly ${expected} according to the existing Wharnex file-first contract. Finish with the file attachment only.`
+}
+
 function finiteGeneration(value) {
   const number = Number(value)
   return Number.isInteger(number) && number >= 0 ? number : 0

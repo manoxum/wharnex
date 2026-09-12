@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,115 @@ func (p orchestratorTestPlanner) Plan(_ context.Context, request planner.Request
 		return planner.Result{OrchestratorPlan: &proposal}, nil
 	}
 	return planner.Result{Turn: &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: request.RequestID, Kind: domain.TurnKindAnswer, Message: "done", Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}}}, nil
+}
+
+type orchestratorManualTestPlanner struct{}
+
+func (orchestratorManualTestPlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
+	if request.PlanningMode == "orchestrator" {
+		return planner.Result{ManualPrompt: "produce the orchestrator DAG"}, nil
+	}
+	return planner.Result{}, nil
+}
+
+func TestManualOrchestratorProposalQueuesDurableUrgentWorker(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorManualTestPlanner{}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "ship a durable objective")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RequestID == "" || result.WorkerTaskID == "" || result.Delivery != session.ChatAgentTaskPending {
+		t.Fatalf("manual proposal was not durably queued: %#v", result)
+	}
+	queued, err := store.GetChatAgentTask(result.WorkerTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.Type != "ORCHESTRATOR_PLAN" || queued.Priority != -1 || queued.ProjectID != started.ProjectPath || queued.SessionID != started.ID || queued.RequestID != result.RequestID || queued.MaxAttempts != 8 {
+		t.Fatalf("unexpected orchestrator worker task: %#v", queued)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(queued.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["protocol"] != orchestratorPlanningWorkerProtocol || payload["request_id"] != result.RequestID || payload["objective"] != "ship a durable objective" || payload["prompt"] == "" {
+		t.Fatalf("unexpected orchestrator worker payload: %#v", payload)
+	}
+	overview, err := service.OrchestratorOverview(context.Background(), started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.PlanningRequests) != 1 || overview.PlanningRequests[0].TaskID != result.WorkerTaskID || overview.PlanningRequests[0].Objective != "ship a durable objective" || overview.PlanningRequests[0].Status != session.ChatAgentTaskPending {
+		t.Fatalf("queued planning request disappeared from orchestrator overview: %#v", overview.PlanningRequests)
+	}
+}
+
+func TestFailedOrchestratorPlanningRetryKeepsRequestAndReplacesQueueProjection(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorManualTestPlanner{}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "recover this planning request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", time.Minute)
+	if err != nil || claimed == nil {
+		t.Fatalf("claim orchestrator planning task: task=%#v err=%v", claimed, err)
+	}
+	if _, err := store.StartChatAgentTask(claimed.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FailChatAgentTask(claimed.TaskID, "worker-1", "composer temporarily unavailable", true); err != nil {
+		t.Fatal(err)
+	}
+
+	retried, err := service.RetryOrchestratorPlanning(started.ID, result.RequestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.RequestID != result.RequestID || retried.TaskID == result.WorkerTaskID || retried.Objective != "recover this planning request" || retried.Status != session.ChatAgentTaskPending || retried.MaxAttempts != 8 {
+		t.Fatalf("unexpected retried request: %#v", retried)
+	}
+	queued, err := store.GetChatAgentTask(retried.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.ParentTaskID != result.WorkerTaskID {
+		t.Fatalf("retry lost attempt provenance: %#v", queued)
+	}
+	overview, err := service.OrchestratorOverview(context.Background(), started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.PlanningRequests) != 1 || overview.PlanningRequests[0].TaskID != retried.TaskID {
+		t.Fatalf("retry duplicated the planning request projection: %#v", overview.PlanningRequests)
+	}
+}
+
+func TestOrchestratorPlanningProjectionRecoversLegacyObjective(t *testing.T) {
+	payload, err := json.Marshal(map[string]string{
+		"prompt": "planner instructions\nOBJECTIVE:\nKeep legacy requests visible\n\nPROJECT MANIFEST:\n{}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := orchestratorPlanningRequest(session.ChatAgentTask{
+		TaskID: "cat-legacy", RequestID: "orp-legacy", Status: session.ChatAgentTaskWaiting,
+		Payload: payload, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	})
+	if request.Objective != "Keep legacy requests visible" {
+		t.Fatalf("legacy planning objective was not recovered: %#v", request)
+	}
 }
 
 func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {

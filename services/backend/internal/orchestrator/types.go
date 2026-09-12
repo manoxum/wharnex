@@ -118,8 +118,21 @@ type ProposalTask struct {
 }
 
 type Overview struct {
-	Plans             []Plan `json:"plans"`
-	Tasks             []Task `json:"tasks"`
-	MutationSlots     int    `json:"mutation_slots"`
-	MutationSlotsUsed int    `json:"mutation_slots_used"`
+	Plans             []Plan            `json:"plans"`
+	Tasks             []Task            `json:"tasks"`
+	PlanningRequests  []PlanningRequest `json:"planning_requests"`
+	MutationSlots     int               `json:"mutation_slots"`
+	MutationSlotsUsed int               `json:"mutation_slots_used"`
+}
+
+type PlanningRequest struct {
+	RequestID   string    `json:"request_id"`
+	TaskID      string    `json:"task_id"`
+	Objective   string    `json:"objective,omitempty"`
+	Status      string    `json:"status"`
+	Attempt     int       `json:"attempt"`
+	MaxAttempts int       `json:"max_attempts"`
+	LastError   string    `json:"last_error,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

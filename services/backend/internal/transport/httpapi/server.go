@@ -79,6 +79,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/chat-agent/tasks/cancel-lineage", a.cancelChatAgentLineage)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/start", a.startChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/heartbeat", a.heartbeatChatAgentTask)
+	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/checkpoint", a.checkpointChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/wait", a.waitChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/complete", a.completeChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/fail", a.failChatAgentTask)
@@ -160,6 +161,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/overview", a.orchestratorOverview)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/propose", a.orchestratorProposePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/import", a.orchestratorImportPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/planning/{request_id}/retry", a.orchestratorRetryPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/{plan_id}/approve", a.orchestratorApprovePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks", a.orchestratorCreateTask)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/transition", a.orchestratorTransitionTask)
@@ -216,8 +218,18 @@ func (a *API) updateExecutionConcurrency(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid_concurrency", "concurrency must be at least 1")
 		return
 	}
+	concurrency := payload.Concurrency
+	if concurrency > a.service.MaxExecutionConcurrency() {
+		concurrency = a.service.MaxExecutionConcurrency()
+	}
+	if err := config.SaveExecutionSettings(a.cfg.ExecutionSettingsFile, config.ExecutionSettingsDocument{
+		Version: 1, ProjectConcurrency: concurrency,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "execution_settings_save_failed", err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"concurrency": a.service.SetExecutionConcurrency(payload.Concurrency),
+		"concurrency": a.service.SetExecutionConcurrency(concurrency),
 		"max":         a.service.MaxExecutionConcurrency(),
 	})
 }

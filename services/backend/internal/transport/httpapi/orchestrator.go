@@ -53,6 +53,15 @@ func (a *API) orchestratorImportPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, result)
 }
 
+func (a *API) orchestratorRetryPlan(w http.ResponseWriter, r *http.Request) {
+	result, err := a.service.RetryOrchestratorPlanning(r.PathValue("id"), r.PathValue("request_id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_retry_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
 func (a *API) orchestratorApprovePlan(w http.ResponseWriter, r *http.Request) {
 	overview, err := a.service.ApproveOrchestratorPlan(r.Context(), r.PathValue("id"), r.PathValue("plan_id"))
 	if err != nil {

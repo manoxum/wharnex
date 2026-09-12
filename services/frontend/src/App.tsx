@@ -20,7 +20,7 @@ import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
   loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
-  conflictChatGPTCacheKey, enabledTunnelIds, loadTransportOptions, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
+  conflictChatGPTCacheKey, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
@@ -35,18 +35,23 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
     id: record.session_id,
     project_path: projectPath,
     chat_id: record.chat_id,
-    execution_mode: 'protected',
+    execution_mode: record.execution_mode || 'protected',
     automation_mode: 'auto',
     state: record.state,
     created_at: '',
     context: { id: '', manifest: { id: '', project_root: projectPath, sha256: '', files: [], excluded: [], text_truncated: false } },
     failure_kind: record.failure_kind,
     last_request_id: record.last_request_id,
+    last_repair_error: record.last_repair_error,
     last_turn: record.last_turn,
     policy: record.policy,
     plan: record.has_plan ? ({ plan_id: record.plan_id } as Session['plan']) : undefined,
     last_execution: record.last_execution_plan_id ? ({ plan_id: record.last_execution_plan_id } as Session['last_execution']) : undefined,
     pending_host_changes: Array.from({ length: record.pending_host_changes }) as Session['pending_host_changes'],
+    pending_manual_request_ids: Array.from({ length: record.pending_manual_requests || 0 }, (_, index) => `compact-${index}`),
+    planner_in_flight: record.planner_in_flight,
+    last_manual_prompt: record.has_manual_prompt ? 'Disponível' : undefined,
+    self_evolution_activation: record.self_evolution_activation,
     integration_conflict: record.integration_conflict
       ? ({ id: record.integration_conflict.id, paths: Array.from({ length: record.integration_conflict.path_count }) } as Session['integration_conflict'])
       : undefined,
@@ -158,9 +163,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const dismissedRestartKeysRef = useRef(new Set<string>())
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
 
-  const restartPresentationKey = restartConfirmationKey(session)
-  const bundleRoutingReadyKey = session ? `${session.project_path}:${chats.map((chat) => `${chat.id}:${chat.sessionId}`).join(',')}` : ''
-  const activeConflictKey = session?.integration_conflict && activeChatId ? conflictChatGPTCacheKey(activeChatId, session.integration_conflict.id) : ''
+  const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
+  const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
+  const restartPresentationKey = activeChatOwnsSession ? restartConfirmationKey(session) : ''
+  // Bundle delivery belongs to the workspace, not to whichever surface is
+  // visible. Orchestrator/Editor can own the current session while Agent
+  // workers finish in the background; disabling this listener in that state
+  // leaves valid downloads stranded in Desktop's durable inbox until Agent is
+  // opened again.
+  const bundleRoutingReadyKey = session && chats.length > 0 ? `${session.project_path}:${chats.map((chat) => `${chat.id}:${chat.sessionId}`).join(',')}` : ''
+  const activeConflictKey = activeChatOwnsSession && session?.integration_conflict && activeChatId ? conflictChatGPTCacheKey(activeChatId, session.integration_conflict.id) : ''
   const chatgptHumanAction = chatgptHumanActions[activeConflictKey] || chatgptHumanActions[activeChatId]
   const activeBusy = busy || Boolean(busyChats[activeChatId])
 
@@ -170,12 +182,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // that establishes a session (open, restore, new chat, archive, an update
   // arriving mid-request) keeps the next switch to that chat instant, without
   // each of those call sites having to remember to populate it.
-  useEffect(() => { if (session && activeChatId) sessionCacheRef.current[activeChatId] = session }, [session, activeChatId])
+  useEffect(() => { if (activeChatOwnsSession && session && activeChatId) sessionCacheRef.current[activeChatId] = session }, [activeChatOwnsSession, session, activeChatId])
 
   useEffect(() => {
-    if (!session || !activeChatId) return
+    if (!session || !activeChatOwnsSession || !activeChatId) return
     setAttentionSessions((current) => current[activeChatId] === session ? current : { ...current, [activeChatId]: session })
-  }, [activeChatId, session])
+  }, [activeChatId, activeChatOwnsSession, session])
 
   useEffect(() => {
     if (!session || !chats.length) {
@@ -279,7 +291,39 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const bounded = next.slice(0, 30)
     setChats(bounded)
     saveWorkspaceChats(projectPath, bounded)
+    // The backend is the durable identity ledger. localStorage remains the
+    // instant UI cache, but a renderer restart must never be able to strand a
+    // Worker with a chat id the backend has never heard of.
+    void Promise.allSettled(bounded.map((chat) => api.saveWorkspaceChat(durableWorkspaceChat(projectPath, chat))))
   }, [])
+
+  async function hydrateWorkspaceMemory(projectPath: string) {
+    const localActive = loadWorkspaceChats(projectPath)
+    const localArchived = loadArchivedWorkspaceChats(projectPath)
+    const local = [...localActive, ...localArchived]
+    try {
+      const response = await api.workspaceChats(projectPath)
+      const merged = mergeDurableWorkspaceChats(local, response.chats || [])
+      const active = merged.filter((chat) => !chat.archivedAt).slice(0, 30)
+      const archived = merged.filter((chat) => Boolean(chat.archivedAt)).slice(0, 30)
+      saveWorkspaceChats(projectPath, active)
+      saveArchivedWorkspaceChats(projectPath, archived)
+
+      // One-way compatibility migration for installations which already had
+      // browser-only chats before the durable table was introduced.
+      const durableIDs = new Set((response.chats || []).map((chat) => chat.id))
+      await Promise.allSettled(local.filter((chat) => !durableIDs.has(chat.id)).map(async (chat) => {
+        await api.saveWorkspaceChat(durableWorkspaceChat(projectPath, chat))
+        const transcript = loadChat(projectPath, chat.id)
+        if (transcript.length) await api.replaceWorkspaceChatItems(chat.id, transcript)
+      }))
+      return { active, archived }
+    } catch {
+      // Backend unavailability must not prevent the already-cached workspace
+      // from opening; later writes retry the durable upsert best-effort.
+      return { active: localActive, archived: localArchived }
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -299,7 +343,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const active = loadActiveWorkspace()
       if (!active) { if (alive) setRestoring(false); return }
       try {
-        const known = loadWorkspaceChats(active.projectPath)
+        const hydrated = await hydrateWorkspaceMemory(active.projectPath)
+        const known = hydrated.active
         const selected = known.find((chat) => chat.id === active.chatId) || known[0]
         const projectExecutionMode: ExecutionMode = 'protected'
         const projectAutomationMode: AutomationMode = 'auto'
@@ -314,7 +359,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
         if (!alive) return
 
-        let nextChats = loadWorkspaceChats(restored.project_path)
+        let nextChats = restored.project_path === active.projectPath ? hydrated.active : (await hydrateWorkspaceMemory(restored.project_path)).active
         if (!nextChats.length && known.length) nextChats = known
         let nextChat = nextChats.find((chat) => chat.id === selected?.id) || nextChats[0]
         if (!nextChat) {
@@ -327,7 +372,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
         }
         saveWorkspaceChats(restored.project_path, nextChats)
-        setChats(nextChats); setArchivedChats(loadArchivedWorkspaceChats(restored.project_path)); activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored)
+        setChats(nextChats); setArchivedChats(restored.project_path === active.projectPath ? hydrated.archived : loadArchivedWorkspaceChats(restored.project_path)); activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored)
         setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(restored.effort_level || loadEffortLevel(restored.project_path)); setChatTransportMode(restored.chat_transport_mode || 'scraper'); setManualPrompt(restored.last_manual_prompt || '')
         const chatItems = loadChat(restored.project_path, nextChat.id)
         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
@@ -344,10 +389,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   useEffect(() => () => { sourceRef.current?.close(); sourceRef.current = null }, [])
 
   useEffect(() => {
-    if (!session) return
+    if (!session || !activeChatOwnsSession) return
     if (!embeddedProject) saveActiveWorkspace({ sessionId: session.id, projectPath: session.project_path, mode, chatId: activeChatId || undefined, executionMode, automationMode, effortLevel })
     setRecent(loadRecentWorkspaces())
-  }, [session, mode, activeChatId, executionMode, automationMode, effortLevel, embeddedProject])
+  }, [session, activeChatOwnsSession, mode, activeChatId, executionMode, automationMode, effortLevel, embeddedProject])
 
   useEffect(() => {
     const syncTransport = (event: StorageEvent) => {
@@ -376,8 +421,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [embeddedProject, mode])
 
   useEffect(() => {
-    if (session && activeChatId && items.length) saveChat(session.project_path, activeChatId, items)
-  }, [session, activeChatId, items])
+    if (!session || !activeChatOwnsSession || !activeChatId || !items.length) return
+    saveChat(session.project_path, activeChatId, items)
+    void api.replaceWorkspaceChatItems(activeChatId, items).catch(() => undefined)
+  }, [session, activeChatOwnsSession, activeChatId, items])
 
   useEffect(() => {
     // A session created before chat-id propagation existed (or one whose
@@ -405,10 +452,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [session, activeChatId, chats])
 
   useEffect(() => {
-	if (!session || !['repair_pending', 'baseline_update_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
 	if (session.state === 'repair_pending') void submitRepairPrompt(session, targetChat)
+	else if (session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)
 	else {
 		const dispatchKey = `dispatch:${targetChat.id}:${session.last_request_id || session.id}`
 		if (baselineSeenRef.current.has(dispatchKey)) return
@@ -418,7 +466,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 			setError(messageOf(sendError))
 		})
 	}
-  }, [session, activeChatId, chats])
+  }, [session, activeChatOwnsSession, activeChatId, chats])
 
   useEffect(() => {
     // The post-apply knowledge_review round is independent of session.state
@@ -427,7 +475,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     // that, so this is keyed on its own field instead of joining the
     // repair/conflict/baseline dispatch above, which would either compete
     // with those states or require "restoring" state afterward.
-    if (!session || !session.pending_knowledge_review_request_id || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+    if (!session || !activeChatOwnsSession || !session.pending_knowledge_review_request_id || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     const dispatchKey = `knowledge:${targetChat.id}:${session.pending_knowledge_review_request_id}`
@@ -437,7 +485,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       baselineSeenRef.current.delete(dispatchKey)
       setError(messageOf(sendError))
     })
-  }, [session, activeChatId, chats])
+  }, [session, activeChatOwnsSession, activeChatId, chats])
 
   async function syncSessionModes(value: Session, nextExecution: ExecutionMode, nextAutomation: AutomationMode, nextEffort: EffortLevel = effortLevel) {
     let current = value
@@ -457,7 +505,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const projectEffortLevel: EffortLevel = loadEffortLevel(projectPath)
       const created = await api.createSession(projectPath, projectExecutionMode, projectAutomationMode, undefined, projectEffortLevel)
       rememberRecent(created.project_path); setRecent(loadRecentWorkspaces())
-      let nextChats = loadWorkspaceChats(created.project_path)
+      const hydrated = await hydrateWorkspaceMemory(created.project_path)
+      let nextChats = hydrated.active
       let selected = nextChats[0]
       let selectedSession = created
       if (selected) {
@@ -477,7 +526,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         if (legacy.length) saveChat(created.project_path, selected.id, legacy)
       }
       persistChats(created.project_path, nextChats)
-      setArchivedChats(loadArchivedWorkspaceChats(created.project_path)); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
+      setArchivedChats(hydrated.archived); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
       const chatItems = loadChat(created.project_path, selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
       setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
@@ -522,10 +571,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!session || creatingChatRef.current) return
     creatingChatRef.current = true
     setError(undefined)
+    // Hide the outgoing native surface at click time, before the backend
+    // round-trip that creates the next Session. Otherwise a transport already
+    // preparing this chat can keep painting over the local UI after the user
+    // has expressed the switch, making correctly-owned input look as though it
+    // were being typed into the new chat.
+    hideChatGPTSurfaces(chats.find((chat) => chat.id === activeChatIdRef.current))
     try {
       const chatId = crypto.randomUUID()
       const created = await api.createSession(session.project_path, executionMode, automationMode, chatId, effortLevel)
       const chat = newWorkspaceChat(created.id, 'Novo chat', chatId)
+      await api.saveWorkspaceChat(durableWorkspaceChat(created.project_path, chat))
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
@@ -747,6 +803,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const projectPath = session.project_path
     setError(undefined)
 
+    // A WebContentsView is native and sits above React. Hide the outgoing
+    // owner before changing the local tab, so a still-running upload/write can
+    // continue only in its hidden, correctly-owned surface while the selected
+    // chat gets its own Supervisor slot.
+    hideChatGPTSurfaces(chats.find((chat) => chat.id === activeChatIdRef.current))
+
     // Land the visual switch first, from local state only. Everything the user
     // perceives on a chat switch — the active tab, the transcript, the composer
     // draft — is already on this machine.
@@ -794,10 +856,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) { setError(messageOf(e)) } finally { setChatBusy(chatId, false) }
   }
 
+  function hideChatGPTSurfaces(chat?: WorkspaceChat) {
+    const bridge = isDesktop() ? desktopBridge() : undefined
+    if (!bridge || !chat) return
+    const keys = [chat.id, ...Object.values(chat.conflictSurfaces || {}).map((surface) => surface.cacheKey)]
+    for (const key of keys) void bridge.chatgpt.hide(key).catch(() => undefined)
+  }
+
   const updateWorkspaceChat = useCallback((chatId: string, projectPath: string, patch: Partial<WorkspaceChat>) => {
     setChats((current) => {
       const next = current.map((chat) => chat.id === chatId ? { ...chat, ...patch, updatedAt: new Date().toISOString() } : chat)
       saveWorkspaceChats(projectPath, next)
+      const updated = next.find((chat) => chat.id === chatId)
+      if (updated) void api.saveWorkspaceChat(durableWorkspaceChat(projectPath, updated)).catch(() => undefined)
       return next
     })
   }, [])
@@ -878,10 +949,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       return
     }
     const prior = loadChat(projectPath, targetChat.id)
-    saveChat(projectPath, targetChat.id, [...prior, item])
+    const transcript = [...prior, item]
+    saveChat(projectPath, targetChat.id, transcript)
+    void api.replaceWorkspaceChatItems(targetChat.id, transcript).catch(() => undefined)
     setChats((current) => {
       const next = current.map((chat) => chat.id === targetChat.id ? { ...chat, updatedAt: new Date().toISOString() } : chat)
       saveWorkspaceChats(projectPath, next)
+      const updated = next.find((chat) => chat.id === targetChat.id)
+      if (updated) void api.saveWorkspaceChat(durableWorkspaceChat(projectPath, updated)).catch(() => undefined)
       return next
     })
   }
@@ -1041,36 +1116,76 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const bridge = desktopBridge()
     if (!bridge) return
     let cancelled = false
-    void Promise.all(chats.map(async (chat) => {
-      const candidate = chat.sessionId === session.id ? session : await api.getSession(chat.sessionId)
-      const requests = pendingBundleRequestIDs(candidate)
-      await Promise.all(requests.map(async (requestId) => {
-        const conflict = candidate.integration_conflict?.request_id === requestId ? candidate.integration_conflict : undefined
-        const surface = conflict ? chat.conflictSurfaces?.[conflict.id] : undefined
-        const cacheKey = surface?.cacheKey || chat.id
-        // A conflict surface owns a distinct ChatGPT conversation. While its
-        // first submit is still creating that conversation, falling back to
-        // the primary chat URL makes recovery navigate the auxiliary view
-        // away from its new-chat composer in the middle of upload.
-        const url = conflict ? surface?.url : chat.chatgptUrl
-        if (!url) return
-        const resumeKey = `${candidate.id}:${requestId}:${cacheKey}`
-        if (cancelled || resumedBundleKeysRef.current.has(resumeKey) || livePromptDeliveryKeysRef.current.has(resumeKey) || failedPromptDeliveryKeysRef.current.has(resumeKey)) return
-        resumedBundleKeysRef.current.add(resumeKey)
-        try {
-          const recoveryBootstrap = pendingRequestRecoveryPrompt(candidate, requestId)
-          if (!recoveryBootstrap) return
-          await bridge.chatgpt.resumeExpectedBundle({ cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap, expectedFilename: expectedResponseBundleName(recoveryBootstrap, requestId) })
-        } catch (resumeError) {
-          resumedBundleKeysRef.current.delete(resumeKey)
-          console.warn('pending ChatGPT bundle recovery failed', cacheKey, messageOf(resumeError))
-        }
-      }))
-      return { chat, session: candidate }
-    })).then((candidates) => {
-      if (!cancelled) setInterruptedExecutions(candidates.filter((candidate) => executionNeedsAttention(candidate.session)))
-    }).catch((resumeError) => console.warn('pending ChatGPT supervision recovery failed', messageOf(resumeError)))
-    return () => { cancelled = true }
+    let reconciling = false
+    const reconcile = async () => {
+      if (cancelled || reconciling) return
+      reconciling = true
+      try {
+        const candidates = await Promise.all(chats.map(async (chat) => {
+          const candidate = chat.sessionId === session.id ? session : await api.getSession(chat.sessionId)
+		  // Automatic continuation recovery is workspace work, not visible-chat
+		  // work. A transcript note is not delivery evidence: the durable Worker
+		  // may subsequently fail. Reconcile the queue itself, retry an initial
+		  // write at most three times, and never duplicate an accepted submit.
+		  const automaticContinuation = candidate.automation_mode === 'auto' && candidate.last_manual_prompt && (
+			['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)
+			|| (candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0)
+		  )
+		  const continuationRequestID = candidate.state === 'conflict_resolution_pending' ? candidate.integration_conflict?.request_id : candidate.last_request_id
+		  if (!cancelled && automaticContinuation && continuationRequestID) {
+			const delivery = await api.chatAgentTasksForRequest(continuationRequestID)
+			const writes = delivery.tasks.filter((task) => ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(task.type))
+			const accepted = writes.some((task) => task.status === 'DONE')
+			const live = writes.some((task) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(task.status))
+			const failedWrites = writes.filter((task) => task.type === 'BOT_WRITE' && task.status === 'FAILED').length
+			if (!accepted && !live && failedWrites < 3) {
+			  if (candidate.state === 'conflict_resolution_pending' && candidate.integration_conflict) await submitConflictPrompt(candidate, chat, true)
+			  else if (candidate.state === 'repair_pending') await submitRepairPrompt(candidate, chat, true)
+			  else if (candidate.state === 'workflow_pending') await submitWorkflowPrompt(candidate, chat, true)
+			  else {
+				const dispatchKey = `dispatch:${chat.id}:${continuationRequestID}`
+				baselineSeenRef.current.delete(dispatchKey)
+				baselineSeenRef.current.add(dispatchKey)
+				try { await transportPlannerContinuation(candidate, chat) }
+				catch (sendError) { baselineSeenRef.current.delete(dispatchKey); throw sendError }
+			  }
+			}
+		  }
+          const requests = pendingBundleRequestIDs(candidate)
+          await Promise.all(requests.map(async (requestId) => {
+            const conflict = candidate.integration_conflict?.request_id === requestId ? candidate.integration_conflict : undefined
+            const surface = conflict ? chat.conflictSurfaces?.[conflict.id] : undefined
+            const cacheKey = surface?.cacheKey || chat.id
+            // A conflict surface owns a distinct ChatGPT conversation. While its
+            // first submit is still creating that conversation, falling back to
+            // the primary chat URL makes recovery navigate the auxiliary view
+            // away from its new-chat composer in the middle of upload.
+            const url = conflict ? surface?.url : chat.chatgptUrl
+            if (!url) return
+            const resumeKey = `${candidate.id}:${requestId}:${cacheKey}`
+            if (cancelled || resumedBundleKeysRef.current.has(resumeKey) || livePromptDeliveryKeysRef.current.has(resumeKey) || failedPromptDeliveryKeysRef.current.has(resumeKey)) return
+            resumedBundleKeysRef.current.add(resumeKey)
+            try {
+              const recoveryBootstrap = pendingRequestRecoveryPrompt(candidate, requestId)
+              if (!recoveryBootstrap) return
+              await bridge.chatgpt.resumeExpectedBundle({ cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap, expectedFilename: expectedResponseBundleName(recoveryBootstrap, requestId) })
+            } catch (resumeError) {
+              resumedBundleKeysRef.current.delete(resumeKey)
+              console.warn('pending ChatGPT bundle recovery failed', cacheKey, messageOf(resumeError))
+            }
+          }))
+          return { chat, session: candidate }
+        }))
+        if (!cancelled) setInterruptedExecutions(candidates.filter((candidate) => executionNeedsAttention(candidate.session)))
+      } catch (resumeError) {
+        console.warn('pending ChatGPT supervision recovery failed', messageOf(resumeError))
+      } finally {
+        reconciling = false
+      }
+    }
+    void reconcile()
+    const timer = window.setInterval(() => { void reconcile() }, 30_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
   }, [chats, session])
 
   useEffect(() => {
@@ -1192,7 +1307,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           if (!bridge) throw new Error('Desktop bridge indisponível')
           if (activeChatIdRef.current === targetChat.id) setTransportProgress('A preparar o bundle ZIP e a publicar apenas os túneis selecionados…')
           const prepared = await bridge.chatgpt.preparePrompt({
-            cacheKey: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
+            cacheKey: targetChat.id, workspaceChatId: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
             requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: automationMode === 'auto',
             expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
@@ -1334,14 +1449,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   useEffect(() => {
-    if (!session || !activeChatId || activeBusy || restartModalOpen || queueDrainRef.current || requestChainActive(session) || preparedDrafts[activeChatId]) return
+    if (!session || !activeChatOwnsSession || !activeChatId || activeBusy || restartModalOpen || queueDrainRef.current || requestChainActive(session) || preparedDrafts[activeChatId]) return
     const next = (queuedRequestsByChat[activeChatId] || [])[0]
     if (!next) return
     queueDrainRef.current = true
     setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: (current[activeChatId] || []).filter((item) => item.id !== next.id) }))
     void send(next.message, next.attachments, next.projectFiles, next.artifacts, next.requestMode).finally(() => { queueDrainRef.current = false })
     // send intentionally stays outside the dependency array: this effect is a serialized queue dispatcher.
-  }, [activeChatId, activeBusy, preparedDrafts, queuedRequestsByChat, restartModalOpen, session?.state, session?.pending_manual_request_ids, session?.self_evolution_activation])
+  }, [activeChatId, activeChatOwnsSession, activeBusy, preparedDrafts, queuedRequestsByChat, restartModalOpen, session?.state, session?.pending_manual_request_ids, session?.self_evolution_activation])
 
   async function confirmPreparedDraft() {
     if (!activeChatId || busy) return
@@ -1606,6 +1721,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
       } else if (submission.workflow_prepared && updated.state === 'workflow_pending' && updated.last_manual_prompt) {
         workflowSubmitted = await submitWorkflowPrompt(updated, targetChat)
+	  } else if (submission.conflict_prepared && updated.state === 'conflict_resolution_pending' && updated.last_manual_prompt && updated.automation_mode === 'auto') {
+		await submitConflictPrompt(updated, targetChat)
       } else if (updated.state === 'repair_pending' && updated.last_manual_prompt) {
         await submitRepairPrompt(updated, targetChat)
       } else if (updated.state === 'baseline_update_pending' && updated.last_manual_prompt && updated.automation_mode === 'auto') {
@@ -1785,8 +1902,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	const targetURL = dedicatedConflict ? dedicatedURL : targetChat.chatgptUrl
     const transport = targetChat.transport || globalTransport
     const continuationRequestId = activePendingRequestId(promptSession)
-    const prepared = await bridge.chatgpt.preparePrompt({
-	  cacheKey, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetURL, sessionId: promptSession.id,
+	const prepared = await bridge.chatgpt.preparePrompt({
+	  cacheKey, background: true, ...(!dedicatedConflict ? { workspaceChatId: targetChat.id } : {}), text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetURL, sessionId: promptSession.id,
       requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
       expectedFilename: expectedResponseBundleName(text, continuationRequestId),
       projectFiles: [],
@@ -1795,7 +1912,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
 	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(cacheKey, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}
-	if (!dedicatedConflict && prepared.includedContext && bindingAccepted) {
+	if (!dedicatedConflict && !prepared.queued && prepared.includedContext && bindingAccepted) {
       patch.lastContextSha256 = promptSession.context.manifest.sha256
       patch.lastContextChatgptUrl = prepared.conversationUrl || targetChat.chatgptUrl
     }
@@ -1803,20 +1920,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     return prepared
   }
 
-	async function submitConflictPrompt(conflictedSession: Session, targetChat: WorkspaceChat) {
+	async function submitConflictPrompt(conflictedSession: Session, targetChat: WorkspaceChat, force = false) {
 		const conflict = conflictedSession.integration_conflict
 		if (!conflict || !conflictedSession.last_manual_prompt) return
 		const cacheKey = conflictChatGPTCacheKey(targetChat.id, conflict.id)
 		const existing = targetChat.conflictSurfaces?.[conflict.id]
 		const dispatchKey = `conflict:${conflictedSession.id}:${conflict.request_id}`
-		if (repairDispatchRef.current.has(dispatchKey) || requestAlreadyRecorded(conflictedSession.project_path, targetChat.id, conflict.request_id, ['conflict', 'prepared', 'submitted'])) return
+		if (force) repairDispatchRef.current.delete(dispatchKey)
+		if (!force && (repairDispatchRef.current.has(dispatchKey) || requestAlreadyRecorded(conflictedSession.project_path, targetChat.id, conflict.request_id, ['prepared', 'submitted']))) return
 		repairDispatchRef.current.add(dispatchKey)
 		updateWorkspaceChat(targetChat.id, conflictedSession.project_path, {
 			conflictSurfaces: { ...targetChat.conflictSurfaces, [conflict.id]: { cacheKey, url: existing?.url } },
 		})
 		appendChatItem(targetChat, conflictedSession.project_path, {
 			id: `conflict-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. O Wharnex abriu uma janela ChatGPT dedicada e enviará apenas o capsule harness.conflict/v1 para resolução.`,
+			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. O Wharnex reservou uma superfície ChatGPT dedicada e enviará apenas o capsule harness.conflict/v1 para resolução por um Worker.`,
 			meta: `Conflito ${conflict.id} · superfície dedicada`,
 			iteration: iterationRef(conflict.request_id, 'conflict', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), existing?.url || targetChat.chatgptUrl),
 		})
@@ -1834,7 +1952,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 			}
 			appendChatItem(targetChat, conflictedSession.project_path, {
 				id: `conflict-dispatch-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-				text: prepared.submitted ? 'Capsule de conflito submetido automaticamente na janela ChatGPT dedicada.' : 'Capsule preparado na janela dedicada; confirme o envio para continuar.',
+				text: prepared.submitted ? 'Capsule de conflito enfileirado automaticamente na superfície ChatGPT dedicada.' : 'Capsule preparado na superfície dedicada; confirme o envio para continuar.',
 				meta: prepared.submitted ? 'Resolução de conflito em curso' : 'Resolução aguarda confirmação',
 				iteration: iterationRef(conflict.request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), prepared.conversationUrl || existing?.url || targetChat.chatgptUrl),
 			})
@@ -1851,10 +1969,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		await submitConflictPrompt(conflictedSession, targetChat)
 	}
 
-  async function submitWorkflowPrompt(workflowSession: Session, targetChat: WorkspaceChat): Promise<boolean> {
+  async function submitWorkflowPrompt(workflowSession: Session, targetChat: WorkspaceChat, force = false): Promise<boolean> {
     const round = workflowSession.workflow_round || 1
     const requestId = workflowSession.last_request_id || ''
-    if (requestAlreadyRecorded(workflowSession.project_path, targetChat.id, requestId, ['workflow'])) return false
+    if (!force && requestAlreadyRecorded(workflowSession.project_path, targetChat.id, requestId, ['workflow'])) return false
     appendChatItem(targetChat, workflowSession.project_path, {
       id: `workflow-${requestId || round}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
       text: `O Wharnex terminou o passo local ${round}/6 e vai devolver stdout, stderr e códigos de saída ao mesmo ChatGPT para decidir o próximo passo.`,
@@ -2536,7 +2654,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const activeChat = chats.find((chat) => chat.id === activeChatId)
-	const activeConflict = session.integration_conflict
+  const activeConflict = activeChat?.sessionId === session.id ? session.integration_conflict : undefined
 	const activeConflictSurface = activeChat && activeConflict ? activeChat.conflictSurfaces?.[activeConflict.id] : undefined
 	const chatgptSurface = activeChat && activeConflict ? {
 		cacheKey: activeConflictSurface?.cacheKey || conflictChatGPTCacheKey(activeChat.id, activeConflict.id),

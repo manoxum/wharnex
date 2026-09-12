@@ -83,4 +83,5 @@ Runtime state belongs under `.harness/` and must never be committed.
 - Backend transitions MUST reject unknown states, direct entry into `DOING`, and manual movement of a task whose Agent run is active.
 - Project integration tests SHOULD cover durable Plan/Task/dependency/TaskRun round-trips against PostgreSQL when the Docker-managed test database is available.
 - Frontend tests MUST keep Orchestrator available as a first-class workspace mode and SHOULD cover draft approval, manual planner import, task creation and the four task projections.
+- Manual-adapter proposal tests MUST prove the objective becomes a durable highest-priority Worker request, remains visible in Overview across remount/restart, and imports only an exact bounded `harness.orchestrator-plan/v1` JSON artifact.
 - A task Start regression MUST prove it delegates to the normal Agent execution path and that a second `DOING` task in the same project is refused; it MUST NOT introduce a direct command-execution seam.

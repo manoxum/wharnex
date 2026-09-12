@@ -5,12 +5,42 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 
 describe('App policy-repair recovery', () => {
-  it('restores automatic repair and legacy baseline prompts but leaves conflicts at the explicit resolver choice', () => {
+  it('restores automatic repair, baseline, and conflict prompts', () => {
     expect(source).toMatch(/const repairDispatchRef = useRef\(new Set<string>\(\)\)/)
-	expect(source).toMatch(/!\['repair_pending', 'baseline_update_pending'\]\.includes\(session\.state\)/)
-	expect(source).not.toMatch(/session\.state === 'conflict_resolution_pending'\) void submitConflictPrompt/)
+	expect(source).toMatch(/!\['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'\]\.includes\(session\.state\)/)
+	expect(source).toMatch(/session\.state === 'conflict_resolution_pending'\) void submitConflictPrompt\(session, targetChat\)/)
     expect(source).toMatch(/void submitRepairPrompt\(session, targetChat\)/)
 	expect(source).toMatch(/void transportPlannerContinuation\(session, targetChat\)\.catch/)
+  })
+
+  it('recovers every inactive auto continuation through durable background workers', () => {
+	const recovery = source.slice(source.indexOf('const requests = pendingBundleRequestIDs(candidate)') - 2400, source.indexOf('const requests = pendingBundleRequestIDs(candidate)') + 100)
+	expect(recovery).toContain("['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)")
+	expect(recovery).toContain("candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0")
+	expect(recovery).toMatch(/candidate\.automation_mode === 'auto'/)
+	expect(recovery).toMatch(/api\.chatAgentTasksForRequest\(continuationRequestID\)/)
+	expect(recovery).toMatch(/failedWrites < 3/)
+	expect(recovery).toMatch(/await submitConflictPrompt\(candidate, chat, true\)/)
+	expect(recovery).toMatch(/await submitRepairPrompt\(candidate, chat, true\)/)
+	expect(recovery).toMatch(/await submitWorkflowPrompt\(candidate, chat, true\)/)
+	expect(recovery).toMatch(/await transportPlannerContinuation\(candidate, chat\)/)
+	expect(source).toMatch(/window\.setInterval\(\(\) => \{ void reconcile\(\) \}, 30_000\)/)
+
+	const continuation = source.slice(source.indexOf('async function transportPlannerContinuation'), source.indexOf('async function submitConflictPrompt'))
+	expect(continuation).toMatch(/cacheKey, background: true/)
+	expect(continuation).toMatch(/!dedicatedConflict \? \{ workspaceChatId: targetChat\.id \}/)
+  })
+
+  it('dispatches a conflict immediately after importing the bundle that prepared it', () => {
+	const submission = source.slice(source.indexOf('async function submitBundleFile'), source.indexOf('async function recoverInterruptedExecution'))
+	expect(submission).toMatch(/submission\.conflict_prepared && updated\.state === 'conflict_resolution_pending'/)
+	expect(submission).toMatch(/await submitConflictPrompt\(updated, targetChat\)/)
+  })
+
+  it('does not let a diagnostic conflict notice suppress a transport retry', () => {
+	expect(source).toMatch(/requestAlreadyRecorded\(conflictedSession\.project_path, targetChat\.id, conflict\.request_id, \['prepared', 'submitted'\]\)/)
+	expect(source).not.toMatch(/conflict\.request_id, \['conflict', 'prepared', 'submitted'\]/)
+	expect(source).toMatch(/if \(force\) repairDispatchRef\.current\.delete\(dispatchKey\)/)
   })
 
   it('dispatches a prepared repair immediately after a manual host Apply failure', () => {

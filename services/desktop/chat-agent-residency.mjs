@@ -92,7 +92,7 @@ export class ChatAgentResidency {
     return state.nonPreemptive
   }
 
-  claimOptions(slotId, { blocked = false } = {}) {
+  claimOptions(slotId, { blocked = false, pinResident = false } = {}) {
     const state = this.register(slotId)
     state.blocked = Boolean(blocked) || state.nonPreemptive > 0 || state.navigationInProgress
     if (state.blocked) return { skip: true }
@@ -108,6 +108,18 @@ export class ChatAgentResidency {
       .map((candidate) => candidate.residentLane)
     if (!state.residentLane) {
       return { preferred_lane: '', excluded_lanes: excludedLanes, fallback_mode: 'unresident_only' }
+    }
+    // A resident AWAIT_RESPONSE is a live supervision, not an ordinary cache
+    // hit. Never rotate that slot to an unresident lane merely because its
+    // current probe is sleeping behind not_before. With N+1 generating chats
+    // and N Workers, allowing the rotation head to cross lanes turns every
+    // observation wave into cache thrash: each slot navigates away from one
+    // live conversation to pick up the lane the previous slot just abandoned.
+    // The excess supervision can safely wait until one of the resident turns
+    // completes; navigating every live renderer is both more expensive and can
+    // interrupt the very response AWAIT_RESPONSE exists to protect.
+    if (pinResident) {
+      return { preferred_lane: state.residentLane, excluded_lanes: excludedLanes, fallback_mode: 'resident_only' }
     }
     const anotherFree = [...this.slots.values()].some((candidate) => candidate.slotId !== state.slotId && !candidate.residentLane)
     const dwellComplete = this.now() >= state.minResidentUntil

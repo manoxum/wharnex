@@ -16,7 +16,7 @@ Wharnex adds **Orchestrator** as a third first-class workspace mode. The respons
 
 `User objective -> Planner -> Draft Plan + Tasks -> User approval -> Orchestrator -> Agent task run`
 
-The Planner decomposes work only. It returns `harness.orchestrator-plan/v1`, a task DAG with acceptance criteria, dependencies, priority, capability/complexity and expected impact/read/barrier files. It never emits shell commands for this protocol. The manual planner adapter exposes the same protocol as a copy/paste JSON fallback.
+The Planner decomposes work only. It returns `harness.orchestrator-plan/v1`, a task DAG with acceptance criteria, dependencies, priority, capability/complexity and expected impact/read/barrier files. It never emits shell commands for this protocol. A manual planner result is persisted before the proposal call returns as a highest-priority `ORCHESTRATOR_PLAN` browser-agent task. A hidden Worker requests an exact task-scoped JSON artifact and imports it through the normal validator; mode changes and Desktop restart reclaim the durable task. Copy/paste JSON remains a recovery fallback.
 The wire contract is documented by `schemas/orchestrator-plan.schema.json`; backend validation additionally enforces referential integrity and DAG acyclicity that JSON Schema alone cannot express.
 
 The Orchestrator owns durable, project-scoped `Plan`, `Task`, `TaskDependency` and `TaskRun` records in PostgreSQL. They are not embedded inside `Session` JSON. Plans start `DRAFT`; generated tasks start `PENDING` with a plan-approval condition. Approval activates the plan and a deterministic readiness evaluator moves dependency-satisfied work to `READY`.

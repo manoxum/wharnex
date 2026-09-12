@@ -221,6 +221,18 @@ func TestTryCloudflareRequestChannelServesTypedSecretResourcesAndEvents(t *testi
 	}
 }
 
+func TestTryCloudflareChannelAcceptsEveryResourceRoleProducedByRemoteInput(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	for _, role := range []string{"context", "knowledge", "continuation", "attachment", "artifact"} {
+		if !validChannelResourcePath("files/" + role + "/" + digest) {
+			t.Fatalf("remote-input role %q was produced by the application but rejected by TryCloudflare", role)
+		}
+	}
+	if validChannelResourcePath("files/untrusted/" + digest) {
+		t.Fatal("unknown channel resource role was accepted")
+	}
+}
+
 func (s *fakeQuickTunnelStarter) Start(_ context.Context, origin string) (*url.URL, func(), error) {
 	s.origin = origin
 	public, _ := url.Parse("https://unit-test.trycloudflare.com")

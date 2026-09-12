@@ -15,8 +15,9 @@ import { MarkdownContent } from './MarkdownContent'
 import { loadChat } from '../lib/workspaceMemory'
 import { desktopWindowScope } from '../lib/projectBindings'
 import { api } from '../lib/api'
-import { ATTENTION_ACTION_LABEL, type AttentionItem } from '../lib/attentionCenter'
+import { summarizeAttention, type AttentionItem } from '../lib/attentionCenter'
 import type { ExecutionFIFOItem } from '../lib/executionQueueView'
+import { AttentionList } from './AttentionList'
 
 // The workspace side rail is shell-level, not Agent-level: one rail and one
 // drawer sit beside every mode surface, so switching between Agent, Editor and
@@ -155,16 +156,24 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
 }
 
 function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
-  const chatCount = new Set(items.map((item) => item.chatId)).size
+  const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable'>('all')
+  const summary = summarizeAttention(items)
+  const filteredItems = filter === 'urgent' ? items.filter((item) => item.tone === 'danger') : filter === 'actionable' ? items.filter((item) => Boolean(item.action)) : items
   return <section className="attention-center-drawer" aria-label="Centro de notificações">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Atenção global</span><strong>Centro de notificações</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar notificações"><Icon name="close" size={13}/></button></header>
-    <div className="attention-center-summary"><span><b>{items.length}</b> {items.length === 1 ? 'alerta ativo' : 'alertas ativos'}</span><span><b>{chatCount}</b> {chatCount === 1 ? 'chat afetado' : 'chats afetados'}</span></div>
+    <header className="agent-drawer-heading"><div><span className="panel-kicker">Atenção Global</span><strong>Centro de Alertas</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Centro de Alertas"><Icon name="close" size={13}/></button></header>
+    <div className="attention-center-summary" role="status" aria-live="polite" aria-atomic="true">
+      <span><b>{summary.total}</b> {summary.total === 1 ? 'alerta ativo' : 'alertas ativos'}</span>
+      <span className={summary.urgent ? 'danger' : ''}><b>{summary.urgent}</b> {summary.urgent === 1 ? 'urgente' : 'urgentes'}</span>
+      <span><b>{summary.actionable}</b> com ação</span>
+      <span><b>{summary.chats}</b> {summary.chats === 1 ? 'chat afetado' : 'chats afetados'}</span>
+    </div>
+    <nav className="attention-center-filters" aria-label="Filtrar Alertas">
+      <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todos <b>{summary.total}</b></button>
+      <button type="button" aria-pressed={filter === 'urgent'} onClick={() => setFilter('urgent')}>Urgentes <b>{summary.urgent}</b></button>
+      <button type="button" aria-pressed={filter === 'actionable'} onClick={() => setFilter('actionable')}>Com Ação <b>{summary.actionable}</b></button>
+    </nav>
     <div className="attention-center-list">
-      {items.length ? items.map((item) => <article className={`attention-center-item ${item.tone}`} key={item.id}><button type="button" className="attention-center-link" disabled={busy && item.chatId !== activeChatId} onClick={() => void onOpen(item)}>
-        <span className="attention-center-marker"><Icon name={item.tone === 'danger' ? 'shield' : item.tone === 'success' ? 'apply' : 'bell'} size={15}/></span>
-        <span className="attention-center-copy"><small>{item.chatTitle}{item.chatId === activeChatId ? ' · aberto agora' : ''}</small><strong>{item.title}</strong><span>{item.detail}</span></span>
-        <Icon name="arrow-right" size={14}/>
-      </button>{item.action && <button type="button" className="attention-center-action" disabled={busy} onClick={() => void onAction(item)}>{item.chatId === activeChatId ? ATTENTION_ACTION_LABEL[item.action] : `Abrir · ${ATTENTION_ACTION_LABEL[item.action]}`}</button>}</article>) : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>Nada requer atenção</strong><span>Alertas de todos os chats abertos deste projeto aparecerão aqui.</span></div>}
+      {filteredItems.length ? <AttentionList items={filteredItems} activeChatId={activeChatId} busy={busy} density="full" onOpen={onOpen} onAction={onAction}/> : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>{items.length ? 'Nenhum alerta neste filtro' : 'Nada requer atenção'}</strong><span>{items.length ? 'Escolha outro filtro para rever os alertas ativos.' : 'Alertas de todos os chats abertos deste projeto aparecerão aqui.'}</span></div>}
     </div>
   </section>
 }

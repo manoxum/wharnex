@@ -74,6 +74,11 @@ func main() {
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
+	executionSettings, err := config.ReadExecutionSettings(cfg.ExecutionSettingsFile, service.ExecutionConcurrency())
+	if err != nil {
+		log.Fatalf("execution settings: %v", err)
+	}
+	service.SetExecutionConcurrency(executionSettings.ProjectConcurrency)
 	service.SetOrchestratorStore(orchestratorStore)
 	service.SetGitSurface(cfg.GitSettingsFile, pendingcommit.NewStore(cfg.GitPendingCommitsFile))
 	service.SetRuntimeInstanceID(cfg.InstanceID)

@@ -34,6 +34,21 @@ test('markdown translation outranks ordinary chat writes', async () => {
   await Promise.all([write, translation])
 })
 
+test('orchestrator planning is highest priority and dedupes one durable request', async () => {
+  const queue = new ChatAgentQueue()
+  const write = queue.enqueueTask({ type: 'BOT_WRITE', chatId: 'write' })
+  const planning = queue.enqueueTask({ type: 'ORCHESTRATOR_PLAN', chatId: 'orp', dedupeKey: 'orchestrator:orp_1' })
+  const duplicate = queue.enqueueTask({ type: 'ORCHESTRATOR_PLAN', chatId: 'orp', dedupeKey: 'orchestrator:orp_1' })
+  assert.equal(planning, duplicate)
+  const first = queue.take()
+  const second = queue.take()
+  assert.equal(first.type, 'ORCHESTRATOR_PLAN')
+  assert.equal(second.type, 'BOT_WRITE')
+  settleJob(first, null, true)
+  settleJob(second, null, true)
+  await Promise.all([write, planning])
+})
+
 test('not_before keeps bounded probes out of contention', async () => {
   let now = 1_000
   const queue = new ChatAgentQueue({ now: () => now })
@@ -76,7 +91,7 @@ test('aging promotes maintenance without overtaking P0 writes', async () => {
 })
 
 test('task catalog covers approved scheduler verbs', () => {
-  for (const type of ['TRANSLATE_MARKDOWN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
+  for (const type of ['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
     assert.ok(TASK_TYPES.includes(type), type)
   }
 })

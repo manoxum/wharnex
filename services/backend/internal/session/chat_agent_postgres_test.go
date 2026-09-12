@@ -121,3 +121,40 @@ func TestPostgresChatAgentSummaryUsesConversationClaimGuard(t *testing.T) {
 		t.Fatalf("guarded title must not be claimed while supervision is deferred: %+v", claimed)
 	}
 }
+
+func TestPostgresRecordChatAgentValidBundlePersistsProviderTimestamp(t *testing.T) {
+	databaseURL := os.Getenv("WHARNESS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("WHARNESS_TEST_DATABASE_URL is not configured")
+	}
+	schema := fmt.Sprintf("chat_agent_valid_bundle_%d", time.Now().UnixNano())
+	admin, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	if _, err := admin.Exec(`CREATE SCHEMA ` + schema); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`)
+	testURL, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := testURL.Query()
+	query.Set("search_path", schema)
+	testURL.RawQuery = query.Encode()
+
+	store, err := NewPostgresStore(context.Background(), testURL.String(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state, err := store.RecordChatAgentValidBundle("req-valid-bundle", "conv-valid-bundle", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.LastValidBundleAt == nil {
+		t.Fatal("last_valid_bundle_at was not persisted")
+	}
+}

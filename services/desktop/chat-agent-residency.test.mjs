@@ -101,6 +101,22 @@ test('a slot that keeps serving its resident lane still yields its rotation turn
   assert.equal(residency.snapshot('worker-2').rotation_position, 0)
 })
 
+test('a live resident supervision cannot rotate into an excess generating lane', () => {
+  let now = 1_000
+  const residency = new ChatAgentResidency({ minResidenceMs: 30_000, now: () => now })
+  for (const slot of ['worker-1', 'worker-2']) residency.register(slot)
+  for (const [slot, lane] of [['worker-1', 'c:live-a'], ['worker-2', 'c:live-b']]) {
+    const assignment = residency.beginAssignment(slot, lane)
+    residency.settleAssignment(slot, assignment.epoch, lane, now)
+  }
+
+  now += 60_000
+  const options = residency.claimOptions('worker-1', { pinResident: true })
+  assert.equal(options.preferred_lane, 'c:live-a')
+  assert.equal(options.fallback_mode, 'resident_only')
+  assert.deepEqual(options.excluded_lanes, ['c:live-b'])
+})
+
 // Residency is an affinity cache. Without an expiry it behaved as ownership:
 // a resident slot only claims its own lane, so it could never be rebound by
 // claiming elsewhere, and every slot stayed pinned to a chat that had already

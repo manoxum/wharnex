@@ -77,6 +77,10 @@ if ! grep -Fq 'mktemp "$STATE_DIR/stack.env.tmp.XXXXXX"' "$STACK"; then
   echo 'lifecycle regression: concurrent stack readers must use unique credential temp files' >&2
   exit 1
 fi
+if ! grep -Fq 'flock -w 1800' "$STACK" || ! grep -Fq 'stack-operation.lock' "$STACK"; then
+  echo 'lifecycle regression: mutating Compose operations must be serialized per checkout' >&2
+  exit 1
+fi
 if ! grep -Fq -- '--no-deps backend frontend' "$STACK"; then
   echo 'lifecycle regression: backend/frontend rollout must not recreate durable dependencies' >&2
   exit 1

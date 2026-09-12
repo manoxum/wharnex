@@ -20,19 +20,25 @@ import (
 // Heavy collections are reduced to the counts the UI actually reads.
 
 type AttentionRecord struct {
-	SessionID      string                 `json:"session_id"`
-	ChatID         string                 `json:"chat_id"`
-	State          string                 `json:"state"`
-	FailureKind    string                 `json:"failure_kind,omitempty"`
-	LastRequestID  string                 `json:"last_request_id,omitempty"`
-	LastTurn       *domain.AgentTurn      `json:"last_turn,omitempty"`
-	Policy         *domain.PolicyDecision `json:"policy,omitempty"`
-	HasPlan        bool                   `json:"has_plan"`
-	PlanID         string                 `json:"plan_id,omitempty"`
-	LastExecPlanID string                 `json:"last_execution_plan_id,omitempty"`
-	PendingCount   int                    `json:"pending_host_changes"`
-	Conflict       *AttentionConflict     `json:"integration_conflict,omitempty"`
-	Interrupted    *AttentionInterrupted  `json:"interrupted_execution,omitempty"`
+	SessionID               string                 `json:"session_id"`
+	ChatID                  string                 `json:"chat_id"`
+	State                   string                 `json:"state"`
+	ExecutionMode           domain.ExecutionMode   `json:"execution_mode,omitempty"`
+	FailureKind             string                 `json:"failure_kind,omitempty"`
+	LastRequestID           string                 `json:"last_request_id,omitempty"`
+	LastRepairError         string                 `json:"last_repair_error,omitempty"`
+	LastTurn                *domain.AgentTurn      `json:"last_turn,omitempty"`
+	Policy                  *domain.PolicyDecision `json:"policy,omitempty"`
+	HasPlan                 bool                   `json:"has_plan"`
+	PlanID                  string                 `json:"plan_id,omitempty"`
+	LastExecPlanID          string                 `json:"last_execution_plan_id,omitempty"`
+	PendingCount            int                    `json:"pending_host_changes"`
+	PendingManualCount      int                    `json:"pending_manual_requests,omitempty"`
+	PlannerInFlight         bool                   `json:"planner_in_flight,omitempty"`
+	HasManualPrompt         bool                   `json:"has_manual_prompt,omitempty"`
+	SelfEvolutionActivation string                 `json:"self_evolution_activation,omitempty"`
+	Conflict                *AttentionConflict     `json:"integration_conflict,omitempty"`
+	Interrupted             *AttentionInterrupted  `json:"interrupted_execution,omitempty"`
 }
 
 type AttentionConflict struct {
@@ -66,14 +72,20 @@ func (s *Service) WorkspaceAttention(projectPath string) ([]AttentionRecord, err
 
 func attentionRecordFor(item domain.Session) AttentionRecord {
 	record := AttentionRecord{
-		SessionID:     item.ID,
-		ChatID:        item.ChatID,
-		State:         item.State,
-		FailureKind:   item.FailureKind,
-		LastRequestID: item.LastRequestID,
-		LastTurn:      item.LastTurn,
-		Policy:        item.Policy,
-		PendingCount:  len(item.PendingHostChanges),
+		SessionID:               item.ID,
+		ChatID:                  item.ChatID,
+		State:                   item.State,
+		ExecutionMode:           item.ExecutionMode,
+		FailureKind:             item.FailureKind,
+		LastRequestID:           item.LastRequestID,
+		LastRepairError:         truncateRepairText(item.LastRepairError, 2048),
+		LastTurn:                item.LastTurn,
+		Policy:                  item.Policy,
+		PendingCount:            len(item.PendingHostChanges),
+		PendingManualCount:      len(item.PendingManualRequestIDs),
+		PlannerInFlight:         item.PlannerInFlight,
+		HasManualPrompt:         item.LastManualPrompt != "",
+		SelfEvolutionActivation: item.SelfEvolutionActivation,
 	}
 	if item.Plan != nil {
 		record.HasPlan = true

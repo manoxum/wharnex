@@ -1,4 +1,4 @@
-export const CHATGPT_ACCOUNT_ACTIONS = Object.freeze(['ensure-project', 'move-conversation', 'rename-conversation', 'stop-conversation', 'archive-conversation', 'hide-sidebar'])
+export const CHATGPT_ACCOUNT_ACTIONS = Object.freeze(['ensure-project', 'move-conversation', 'rename-conversation', 'stop-conversation', 'archive-conversation', 'delete-conversation', 'hide-sidebar'])
 
 export class ChatGPTAccountProviderChain {
   constructor({ official, browser }) {

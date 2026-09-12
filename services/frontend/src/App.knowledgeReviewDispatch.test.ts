@@ -15,7 +15,7 @@ describe('App knowledge-review dispatch', () => {
     const start = source.indexOf('pending_knowledge_review_request_id')
     expect(start).toBeGreaterThan(-1)
     const effectStart = source.lastIndexOf('useEffect(() => {', start)
-    const effectEnd = source.indexOf('}, [session, activeChatId, chats])', start)
+    const effectEnd = source.indexOf('}, [session, activeChatOwnsSession, activeChatId, chats])', start)
     const body = source.slice(effectStart, effectEnd)
     expect(body).toContain("session.pending_knowledge_review_request_id")
     expect(body).toContain("session.automation_mode !== 'auto'")

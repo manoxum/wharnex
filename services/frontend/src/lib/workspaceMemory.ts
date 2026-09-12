@@ -70,6 +70,72 @@ export type WorkspaceChat = {
   archivedAt?: string
 }
 
+// Durable wire representation owned by the backend. Fields that are purely a
+// renderer concern remain inside `extra`; keeping the conversion here gives
+// every caller one lossless identity boundary instead of a growing collection
+// of partial, subtly different payloads.
+export type DurableWorkspaceChatRecord = {
+  id: string
+  project_path: string
+  session_id: string
+  title: string
+  chatgpt_url?: string
+  archived_at?: string
+  created_at: string
+  updated_at: string
+  extra?: Record<string, unknown>
+}
+
+export function durableWorkspaceChat(projectPath: string, chat: WorkspaceChat): DurableWorkspaceChatRecord {
+  const {
+    id, title, sessionId, chatgptUrl, createdAt, updatedAt, archivedAt,
+    ...extra
+  } = normalizeWorkspaceChatAffinity(chat)
+  return {
+    id,
+    project_path: projectPath,
+    session_id: sessionId,
+    title,
+    ...(chatgptUrl ? { chatgpt_url: chatgptUrl } : {}),
+    ...(archivedAt ? { archived_at: archivedAt } : {}),
+    created_at: createdAt,
+    updated_at: updatedAt,
+    ...(Object.keys(extra).length ? { extra } : {}),
+  }
+}
+
+function workspaceChatFromDurable(record: DurableWorkspaceChatRecord): WorkspaceChat | undefined {
+  const candidate = {
+    id: record.id,
+    title: record.title,
+    sessionId: record.session_id,
+    ...(record.chatgpt_url ? { chatgptUrl: record.chatgpt_url } : {}),
+    ...((record.extra && typeof record.extra === 'object') ? record.extra : {}),
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    ...(record.archived_at ? { archivedAt: record.archived_at } : {}),
+  } as WorkspaceChat
+  return validChat(candidate) ? normalizeWorkspaceChatAffinity(candidate) : undefined
+}
+
+// Local order is an explicit UI choice. Durable rows are authoritative for
+// content and affinity, while rows which exist only in durable storage are
+// appended so clearing browser data cannot make a chat disappear.
+export function mergeDurableWorkspaceChats(local: WorkspaceChat[], durable: DurableWorkspaceChatRecord[]): WorkspaceChat[] {
+  const restored = new Map<string, WorkspaceChat>()
+  for (const record of durable) {
+    const chat = workspaceChatFromDurable(record)
+    if (chat) restored.set(chat.id, chat)
+  }
+  const merged = local.map((chat) => restored.get(chat.id) || normalizeWorkspaceChatAffinity(chat))
+  const localIDs = new Set(local.map((chat) => chat.id))
+  for (const record of durable) {
+    const chat = restored.get(record.id)
+    if (chat && !localIDs.has(chat.id)) merged.push(chat)
+  }
+  return merged.slice(0, 60)
+}
+
 export function conflictChatGPTCacheKey(chatId: string, conflictId: string) {
   const clean = `${chatId}_cf_${conflictId}`.replace(/[^A-Za-z0-9_-]/g, '_')
   return clean.slice(0, 128)
@@ -203,7 +269,7 @@ export function saveArchivedWorkspaceChats(projectPath: string, chats: Workspace
   try { localStorage.setItem(ARCHIVED_CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
 }
 
-export function newWorkspaceChat(sessionId: string, title = 'Novo chat', id = crypto.randomUUID()): WorkspaceChat {
+export function newWorkspaceChat(sessionId: string, title = 'Novo chat', id: string = crypto.randomUUID()): WorkspaceChat {
   const now = new Date().toISOString()
   return { id, title, sessionId, createdAt: now, updatedAt: now }
 }

@@ -65,6 +65,8 @@ test('stop action confirms idle only from a usable composer and otherwise stays 
   const script = chatGPTStopConversationScript()
   assert.match(script, /querySelectorAll/)
   assert.match(script, /state: 'stopping'/)
+  assert.match(script, /rect\(stop\)/)
+  assert.doesNotMatch(script, /stop\.click\(\)/)
   assert.match(script, /composers\.some\(usable\) \? \{ ok: true, state: 'idle' \} : \{ ok: false, state: 'surface-unavailable' \}/)
   assert.match(script, /aria-disabled/)
   assert.match(script, /visibility/)
@@ -78,6 +80,8 @@ test('conversation menu binds to its own conversation id before falling back to 
   assert.match(script, /data-conversation-options-trigger/)
   assert.match(script, /conversation-options-button/)
   assert.match(script, /boundToConversation/)
+  assert.match(script, /rect\(trigger\)/)
+  assert.doesNotMatch(script, /trigger\.click\(\)/)
   assert.doesNotMatch(script, /CSS\.escape/)
 })
 
@@ -87,6 +91,13 @@ test('menu and project scripts return a click rect instead of clicking', () => {
   for (const script of [chatGPTMenuItemRectScript('rename'), chatGPTMenuItemRectScript('archive'), chatGPTProjectItemRectScript('Wharnex')]) {
     assert.match(script, /rect\(/)
     assert.doesNotMatch(script, /item\.click\(\)/)
+  }
+})
+
+test('all account navigation controls return coordinates for trusted native input', () => {
+  for (const script of [chatGPTHideSidebarScript(), chatGPTShowSidebarScript(), chatGPTOpenConversationMenuScript('owned'), chatGPTStopConversationScript()]) {
+    assert.match(script, /rect\(/)
+    assert.doesNotMatch(script, /\.click\(\)/)
   }
 })
 
@@ -105,6 +116,12 @@ test('rename targets the inline title editor rather than a dialog', () => {
     assert.doesNotMatch(script, /role="dialog"/)
   }
   assert.match(chatGPTCommitConversationTitleScript('fila'), /WHX: fila/)
+})
+
+test('account value staging never requests DOM focus', () => {
+  for (const script of [chatGPTCommitConversationTitleScript('fila'), chatGPTNewProjectDialogScript('Wharnex')]) {
+    assert.doesNotMatch(script, /\.focus\(|\.select\(/)
+  }
 })
 
 test('project inventory reads the account project anchors and reports duplicates', () => {

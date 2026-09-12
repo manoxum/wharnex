@@ -5,7 +5,7 @@ import type { ChatViewportStore } from './useProgressiveChatHistory'
 import { Inspector, type InspectorTab } from './Inspector'
 import { Icon } from './Icon'
 import { desktopWindowScope } from '../lib/projectBindings'
-import { ATTENTION_ACTION_LABEL, sessionCanApplyHost, sessionHostResolutionBlocked, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
+import { ATTENTION_ACTION_LABEL, sessionCanApplyHost, sessionHostResolutionBlocked, summarizeAttention, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { AttentionPopover } from './AttentionPopover'
 import { api } from '../lib/api'
 
@@ -58,13 +58,14 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   const [attentionPopoverOpen, setAttentionPopoverOpen] = useState(false)
   const workspaceRef = useRef<HTMLElement>(null)
   const attentionClusterRef = useRef<HTMLDivElement>(null)
+  const attentionTriggerRef = useRef<HTMLButtonElement>(null)
   const chatViewportStoreRef = useRef<ChatViewportStore>(new Map())
   const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
   const [draggedChatId, setDraggedChatId] = useState('')
   const [dropTargetChatId, setDropTargetChatId] = useState('')
   const [bundleQuota, setBundleQuota] = useState<BundleQuota>()
   const archived = chatProps.archivedChats || []
-  const urgentAttentionCount = attentionItems.filter((item) => item.tone === 'danger').length
+  const attentionSummary = summarizeAttention(attentionItems)
   const activeCommandAttention = attentionItems.find((item) => item.chatId === chatProps.activeChatId && item.action && item.action !== 'apply-host')
   const executionCommandRunning = useMemo(() => hasRunningExecutionCommand(inspectorProps.events), [inspectorProps.events])
   useEffect(() => {
@@ -79,7 +80,12 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!attentionClusterRef.current?.contains(event.target as Node)) setAttentionPopoverOpen(false)
     }
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setAttentionPopoverOpen(false) }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setAttentionPopoverOpen(false)
+      attentionTriggerRef.current?.focus()
+    }
     document.addEventListener('pointerdown', closeOnOutsidePointer)
     document.addEventListener('keydown', closeOnEscape)
     return () => {
@@ -87,6 +93,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [attentionPopoverOpen])
+  useEffect(() => { if (!attentionItems.length) setAttentionPopoverOpen(false) }, [attentionItems.length])
   // Attention routing switches the inspector to the surface that needs a human,
   // but it never dismisses the left panel: the drawer closes only when the
   // operator asks it to, so incoming attention cannot pull away the plans,
@@ -123,6 +130,11 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   function openAllAttention() {
     setAttentionPopoverOpen(false)
     onOpenAttentionDrawer()
+  }
+
+  function closeAttentionPopover() {
+    setAttentionPopoverOpen(false)
+    attentionTriggerRef.current?.focus()
   }
 
   function attentionTone(target: AttentionTarget): AttentionTone | undefined {
@@ -197,9 +209,10 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       </div>}
       <div className="agent-command-actions">
         {bundleQuota && <AgentBundleCounters quota={bundleQuota}/>}
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{attentionSummary.total} {attentionSummary.total === 1 ? 'alerta ativo' : 'alertas ativos'}; {attentionSummary.urgent} {attentionSummary.urgent === 1 ? 'urgente' : 'urgentes'}; {attentionSummary.actionable} com ação disponível.</span>
         {attentionItems.length > 0 && <div className="agent-attention-cluster" ref={attentionClusterRef}>
-          <button type="button" className={`agent-attention-summary ${urgentAttentionCount ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-label={`Centro de notificações, ${attentionItems.length} alerta(s), ${urgentAttentionCount} urgente(s)`} title="Alertas de todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionItems.length} {attentionItems.length === 1 ? 'alerta' : 'alertas'}</b><small>{urgentAttentionCount} {urgentAttentionCount === 1 ? 'urgente' : 'urgentes'}</small></span></button>
-          {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention}/>}
+          <button ref={attentionTriggerRef} type="button" className={`agent-attention-summary ${attentionSummary.urgent ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-controls="agent-attention-popover" aria-label={`Centro de notificações, ${attentionSummary.total} alerta(s), ${attentionSummary.urgent} urgente(s), ${attentionSummary.actionable} com ação`} title="Centro de Alertas · todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionSummary.total} {attentionSummary.total === 1 ? 'alerta' : 'alertas'}</b><small>{attentionSummary.urgent} {attentionSummary.urgent === 1 ? 'urgente' : 'urgentes'}</small></span></button>
+          {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention} onClose={closeAttentionPopover}/>}
         </div>}
         {session.policy && <span className={`agent-policy-icon ${session.policy.allowed ? '' : 'blocked'}`} title={session.policy.allowed ? `Policy autorizada · risco ${session.policy.risk}` : 'Policy bloqueada'} aria-label={session.policy.allowed ? `Policy autorizada, risco ${session.policy.risk}` : 'Policy bloqueada'}><Icon name="shield" size={14}/></span>}
         {canExecute && !needsApproval && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}

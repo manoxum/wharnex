@@ -23,33 +23,18 @@ function composerLookupSource() {
     const composer = chooseUsable(composerSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]));`
 }
 
-export function chatGPTFocusComposerScript() {
-  return `(() => {
-    ${composerLookupSource()}
-    if (!composer) return false;
-    composer.focus();
-    return document.activeElement === composer;
-  })()`
-}
-
 export function chatGPTFillComposerScript(text) {
   const value = encode(text)
   return `(() => {
     const value = ${value};
     ${composerLookupSource()}
     if (!composer) return false;
-    composer.focus();
-    if (document.activeElement !== composer) return false;
     if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
       const proto = composer instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
       if (setter) setter.call(composer, value); else composer.value = value;
     } else {
       composer.textContent = value;
-      const range = document.createRange();
-      range.selectNodeContents(composer); range.collapse(false);
-      const selection = window.getSelection();
-      selection?.removeAllRanges(); selection?.addRange(range);
     }
     composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
     composer.dispatchEvent(new Event('change', { bubbles: true }));

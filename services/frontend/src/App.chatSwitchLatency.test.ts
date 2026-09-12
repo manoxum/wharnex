@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 const inspectorSource = readFileSync(resolve(process.cwd(), 'src/components/Inspector.tsx'), 'utf8')
 const selectChat = source.slice(source.indexOf('async function selectChat('), source.indexOf('const updateWorkspaceChat ='))
+const newChat = source.slice(source.indexOf('async function newChat('), source.indexOf('async function exportActiveChat('))
 
 describe('chat switching stays local and immediate', () => {
   // Everything the user perceives on a switch is already on this machine. The
@@ -17,6 +18,18 @@ describe('chat switching stays local and immediate', () => {
     expect(activate).toBeGreaterThan(-1)
     expect(firstAwait).toBeGreaterThan(-1)
     expect(activate).toBeLessThan(firstAwait)
+  })
+
+  it('hides the outgoing native Supervisor before exposing another chat', () => {
+    const hide = selectChat.indexOf('hideChatGPTSurfaces(')
+    const activate = selectChat.indexOf('setActiveChatId(chatId)')
+    expect(hide).toBeGreaterThan(-1)
+    expect(hide).toBeLessThan(activate)
+
+    const newHide = newChat.indexOf('hideChatGPTSurfaces(')
+    const firstAwait = newChat.indexOf('await ')
+    expect(newHide).toBeGreaterThan(-1)
+    expect(newHide).toBeLessThan(firstAwait)
   })
 
   it('renders the transcript from local storage without waiting for the session', () => {
@@ -55,9 +68,16 @@ describe('chat switching stays local and immediate', () => {
     expect(source).toMatch(/const activeConflict = activeChat\?\.sessionId === session\.id \? session\.integration_conflict : undefined/)
   })
 
+  it('blocks every active-chat automatic dispatcher until session ownership is proven', () => {
+    const repairEffect = source.slice(source.indexOf("if (!session || !activeChatOwnsSession || !['repair_pending'"), source.indexOf('async function syncSessionModes'))
+    expect(repairEffect.match(/!activeChatOwnsSession/g)?.length).toBe(2)
+    expect(source).toContain('if (!session || !activeChatOwnsSession || !activeChatId || activeBusy')
+  })
+
   it('does not seed an unbound dedicated conflict surface with the primary conversation URL', () => {
     expect(inspectorSource).toContain('chatgptUrl={surface ? surface.url : activeChat.chatgptUrl}')
     expect(inspectorSource).not.toContain('chatgptUrl={surface?.url || activeChat.chatgptUrl}')
+    expect(inspectorSource).toContain('activeChat.sessionId !== session.id')
   })
 
   it('evicts a chat from the cache when it is archived', () => {
@@ -86,5 +106,13 @@ describe('chat switching stays local and immediate', () => {
     expect(asyncActions).not.toMatch(/setItems\(/)
     expect(asyncActions).toContain('acceptSessionForChat(')
     expect(asyncActions).toMatch(/(?:appendChatItem|mutateChatItems)\(/)
+  })
+
+  it('routes ordinary planner continuations to hidden Workers', () => {
+    const start = source.indexOf('async function transportPlannerContinuation')
+    const end = source.indexOf('\n\tasync function submitConflictPrompt', start)
+    const continuation = source.slice(start, end)
+    expect(continuation).toMatch(/cacheKey, background: true, \.\.\.\(!dedicatedConflict \? \{ workspaceChatId: targetChat\.id \} : \{\}\)/)
+    expect(continuation).toMatch(/const dedicatedConflict = Boolean\(surface\)/)
   })
 })

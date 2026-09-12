@@ -15,3 +15,12 @@ test('uses typed browser fallback without accepting arbitrary actions', async ()
   assert.deepEqual(await chain.run('hide-sidebar', {}), { ok: true, state: 'done', provider: 'typed-browser' })
   await assert.rejects(() => chain.run('read-cookies', {}), /Unsupported/)
 })
+
+test('admits the typed delete operation used by durable cleanup tasks', async () => {
+  const chain = new ChatGPTAccountProviderChain({ browser: { run: async (action) => ({ ok: true, state: action }) } })
+  assert.deepEqual(await chain.run('delete-conversation', { key: 'owned-chat' }), {
+    ok: true,
+    state: 'delete-conversation',
+    provider: 'typed-browser',
+  })
+})

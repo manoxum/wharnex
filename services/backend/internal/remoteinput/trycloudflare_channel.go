@@ -17,7 +17,12 @@ import (
 
 var tryCloudflareChannelPattern = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
 var tryCloudflarePromptPathPattern = regexp.MustCompile(`^prompts/[A-Za-z0-9._-]{1,180}\.md$`)
-var tryCloudflareFilePathPattern = regexp.MustCompile(`^files/(context|attachment|artifact)/[a-f0-9]{64}$`)
+
+// Keep this closed list aligned with every role emitted by
+// buildRemoteFileMapResources. An omitted producer role makes the optional
+// live channel fail wholesale even though every individual resource is still
+// content-addressed and otherwise valid.
+var tryCloudflareFilePathPattern = regexp.MustCompile(`^files/(context|knowledge|continuation|attachment|artifact)/[a-f0-9]{64}$`)
 var tryCloudflareHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type tryCloudflareChannel struct {
