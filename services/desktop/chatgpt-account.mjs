@@ -39,6 +39,7 @@ const PRELUDE = `
       if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return null;
       return { x, y, width: Math.round(r.width), height: Math.round(r.height) };
     };
+    const viewport = () => ({ w: innerWidth, h: innerHeight });
     const label = (node) => String(node?.getAttribute?.('aria-label') || node?.getAttribute?.('title') || node?.textContent || '').replace(/\\s+/g, ' ').trim();
 `
 
@@ -123,7 +124,7 @@ export function chatGPTMenuItemRectScript(action) {
       || items.find((node) => { const text = label(node).toLocaleLowerCase(); return wanted.some((value) => text.startsWith(value)); });
     if (!item) return { ok: false, state: 'action-unavailable', available: items.map(label).slice(0, 12) };
     const point = rect(item);
-    if (!point) return { ok: false, state: 'action-offscreen' };
+    if (!point) return { ok: false, state: 'action-offscreen', viewport: viewport() };
     return { ok: true, state: 'action-located', rect: point, hasSubmenu: item.getAttribute('aria-haspopup') === 'menu' };
   })()`
 }
@@ -155,7 +156,7 @@ export function chatGPTProjectItemRectScript(projectName) {
     const matches = anchors.filter((node) => fold(label(node)) === wanted);
     if (!matches.length) return { ok: false, state: 'project-missing', count: anchors.length };
     const point = rect(matches[0]);
-    if (!point) return { ok: false, state: 'project-offscreen' };
+    if (!point) return { ok: false, state: 'project-offscreen', viewport: viewport() };
     return { ok: true, state: 'project-located', rect: point, duplicates: matches.length, href: matches[0].getAttribute('href') || '' };
   })()`
 }
@@ -220,7 +221,7 @@ export function chatGPTNewProjectDialogScript(projectName) {
     const submit = [...dialog.querySelectorAll('button[type="submit"], button[data-testid*="confirm"], button')].find((node) => usable(node) && visible(node) && /create|criar|crear|créer|erstellen/i.test(label(node)));
     if (!submit) return { ok: false, state: 'project-submit-unavailable' };
     const point = rect(submit);
-    if (!point) return { ok: false, state: 'project-submit-offscreen' };
+    if (!point) return { ok: false, state: 'project-submit-offscreen', viewport: viewport() };
     return { ok: true, state: 'project-staged', rect: point, project: wanted };
   })()`
 }
@@ -256,7 +257,7 @@ export function chatGPTLibraryArtifactRectScript(canonicalFilename, artifactId =
     if (matches.length !== 1) return { ok: false, state: 'artifact-ambiguous', matches: matches.length };
     const point = rect(matches[0].action);
     return point ? { ok: true, state: 'artifact-located', rect: point, artifactId: matches[0].id, canonicalFilename: matches[0].name }
-      : { ok: false, state: 'artifact-offscreen' };
+      : { ok: false, state: 'artifact-offscreen', viewport: viewport() };
   })()`
 }
 
@@ -290,6 +291,6 @@ export function chatGPTConfirmDeleteScript() {
       || buttons.find((node) => wanted.some((value) => label(node).toLocaleLowerCase().startsWith(value)));
     if (!button) return { ok: false, state: 'delete-confirm-unavailable', available: buttons.map(label).slice(0, 8) };
     const point = rect(button);
-    return point ? { ok: true, state: 'delete-confirm-located', rect: point } : { ok: false, state: 'delete-confirm-offscreen' };
+    return point ? { ok: true, state: 'delete-confirm-located', rect: point } : { ok: false, state: 'delete-confirm-offscreen', viewport: viewport() };
   })()`
 }

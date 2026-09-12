@@ -1239,6 +1239,77 @@ test('a hidden Worker gets a layout viewport even while it owns the Supervisor s
   assert.doesNotMatch(viewport, /if \(ownerState\?\.activeChatGPTKey === key\) return false/)
 })
 
+// Measured on Electron 44: a WebContentsView given bounds while already hidden
+// reports a 0x0 viewport to its renderer, because Electron delivers a resize
+// only while the view is visible. The identical view given the same bounds
+// before being hidden reports 1280x900 and keeps it across later navigations.
+//
+// A chat slot left at 0x0 fails account automation twice over: every located
+// control's centre lies outside the viewport, so `rect()` returns null and the
+// operation reports `action-offscreen`; and every percentage-width node
+// collapses to width 0, so the shared `visible()` predicate rejects it.
+test('a chat slot is given its layout viewport before it is ever hidden', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const grantStart = source.indexOf('function grantChatGPTLayoutViewport(')
+  assert.ok(grantStart > 0, 'grantChatGPTLayoutViewport must exist')
+  const grant = source.slice(grantStart, source.indexOf('\n}', grantStart))
+  // visible -> resize -> hidden, in that order. No compositor frame is produced
+  // between the two setVisible calls, so the view never appears on screen -
+  // which only holds while the sequence stays synchronous.
+  assert.match(grant, /setVisible\(true\)[\s\S]*setBounds\([\s\S]*setVisible\(false\)/)
+  assert.doesNotMatch(grant, /await/)
+
+  for (const factory of ['function createChatGPTView(', 'function createChatGPTWorkerView(']) {
+    const start = source.indexOf(factory)
+    assert.ok(start > 0, `${factory} must exist`)
+    const body = source.slice(start, source.indexOf('\n  const wc = view.webContents', start))
+    // Hiding the slot before it has bounds is what stranded it at 0x0.
+    assert.doesNotMatch(body, /view\.setVisible\(false\)/)
+    assert.match(body, /addChildView\(view\)\n\s*grantChatGPTLayoutViewport\(view\)/)
+    assert.match(body, /layoutViewportGranted: true/)
+  }
+})
+
+test('the layout viewport guard does not read native bounds as renderer evidence', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function ensureChatGPTLayoutViewport(')
+  const viewport = source.slice(start, source.indexOf('\n}', source.indexOf('return true', start)))
+
+  // getBounds() reports the bounds that were *set*, not the viewport the page
+  // actually has. The first ineffective setBounds therefore made this guard
+  // report 1280x900 forever after, so no later call could repair the slot -
+  // which is why every ORGANIZE_CHAT attempt failed identically until the task
+  // exhausted its budget.
+  assert.doesNotMatch(viewport, /getBounds/)
+  assert.match(viewport, /entry\.layoutViewportGranted === true\) return false/)
+  assert.match(viewport, /grantChatGPTLayoutViewport\(entry\.view\)/)
+
+  // Re-parenting rebuilds the native hierarchy, so the grant has to be redone.
+  const rehomeStart = source.indexOf('function rehomeChatGPTWorkers(')
+  const rehome = source.slice(rehomeStart, source.indexOf('\n}', rehomeStart))
+  assert.match(rehome, /grantChatGPTLayoutViewport\(entry\.view\)/)
+})
+
+test('an offscreen account control reports the viewport that measured it', async () => {
+  const [account, agent] = await Promise.all([
+    readFile(new URL('./chatgpt-account.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./chat-agent-scripts.mjs', import.meta.url), 'utf8'),
+  ])
+
+  // Without this, "the slot has no layout viewport" and "the control is
+  // genuinely scrolled out of view" are the same opaque string in the task's
+  // last_error, which is what let the 0x0 fault stay invisible across dozens of
+  // identical failures. The viewport is control geometry, never page content.
+  for (const source of [account, agent]) {
+    for (const [, state] of source.matchAll(/state: '([a-z-]*offscreen)'/g)) {
+      const occurrence = new RegExp(`state: '${state}', viewport: viewport\\(\\)`)
+      assert.match(source, occurrence, `${state} must report the measuring viewport`)
+    }
+    assert.match(source, /const viewport = \(\) => \(\{ w: innerWidth, h: innerHeight \}\)/)
+  }
+})
+
 test('AWAIT_RESPONSE confirms a completion before concluding the bundle is missing', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function probeChatAgentResponse(')

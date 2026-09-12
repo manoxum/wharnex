@@ -25,6 +25,10 @@ const PRELUDE = `
   const all = (list) => { const out = []; for (const sel of list) for (const n of document.querySelectorAll(sel)) if (vis(n) && !out.includes(n)) out.push(n); return out };
   const rect = (n) => { const r = n.getBoundingClientRect(); const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
     return (x < 0 || y < 0 || x > innerWidth || y > innerHeight) ? null : { x, y, width: Math.round(r.width), height: Math.round(r.height) }; };
+  // Reported with every offscreen failure so a slot that simply has no layout
+  // viewport (0x0) is never again indistinguishable from a control that is
+  // genuinely scrolled out of view. Both are control geometry, never content.
+  const viewport = () => ({ w: innerWidth, h: innerHeight });
   const text = (n) => String(n?.getAttribute?.('aria-label') || n?.getAttribute?.('title') || n?.textContent || '').replace(/\\s+/g, ' ').trim();
   const fold = (v) => String(v || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase();
 `
@@ -139,7 +143,7 @@ export function menuItemRectScript(behavior, labelKey) {
     const item = items.find((n) => wanted.includes(fold(text(n)))) || items.find((n) => wanted.some((w) => fold(text(n)).startsWith(w)));
     if (!item) return { ok: false, state: 'action-unavailable', available: items.map(text).slice(0, 12) };
     const point = rect(item);
-    return point ? { ok: true, state: 'action-located', rect: point } : { ok: false, state: 'action-offscreen' };
+    return point ? { ok: true, state: 'action-located', rect: point } : { ok: false, state: 'action-offscreen', viewport: viewport() };
   `)
 }
 
@@ -152,7 +156,7 @@ export function projectItemRectScript(behavior, projectName) {
     const point = rect(matches[0]);
     return point
       ? { ok: true, state: 'project-located', rect: point, duplicates: matches.length, href: matches[0].getAttribute('href') || '' }
-      : { ok: false, state: 'project-offscreen' };
+      : { ok: false, state: 'project-offscreen', viewport: viewport() };
   `)
 }
 
@@ -179,7 +183,7 @@ export function reasoningDisclosureRectScript(behavior) {
     if (!target) return { ok: false, state: 'reasoning-disclosure-unavailable' };
     const expanded = target.getAttribute('aria-expanded') === 'true';
     const point = rect(target);
-    if (!point) return { ok: false, state: 'reasoning-disclosure-offscreen' };
+    if (!point) return { ok: false, state: 'reasoning-disclosure-offscreen', viewport: viewport() };
     return { ok: true, state: expanded ? 'reasoning-expanded' : 'reasoning-collapsed', expanded, rect: point, label: text(target).slice(0, 120) };
   `)
 }

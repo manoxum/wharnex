@@ -619,7 +619,11 @@ function rehomeChatGPTWorkers(windowState) {
     entry.ownerWindowId = replacement.id
     entry.interactionWindowId = ''
     entry.parkedLayout = true
-    entry.view.setVisible(false)
+    // Re-parenting rebuilds the native view hierarchy, so the renderer's layout
+    // viewport does not survive it. Re-grant rather than hide straight away,
+    // which would strand the slot at 0x0 for every later account operation.
+    grantChatGPTLayoutViewport(entry.view)
+    entry.layoutViewportGranted = true
   }
   return true
 }
@@ -1502,10 +1506,10 @@ function createChatGPTView(cacheKey, windowState) {
   if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT view without an owning Wharness window')
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
-  view.setVisible(false)
-  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: false, affinity: createChatGPTAffinityTracker() }
+  const entry = { ownerKey: cacheKey, ownerWindowId: windowState.id, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, layoutViewportGranted: true, affinity: createChatGPTAffinityTracker() }
   chatgptViews.set(cacheKey, entry)
   windowState.window.contentView.addChildView(view)
+  grantChatGPTLayoutViewport(view)
 
   const wc = view.webContents
   wc.setUserAgent(CHATGPT_USER_AGENT)
@@ -1552,9 +1556,9 @@ function createChatGPTWorkerView(slotId, windowState) {
   if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT worker without a host window')
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
-  view.setVisible(false)
-  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, affinity: createChatGPTAffinityTracker() }
+  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, layoutViewportGranted: true, affinity: createChatGPTAffinityTracker() }
   windowState.window.contentView.addChildView(view)
+  grantChatGPTLayoutViewport(view)
   chatGPTWorkerEntries.push(entry)
   chatAgentResidency.register(slotId)
   const wc = view.webContents
@@ -1701,6 +1705,9 @@ function showChatAgentInteraction(agentID, rawBounds, windowState) {
   entry.view.setBounds(bounds)
   entry.parkedLayout = false
   entry.view.setVisible(true)
+  // Real pane bounds on a visible view are a real renderer viewport, so the
+  // slot no longer needs the synthetic grant.
+  entry.layoutViewportGranted = true
   publishChatAgentRuntimeState()
   return { ok: true, agentId: entry.slotId, bounds }
 }
@@ -2295,11 +2302,35 @@ async function hideChatGPTSidebar(key, entry) {
   return runChatGPTAccountAction('hide-sidebar', { key }, () => runChatGPTAccountScript(key, entry, 'hide-sidebar', chatGPTHideSidebarScript()))
 }
 
+// Electron delivers a resize to the renderer only while the view is visible. A
+// setBounds on an already-hidden WebContentsView updates the native bounds and
+// never reaches the page, so innerWidth/innerHeight stay 0. That is measured
+// Electron 44 behaviour, not inference: a hidden slot given bounds reports a 0x0
+// viewport, while the identical slot given the same bounds before being hidden
+// reports 1280x900 and keeps it across later navigations.
+//
+// A 0x0 viewport breaks account automation two ways. Every located control has
+// a centre outside the viewport, so `rect()` returns null and the operation
+// reports `action-offscreen`; and every percentage-width node collapses to
+// width 0, so the shared `visible()` predicate rejects it outright.
+//
+// Granting the viewport is therefore a visible -> resize -> hidden sequence, and
+// it MUST stay synchronous: no compositor frame is produced between the two
+// setVisible calls, so the view never actually appears on screen.
+const CHATGPT_LAYOUT_VIEWPORT = { x: 0, y: 0, width: 1280, height: 900 }
+
+function grantChatGPTLayoutViewport(view) {
+  if (!view || view.webContents?.isDestroyed?.()) return false
+  view.setVisible(true)
+  view.setBounds({ ...CHATGPT_LAYOUT_VIEWPORT })
+  view.setVisible(false)
+  return true
+}
+
 // A hidden owned view is never given bounds by the window layout, which leaves
-// its renderer with a zero-sized viewport: every getBoundingClientRect collapses
-// to the origin and a native click would land nowhere. Account automation runs
-// on background views (maintenance jobs), so give such a view a real layout
-// viewport without ever making it visible.
+// its renderer with a zero-sized viewport. Account automation runs on background
+// views (maintenance jobs), so give such a view a real layout viewport without
+// ever making it visible.
 function ensureChatGPTLayoutViewport(key, entry) {
   // Never resize a view the window is actually showing: its bounds belong to
   // the renderer layout, and overwriting them makes the visible ChatGPT surface
@@ -2316,14 +2347,18 @@ function ensureChatGPTLayoutViewport(key, entry) {
   const ownerState = windowStateForEntry(entry)
   if (entry?.interactionWindowId && ownerState?.activeAgentInteractionId === entry.slotId) return false
   if (ownerState?.activeChatGPTKey === key && chatgptViews.get(key) === entry) return false
-  const bounds = entry.view.getBounds?.() || { width: 0, height: 0 }
-  if (bounds.width >= 640 && bounds.height >= 480) return false
+  // The native bounds are NOT evidence the renderer has a viewport, and reading
+  // them as if they were is what made this permanent: the first ineffective
+  // setBounds left getBounds() reporting 1280x900 while the page stayed at 0x0,
+  // so this guard then skipped every later repair. Ownership of the grant is
+  // tracked explicitly instead.
+  if (entry.layoutViewportGranted === true) return false
   // The viewport has to sit inside the window: Electron clips a child view to
-  // its parent, so off-screen bounds collapse the renderer to 0x0 — it stops
-  // laying out and stops accepting trusted input, which is measured behaviour,
-  // not a guess. The size is therefore real and at the origin, and the view is
-  // marked parked so it can never be shown while carrying these bounds.
-  entry.view.setBounds({ x: 0, y: 0, width: 1280, height: 900 })
+  // its parent, so off-screen bounds collapse the renderer to 0x0. The size is
+  // therefore real and at the origin, and the view is marked parked so it can
+  // never be shown while carrying these bounds.
+  grantChatGPTLayoutViewport(entry.view)
+  entry.layoutViewportGranted = true
   entry.parkedLayout = true
   return true
 }
