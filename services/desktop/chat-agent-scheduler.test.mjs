@@ -244,3 +244,35 @@ test('an ordinary retry on the final attempt still fails terminally', async () =
   await scheduler.stop()
   assert.ok(transitions.some((item) => item.action === 'fail'))
 })
+
+
+test('completed worker result payload is persisted through the complete transition', async () => {
+  const transitions = []
+  let claimed = false
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1, taskCooldownMs: 0,
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        if (claimed) return { ok: true, json: async () => ({}) }
+        claimed = true
+        return { ok: true, json: async () => ({ task: { task_id: 'cat-translation', type: 'TRANSLATE_MARKDOWN', attempt: 1, max_attempts: 2 } }) }
+      }
+      const action = url.split('/').pop()
+      transitions.push({ action, body: JSON.parse(String(init?.body || '{}')) })
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({
+      status: 'done',
+      payload: { protocol: 'harness.utility/v1', task: 'translate_markdown', target_language: 'pt', markdown: 'Olá' },
+    }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && !transitions.some((item) => item.action === 'complete'); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  const complete = transitions.find((item) => item.action === 'complete')
+  assert.ok(complete)
+  assert.equal(complete.body.payload.markdown, 'Olá')
+  assert.equal(complete.body.payload.protocol, 'harness.utility/v1')
+})

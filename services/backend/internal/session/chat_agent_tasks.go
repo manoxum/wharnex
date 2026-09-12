@@ -60,7 +60,8 @@ type ChatAgentTaskFilter struct {
 }
 
 var chatAgentPriorities = map[string]int{
-	"BOT_WRITE": 0, "RECOVERY_WRITE": 0,
+	"TRANSLATE_MARKDOWN": -1,
+	"BOT_WRITE":          0, "RECOVERY_WRITE": 0,
 	"AWAIT_RESPONSE": 1,
 	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
 	"ORGANIZE_CHAT": 2, "RENAME_CHAT": 2,
@@ -142,7 +143,7 @@ func chatAgentTaskNeverDedupe(taskType string) bool {
 
 func chatAgentTaskWriter(taskType string) bool {
 	switch taskType {
-	case "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT":
+	case "TRANSLATE_MARKDOWN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT":
 		return true
 	default:
 		return false
@@ -195,6 +196,23 @@ func (s *Store) EnqueueChatAgentTask(input ChatAgentTask) (ChatAgentTask, error)
 		}
 	}
 	s.chatAgentFallback()[task.TaskID] = task
+	return task, nil
+}
+
+func (s *Store) GetChatAgentTask(taskID string) (ChatAgentTask, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return ChatAgentTask{}, ErrChatAgentTaskNotFound
+	}
+	if s.db != nil {
+		return s.postgresGetChatAgentTask(taskID)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	task, ok := s.chatAgentTasks[taskID]
+	if !ok {
+		return ChatAgentTask{}, ErrChatAgentTaskNotFound
+	}
 	return task, nil
 }
 

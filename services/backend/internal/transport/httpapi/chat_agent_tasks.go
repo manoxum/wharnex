@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -131,9 +132,28 @@ func (a *API) waitChatAgentTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) completeChatAgentTask(w http.ResponseWriter, r *http.Request) {
-	a.chatAgentSimpleTransition(w, r, func(id, owner string) (session.ChatAgentTask, error) {
-		return a.store.CompleteChatAgentTask(id, owner)
-	})
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	var body struct {
+		Owner   string          `json:"owner"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	var (
+		task session.ChatAgentTask
+		err  error
+	)
+	if len(body.Payload) > 0 && string(body.Payload) != "null" {
+		task, err = a.store.CompleteChatAgentTaskWithPayload(r.PathValue("id"), body.Owner, body.Payload)
+	} else {
+		task, err = a.store.CompleteChatAgentTask(r.PathValue("id"), body.Owner)
+	}
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
 }
 
 func (a *API) failChatAgentTask(w http.ResponseWriter, r *http.Request) {

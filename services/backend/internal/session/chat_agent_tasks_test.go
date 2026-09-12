@@ -226,3 +226,39 @@ func TestChatAgentClaimOptionsValidation(t *testing.T) {
 		t.Fatal("unknown fallback mode must fail")
 	}
 }
+
+func TestChatAgentTranslationHasPriorityAndReturnsCompletionPayload(t *testing.T) {
+	store := NewStore()
+	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("BOT_WRITE", "chat-write", "conv-write", "")); err != nil {
+		t.Fatal(err)
+	}
+	translation, err := store.EnqueueChatAgentTask(ChatAgentTask{
+		Type: "TRANSLATE_MARKDOWN", ChatID: "chat-translation",
+		Payload: json.RawMessage(`{"protocol":"harness.utility/v1","task":"translate_markdown","target_language":"pt","markdown":"Hello"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed == nil || claimed.TaskID != translation.TaskID || claimed.Priority != -1 {
+		t.Fatalf("translation claim=%#v want highest-priority task %s", claimed, translation.TaskID)
+	}
+	resultPayload := json.RawMessage(`{"protocol":"harness.utility/v1","task":"translate_markdown","target_language":"pt","markdown":"Olá"}`)
+	completed, err := store.CompleteChatAgentTaskWithPayload(claimed.TaskID, "worker-1", resultPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != ChatAgentTaskDone || string(completed.Payload) != string(resultPayload) {
+		t.Fatalf("completed translation=%#v", completed)
+	}
+	loaded, err := store.GetChatAgentTask(claimed.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded.Payload) != string(resultPayload) {
+		t.Fatalf("persisted payload=%s want %s", loaded.Payload, resultPayload)
+	}
+}

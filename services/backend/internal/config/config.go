@@ -24,7 +24,6 @@ type Config struct {
 	RunnerImage          string
 	OpenAIAPIKey         string
 	OpenAIModel          string
-	OpenAIUtilityModel   string
 	OpenAIBaseURL        string
 	MaxContextBytes      int64
 	MaxBundleBytes       int64
@@ -136,7 +135,6 @@ func Load() Config {
 		RunnerImage:           env("HARNESS_RUNNER_IMAGE", "kernl-runner:local"),
 		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
 		OpenAIModel:           env("OPENAI_MODEL", "gpt-5.6-sol"),
-		OpenAIUtilityModel:    env("OPENAI_UTILITY_MODEL", env("OPENAI_MODEL", "gpt-5.6-sol")),
 		OpenAIBaseURL:         env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		MaxContextBytes:       envInt64("HARNESS_MAX_CONTEXT_BYTES", 4*1024*1024),
 		MaxBundleBytes:        envInt64("HARNESS_MAX_BUNDLE_BYTES", 128*1024*1024),
