@@ -13,7 +13,7 @@ function runtime(desiredWorkers = 6): DesktopAgentRuntimeState {
     instance_id: 'desktop-test',
     desired_workers: desiredWorkers,
     configured_workers: desiredWorkers,
-    policies: { auto_scale: false, keep_flowing_global: false, keep_flowing_workers: [], auto_scaled_workers: 0 },
+    policies: { auto_scale: false, auto_scale_max_workers: 6, keep_flowing_global: false, keep_flowing_workers: [], auto_scaled_workers: 0 },
     limits: { min_workers: 1, max_workers: 6, supervisors: 2 },
     scheduler: { running: true, backend_reachable: true, last_refresh_at: '2026-09-11T10:00:00Z', last_error: '' },
     queue: { queued: 2, counts: { RUNNING: 1, WAITING: 1 }, due: 1, scheduled: 0, blocked: 0, oldest_due_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
@@ -30,7 +30,7 @@ function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
   return {
     state: vi.fn(async () => state),
     setWorkerCount: vi.fn(async (count: number) => runtime(count)),
-    setPolicies: vi.fn(async (policies: { auto_scale?: boolean; keep_flowing_global?: boolean }) => ({ ...state, policies: { ...state.policies, ...policies } })),
+    setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => ({ ...state, policies: { ...state.policies, ...policies } })),
     setWorkerKeepFlowing: vi.fn(async (agentId: string, enabled: boolean) => ({ ...state, agents: state.agents.map((agent) => agent.id === agentId ? { ...agent, keep_flowing: enabled } : agent) })),
     pauseProvider: vi.fn(async (_pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true } })),
     resumeProvider: vi.fn(async () => runtime()),
@@ -75,6 +75,15 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ auto_scale: true }))
     fireEvent.click(screen.getByRole('button', { name: 'Global inativo' }))
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ keep_flowing_global: true }))
+  })
+
+  it('configures the Auto scale ceiling independently from the hard maximum', async () => {
+    const agents = agentsBridge()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Diminuir teto Auto scale' }))
+    await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ auto_scale_max_workers: 5 }))
   })
 
   it('configures Keep flowing for one Worker when global mode is disabled', async () => {

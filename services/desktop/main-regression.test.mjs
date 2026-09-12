@@ -1296,6 +1296,16 @@ test('transient protocol ZIPs are deleted promptly and included in storage clean
   assert.match(ready, /recursive: true, force: true/)
 })
 
+test('Auto scale reconciles against the persisted policy ceiling', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function reconcileChatAgentAutoScale()')
+  const end = source.indexOf('\nfunction reconcileChatGPTWorkerPool', start)
+  const reconcile = source.slice(start, end)
+  assert.notEqual(start, -1)
+  assert.match(reconcile, /maxWorkers: chatAgentPolicies\.auto_scale_max_workers/)
+  assert.doesNotMatch(reconcile, /maxWorkers: HARD_MAX_WORKER_SLOTS/)
+})
+
 test('worker scheduling keeps residency and slot mutation explicit', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /new ChatAgentResidency\(/)
