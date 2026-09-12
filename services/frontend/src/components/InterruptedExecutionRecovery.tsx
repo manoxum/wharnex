@@ -24,13 +24,13 @@ type Props = {
 
 export function InterruptedExecutionRecovery({ items, busyChats, onDecision, onOpenChat, onOpenLogs, onOpenChatGPT }: Props) {
   const [open, setOpen] = useState(true)
-  return <aside className={`execution-recovery-center ${open ? 'open' : ''}`} aria-label="Centro de recuperação de execuções">
+  return <aside className={`execution-recovery-center ${open ? 'open' : ''}`} aria-label="Centro de recuperação de execuções" data-chatgpt-overlay-blocker={open ? 'true' : undefined}>
     <button type="button" className="execution-recovery-trigger" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
       <Icon name="shield" size={14}/><strong>{items.length}</strong><span>{items.length === 1 ? 'execução precisa de atenção' : 'execuções precisam de atenção'}</span><Icon name="chevron" size={12}/>
     </button>
     {open && <section className="execution-recovery-panel" aria-label="Execuções interrompidas">
-      <header><div><span className="panel-kicker">Recuperação segura</span><h2>Execuções interrompidas</h2></div><button type="button" className="icon-button" aria-label="Recolher centro de recuperação" onClick={() => setOpen(false)}><Icon name="close" size={13}/></button></header>
-      <p>Nenhuma execução é retomada sem a sua decisão. Pode continuar a usar chats, Editor, logs e ChatGPT enquanto resolve cada item.</p>
+      <header><div className="execution-recovery-heading"><span className="execution-recovery-heading-icon"><Icon name="shield" size={16}/></span><div><span className="panel-kicker">Recuperação segura</span><h2>Execuções interrompidas</h2></div></div><button type="button" className="icon-button" aria-label="Recolher centro de recuperação" onClick={() => setOpen(false)}><Icon name="close" size={13}/></button></header>
+      <p>Nenhuma execução é retomada sem a sua decisão. O Engine fica temporariamente oculto enquanto este centro está aberto; chats, Editor e logs continuam disponíveis.</p>
       <div className="execution-recovery-list">{items.map((target) => <RecoveryCard key={`${target.session.id}:${target.session.interrupted_execution?.plan_id || ''}`} target={target} pending={Boolean(busyChats[target.chat.id])} onDecision={onDecision} onOpenChat={onOpenChat} onOpenLogs={onOpenLogs} onOpenChatGPT={onOpenChatGPT}/>)}</div>
     </section>}
   </aside>
@@ -48,7 +48,7 @@ function RecoveryCard({ target, pending, onDecision, onOpenChat, onOpenLogs, onO
   const state = recoveryState(target, pending)
   const active = pending || intent.status === 'resuming' || intent.status === 'running'
   const retry = intent.status === 'failed_retryable'
-  return <article className="execution-recovery-item">
+  return <article className={`execution-recovery-item ${state.tone}`}>
     <div className="execution-recovery-copy">
       <div className="execution-recovery-title"><strong>{target.chat.title}</strong><span className={`execution-recovery-status ${state.tone}`}>{state.label}</span></div>
       <span>{target.session.plan?.summary || intent.plan_id}</span>
