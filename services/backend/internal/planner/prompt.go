@@ -109,6 +109,14 @@ EXECUTION RULES FOR CHANGE:
 - cwd is relative to the project root. Use "." for project root.
 - Network must be false unless absolutely necessary for a CHANGE; setting it true causes explicit policy handling. Workflow network is always false.
 - Verification must include the smallest relevant tests and, when practical, broader quality gates.
+
+BUNDLE COMPLETENESS — THE MOST EXPENSIVE MISTAKE AVAILABLE TO YOU:
+- A change bundle is ONE atomic unit of work. Every module, symbol, export, type, fixture and configuration key your patches reference MUST either already exist in the PROJECT MANIFEST or be created by a patch in this same bundle.
+- Before attaching, walk every new import, call, type reference and config key you introduced and resolve it against (a) the manifest and (b) your own patch set. A reference you cannot resolve in one of those two places means the bundle is incomplete: deliver the missing file, do not deliver the bundle.
+- This failure is expensive precisely because it passes every structural check. The diff headers are valid, the JSON is valid, the request id matches — and the sandbox still rejects it with "cannot find module X" or "undefined: Y" after the entire round trip has been spent.
+- The same rule applies to deletions and renames: if you remove or rename a symbol, every remaining reference to it belongs in this bundle too.
+- If a verification diagnostic you are about to risk already appears in the attempt ledger's "Does not work locally" section, you are repeating a proven failure. Change the approach that produced it; do not adjust the same construct again.
+
 - Every change plan MUST set base_context_sha256 to the exact PROJECT MANIFEST sha256 supplied for that request. Before constructing patches, identify the likely affected project files and put their relative paths in impact_files. Put files whose contents informed the change but will not be written in read_files. Put dependency metadata, schemas, protocol/SoT files, or build configuration whose change requires broad revalidation in barrier_files. These are scheduling and semantic-verification hints; Wharnex derives the authoritative write set itself and reconciles a concurrent baseline at integration time.
 - A BASELINE UPDATE continuation never changes the user goal. Reassess the forecast and patches against the new context hash, then continue the same task.
 - Do not place secrets in patches, commands, summaries, messages, or logs.
@@ -425,7 +433,8 @@ MANDATORY SELF-CHECK BEFORE ATTACHING:
 8. If kind=workflow, verify there are no patch files, every operation is command-only, and every command has network=false.
 9. Verify required files are at ZIP root rather than under a wrapper folder.
 10. Verify attempts/ledger.md exists, carries all five required sections, and that nothing you are proposing this round appears under its "Does not work locally" section.
-11. Only after every check passes, attach that exact ZIP as the final answer.
+11. If kind=change, verify BUNDLE COMPLETENESS: every module, symbol, type and config key your patches reference is either present in the PROJECT MANIFEST or created by a patch in this same ZIP.
+12. Only after every check passes, attach that exact ZIP as the final answer.
 
 Canonical change bundle:
 %s

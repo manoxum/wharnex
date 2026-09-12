@@ -8,7 +8,7 @@ Wharnex needs global language preferences and on-demand translation in every ses
 
 ## Decision
 
-Wharnex introduces a separate application utility port with protocol `harness.utility/v1`. Version 1 supports the `translate_markdown` task and returns a strict structured result containing protocol, task, target language and translated Markdown. The Markdown source is always treated as untrusted data. Utility results cannot contain commands, plans or patches and never enter Policy, sandbox execution or host Apply.
+Wharnex introduces a separate application utility port with protocol `harness.utility/v1`. Version 1 supports the `translate_markdown` task. Both directions of the wire carry the protocol identity: the dispatched request and the strict structured result each contain protocol, task, target language and Markdown. The worker validates that identity fail-closed before it touches the provider, so the request shape is normative — a producer that encoded the request without `protocol` made every dispatched translation fail its first claim while every structural check still passed. The Markdown source is always treated as untrusted data. Utility results cannot contain commands, plans or patches and never enter Policy, sandbox execution or host Apply.
 
 `translate_markdown` is dispatched as a durable `TRANSLATE_MARKDOWN` task to the authenticated Desktop ChatGPT worker pool instead of calling the OpenAI Responses API directly. Its scheduler priority is above ordinary chat writes, while the worker still obeys residency, provider cooldown and process-wide submission pacing. Completion may carry a replacement JSON payload so the backend can recover the strict `harness.utility/v1` result from the durable task.
 

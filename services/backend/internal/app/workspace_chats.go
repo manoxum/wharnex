@@ -92,6 +92,13 @@ func (s *Service) DeleteWorkspaceChat(chatID string) error {
 	if strings.TrimSpace(chatID) == "" {
 		return ErrInvalidWorkspaceChat
 	}
+	// Removing the chat row without retiring its queue left browser workers
+	// waiting on responses, discovering titles and organizing projects for a
+	// chat that no longer existed. Remote cleanup jobs are deliberately kept:
+	// deleting the conversation and its bundles is what still has to happen.
+	if _, err := s.store.SupersedeChatAgentTasksForDeletedChat(chatID, ""); err != nil {
+		return err
+	}
 	return s.store.DeleteWorkspaceChat(chatID)
 }
 

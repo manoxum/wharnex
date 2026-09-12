@@ -21,7 +21,16 @@ const (
 	LanguageFrench     LanguageCode = "fr"
 )
 
+// Request is the worker-bound half of the utility wire.
+//
+// It carries the protocol identifier for the same reason the result does: the
+// Desktop worker validates payload identity before it touches the provider, and
+// a request without it is rejected as a malformed payload. Omitting the field
+// here is what made every TRANSLATE_MARKDOWN task fail on its first claim with
+// "invalid markdown translation worker protocol payload" — a producer/consumer
+// contract break that no single side could see.
 type Request struct {
+	Protocol       string       `json:"protocol"`
 	Task           string       `json:"task"`
 	TargetLanguage LanguageCode `json:"target_language"`
 	Markdown       string       `json:"markdown"`
@@ -35,6 +44,9 @@ type Result struct {
 }
 
 func ValidateRequest(request Request) error {
+	if request.Protocol != ProtocolV1 {
+		return fmt.Errorf("unsupported utility protocol %q", request.Protocol)
+	}
 	if request.Task != TaskTranslateMarkdown {
 		return fmt.Errorf("unsupported utility task %q", request.Task)
 	}

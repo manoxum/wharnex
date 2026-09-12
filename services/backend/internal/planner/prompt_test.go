@@ -332,3 +332,46 @@ func TestBuildManualPromptCarriesEffortLevelAndCostBenefitContract(t *testing.T)
 		}
 	}
 }
+
+// Measured failure, not a hypothetical: repeated rounds of this instance failed
+// sandbox verification with "Cannot find module './lib/conflictResolution'" and
+// "undefined: DebugRun" — bundles that patched one half of an implementation and
+// only imagined the other. The contract has to name that shape explicitly.
+func TestBuildManualPromptRequiresBundleCompleteness(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req_20260912T090000_aaaaaaaaaaaaaaaa", Message: "split a module"})
+
+	for _, want := range []string{
+		"BUNDLE COMPLETENESS",
+		"either already exist in the PROJECT MANIFEST or be created by a patch in this same bundle",
+		"resolve it against",
+		"cannot find module",
+		"The same rule applies to deletions and renames",
+		"11. If kind=change, verify BUNDLE COMPLETENESS",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("manual prompt missing bundle completeness contract %q", want)
+		}
+	}
+	// The self-check list has to stay contiguous, or the model reads it as a
+	// list that ends before the last item.
+	if !strings.Contains(prompt, "12. Only after every check passes") {
+		t.Fatal("the self-check list must renumber its terminal step")
+	}
+	if strings.Contains(prompt, "11. Only after every check passes") {
+		t.Fatal("the old terminal step number must not survive alongside the new one")
+	}
+}
+
+// A repeated verification diagnostic is the ping-pong the attempt ledger exists
+// to prevent, so the completeness section has to point back at it.
+func TestBuildManualPromptTiesRepeatedDiagnosticsToTheAttemptLedger(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req_20260912T090001_bbbbbbbbbbbbbbbb", Message: "retry a failed change"})
+	for _, want := range []string{
+		`already appears in the attempt ledger's "Does not work locally" section`,
+		"Change the approach that produced it",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("manual prompt missing repeated-diagnostic rule %q", want)
+		}
+	}
+}

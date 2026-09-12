@@ -43,6 +43,7 @@ export class ChatAgentSchedulerClient {
     idleMs = 750,
     taskCooldownMs = DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS,
     claimOptions = () => ({}),
+    onIdle = () => {},
     onState = () => {},
   }) {
     if (!baseURL) throw new Error('chat-agent scheduler baseURL is required')
@@ -56,6 +57,10 @@ export class ChatAgentSchedulerClient {
     this.idleMs = idleMs
     this.taskCooldownMs = Math.max(0, Number(taskCooldownMs) || 0)
     this.claimOptions = typeof claimOptions === 'function' ? claimOptions : () => ({})
+    // Reported on every claim that found nothing. A worker that keeps claiming
+    // an empty lane is the only evidence available that the lane has no work,
+    // and it is what lets residency expire instead of pinning the slot forever.
+    this.onIdle = typeof onIdle === 'function' ? onIdle : () => {}
     this.onState = onState
     this.instanceID = `desktop-${randomUUID()}`
     this.running = false
@@ -172,11 +177,18 @@ export class ChatAgentSchedulerClient {
         })
         const task = claimed?.task
         if (!task) {
+          this.onIdle(index)
           await wait(this.idleMs)
           continue
         }
-        await this.#runTask(owner, task, index)
-        if (this.running && index <= this.workerCount && this.taskCooldownMs > 0) await wait(this.taskCooldownMs)
+        const result = await this.#runTask(owner, task, index)
+        // A passive observation never touched the provider: it read an
+        // already-resident page and handed the slot straight back. Charging it
+        // the provider cooldown spent real pool capacity protecting a request
+        // that was never made, which is idleness bought at no benefit. The
+        // cooldown exists for work that actually reached ChatGPT.
+        const cooled = result?.observation === true ? 0 : this.taskCooldownMs
+        if (this.running && index <= this.workerCount && cooled > 0) await wait(cooled)
       } catch (error) {
         this.onState({ kind: 'worker-error', worker: index, error })
         await wait(Math.max(this.idleMs, 1_000))
@@ -200,7 +212,7 @@ export class ChatAgentSchedulerClient {
         await this.#transition(task.task_id, 'wait', {
           owner, not_before: new Date(Date.now() + 1_000).toISOString(), error: 'desktop shutting down',
         })
-        return
+        return result
       }
       if (result?.status === 'waiting') {
         // An observation only watched healthy remote progress. The backend
@@ -241,6 +253,7 @@ export class ChatAgentSchedulerClient {
         })
       }
       this.onState({ kind: 'settled', worker, task, result })
+      return result
     } catch (error) {
       const retryable = task.attempt < task.max_attempts
       const action = retryable ? 'wait' : 'fail'
@@ -253,6 +266,7 @@ export class ChatAgentSchedulerClient {
         : { owner, error: error instanceof Error ? error.message : String(error) }
       await this.#transition(task.task_id, action, body).catch(() => undefined)
       this.onState({ kind: 'task-error', worker, task, error })
+      return { status: action === 'wait' ? 'waiting' : 'failed' }
     } finally {
       if (heartbeat) clearInterval(heartbeat)
     }

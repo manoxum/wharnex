@@ -183,6 +183,23 @@ func (s *Store) EnqueueChatAgentTask(input ChatAgentTask) (ChatAgentTask, error)
 	if err != nil {
 		return ChatAgentTask{}, err
 	}
+	stored, err := s.enqueueChatAgentTask(task)
+	if err != nil {
+		return ChatAgentTask{}, err
+	}
+	// Queueing the deletion of a chat is the moment the rest of that chat's work
+	// becomes pointless, so it is the moment the queue converges. Doing it here
+	// rather than in a caller means every path that deletes a chat — the REST
+	// API, the Desktop lifecycle bridge, a future one — converges identically.
+	if stored.Type == "DELETE_CHAT" {
+		if _, cancelErr := s.SupersedeChatAgentTasksForDeletedChat(stored.ChatID, stored.TaskID); cancelErr != nil {
+			return ChatAgentTask{}, cancelErr
+		}
+	}
+	return stored, nil
+}
+
+func (s *Store) enqueueChatAgentTask(task ChatAgentTask) (ChatAgentTask, error) {
 	if s.db != nil {
 		return s.postgresEnqueueChatAgentTask(task)
 	}

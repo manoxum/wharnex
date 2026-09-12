@@ -276,3 +276,84 @@ test('completed worker result payload is persisted through the complete transiti
   assert.equal(complete.body.payload.markdown, 'Olá')
   assert.equal(complete.body.payload.protocol, 'harness.utility/v1')
 })
+
+// An empty claim is the only evidence a resident lane has run dry, so the
+// scheduler has to report it: without it residency never expires.
+test('a claim that finds no task reports the worker as idle', async () => {
+  const idle = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+    execute: async () => ({ status: 'done' }),
+    onIdle: (worker) => idle.push(worker),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && idle.length < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(idle.length >= 2)
+  assert.deepEqual([...new Set(idle)], [1])
+})
+
+// A passive observation never reached ChatGPT, so charging it the provider
+// cooldown spends pool capacity protecting a request that was never made.
+test('an observation hands the slot back without paying the provider cooldown', async () => {
+  const claimTimes = []
+  let claimCount = 0
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    taskCooldownMs: 200,
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        claimTimes.push(Date.now())
+        claimCount += 1
+        if (claimCount === 1) return { ok: true, json: async () => ({ task: { task_id: 'cat-1', attempt: 1, max_attempts: 30 } }) }
+        return { ok: true, json: async () => ({}) }
+      }
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'waiting', observation: true, delayMs: 1_000 }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 200 && claimTimes.length < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(claimTimes.length >= 2)
+  assert.ok(claimTimes[1] - claimTimes[0] < 200, `observation waited ${claimTimes[1] - claimTimes[0]}ms for a cooldown it never earned`)
+})
+
+// The exhaustion guard must stay blind to observations: a long but healthy
+// response would otherwise have its own supervisor killed on the final attempt.
+test('an observation on the final attempt is not treated as exhaustion', async () => {
+  const transitions = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    taskCooldownMs: 0,
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        return transitions.length
+          ? { ok: true, json: async () => ({}) }
+          : { ok: true, json: async () => ({ task: { task_id: 'cat-1', attempt: 30, max_attempts: 30 } }) }
+      }
+      const match = url.match(/\/tasks\/cat-1\/(\w+)$/)
+      if (match) transitions.push(match[1])
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'waiting', observation: true, delayMs: 1_000 }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 200 && !transitions.includes('wait') && !transitions.includes('fail'); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(transitions.includes('wait'))
+  assert.ok(!transitions.includes('fail'))
+})

@@ -127,7 +127,7 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 	if _, err := s.GetSession(sessionID); err != nil {
 		return utility.Result{}, err
 	}
-	request := utility.Request{Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown}
+	request := utility.Request{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown}
 	if err := utility.ValidateRequest(request); err != nil {
 		return utility.Result{}, err
 	}

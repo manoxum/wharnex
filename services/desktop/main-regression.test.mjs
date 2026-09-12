@@ -1397,3 +1397,70 @@ test('markdown translation worker imports only an exact bounded UTF-8 artifact, 
   assert.match(download, /new TextDecoder\('utf-8', \{ fatal: true \}\)/)
   assert.match(download, /\^whx_translation_cat_/)
 })
+
+// The diagnostic is only worth collecting if it survives to the task row. Every
+// intermediate return in the organize/ensure-project flow used to rebuild a bare
+// { ok, state, project } object, which discarded the viewport and control counts
+// the script had just measured — so `accountFailureDetail` saw a bare state and
+// the failure stayed as opaque as before.
+test('account diagnostics survive the organize flow instead of being rebuilt away', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  for (const factory of ['async function ensureChatGPTProject(', 'async function organizeChatGPTConversation(']) {
+    const start = source.indexOf(factory)
+    assert.ok(start > 0, `${factory} must exist`)
+    const body = source.slice(start, source.indexOf('\n}', start))
+    for (const [, returned] of body.matchAll(/if \(![a-zA-Z]+\.ok\) return (\{[^}]*\})/g)) {
+      assert.match(returned, /^\{ \.\.\./, `${returned} drops the measured diagnostic`)
+    }
+  }
+})
+
+test('no AWAIT_RESPONSE outcome that never reached ChatGPT spends the attempt budget', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function probeChatAgentResponse(')
+  const probe = source.slice(start, source.indexOf('\nasync function executeChatAgentWrite', start))
+
+  // Every one of these charged an attempt without reaching the provider, so a
+  // 30-second cadence against max_attempts=30 retired supervision after roughly
+  // fifteen minutes — the signature of all 23 "exhausted maximum attempts while
+  // waiting" failures observed on this instance.
+  assert.match(probe, /resident worker is no longer on the expected conversation[\s\S]{0,80}/)
+  assert.match(probe, /observation: true, error: 'resident worker is no longer on the expected conversation'/)
+  assert.match(probe, /complete !== true[\s\S]*?observation: true/)
+
+  // Because those outcomes are free, the ambiguous state needs its own bound,
+  // and it has to be evidence-shaped rather than a retry counter.
+  assert.match(probe, /AWAIT_STALL_ATTENTION_MS/)
+  assert.match(probe, /expected\.progressAt/)
+  assert.match(source, /const AWAIT_STALL_ATTENTION_MS = 10 \* 60_000/)
+
+  // An active provider cooldown is likewise not an attempt.
+  const execute = source.slice(source.indexOf('async function executeChatAgentTask('))
+  assert.match(execute.slice(0, 900), /initialRateLimitDelay, observation: true/)
+})
+
+test('the cross-chat navigation gate follows the provider instead of one fixed clock', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const gap = source.slice(source.indexOf('function chatAgentNavigationGapMs('))
+
+  // Navigation is serialized process-wide, so a fixed 30-second ceiling let the
+  // whole pool rebind twice a minute however many workers were free.
+  assert.match(gap.slice(0, 900), /rate_limit_level/)
+  assert.match(gap.slice(0, 900), /CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS/)
+  assert.match(gap.slice(0, 900), /CHATGPT_WORKER_NAVIGATION_GAP_MS/)
+  assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000/)
+
+  const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerNavigation('))
+  assert.match(pacer.slice(0, 600), /chatAgentNavigationGapMs\(\)/)
+  assert.doesNotMatch(pacer.slice(0, 600), /CHATGPT_WORKER_NAVIGATION_GAP_MS -/)
+})
+
+test('an empty claim releases a resident lane that has run dry', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
+
+  // Without this the pool degraded to one effective worker: a resident slot can
+  // only claim its own lane, so it could never be rebound by claiming elsewhere.
+  assert.match(scheduler.slice(0, 1600), /onIdle: \(worker\) => \{/)
+  assert.match(scheduler.slice(0, 1600), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
+})

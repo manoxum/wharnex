@@ -54,7 +54,23 @@ finishing its non-preemptive job. A reached conversation becomes that slot's res
 lane for 60 seconds by default (never below 30 seconds). Resident work is preferred;
 free slots claim unresident lanes before any resident slot is evicted; and, when chats
 outnumber slots, only the head of a fair in-memory rotation may rebind after its dwell.
-Cross-chat navigation starts share one profile-global 30-second gate. Each rebind
+
+Residency stays a cache and never becomes ownership. A resident slot only claims its
+own lane, so the lane it is holding is exactly the lane it has proven empty: after its
+dwell, a bounded run of claims that find no work releases the lane and returns the slot
+to the free pool. Without that release the pool degraded to a single effective worker —
+every slot pinned to a conversation that had already been resolved, with only the
+rotation head able to escape and only while no slot was free. For the same reason a slot
+that is blocked from claiming (interaction, account operation, transport preparation,
+loading) does not reserve its lane against the rest of the pool: a lane nobody can serve
+is a conversation the queue cannot reach at all, and the backend's per-conversation write
+lock already owns conflict safety.
+
+Cross-chat navigation starts share one profile-global gate whose width is derived from
+the provider's own durable 429 evidence: a healthy provider uses a short floor, and each
+rate-limit level widens it up to the protective 30-second ceiling. A fixed ceiling applied
+while ChatGPT is answering normally serializes the whole pool behind one clock, which buys
+idleness rather than protection. Each rebind
 increments an assignment epoch so late callbacks cannot mutate the next assignment,
 and write/upload transport is serialized by physical slot rather than chat id.
 Project-scoped ChatGPT URLs do not change the canonical conversation identity.
@@ -91,7 +107,16 @@ one another or an await probe on the same conversation.
 allowlisted structural health/completion state and the exact expected bundle affordance,
 and never focuses the composer or reloads a healthy page. While generation is active it
 returns to `WAITING` on a fixed roughly 30-second observation cadence so the worker is
-released without turning normal generation into failure backoff. A completed turn
+released without turning normal generation into failure backoff.
+
+Every probe outcome in which nothing was attempted is an observation and gives back the
+increment the claim charged: a still-generating page, a slot that was not on the expected
+conversation, an active provider cooldown, and a page in neither a generating nor a
+completed state. Charging those retired healthy supervisions with "exhausted maximum
+attempts while waiting" while the model was still working. Because observations are free,
+the ambiguous state carries its own evidence-shaped bound instead: a page showing no
+structural sign of life at all for a bounded stall window moves to `ATTENTION`, and any
+generating, completion or download signal resets that window. A completed turn
 without the canonical bundle may create one bounded `RECOVERY_WRITE` child.
 Request-bound follow-ups are initially ineligible for at least one minute. Once three
 valid samples exist, the delay is `clamp(max(60s, (60s + average)/2), 60s, 15m)`, using
@@ -118,6 +143,14 @@ provider's native title is accepted only after stable reads. A temporary title
 conversation is a bounded fallback, not the normal path. Organization performs
 exact project lookup/create, move, rename, confirmation, and local remote-state
 sync; ambiguous duplicate projects require attention.
+
+Queueing a chat deletion is the point at which that chat's remaining work stops being
+useful, so the queue converges there: enqueueing `DELETE_CHAT` cancels the chat's other
+claimable tasks and keeps only the remote cleanup jobs. Convergence lives in the store
+rather than in a caller, so the REST delete path and the Desktop lifecycle bridge reach
+the same state. Without it a deleted chat left response supervision, title discovery and
+organization claimable forever, pinning workers to conversations the user had abandoned
+and holding the one global account lock against chats that were still live.
 
 Archive/delete jobs honor active request/recovery/write guards and treat already
 completed remote state as success. Cleanup jobs are exact-identity and

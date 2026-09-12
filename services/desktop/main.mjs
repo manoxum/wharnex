@@ -11,6 +11,7 @@ import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredCh
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
+import { behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS } from './chatgpt-behavior-probe.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
@@ -174,8 +175,22 @@ const MAX_BUNDLE_CONTINUATIONS = 1
 const PROCESSING_SIGNAL_GRACE_MS = 15_000
 const CONVERSATION_TRANSPORT_STALE_MS = 30_000
 const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
+// How long an AWAIT_RESPONSE probe may keep reading a page that is neither
+// generating nor complete before it asks for a human.
+//
+// Passive observation deliberately does not spend the attempt budget, so a
+// second bound is required, and it has to be evidence-shaped: the clock only
+// runs while the page shows no structural sign of life at all, and any
+// generating/complete/download signal resets it. A visibly working model is
+// therefore never interrupted, while a genuinely stuck surface still stops.
+const AWAIT_STALL_ATTENTION_MS = 10 * 60_000
 const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
+// Protective ceiling for the navigation gate, applied once the provider shows
+// sustained 429 pressure. The healthy floor below is what the pool actually
+// runs at while ChatGPT is answering normally.
 const CHATGPT_WORKER_NAVIGATION_GAP_MS = CHAT_AGENT_NAVIGATION_GAP_MS
+const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000
+const CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS = 15 * 60_000
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
 // How many times a window's frontend renderer may be restarted after a
@@ -435,6 +450,11 @@ function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, re
     domProbeFailures: 0,
     processingObservedAt: sameRequest ? Number(prior.processingObservedAt || 0) : 0,
     processingAbsentSince: sameRequest ? Number(prior.processingAbsentSince || 0) : 0,
+    // Last moment the remote page showed ANY structural sign of life for this
+    // request: generating, complete, or a download affordance. It is what makes
+    // a passive probe boundable by evidence rather than by an attempt counter,
+    // so a page stuck in neither state cannot supervise itself forever.
+    progressAt: sameRequest ? Number(prior.progressAt || 0) || Date.now() : Date.now(),
     rehydrating: sameRequest ? prior.rehydrating === true : false,
     recoveryEligibleAt: sameRequest ? Number(prior.recoveryEligibleAt || 0) : 0,
     recoveryBootstrap: String(recoveryBootstrap || (sameRequest ? prior?.recoveryBootstrap : '') || ''),
@@ -2485,19 +2505,19 @@ async function ensureChatGPTProject(key, entry, projectName, conversationId = ''
     if (existing.ok) return { ok: true, state: 'exists', project: name, duplicates: existing.duplicates || 1, href: existing.href || '' }
 
     const create = await commitChatGPTAccountControl(key, entry, 'new-project', chatGPTMenuItemRectScript('new-project'))
-    if (!create.ok) return { ok: false, state: 'create-project-unavailable', project: name }
+    if (!create.ok) return { ...create, ok: false, state: 'create-project-unavailable', project: name }
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 3)
     const staged = await commitChatGPTAccountControl(key, entry, 'commit-project', chatGPTNewProjectDialogScript(name), { attempts: 6 })
-    if (!staged.ok) return { ok: false, state: staged.state, project: name }
+    if (!staged.ok) return { ...staged, ok: false, project: name }
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 4)
 
     const reopened = await runChatGPTAccountScript(key, entry, 'confirm-menu', chatGPTOpenConversationMenuScript(conversationId))
-    if (!reopened.ok) return { ok: false, state: 'project-not-confirmed', project: name }
+    if (!reopened.ok) return { ...reopened, ok: false, state: 'project-not-confirmed', project: name }
     const reSubmenu = await commitChatGPTAccountControl(key, entry, 'confirm-move-project', chatGPTMenuItemRectScript('move-project'))
-    if (!reSubmenu.ok) return { ok: false, state: 'project-not-confirmed', project: name }
+    if (!reSubmenu.ok) return { ...reSubmenu, ok: false, state: 'project-not-confirmed', project: name }
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
     const confirmed = await runChatGPTAccountScript(key, entry, 'confirm-project', chatGPTProjectItemRectScript(name))
-    if (!confirmed.ok) return { ok: false, state: 'project-not-confirmed', project: name }
+    if (!confirmed.ok) return { ...confirmed, ok: false, state: 'project-not-confirmed', project: name }
     if ((confirmed.duplicates || 1) > 1) console.warn(`[chatgpt-account] duplicate remote project detected name=${name} count=${confirmed.duplicates}`)
     return { ok: true, state: 'created', project: name, duplicates: confirmed.duplicates || 1, href: confirmed.href || '' }
   })
@@ -2524,20 +2544,20 @@ async function organizeChatGPTConversation(cacheKey, projectName, title, expecte
       // ensureChatGPTProject leaves the "Move to project" submenu open with the
       // wanted project present, so selecting it is the very next click.
       const project = await ensureChatGPTProject(key, entry, projectName, conversationId)
-      if (!project.ok) return { ok: false, state: project.state, project: project.project || normalizeChatGPTProjectName(projectName) }
+      if (!project.ok) return { ...project, ok: false, project: project.project || normalizeChatGPTProjectName(projectName) }
       if (Number(project.duplicates || 1) > 1) return { ok: false, state: 'duplicate-project', project: project.project, duplicates: project.duplicates }
       const selected = await commitChatGPTAccountControl(key, entry, 'select-project', chatGPTProjectItemRectScript(project.project))
-      if (!selected.ok) return { ok: false, state: selected.state, project: project.project }
+      if (!selected.ok) return { ...selected, ok: false, project: project.project }
       await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 3)
 
       const rename = await chooseChatGPTConversationAction(key, entry, 'rename', conversationId)
-      if (!rename.ok) return { ok: false, state: rename.state, project: project.project }
+      if (!rename.ok) return { ...rename, ok: false, project: project.project }
       await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
       // The rename control is an inline sidebar input, not a dialog: stage the
       // value, then commit it with a trusted Enter the same way the composer is
       // submitted, and confirm from the row's own label.
       const staged = await runChatGPTAccountScript(key, entry, 'commit-title', chatGPTCommitConversationTitleScript(title))
-      if (!staged.ok) return { ok: false, state: staged.state, project: project.project }
+      if (!staged.ok) return { ...staged, ok: false, project: project.project }
       const { wc } = requireOwnedChatGPTEntry(key, entry)
       dispatchChatGPTAccountKey(wc, 'Enter')
       await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS * 3)
@@ -2780,13 +2800,36 @@ function chatAgentRateLimitDelayMs() {
   return Math.max(0, chatGPTRateLimitUntil - Date.now())
 }
 
+// Process-wide spacing between cross-chat navigation starts, scaled by how the
+// provider is actually behaving.
+//
+// A fixed 30-second gate protected the account at a cost that only appeared at
+// scale: navigation is serialized process-wide, so the whole pool could rebind
+// twice a minute no matter how many workers were free or how many conversations
+// held due work. Six idle workers waiting on one clock is not protection, it is
+// the idleness the gate was never meant to buy. The provider's own durable
+// 429 evidence is the right input: while it reports no pressure the gate stays
+// at a healthy floor, and every escalation level walks it back up to the
+// protective 30-second ceiling, which is where a rate-limited account belongs.
+function chatAgentNavigationGapMs() {
+  const provider = chatAgentRuntimeDiagnostics.provider || {}
+  const level = Math.max(0, Number(provider.rate_limit_level || 0))
+  const lastLimit = Date.parse(String(provider.last_rate_limit_at || '')) || 0
+  // A level that has not yet been reset still counts as pressure while the
+  // 429 is recent, so recovery widens the gate before the backend clears it.
+  const recentlyLimited = lastLimit > 0 && Date.now() - lastLimit < CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS
+  if (level <= 0 && !recentlyLimited) return CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS
+  const steps = [12_000, 20_000, CHATGPT_WORKER_NAVIGATION_GAP_MS]
+  return steps[Math.min(steps.length - 1, Math.max(0, level - 1))]
+}
+
 async function paceChatGPTWorkerNavigation() {
   let release
   const previous = chatGPTWorkerNavigationTail
   chatGPTWorkerNavigationTail = new Promise((resolve) => { release = resolve })
   await previous
   try {
-    const remaining = CHATGPT_WORKER_NAVIGATION_GAP_MS - (Date.now() - chatGPTWorkerLastNavigationAt)
+    const remaining = chatAgentNavigationGapMs() - (Date.now() - chatGPTWorkerLastNavigationAt)
     if (remaining > 0) await wait(remaining)
     chatGPTWorkerLastNavigationAt = Date.now()
   } finally {
@@ -3265,7 +3308,10 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
     return { status: 'done' }
   }
   if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
-    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, error: 'resident worker is no longer on the expected conversation' }
+    // Nothing was attempted: the slot simply was not where this probe needed it.
+    // Charging the attempt budget for a scheduling artefact is what retired 23
+    // healthy supervisions with "exhausted maximum attempts while waiting".
+    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true, error: 'resident worker is no longer on the expected conversation' }
   }
   // AWAIT_RESPONSE is deliberately passive: observe the already-resident page,
   // never focus the composer, reload, or navigate a healthy conversation.
@@ -3282,13 +3328,25 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
     expected.processingObservedAt = expected.processingObservedAt || now
     expected.processingAbsentSince = 0
     expected.settledAt = 0
+    expected.progressAt = now
     return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
   }
   if (expected.processingObservedAt && !expected.processingAbsentSince) expected.processingAbsentSince = now
   if (completion?.complete !== true) {
     expected.settledAt = 0
-    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS }
+    // Neither generating nor complete. This is a passive read of an ambiguous
+    // page, not an attempt, so it must not spend the budget either — but it is
+    // also the one state that carries no evidence of progress, so it is bounded
+    // by its own stall deadline instead of supervising indefinitely.
+    if (now - Number(expected.progressAt || now) >= AWAIT_STALL_ATTENTION_MS) {
+      return {
+        status: 'attention',
+        error: `ChatGPT deixou de dar sinal estrutural para ${expected.filename} durante ${Math.round(AWAIT_STALL_ATTENTION_MS / 60_000)} minutos; a conversa precisa de verificação humana.`,
+      }
+    }
+    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
   }
+  expected.progressAt = now
   await captureChatGPTProcessingDuration(entry, expected)
   if (!expected.downloadInFlight) {
     const clickMode = await entry.view.webContents.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
@@ -3342,7 +3400,7 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL)
   // queue above; submitting into an active provider pause is the one thing that
   // reliably escalates it to the next level.
   const rateLimitDelay = chatAgentRateLimitDelayMs()
-  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
+  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
   const result = await withChatGPTTransportPreparation(key, entry, task.request_id, () => {
     if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
       throw new Error('worker conversation changed before submit/upload')
@@ -3461,7 +3519,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
 
   await paceChatGPTWorkerSubmission()
   const rateLimitDelay = chatAgentRateLimitDelayMs()
-  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
+  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
 
   const filename = markdownTranslationFilename(task.task_id)
   const dir = path.join(app.getPath('temp'), 'wharness-markdown-translations', task.task_id)
@@ -3547,7 +3605,7 @@ async function executeChatAgentTask(task, { worker }) {
   if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
   const initialRateLimitDelay = chatAgentRateLimitDelayMs()
   if (initialRateLimitDelay > 0) {
-    return { status: 'waiting', delayMs: initialRateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
+    return { status: 'waiting', delayMs: initialRateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
   }
   const payload = chatAgentTaskPayload(task)
   const assigned = assignChatGPTWorker(entry, { ...task, payload })
@@ -3562,7 +3620,7 @@ async function executeChatAgentTask(task, { worker }) {
         if (!chatAgentResidency.settleAssignment(entry.slotId, assigned.assignment.epoch, assigned.lane)) throw new Error('stale worker assignment before execution')
       }
       const rateLimitDelay = chatAgentRateLimitDelayMs()
-      if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, error: 'ChatGPT rate-limit cooldown is active' }
+      if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
     }
     if (!chatAgentResidency.epochCurrent(entry.slotId, assigned.assignment.epoch, assigned.lane)) throw new Error('stale worker assignment epoch')
     // Taking a task always costs this slot its place in the rotation, whether
@@ -4446,6 +4504,27 @@ function registerIPC() {
     requireOwnedChatGPTEntry(key, entry)
     return suggestChatGPTConversationTitle(key, request?.url || '')
   })
+  // Dev-only behavior probe (adr/ADR-0041). Off unless WHARNESS_BEHAVIOR_PROBE=1,
+  // so it is not a permanent surface. The control name is matched against a
+  // closed enum before anything is built, and the script is assembled entirely
+  // from constants: no caller string ever reaches the page.
+  ipcMain.handle('wharness:chatgpt:probe-behavior', async (event, request) => {
+    const windowState = trustedSender(event)
+    if (!isBehaviorProbeEnabled()) throw new Error('The ChatGPT behavior probe is disabled; start Wharnex with WHARNESS_BEHAVIOR_PROBE=1 to enable it')
+    const control = sanitizeBehaviorProbeControl(request?.control)
+    const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
+    requireOwnedChatGPTEntry(key, entry)
+    if (!isTrustedChatGPTOrigin(entry.view.webContents.getURL())) throw new Error('The behavior probe only runs on a trusted ChatGPT surface')
+    ensureChatGPTLayoutViewport(key, entry)
+    const raw = await executeChatGPTDOMScript(key, entry, `behavior-probe-${control}`, behaviorProbeScript(control))
+    const result = normalizeBehaviorProbeResult(control, raw)
+    console.log(`[chatgpt-behavior-probe] control=${control} viewport=${result.viewport.w}x${result.viewport.h}`)
+    return result
+  })
+  ipcMain.handle('wharness:chatgpt:probe-behavior-controls', async (event) => {
+    trustedSender(event)
+    return { enabled: isBehaviorProbeEnabled(), controls: [...BEHAVIOR_PROBE_CONTROLS] }
+  })
   ipcMain.handle('wharness:chatgpt:hide-sidebar', async (event, request) => {
     const windowState = trustedSender(event)
     const { key, entry } = ensureChatGPTView(request?.cacheKey, windowState)
@@ -4877,6 +4956,17 @@ app.whenReady().then(async () => {
       return chatAgentResidency.claimOptions(entry.slotId, {
         blocked: Boolean(entry.interactionWindowId || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.loading),
       })
+    },
+    // An empty claim is the only proof a resident lane has run dry. Without it
+    // residency never expired, so a slot stayed bound to a chat that had been
+    // resolved hours earlier while other conversations held due work.
+    onIdle: (worker) => {
+      const entry = workerEntryForIndex(worker)
+      if (!entry) return
+      if (chatAgentResidency.noteIdleClaim(entry.slotId)) {
+        console.log(`[chat-agent] residency-released slot=${entry.slotId} reason=idle-lane`)
+        publishChatAgentRuntimeState()
+      }
     },
     onState: (state) => {
       const worker = Number(state?.worker || 0)

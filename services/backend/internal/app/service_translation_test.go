@@ -62,6 +62,13 @@ func TestTranslateMarkdownUsesDurablePriorityWorker(t *testing.T) {
 	if request.Markdown != "# Hello" || request.TargetLanguage != utility.LanguagePortuguese {
 		t.Fatalf("worker request=%#v", request)
 	}
+	// The Desktop worker validates payload identity before it touches the
+	// provider, so the enqueued request has to carry it. Asserting only the
+	// markdown and the language is what let a payload with no protocol field
+	// ship and fail every single claim.
+	if request.Protocol != utility.ProtocolV1 || request.Task != utility.TaskTranslateMarkdown {
+		t.Fatalf("worker request must carry its protocol identity, got protocol=%q task=%q", request.Protocol, request.Task)
+	}
 
 	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
 	if err != nil || claimed == nil || claimed.TaskID != task.TaskID {

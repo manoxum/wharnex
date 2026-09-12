@@ -23,8 +23,24 @@ const PRELUDE = `
   };
   const pick = (list) => { for (const sel of list) { for (const n of document.querySelectorAll(sel)) if (usable(n) && vis(n)) return n } return null };
   const all = (list) => { const out = []; for (const sel of list) for (const n of document.querySelectorAll(sel)) if (vis(n) && !out.includes(n)) out.push(n); return out };
-  const rect = (n) => { const r = n.getBoundingClientRect(); const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+  const measure = (n) => { const r = n.getBoundingClientRect(); const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
     return (x < 0 || y < 0 || x > innerWidth || y > innerHeight) ? null : { x, y, width: Math.round(r.width), height: Math.round(r.height) }; };
+  // A control that exists, is usable and has real geometry but sits outside the
+  // viewport is scrolled to, not given up on. The sidebar conversation list and
+  // the project picker are both scrollable, so the wanted row is routinely
+  // below the fold; refusing to measure it reported action-offscreen and failed
+  // the whole account operation over a control that was one scroll away.
+  // Scrolling is not activation: the trusted native click still happens in the
+  // main process against the rect returned here, so fail-closed is preserved —
+  // a control that is still outside the viewport after scrolling yields null.
+  const rect = (n) => {
+    const first = measure(n);
+    if (first) return first;
+    // 'instant' matters: ChatGPT sets scroll-behavior smooth on its scrollers,
+    // and a smooth scroll has not landed by the time the next line measures.
+    try { n.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }) } catch { try { n.scrollIntoView(true) } catch { return null } }
+    return measure(n);
+  };
   // Reported with every offscreen failure so a slot that simply has no layout
   // viewport (0x0) is never again indistinguishable from a control that is
   // genuinely scrolled out of view. Both are control geometry, never content.

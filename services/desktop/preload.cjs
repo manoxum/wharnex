@@ -45,6 +45,10 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     queueDelete: (request) => invoke('wharness:chatgpt:queue-delete', request),
     suggestTitle: (cacheKey, url = '') => invoke('wharness:chatgpt:suggest-title', { cacheKey, url: String(url || '') }),
     hideSidebar: (cacheKey) => invoke('wharness:chatgpt:hide-sidebar', { cacheKey }),
+    // Dev-only behavior probe (adr/ADR-0041): `control` is matched against a
+    // closed enum in the main process and never reaches the page as a string.
+    probeBehavior: (cacheKey, control) => invoke('wharness:chatgpt:probe-behavior', { cacheKey, control: String(control || '') }),
+    probeBehaviorControls: () => invoke('wharness:chatgpt:probe-behavior-controls', {}),
     setAuthMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-auth-mode', { cacheKey, mode }),
     setTransportMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-transport-mode', { cacheKey, mode }),
     startAuth: (cacheKey, mode) => invoke('wharness:chatgpt:start-auth', { cacheKey, mode }),

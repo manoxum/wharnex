@@ -88,7 +88,7 @@ func TestCaptureWharnessRuntimeIncludesStatusAndBoundedRedactedLogs(t *testing.T
 	meta := Capture(root, "make-export", time.Date(2026, 9, 3, 17, 30, 0, 0, time.UTC))
 	meta.Runtime = &runtime
 	text := string(meta.Markdown())
-	for _, want := range []string{"## Wharness status", "backend running", "## Wharness recent logs", "line-204", "[REDACTED]", "## Wharness self-evolution logs", "self-evolution restarted"} {
+	for _, want := range []string{"## Wharnex status", "backend running", "## Wharnex recent logs", "line-204", "[REDACTED]", "## Wharnex self-evolution logs", "self-evolution restarted"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("runtime metadata missing %q:\n%s", want, text)
 		}
