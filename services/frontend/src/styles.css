@@ -2827,6 +2827,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-summary span { min-width:0; padding:7px 9px; display:flex; align-items:baseline; gap:5px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-surface); color:var(--theme-text-muted); }
 .agent-runtime-summary b { color:var(--theme-text); font:700 calc(9px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
 .agent-runtime-summary small { overflow:hidden; font-size:calc(6.7px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-memory-summary { padding:8px 10px; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb, var(--theme-bg) 96%, var(--theme-surface)); }
+.agent-runtime-memory-summary span { min-width:0; padding:7px 9px; display:grid; gap:4px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-surface); }
+.agent-runtime-memory-summary small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(6.5px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-memory-summary b { overflow:hidden; color:var(--theme-text); font:700 calc(7.4px * var(--ui-font-scale))/1.2 var(--mono-font-family); font-variant-numeric:tabular-nums; text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-diagnostics { padding:8px 10px 9px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
 .agent-runtime-diagnostic-row { min-width:0; min-height:64px; padding:8px 9px; display:grid; align-content:start; gap:6px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-surface); box-shadow:inset 0 2px 0 var(--theme-border-soft); }
 .agent-runtime-diagnostic-row.tone-success { box-shadow:inset 0 2px 0 color-mix(in srgb, var(--success) 72%, var(--theme-border)); }
@@ -2878,6 +2882,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-list strong { overflow:hidden; font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-list small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(6.7px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-list code { max-width:82px; overflow:hidden; padding:2px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(6.1px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-agent-stats { min-width:0; display:grid; justify-items:end; gap:3px; }
+.agent-runtime-agent-stats code { max-width:96px; }
+.agent-runtime-agent-stats .agent-runtime-memory-pill { color:var(--theme-text-soft); font-variant-numeric:tabular-nums; }
 .agent-runtime-dot { width:7px; height:7px; display:inline-block; border-radius:50%; background:var(--theme-text-muted); }
 .agent-runtime-dot.running { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 15%, transparent); }
 .agent-runtime-dot.claimed { background:var(--warning); box-shadow:0 0 0 3px color-mix(in srgb, var(--warning) 13%, transparent); }
@@ -2911,7 +2918,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-snapshot img { width:100%; max-height:260px; display:block; object-fit:contain; background:#fff; }
 .agent-runtime-snapshot figcaption { padding:6px 8px; color:var(--theme-text-muted); font-size:calc(6.5px * var(--ui-font-scale)); }
 @media (max-width: 980px) {
-  .agent-runtime-summary,.agent-runtime-diagnostics { padding-inline:8px; }
+  .agent-runtime-summary,.agent-runtime-memory-summary,.agent-runtime-diagnostics { padding-inline:8px; }
+  .agent-runtime-memory-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .agent-runtime-memory-summary span:last-child { grid-column:1 / -1; }
   .agent-runtime-pause { grid-template-columns:1fr; padding-inline:8px; }
   .agent-runtime-pause-controls { justify-content:flex-start; flex-wrap:wrap; }
   .agent-runtime-scale { grid-template-columns:1fr; padding-inline:8px; }

@@ -25,6 +25,7 @@ import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
 import { DEFAULT_WORKER_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_WORKER_SLOTS, SUPERVISOR_SLOTS, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies } from './chat-agent-policies.mjs'
+import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
@@ -2337,15 +2338,22 @@ async function refreshChatAgentRuntimeState() {
 
 function publicAgentBrowser(entry) {
   const wc = entry?.view?.webContents
-  if (!wc || wc.isDestroyed()) return { available: false, web_contents_id: 0, url: '', title: '', loading: false }
+  if (!wc || wc.isDestroyed()) return { available: false, web_contents_id: 0, os_process_id: 0, url: '', title: '', loading: false }
   const currentURL = wc.getURL() || ''
+  let osProcessID = 0
+  try { osProcessID = Math.max(0, Number(wc.getOSProcessId()) || 0) } catch {}
   return {
     available: true,
     web_contents_id: wc.id,
+    os_process_id: osProcessID,
     url: currentURL ? sanitizeDiagnosticURL(currentURL) : '',
     title: wc.getTitle() || '',
     loading: Boolean(entry.loading),
   }
+}
+
+function chatAgentRuntimeMemory(agents) {
+  try { return chatAgentMemorySnapshot(agents, app.getAppMetrics()) } catch { return chatAgentMemorySnapshot(agents, []) }
 }
 
 function chatAgentRuntimeState() {
@@ -2372,6 +2380,8 @@ function chatAgentRuntimeState() {
       keep_flowing: chatAgentKeepFlowingConfigured(worker), keep_flowing_active: chatAgentKeepFlowingActive(worker),
     }
   })
+  const agents = [...supervisors, ...workers]
+  const memory = chatAgentRuntimeMemory(agents)
   return {
     instance_id: String(chatAgentScheduler?.instanceID || ''),
     desired_workers: desiredChatAgentWorkerSlots,
@@ -2381,7 +2391,8 @@ function chatAgentRuntimeState() {
     scheduler: chatAgentRuntimeDiagnostics.scheduler,
     queue: chatAgentRuntimeDiagnostics.queue,
     provider: chatAgentRuntimeDiagnostics.provider,
-    agents: [...supervisors, ...workers],
+    memory: memory.totals,
+    agents: agents.map((agent) => ({ ...agent, memory: memory.by_agent[agent.id] })),
   }
 }
 
