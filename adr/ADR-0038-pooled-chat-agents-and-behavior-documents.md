@@ -109,6 +109,31 @@ and never focuses the composer or reloads a healthy page. While generation is ac
 returns to `WAITING` on a fixed roughly 30-second observation cadence so the worker is
 released without turning normal generation into failure backoff.
 
+A conversation that is producing a response is quiet. While an `AWAIT_RESPONSE` for a
+conversation is still claimable, no task that drives that conversation's own surface —
+`ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `TITLE_DISCOVER`,
+`TITLE_GENERATE_TEMP` — may be claimed for it, and the enforcement belongs in the claim
+query because the lease lock cannot express it: `AWAIT_RESPONSE` spends almost all of its
+life in `WAITING` so the worker is released between observations, which left a window
+every cycle in which account work could take the very conversation the model was writing
+into. Each of those tasks navigates or mutates that renderer — organizing clicks a
+project anchor, which is a real `/g/g-p-…` navigation; archive and delete click ChatGPT's
+own Stop control; the temporary-title fallback sends the worker to a new chat and submits
+an unrelated prompt there — so running one mid-generation destroys the response. A
+supervision past its attempt budget is excluded from the rule, or a dead await would
+silence its conversation permanently instead of until the response settles. For the same
+reason the resident slot keeps its lane while it is between observations: handing the
+conversation to another slot would reload a page the model is still writing into.
+
+A terminal "finished without delivering" conclusion requires evidence that the turn
+actually ran. The grace window is measured from the moment the generating indicator
+disappeared, which presupposes it was seen; when it never was, the only available signal
+is "the page has looked static since we first looked" — equally true of a turn that has
+not started, of a gap between reasoning phases, and of a tool call with no visible
+marker. That case therefore uses a substantially longer settle window, and supervision
+scheduled immediately after a write waits the same initial delay as a first request so
+its first probe cannot read the turn before the one it is supervising.
+
 Every probe outcome in which nothing was attempted is an observation and gives back the
 increment the claim charged: a still-generating page, a slot that was not on the expected
 conversation, an active provider cooldown, and a page in neither a generating nor a

@@ -173,6 +173,16 @@ const BUNDLE_COMPLETION_CONFIRM_MS = 15_000
 const CHAT_AGENT_SUBMIT_GAP_MS = 10_000
 const MAX_BUNDLE_CONTINUATIONS = 1
 const PROCESSING_SIGNAL_GRACE_MS = 15_000
+// How long a completion must hold when the generating indicator was never
+// observed for this request at all.
+//
+// The ordinary grace is measured from the moment generation visibly stopped,
+// which is real evidence the turn ended. Without that observation there is no
+// such moment, only "the page has looked static since we first looked" — true
+// of a turn that has not started, of a gap between reasoning phases, and of a
+// tool call running with no visible marker. Three minutes is the cost of being
+// wrong in the safe direction; concluding early costs the whole response.
+const BUNDLE_UNOBSERVED_SETTLE_MS = 3 * 60_000
 const CONVERSATION_TRANSPORT_STALE_MS = 30_000
 const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 // How long an AWAIT_RESPONSE probe may keep reading a page that is neither
@@ -1727,6 +1737,20 @@ function assignChatGPTWorker(entry, task) {
 
 function workerEntryForIndex(worker) {
   return chatGPTWorkerEntries[Math.max(0, Number(worker || 1) - 1)]
+}
+
+/**
+ * Whether this slot is mid-supervision of a response that is still being written.
+ *
+ * The evidence is the slot's own last settled task: an `AWAIT_RESPONSE` that
+ * asked to be retried is, by construction, a supervision that has not concluded.
+ * That is exactly the state in which the slot must keep its conversation, and it
+ * clears itself the moment the supervision completes, fails, or the slot runs
+ * anything else.
+ */
+function chatAgentSupervisingLiveResponse(worker) {
+  const runtime = chatAgentWorkerStates.get(Number(worker) || 0)
+  return runtime?.lastTask?.type === 'AWAIT_RESPONSE' && runtime?.lastResult?.status === 'waiting'
 }
 
 function workerEntryForAgentID(agentID) {
@@ -3368,7 +3392,16 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
   // from the moment the generating indicator actually disappeared.
   const idleSince = Math.max(Number(expected.processingAbsentSince || 0), Number(expected.settledAt || 0))
   if (!expected.settledAt) expected.settledAt = now
-  if (!idleSince || now - idleSince < PROCESSING_SIGNAL_GRACE_MS) {
+  // The grace means "the generating indicator went away and stayed away", which
+  // is only meaningful once that indicator was actually seen. When it never was,
+  // `idleSince` degrades to "the page has looked static since we first looked" —
+  // and a page can look static because the turn has not started, because the
+  // model is between reasoning phases, or because a tool call is running with no
+  // visible marker. Concluding from that is how a response still being composed
+  // was declared finished, and it is what made the continuation prompt land on
+  // top of a model that was still working.
+  const settleWindow = expected.processingObservedAt ? PROCESSING_SIGNAL_GRACE_MS : BUNDLE_UNOBSERVED_SETTLE_MS
+  if (!idleSince || now - idleSince < settleWindow) {
     return { status: 'waiting', delayMs: BUNDLE_COMPLETION_CONFIRM_MS, observation: true }
   }
   if (Number(payload.recovery_count || 0) >= MAX_BUNDLE_CONTINUATIONS) {
@@ -3417,6 +3450,12 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL)
     await enqueueChatAgentTask('AWAIT_RESPONSE', {
       key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: result.conversationUrl,
       parentTaskID: task.task_id, dedupeKey: `await:${task.request_id}`, payload: nextPayload, maxAttempts: 30, sessionID: nextPayload.session_id,
+      // A submission that was just accepted has not started rendering yet, so a
+      // probe running in the same second reads the turn *before* it — a static,
+      // complete-looking page — and can conclude the response finished without
+      // delivering before the model has written a word. Measured: a recovery
+      // write at 12:42:56 reached ATTENTION at 12:43:17, 21 seconds later.
+      notBefore: new Date(Date.now() + chatAgentInitialRequestWaitMs()).toISOString(),
     })
   } catch (error) {
     return { status: 'attention', error: `ChatGPT accepted request ${task.request_id}, but response supervision could not be scheduled: ${error instanceof Error ? error.message : String(error)}` }
@@ -4963,6 +5002,13 @@ app.whenReady().then(async () => {
     onIdle: (worker) => {
       const entry = workerEntryForIndex(worker)
       if (!entry) return
+      // A slot between two observations of a live response is not idle, even
+      // though its claims find nothing: AWAIT_RESPONSE deliberately returns to
+      // WAITING for ~30 seconds so the worker is released. Releasing its lane
+      // on that evidence would hand the conversation to another slot, which
+      // would reload a page the model is still writing into — the very
+      // interruption the resident probe exists to avoid.
+      if (chatAgentSupervisingLiveResponse(worker)) return
       if (chatAgentResidency.noteIdleClaim(entry.slotId)) {
         console.log(`[chat-agent] residency-released slot=${entry.slotId} reason=idle-lane`)
         publishChatAgentRuntimeState()
@@ -4975,7 +5021,7 @@ app.whenReady().then(async () => {
         if (state.kind === 'worker-started') chatAgentWorkerStates.set(worker, { ...prior, active: true })
         else if (state.kind === 'worker-stopped') chatAgentWorkerStates.set(worker, { ...prior, active: false, task: undefined })
         else if (state.kind === 'running') chatAgentWorkerStates.set(worker, { ...prior, active: true, task: state.task, lastTask: state.task, lastClaimAt: new Date().toISOString(), error: '' })
-        else if (state.kind === 'settled') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, lastTask: state.task || prior.lastTask, error: '' })
+        else if (state.kind === 'settled') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, lastTask: state.task || prior.lastTask, lastResult: state.result, error: '' })
         else if (state.kind === 'task-error') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, lastTask: state.task || prior.lastTask, error: String(state?.error?.message || state?.error || '') })
         else if (state.kind === 'worker-error') chatAgentWorkerStates.set(worker, { ...prior, task: undefined, error: String(state?.error?.message || state?.error || '') })
       }

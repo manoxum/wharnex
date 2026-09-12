@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -40,5 +41,37 @@ func TestPersistentBusRestoresBoundedRedactedHistory(t *testing.T) {
 	items := restarted.History("s1")
 	if len(items) != 1 || items[0].Data["token"] != "[REDACTED]" {
 		t.Fatalf("persistent redacted history unavailable: %#v", items)
+	}
+}
+
+// Decoded JSON puts objects inside []any, and without traversing that case
+// neither redaction nor the length bound reached them — which is exactly the
+// shape a plan's operations and an execution's per-command output arrive in.
+func TestSanitizeTraversesNestedArrays(t *testing.T) {
+	bus := NewBus()
+	event := bus.Publish("ses-1", "execution.recorded", map[string]any{
+		"execution": map[string]any{
+			"commands": []any{
+				map[string]any{"stdout": "api_key=super-secret-value", "stderr": strings.Repeat("x", 9000)},
+			},
+		},
+	})
+	execution, ok := event.Data["execution"].(map[string]any)
+	if !ok {
+		t.Fatalf("execution payload missing: %#v", event.Data)
+	}
+	commands, ok := execution["commands"].([]any)
+	if !ok || len(commands) != 1 {
+		t.Fatalf("commands payload missing: %#v", execution)
+	}
+	command, ok := commands[0].(map[string]any)
+	if !ok {
+		t.Fatalf("command payload missing: %#v", commands[0])
+	}
+	if stdout, _ := command["stdout"].(string); !strings.Contains(stdout, "[REDACTED]") {
+		t.Fatalf("a credential inside a nested array must be redacted, got %q", stdout)
+	}
+	if stderr, _ := command["stderr"].(string); !strings.HasSuffix(stderr, "…[truncated]") {
+		t.Fatalf("a long string inside a nested array must be bounded, got %d bytes", len(stderr))
 	}
 }

@@ -18,6 +18,58 @@ const session = (id: string): Session => ({
   context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/workspace/wharness', sha256: 'abc', files: [], excluded: [], text_truncated: false } },
 })
 
+describe('durable plan and execution ledger', () => {
+  const recorded = (type: string, body: Record<string, unknown>, timestamp: string): HarnessEvent => ({
+    id: `evt-${type}-${timestamp}`, session_id: 'ses-a', type, timestamp, data: body,
+  })
+
+  // The session snapshot keeps one current plan and one last execution and
+  // several lifecycle transitions clear both, which is why the views appeared
+  // to reset. The ledger is the record that actually survives.
+  it('rebuilds every execution round from the ledger, not only the session snapshot', () => {
+    const value = session('a')
+    // The snapshot holds the same run the ledger's newest record does, which is
+    // how it arrives in practice; it must appear once, not twice.
+    value.last_execution = execution('p3', '2026-09-05T10:10:00.000Z')
+    const ledger = {
+      a: [
+        recorded('execution.recorded', { plan_id: 'p1', request_id: 'req-1', execution: execution('p1', '2026-09-05T10:00:00.000Z') }, '2026-09-05T10:00:00.000Z'),
+        recorded('execution.recorded', { plan_id: 'p2', request_id: 'req-1', execution: execution('p2', '2026-09-05T10:05:00.000Z') }, '2026-09-05T10:05:00.000Z'),
+        recorded('execution.recorded', { plan_id: 'p3', request_id: 'req-1', execution: execution('p3', '2026-09-05T10:10:00.000Z') }, '2026-09-05T10:10:00.000Z'),
+      ],
+    }
+    const items = collectExecutionActivities([{ chat: chat('a'), session: value }], ledger)
+    expect(items.map((item) => item.execution.plan_id)).toEqual(['p3', 'p2', 'p1'])
+    expect(items[2].requestId).toBe('req-1')
+  })
+
+  it('rebuilds plans from the ledger and lets a live snapshot entry keep its richer label', () => {
+    const value = session('a')
+    value.last_applied_changes = [{ plan: plan('p1', 'Plano aplicado'), execution: execution('p1'), verified_at: '2026-09-05T10:02:00.000Z' }]
+    const ledger = {
+      a: [
+        recorded('plan.recorded', { plan_id: 'p0', request_id: 'req-0', plan: plan('p0', 'Plano descartado') }, '2026-09-05T09:50:00.000Z'),
+        recorded('plan.recorded', { plan_id: 'p1', request_id: 'req-1', plan: plan('p1', 'Plano aplicado') }, '2026-09-05T10:00:00.000Z'),
+      ],
+    }
+    const items = collectPlanActivities([{ chat: chat('a'), session: value }], ledger)
+    expect(items.map((item) => item.plan.plan_id)).toEqual(['p1', 'p0'])
+    expect(items[0].label).toBe('Aplicado no host')
+    expect(items[1].label).toBe('Registado')
+  })
+
+  it('ignores ledger records that carry no usable body', () => {
+    const ledger = {
+      a: [
+        recorded('execution.recorded', { plan_id: '', request_id: 'req-1' }, '2026-09-05T10:00:00.000Z'),
+        recorded('plan.recorded', { plan_id: 'p1' }, '2026-09-05T10:00:00.000Z'),
+      ],
+    }
+    expect(collectExecutionActivities([{ chat: chat('a'), session: session('a') }], ledger)).toHaveLength(0)
+    expect(collectPlanActivities([{ chat: chat('a'), session: session('a') }], ledger)).toHaveLength(0)
+  })
+})
+
 describe('project activity catalogue', () => {
   it('collects current, pending and applied plans without duplicating the same chat plan', () => {
     const value = session('a')

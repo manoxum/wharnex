@@ -32,6 +32,16 @@ Queue depth MUST distinguish work a worker could claim now from work that is mer
 
 Settled task rows (`DONE`, `FAILED`, `CANCELLED`) are operational bookkeeping, not evidence: durable request history lives in the persisted event history above. They MUST be swept on a retention window rather than retained indefinitely. The window MUST stay comfortably longer than any single request lifecycle, because a completed child task is what stops its parent from enqueuing the same follow-up twice.
 
+## Durable plan and execution ledger (v1.3.6)
+
+The session snapshot holds one current plan and one last execution, and several lifecycle transitions clear both. It is therefore working state, never the record: every intermediate plan and every intermediate execution — repair rounds, workflow rounds, failed verifications — is overwritten as soon as the next one starts, which is why the Plans and Executions views appeared to reset after a restart.
+
+Every plan the AI authors and every execution result MUST additionally be appended to the persisted event history as `plan.recorded` and `execution.recorded`, carrying the complete plan and execution bodies rather than the metadata the surrounding lifecycle events already carry. Failed and policy-blocked runs are recorded on the same terms: a failed verification is the evidence that explains why the next round exists, and it is the first thing the snapshot discards. Workflow observation rounds are executions for this purpose.
+
+Those records are the durable ledger. The project Plans and Executions views MUST be built from it, with the live session snapshot layered on top so an entry that is still current keeps its richer lifecycle label. Because the ledger lives in the persisted event history, it survives restart and is included in a chat archive package without a second store.
+
+Ledger bodies are published through the ordinary audit path precisely so redaction and the bounded-string rule apply to them; they are not exempt from "Secret values must be redacted before event publication". Sanitization MUST traverse nested arrays, because a decoded plan's operations and an execution's per-command output arrive inside them and would otherwise bypass both redaction and the length bound.
+
 ## Unresolved evidence ledger (v1.3.1)
 
 Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit selection enters an AI analysis request. **Analyze with AI** always creates or reuses a dedicated self-evolution Harness chat and never takes over the user's currently active conversation. Resolution is stored by immutable event ID across all canonical self-evolution sessions and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time and the currently selected analysis chat are not resolution boundaries.

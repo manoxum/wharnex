@@ -163,6 +163,10 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 }
 
 func (s *Service) storeWorkflowObservation(sessionID string, result domain.ExecutionResult, decision domain.PolicyDecision) {
+	// A workflow round is an execution the operator can inspect, and the next
+	// round overwrites LastExecution — so without this the evidence that shaped
+	// the answer is gone by the time anyone looks for it.
+	s.recordExecutionActivity(sessionID, result.PlanID, result)
 	_, _ = s.store.Update(sessionID, func(item *domain.Session) error {
 		item.Policy = &decision
 		item.LastExecution = &result

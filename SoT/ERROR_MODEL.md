@@ -8,6 +8,17 @@ Errors crossing the HTTP boundary use:
 
 Do not return raw secrets, environment dumps, provider authorization headers, or full internal stack traces.
 
+## Verification failure attribution
+
+A verification command is usually a whole suite: `go test ./...` puts every package behind one exit code. Its exit status therefore answers "did anything fail?", never "did this change break anything?", and the two questions have different answers in any repository whose gates are not already green.
+
+Wharnex MUST answer the second question by running the same command against the unmodified baseline and comparing the two runs failure by failure, not byte by byte. Comparison MUST decompose the output into individual failures for every diagnostic family it understands — at minimum Go test names, Go package failures (including a package that fails to build, which emits no per-test failure line at all) and TypeScript diagnostics. Output in no recognised family stays on the strict whole-output comparison and is treated as a regression: guessing would let a real one through.
+
+- When the patched run introduces no failure the baseline did not already report, the command is a pre-existing failure. It MUST NOT fail the candidate, and it is recorded as a warning.
+- When it does introduce failures, the candidate fails — but the diagnostic that reaches the repair round MUST name which failures the change introduced and which were already failing, and MUST state that the pre-existing ones are not to be fixed.
+
+That last rule is load bearing rather than cosmetic. Handed an undifferentiated suite log, a planner has no way to tell its own breakage from the repository's, and the cheapest way to make a gate green is to change the thing being verified: relax the assertion, delete the test, revert the symbol it expects. That destroys work that was already accepted, and it passes every structural check on the way through.
+
 ## Session failure classification (`FailureKind`)
 
 A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set classification (`domain.FailureKind*`), always derived by Wharness itself from a local/sandbox error or a planner turn's reason code — never copied verbatim from planner-supplied text. Frontend recovery affordances MUST key off this field, never off error-message substrings.

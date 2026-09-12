@@ -19,7 +19,7 @@ describe('ChatAgentTasksDrawer', () => {
   it('shows a compact readable summary and keeps operational detail expandable', async () => {
     vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [
       task({ task_id: 'cat-running', type: 'BOT_WRITE', status: 'RUNNING', lease_owner: 'desktop-1:worker-2', lease_expires_at: '2026-09-11T20:10:00Z' }),
-      task({ task_id: 'cat-waiting', type: 'AWAIT_RESPONSE', status: 'WAITING', lease_owner: '', attempt: 3 }),
+      task({ task_id: 'cat-waiting', type: 'AWAIT_RESPONSE', status: 'WAITING', lease_owner: '', attempt: 3, not_before: new Date(Date.now() + 30_000).toISOString() }),
     ] })
 
     render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
@@ -29,9 +29,10 @@ describe('ChatAgentTasksDrawer', () => {
     expect(screen.getByText('Aguardar resposta')).toBeTruthy()
     expect(screen.getAllByText('Atividade').length).toBe(2)
     expect(screen.getByLabelText('Posição 1 na fila')).toBeTruthy()
-    const details = screen.getAllByText('Ver informações completas')[0].closest('details')
+    expect(screen.getByText(/Próxima tentativa em/)).toBeTruthy()
+    const details = screen.getAllByText('Detalhes')[0].closest('details')
     expect(details?.hasAttribute('open')).toBe(false)
-    fireEvent.click(screen.getAllByText('Ver informações completas')[0])
+    fireEvent.click(screen.getAllByText('Detalhes')[0])
     expect(details?.hasAttribute('open')).toBe(true)
     expect(screen.getByText('cat-running')).toBeTruthy()
     await waitFor(() => expect(api.chatAgentTasks).toHaveBeenCalledWith(true))

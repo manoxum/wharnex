@@ -375,3 +375,25 @@ func TestBuildManualPromptTiesRepeatedDiagnosticsToTheAttemptLedger(t *testing.T
 		}
 	}
 }
+
+// Measured on chat b0ceb726e438: `go test ./...` reported a pre-existing
+// failure in a package the candidate never touched, and the repair round
+// answered it by patching that package's production code — reverting a rename
+// that had already been accepted, purely to satisfy a stale test assertion.
+func TestBuildManualPromptForbidsFixingFailuresTheChangeDidNotCause(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req_20260912T093000_cccccccccccccccc", Message: "repair a failed verification"})
+
+	for _, want := range []string{
+		"VERIFICATION FAILURE OWNERSHIP — ONLY FIX WHAT YOU BROKE",
+		"Already failing on the unmodified baseline",
+		"is NOT YOURS",
+		"NEVER make a gate pass by changing the thing being verified rather than the thing that is broken",
+		"Reverting a completed change, relaxing an assertion, deleting a test",
+		"If the ONLY remaining failures are pre-existing ones, your change is complete",
+		"return kind=blocked naming it",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("manual prompt missing verification-ownership rule %q", want)
+		}
+	}
+}

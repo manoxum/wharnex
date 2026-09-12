@@ -207,6 +207,29 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 				  )
 			)
 		  )
+		  -- A conversation under live response supervision is quiet: nothing but
+		  -- that supervision (and the recovery write it authorises) may drive it.
+		  -- The lease lock above cannot express this, because AWAIT_RESPONSE
+		  -- spends almost all of its life in WAITING so the worker is released
+		  -- between observations — which opened a 30-second window, every cycle,
+		  -- in which account work could claim the very conversation the model was
+		  -- still writing into, navigate its renderer to a project URL or to a new
+		  -- chat, and destroy the response.
+		  AND NOT (
+			t.conversation_id<>'' AND ` + chatAgentQuietWhileAwaitingSQL("t.type") + `
+			AND EXISTS (
+				SELECT 1 FROM harness_chat_agent_tasks s
+				WHERE s.task_id<>t.task_id AND s.conversation_id=t.conversation_id
+				  AND s.type='AWAIT_RESPONSE'
+				  AND (
+					s.status IN ('LEASED','RUNNING')
+					-- A supervision past its attempt budget can never run again,
+					-- so treating it as live would silence the conversation for
+					-- good rather than until the response settles.
+					OR (s.status IN ('PENDING','WAITING') AND s.attempt<s.max_attempts)
+				  )
+			)
+		  )
 		ORDER BY CASE WHEN $3<>'' AND ` + laneExpr + `=$3 THEN 0 ELSE 1 END,
 		CASE
 			WHEN t.priority<=1 THEN t.priority

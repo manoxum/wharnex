@@ -159,6 +159,45 @@ func chatAgentTaskAccount(taskType string) bool {
 	}
 }
 
+// chatAgentQuietWhileAwaiting lists the task types that drive a conversation's
+// own surface and must therefore stand back while it is producing a response.
+//
+// Each one navigates or mutates the very renderer the model is streaming into:
+// organizing and renaming open the sidebar menu and click a project anchor,
+// which is a real `/g/g-p-…` navigation; archive and delete click ChatGPT's own
+// Stop control; title discovery reloads the conversation; and the temporary
+// title fallback sends the worker to a brand-new chat and submits an unrelated
+// prompt there. Running any of them mid-generation is what interrupted the
+// model's reasoning and left the request with no bundle to deliver.
+//
+// DELETE_BUNDLE and DELETE_TEMP_CHAT are absent deliberately: they act on the
+// library and on a separate temporary conversation, never on this one. Writes
+// are absent too — a write is the point of the conversation, and the existing
+// per-conversation write lease already orders them.
+func chatAgentQuietWhileAwaiting(taskType string) bool {
+	switch taskType {
+	case "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP":
+		return true
+	default:
+		return false
+	}
+}
+
+// chatAgentQuietWhileAwaitingSQL renders chatAgentQuietWhileAwaiting as a SQL
+// predicate over the given type column, so the claim query and the in-memory
+// fallback can never drift apart on which types have to stand back.
+func chatAgentQuietWhileAwaitingSQL(column string) string {
+	quoted := make([]string, 0, len(chatAgentQuietTypes))
+	for _, value := range chatAgentQuietTypes {
+		quoted = append(quoted, "'"+value+"'")
+	}
+	return column + " IN (" + strings.Join(quoted, ",") + ")"
+}
+
+var chatAgentQuietTypes = []string{
+	"ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP",
+}
+
 func chatAgentEffectivePriority(task ChatAgentTask, now time.Time) int {
 	if task.Priority <= 1 {
 		return task.Priority

@@ -721,6 +721,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		s.closeSupersededRemoteInputChannel(sessionID, requestID)
 	}
 	if result.Plan != nil {
+		s.recordPlanActivity(sessionID, result.Plan)
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": result.Plan.PlanID, "allowed": updated.Policy.Allowed, "requires_approval": updated.Policy.RequiresApproval, "risk": updated.Policy.Risk})
 	} else if result.ManualPrompt != "" {
 		s.bus.Publish(sessionID, "manual.prompt_ready", map[string]any{"request_id": requestID})
@@ -809,6 +810,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 	})
 	if err == nil {
 		s.releaseRemoteInputLease(sessionID, plan.RequestID)
+		s.recordPlanActivity(sessionID, &plan)
 		s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk})
 	}
 	return updated, err
@@ -1149,6 +1151,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	s.releaseRemoteInputLease(sessionID, parsed.Plan.RequestID)
 	s.bus.Publish(sessionID, "bundle.received", map[string]any{"filename": parsed.Info.Filename, "files": len(parsed.Info.Files), "patches": len(parsed.Info.Patches), "sha256": parsed.Info.SHA256})
+	s.recordPlanActivity(sessionID, parsed.Plan)
 	s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": parsed.Plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk, "transport": "zip_bundle"})
 
 	submission := BundleSubmission{Session: updated}
@@ -1765,10 +1768,20 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 				result.Warnings = append(result.Warnings, warning)
 				s.bus.Publish(sessionID, "verification.baseline_unchanged", map[string]any{"argv": command.Argv, "exit_code": baselineResult.ExitCode, "diagnostic": commandResultDiagnostic(baselineResult)})
 			} else if baselineErr == nil && !baselineResult.Success {
+				// The suite failed both before and after, but not identically:
+				// some of these failures are the candidate's and some are the
+				// repository's. Recording which is which is what stops the
+				// repair round being handed a failure it did not cause — the
+				// path that once had a planner revert a completed rename to
+				// satisfy a stale assertion in a package it never touched.
+				commandResult.BaselineExitCode = baselineResult.ExitCode
+				commandResult.BaselineOutput = describeVerificationAttribution(baselineResult, commandResult)
 				s.bus.Publish(sessionID, "verification.baseline_changed", map[string]any{
 					"argv":                command.Argv,
 					"baseline_exit_code":  baselineResult.ExitCode,
 					"post_exit_code":      commandResult.ExitCode,
+					"introduced":          newVerificationFailures(baselineResult, commandResult),
+					"pre_existing":        preExistingVerificationFailures(baselineResult, commandResult),
 					"baseline_diagnostic": commandResultDiagnostic(baselineResult),
 					"post_diagnostic":     commandResultDiagnostic(commandResult),
 				})
@@ -1777,7 +1790,15 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		result.Commands = append(result.Commands, commandResult)
 		if runErr != nil || !commandResult.Success {
 			if runErr == nil {
+				// The attribution leads the message, because this string is what
+				// the repair prompt is built from: the raw suite output lists
+				// every failure the command produced and gives the planner no
+				// way to tell which of them its own patch caused.
 				runErr = fmt.Errorf("verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), commandResult.ExitCode, commandResultDiagnostic(commandResult))
+				if attribution := strings.TrimSpace(commandResult.BaselineOutput); attribution != "" {
+					runErr = fmt.Errorf("verification failed: %s (exit %d).\n%s\n\nFull output:\n%s",
+						strings.Join(command.Argv, " "), commandResult.ExitCode, attribution, commandResultDiagnostic(commandResult))
+				}
 			}
 			return s.failExecution(ctx, sessionID, result, runErr)
 		}
@@ -1873,6 +1894,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			s.bus.Publish(sessionID, "knowledge.commit_failed", map[string]any{"error": commitErr.Error(), "request_id": item.Plan.RequestID})
 		}
 	}
+	s.recordExecutionActivity(sessionID, item.Plan.RequestID, result)
 	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	return result, updated, nil
 }
@@ -1946,46 +1968,6 @@ func normalizedVerificationOutput(result domain.CommandResult) string {
 	return fmt.Sprintf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
 }
 
-var typescriptDiagnosticPattern = regexp.MustCompile(`(?m)^(.+?)\(\d+,\d+\):\s+error\s+(TS\d+):\s+(.+?)\s*$`)
-
-// verificationFailureEquivalent first preserves the original strict byte-level
-// comparison. If that differs, it falls back only to structured diagnostics we
-// understand. This avoids treating harmless npm/path formatting differences as
-// a regression while still rejecting any new TypeScript error introduced by a
-// plan.
-func verificationFailureEquivalent(baseline, post domain.CommandResult) bool {
-	if normalizedVerificationOutput(baseline) == normalizedVerificationOutput(post) {
-		return true
-	}
-	baselineDiagnostics := typescriptDiagnosticFingerprints(baseline)
-	postDiagnostics := typescriptDiagnosticFingerprints(post)
-	if len(baselineDiagnostics) == 0 || len(postDiagnostics) == 0 {
-		return false
-	}
-	for diagnostic := range postDiagnostics {
-		if _, ok := baselineDiagnostics[diagnostic]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func typescriptDiagnosticFingerprints(result domain.CommandResult) map[string]struct{} {
-	combined := strings.ReplaceAll(result.Stdout+"\n"+result.Stderr, "\r\n", "\n")
-	matches := typescriptDiagnosticPattern.FindAllStringSubmatch(combined, -1)
-	out := make(map[string]struct{}, len(matches))
-	for _, match := range matches {
-		if len(match) != 4 {
-			continue
-		}
-		path := strings.TrimSpace(strings.ReplaceAll(match[1], "\\", "/"))
-		code := strings.TrimSpace(match[2])
-		message := strings.Join(strings.Fields(match[3]), " ")
-		out[path+"|"+code+"|"+message] = struct{}{}
-	}
-	return out
-}
-
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
 	runID := ids.New("run")
 	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
@@ -2028,6 +2010,10 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	result.Success = false
 	result.Error = cause.Error()
 	result.CompletedAt = time.Now().UTC()
+	// Recorded before the session state moves, because every branch below
+	// rewrites LastExecution or clears it, and the failed run is the evidence
+	// that explains why the next round exists.
+	s.recordExecutionActivity(sessionID, "", result)
 	updated, _ := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastExecution = &result
 		current.State = "failed"

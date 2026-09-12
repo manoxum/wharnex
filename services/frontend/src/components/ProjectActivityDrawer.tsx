@@ -47,8 +47,42 @@ export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatI
     const remote = remoteSessions[chat.sessionId]
     return remote ? [{ chat, session: remote }] : []
   }), [activeChatId, chats, currentSession, remoteSessions])
-  const plans = useMemo(() => collectPlanActivities(sessions), [sessions])
-  const executions = useMemo(() => collectExecutionActivities(sessions), [sessions])
+  // The durable ledger is fetched for every listed session, not only the chosen
+  // one: it is what the lists themselves are built from now, because the session
+  // snapshot keeps a single plan and a single execution and clears both across
+  // lifecycle transitions. Loading it lazily would have shown an empty history
+  // until something was selected, which is the reset the operator reported.
+  const ledgerKey = JSON.stringify(sessions.map(({ chat, session }) => [chat.id, session.id]))
+  useEffect(() => {
+    let cancelled = false
+    const pairs = JSON.parse(ledgerKey) as [string, string][]
+    const missing = pairs.filter(([, sessionId]) => !eventHistory[sessionId] && !eventHistoryError[sessionId])
+    if (!missing.length) return
+    void Promise.all(missing.map(async ([, sessionId]) => {
+      try {
+        const snapshot = await api.eventHistory(sessionId)
+        if (!cancelled) setEventHistory((current) => ({ ...current, [sessionId]: snapshot }))
+      } catch {
+        if (!cancelled) setEventHistoryError((current) => ({ ...current, [sessionId]: 'Histórico de auditoria indisponível; a mostrar apenas o resultado resumido da execução.' }))
+      }
+    }))
+    return () => { cancelled = true }
+  }, [eventHistory, eventHistoryError, ledgerKey])
+
+  const ledger = useMemo(() => {
+    const byChat: Record<string, HarnessEvent[]> = {}
+    for (const { chat, session } of sessions) {
+      const persisted = eventHistory[session.id]?.events || []
+      const live = chat.id === activeChatId ? activeEvents : []
+      const merged = new Map<string, HarnessEvent>()
+      for (const event of [...persisted, ...live]) merged.set(event.id, event)
+      byChat[chat.id] = [...merged.values()]
+    }
+    return byChat
+  }, [activeChatId, activeEvents, eventHistory, sessions])
+
+  const plans = useMemo(() => collectPlanActivities(sessions, ledger), [ledger, sessions])
+  const executions = useMemo(() => collectExecutionActivities(sessions, ledger), [ledger, sessions])
   const entries = kind === 'plans' ? plans : executions
   const chosen = entries.find((item) => item.id === selected) || entries[0]
 

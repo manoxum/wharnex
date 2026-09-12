@@ -59,24 +59,24 @@ function TaskCard({ task, queuePosition }: { task: ChatAgentTask; queuePosition?
   const running = RUNNING.has(task.status)
   const waiting = task.status === 'WAITING'
   const schedule = running
-    ? `Lease até ${timeLabel(task.lease_expires_at)}`
+    ? `Lease ${relativeMoment(task.lease_expires_at)}`
     : waiting && Date.parse(task.not_before) > Date.now()
-      ? `Próxima tentativa ${timeLabel(task.not_before)} · ${relativeAge(task.not_before, true)}`
+      ? `Próxima tentativa ${relativeMoment(task.not_before)}`
       : 'A aguardar disponibilidade'
 
   return <article className={`chat-agent-task-card ${task.status.toLowerCase()}`}>
     <div className="chat-agent-task-heading">
       <div className="chat-agent-task-identity"><span className={`agent-runtime-dot ${running ? (task.status === 'RUNNING' ? 'running' : 'claimed') : 'loading'}`} aria-hidden="true"/><div><strong>{taskTypeLabel(task.type)}</strong><code>{task.type}</code></div></div>
-      <span className="chat-agent-task-state">{statusLabel(task.status)}</span>
+      <div className="chat-agent-task-heading-meta">{queuePosition ? <em aria-label={`Posição ${queuePosition} na fila`}>#{String(queuePosition).padStart(2, '0')}</em> : null}<span className="chat-agent-task-state">{statusLabel(task.status)}</span></div>
     </div>
-    <div className="chat-agent-task-worker"><span><Icon name="agent" size={13}/><b>{workerLabel(task.lease_owner)}</b></span><small title={schedule}>{schedule}</small>{queuePosition ? <em aria-label={`Posição ${queuePosition} na fila`}>#{String(queuePosition).padStart(2, '0')}</em> : null}</div>
+    <div className="chat-agent-task-worker"><span><Icon name="agent" size={13}/><b>{workerLabel(task.lease_owner)}</b></span><small title={schedule}>{schedule}</small></div>
     <div className="chat-agent-task-metrics" aria-label="Resumo da tarefa">
-      <TaskMetric label="Na fila" value={relativeAge(task.created_at)}/>
+      <TaskMetric label="Fila" value={relativeAge(task.created_at)}/>
       <TaskMetric label="Atividade" value={relativeAge(task.updated_at)}/>
       <TaskMetric label="Tentativa" value={`${task.attempt}/${task.max_attempts}`}/>
     </div>
     {task.last_error ? <div className="chat-agent-task-error"><Icon name="bell" size={13}/><span>{task.last_error}</span></div> : null}
-    <details className="chat-agent-task-details"><summary><span>Ver informações completas</span></summary><div className="chat-agent-task-detail-grid">
+    <details className="chat-agent-task-details"><summary><span>Detalhes</span></summary><div className="chat-agent-task-detail-grid">
       <TaskDetails title="Execução" rows={[
         ['Entrou na fila', `${timeLabel(task.created_at)} · ${relativeAge(task.created_at)}`],
         ['Último trabalho', `${statusLabel(task.status)} · ${timeLabel(task.updated_at)} · ${relativeAge(task.updated_at)}`],
@@ -126,6 +126,12 @@ function statusLabel(status: string) {
 function timeLabel(value?: string) {
   const date = new Date(String(value || ''))
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+}
+
+function relativeMoment(value?: string) {
+  const timestamp = Date.parse(String(value || ''))
+  if (!Number.isFinite(timestamp)) return '—'
+  return relativeAge(timestamp, timestamp > Date.now())
 }
 
 function relativeAge(value: string | number, future = false) {

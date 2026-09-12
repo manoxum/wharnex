@@ -46,9 +46,46 @@ export type ExecutionActivityItem = {
   session: Session
 }
 
-export function collectPlanActivities(entries: ProjectSessionActivity[]): PlanActivityItem[] {
+// Durable ledger records (`plan.recorded` / `execution.recorded`) carry the full
+// body the session snapshot throws away. The snapshot keeps one current plan and
+// one last execution, and several lifecycle transitions clear both, so without
+// these the Plans and Executions views showed only whatever the session happened
+// to be holding — which is why restarting Wharnex appeared to reset them.
+export function ledgerPlanActivities(chat: WorkspaceChat, session: Session, events: HarnessEvent[]): PlanActivityItem[] {
+  const items: PlanActivityItem[] = []
+  for (const event of events) {
+    if (event.type !== 'plan.recorded') continue
+    const plan = event.data?.plan as ExecutionPlan | undefined
+    if (!plan?.plan_id) continue
+    items.push({
+      id: `${chat.id}:${plan.plan_id}`, chatId: chat.id, chatTitle: chat.title,
+      label: 'Registado', timestamp: event.timestamp, plan, session,
+    })
+  }
+  return items
+}
+
+export function ledgerExecutionActivities(chat: WorkspaceChat, session: Session, events: HarnessEvent[]): ExecutionActivityItem[] {
+  const items: ExecutionActivityItem[] = []
+  for (const event of events) {
+    if (event.type !== 'execution.recorded') continue
+    const execution = event.data?.execution as ExecutionResult | undefined
+    if (!execution?.plan_id) continue
+    items.push({
+      id: `${chat.id}:${execution.plan_id}:${execution.started_at || event.timestamp}`,
+      chatId: chat.id, chatTitle: chat.title, timestamp: execution.started_at || event.timestamp,
+      requestId: String(event.data?.request_id || ''), execution, session,
+    })
+  }
+  return items
+}
+
+export function collectPlanActivities(entries: ProjectSessionActivity[], ledger: Record<string, HarnessEvent[]> = {}): PlanActivityItem[] {
   const items = new Map<string, PlanActivityItem>()
   for (const { chat, session } of entries) {
+    // The durable ledger goes in first so a live snapshot entry, which carries
+    // the richer label ("Aplicado no host"), overwrites the plain record.
+    for (const item of ledgerPlanActivities(chat, session, ledger[chat.id] || [])) items.set(item.id, item)
     const current = session.plan ? [{ plan: session.plan, timestamp: session.last_execution?.plan_id === session.plan.plan_id ? session.last_execution.started_at : session.created_at, label: 'Plano atual' }] : []
     const pending = (session.pending_host_changes || []).map((change) => ({ plan: change.plan, timestamp: change.verified_at, label: 'Verificado · pendente no host' }))
     const applied = (session.last_applied_changes || []).map((change) => ({ plan: change.plan, timestamp: change.verified_at, label: 'Aplicado no host' }))
@@ -64,9 +101,10 @@ export function collectPlanActivities(entries: ProjectSessionActivity[]): PlanAc
   return [...items.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 }
 
-export function collectExecutionActivities(entries: ProjectSessionActivity[]): ExecutionActivityItem[] {
+export function collectExecutionActivities(entries: ProjectSessionActivity[], ledger: Record<string, HarnessEvent[]> = {}): ExecutionActivityItem[] {
   const items = new Map<string, ExecutionActivityItem>()
   for (const { chat, session } of entries) {
+    for (const item of ledgerExecutionActivities(chat, session, ledger[chat.id] || [])) items.set(item.id, item)
     const requestByPlan = new Map<string, string>()
     if (session.plan) requestByPlan.set(session.plan.plan_id, session.plan.request_id)
     for (const change of [...(session.pending_host_changes || []), ...(session.last_applied_changes || [])]) {

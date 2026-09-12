@@ -84,3 +84,102 @@ func TestSupersedingADeletedChatCancelsALeasedTask(t *testing.T) {
 		t.Fatalf("a superseded task must release its lease, got owner=%q expires=%v", after.LeaseOwner, after.LeaseExpiresAt)
 	}
 }
+
+// Measured on this instance: ORGANIZE_CHAT ran from 17:42 to 18:40 against the
+// exact conversation whose AWAIT_RESPONSE was supervising a response from 17:43
+// to 18:46, and that request ended with no bundle. The lease lock could not stop
+// it, because AWAIT_RESPONSE is in WAITING between its 30-second observations.
+func TestAConversationProducingAResponseIsQuiet(t *testing.T) {
+	store := NewStore()
+	await, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// DELETE_CHAT is deliberately absent: queueing it retires this chat's
+	// supervision outright, so it can never be the task that interrupts it.
+	for _, quiet := range []string{"ORGANIZE_CHAT", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP", "RENAME_CHAT", "ARCHIVE_CHAT"} {
+		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(quiet, "chat-a", "conv-a", quiet+":conv-a")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The supervision itself claims first, then releases its lease to WAITING.
+	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed == nil || claimed.TaskID != await.TaskID {
+		t.Fatalf("the supervision must be claimed first, got %+v", claimed)
+	}
+	if _, err := store.WaitChatAgentTask(await.TaskID, "worker-1", time.Now().UTC().Add(-time.Second), "", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// This is the window that used to hand the conversation to account work.
+	for _, owner := range []string{"worker-2", "worker-3"} {
+		next, claimErr := store.ClaimChatAgentTask(owner, 30*time.Second)
+		if claimErr != nil {
+			t.Fatal(claimErr)
+		}
+		if next != nil && next.TaskID != await.TaskID {
+			t.Fatalf("%s claimed %s on a conversation that is still producing a response", owner, next.Type)
+		}
+	}
+}
+
+func TestQuietPeriodLiftsWhenSupervisionSettles(t *testing.T) {
+	store := NewStore()
+	await, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	organize, err := store.EnqueueChatAgentTask(testChatAgentTask("ORGANIZE_CHAT", "chat-a", "conv-a", "organize:conv-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil || claimed == nil || claimed.TaskID != await.TaskID {
+		t.Fatalf("claim=%+v err=%v", claimed, err)
+	}
+	if _, err := store.CompleteChatAgentTask(await.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	next, err := store.ClaimChatAgentTask("worker-2", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next == nil || next.TaskID != organize.TaskID {
+		t.Fatalf("organization must run once the response settled, got %+v", next)
+	}
+}
+
+// A supervision that can never be claimed again must not silence its
+// conversation for good; the chat would never be organized or renamed.
+func TestAnExhaustedSupervisionDoesNotSilenceTheConversationForever(t *testing.T) {
+	store := NewStore()
+	if _, err := store.EnqueueChatAgentTask(ChatAgentTask{
+		Type: "AWAIT_RESPONSE", ChatID: "chat-a", ConversationID: "conv-a",
+		DedupeKey: "await:req-1", MaxAttempts: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	organize, err := store.EnqueueChatAgentTask(testChatAgentTask("ORGANIZE_CHAT", "chat-a", "conv-a", "organize:conv-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil || claimed == nil {
+		t.Fatalf("claim=%+v err=%v", claimed, err)
+	}
+	// Back to WAITING on its final attempt: never claimable again.
+	if _, err := store.WaitChatAgentTask(claimed.TaskID, "worker-1", time.Now().UTC().Add(-time.Second), "", false); err != nil {
+		t.Fatal(err)
+	}
+	next, err := store.ClaimChatAgentTask("worker-2", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next == nil || next.TaskID != organize.TaskID {
+		t.Fatalf("an exhausted supervision must not block organization, got %+v", next)
+	}
+}

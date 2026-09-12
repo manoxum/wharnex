@@ -97,6 +97,18 @@ func sanitizeValue(value any) any {
 		return out
 	case map[string]any:
 		return sanitizeData(typed)
+	case []any:
+		// Anything that arrives as decoded JSON puts its objects inside []any,
+		// and without this case neither redaction nor the length bound reached
+		// them: a plan's operations, an execution's per-command stdout/stderr,
+		// or any nested structure passed straight through untouched. That is the
+		// one shape where an event is most likely to be both large and to carry
+		// a credential echoed by a command.
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			out[index] = sanitizeValue(item)
+		}
+		return out
 	default:
 		return value
 	}

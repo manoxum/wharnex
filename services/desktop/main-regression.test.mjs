@@ -1464,3 +1464,40 @@ test('an empty claim releases a resident lane that has run dry', async () => {
   assert.match(scheduler.slice(0, 1600), /onIdle: \(worker\) => \{/)
   assert.match(scheduler.slice(0, 1600), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
 })
+
+test('a conversation still producing a response is never concluded without evidence it ran', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function probeChatAgentResponse(')
+  const probe = source.slice(start, source.indexOf('\nasync function executeChatAgentWrite', start))
+
+  // The ordinary grace means "generation visibly stopped and stayed stopped",
+  // which is only meaningful once that indicator was actually seen. Without it
+  // the window degraded to "the page has looked static since we first looked" —
+  // true of a turn that has not started and of a gap between reasoning phases.
+  assert.match(probe, /expected\.processingObservedAt \? PROCESSING_SIGNAL_GRACE_MS : BUNDLE_UNOBSERVED_SETTLE_MS/)
+  assert.match(probe, /now - idleSince < settleWindow/)
+  assert.match(source, /const BUNDLE_UNOBSERVED_SETTLE_MS = 3 \* 60_000/)
+})
+
+test('supervision scheduled after a write waits for the turn to start', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function executeChatAgentWrite(')
+  const write = source.slice(start, source.indexOf('\nasync function enqueueOrganizeFromTitle', start))
+
+  // Measured: a recovery write at 12:42:56 reached ATTENTION at 12:43:17 because
+  // its supervision was claimable in the same second and read the turn before it.
+  assert.match(write, /notBefore: new Date\(Date\.now\(\) \+ chatAgentInitialRequestWaitMs\(\)\)\.toISOString\(\)/)
+})
+
+test('a slot between two observations of a live response keeps its conversation', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helper = source.slice(source.indexOf('function chatAgentSupervisingLiveResponse('))
+  assert.match(helper.slice(0, 400), /lastTask\?\.type === 'AWAIT_RESPONSE' && runtime\?\.lastResult\?\.status === 'waiting'/)
+
+  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
+  // Releasing the lane here would hand the conversation to another slot, which
+  // would reload a page the model is still writing into.
+  assert.match(scheduler.slice(0, 2200), /if \(chatAgentSupervisingLiveResponse\(worker\)\) return/)
+  // The predicate needs the settled result, so the runtime state has to keep it.
+  assert.match(scheduler.slice(0, 4000), /kind === 'settled'[\s\S]{0,200}lastResult: state\.result/)
+})

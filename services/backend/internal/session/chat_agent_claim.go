@@ -175,7 +175,40 @@ func (s *Store) ClaimChatAgentTaskWithOptions(owner string, lease time.Duration,
 	return &task, nil
 }
 
+// chatAgentSilencedByLiveSupervision reports whether a conversation-surface task
+// must stand back because its conversation is still producing a response.
+//
+// The lease lock below cannot express this: AWAIT_RESPONSE spends almost all of
+// its life in WAITING so the worker is released between observations, which left
+// a window every cycle in which account work could drive the very conversation
+// the model was still writing into.
+func chatAgentSilencedByLiveSupervision(candidate ChatAgentTask, tasks map[string]ChatAgentTask) bool {
+	if candidate.ConversationID == "" || !chatAgentQuietWhileAwaiting(candidate.Type) {
+		return false
+	}
+	for _, supervision := range tasks {
+		if supervision.TaskID == candidate.TaskID || supervision.Type != "AWAIT_RESPONSE" ||
+			supervision.ConversationID != candidate.ConversationID {
+			continue
+		}
+		switch supervision.Status {
+		case ChatAgentTaskLeased, ChatAgentTaskRunning:
+			return true
+		case ChatAgentTaskPending, ChatAgentTaskWaiting:
+			// A supervision past its attempt budget can never run again, so
+			// treating it as live would silence the conversation for good.
+			if supervision.Attempt < supervision.MaxAttempts {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func chatAgentBlockedByActiveTask(candidate ChatAgentTask, tasks map[string]ChatAgentTask, now time.Time) bool {
+	if chatAgentSilencedByLiveSupervision(candidate, tasks) {
+		return true
+	}
 	for _, running := range tasks {
 		if running.TaskID == candidate.TaskID || (running.Status != ChatAgentTaskLeased && running.Status != ChatAgentTaskRunning) {
 			continue
