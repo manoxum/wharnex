@@ -163,7 +163,8 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer onClose={() => undefined} />)
-    expect(await screen.findByText('Pausado globalmente')).toBeTruthy()
+    const pausedLabel = await screen.findByText('Pausado globalmente')
+    expect(pausedLabel.closest('.agent-runtime-diagnostic-row')?.className).toContain('tone-warning')
     expect(screen.getByText('WAITING', { selector: '.agent-runtime-queue span' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar provider' }))
     await waitFor(() => expect(agents.resumeProvider).toHaveBeenCalledTimes(1))
