@@ -84,6 +84,12 @@ func TestParseBundleRejectsClientDeclaredTrustedMetadata(t *testing.T) {
 	}
 }
 
+func TestPlainTextKindDoesNotDependOnSystemMIMEDatabase(t *testing.T) {
+	if got := previewKind("artifacts/a.txt", "application/octet-stream"); got != "text" {
+		t.Fatalf("plain text extension must stay text without host MIME metadata, got %q", got)
+	}
+}
+
 func TestParseBundleRejectsTrailingJSONValue(t *testing.T) {
 	raw := presentationZIP(t, map[string]string{
 		"artifacts/a.txt": "a",
