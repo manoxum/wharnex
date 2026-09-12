@@ -65,7 +65,13 @@ func defaultValue(value, fallback string) string {
 }
 
 func trustedContentType(name string) string {
-	value := mime.TypeByExtension(strings.ToLower(path.Ext(name)))
+	ext := strings.ToLower(path.Ext(name))
+	// Go may resolve MIME extensions through host-specific databases. Plain
+	// text is a first-class artifact type, so keep its metadata deterministic.
+	if ext == ".txt" {
+		return "text/plain"
+	}
+	value := mime.TypeByExtension(ext)
 	if value == "" {
 		return "application/octet-stream"
 	}
@@ -110,7 +116,7 @@ func isOfficeExtension(ext string) bool {
 
 func isTextExtension(ext string) bool {
 	switch ext {
-	case ".json", ".jsonl", ".yaml", ".yml", ".toml", ".xml", ".csv", ".tsv", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".py", ".sh", ".css", ".scss", ".sql", ".diff", ".patch", ".log", ".ini", ".conf", ".c", ".h", ".cpp", ".hpp", ".rs", ".rb", ".java", ".kt", ".cs", ".php", ".swift", ".lua", ".r", ".dart", ".vue", ".svelte", ".graphql", ".proto":
+	case ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml", ".xml", ".csv", ".tsv", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".py", ".sh", ".css", ".scss", ".sql", ".diff", ".patch", ".log", ".ini", ".conf", ".c", ".h", ".cpp", ".hpp", ".rs", ".rb", ".java", ".kt", ".cs", ".php", ".swift", ".lua", ".r", ".dart", ".vue", ".svelte", ".graphql", ".proto":
 		return true
 	default:
 		return false
