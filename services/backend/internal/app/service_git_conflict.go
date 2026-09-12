@@ -39,9 +39,9 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 	requestID := ids.New("req")
 	conflictID := ids.New("conflict")
 	paths := normalizedPaths(request.paths)
-	// The same bounded budget the integration path uses. A merge that keeps
-	// conflicting after the budget is spent is one a person has to look at,
-	// and the aborted merge means the repository is usable meanwhile.
+	// Keep the existing bounded GPT-conflict budget. Manual resolution does not
+	// spend the automation counter, but once the historical conflict budget is
+	// exhausted this flow remains terminal as documented by AGENTS.md.
 	if conflictResolutionExhausted(item) {
 		return item, "", fmt.Errorf("conflict resolution is exhausted for this chat; resolve %s in Git directly", strings.Join(paths, ", "))
 	}

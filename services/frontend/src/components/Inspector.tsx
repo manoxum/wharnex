@@ -9,6 +9,7 @@ import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
 import { DirectChatGPTPane } from './DirectChatGPTPane'
 import { MarkdownContent } from './MarkdownContent'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
+import { ConflictResolverModal } from './ConflictResolverModal'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { buildExecutionTimeline } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
@@ -17,7 +18,7 @@ import { activePendingRequestId } from '../lib/pendingRequest'
 
 export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -44,11 +45,13 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
   onSession: (session: Session) => void
+  onResolveConflictWithGPT?: (session: Session) => Promise<void>
 }) {
   const [tab, setTab] = useState<InspectorTab>(config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const selectedTab = activeTab ?? tab
   const selectTab = (next: InspectorTab) => { if (activeTab === undefined) setTab(next); onTabChange?.(next) }
   const [manualJSON, setManualJSON] = useState('')
+  const [conflictResolverOpen, setConflictResolverOpen] = useState(false)
   useEffect(() => { setManualJSON('') }, [chat?.id])
   const terminalEvents = useMemo(() => events.filter((e) => ['execution.queued', 'execution.dequeued', 'execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'execution.recovery_discarded', 'execution.recovery_reconciled', 'automation.execution_failed', 'automation.infrastructure_blocked', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'host.restore_started', 'host.restore_failed', 'host.restore_recovery_started', 'host.restored', 'self_evolution.host_build_started', 'self_evolution.host_build_output', 'self_evolution.host_build_completed', 'self_evolution.host_build_failed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed', 'changeset.base_restored', 'changeset.verified', 'changeset.replayed', 'changeset.integrated', 'integration.verification_started', 'integration.verification_baseline_unchanged', 'integration.verification_baseline_compare_failed', 'integration.race', 'self_evolution.transaction_aborted', 'conflict.prompt_ready', 'host_dependency_repair.started', 'host_dependency_repair.command_started', 'host_dependency_repair.command_completed', 'host_dependency_repair.completed', 'host_dependency_repair.failed', 'host_dependency_repair.reverify_failed'].includes(e.type)), [events])
   const canExecute = Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow')
@@ -88,7 +91,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
       </nav>}
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''}`}>
-        {selectedTab === 'plan' && <PlanView session={session} />}
+        {selectedTab === 'plan' && <PlanView session={session} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void onResolveConflictWithGPT?.(session)} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
@@ -109,6 +112,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         />}
         {selectedTab === 'direct-chatgpt' && (desktop ? <DirectChatGPTPane projectPath={session.project_path} suspended={chatgptSuspended || selectedTab !== 'direct-chatgpt'}/> : <div className="provider-card warning-card">O ChatGPT livre incorporado requer Wharnex Desktop.</div>)}
       </div>
+      {conflictResolverOpen && session.integration_conflict && <ConflictResolverModal session={session} busy={busy} onClose={() => setConflictResolverOpen(false)} onSession={onSession} onDelegateToGPT={async (updated) => { await onResolveConflictWithGPT?.(updated) }} />}
     </section>
   )
 }
@@ -273,8 +277,8 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   </div>
 }
 
-export function PlanView({ session }: { session: Session }) {
-	const integration = <IntegrationQueue session={session} />
+export function PlanView({ session, onResolveManually, onResolveWithGPT }: { session: Session; onResolveManually?: () => void; onResolveWithGPT?: () => void }) {
+	const integration = <IntegrationQueue session={session} onResolveManually={onResolveManually} onResolveWithGPT={onResolveWithGPT} />
 	if (!session.plan) return <>{integration}<Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." /></>
   const plan = session.plan
   const workflow = session.last_turn?.kind === 'workflow'
@@ -295,13 +299,13 @@ export function PlanView({ session }: { session: Session }) {
   </div>
 }
 
-function IntegrationQueue({ session }: { session: Session }) {
+function IntegrationQueue({ session, onResolveManually, onResolveWithGPT }: { session: Session; onResolveManually?: () => void; onResolveWithGPT?: () => void }) {
 	const pending = session.pending_host_changes || []
 	if (!pending.length && !session.integration_conflict) return null
 	return <section className="integration-queue" aria-label="Fila de integração">
 		<div className="section-heading"><div><span className="panel-kicker">Concorrência</span><h3>Fila de integração</h3></div><StatusPill tone={session.integration_conflict ? 'danger' : 'success'}>{session.integration_conflict ? 'Conflito' : `${pending.length} verificado(s)`}</StatusPill></div>
 		{pending.map((change) => <div className="operation" key={change.plan.plan_id}><div className="operation-index"><Icon name="apply" size={14}/></div><div className="operation-body"><strong>{change.plan.summary}</strong><span>{change.change_set ? `${change.change_set.state} · ${change.change_set.mutations.map((mutation) => mutation.path).join(', ')}` : 'Compatibilidade v1 · patch pendente'}</span></div></div>)}
-		{session.integration_conflict && <div className="policy-box"><Icon name="chatgpt" size={17}/><div><strong>Janela GPT dedicada</strong><span>{session.integration_conflict.paths.join(', ')}</span><span>Pedido {session.integration_conflict.request_id}</span></div></div>}
+		{session.integration_conflict && <div className="policy-box conflict-choice"><Icon name="git" size={17}/><div><strong>Escolha como resolver o conflito</strong><span>{session.integration_conflict.paths.join(', ')}</span><span>Pode resolver tudo manualmente, usar GPT, ou começar manualmente e delegar o restante.</span></div><div className="conflict-choice-actions"><button className="secondary-button" type="button" onClick={onResolveManually}>Resolver manualmente</button><button className="secondary-button" type="button" onClick={onResolveWithGPT}><Icon name="chatgpt" size={14}/> Resolver com GPT</button></div></div>}
 	</section>
 }
 

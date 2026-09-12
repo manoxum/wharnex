@@ -725,8 +725,14 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 			return domain.Session{}, fmt.Errorf("manual plan baseline %s is superseded by current baseline %s", plan.BaseContextSHA256, currentSHA)
 		}
 	}
+	if err := augmentConflictResolutionPlan(current, &plan); err != nil {
+		return domain.Session{}, fmt.Errorf("conflict resolution protocol: %w", err)
+	}
 	if err := protocol.Validate(plan); err != nil {
 		return domain.Session{}, err
+	}
+	if err := validateConflictResolutionPlan(current, &plan); err != nil {
+		return domain.Session{}, fmt.Errorf("conflict resolution protocol: %w", err)
 	}
 	if !containsString(current.PendingManualRequestIDs, plan.RequestID) {
 		return domain.Session{}, fmt.Errorf("manual plan request_id %q is not pending for this chat/session", plan.RequestID)
@@ -997,6 +1003,9 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			}
 		}
 		return BundleSubmission{Session: updated}, nil
+	}
+	if err := augmentConflictResolutionPlan(current, parsed.Plan); err != nil {
+		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
 	}
 	if err := protocol.Validate(*parsed.Plan); err != nil {
 		return BundleSubmission{}, err

@@ -5,9 +5,10 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 
 describe('App policy-repair recovery', () => {
-  it('restores automatic repair, conflict, and legacy baseline prompts without bypassing durable dispatch guards', () => {
+  it('restores automatic repair and legacy baseline prompts but leaves conflicts at the explicit resolver choice', () => {
     expect(source).toMatch(/const repairDispatchRef = useRef\(new Set<string>\(\)\)/)
-	expect(source).toMatch(/!\['repair_pending', 'conflict_resolution_pending', 'baseline_update_pending'\]\.includes\(session\.state\)/)
+	expect(source).toMatch(/!\['repair_pending', 'baseline_update_pending'\]\.includes\(session\.state\)/)
+	expect(source).not.toMatch(/session\.state === 'conflict_resolution_pending'\) void submitConflictPrompt/)
     expect(source).toMatch(/void submitRepairPrompt\(session, targetChat\)/)
 	expect(source).toMatch(/void transportPlannerContinuation\(session, targetChat\)\.catch/)
   })

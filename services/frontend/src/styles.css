@@ -2753,3 +2753,47 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 @media (max-width: 980px) {
   .agent-runtime-body { grid-template-columns:minmax(150px,.75fr) minmax(220px,1.25fr); }
 }
+
+/* Three-way conflict workbench: modeled after familiar IDE merge tools while
+   remaining app-owned and usable for candidate and host Git conflicts. */
+.policy-box.conflict-choice { margin: 10px 0; align-items: center; gap: 12px; }
+.policy-box.conflict-choice > div:nth-child(2) { min-width: 0; flex: 1; }
+.policy-box.conflict-choice > .conflict-choice-actions { margin-left: auto; display: flex; flex: 0 0 auto; flex-direction: row; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.conflict-resolver-backdrop { padding: 12px; }
+.conflict-resolver { width: min(1560px, 98vw); height: min(900px, 94vh); display: grid; grid-template-rows: auto auto auto minmax(0,1fr) auto auto; overflow: hidden; border: 1px solid var(--theme-border); border-radius: 16px; background: var(--theme-surface); color: var(--theme-text); box-shadow: 0 30px 100px rgba(8,10,8,.38); }
+.conflict-resolver-header { min-height: 62px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--theme-border); }
+.conflict-resolver-header > div { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.conflict-resolver-header > div:first-child { display: grid; gap: 2px; }
+.conflict-resolver-header strong { color: var(--theme-text); font-size: calc(13px * var(--ui-font-scale)); }
+.conflict-resolver-header span:not(.status-pill) { color: var(--theme-text-muted); font-size: calc(8.5px * var(--ui-font-scale)); }
+.conflict-resolver-error { padding: 8px 14px; border-bottom: 1px solid #633b35; background: color-mix(in srgb, #a84e43 18%, var(--theme-surface)); color: var(--theme-text); font-size: calc(9px * var(--ui-font-scale)); }
+.conflict-file-tabs { min-height: 38px; display: flex; gap: 2px; overflow-x: auto; padding: 5px 8px 0; border-bottom: 1px solid var(--theme-border); background: var(--theme-elevated); }
+.conflict-file-tabs button { min-width: max-content; padding: 7px 10px; display: inline-flex; align-items: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--theme-text-muted); font: 600 calc(8.5px * var(--ui-font-scale))/1.2 var(--mono-font-family); cursor: pointer; }
+.conflict-file-tabs button.active { color: var(--theme-text); border-bottom-color: var(--theme-accent); }
+.conflict-file-tabs button span { color: var(--theme-accent); }
+.conflict-merge-grid { min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; }
+.conflict-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); border-right: 1px solid var(--theme-border); background: var(--theme-surface); }
+.conflict-pane:last-child { border-right: 0; }
+.conflict-pane.result { background: color-mix(in srgb, var(--theme-accent) 4%, var(--theme-surface)); }
+.conflict-pane > header { min-height: 52px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--theme-border); }
+.conflict-pane > header > div { min-width: 0; display: grid; gap: 2px; }
+.conflict-pane > header strong { color: var(--theme-text); font-size: calc(9.5px * var(--ui-font-scale)); }
+.conflict-pane > header span { color: var(--theme-text-muted); font-size: calc(7.5px * var(--ui-font-scale)); }
+.conflict-pane > header .secondary-button { padding: 5px 8px; font-size: calc(8px * var(--ui-font-scale)); }
+.conflict-editor { min-height: 0; position: relative; }
+.conflict-editor .monaco-editor-host { height: 100%; min-height: 100%; }
+.conflict-pane.result .conflict-editor { display: grid; grid-template-rows: minmax(0,1fr) auto; }
+.conflict-result-actions { padding: 7px 8px; display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--theme-border); background: var(--theme-elevated); }
+.conflict-result-actions .secondary-button, .conflict-result-actions .text-button { font-size: calc(8px * var(--ui-font-scale)); }
+.conflict-base { max-height: 140px; overflow: auto; border-top: 1px solid var(--theme-border); background: var(--theme-bg); color: var(--theme-text-soft); }
+.conflict-base summary { padding: 7px 12px; cursor: pointer; font-size: calc(8px * var(--ui-font-scale)); }
+.conflict-base pre { margin: 0; padding: 8px 12px 12px; overflow: auto; white-space: pre; font: calc(8px * var(--ui-font-scale))/1.45 var(--mono-font-family); }
+.conflict-resolver-footer { min-height: 58px; padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid var(--theme-border); background: var(--theme-elevated); }
+.conflict-resolver-footer > div:last-child { display: flex; gap: 8px; align-items: center; }
+.conflict-resolver-footer span { color: var(--theme-text-muted); font-size: calc(8px * var(--ui-font-scale)); }
+@media (max-width: 980px) {
+  .conflict-merge-grid { grid-template-columns: 1fr; overflow-y: auto; }
+  .conflict-pane { min-height: 360px; border-right: 0; border-bottom: 1px solid var(--theme-border); }
+  .conflict-resolver-footer { align-items: flex-start; flex-direction: column; }
+  .conflict-resolver-footer > div:last-child { width: 100%; flex-wrap: wrap; }
+}

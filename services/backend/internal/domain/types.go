@@ -513,6 +513,11 @@ type ConflictResolution struct {
 	// resolution becomes a new verified change, while this one is replayed
 	// into the same Git merge and committed as its merge commit.
 	Git *GitConflictContext `json:"git,omitempty"`
+	// ManualPaths are operator-resolved conflict paths. They are authoritative:
+	// a delegated GPT plan may resolve only the remaining paths. ManualPatch is
+	// generated against CURRENT and is injected by the backend before execution.
+	ManualPaths []string `json:"manual_paths,omitempty"`
+	ManualPatch string   `json:"manual_patch,omitempty"`
 }
 
 // GitConflictOrigin names what produced a conflict, so a resolver is told

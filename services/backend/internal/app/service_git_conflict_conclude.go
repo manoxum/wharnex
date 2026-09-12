@@ -29,8 +29,8 @@ func (s *Service) concludeGitConflict(ctx context.Context, sessionID string, ite
 	defer lock.Unlock()
 
 	patches := planPatches(plan)
-	if len(patches) == 0 {
-		return item, fmt.Errorf("a Git conflict resolution must carry a patch for: %s", strings.Join(resolution.Paths, ", "))
+	if len(patches) == 0 && len(resolution.ManualPaths) != len(resolution.Paths) {
+		return item, fmt.Errorf("a Git conflict resolution must carry a patch or manual decision for: %s", strings.Join(resolution.Paths, ", "))
 	}
 	if err := hostrepo.BeginMergeResolution(ctx, item.ProjectPath, gitContext.Ref, resolution.Paths); err != nil {
 		return item, err
@@ -63,6 +63,7 @@ func (s *Service) concludeGitConflict(ctx context.Context, sessionID string, ite
 		current.ConflictAttempt = 0
 		current.State = "ready"
 		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, plan.RequestID)
+		current.LastManualPrompt = ""
 		clearSessionFailure(current)
 		return nil
 	})

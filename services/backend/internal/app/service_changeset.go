@@ -441,6 +441,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
+
 	planIDs := make([]string, 0)
 	files := make([]conflictCapsuleFile, 0, len(conflicts))
 	for _, conflict := range conflicts {
@@ -489,9 +490,6 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 			current.ConflictAttempt = 0
 		} else {
 			current.ConflictAttempt++
-		}
-		if current.AutomationMode == domain.AutomationModeAuto {
-			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
 		}
 		current.IntegrationConflict = &resolution
 		current.LastRequestID = requestID
@@ -549,8 +547,12 @@ func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionP
 		return nil
 	}
 	paths := actualPatchFiles(plan)
-	if len(paths) == 0 {
-		return errors.New("conflict resolution requires a patch for every conflict path")
+	manual := make(map[string]bool, len(item.IntegrationConflict.ManualPaths))
+	for _, path := range item.IntegrationConflict.ManualPaths {
+		manual[path] = true
+	}
+	if len(paths) == 0 && len(manual) == 0 {
+		return errors.New("conflict resolution requires a patch or a manual decision for every conflict path")
 	}
 	allowed := make(map[string]bool, len(item.IntegrationConflict.Paths))
 	for _, path := range item.IntegrationConflict.Paths {
@@ -562,6 +564,9 @@ func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionP
 		}
 	}
 	for path := range allowed {
+		if manual[path] {
+			continue
+		}
 		found := false
 		for _, candidate := range paths {
 			if candidate == path {

@@ -159,6 +159,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/tasks/{task_id}/runs", a.orchestratorTaskRuns)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
 	a.registerGitRoutes(mux)
+	a.registerConflictRoutes(mux)
 	return cors(mux, allowedOrigins(cfg.FrontendOrigin))
 }
 
