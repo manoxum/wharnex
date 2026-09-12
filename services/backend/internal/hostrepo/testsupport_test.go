@@ -58,6 +58,12 @@ func newRepo(t *testing.T, fileName, content string) string {
 	t.Helper()
 	root := t.TempDir()
 	git(t, root, "init", "-q", "-b", "main")
+	// Product code intentionally uses the repository's configured identity
+	// instead of the test helper's per-command -c overrides. Persist the same
+	// deterministic identity locally so direct hostrepo Git calls are hermetic
+	// on runners with no global user.name/user.email.
+	git(t, root, "config", "user.name", "Tester")
+	git(t, root, "config", "user.email", "test@example.invalid")
 	write(t, root, fileName, content)
 	git(t, root, "add", "-A")
 	git(t, root, "commit", "-qm", "initial")

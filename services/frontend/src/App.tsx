@@ -395,11 +395,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [session, activeChatId, chats])
 
   useEffect(() => {
-	if (!session || !['repair_pending', 'conflict_resolution_pending', 'baseline_update_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+	if (!session || !['repair_pending', 'baseline_update_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-	if (session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)
-	else if (session.state === 'repair_pending') void submitRepairPrompt(session, targetChat)
+	if (session.state === 'repair_pending') void submitRepairPrompt(session, targetChat)
 	else {
 		const dispatchKey = `dispatch:${targetChat.id}:${session.last_request_id || session.id}`
 		if (baselineSeenRef.current.has(dispatchKey)) return
@@ -1602,8 +1601,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
       } else if (submission.workflow_prepared && updated.state === 'workflow_pending' && updated.last_manual_prompt) {
         workflowSubmitted = await submitWorkflowPrompt(updated, targetChat)
-	  } else if (updated.state === 'conflict_resolution_pending' && updated.last_manual_prompt) {
-		await submitConflictPrompt(updated, targetChat)
       } else if (updated.state === 'repair_pending' && updated.last_manual_prompt) {
         await submitRepairPrompt(updated, targetChat)
       } else if (updated.state === 'baseline_update_pending' && updated.last_manual_prompt && updated.automation_mode === 'auto') {
@@ -1841,6 +1838,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		}
 	}
 
+	async function resolveConflictWithGPT(conflictedSession: Session) {
+		const ownerChatId = conflictedSession.chat_id || activeChatId
+		const targetChat = chats.find((chat) => chat.id === ownerChatId)
+		if (!targetChat) throw new Error('Não foi possível localizar o chat deste conflito.')
+		await submitConflictPrompt(conflictedSession, targetChat)
+	}
+
   async function submitWorkflowPrompt(workflowSession: Session, targetChat: WorkspaceChat): Promise<boolean> {
     const round = workflowSession.workflow_round || 1
     const requestId = workflowSession.last_request_id || ''
@@ -2014,9 +2018,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		const latest = await api.getSession(session.id)
 		setSession(latest); setManualPrompt(latest.last_manual_prompt || '')
 		const targetChat = chats.find((chat) => chat.id === activeChatId)
-		if (latest.state === 'conflict_resolution_pending' && latest.last_manual_prompt && targetChat) {
-		  await submitConflictPrompt(latest, targetChat)
-		} else if (latest.state === 'repair_pending' && latest.last_manual_prompt && targetChat) {
+		if (latest.state === 'repair_pending' && latest.last_manual_prompt && targetChat) {
 		  await submitRepairPrompt(latest, targetChat)
 		}
 	  } catch { /* retain the original Apply error */ }
@@ -2587,7 +2589,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           inspectorProps={{
   		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
   		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
-            onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession,
+            onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT,
           }}
         />}
       </div>

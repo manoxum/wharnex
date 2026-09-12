@@ -82,6 +82,10 @@ export type IntegrationOutcome = 'planning' | 'verified' | 'merging' | 'checking
 export type FileMutation = { path: string; base_sha256?: string; result_sha256?: string; base_exists: boolean; result_exists: boolean; base_mode?: number; result_mode?: number }
 export type ChangeSet = { id: string; base_revision: string; mutations: FileMutation[]; read_files?: string[]; barrier_files?: string[]; state: IntegrationOutcome; created_at: string }
 export type IntegrationConflict = { id: string; request_id: string; original_plan_ids: string[]; paths: string[]; details: Array<{ change_set_id: string; path: string; reason: string }>; created_at: string }
+export type ConflictWorkbenchFile = { path: string; base_exists: boolean; current_exists: boolean; incoming_exists: boolean; base: string; current: string; incoming: string }
+export type ConflictWorkbench = { id: string; request_id: string; files: ConflictWorkbenchFile[]; manual_paths?: string[] }
+export type ConflictManualResolution = { path: string; content: string; exists: boolean }
+export type ConflictManualResult = { session: Session; applied: boolean }
 
 export type ContextExclusion = { path: string; kind: string; reason: string; rule: string }
 
