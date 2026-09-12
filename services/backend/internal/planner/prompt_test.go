@@ -139,6 +139,15 @@ func TestBuildManualPromptPlanApprovalContinuesSameMainRequest(t *testing.T) {
 	}
 }
 
+func TestBuildManualPromptPlanCorrectionIsPlanningOnly(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-plan-correction", Message: "revise proposal", PlanningMode: "correct_plan"})
+	for _, want := range []string{"REQUEST STRATEGY: CORRECT_PLAN", "planning-only", "kind=plan", "NO plan.json", "supersedes the parent proposal"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("plan-correction prompt missing %q", want)
+		}
+	}
+}
+
 func TestBuildManualPromptDocumentsGitAndTodoContract(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-git", Message: "commit e push"})
 	for _, want := range []string{"Git requests are valid CHANGE requests", "Remote fetch/pull/push MUST set network=true", "force push", "## TODO"} {

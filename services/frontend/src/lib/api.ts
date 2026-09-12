@@ -131,6 +131,8 @@ export const api = {
     }),
   approvePlan: (id: string, requestId: string) =>
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/approve`, { method: 'POST', body: '{}' }),
+  correctPlan: (id: string, requestId: string, guidance: string) =>
+    request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/correct`, { method: 'POST', body: JSON.stringify({ guidance }) }),
   rejectPlan: (id: string, requestId: string) =>
     request<Session>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/reject`, { method: 'POST', body: '{}' }),
   manualPlan: (id: string, rawJSON: string) =>

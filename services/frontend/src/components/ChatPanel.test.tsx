@@ -740,3 +740,19 @@ it('renders operational notices and visible ChatGPT activity differently from me
   expect(document.querySelector('.chat-notice')).toBeTruthy()
   expect(document.querySelector('.chat-thought')).toBeTruthy()
 })
+
+
+it('requests correction guidance before replacing a pending plan proposal', async () => {
+  const onCorrectPlan = vi.fn(async () => undefined)
+  const item = { id: 'plan-pending', role: 'harness' as const, source: 'chatgpt' as const, presentation: 'plan' as const, text: '## TODO\n- [ ] Alterar fluxo', approval: { status: 'pending' as const, requestId: 'req-plan' } }
+  render(
+    <ChatPanel session={session} items={[item]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onCorrectPlan={onCorrectPlan} {...chatActions} />,
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: 'Solicitar correção' }))
+  const input = document.querySelector<HTMLInputElement>('.app-dialog-field input')!
+  fireEvent.change(input, { target: { value: 'Adicionar rollback explícito' } })
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.app-dialog-button.primary')!)
+
+  await waitFor(() => expect(onCorrectPlan).toHaveBeenCalledWith(item, 'Adicionar rollback explícito'))
+})

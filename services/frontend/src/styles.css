@@ -1125,8 +1125,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .message-plan .message-body { background: #f3f6fa; border-color: #d7e0ea; }
 .plan-approval { margin-top: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #d5dde7; border-radius: 9px; background: #eef3f8; color: #566579; font-size: calc(8.5px * var(--ui-font-scale)); }
 .plan-approval > div { display: flex; align-items: center; gap: 7px; }
+.plan-approval > div:last-child { justify-content: flex-end; flex-wrap: wrap; }
 .plan-approved { border-color: #c7dbc2; background: #edf5ea; color: #55704e; }
 .plan-rejected { border-color: #e2ceca; background: #f7efed; color: #805f58; }
+.plan-superseded { border-color: #d8d5c7; background: #f5f3ea; color: #726d59; }
 .chat-notice, .chat-thought { width: min(88%, 790px); margin: 3px auto; padding: 7px 10px; display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 8px; align-items: start; border: 1px solid #e0e3da; border-radius: 10px; background: #f7f8f4; color: #70776b; }
 .chat-notice strong, .chat-thought strong { display: block; margin-bottom: 2px; color: #626a5e; font-size: calc(8.5px * var(--ui-font-scale)); }
 .chat-notice p, .chat-thought p { margin: 0; font-size: calc(9px * var(--ui-font-scale)); line-height: 1.5; }

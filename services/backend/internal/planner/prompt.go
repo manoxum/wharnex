@@ -290,6 +290,11 @@ This turn is planning-only. Produce a concrete implementation proposal with a ##
 The user explicitly approved the plan from the parent request in this same Main Request. Implement that approved proposal now; do not reinterpret this as a new Main Request, do not silently expand scope, and include the required ## TODO checklist in turn.message.
 
 `
+	} else if planningMode == "correct_plan" {
+		header += `REQUEST STRATEGY: CORRECT_PLAN
+The user explicitly requested a correction to the plan from the parent request in this same Main Request. This turn is planning-only: revise the proposal using the supplied correction guidance, preserve unaffected scope, and return kind=plan with turn.json + README.md only, with NO plan.json and NO patches/. Do NOT implement or mutate anything yet. The corrected proposal supersedes the parent proposal and requires a fresh user approval before implementation.
+
+`
 	} else {
 		header += `REQUEST STRATEGY: DIRECT
 For explicit CHANGE requests, implement the requested change in this turn and include the required ## TODO checklist in turn.message.

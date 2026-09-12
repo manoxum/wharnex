@@ -9,6 +9,7 @@ import (
 const (
 	requestKindStandard        = "standard"
 	requestKindPlanApproval    = "plan_approval"
+	requestKindPlanCorrection  = "plan_correction"
 	requestKindRepair          = "repair"
 	requestKindRevertRestore   = "revert_restore"
 	requestKindImprovement     = "improvement"

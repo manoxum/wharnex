@@ -64,7 +64,7 @@ function prioritizedChangeFiles(files: ChatChangeFile[]) {
     .map(({ file }) => file)
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -107,6 +107,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onQueueMerge?: (id: string) => void
   onQueuePromote?: (id: string) => Promise<void>
   onApprovePlan?: (item: ChatItem) => Promise<void>
+  onCorrectPlan?: (item: ChatItem, guidance: string) => Promise<void>
   onRejectPlan?: (item: ChatItem) => void
   onConfirmPrepared?: () => Promise<void>
   onDismissPrepared?: () => void
@@ -330,7 +331,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   // cosmetic defect in one message into total loss of the UI.
   const renderChatEntry = (item: ChatItem) => <Fragment key={item.id}>
     <ChatItemBoundary label="Esta mensagem não pôde ser apresentada">
-    <ChatItemView item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRepairWithGPT={onRepairWithGPT} canRepairWithGPT={canRepairWithGPT && item.id === latestFailureNoticeId} onRetryDependencyNetwork={onRetryDependencyNetwork} canRetryDependencyNetwork={canRetryDependencyNetwork && item.id === latestFailureNoticeId} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) && canResendPreparedRequest(item) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />
+    <ChatItemView item={item} copied={copiedMessageId === item.id} onCopy={copyMessage} onApprovePlan={onApprovePlan} onCorrectPlan={onCorrectPlan} onRejectPlan={onRejectPlan} onInspectArtifact={setInspectedArtifact} onInspectChange={setInspectedChangeFile} onOpenFile={onOpenFile} onRevertChange={onRevertChange} onReprocessPolicyBlock={onReprocessPolicyBlock} canReprocessPolicyBlock={canReprocessPolicyBlock} onRepairWithGPT={onRepairWithGPT} canRepairWithGPT={canRepairWithGPT && item.id === latestFailureNoticeId} onRetryDependencyNetwork={onRetryDependencyNetwork} canRetryDependencyNetwork={canRetryDependencyNetwork && item.id === latestFailureNoticeId} onRetryTransportFailure={onRetryTransportFailure} onResendPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) && canResendPreparedRequest(item) ? onResendPendingRequest : undefined} onCancelPendingRequest={item.iteration && isLivePendingRequest(session, item.iteration.requestId) ? onCancelPendingRequest : undefined} busy={busy} taskInFlight={taskInFlight} artifactContent={artifactContent} />
     </ChatItemBoundary>
     {item.iteration?.phase === 'result' && item.turnKind !== 'workflow' && <ChatItemBoundary label="Os artefactos desta iteração não puderam ser apresentados"><ReturnedArtifactGallery sessionId={session.id} artifacts={session.artifacts} requestId={item.iteration.requestId}/></ChatItemBoundary>}
   </Fragment>
@@ -512,7 +513,7 @@ function ArtifactInspector({ kind, content, onClose }: { kind: ChatArtifactKind;
   return <div className="artifact-inspector-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="artifact-inspector" role="dialog" aria-modal="true" aria-label={`Ver ${artifactLabel(kind)}`}><header><div><span>{artifactIcon(kind)}</span><div><strong>{artifactLabel(kind)}</strong><small>Conteúdo efetivamente associado à iteração atual</small></div></div><button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar conteúdo"><Icon name="close" size={13}/></button></header><div className="artifact-inspector-body"><MarkdownContent markdown={content}/></div></section></div>
 }
 
-function ChatItemView({ item, copied, onCopy, onApprovePlan, onRejectPlan, onInspectArtifact, onInspectChange, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock, onRepairWithGPT, canRepairWithGPT, onRetryDependencyNetwork, canRetryDependencyNetwork, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, busy, taskInFlight, artifactContent }: { item: ChatItem; copied: boolean; onCopy: (item: ChatItem) => Promise<void>; onApprovePlan?: (item: ChatItem) => Promise<void>; onRejectPlan?: (item: ChatItem) => void; onInspectArtifact: (kind: ChatArtifactKind) => void; onInspectChange: (file: ChatChangeFile) => void; onOpenFile?: (path: string) => void; onRevertChange?: (item: ChatItem) => Promise<void>; onReprocessPolicyBlock?: () => Promise<void>; canReprocessPolicyBlock: boolean; onRepairWithGPT?: (detail: string) => Promise<void>; canRepairWithGPT: boolean; onRetryDependencyNetwork?: () => Promise<void>; canRetryDependencyNetwork: boolean; onRetryTransportFailure?: (requestId: string) => Promise<void>; onResendPendingRequest?: (requestId: string) => Promise<void>; onCancelPendingRequest?: (requestId: string) => Promise<void>; busy: boolean; taskInFlight: boolean; artifactContent?: Partial<Record<ChatArtifactKind, string>> }) {
+function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRejectPlan, onInspectArtifact, onInspectChange, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock, onRepairWithGPT, canRepairWithGPT, onRetryDependencyNetwork, canRetryDependencyNetwork, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, busy, taskInFlight, artifactContent }: { item: ChatItem; copied: boolean; onCopy: (item: ChatItem) => Promise<void>; onApprovePlan?: (item: ChatItem) => Promise<void>; onCorrectPlan?: (item: ChatItem, guidance: string) => Promise<void>; onRejectPlan?: (item: ChatItem) => void; onInspectArtifact: (kind: ChatArtifactKind) => void; onInspectChange: (file: ChatChangeFile) => void; onOpenFile?: (path: string) => void; onRevertChange?: (item: ChatItem) => Promise<void>; onReprocessPolicyBlock?: () => Promise<void>; canReprocessPolicyBlock: boolean; onRepairWithGPT?: (detail: string) => Promise<void>; canRepairWithGPT: boolean; onRetryDependencyNetwork?: () => Promise<void>; canRetryDependencyNetwork: boolean; onRetryTransportFailure?: (requestId: string) => Promise<void>; onResendPendingRequest?: (requestId: string) => Promise<void>; onCancelPendingRequest?: (requestId: string) => Promise<void>; busy: boolean; taskInFlight: boolean; artifactContent?: Partial<Record<ChatArtifactKind, string>> }) {
   const source = chatItemSource(item)
   const presentation = item.presentation || 'message'
   const visibleText = item.role === 'harness' ? stripTodoSection(item.text) : item.text
@@ -528,7 +529,7 @@ function ChatItemView({ item, copied, onCopy, onApprovePlan, onRejectPlan, onIns
     {item.iteration && <IterationReference item={item} onInspectArtifact={onInspectArtifact} artifactContent={artifactContent} />}
     {(item.meta || (isPolicyBlockedNotice(item) && canReprocessPolicyBlock && onReprocessPolicyBlock)) && <div className="message-meta">{item.meta}{isPolicyBlockedNotice(item) && canReprocessPolicyBlock && onReprocessPolicyBlock && <button type="button" className="text-button" disabled={busy} onClick={() => void onReprocessPolicyBlock()}><Icon name="refresh" size={12}/> Reprocessar</button>}</div>}
     {item.approval && <div className={`plan-approval plan-${item.approval.status}`}>
-      {item.approval.status === 'pending' ? <><div><Icon name="plan" size={13}/><span>Plano proposto · nenhuma alteração foi executada.</span></div><div><button type="button" className="text-button" onClick={() => onRejectPlan?.(item)}>Rejeitar</button><button type="button" className="apply-button" onClick={() => void onApprovePlan?.(item)}><Icon name="check" size={13}/> Aprovar e implementar</button></div></> : <span>{item.approval.status === 'approved' ? 'Plano aprovado para implementação.' : 'Plano rejeitado. Nenhuma alteração foi iniciada.'}</span>}
+      {item.approval.status === 'pending' ? <><div><Icon name="plan" size={13}/><span>Plano proposto · nenhuma alteração foi executada.</span></div><div><button type="button" className="text-button" onClick={() => onRejectPlan?.(item)}>Rejeitar</button><button type="button" className="text-button" onClick={() => void requestPlanCorrection(item, onCorrectPlan)}><Icon name="refresh" size={13}/> Solicitar correção</button><button type="button" className="apply-button" onClick={() => void onApprovePlan?.(item)}><Icon name="check" size={13}/> Aprovar e implementar</button></div></> : <span>{item.approval.status === 'approved' ? 'Plano aprovado para implementação.' : item.approval.status === 'superseded' ? 'Correção solicitada. Este plano foi substituído por uma nova proposta.' : 'Plano rejeitado. Nenhuma alteração foi iniciada.'}</span>}
     </div>}
   </article>
 }
@@ -552,6 +553,20 @@ function compactNoticeText(value: string) {
 
 function isFailureNotice(item: ChatItem) {
   return item.iteration?.phase === 'failed' || item.iteration?.artifacts.includes('error') || /falh|erro|bloquead/i.test(item.meta || '')
+}
+
+async function requestPlanCorrection(item: ChatItem, onCorrectPlan?: (item: ChatItem, guidance: string) => Promise<void>) {
+  if (!onCorrectPlan) return
+  const guidance = await promptDialog({
+    title: 'Solicitar correção do plano',
+    message: 'Indique o que deve ser corrigido. O Wharness manterá a mesma Main Request e pedirá apenas uma nova proposta de plano, sem executar alterações.',
+    inputLabel: 'Correção pretendida',
+    placeholder: 'Ex.: dividir a migração em duas fases e incluir rollback',
+    confirmLabel: 'Solicitar correção',
+    validate: (value) => value.trim() ? undefined : 'Descreva a correção pretendida.',
+  })
+  if (guidance === undefined) return
+  await onCorrectPlan(item, guidance.trim())
 }
 
 async function requestGPTRepair(onRepairWithGPT: (detail: string) => Promise<void>) {
