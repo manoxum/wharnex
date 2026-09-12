@@ -295,6 +295,12 @@ type ExecutionBundleInfo struct {
 	// planner response. Wharnex stages it while the Main Request is in flight
 	// and commits it only at that request's terminal boundary.
 	ProjectKnowledgeCandidate *ProjectKnowledgeCandidate `json:"project_knowledge_candidate,omitempty"`
+	// AttemptLedgerNarrative is the response bundle's attempts/ledger.md: the
+	// planner's cumulative, incrementally refined account of what has been
+	// proven to work and to fail locally during this Main Request. Absent on a
+	// degraded response, which is recorded and tolerated rather than rejected —
+	// a bookkeeping artifact must never discard a verified executable payload.
+	AttemptLedgerNarrative string `json:"attempt_ledger_narrative,omitempty"`
 	// ProjectKnowledgeUpdate is the legacy optional knowledge.md payload kept
 	// only so an already-pending pre-v2 knowledge_review can still finish after
 	// an upgrade. New requests use knowledge/index.json plus one Markdown file
@@ -376,6 +382,133 @@ type RequestKnowledgeSnapshot struct {
 	// deletions/edits across repair/workflow rounds without sending hidden
 	// records when chat sharing is off.
 	BaseEntries []ProjectKnowledgeEntry `json:"base_entries,omitempty"`
+}
+
+const (
+	// AttemptProtocolV1 identifies the session attempt ledger: the
+	// incrementally improved, session-scoped record of what has already been
+	// proven to work and to fail on THIS machine during ONE Main Request.
+	//
+	// It is deliberately separate from harness.knowledge/v2. Knowledge is
+	// durable project truth committed only after a Main Request succeeds; the
+	// ledger is disposable scaffolding whose whole purpose is to stop a
+	// planner from re-proposing an approach an earlier round already disproved
+	// locally. Folding the two together is what previously left the planner
+	// with no protocol slot for "attempt 2's patch did not apply" — a fact
+	// that is decisive for the next round and worthless as project history.
+	AttemptProtocolV1 = "harness.attempts/v1"
+
+	// Attempt round classifications. These are Wharnex measurements, never
+	// planner claims, so a round that failed cannot quietly disappear from the
+	// next request because the model chose not to write it down.
+	AttemptOutcomeSucceeded          = "succeeded"
+	AttemptOutcomeBundleRejected     = "bundle_rejected"
+	AttemptOutcomePolicyBlocked      = "policy_blocked"
+	AttemptOutcomeVerificationFailed = "verification_failed"
+	AttemptOutcomeIntegrationFailed  = "integration_failed"
+	AttemptOutcomeConflict           = "conflict"
+	AttemptOutcomeInfrastructure     = "infrastructure_blocked"
+	AttemptOutcomeObservation        = "observation"
+)
+
+// AttemptRound is one Wharnex-measured round inside a Main Request. It records
+// what was actually attempted and what actually happened, independent of what
+// the planner reported about itself.
+type AttemptRound struct {
+	Round     int    `json:"round"`
+	RequestID string `json:"request_id"`
+	Kind      string `json:"kind"`
+	PlanID    string `json:"plan_id,omitempty"`
+	Outcome   string `json:"outcome"`
+	// Detail is the single most actionable sentence about this round, already
+	// truncated. Full diagnostics stay in the request message and event log;
+	// duplicating them here would grow every later round's prompt without
+	// adding a decision the planner cannot already make.
+	Detail string `json:"detail,omitempty"`
+	// Commands are the argv lines that actually ran and their exit codes, so a
+	// later round can see that a tool was already tried and how it ended.
+	Commands  []string  `json:"commands,omitempty"`
+	Paths     []string  `json:"paths,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// AttemptLedger is the session-scoped attempt state for one Main Request.
+//
+// Rounds are Wharnex's own measurement and are authoritative. Narrative is the
+// planner's cumulative prose ledger (what works locally, what does not, and
+// why), returned in every response bundle and echoed back on every later
+// request of the same Main Request so each wave starts from the consolidated
+// conclusions of every earlier wave rather than from the last failure alone.
+type AttemptLedger struct {
+	Protocol      string         `json:"protocol"`
+	RootRequestID string         `json:"root_request_id"`
+	Rounds        []AttemptRound `json:"rounds,omitempty"`
+	// Narrative is planner-authored and replaced wholesale each round: the
+	// contract asks for the complete refined ledger, never a delta, so a
+	// dropped or garbled round cannot corrupt the accumulated conclusions.
+	Narrative string `json:"narrative,omitempty"`
+	// NarrativeRequestID records which round authored the current narrative,
+	// so a degraded round that returned none is visible rather than silently
+	// presenting stale prose as current.
+	NarrativeRequestID string `json:"narrative_request_id,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at,omitempty"`
+}
+
+const (
+	// ContextDeltaProtocolV1 identifies the divergence report Wharnex attaches
+	// to every continuation request: exactly how the local project has moved
+	// since the full snapshot the planner already holds from the Main Request.
+	ContextDeltaProtocolV1 = "harness.context-delta/v1"
+
+	// ContextDeltaSourceGit is a real three-way-capable comparison between two
+	// anchored request-base commits, including content.
+	ContextDeltaSourceGit = "git"
+	// ContextDeltaSourceManifest is the degraded path-only comparison derived
+	// from two context manifests when Git cannot answer.
+	ContextDeltaSourceManifest = "manifest"
+	// ContextDeltaSourceUnavailable means Wharnex could not prove what changed.
+	// The planner must then treat the attached manifest as authoritative.
+	ContextDeltaSourceUnavailable = "unavailable"
+)
+
+// ContextDeltaFile is one path that diverged between the base snapshot the
+// planner holds and the snapshot this request was built from.
+type ContextDeltaFile struct {
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions,omitempty"`
+	Deletions int    `json:"deletions,omitempty"`
+}
+
+// ContextDelta is the divergence between one request's project snapshot and
+// the snapshot of the Main Request its conversation was seeded with.
+//
+// Resending a complete baseline every wave is expensive and, worse, ambiguous:
+// the planner cannot tell which files genuinely moved from which files merely
+// got a new manifest hash. Naming the exact divergence lets it keep reasoning
+// against the snapshot it already has.
+type ContextDelta struct {
+	Protocol            string             `json:"protocol"`
+	BaseRequestID       string             `json:"base_request_id"`
+	BaseManifestSHA256  string             `json:"base_manifest_sha256,omitempty"`
+	BaseCommit          string             `json:"base_commit,omitempty"`
+	CurrentRequestID    string             `json:"current_request_id"`
+	CurrentManifestSHA  string             `json:"current_manifest_sha256,omitempty"`
+	CurrentCommit       string             `json:"current_commit,omitempty"`
+	Source              string             `json:"source"`
+	Unchanged           bool               `json:"unchanged"`
+	Files               []ContextDeltaFile `json:"files,omitempty"`
+	// Truncated reports that more paths diverged than the report lists, so the
+	// planner knows the list is a sample rather than the complete write set.
+	Truncated bool `json:"truncated,omitempty"`
+	// Patch is the real unified diff when it fits the transport budget. It is
+	// what turns "these files changed" into "here is exactly what changed",
+	// which is the difference between a planner re-reading the whole project
+	// and a planner rebasing its own pending edit.
+	Patch string `json:"-"`
+	// PatchOmittedReason explains an absent patch (too large, no Git, ...) so
+	// the planner does not infer that the listed files changed trivially.
+	PatchOmittedReason string `json:"patch_omitted_reason,omitempty"`
 }
 
 type ExecutionResult struct {
@@ -630,7 +763,18 @@ type Session struct {
 	PendingKnowledgeCandidateRequestID string                     `json:"-"`
 	PendingKnowledgeCandidate          *ProjectKnowledgeCandidate `json:"-"`
 	PendingKnowledgeSummary            string                     `json:"-"`
-	LastMainRequestSummary             string                     `json:"last_main_request_summary,omitempty"`
+	// AttemptLedger is the session-scoped attempt state of the Main Request
+	// currently in flight (harness.attempts/v1). It is reset when a new Main
+	// Request starts and discarded at that request's terminal boundary: its
+	// durable residue belongs in the knowledge catalog, which the planner
+	// consolidates from this ledger before the terminal response.
+	AttemptLedger *AttemptLedger `json:"attempt_ledger,omitempty"`
+	// RequestContextDeltas records, per request id, the divergence report that
+	// request was sent. Server-only: every transport must materialize the same
+	// report the prompt described, and a report is meaningless once its
+	// request is gone.
+	RequestContextDeltas   map[string]ContextDelta `json:"-"`
+	LastMainRequestSummary string                  `json:"last_main_request_summary,omitempty"`
 	LastBundle                         *ExecutionBundleInfo       `json:"last_bundle,omitempty"`
 	LastTurn                           *AgentTurn                 `json:"last_turn,omitempty"`
 	RepairAttempt                      int                        `json:"repair_attempt,omitempty"`
