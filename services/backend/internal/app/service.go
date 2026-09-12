@@ -516,7 +516,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if planningMode == "" {
 		planningMode = "direct"
 	}
-	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" {
+	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" && planningMode != "correct_plan" {
 		return planner.Result{}, domain.Session{}, fmt.Errorf("unsupported planning mode %q", planningMode)
 	}
 	item, err := s.refreshContext(sessionID)
@@ -960,6 +960,11 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if current.LastRequestMode == "plan_first" && parsed.Turn.RequestID == current.LastRequestID {
 		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
 			return BundleSubmission{}, errors.New("plan-first request must return kind=plan without plan.json; implementation requires explicit user approval")
+		}
+	}
+	if current.LastRequestMode == "correct_plan" && parsed.Turn.RequestID == current.LastRequestID {
+		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
+			return BundleSubmission{}, errors.New("correct_plan request must return kind=plan without plan.json; implementation requires explicit user approval")
 		}
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {

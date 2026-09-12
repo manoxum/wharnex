@@ -2431,6 +2431,41 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } finally { setBusy(false) }
   }
 
+  async function correctPlanProposal(item: ChatItem, guidance: string) {
+    if (!session || !item.approval || item.approval.status !== 'pending') return
+    const active = chats.find((chat) => chat.id === activeChatId)
+    if (!active) return
+    setBusy(true); setError(undefined)
+    let correctionCreated = false
+    try {
+      const response = await api.correctPlan(session.id, item.approval.requestId, guidance)
+      correctionCreated = true
+      setSession(response.session); setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+      setItems((current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'superseded' } } : entry))
+      updateChat({ pendingPlan: { requestId: response.session.last_request_id || item.approval.requestId, originalMessage: item.approval.originalMessage }, requestMode: 'direct' })
+      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) {
+        const prepared = await transportPlannerContinuation(response.session, active)
+        appendChatItem(active, response.session.project_path, {
+          id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: prepared.submitted ? 'A correção foi enviada como continuação vinculada ao plano anterior.' : 'A continuação de correção do plano foi preparada no ChatGPT.',
+          meta: 'Plan correction · continuação vinculada',
+          iteration: response.session.last_request_id ? iterationRef(response.session.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['prompt'], prepared.conversationUrl || active.chatgptUrl) : undefined,
+        })
+      } else {
+        appendChatItem(active, response.session.project_path, {
+          id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+          text: 'A correção foi registada como continuação vinculada ao plano anterior. O prompt para gerar a nova proposta está preparado para envio manual.',
+          meta: 'Plan correction · envio manual',
+        })
+      }
+    } catch (cause) {
+      setError(messageOf(cause))
+      if (!correctionCreated) {
+        setItems((current) => current.map((entry) => entry.id === item.id && entry.approval?.status === 'superseded' ? { ...entry, approval: { ...entry.approval, status: 'pending' } } : entry))
+      }
+    } finally { setBusy(false) }
+  }
+
   async function rejectPlanProposal(item: ChatItem) {
     if (!session || !item.approval || item.approval.status !== 'pending') return
     setBusy(true); setError(undefined)
@@ -2582,7 +2617,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onEffortLevel: changeEffortLevel, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
             onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
             onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
-            onApprovePlan: approvePlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
+            onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
             onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
             onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
           }}

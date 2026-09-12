@@ -237,7 +237,7 @@ export type Session = {
    *  form and can be rephrased or come from an external planner. */
   failure_kind?: string
   workflow_round?: number
-  last_request_mode?: ChatRequestMode
+  last_request_mode?: ChatRequestMode | 'approve_plan' | 'correct_plan'
   planner_in_flight?: boolean
   request_baselines?: Record<string, string>
   baseline_notices?: BaselineNotice[]
@@ -464,7 +464,7 @@ export type QueuedChatRequest = {
 }
 export type ChatItemSource = 'user' | 'chatgpt' | 'wharness'
 export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | 'change'
-export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected'; originalMessage?: string; requestId: string }
+export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected' | 'superseded'; originalMessage?: string; requestId: string }
 export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }
 // `summary` is the planner's own short description of what the bundle did. The
 // protocol requires it on every plan-bearing response, and the self-evolution

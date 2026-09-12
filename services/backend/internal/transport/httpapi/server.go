@@ -100,6 +100,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/approve", a.approvePlan)
+	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/correct", a.correctPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
@@ -894,6 +895,21 @@ func (a *API) approvePlan(w http.ResponseWriter, r *http.Request) {
 	result, item, err := a.service.SubmitPlanApproval(r.Context(), r.PathValue("id"), r.PathValue("request_id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "plan_approval_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
+}
+
+func (a *API) correctPlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Guidance string `json:"guidance"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, item, err := a.service.SubmitPlanCorrection(r.Context(), r.PathValue("id"), r.PathValue("request_id"), body.Guidance)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "plan_correction_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
