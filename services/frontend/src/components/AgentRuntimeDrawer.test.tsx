@@ -18,10 +18,11 @@ function runtime(desiredWorkers = 6): DesktopAgentRuntimeState {
     scheduler: { running: true, backend_reachable: true, last_refresh_at: '2026-09-11T10:00:00Z', last_error: '' },
     queue: { queued: 2, counts: { RUNNING: 1, WAITING: 1 }, due: 1, scheduled: 0, blocked: 0, oldest_due_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
     provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', updated_at: '2026-09-11T10:00:00Z' },
+    memory: { available: true, total_workers_bytes: 340 * 1024 * 1024, total_supervisors_bytes: 220 * 1024 * 1024, total_agents_bytes: 560 * 1024 * 1024, desktop_bytes: 420 * 1024 * 1024, total_bytes: 980 * 1024 * 1024 },
     agents: [
-      { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false } },
-      { id: 'supervisor-2', label: 'Supervisor 2', role: 'supervisor', status: 'idle', draining: false, chat_id: '', error: '', browser: { available: false, web_contents_id: 0, url: '', title: '', loading: false } },
-      { id: 'worker-1', label: 'Worker 1', role: 'worker', status: 'running', draining: false, chat_id: 'chat-1', task: { task_id: 'task-1', type: 'AWAIT_RESPONSE', chat_id: 'chat-1', request_id: 'req-1', root_request_id: 'req-root', conversation_id: 'conv-1', status: 'RUNNING', attempt: 2, max_attempts: 30, lease_expires_at: '2026-09-11T10:01:00Z', not_before: '2026-09-11T10:00:00Z', last_error: '', created_at: '2026-09-11T09:55:00Z', updated_at: '2026-09-11T10:00:00Z' }, last_claim_at: '2026-09-11T10:00:00Z', loop_active: true, error: '', browser: { available: true, web_contents_id: 11, url: 'https://chatgpt.com/c/worker', title: 'Chat worker', loading: false } },
+      { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, os_process_id: 1010, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false }, memory: { available: true, rss_bytes: 220 * 1024 * 1024, os_process_id: 1010, shared_process: false } },
+      { id: 'supervisor-2', label: 'Supervisor 2', role: 'supervisor', status: 'idle', draining: false, chat_id: '', error: '', browser: { available: false, web_contents_id: 0, os_process_id: 0, url: '', title: '', loading: false }, memory: { available: false, rss_bytes: 0, os_process_id: 0, shared_process: false } },
+      { id: 'worker-1', label: 'Worker 1', role: 'worker', status: 'running', draining: false, chat_id: 'chat-1', task: { task_id: 'task-1', type: 'AWAIT_RESPONSE', chat_id: 'chat-1', request_id: 'req-1', root_request_id: 'req-root', conversation_id: 'conv-1', status: 'RUNNING', attempt: 2, max_attempts: 30, lease_expires_at: '2026-09-11T10:01:00Z', not_before: '2026-09-11T10:00:00Z', last_error: '', created_at: '2026-09-11T09:55:00Z', updated_at: '2026-09-11T10:00:00Z' }, last_claim_at: '2026-09-11T10:00:00Z', loop_active: true, error: '', browser: { available: true, web_contents_id: 11, os_process_id: 2011, url: 'https://chatgpt.com/c/worker', title: 'Chat worker', loading: false }, memory: { available: true, rss_bytes: 340 * 1024 * 1024, os_process_id: 2011, shared_process: false } },
     ],
   }
 }
@@ -32,7 +33,7 @@ function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
     setWorkerCount: vi.fn(async (count: number) => runtime(count)),
     setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => ({ ...state, policies: { ...state.policies, ...policies } })),
     setWorkerKeepFlowing: vi.fn(async (agentId: string, enabled: boolean) => ({ ...state, agents: state.agents.map((agent) => agent.id === agentId ? { ...agent, keep_flowing: enabled } : agent) })),
-    pauseProvider: vi.fn(async (_pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true } })),
+    pauseProvider: vi.fn(async (pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true, paused_until: pausedUntil || '' } })),
     resumeProvider: vi.fn(async () => runtime()),
     snapshot: vi.fn(async (agentId: string) => ({ agentId, dataUrl: 'data:image/png;base64,AA==', capturedAt: '2026-09-10T23:00:00Z' })),
     openInteraction: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
@@ -60,7 +61,13 @@ describe('AgentRuntimeDrawer', () => {
     fireEvent.click(screen.getByText('Worker 1'))
     expect(screen.getByText(/AWAIT_RESPONSE · task-1/)).toBeTruthy()
     expect(screen.getByText('RUNNING', { selector: '.agent-runtime-detail dd' })).toBeTruthy()
-    expect(screen.getByText('WebContents #11')).toBeTruthy()
+    expect(screen.getByText('WebContents #11 · PID 2011')).toBeTruthy()
+    expect(screen.getByText('340 MiB', { selector: '.agent-runtime-detail dd' })).toBeTruthy()
+    expect(screen.getByText('Total Workers').parentElement?.textContent).toContain('340 MiB')
+    expect(screen.getByText('Total Supervisores').parentElement?.textContent).toContain('220 MiB')
+    expect(screen.getByText('Total Agent').parentElement?.textContent).toContain('560 MiB')
+    expect(screen.getByText('Desktop').parentElement?.textContent).toContain('420 MiB')
+    expect(screen.getByText('Total', { selector: '.agent-runtime-memory-summary small' }).parentElement?.textContent).toContain('980 MiB')
 
     fireEvent.click(screen.getByRole('button', { name: 'Diminuir workers' }))
     await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(5))

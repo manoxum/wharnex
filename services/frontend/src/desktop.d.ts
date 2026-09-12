@@ -23,18 +23,19 @@ type DesktopAgentRuntimeTask = {
   task_id: string; type: string; chat_id: string; request_id: string; root_request_id: string; conversation_id: string; status: string
   attempt: number; max_attempts: number; lease_expires_at: string; not_before: string; last_error: string; created_at: string; updated_at: string
 }
-type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number; url: string; title: string; loading: boolean }
+type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number; os_process_id?: number; url: string; title: string; loading: boolean }
 type DesktopAgentRuntimeResidency = { slot_id: string; resident_lane: string; resident_since: string; min_resident_until: string; assignment_epoch: number; rotation_position: number; navigation_in_progress: boolean; non_preemptive: boolean }
 type DesktopAgentRuntimeAgent = {
   id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'claimed' | 'running' | 'stopped' | 'error' | string
   draining: boolean; loop_active?: boolean; interacting?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
-  keep_flowing?: boolean; keep_flowing_active?: boolean; error: string; browser: DesktopAgentRuntimeBrowser; residency?: DesktopAgentRuntimeResidency
+  keep_flowing?: boolean; keep_flowing_active?: boolean; error: string; browser: DesktopAgentRuntimeBrowser; memory?: { available: boolean; rss_bytes: number; os_process_id: number; shared_process: boolean }; residency?: DesktopAgentRuntimeResidency
 }
 type DesktopAgentRuntimeState = {
   instance_id: string; desired_workers: number; configured_workers: number; policies: { auto_scale: boolean; auto_scale_max_workers: number; keep_flowing_global: boolean; keep_flowing_workers: string[]; auto_scaled_workers: number }; limits: { min_workers: number; max_workers: number; supervisors: number }
   scheduler: { running: boolean; backend_reachable: boolean; last_refresh_at: string; last_error: string }
   queue: { queued: number; counts: Record<string, number>; due: number; scheduled: number; guarded?: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
   provider: { provider: string; paused: boolean; paused_until: string; reason: string; updated_at: string; rate_limit_level?: number; last_rate_limit_at?: string; last_rate_limit_source?: string; last_valid_bundle_at?: string; average_processing_ms?: number; valid_sample_count?: number; initial_wait_ms?: number }
+  memory?: { available: boolean; total_workers_bytes: number; total_supervisors_bytes: number; total_agents_bytes: number; desktop_bytes: number; total_bytes: number }
   agents: DesktopAgentRuntimeAgent[]
 }
 type DesktopChatAgentLifecycleRequest = { cacheKey: string; url: string; sessionId?: string; projectId?: string; projectName?: string; title?: string; requestId?: string }
