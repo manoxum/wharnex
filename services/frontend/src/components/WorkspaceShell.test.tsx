@@ -32,8 +32,9 @@ describe('WorkspaceShell project actions', () => {
   })
 
   it('places the instance identifier before the Editor and Agent selector', () => {
-    render(<ShellChrome instanceID="legacy" projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
-    const badge = screen.getByLabelText('Instância: legacy')
+    render(<ShellChrome instanceID="legacy" version="v1.2.46.13" projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    const badge = screen.getByLabelText('Instância: legacy · versão v1.2.46.13')
+    expect(badge.textContent).toBe('legacy · v1.2.46.13')
     const editor = screen.getByRole('button', { name: 'Editor' })
     expect(Boolean(badge.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })

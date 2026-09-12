@@ -192,7 +192,7 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 func (a *API) config(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.tunnelStatus()})
+	writeJSON(w, http.StatusOK, map[string]any{"planner": a.cfg.Planner, "sandbox": a.cfg.Sandbox, "model": a.cfg.OpenAIModel, "version": a.cfg.Version, "api_configured": a.cfg.OpenAIAPIKey != "", "chatgpt_web_embed": false, "remote_input": a.tunnelStatus()})
 }
 
 // executionConcurrency exposes how many plans one project may verify at a

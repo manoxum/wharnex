@@ -104,6 +104,22 @@ describe('WorkspaceTopbar self-evolution', () => {
     expect(screen.getByText('3H ↑80/80 ↓79')).toBeTruthy()
   })
 
+  it('shows the project version beside the instance name', () => {
+    render(<WorkspaceTopbar
+      config={{ planner: 'manual', sandbox: 'docker', model: 'test', version: 'v1.2.46.13', api_configured: false, chatgpt_web_embed: false }}
+      session={session()}
+      mode="agent"
+      executionMode="protected"
+      automationMode="auto"
+      instanceID="legacy"
+      busy={false}
+      onMode={vi.fn()}
+      onSettings={vi.fn()}
+      onClose={vi.fn()}
+    />)
+    expect(screen.getByLabelText('Instância: legacy · versão v1.2.46.13').textContent).toBe('legacy · v1.2.46.13')
+  })
+
   it('exposes Orchestrator as a first-class workspace mode', () => {
     const onMode = vi.fn()
     render(<WorkspaceTopbar
