@@ -32,7 +32,7 @@ It has two halves with different authorities.
 
 The narrative is a full replacement each round, never a delta, so a garbled or dropped round cannot corrupt accumulated conclusions. The measured rounds are authoritative: the planner may explain them, never contradict or omit them.
 
-The ledger is scaffolding, not truth. It is discarded when the Main Request ends, and the round that is expected to be the last is told so explicitly and asked to promote whatever is durable into `knowledge/index.json` first. That is where the separation earns itself: the ledger is where the conclusion is worked out, the knowledge catalog is where it is kept.
+The ledger is scaffolding, not truth. It is discarded when the Main Request ends. A repair/continuation that receives measured failure evidence must promote any reusable cause or repair strategy into `knowledge/index.json` in that same response, not only when the attempt budget is exhausted: a successful verification/Apply does not create another planner turn in which to learn retroactively. The expected-last-round reminder remains a final consolidation guard. Wharnex also reports `knowledge.promotion_missing` when a terminal request had measured repair evidence but the durable catalog did not change, making a missed promotion observable without rejecting an otherwise verified change. That is where the separation earns itself: the ledger is where the conclusion is worked out, the knowledge catalog is where it is kept.
 
 ### `harness.context-delta/v1` — local project divergence
 

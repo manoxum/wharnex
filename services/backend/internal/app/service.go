@@ -1777,13 +1777,13 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 				warning := fmt.Sprintf("pre-existing verification failure unchanged: %s (exit %d)", strings.Join(command.Argv, " "), baselineResult.ExitCode)
 				result.Warnings = append(result.Warnings, warning)
 				s.bus.Publish(sessionID, "verification.baseline_unchanged", map[string]any{"argv": command.Argv, "exit_code": baselineResult.ExitCode, "diagnostic": commandResultDiagnostic(baselineResult)})
-			} else if baselineErr == nil && !baselineResult.Success {
-				// The suite failed both before and after, but not identically:
-				// some of these failures are the candidate's and some are the
-				// repository's. Recording which is which is what stops the
-				// repair round being handed a failure it did not cause — the
-				// path that once had a planner revert a completed rename to
-				// satisfy a stale assertion in a package it never touched.
+			} else if baselineErr == nil {
+				// Attribution is useful even when the baseline passed. In that
+				// case every structured failure is introduced by the candidate,
+				// and saying so explicitly gives the repair round a compact cause
+				// instead of a wall of test-runner output. When the baseline also
+				// failed, the same report separates candidate regressions from
+				// repository debt.
 				commandResult.BaselineExitCode = baselineResult.ExitCode
 				commandResult.BaselineOutput = describeVerificationAttribution(baselineResult, commandResult)
 				s.bus.Publish(sessionID, "verification.baseline_changed", map[string]any{
@@ -2223,7 +2223,7 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 				// wall-clock time, and the next planner round must know the
 				// approach reached this wall rather than a source defect.
 				recordAttemptRound(item, knowledgeReviewRoot(*item, item.LastRequestID), attemptRoundFromExecution(
-					item.LastRequestID, lineageKind, result, domain.AttemptOutcomeInfrastructure, kind+": "+cause.Error()))
+					item.LastRequestID, lineageKind, result, domain.AttemptOutcomeInfrastructure, kind+": "+executionFailureCauseSummary(result, cause)))
 				return nil
 			})
 			if updateErr != nil {
@@ -2245,7 +2245,7 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 	// same way.
 	_, _ = s.store.Update(sessionID, func(item *domain.Session) error {
 		recordAttemptRound(item, knowledgeReviewRoot(*item, item.LastRequestID), attemptRoundFromExecution(
-			item.LastRequestID, lineageKind, result, repairAttemptOutcome(cause), cause.Error()))
+			item.LastRequestID, lineageKind, result, repairAttemptOutcome(cause), executionFailureCauseSummary(result, cause)))
 		return nil
 	})
 	refreshed, err := s.refreshContext(sessionID)
@@ -2405,11 +2405,17 @@ EXECUTION MODE: %s
 FAILURE:
 %s
 
+ROOT-CAUSE SUMMARY:
+%s
+
 CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
 
 %s
 
-Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
+KNOWLEDGE PROMOTION:
+This repair response may be the last planner turn before verification and host Apply. If the failure exposed a reusable operational cause, fixture invariant, verification pattern, environment constraint, or repair strategy, update or consolidate the relevant knowledge/<id>.md record NOW in this response. Do not defer learning until after success because there is no post-Apply planner round. Prefer editing/merging an existing record on the same topic over creating a duplicate. Keep transient one-off details only in attempts/ledger.md.
+
+Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), truncateRepairText(executionFailureCauseSummary(result, cause), 4000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
 }
 
 func truncateRepairText(value string, limit int) string {

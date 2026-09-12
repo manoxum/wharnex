@@ -222,6 +222,28 @@ func repairAttemptOutcome(cause error) string {
 	}
 }
 
+func executionFailureCauseSummary(result domain.ExecutionResult, cause error) string {
+	if evidence, missing := detectMissingExecutable(result); missing {
+		return fmt.Sprintf("missing executable %q while running %q", evidence.executableName(), evidence.commandLine())
+	}
+	for index := len(result.Commands) - 1; index >= 0; index-- {
+		command := result.Commands[index]
+		if command.Success {
+			continue
+		}
+		if attribution := strings.TrimSpace(command.BaselineOutput); attribution != "" {
+			return attribution
+		}
+		if observed := newVerificationFailures(domain.CommandResult{}, command); len(observed) > 0 {
+			return "Observed structured verification failures: " + strings.Join(observed, "; ")
+		}
+	}
+	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
+		return cause.Error()
+	}
+	return "execution failed without a diagnostic message"
+}
+
 // attemptRoundFromExecution turns a finished execution into one measured round.
 func attemptRoundFromExecution(requestID, kind string, result domain.ExecutionResult, outcome, detail string) domain.AttemptRound {
 	round := domain.AttemptRound{
