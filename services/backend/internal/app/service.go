@@ -1219,6 +1219,22 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	if kind := sessionFailureKind(current); kind != "" && kind != domain.FailureKindRemoteInputTransport {
 		return current, fmt.Errorf("failure %s is terminal for fresh GPT retry and requires its dedicated recovery action", kind)
 	}
+	// The planner's own outcome is authoritative about whether another identical
+	// request could change anything. retryable=false means it cannot: the blocker
+	// is structural or needs an operator action. The automatic recovery path
+	// already honours this, but the manual one did not, so a failure the planner
+	// had declared unsolvable was sent straight back to it and answered
+	// identically every round. That is a real observed loop — three chained
+	// requests reporting stale_pending_candidate_requires_operator_rebase against
+	// a candidate whose patch no longer applied to the host — and it stayed
+	// invisible because an unrecognized reason_code classifies as no kind at all,
+	// so the gate above never engages.
+	//
+	// Operator guidance is the deliberate escape: supplying it is the operator
+	// stating that something outside the planner's view has changed.
+	if reason, blocked := plannerDeclaredNonRetryable(current); blocked && strings.TrimSpace(guidance) == "" {
+		return current, fmt.Errorf("the planner reported this failure as not retryable (%s); resolve the blocker it named, or retry with explicit operator guidance", reason)
+	}
 	if len(current.PendingManualRequestIDs) > 0 || current.PlannerInFlight {
 		return domain.Session{}, errors.New("another request is already pending")
 	}

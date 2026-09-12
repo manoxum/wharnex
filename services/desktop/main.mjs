@@ -8,7 +8,7 @@ import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPoi
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTFocusComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
-import { chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
+import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
@@ -1309,7 +1309,7 @@ async function completeExternalAuthentication(cacheKey, entry, record, result) {
     }
     await cleanupManagedAuthentication(cacheKey, record)
     const ownerState = windowStateForEntry(entry)
-    if (ownerState?.activeChatGPTKey === cacheKey) entry.view.setVisible(ownerState.chatgptVisible)
+    if (ownerState?.activeChatGPTKey === cacheKey) entry.view.setVisible(chatGPTSurfaceShouldBeVisible(entry, ownerState))
     publishChatGPTState(cacheKey)
     publishAuthComplete(cacheKey, 'external', result.callbackURL)
     console.log(`[chatgpt-auth] external callback completed key=${cacheKey} cookies=${imported} url=${sanitizeDiagnosticURL(result.callbackURL)}`)
@@ -1324,7 +1324,7 @@ async function failExternalAuthentication(cacheKey, entry, record, error) {
   entry.externalAuthProvider = ''
   await cleanupManagedAuthentication(cacheKey, record)
   const ownerState = windowStateForEntry(entry)
-  if (ownerState?.activeChatGPTKey === cacheKey) entry.view.setVisible(ownerState.chatgptVisible)
+  if (ownerState?.activeChatGPTKey === cacheKey) entry.view.setVisible(chatGPTSurfaceShouldBeVisible(entry, ownerState))
   publishChatGPTState(cacheKey)
   const message = error instanceof Error ? error.message : String(error)
   publishAuthError(cacheKey, record.provider, message)
@@ -1995,6 +1995,17 @@ function evictIdleChatGPTViews() {
   return released
 }
 
+// A parked view still carries the full-size layout bounds account automation
+// gave it. Showing it before the renderer reports the real pane geometry would
+// cover the whole Wharnex window for a frame, which reads exactly like the
+// project closing and reopening. Every path that makes an owned surface visible
+// shares this predicate, so a parked view cannot slip through one of them.
+function chatGPTSurfaceShouldBeVisible(entry, ownerState) {
+  if (!entry || !ownerState) return false
+  const parked = entry.parkedLayout === true && !ownerState.chatgptBounds
+  return Boolean(ownerState.chatgptVisible) && !entry.externalAuthProvider && !parked
+}
+
 function activateChatGPTView(cacheKey, bounds, windowState) {
   const resolved = windowState || windowStateForEntry(chatgptViews.get(sanitizeChatCacheKey(cacheKey)))
   const { key, entry } = ensureChatGPTView(cacheKey, resolved)
@@ -2006,12 +2017,7 @@ function activateChatGPTView(cacheKey, bounds, windowState) {
   ownerState.activeChatGPTKey = key
   if (bounds) setChatGPTBounds(bounds, ownerState)
   else if (ownerState.chatgptBounds) entry.view.setBounds(ownerState.chatgptBounds)
-  // A parked view still carries the full-size layout bounds account
-  // automation gave it. Showing it before the renderer reports the real
-  // pane geometry would cover the whole Wharnex window for a frame, which
-  // reads exactly like the project closing and reopening.
-  const parked = entry.parkedLayout === true && !ownerState.chatgptBounds
-  entry.view.setVisible(ownerState.chatgptVisible && !entry.externalAuthProvider && !parked)
+  entry.view.setVisible(chatGPTSurfaceShouldBeVisible(entry, ownerState))
   reconcileChatGPTThrottle(key, entry)
   touchChatGPTEntry(entry)
   // Bound resident surfaces right after the newest one is established, so the
@@ -2070,7 +2076,7 @@ async function applyDeferredSupervisorNavigation() {
   if (!sameConversationURL(currentURL, target) && currentURL !== target) {
     await loadOwnedChatGPTURL(pending.key, entry, target, 'deferred-supervisor-switch')
   }
-  if (state.chatgptVisible) entry.view.setVisible(!entry.externalAuthProvider)
+  if (state.chatgptVisible) entry.view.setVisible(chatGPTSurfaceShouldBeVisible(entry, state))
   void flushQueuedChatGPTComments()
 }
 
@@ -2356,11 +2362,9 @@ function ensureChatGPTLayoutViewport(key, entry) {
   // "Showing" is a property of the view, not of the chat. A Worker is hidden
   // even while it owns the very chat the Supervisor has selected — which is the
   // common case, since a chat is organized right after it was used. Matching on
-  // the key alone therefore denied a hidden Worker its layout viewport, leaving
-  // it at 0x0 so every getBoundingClientRect collapsed to the origin and every
-  // account control was reported as `action-offscreen` until the task exhausted
-  // its attempts. Only the entry the Supervisor map actually holds for this key
-  // is the visible surface; a Worker entry never is.
+  // the key alone therefore denied a hidden Worker its layout viewport. Only the
+  // entry the Supervisor map actually holds for this key is the visible surface;
+  // a Worker entry never is.
   const ownerState = windowStateForEntry(entry)
   if (entry?.interactionWindowId && ownerState?.activeAgentInteractionId === entry.slotId) return false
   if (ownerState?.activeChatGPTKey === key && chatgptViews.get(key) === entry) return false
@@ -3421,21 +3425,21 @@ async function executeChatAgentTask(task, { worker }) {
     case 'ORGANIZE_CHAT': {
       const result = await organizeChatGPTConversation(key, payload.project_name, payload.title || payload.fallback_title, payload.target_url || conversationURL, entry)
       if (result.state === 'duplicate-project') return { status: 'attention', error: `Projeto ChatGPT duplicado: ${result.project}` }
-      if (!result.ok) return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+      if (!result.ok) return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: accountFailureDetail(result) }
       await persistWorkspaceChatRemote(key, payload.target_url || conversationURL, { projectRef: result.project || '', remoteTitle: result.title || '', remoteState: 'organized' })
       if (payload.temp_url) await enqueueChatAgentTask('DELETE_TEMP_CHAT', { key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: payload.temp_url, parentTaskID: task.task_id, dedupeKey: `delete-temp:${chatAgentConversationID(payload.temp_url)}`, payload, maxAttempts: 6 })
       return { status: 'done' }
     }
     case 'RENAME_CHAT': {
       const result = await organizeChatGPTConversation(key, payload.project_name, payload.title, conversationURL, entry)
-      if (!result.ok) return chatAgentLifecycleRetry(task, key, conversationURL, result.state)
+      if (!result.ok) return chatAgentLifecycleRetry(task, key, conversationURL, accountFailureDetail(result))
       await persistWorkspaceChatRemote(key, conversationURL, { projectRef: result.project || '', remoteTitle: result.title || payload.title || '', remoteState: 'organized' })
       return { status: 'done' }
     }
     case 'ARCHIVE_CHAT': {
       if (await chatAgentLifecycleBlocked(task)) return { status: 'waiting', delayMs: 5_000 }
       const result = await archiveChatGPTConversation(key, conversationURL, entry)
-      if (!(result.ok || result.state === 'already-archived')) return chatAgentLifecycleRetry(task, key, conversationURL, result.state)
+      if (!(result.ok || result.state === 'already-archived')) return chatAgentLifecycleRetry(task, key, conversationURL, accountFailureDetail(result))
       await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'archived' })
       return { status: 'done' }
     }
@@ -3443,7 +3447,7 @@ async function executeChatAgentTask(task, { worker }) {
     case 'DELETE_TEMP_CHAT': {
       if (task.type === 'DELETE_CHAT' && await chatAgentLifecycleBlocked(task)) return { status: 'waiting', delayMs: 5_000 }
       const result = await deleteChatGPTConversation(key, conversationURL, entry)
-      if (!(result.ok || result.state === 'already-deleted')) return chatAgentLifecycleRetry(task, key, conversationURL, result.state, { persist: task.type === 'DELETE_CHAT' })
+      if (!(result.ok || result.state === 'already-deleted')) return chatAgentLifecycleRetry(task, key, conversationURL, accountFailureDetail(result), { persist: task.type === 'DELETE_CHAT' })
       if (task.type === 'DELETE_CHAT') await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'deleted' })
       return { status: 'done' }
     }
@@ -3454,7 +3458,7 @@ async function executeChatAgentTask(task, { worker }) {
       const result = await deleteChatGPTLibraryArtifact(key, filename, String(payload.artifact_id || ''), entry)
       if (result.ok || result.state === 'already-deleted') return { status: 'done' }
       if (result.state === 'artifact-ambiguous' || result.state === 'invalid-canonical-filename') return { status: 'attention', error: result.state }
-      return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: result.state }
+      return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: accountFailureDetail(result) }
     }
     default: return { status: 'failed', error: `Unsupported chat-agent task type ${task.type}` }
   }
@@ -4297,7 +4301,7 @@ function registerIPC() {
     if (mode === 'embedded') {
       cancelExternalAuthentication(key)
       entry.externalAuthProvider = ''
-      if (windowState.activeChatGPTKey === key) entry.view.setVisible(windowState.chatgptVisible)
+      if (windowState.activeChatGPTKey === key) entry.view.setVisible(chatGPTSurfaceShouldBeVisible(entry, windowState))
     }
     publishChatGPTState(key)
     return currentChatGPTState(key, windowState)
@@ -4327,7 +4331,7 @@ function registerIPC() {
     cancelExternalAuthentication(key)
     await loadOwnedChatGPTURL(key, entry, CHATGPT_LOGIN_URL, 'embedded-auth')
     requireOwnedChatGPTEntry(key, entry)
-    if (windowState.activeChatGPTKey === key) entry.view.setVisible(windowState.chatgptVisible)
+    if (windowState.activeChatGPTKey === key) entry.view.setVisible(chatGPTSurfaceShouldBeVisible(entry, windowState))
     publishChatGPTState(key)
     return currentChatGPTState(key, windowState)
   })
@@ -4350,7 +4354,7 @@ function registerIPC() {
     cancelExternalAuthentication(key)
     if (!isTrustedChatGPTOrigin(wc.getURL())) await loadOwnedChatGPTURL(key, entry, CHATGPT_URL, 'resume-embedded')
     requireOwnedChatGPTEntry(key, entry)
-    if (windowState.activeChatGPTKey === key) entry.view.setVisible(windowState.chatgptVisible)
+    if (windowState.activeChatGPTKey === key) entry.view.setVisible(chatGPTSurfaceShouldBeVisible(entry, windowState))
     publishChatGPTState(key)
     return currentChatGPTState(key, windowState)
   })

@@ -412,3 +412,73 @@ func TestCanceledCommandExitMinusOneIsNotTreatedAsSourceRegression(t *testing.T)
 		t.Fatalf("canceled execution classified as %q", got)
 	}
 }
+
+// Observed in production: the planner reported a blocker that needs an operator
+// rebase, with retryable=false. Its reason_code is not in the hand-reviewed
+// allowlist, so the failure classifies as no kind at all and the kind-based gate
+// never engages. The manual retry then sent the same request back three times
+// and got the identical answer every round. The planner's own retryable flag is
+// the signal that does not need a vocabulary to stay in step.
+func TestManualRetryHonoursPlannerNonRetryableOutcome(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "rebase the pending candidate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	seedFailedPlanForRepair(t, service, started.ID, requestID)
+	bundle := makeFailedBundleWithReason(t, requestID, "stale_pending_candidate_requires_operator_rebase", false)
+	result, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The vocabulary gap is real and this test does not paper over it: the point
+	// is that the retry is blocked even with no classification at all.
+	if result.Session.FailureKind != "" {
+		t.Fatalf("unexpected classification %q; this test must cover the unclassified path", result.Session.FailureKind)
+	}
+	if result.RemoteRecoveryPrepared {
+		t.Fatalf("a non-retryable outcome must not start automatic recovery: %#v", result)
+	}
+
+	_, err = service.RetryFailedRequest(context.Background(), started.ID)
+	if err == nil || !strings.Contains(err.Error(), "not retryable") {
+		t.Fatalf("bare retry should be refused for a non-retryable outcome, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "stale_pending_candidate_requires_operator_rebase") {
+		t.Fatalf("refusal must name the planner's own reason, got %v", err)
+	}
+
+	// Operator guidance is the deliberate escape: it states that something
+	// outside the planner's view has changed.
+	if _, err := service.RequestFailureRepair(context.Background(), started.ID, "I rebased the branch onto main"); err != nil {
+		t.Fatalf("operator guidance must still be able to drive a retry: %v", err)
+	}
+}
+
+func TestManualRetryStillAllowedWhenPlannerReportsRetryable(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "retry me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID := prompted.LastRequestID
+	seedFailedPlanForRepair(t, service, started.ID, requestID)
+	bundle := makeFailedBundleWithReason(t, requestID, "transient_provider_hiccup", true)
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, "whx_bundle_res_system_"+requestID+".zip", bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RetryFailedRequest(context.Background(), started.ID); err != nil {
+		t.Fatalf("a retryable planner outcome must still be retryable without guidance: %v", err)
+	}
+}

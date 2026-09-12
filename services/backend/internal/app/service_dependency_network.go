@@ -147,6 +147,32 @@ func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {
 	return ""
 }
 
+// plannerDeclaredNonRetryable reports whether the planner itself said that
+// another identical request cannot change the outcome, and names the reason it
+// gave. It is deliberately bound to the request that actually failed: a stale
+// LastTurn from an earlier round must never block the retry of a later, genuinely
+// retryable failure.
+//
+// Unlike reason_code, retryable is a required boolean the planner is explicitly
+// instructed to set accurately, so this needs no vocabulary to stay in step with.
+func plannerDeclaredNonRetryable(item domain.Session) (string, bool) {
+	turn := item.LastTurn
+	if turn == nil || turn.Outcome == nil {
+		return "", false
+	}
+	if turn.RequestID != item.LastRequestID {
+		return "", false
+	}
+	if turn.Outcome.Status == domain.TurnOutcomeCompleted || turn.Outcome.Retryable {
+		return "", false
+	}
+	reason := strings.TrimSpace(turn.Outcome.ReasonCode)
+	if reason == "" {
+		reason = "no reason_code reported"
+	}
+	return reason, true
+}
+
 // sessionFailureKind is the read path every consumer of a session's failure
 // classification MUST go through, instead of reading item.FailureKind
 // directly. It derives the legacy case for sessions persisted before

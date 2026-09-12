@@ -1073,11 +1073,35 @@ test('a parked chat surface is never shown while it carries layout-only bounds',
   assert.match(park, /entry\.parkedLayout = true/)
   assert.doesNotMatch(park, /x: -\d+/)
 
-  const activateStart = source.indexOf('function activateChatGPTView(')
-  const activateEnd = source.indexOf('\nfunction wait(', activateStart)
-  const activate = source.slice(activateStart, activateEnd)
-  assert.match(activate, /const parked = entry\.parkedLayout === true && !ownerState\.chatgptBounds/)
-  assert.match(activate, /setVisible\(ownerState\.chatgptVisible && !entry\.externalAuthProvider && !parked\)/)
+  const predicateStart = source.indexOf('function chatGPTSurfaceShouldBeVisible(')
+  const predicate = source.slice(predicateStart, source.indexOf('\n}', predicateStart))
+  assert.match(predicate, /const parked = entry\.parkedLayout === true && !ownerState\.chatgptBounds/)
+  assert.match(predicate, /Boolean\(ownerState\.chatgptVisible\) && !entry\.externalAuthProvider && !parked/)
+
+  // Every path that makes an owned surface visible must share the predicate, or
+  // a parked view slips through the one that does not - which is reachable now
+  // that a slot carries layout bounds from the moment it is created.
+  //
+  // showChatAgentInteraction is the one legitimate exception: it is the Worker
+  // interaction surface, not the Supervisor one, and it assigns real pane bounds
+  // and clears parkedLayout on the line above the show.
+  const interactionStart = source.indexOf('function showChatAgentInteraction(')
+  const interactionEnd = source.indexOf('\nfunction ', interactionStart + 1)
+  let shows = 0
+  for (const match of source.matchAll(/entry\.view\.setVisible\(([^)]*)\)/g)) {
+    const [, argument] = match
+    if (argument === 'false') continue
+    shows += 1
+    if (match.index > interactionStart && match.index < interactionEnd) {
+      assert.match(source.slice(interactionStart, interactionEnd), /entry\.parkedLayout = false\n\s*entry\.view\.setVisible\(true\)/)
+      continue
+    }
+    assert.ok(
+      argument.startsWith('chatGPTSurfaceShouldBeVisible('),
+      `entry.view.setVisible(${argument}) bypasses the parked-surface predicate`,
+    )
+  }
+  assert.ok(shows >= 4, 'expected the supervisor show paths to be covered')
 
   // Real pane bounds clear the parked flag, so the view becomes showable again.
   const boundsStart = source.indexOf('function setChatGPTBounds(')
