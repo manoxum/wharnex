@@ -145,3 +145,15 @@ func TestRepairOutcomeDistinguishesPolicyFromVerification(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestExecutionFailureCauseSummaryPrefersStructuredAttribution(t *testing.T) {
+	result := domain.ExecutionResult{Commands: []domain.CommandResult{{
+		Argv:           []string{"npm", "test", "--", "--run", "src/components/Inspector.test.tsx"},
+		ExitCode:       1,
+		BaselineOutput: "Introduced by this change (fix these): failing Vitest test src/components/Inspector.test.tsx > keeps exactly one Supervisor pane",
+	}}}
+	got := executionFailureCauseSummary(result, errString("verification failed with a very long raw DOM dump"))
+	if !strings.Contains(got, "failing Vitest test") || strings.Contains(got, "raw DOM dump") {
+		t.Fatalf("expected structured attribution to win, got %q", got)
+	}
+}
