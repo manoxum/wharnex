@@ -69,17 +69,35 @@ the latest desired chat and navigates there only after submission is confirmed.
 
 Workers execute autonomous jobs. Scaling up creates additional hidden-by-default slots without
 restarting the scheduler. Scaling down is non-preemptive: excess busy workers finish
-their current job before their renderer is retired. Affinity is only a cache preference:
+their current job before their renderer is retired. **Auto scale** is an optional runtime
+policy layered on top of the operator's configured Worker count: when claimable work is
+due and no active Worker is available, Wharnex adds one Worker at a time up to the same
+hard maximum of six. When the due backlog clears, auto-created slots drain back to the
+configured count without preempting work already in flight. A provider suspension or 429
+cooldown never causes Auto scale growth, because extra renderers cannot make a gated
+provider available. Affinity is only a cache preference:
 `chat_id -> conversation_id` is durable state, and a worker may be rebound after
 finishing its non-preemptive job. A reached conversation becomes that slot's resident
 lane for 60 seconds by default (never below 30 seconds). Resident work is preferred;
 free slots claim unresident lanes before any resident slot is evicted; and, when chats
 outnumber slots, only the head of a fair in-memory rotation may rebind after its dwell.
 
-Residency stays a cache and never becomes ownership. A resident slot only claims its
-own lane, so the lane it is holding is exactly the lane it has proven empty: after its
-dwell, a bounded run of claims that find no work releases the lane and returns the slot
-to the free pool. Without that release the pool degraded to a single effective worker —
+Residency stays a cache and never becomes ownership by default. **Keep flowing** is the
+explicit bounded exception, configurable globally or for an individual Worker. While a
+Worker sponsors a request that still expects its validated response bundle, that Worker
+keeps the resident conversation lane across observation sleeps and same-request recovery
+children instead of rotating to unrelated work. Network/renderer faults reuse the bounded
+recovery controller, structural response errors may reload once, a completed turn without
+a valid bundle continues the same request, and a downloaded bundle that fails Wharnex
+protocol validation is treated as still incomplete rather than as permission to leave the
+request. The exception ends as soon as validated bytes are pending local processing (or
+the request reaches a real attention/cancellation boundary). During a 429/provider gate
+the Worker simply stops claiming and preserves that request sponsorship until the durable
+cooldown clears.
+
+Outside that policy, a resident slot only claims its own lane, so the lane it is holding
+is exactly the lane it has proven empty: after its dwell, a bounded run of claims that
+find no work releases the lane and returns the slot to the free pool. Without that release the pool degraded to a single effective worker —
 every slot pinned to a conversation that had already been resolved, with only the
 rotation head able to escape and only while no slot was free. For the same reason a slot
 that is blocked from claiming (interaction, account operation, transport preparation,

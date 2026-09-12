@@ -519,7 +519,7 @@ test('the visible Supervisor temporarily owns expected-bundle observation and Wo
   const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', pollStart)
   const poll = source.slice(pollStart, pollEnd)
   assert.match(poll, /if \(!entry \|\| !chatGPTEntryIsActiveVisible\(key, entry\)\) return/)
-  assert.match(source, /setInterval\(\(\) => \{ void flushQueuedChatGPTComments\(\); void pollChatGPTVisibleActivity\(\); void pollExpectedChatGPTDownloads\(\) \}, DOM_DOWNLOAD_POLL_MS\)/)
+  assert.match(source, /setInterval\(\(\) => \{ void flushQueuedChatGPTComments\(\); void pollChatGPTVisibleActivity\(\); void pollExpectedChatGPTDownloads\(\); void reconcileChatAgentAutoScale\(\) \}, DOM_DOWNLOAD_POLL_MS\)/)
 })
 
 test('background ChatGPT views disable renderer throttling and escalate structural or exhausted transport failures to human attention', async () => {
@@ -1063,7 +1063,7 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', pollStart)
   assert.notEqual(pollStart, -1)
   const poll = source.slice(pollStart, pollEnd)
-  assert.match(poll, /if \(!expected\.downloadInFlight && \(!expected\.lastDOMClick \|\| now - expected\.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS\)\)/)
+  assert.match(poll, /if \(!expected\.downloadInFlight && \(!keepFlowing \|\| Number\(expected\.invalidBundleCount \|\| 0\) === 0\) && \(!expected\.lastDOMClick \|\| now - expected\.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS\)\)/)
   assert.match(poll, /expected\.downloadInFlight = true/)
 
   const registerStart = source.indexOf('function registerChatGPTPlanDownloads(chatSession)')
@@ -1679,7 +1679,7 @@ test('a slot between two observations of a live response keeps its conversation'
   const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
   // Releasing the lane here would hand the conversation to another slot, which
   // would reload a page the model is still writing into.
-  assert.match(scheduler.slice(0, 3000), /if \(chatAgentSupervisingLiveResponse\(worker\)\) return/)
+  assert.match(scheduler.slice(0, 3000), /if \(chatAgentSupervisingLiveResponse\(worker\) \|\| chatAgentKeepFlowingActive\(worker\)\) return/)
   // The predicate needs the settled result, so the runtime state has to keep it.
   assert.match(scheduler.slice(0, 4000), /kind === 'settled'[\s\S]{0,200}lastResult: state\.result/)
 })
