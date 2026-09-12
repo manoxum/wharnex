@@ -138,3 +138,22 @@ func containsFailure(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestVitestFailuresAreAttributedIndividuallyAndIgnoreANSI(t *testing.T) {
+	baseline := domain.CommandResult{ExitCode: 0}
+	post := domain.CommandResult{ExitCode: 1, Stdout: "\x1b[31mFAIL\x1b[39m src/components/Inspector.test.tsx > Inspector ChatGPT engine pool (desktop) > keeps exactly one Supervisor pane while the active chat changes\n\x1b[31mFAIL\x1b[39m src/lib/attentionCenter.test.ts > attention center > preserves active item"}
+
+	introduced := newVerificationFailures(baseline, post)
+	for _, want := range []string{
+		"failing Vitest test src/components/Inspector.test.tsx > Inspector ChatGPT engine pool (desktop) > keeps exactly one Supervisor pane while the active chat changes",
+		"failing Vitest test src/lib/attentionCenter.test.ts > attention center > preserves active item",
+	} {
+		if !containsFailure(introduced, want) {
+			t.Fatalf("introduced Vitest failures must include %q, got %v", want, introduced)
+		}
+	}
+	attribution := describeVerificationAttribution(baseline, post)
+	if !strings.Contains(attribution, "Introduced by this change (fix these):") || !strings.Contains(attribution, "Inspector.test.tsx") {
+		t.Fatalf("passing baseline must still produce actionable attribution: %s", attribution)
+	}
+}

@@ -33,6 +33,8 @@ var (
 	// word `FAIL` as though it were a package name, hiding the real one.
 	goPackageFailurePattern = regexp.MustCompile(`(?m)^FAIL[ \t]+(\S+)`)
 	typescriptDiagnostic    = regexp.MustCompile(`(?m)^(.+?)\(\d+,\d+\):\s+error\s+(TS\d+):\s+(.+?)\s*$`)
+	vitestFailurePattern    = regexp.MustCompile(`(?m)^\s*FAIL[ \t]+(\S+)[ \t]+>[ \t]+(.+?)\s*$`)
+	ansiEscapePattern       = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
 
 // failureFingerprints extracts the individual failures a verification command
@@ -44,6 +46,7 @@ var (
 // letting a guess decide whether a candidate regressed.
 func failureFingerprints(result domain.CommandResult) map[string]string {
 	combined := strings.ReplaceAll(result.Stdout+"\n"+result.Stderr, "\r\n", "\n")
+	combined = ansiEscapePattern.ReplaceAllString(combined, "")
 	out := map[string]string{}
 	for _, match := range typescriptDiagnostic.FindAllStringSubmatch(combined, -1) {
 		path := strings.TrimSpace(strings.ReplaceAll(match[1], "\\", "/"))
@@ -54,6 +57,14 @@ func failureFingerprints(result domain.CommandResult) map[string]string {
 	for _, match := range goTestFailurePattern.FindAllStringSubmatch(combined, -1) {
 		name := strings.TrimSpace(match[1])
 		out["go-test|"+name] = "failing test " + name
+	}
+	for _, match := range vitestFailurePattern.FindAllStringSubmatch(combined, -1) {
+		path := strings.TrimSpace(strings.ReplaceAll(match[1], "\\", "/"))
+		name := strings.Join(strings.Fields(match[2]), " ")
+		if path == "" || name == "" {
+			continue
+		}
+		out["vitest|"+path+"|"+name] = fmt.Sprintf("failing Vitest test %s > %s", path, name)
 	}
 	// A package that fails to build reports no `--- FAIL` line at all, so
 	// without this an unbuildable package would look like no failure whatsoever

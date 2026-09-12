@@ -124,6 +124,8 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 	candidate := item.PendingKnowledgeCandidate
 	summary := strings.TrimSpace(item.PendingKnowledgeSummary)
 	newRevision := item.KnowledgeLastSeenRevision
+	catalogChanged := false
+	hadRepairEvidence := attemptLedgerHasRepairEvidence(item, rootID)
 	if candidate != nil {
 		sourceRequestID := strings.TrimSpace(item.PendingKnowledgeCandidateRequestID)
 		if sourceRequestID == "" {
@@ -159,6 +161,7 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 			saved, err := s.store.CompareAndSwapProjectKnowledgeCatalog(item.ProjectPath, desired, terminalRequestID, current.Revision)
 			if err == nil {
 				newRevision = saved.Revision
+				catalogChanged = true
 				if s.bus != nil {
 					s.bus.Publish(sessionID, "knowledge.updated", map[string]any{"request_id": terminalRequestID, "revision": saved.Revision, "entries": len(saved.Entries), "sha256": knowledgeCatalogDigest(saved.Entries), "store": "database"})
 				}
@@ -188,7 +191,27 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 	if err == nil && s.bus != nil && summary != "" {
 		s.bus.Publish(sessionID, "main_request.summary_ready", map[string]any{"request_id": terminalRequestID, "root_request_id": rootID, "summary": summary})
 	}
+	if err == nil && s.bus != nil && hadRepairEvidence && candidate != nil && !catalogChanged {
+		s.bus.Publish(sessionID, "knowledge.promotion_missing", map[string]any{
+			"request_id": terminalRequestID, "root_request_id": rootID,
+			"reason": "the Main Request reached its terminal boundary after a measured repair failure, but the durable knowledge catalog did not change",
+		})
+	}
 	return updated, err
+}
+
+func attemptLedgerHasRepairEvidence(item domain.Session, rootID string) bool {
+	ledger := attemptLedgerForRoot(item, rootID)
+	if ledger == nil {
+		return false
+	}
+	for _, round := range ledger.Rounds {
+		switch round.Outcome {
+		case domain.AttemptOutcomeVerificationFailed, domain.AttemptOutcomeIntegrationFailed, domain.AttemptOutcomeConflict, domain.AttemptOutcomeInfrastructure:
+			return true
+		}
+	}
+	return false
 }
 
 // knowledgeRevisionConflictError marks a knowledge candidate that was authored
