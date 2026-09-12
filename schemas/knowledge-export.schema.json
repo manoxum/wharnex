@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/knowledge-export.schema.json",
+  "title": "Wharness Knowledge Export v1",
+  "description": "A portable project-knowledge bundle. Since the local database became the single store, knowledge crosses machines only through a deliberate transfer like this one rather than by checking out a branch. Content is verified against its recorded digest on import, so an edited or truncated transfer is refused instead of being installed as project truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "exported_at", "entries"],
+  "properties": {
+    "protocol": {"const": "harness.knowledge-export/v1"},
+    "project_path": {
+      "description": "Provenance only. A bundle is importable into any project, because knowledge about how to work on a codebase is frequently worth carrying between checkouts of it.",
+      "type": "string"
+    },
+    "revision": {"type": "integer", "minimum": 0},
+    "exported_at": {"type": "string", "format": "date-time"},
+    "selective": {
+      "description": "True when the bundle carries only chosen records. A selective bundle must never be accepted as a replace: it does not describe the records it omits, so its absences are not deletions.",
+      "type": "boolean"
+    },
+    "entries": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "content"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"},
+          "content": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "version": {"type": "integer", "minimum": 0},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "updated_by_request_id": {"type": "string"}
+        }
+      }
+    }
+  }
+}

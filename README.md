@@ -217,6 +217,28 @@ Manual import is transport-resilient: Wharness accepts fenced JSON and can repai
 The file clipboard behavior uses the OS native copied-file representation. Acceptance of pasted file attachments remains a capability of the destination web application; if a particular ChatGPT UI version does not accept file paste, the ZIP remains available in the OS clipboard/temp path for normal attachment selection.
 
 
+## Converging in fewer rounds
+
+A correction that needs several waves used to restart from almost nothing each time. Two things now travel with every continuation request so a wave begins where the last one ended.
+
+**Session attempt ledger** (`harness.attempts/v1`). Wharnex measures every round itself — which plan ran, which argv exited non-zero, whether it was blocked by policy or failed verification — so a failed round reaches the next request whether or not the model wrote it down. ChatGPT returns `attempts/ledger.md` alongside it: a cumulative account of what has been proven to work and to fail *on this machine*, with a "Does not work locally" section that acts as a hard exclusion list. The ledger is refined every wave and discarded when the request ends; whatever is still true for next time gets promoted into project knowledge first.
+
+**Local project divergence** (`harness.context-delta/v1`). Instead of shipping a fresh full baseline every wave, Wharnex states exactly which files moved since the snapshot the conversation already has, with line counts and — for small changes — the real diff inline. An unchanged project says so explicitly, which is useful in itself: it means a patch that failed to apply did not fail because the tree moved.
+
+Both degrade rather than block. A missing ledger or an unmeasurable divergence is recorded and the round continues; neither may ever discard a verified patch.
+
+## Project knowledge
+
+Wharnex accumulates operational learning per project — proven build/apply sequencing, repair causes, conflict patterns, transport gotchas — and attaches it to later requests. It is stored in the local Wharnex database, not in your repository, so committing knowledge never dirties your working tree or arrives in someone else's checkout uninvited.
+
+The composer has a per-chat sharing switch, and the catalog can be managed directly:
+
+- **Export / import** a portable bundle, whole or record by record. Imports verify each record against its digest and can let the incoming copy win, keep your local one, or replace the catalog outright; a selective bundle can never replace, because it says nothing about the records it leaves out.
+- **Clear** the catalog or named records. This requires explicit confirmation — it throws away learning that cost real execution rounds.
+- **Consolidate**: hand the whole catalog to ChatGPT in one round to merge duplicates, split records that grew into several topics, and drop anything `AGENTS.md`/SoT/ADRs already say. An empty result is rejected; consolidating reorganizes, it never deletes everything.
+
+A project that already carries `.wharnex/knowledge/*.md` from an earlier version adopts those files into the database once, keeping local records on any collision.
+
 ## Protected / Unprotected per project
 
 The workspace top bar contains a project-scoped execution switch:

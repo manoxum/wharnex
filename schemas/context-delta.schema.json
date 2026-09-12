@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/context-delta.schema.json",
+  "title": "Wharness Local Project Divergence v1",
+  "description": "How the local project moved since the complete snapshot the planner already holds. Carried on every continuation as context-delta/delta.json so a correction round rebases its pending edit instead of re-reading the project. Always measured against the ROOT request's anchored base, never the previous round's, so a report that was lost or unread does not break the chain.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "base_request_id", "current_request_id", "source", "unchanged"],
+  "properties": {
+    "protocol": {"const": "harness.context-delta/v1"},
+    "base_request_id": {
+      "description": "The Main Request whose snapshot the planner holds. This report describes divergence from that snapshot.",
+      "type": "string",
+      "minLength": 1
+    },
+    "base_manifest_sha256": {"type": "string"},
+    "base_commit": {"type": "string"},
+    "current_request_id": {"type": "string", "minLength": 1},
+    "current_manifest_sha256": {
+      "description": "This request's authoritative base_context_sha256.",
+      "type": "string"
+    },
+    "current_commit": {"type": "string"},
+    "source": {
+      "description": "git is a real content comparison between two anchored request bases. manifest is the degraded path-only comparison used when Git cannot answer. unavailable means Wharnex could not prove what changed, and must be reported as such rather than as an empty change list.",
+      "enum": ["git", "manifest", "unavailable"]
+    },
+    "unchanged": {
+      "description": "True means not one project file diverged. This is load-bearing, not an absence of news: it tells the planner a patch that failed to apply did not fail because the tree moved.",
+      "type": "boolean"
+    },
+    "files": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "status"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "minLength": 1},
+          "additions": {"type": "integer", "minimum": 0},
+          "deletions": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "truncated": {
+      "description": "More paths diverged than Wharnex enumerates. The list is then a sample and the attached manifest stays authoritative.",
+      "type": "boolean"
+    },
+    "patch_omitted_reason": {
+      "description": "Why no diff accompanies the report. An unexplained absence would invite the planner to assume the listed changes were cosmetic.",
+      "type": "string"
+    }
+  }
+}

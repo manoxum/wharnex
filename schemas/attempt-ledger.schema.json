@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/attempt-ledger.schema.json",
+  "title": "Wharness Session Attempt Ledger v1",
+  "description": "The measured state of one Main Request, carried on every correction wave as attempts/state.json. Rounds are Wharnex's own measurement of what actually happened on this machine, not planner claims: a round that failed must reach the next request whether or not the planner recorded it. The planner's cumulative prose ledger travels beside this file as attempts/ledger.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "root_request_id", "request_id", "round", "rounds"],
+  "properties": {
+    "protocol": {"const": "harness.attempts/v1"},
+    "root_request_id": {
+      "description": "The Main Request this ledger belongs to. A ledger is never served to a different Main Request: it records what worked and failed while pursuing one goal.",
+      "type": "string",
+      "minLength": 1
+    },
+    "request_id": {"type": "string", "minLength": 1},
+    "round": {
+      "description": "One-based position of the request being prepared, counting every measured round plus this one.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_rounds": {
+      "description": "The effort level's automated attempt ceiling. Zero means no fixed numeric limit.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "narrative_file": {"const": "attempts/ledger.md"},
+    "narrative_request_id": {
+      "description": "Which round authored the ledger currently in force. A round that returned none is visible here rather than silently presenting stale prose as current.",
+      "type": "string"
+    },
+    "rounds": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["round", "request_id", "outcome"],
+        "properties": {
+          "round": {"type": "integer", "minimum": 1},
+          "request_id": {"type": "string", "minLength": 1},
+          "kind": {
+            "description": "The request lineage kind that produced this round.",
+            "type": "string"
+          },
+          "plan_id": {"type": "string"},
+          "outcome": {
+            "description": "Wharnex's closed-set classification. policy_blocked means the plan never executed and the patch may be sound; verification_failed means it ran and was wrong. Collapsing the two would send the next round rewriting correct source.",
+            "enum": [
+              "succeeded",
+              "bundle_rejected",
+              "policy_blocked",
+              "verification_failed",
+              "integration_failed",
+              "conflict",
+              "infrastructure_blocked",
+              "observation"
+            ]
+          },
+          "detail": {
+            "description": "The single most actionable sentence about this round, already truncated. Full diagnostics stay in the request message and the event log.",
+            "type": "string"
+          },
+          "commands": {
+            "description": "argv lines that actually ran, with their exit codes, so a later round can see a tool was already tried and how it ended.",
+            "type": "array",
+            "maxItems": 8,
+            "items": {"type": "string"}
+          },
+          "paths": {"type": "array", "maxItems": 20, "items": {"type": "string"}},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}

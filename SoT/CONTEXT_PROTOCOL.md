@@ -249,6 +249,17 @@ Each session keeps a bounded observed revision journal containing parent/current
 
 Persisted context paths point to disposable local artifacts, not durable truth. If a session's current ZIP or text artifact is missing after a backend/Desktop restart, the download endpoint MUST rebuild both artifacts from the authoritative project, atomically update the session context, and preserve the active workflow/request state. A stale temporary pathname MUST NOT strand ChatGPT prompt preparation in an HTTP 404 loop.
 
+## Continuation divergence instead of repeated baselines (v1.3.5 — see `adr/ADR-0041`)
+
+A Main Request delivers one complete project snapshot. Every later request in that Main Request is a correction on top of it and MUST describe how the local project diverged from that snapshot rather than merely shipping another complete baseline with a new fingerprint.
+
+- The comparison is anchored on the **root** request's own base commit (`refs/wharnex/base/<root_request_id>`), never the previous round's, so one lost or unread report does not break the chain.
+- Every continuation MUST capture its own request base immediately alongside the context snapshot it describes. Capturing only for the Main Request left correction rounds with no anchored base, silently disabling base-rooted integration on exactly the rounds that need it.
+- The report names each diverged path with its status and line counts, carries the real unified diff when it fits the transport budget, and states explicitly when it is truncated, when the diff was omitted and why, and when divergence could not be measured at all.
+- An unchanged fingerprint is reported as an affirmative `UNCHANGED` verdict, not as silence.
+- Wharnex-managed paths are excluded from the comparison for the same reason they are excluded from capture: they are not planner-patchable.
+- Measurement is best effort and MUST degrade — to manifest-level changed paths, then to an explicit unknown verdict — rather than delay or fail the request.
+
 ## Desktop request archive layout (v1.3.1)
 
 When Desktop builds the outer ChatGPT input archive, the managed project snapshot MUST be expanded beneath `context/` in that archive. It MUST NOT embed the snapshot as a second ZIP. Entry paths, symlink metadata, compression methods, expansion ratio, per-entry size and aggregate expanded size remain validated before composition.
