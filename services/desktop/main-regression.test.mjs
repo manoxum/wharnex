@@ -844,7 +844,11 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   const materializeEnd = source.indexOf('\nasync function fillBundledChatGPTComposer', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, prompt: promptText, knowledge, attachments: decoded, liveTunnels \}\)/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, prompt: promptText, knowledge, continuation, attachments: decoded, liveTunnels \}\)/)
+  // The attempt ledger and divergence report must ride in the same single
+  // protocol ZIP; fetching them separately at send time would let a comment
+  // reach ChatGPT without the evidence the prompt says is attached.
+  assert.match(materialize, /const continuation = await fetchRequestContinuation\(sessionId, requestId\)/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
   const flushEnd = source.indexOf('\nasync function publishRemoteChannelComment', flushStart)
@@ -1281,7 +1285,7 @@ test('the layout viewport guard does not read native bounds as renderer evidence
   // report 1280x900 forever after, so no later call could repair the slot -
   // which is why every ORGANIZE_CHAT attempt failed identically until the task
   // exhausted its budget.
-  assert.doesNotMatch(viewport, /getBounds/)
+  assert.doesNotMatch(viewport, /entry\.view\.getBounds/)
   assert.match(viewport, /entry\.layoutViewportGranted === true\) return false/)
   assert.match(viewport, /grantChatGPTLayoutViewport\(entry\.view\)/)
 

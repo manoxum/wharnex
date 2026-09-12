@@ -2125,6 +2125,20 @@ async function fetchRequestKnowledge(sessionId, requestId) {
   return body.knowledge
 }
 
+async function fetchRequestContinuation(sessionId, requestId) {
+  const id = sanitizeSessionId(sessionId)
+  const rid = String(requestId || '').trim()
+  if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(rid)) throw new Error('Invalid request id for continuation artifacts')
+  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/requests/${encodeURIComponent(rid)}/continuation`, BACKEND_URL)
+  const response = await fetch(target, { redirect: 'error' })
+  const body = await response.json().catch(() => ({}))
+  // The attempt ledger and divergence report exist to make the NEXT round
+  // cheaper; failing to fetch them must never block the request they travel
+  // with. The prompt already carries both sections in full.
+  if (!response.ok || !Array.isArray(body?.files)) return []
+  return body.files
+}
+
 async function persistChatArtifact(sessionId, requestId, direction, kind, filename, contentType, bytes) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/artifacts`, BACKEND_URL)
@@ -2221,6 +2235,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const context = includeContext ? await fetchContextZip(sessionId) : undefined
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
+  const continuation = await fetchRequestContinuation(sessionId, requestId)
   const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
   const archive = await writeChatInputArchive(archivePath, {
@@ -2228,6 +2243,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
     prompt: promptText,
     context,
     knowledge,
+    continuation,
     attachments: decoded,
     artifacts: artifacts.decoded,
     projectFiles,
@@ -2247,7 +2263,8 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
-  const archive = await writeChatInputArchive(archivePath, { requestId, prompt: promptText, knowledge, attachments: decoded, liveTunnels })
+  const continuation = await fetchRequestContinuation(sessionId, requestId)
+  const archive = await writeChatInputArchive(archivePath, { requestId, prompt: promptText, knowledge, continuation, attachments: decoded, liveTunnels })
   return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes }
 }
 
