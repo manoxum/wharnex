@@ -2258,6 +2258,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-planning-status code { color:var(--theme-text-soft); font:inherit; font-variant-numeric:tabular-nums; }
 .orchestrator-planning-pulse { width:9px; height:9px; border-radius:50%; background:var(--theme-accent); box-shadow:0 0 0 5px color-mix(in srgb,var(--theme-accent) 16%,transparent); animation:orchestrator-planning-pulse 1.8s ease-in-out infinite; }
 .orchestrator-planning-badge { min-height:23px; padding:0 8px; display:inline-flex; align-items:center; border:1px solid color-mix(in srgb,var(--theme-accent) 30%,var(--theme-border)); border-radius:999px; background:var(--theme-subtle); font:700 calc(6.6px * var(--ui-font-scale))/1 var(--mono-font-family); letter-spacing:.04em; }
+.orchestrator-planning-nav { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }
+.orchestrator-planning-nav button { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-elevated); color:var(--theme-text-soft); font-size:calc(7px * var(--ui-font-scale)); font-weight:600; cursor:pointer; }
+.orchestrator-planning-nav button:hover { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
 .orchestrator-planning-actions { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
 .orchestrator-planning-actions button { min-height:27px; padding:0 9px; border:1px solid color-mix(in srgb,#d46b5f 48%,var(--theme-border)); border-radius:7px; background:transparent; color:var(--theme-text); font-size:calc(7.5px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
 .orchestrator-planning-actions button:hover { background:color-mix(in srgb,#d46b5f 11%,transparent); }

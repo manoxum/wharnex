@@ -1,3 +1,5 @@
+import { RATE_LIMIT_GATE_SELECTORS } from './chatgpt-rate-limit.mjs'
+
 function encode(value) {
   return JSON.stringify(String(value ?? ''))
 }
@@ -146,17 +148,23 @@ export function chatGPTHumanActionScript() {
     );
     const authentication = /^\\/auth(?:\\/|$)/i.test(path);
     const access = Boolean(firstVisible('[data-testid*="access-denied" i],[data-testid*="blocked" i],[data-testid*="unsupported-browser" i]'));
+    // ChatGPT's own "too many requests" affordance. Structural selectors only,
+    // so this reads the same in every interface language. It is deliberately
+    // NOT a human-action kind: the account reopens on its own, so the answer is
+    // a durable provider suspension, not a notification asking for a person.
+    const rateLimited = Boolean(firstVisible(${encode(RATE_LIMIT_GATE_SELECTORS.join(','))}));
     ${composerLookupSource()}
     const kind = challenge ? 'verification' : authentication ? 'authentication' : access ? 'access' : '';
     return {
       required: Boolean(kind),
       kind,
+      rateLimited,
       composerReady: Boolean(composer),
       pageVisible: document.visibilityState !== 'hidden',
       capturedAt: new Date().toISOString(),
     };
     } catch (_error) {
-      return { required: false, kind: '', composerReady: false, pageVisible: false, capturedAt: new Date().toISOString() };
+      return { required: false, kind: '', rateLimited: false, composerReady: false, pageVisible: false, capturedAt: new Date().toISOString() };
     }
   })()`
 }

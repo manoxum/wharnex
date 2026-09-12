@@ -1,11 +1,19 @@
 import { useMemo, useState } from 'react'
 import { api } from '../../lib/api'
-import type { OrchestratorOverview as OverviewData, OrchestratorProposal, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
+import type { ChatAgentTask, OrchestratorOverview as OverviewData, OrchestratorProposal, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
 import { Icon } from '../Icon'
+import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 
-export function OrchestratorOverview({ session, overview, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask }: {
+export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], onGoToChat, onFollowInstance, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask }: {
   session: Session
   overview: OverviewData
+  // The durable ORCHESTRATOR_PLAN task backing each planning request, carrying
+  // the lease owner/chat/session identifiers the planning request itself does
+  // not — see OrchestratorWorkspace's combined refresh.
+  planningTasks?: ChatAgentTask[]
+  chats?: ChatAgentTaskChatRef[]
+  onGoToChat?: (chatId?: string, sessionId?: string) => void
+  onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
   proposal?: OrchestratorProposalResult
   busy: boolean
   onProposal: (value?: OrchestratorProposalResult) => void
@@ -66,18 +74,30 @@ export function OrchestratorOverview({ session, overview, proposal, busy, onProp
         <strong>{activePlanningCount} ativo{activePlanningCount === 1 ? '' : 's'} · {planningRequests.length} pedido{planningRequests.length === 1 ? '' : 's'}</strong>
       </header>
       <div className="orchestrator-planning-list">
-        {planningRequests.map((planning) => <article key={planning.task_id} className={`orchestrator-planning-status status-${planning.status.toLowerCase()}`}>
-          <span className="orchestrator-planning-pulse" aria-hidden="true"/>
-          <div>
-            <strong>{planning.objective || `Pedido ${planning.request_id}`}</strong>
-            <span>Request <code translate="no">{planning.request_id}</code> · prioridade máxima · tentativa {planning.attempt}/{planning.max_attempts}</span>
-            {planning.last_error ? <small>{planning.last_error}</small> : <small>{['DONE', 'CANCELLED'].includes(planning.status) ? 'Planejamento encerrado.' : 'Pode sair do Orchestrator: um Worker continuará esta entrega.'}</small>}
-          </div>
-          <div className="orchestrator-planning-actions">
-            <span className="orchestrator-planning-badge">{planning.status}</span>
-            {['FAILED', 'ATTENTION'].includes(planning.status) ? <button type="button" disabled={busy} onClick={() => void onRun(() => api.retryOrchestratorPlanning(session.id, planning.request_id))}>Retentar</button> : null}
-          </div>
-        </article>)}
+        {planningRequests.map((planning) => {
+          // The planning request record itself carries no lease/chat/session
+          // fields; the durable task behind it does. Same-shape navigation as
+          // the Tarefas drawer, resolved from the same identifiers.
+          const backingTask = planningTasks.find((task) => task.task_id === planning.task_id)
+          const workerId = backingTask && ['LEASED', 'RUNNING'].includes(backingTask.status) ? extractWorkerId(backingTask.lease_owner) : undefined
+          const resolvedChatId = backingTask ? resolveTaskChatId(backingTask, chats) : undefined
+          return <article key={planning.task_id} className={`orchestrator-planning-status status-${planning.status.toLowerCase()}`}>
+            <span className="orchestrator-planning-pulse" aria-hidden="true"/>
+            <div>
+              <strong>{planning.objective || `Pedido ${planning.request_id}`}</strong>
+              <span>Request <code translate="no">{planning.request_id}</code> · prioridade máxima · tentativa {planning.attempt}/{planning.max_attempts}</span>
+              {planning.last_error ? <small>{planning.last_error}</small> : <small>{['DONE', 'CANCELLED'].includes(planning.status) ? 'Planejamento encerrado.' : 'Pode sair do Orchestrator: um Worker continuará esta entrega.'}</small>}
+              {((workerId && onFollowInstance) || (resolvedChatId && onGoToChat)) && <div className="orchestrator-planning-nav">
+                {workerId && onFollowInstance ? <button type="button" onClick={() => onFollowInstance(workerId, resolvedChatId, backingTask?.session_id)} title="Acompanhar em tempo real a instância do Worker que gera este plano"><Icon name="monitor" size={13}/> Acompanhar instância</button> : null}
+                {resolvedChatId && onGoToChat ? <button type="button" onClick={() => onGoToChat(resolvedChatId, backingTask?.session_id)} title="Abrir o chat Harness deste planeamento"><Icon name="bridge" size={13}/> Ver chat</button> : null}
+              </div>}
+            </div>
+            <div className="orchestrator-planning-actions">
+              <span className="orchestrator-planning-badge">{planning.status}</span>
+              {['FAILED', 'ATTENTION'].includes(planning.status) ? <button type="button" disabled={busy} onClick={() => void onRun(() => api.retryOrchestratorPlanning(session.id, planning.request_id))}>Retentar</button> : null}
+            </div>
+          </article>
+        })}
       </div>
     </section> : null}
 

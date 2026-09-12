@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChatAgentQueueSummary, ChatAgentTask } from '../types'
 import { api } from '../lib/api'
+import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../lib/chatAgentTaskNav'
 import { Icon } from './Icon'
 
 const RUNNING = new Set(['LEASED', 'RUNNING'])
@@ -17,7 +18,16 @@ const TASK_LABELS: Record<string, string> = {
   DELETE_CHAT: 'Eliminar chat', DELETE_BUNDLE: 'Limpar bundle', DELETE_TEMP_CHAT: 'Limpar chat temporário',
 }
 
-export function ChatAgentTasksDrawer({ onClose, onError }: { onClose: () => void; onError?: (message: string) => void }) {
+export function ChatAgentTasksDrawer({ onClose, onError, chats = [], onGoToChat, onGoToOrchestrator, onFollowInstance }: {
+  onClose: () => void
+  onError?: (message: string) => void
+  // Minimal shape only: resolving a task's owning Harness chat needs just the
+  // id/sessionId pair, never the full workspace-chat record.
+  chats?: ChatAgentTaskChatRef[]
+  onGoToChat?: (chatId?: string, sessionId?: string) => void
+  onGoToOrchestrator?: () => void
+  onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
+}) {
   const [tasks, setTasks] = useState<ChatAgentTask[]>([])
   const [queueSummary, setQueueSummary] = useState<ChatAgentQueueSummary>()
   const [loading, setLoading] = useState(true)
@@ -101,30 +111,45 @@ export function ChatAgentTasksDrawer({ onClose, onError }: { onClose: () => void
     <div className="chat-agent-tasks-summary"><span><b>{runningCount}</b> em execução</span><span><b>{dueCount}</b> por executar</span><span><b>{scheduledCount}</b> {scheduledCount === 1 ? 'agendada' : 'agendadas'}</span>{guardedCount > 0 ? <span><b>{guardedCount}</b> {guardedCount === 1 ? 'aguarda liberação' : 'aguardam liberação'}</span> : null}{blockedCount > 0 ? <span><b>{blockedCount}</b> sem tentativas</span> : null}<small>Atualizado {relativeAge(refreshedAt)}</small></div>
     <div className="chat-agent-tasks-body">
       {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas.</strong><span>A fila e os Workers estão livres neste momento.</span></div> : <>
-        <TaskSection title="Em execução" tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running"/>
-        <TaskSection title="Por executar" tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition/>
-        <ScheduledTaskSection tasks={groups.scheduled} nextNotBefore={queueSummary?.next_not_before}/>
-        {groups.guarded.length ? <TaskSection title="Aguardam liberação" tasks={groups.guarded} empty="" disposition="guarded" guardReasons={groups.guardReasons}/> : null}
-        {groups.blocked.length ? <TaskSection title="Sem tentativas" tasks={groups.blocked} empty="" disposition="blocked"/> : null}
+        <TaskSection title="Em execução" tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>
+        <TaskSection title="Por executar" tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>
+        <ScheduledTaskSection tasks={groups.scheduled} nextNotBefore={queueSummary?.next_not_before} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/>
+        {groups.guarded.length ? <TaskSection title="Aguardam liberação" tasks={groups.guarded} empty="" disposition="guarded" guardReasons={groups.guardReasons} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/> : null}
+        {groups.blocked.length ? <TaskSection title="Sem tentativas" tasks={groups.blocked} empty="" disposition="blocked" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/> : null}
       </>}
     </div>
   </section>
 }
 
-function TaskSection({ title, tasks, empty, disposition, guardReasons, showPosition = false }: { title: string; tasks: ChatAgentTask[]; empty: string; disposition: TaskDisposition; guardReasons?: Map<string, string>; showPosition?: boolean }) {
-  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} disposition={disposition} guardReason={guardReasons?.get(task.task_id)} queuePosition={showPosition ? index + 1 : undefined}/>)}</div> : <p>{empty}</p>}</section>
+type TaskNavProps = {
+  chats?: ChatAgentTaskChatRef[]
+  onGoToChat?: (chatId?: string, sessionId?: string) => void
+  onGoToOrchestrator?: () => void
+  onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
 }
 
-function ScheduledTaskSection({ tasks, nextNotBefore }: { tasks: ChatAgentTask[]; nextNotBefore?: string }) {
+function TaskSection({ title, tasks, empty, disposition, guardReasons, showPosition = false, chats, onGoToChat, onGoToOrchestrator, onFollowInstance }: { title: string; tasks: ChatAgentTask[]; empty: string; disposition: TaskDisposition; guardReasons?: Map<string, string>; showPosition?: boolean } & TaskNavProps) {
+  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} disposition={disposition} guardReason={guardReasons?.get(task.task_id)} queuePosition={showPosition ? index + 1 : undefined} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>)}</div> : <p>{empty}</p>}</section>
+}
+
+function ScheduledTaskSection({ tasks, nextNotBefore, chats, onGoToChat, onGoToOrchestrator }: { tasks: ChatAgentTask[]; nextNotBefore?: string } & TaskNavProps) {
   if (!tasks.length) return null
   return <details className="chat-agent-task-section chat-agent-task-scheduled-section">
     <summary><span><strong>Agendadas</strong><small>Aguardam a data de execução, não um Worker. Próxima: {timeLabel(nextNotBefore || tasks[0].not_before)}</small></span><em>{tasks.length}</em></summary>
-    <div className="chat-agent-task-list">{tasks.map((task) => <TaskCard key={task.task_id} task={task} disposition="scheduled"/>)}</div>
+    <div className="chat-agent-task-list">{tasks.map((task) => <TaskCard key={task.task_id} task={task} disposition="scheduled" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/>)}</div>
   </details>
 }
 
-function TaskCard({ task, disposition, guardReason, queuePosition }: { task: ChatAgentTask; disposition: TaskDisposition; guardReason?: string; queuePosition?: number }) {
+// A task only ever offers the navigation it can actually resolve: following an
+// instance needs a live Worker lease, going to chat needs a chat/session id
+// that matches a known Harness chat, and going to orchestration is offered
+// only for a task whose origin is the Orchestrator planning pipeline. Guessing
+// any of these from partial data would send the operator somewhere wrong.
+function TaskCard({ task, disposition, guardReason, queuePosition, chats = [], onGoToChat, onGoToOrchestrator, onFollowInstance }: { task: ChatAgentTask; disposition: TaskDisposition; guardReason?: string; queuePosition?: number } & TaskNavProps) {
   const running = disposition === 'running'
+  const workerId = running ? extractWorkerId(task.lease_owner) : undefined
+  const resolvedChatId = resolveTaskChatId(task, chats)
+  const orchestratorOrigin = task.type === 'ORCHESTRATOR_PLAN'
   const schedule = running
     ? `Lease ${relativeMoment(task.lease_expires_at)}`
     : disposition === 'scheduled'
@@ -141,6 +166,11 @@ function TaskCard({ task, disposition, guardReason, queuePosition }: { task: Cha
       <div className="chat-agent-task-heading-meta">{queuePosition ? <em aria-label={`Posição ${queuePosition} na fila`}>#{String(queuePosition).padStart(2, '0')}</em> : null}<span className="chat-agent-task-state">{statusLabel(task.status, disposition)}</span></div>
     </div>
     <div className="chat-agent-task-worker"><span><Icon name="agent" size={13}/><b>{assignmentLabel(task, disposition)}</b></span><small title={schedule}>{schedule}</small></div>
+    {((workerId && onFollowInstance) || (resolvedChatId && onGoToChat) || (orchestratorOrigin && onGoToOrchestrator)) && <div className="chat-agent-task-nav" aria-label="Navegação da tarefa">
+      {workerId && onFollowInstance ? <button type="button" onClick={() => onFollowInstance(workerId, resolvedChatId, task.session_id)} title="Acompanhar em tempo real a instância do Worker que executa esta tarefa"><Icon name="monitor" size={13}/> Acompanhar instância</button> : null}
+      {resolvedChatId && onGoToChat ? <button type="button" onClick={() => onGoToChat(resolvedChatId, task.session_id)} title="Abrir o chat Harness desta tarefa"><Icon name="bridge" size={13}/> Ver chat</button> : null}
+      {orchestratorOrigin && onGoToOrchestrator ? <button type="button" onClick={() => onGoToOrchestrator()} title="Abrir o Orchestrator para este planeamento"><Icon name="plan" size={13}/> Ver orquestração</button> : null}
+    </div>}
     <div className="chat-agent-task-metrics" aria-label="Resumo da tarefa">
       <TaskMetric label={disposition === 'scheduled' ? 'Criada' : 'Fila'} value={relativeAge(task.created_at)}/>
       <TaskMetric label="Atividade" value={relativeAge(task.updated_at)}/>
@@ -204,8 +234,8 @@ function taskTypeLabel(type: string) { return TASK_LABELS[type] || type.replaceA
 
 function workerLabel(owner: string) {
   const value = String(owner || '').trim()
-  const match = value.match(/(?:^|:)worker-(\d+)$/)
-  return match ? `Worker ${match[1]}` : value || 'Por atribuir'
+  const id = extractWorkerId(value)
+  return id ? `Worker ${id.replace('worker-', '')}` : value || 'Por atribuir'
 }
 
 function assignmentLabel(task: ChatAgentTask, disposition: TaskDisposition) {

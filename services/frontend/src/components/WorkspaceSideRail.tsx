@@ -65,6 +65,9 @@ export type WorkspaceSideRailProps = {
   onError: (message: string) => void
   terminalOpen: boolean
   onToggleTerminal: () => void
+  onGoToChat?: (chatId?: string, sessionId?: string) => void
+  onGoToOrchestrator?: () => void
+  onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
 }
 
 /**
@@ -144,7 +147,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
       {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError}/> : null}
       {drawer === 'agents' ? <AgentRuntimeDrawer onClose={close} onError={onError}/> : null}
-      {drawer === 'tasks' ? <ChatAgentTasksDrawer onClose={close} onError={onError}/> : null}
+      {drawer === 'tasks' ? <ChatAgentTasksDrawer onClose={close} onError={onError} chats={props.chats} onGoToChat={props.onGoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onFollowInstance={props.onFollowInstance}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}
       {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
       {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}

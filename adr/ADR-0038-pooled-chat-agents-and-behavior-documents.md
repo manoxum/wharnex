@@ -172,9 +172,16 @@ Request-bound follow-ups are initially ineligible for at least one minute. Once 
 valid samples exist, the delay is `clamp(max(60s, (60s + average)/2), 60s, 15m)`, using
 only the newest 50 structurally parsed processing-duration disclosures associated with
 validated canonical bundles. Missing or ambiguous disclosures create no sample.
-CAPTCHA/auth/provider-wide gates move work to `ATTENTION`; HTTP 429 uses a durable
-60/120/240/300-second progressive breaker and resumes through the global navigation
-gate instead of producing parallel retry storms.
+CAPTCHA/auth/provider-wide gates move work to `ATTENTION`; an isolated HTTP 429 uses a
+durable 60/120/240/300-second progressive breaker and resumes through the global
+navigation gate instead of producing parallel retry storms. An account-wide rate-limit
+gate is a distinct kind: ChatGPT's own limit control, or repeated refusals from any
+trusted backend endpoint within a short window, suspends the provider durably for 30
+minutes. During that suspension workers stop claiming — a claim charges an attempt, so
+claiming through a cooldown burns the bounded retry budget of tasks that never reached
+ChatGPT — and the gate pins the rate-limit level at its ceiling so navigation and
+submission spacing resume staged rather than at the healthy floor. A rate-limit gate
+clears on its own and therefore never becomes a human-action kind.
 
 `BOT_WRITE`/`RECOVERY_WRITE` acquire the per-conversation write lease and create
 exactly one `AWAIT_RESPONSE` only after the conversation POST is confirmed and a

@@ -9,12 +9,34 @@ import (
 )
 
 const (
-	chatAgentBootstrapWait    = time.Minute
-	chatAgentMaxInitialWait   = 15 * time.Minute
-	chatAgentHealthyWindow    = 15 * time.Minute
-	chatAgentSampleWindowSize = 50
-	chatAgentMinSamples       = 3
+	chatAgentBootstrapWait     = time.Minute
+	chatAgentMaxInitialWait    = 15 * time.Minute
+	chatAgentHealthyWindow     = 15 * time.Minute
+	chatAgentSampleWindowSize  = 50
+	chatAgentMinSamples        = 3
+	chatAgentMaxRateLimitLevel = 4
+	// A structural "too many requests" gate is not one throttled request. It is
+	// ChatGPT closing the account's own submission surface, so every worker that
+	// keeps claiming against it turns a single gate into the retry storm that
+	// earned it. A transport 429 stays on the progressive ladder below, because
+	// there the next request may well succeed; the gate instead suspends the
+	// whole provider long enough for the account's own window to reopen.
+	chatAgentRateLimitGatePause = 30 * time.Minute
 )
+
+// Rate-limit evidence kinds. Transport is a single throttled HTTP response;
+// gate is the account-wide block ChatGPT presents in its own surface.
+const (
+	ChatAgentRateLimitTransport = "transport"
+	ChatAgentRateLimitGate      = "gate"
+)
+
+func normalizeChatAgentRateLimitKind(kind string) string {
+	if strings.EqualFold(strings.TrimSpace(kind), ChatAgentRateLimitGate) {
+		return ChatAgentRateLimitGate
+	}
+	return ChatAgentRateLimitTransport
+}
 
 type ChatAgentProcessingSample struct {
 	RequestID      string    `json:"request_id"`
@@ -37,7 +59,10 @@ func chatAgentInitialWait(average time.Duration, samples int) time.Duration {
 	return wait
 }
 
-func chatAgentRateLimitPause(level int) time.Duration {
+func chatAgentRateLimitPause(level int, kind string) time.Duration {
+	if normalizeChatAgentRateLimitKind(kind) == ChatAgentRateLimitGate {
+		return chatAgentRateLimitGatePause
+	}
 	switch {
 	case level <= 1:
 		return time.Minute
@@ -48,6 +73,38 @@ func chatAgentRateLimitPause(level int) time.Duration {
 	default:
 		return 5 * time.Minute
 	}
+}
+
+// The gate is the provider's strongest evidence, so it pins the level at its
+// ceiling instead of walking one step up the ladder: resuming a whole pool at a
+// healthy navigation gap straight after an account-wide block simply rebuilds
+// the burst that caused it.
+func chatAgentNextRateLimitLevel(current int, kind string) int {
+	if normalizeChatAgentRateLimitKind(kind) == ChatAgentRateLimitGate {
+		return chatAgentMaxRateLimitLevel
+	}
+	next := current + 1
+	if next > chatAgentMaxRateLimitLevel {
+		next = chatAgentMaxRateLimitLevel
+	}
+	return next
+}
+
+func chatAgentRateLimitReason(source, kind string, level int) string {
+	if normalizeChatAgentRateLimitKind(kind) == ChatAgentRateLimitGate {
+		return fmt.Sprintf("ChatGPT rate-limit gate (%s, suspended %s)", source, chatAgentRateLimitGatePause)
+	}
+	return fmt.Sprintf("ChatGPT HTTP 429 rate limit (%s, level %d)", source, level)
+}
+
+// A pause is a floor, never a reassignment. A transport 429 observed while an
+// account-wide gate is still counting down must not shorten that suspension to
+// its own five-minute ladder step.
+func chatAgentPauseUntil(existing *time.Time, candidate time.Time) time.Time {
+	if existing != nil && existing.After(candidate) {
+		return *existing
+	}
+	return candidate
 }
 
 func (s *Store) enrichChatAgentProviderState(state ChatAgentProviderState) (ChatAgentProviderState, error) {
@@ -77,7 +134,11 @@ func (s *Store) enrichChatAgentProviderState(state ChatAgentProviderState) (Chat
 	return state, nil
 }
 
-func (s *Store) RecordChatAgentRateLimit(source string) (ChatAgentProviderState, error) {
+// RecordChatAgentRateLimit registers provider rate-limit evidence and returns
+// the resulting durable pause. kind is ChatAgentRateLimitTransport for a single
+// throttled HTTP response and ChatAgentRateLimitGate for the account-wide block
+// ChatGPT presents in its own surface; anything else is read as transport.
+func (s *Store) RecordChatAgentRateLimit(source, kind string) (ChatAgentProviderState, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		source = "unknown"
@@ -85,6 +146,7 @@ func (s *Store) RecordChatAgentRateLimit(source string) (ChatAgentProviderState,
 	if len(source) > 80 {
 		source = source[:80]
 	}
+	kind = normalizeChatAgentRateLimitKind(kind)
 	now := time.Now().UTC()
 	if s.db != nil {
 		tx, err := s.db.Begin()
@@ -93,20 +155,21 @@ func (s *Store) RecordChatAgentRateLimit(source string) (ChatAgentProviderState,
 		}
 		defer func() { _ = tx.Rollback() }()
 		var level int
-		var lastLimit, lastValid sql.NullTime
-		if err := tx.QueryRow(`SELECT rate_limit_level,last_rate_limit_at,last_valid_bundle_at
-			FROM harness_chat_agent_provider_state WHERE provider='chatgpt' FOR UPDATE`).Scan(&level, &lastLimit, &lastValid); err != nil {
+		var pausedUntil, lastLimit, lastValid sql.NullTime
+		if err := tx.QueryRow(`SELECT rate_limit_level,paused_until,last_rate_limit_at,last_valid_bundle_at
+			FROM harness_chat_agent_provider_state WHERE provider='chatgpt' FOR UPDATE`).Scan(&level, &pausedUntil, &lastLimit, &lastValid); err != nil {
 			return ChatAgentProviderState{}, fmt.Errorf("lock chat agent rate limit state: %w", err)
 		}
 		if lastLimit.Valid && now.Sub(lastLimit.Time) >= chatAgentHealthyWindow && lastValid.Valid && lastValid.Time.After(lastLimit.Time) {
 			level = 0
 		}
-		level++
-		if level > 4 {
-			level = 4
+		level = chatAgentNextRateLimitLevel(level, kind)
+		var priorPause *time.Time
+		if pausedUntil.Valid {
+			priorPause = &pausedUntil.Time
 		}
-		until := now.Add(chatAgentRateLimitPause(level))
-		reason := fmt.Sprintf("ChatGPT HTTP 429 rate limit (%s, level %d)", source, level)
+		until := chatAgentPauseUntil(priorPause, now.Add(chatAgentRateLimitPause(level, kind)))
+		reason := chatAgentRateLimitReason(source, kind, level)
 		if _, err := tx.Exec(`UPDATE harness_chat_agent_provider_state SET paused=true,paused_until=$1,reason=$2,
 			rate_limit_level=$3,last_rate_limit_at=$4,last_rate_limit_source=$5,updated_at=$4 WHERE provider='chatgpt'`,
 			until, reason, level, now, source); err != nil {
@@ -126,14 +189,11 @@ func (s *Store) RecordChatAgentRateLimit(source string) (ChatAgentProviderState,
 	if state.LastRateLimitAt != nil && now.Sub(*state.LastRateLimitAt) >= chatAgentHealthyWindow && state.LastValidBundleAt != nil && state.LastValidBundleAt.After(*state.LastRateLimitAt) {
 		state.RateLimitLevel = 0
 	}
-	state.RateLimitLevel++
-	if state.RateLimitLevel > 4 {
-		state.RateLimitLevel = 4
-	}
-	until := now.Add(chatAgentRateLimitPause(state.RateLimitLevel))
+	state.RateLimitLevel = chatAgentNextRateLimitLevel(state.RateLimitLevel, kind)
+	until := chatAgentPauseUntil(state.PausedUntil, now.Add(chatAgentRateLimitPause(state.RateLimitLevel, kind)))
 	state.Paused = true
 	state.PausedUntil = &until
-	state.Reason = fmt.Sprintf("ChatGPT HTTP 429 rate limit (%s, level %d)", source, state.RateLimitLevel)
+	state.Reason = chatAgentRateLimitReason(source, kind, state.RateLimitLevel)
 	state.LastRateLimitAt = &now
 	state.LastRateLimitSource = source
 	state.UpdatedAt = now

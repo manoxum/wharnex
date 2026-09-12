@@ -18,6 +18,7 @@ import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
 import { chatGPTDeliveryContinuationPrompt, chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
+import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } from './chatgpt-rate-limit.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
@@ -140,6 +141,11 @@ let chatGPTWorkerLastNavigationAt = 0
 let chatGPTWorkerSubmissionTail = Promise.resolve()
 let chatGPTWorkerLastSubmissionAt = 0
 let chatGPTRateLimitUntil = 0
+// Recent provider refusals, used to tell one throttled request apart from an
+// account-wide gate. Ephemeral Desktop state; the resulting suspension is
+// durable backend state.
+let chatGPTRateLimitHits = []
+let chatGPTRateLimitKind = ''
 const pendingChatGPTBundleDeliveries = new Map()
 // requestId -> deliveredAt. A second concurrent download of the same file
 // (see downloadInFlight above) can still slip through as a genuine race
@@ -174,6 +180,10 @@ const BUNDLE_COMPLETION_CONFIRM_MS = 15_000
 // once and present the authenticated account with a burst — the shape that
 // earns an HTTP 429 for the whole provider.
 const CHAT_AGENT_SUBMIT_GAP_MS = 10_000
+// Widest submission spacing, used while the provider still shows the pressure
+// that produced an account-wide gate. Staged resume, not a permanent ceiling:
+// it decays back to the floor above as valid bundles clear the rate-limit level.
+const CHAT_AGENT_SUBMIT_GAP_RECOVERY_MS = 60_000
 const MAX_BUNDLE_CONTINUATIONS = 3
 const PROCESSING_SIGNAL_GRACE_MS = 15_000
 // How long a completion must hold when the generating indicator was never
@@ -198,6 +208,10 @@ const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 // therefore never interrupted, while a genuinely stuck surface still stops.
 const AWAIT_STALL_ATTENTION_MS = 10 * 60_000
 const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
+// Local mirror of the backend's account-wide gate suspension, applied on the
+// tick the gate is observed so workers stop before the round-trip returns. The
+// persisted value from the backend is authoritative and wins on arrival.
+const CHATGPT_RATE_LIMIT_GATE_MS = 30 * 60_000
 // Protective ceiling for the navigation gate, applied once the provider shows
 // sustained 429 pressure. The healthy floor below is what the pool actually
 // runs at while ChatGPT is answering normally.
@@ -925,41 +939,83 @@ function clearChatGPTHumanAction(cacheKey, reason = '') {
   return true
 }
 
+// Register provider rate-limit evidence and suspend the pool accordingly.
+//
+// The two shapes are answered differently: one throttled request takes the
+// progressive ladder, while ChatGPT's account-wide gate suspends every claim
+// and submission for a fixed window. The local clock is set optimistically so
+// workers stop on this tick rather than after the backend round-trip, and the
+// durable value from the backend then takes over.
+function applyChatGPTRateLimit(cacheKey, { source = 'unknown', domGate = false } = {}) {
+  const now = Date.now()
+  const classification = classifyChatGPTRateLimit(chatGPTRateLimitHits, { now, domGate })
+  chatGPTRateLimitHits = classification.hits
+  const gate = classification.kind === RATE_LIMIT_GATE
+  const escalated = gate && chatGPTRateLimitKind !== RATE_LIMIT_GATE
+  // While a suspension is already counting down, a further refusal is expected
+  // noise and must not restart the round-trip on every response — unless it is
+  // the one that reveals the isolated 429 was really an account-wide gate.
+  if (now < chatGPTRateLimitUntil && !escalated) return true
+
+  const localUntil = now + (gate ? CHATGPT_RATE_LIMIT_GATE_MS : CHATGPT_RATE_LIMIT_BACKOFF_MS)
+  chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, localUntil)
+  chatGPTRateLimitKind = classification.kind
+
+  const expected = expectedChatGPTBundles.get(cacheKey)
+  if (expected) {
+    expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), chatGPTRateLimitUntil)
+    noteChatGPTRecoveryProgress(expected.recovery, `http:429-${classification.kind}`, now)
+  }
+
+  if (chatAgentScheduler) {
+    void chatAgentScheduler.recordRateLimit(source, classification.kind).then((provider) => {
+      const persistedUntil = Date.parse(String(provider?.paused_until || ''))
+      if (Number.isFinite(persistedUntil)) chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, persistedUntil)
+      if (expected && Number.isFinite(persistedUntil)) expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), persistedUntil)
+      chatAgentRuntimeDiagnostics.provider = { ...chatAgentRuntimeDiagnostics.provider, ...provider }
+      publishChatAgentRuntimeState()
+    }).catch((error) => {
+      console.warn(`[chat-agent] could not persist provider rate-limit ${classification.kind}: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
+
+  console.warn(`[chat-agent] provider-rate-limit kind=${classification.kind} source=${source} hits=${classification.recentHits} until=${new Date(chatGPTRateLimitUntil).toISOString()}`)
+  if (cacheKey) {
+    sendToChatGPTKey(cacheKey, 'wharness:chatgpt:activity', {
+      cacheKey,
+      state: 'thinking',
+      text: gate
+        ? 'O ChatGPT bloqueou a conta por excesso de pedidos. Os workers ficam suspensos cerca de 30 minutos e retomam de forma escalonada, sem perder tarefas nem tentativas.'
+        : 'O ChatGPT aplicou limitação temporária. Os workers entram em cooldown progressivo e retomam com navegação global espaçada.',
+      capturedAt: new Date().toISOString(),
+    })
+  }
+  return true
+}
+
+// ChatGPT's own limit control, seen by the passive health probe. That control
+// is conclusive structural evidence on its own, so it escalates straight to the
+// account-wide suspension without waiting for a second refusal.
+function noteChatGPTRateLimitGate(cacheKey, health) {
+  if (health?.rateLimited !== true) return false
+  applyChatGPTRateLimit(cacheKey, { source: 'dom_gate', domGate: true })
+  return true
+}
+
 function noteChatGPTHTTPStatus(details) {
   const match = chatGPTEntryForWebContentsID(details?.webContentsId)
   if (!match) return false
   const [key, entry] = match
   const status = Number(details?.statusCode || 0)
   const conversationTransport = isChatGPTConversationTransportURL(details?.url)
-  if (status === 429 && (details?.resourceType === 'mainFrame' || conversationTransport)) {
-    const now = Date.now()
-    const expected = expectedChatGPTBundles.get(key)
-    const fallbackUntil = now + CHATGPT_RATE_LIMIT_BACKOFF_MS
-    if (expected) {
-      expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), fallbackUntil)
-      noteChatGPTRecoveryProgress(expected.recovery, 'http:429-backoff', now)
-    }
-    if (now >= chatGPTRateLimitUntil) {
-      chatGPTRateLimitUntil = fallbackUntil
-      const source = details?.resourceType === 'mainFrame' ? 'main_frame' : 'conversation_transport'
-      if (chatAgentScheduler) {
-        void chatAgentScheduler.recordRateLimit(source).then((provider) => {
-          const persistedUntil = Date.parse(String(provider?.paused_until || ''))
-          if (Number.isFinite(persistedUntil)) chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, persistedUntil)
-          if (expected && Number.isFinite(persistedUntil)) expected.backoffUntil = Math.max(Number(expected.backoffUntil || 0), persistedUntil)
-          chatAgentRuntimeDiagnostics.provider = { ...chatAgentRuntimeDiagnostics.provider, ...provider }
-          publishChatAgentRuntimeState()
-        }).catch((error) => {
-          console.warn(`[chat-agent] could not persist progressive provider rate-limit pause: ${error instanceof Error ? error.message : String(error)}`)
-        })
-      }
-      sendToChatGPTKey(key, 'wharness:chatgpt:activity', {
-        cacheKey: key,
-        state: 'thinking',
-        text: 'O ChatGPT aplicou limitação temporária. Os workers entram em cooldown progressivo e retomam com navegação global espaçada.',
-        capturedAt: new Date().toISOString(),
-      })
-    }
+  // Any refusal from a trusted ChatGPT backend endpoint is evidence about the
+  // account, not about one conversation. Scoping this to the main frame and the
+  // four conversation endpoints is what let a submission burst refuse on a
+  // sibling endpoint without the pool ever pausing.
+  if (status === 429 && (details?.resourceType === 'mainFrame' || isChatGPTBackendAPIURL(details?.url))) {
+    applyChatGPTRateLimit(key, {
+      source: details?.resourceType === 'mainFrame' ? 'main_frame' : conversationTransport ? 'conversation_transport' : 'backend_api',
+    })
     return true
   }
   if (!conversationTransport) return false
@@ -1975,6 +2031,15 @@ async function refreshChatAgentRuntimeState() {
         initial_wait_ms: Math.max(60_000, Number(provider?.initial_wait_ms || 60_000)), updated_at: String(provider?.updated_at || ''),
       },
     }
+    // The suspension is durable backend state; the local clock is only a
+    // mirror, and it is reset by every Desktop restart. Without adopting the
+    // persisted deadline here, restarting during a 30-minute gate resumed the
+    // whole pool immediately — which is exactly how a restart-heavy workflow
+    // walks straight back into the block it was waiting out.
+    if (provider?.paused === true) {
+      const pausedUntil = Date.parse(String(provider?.paused_until || ''))
+      if (Number.isFinite(pausedUntil)) chatGPTRateLimitUntil = Math.max(chatGPTRateLimitUntil, pausedUntil)
+    }
   } catch (error) {
     chatAgentRuntimeDiagnostics = {
       ...chatAgentRuntimeDiagnostics,
@@ -2883,6 +2948,9 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentCo
   await waitForChatGPTSurfaceReady(key, entry)
   const assertNoHumanGate = async (stage) => {
     const health = await executeChatGPTDOMScript(key, entry, stage, chatGPTHumanActionScript())
+    if (noteChatGPTRateLimitGate(key, health)) {
+      throw new Error('O ChatGPT bloqueou a conta por excesso de pedidos; o envio fica suspenso até o limite expirar.')
+    }
     if (health?.required === true) {
       const kind = String(health.kind || 'verification')
       setChatGPTHumanAction(key, kind, '', 'dom')
@@ -2978,13 +3046,28 @@ async function paceChatGPTWorkerNavigation() {
 // conversations would otherwise all submit in the same instant against a single
 // authenticated account, which is precisely the burst a provider-wide 429
 // answers. Ordering is FIFO through a promise tail, so no submission is starved.
+// Resuming a suspended pool at the healthy floor rebuilds the burst that caused
+// the suspension: every worker whose task came due during the window submits in
+// the same instant. The gap therefore widens with the provider's own rate-limit
+// level and narrows again only as valid bundles prove the account healthy —
+// the same durable evidence the navigation gate uses.
+function chatAgentSubmissionGapMs() {
+  const provider = chatAgentRuntimeDiagnostics.provider || {}
+  const level = Math.max(0, Number(provider.rate_limit_level || 0))
+  const lastLimit = Date.parse(String(provider.last_rate_limit_at || '')) || 0
+  const recentlyLimited = lastLimit > 0 && Date.now() - lastLimit < CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS
+  if (level <= 0 && !recentlyLimited) return CHAT_AGENT_SUBMIT_GAP_MS
+  const steps = [20_000, 30_000, 45_000, CHAT_AGENT_SUBMIT_GAP_RECOVERY_MS]
+  return steps[Math.min(steps.length - 1, Math.max(0, level - 1))]
+}
+
 async function paceChatGPTWorkerSubmission() {
   let release
   const previous = chatGPTWorkerSubmissionTail
   chatGPTWorkerSubmissionTail = new Promise((resolve) => { release = resolve })
   await previous
   try {
-    const remaining = CHAT_AGENT_SUBMIT_GAP_MS - (Date.now() - chatGPTWorkerLastSubmissionAt)
+    const remaining = chatAgentSubmissionGapMs() - (Date.now() - chatGPTWorkerLastSubmissionAt)
     if (remaining > 0) await wait(remaining)
     chatGPTWorkerLastSubmissionAt = Date.now()
   } finally {
@@ -3523,6 +3606,11 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
   // never focus the composer, reload, or navigate a healthy conversation.
   await waitForChatGPTSurfaceReady(key, entry)
   const health = await executeChatGPTDOMScript(key, entry, 'worker-health', chatGPTHumanActionScript())
+  // A gated account is not this supervision's fault and must not spend its
+  // attempt budget: hand the slot back and let the durable cooldown expire.
+  if (noteChatGPTRateLimitGate(key, health)) {
+    return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
+  }
   if (health?.required === true) return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(String(health.kind || 'verification')) }
   const completion = await entry.view.webContents.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
   const now = Date.now()
@@ -3871,6 +3959,9 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         }
       }
       const health = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-health', chatGPTHumanActionScript())
+      if (noteChatGPTRateLimitGate(key, health)) {
+        return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
+      }
       if (health?.required === true) {
         const kind = String(health.kind || 'verification')
         setChatGPTHumanAction(key, kind, requestId, 'orchestrator-worker')
@@ -3959,6 +4050,9 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
         }
       }
       const health = await executeChatGPTDOMScript(key, target.entry, 'translation-health', chatGPTHumanActionScript())
+      if (noteChatGPTRateLimitGate(key, health)) {
+        return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
+      }
       if (health?.required === true) {
         const kind = String(health.kind || 'verification')
         setChatGPTHumanAction(key, kind, '', 'translation-worker')
@@ -4185,6 +4279,9 @@ async function pollChatGPTVisibleActivity() {
     try {
       const health = await wc.executeJavaScript(chatGPTHumanActionScript(), true)
       entry.healthProbeFailures = 0
+      // The one probe that runs for every owned surface on a timer, so it is
+      // also where a gate raised outside an active task is noticed.
+      noteChatGPTRateLimitGate(key, health)
       const surfaceFingerprint = `${Boolean(health?.composerReady)}:${Boolean(health?.pageVisible)}:${String(health?.kind || '')}`
       if (entry.lastSurfaceFingerprint !== surfaceFingerprint) {
         entry.lastSurfaceFingerprint = surfaceFingerprint
@@ -5182,7 +5279,11 @@ function registerIPC() {
   ipcMain.handle('wharness:agents:resume-provider', async (event) => {
     trustedSender(event)
     if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
+    // An explicit human resume clears the burst window too, otherwise the next
+    // single refusal would immediately re-classify as a gate on a stale hit.
     chatGPTRateLimitUntil = 0
+    chatGPTRateLimitHits = []
+    chatGPTRateLimitKind = ''
     await chatAgentScheduler.setProviderPause(false)
     await refreshChatAgentRuntimeState()
     return publishChatAgentRuntimeState()
@@ -5345,6 +5446,12 @@ app.whenReady().then(async () => {
   chatAgentScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: executeChatAgentTask,
     claimOptions: (worker) => {
+      // A suspended provider must stop the pool at the claim, not at the
+      // submission. Claiming during a cooldown charges an attempt to every task
+      // it touches and hands each one straight back to WAITING — churn that
+      // spends the queue's own retry budget on a provider that is refusing
+      // everyone. Skipping claims is what "the workers are suspended" means.
+      if (chatAgentRateLimitDelayMs() > 0) return { skip: true }
       const entry = workerEntryForIndex(worker)
       if (!entry) return { skip: true }
       return chatAgentResidency.claimOptions(entry.slotId, {

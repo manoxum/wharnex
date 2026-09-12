@@ -110,9 +110,12 @@ export class ChatAgentSchedulerClient {
   }
 
 
-  async recordRateLimit(source) {
+  // kind is 'transport' for one throttled response and 'gate' for ChatGPT's
+  // account-wide block; the backend maps them to the progressive ladder and the
+  // fixed suspension respectively.
+  async recordRateLimit(source, kind = 'transport') {
     return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/provider/rate-limit', {
-      method: 'POST', body: JSON.stringify({ source }),
+      method: 'POST', body: JSON.stringify({ source, kind }),
     })
   }
 

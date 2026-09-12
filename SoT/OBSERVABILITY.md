@@ -20,7 +20,7 @@ Self-evolution publishes dedicated `self_evolution.*` events for transaction sta
 
 ## ChatGPT liveness observability (v1.2.42.2)
 
-Desktop liveness diagnostics distinguish renderer/network recovery from human-required intervention without logging remote response prose or credentials. Logs identify the owning chat key/request, sanitized URL/status, bounded recovery reason/attempt, DOM-health probe failures, page-load stalls, rate-limit backoff, and categorical human-action kind (`verification`, `authentication`, `access`, `surface`, `transport`, or `stalled`). Human-action IPC carries only the owning chat key, request id when present, categorical kind/source, a local explanatory message, and timestamp. CAPTCHA tokens, cookies, local/session storage and arbitrary ChatGPT page text MUST NOT enter logs, events or renderer IPC.
+Desktop liveness diagnostics distinguish renderer/network recovery from human-required intervention without logging remote response prose or credentials. Logs identify the owning chat key/request, sanitized URL/status, bounded recovery reason/attempt, DOM-health probe failures, page-load stalls, rate-limit backoff including the evidence kind (`transport` or `gate`), its source and the resulting suspension deadline, and categorical human-action kind (`verification`, `authentication`, `access`, `surface`, `transport`, or `stalled`). Human-action IPC carries only the owning chat key, request id when present, categorical kind/source, a local explanatory message, and timestamp. CAPTCHA tokens, cookies, local/session storage and arbitrary ChatGPT page text MUST NOT enter logs, events or renderer IPC.
 
 ## Browser-agent queue observability (v1.3.5.1)
 

@@ -754,11 +754,18 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   assert.match(execute, /initialRateLimitDelay = chatAgentRateLimitDelayMs\(\)/)
   assert.match(execute, /loadAndSettleChatGPTWorkerConversation/)
   assert.match(execute, /status: 'waiting', delayMs: rateLimitDelay/)
+  const applyStart = source.indexOf('function applyChatGPTRateLimit(')
+  const apply = source.slice(applyStart, source.indexOf('\nfunction noteChatGPTRateLimitGate(', applyStart))
+
   assert.match(httpStatus, /status === 429/)
-  assert.match(httpStatus, /details\?\.resourceType === 'mainFrame' \|\| conversationTransport/)
-  assert.match(httpStatus, /chatGPTRateLimitUntil = fallbackUntil/)
-  assert.match(httpStatus, /recordRateLimit\(source\)/)
-  assert.match(httpStatus, /persistedUntil/)
+  // Widened from the main frame plus four conversation endpoints: a refusal on
+  // any trusted backend endpoint is evidence about the account.
+  assert.match(httpStatus, /details\?\.resourceType === 'mainFrame' \|\| isChatGPTBackendAPIURL\(details\?\.url\)/)
+  assert.match(httpStatus, /applyChatGPTRateLimit\(key/)
+  assert.match(apply, /chatGPTRateLimitUntil = Math\.max\(chatGPTRateLimitUntil, localUntil\)/)
+  assert.match(apply, /recordRateLimit\(source, classification\.kind\)/)
+  // The durable pause the backend persisted still wins over the local mirror.
+  assert.match(apply, /persistedUntil/)
 })
 
 test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle cleanup', async () => {
@@ -1272,7 +1279,7 @@ test('request pacing samples only structurally extracted durations for valid bun
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /chatGPTProcessingDurationScript\(CHATGPT_BEHAVIOR\.labels\.reasoningDisclosure, expected\.assistantBaseline\)/)
   assert.match(source, /request_eligible_at/)
-  assert.match(source, /recordRateLimit\(source\)/)
+  assert.match(source, /recordRateLimit\(source, classification\.kind\)/)
 
   const validateIndex = source.indexOf('validateWharnessBundleDownload')
   const recordIndex = source.indexOf('recordValidBundle', validateIndex)
@@ -1429,8 +1436,13 @@ test('autonomous submissions are spaced process-wide and re-check the provider c
   assert.match(write, /await paceChatGPTWorkerSubmission\(\)/)
   assert.match(write, /chatAgentRateLimitDelayMs\(\)/)
 
+  // The spacing is now derived rather than fixed, so a resumed pool does not
+  // rebuild the burst; the healthy floor is still CHAT_AGENT_SUBMIT_GAP_MS.
   const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerSubmission('))
-  assert.match(pacer.slice(0, 600), /CHAT_AGENT_SUBMIT_GAP_MS/)
+  assert.match(pacer.slice(0, 600), /chatAgentSubmissionGapMs\(\)/)
+  const gapStart = source.indexOf('function chatAgentSubmissionGapMs(')
+  const gap = source.slice(gapStart, source.indexOf('\nasync function paceChatGPTWorkerSubmission(', gapStart))
+  assert.match(gap, /CHAT_AGENT_SUBMIT_GAP_MS/)
 })
 
 test('a worker that takes a task yields its place in the rotation', async () => {
@@ -1548,8 +1560,8 @@ test('an empty claim releases a resident lane that has run dry', async () => {
 
   // Without this the pool degraded to one effective worker: a resident slot can
   // only claim its own lane, so it could never be rebound by claiming elsewhere.
-  assert.match(scheduler.slice(0, 1600), /onIdle: \(worker\) => \{/)
-  assert.match(scheduler.slice(0, 1600), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
+  assert.match(scheduler.slice(0, 2400), /onIdle: \(worker\) => \{/)
+  assert.match(scheduler.slice(0, 2400), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
 })
 
 test('a conversation still producing a response is never concluded without evidence it ran', async () => {
@@ -1569,7 +1581,7 @@ test('a conversation still producing a response is never concluded without evide
 test('live response residency is pinned so excess chats cannot cause navigation thrash', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
-  assert.match(scheduler.slice(0, 1000), /pinResident: chatAgentSupervisingLiveResponse\(worker\)/)
+  assert.match(scheduler.slice(0, 1800), /pinResident: chatAgentSupervisingLiveResponse\(worker\)/)
   assert.match(source, /const MAX_BUNDLE_CONTINUATIONS = 3/)
   assert.match(source, /chatGPTDeliveryContinuationPrompt\(expected\.requestId, expected\.filename, expected\.originalPrompt\)/)
 })
@@ -1607,7 +1619,74 @@ test('a slot between two observations of a live response keeps its conversation'
   const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
   // Releasing the lane here would hand the conversation to another slot, which
   // would reload a page the model is still writing into.
-  assert.match(scheduler.slice(0, 2200), /if \(chatAgentSupervisingLiveResponse\(worker\)\) return/)
+  assert.match(scheduler.slice(0, 3000), /if \(chatAgentSupervisingLiveResponse\(worker\)\) return/)
   // The predicate needs the settled result, so the runtime state has to keep it.
   assert.match(scheduler.slice(0, 4000), /kind === 'settled'[\s\S]{0,200}lastResult: state\.result/)
+})
+
+test('any trusted ChatGPT backend 429 is provider-wide evidence, not just the conversation endpoints', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function noteChatGPTHTTPStatus(')
+  const handler = source.slice(start, source.indexOf('\nfunction settleChatGPTAffinityAfterSubmit', start))
+  // The narrow predicate is what let a submission burst refuse on a sibling
+  // endpoint while the pool never paused.
+  assert.match(handler, /status === 429 && \(details\?\.resourceType === 'mainFrame' \|\| isChatGPTBackendAPIURL\(details\?\.url\)\)/)
+  assert.match(handler, /applyChatGPTRateLimit\(key, \{/)
+})
+
+test('an account-wide rate-limit gate suspends the provider for the fixed window', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const CHATGPT_RATE_LIMIT_GATE_MS = 30 \* 60_000/)
+
+  const start = source.indexOf('function applyChatGPTRateLimit(')
+  const apply = source.slice(start, source.indexOf('\nfunction noteChatGPTRateLimitGate(', start))
+  assert.match(apply, /classifyChatGPTRateLimit\(chatGPTRateLimitHits, \{ now, domGate \}\)/)
+  assert.match(apply, /gate \? CHATGPT_RATE_LIMIT_GATE_MS : CHATGPT_RATE_LIMIT_BACKOFF_MS/)
+  // The kind has to reach the durable store, or the backend keeps applying the
+  // five-minute ladder step to an account-wide block.
+  assert.match(apply, /recordRateLimit\(source, classification\.kind\)/)
+})
+
+test('workers stop claiming while the provider cooldown is active', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
+  const claimOptions = scheduler.slice(scheduler.indexOf('claimOptions: (worker)'), scheduler.indexOf('onIdle:'))
+  // Claiming during a cooldown charges an attempt to every task it touches and
+  // hands each one straight back to WAITING.
+  assert.match(claimOptions, /if \(chatAgentRateLimitDelayMs\(\) > 0\) return \{ skip: true \}/)
+})
+
+test('a detected gate returns the worker without spending the task attempt budget', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const gate = source.slice(source.indexOf('function noteChatGPTRateLimitGate('), source.indexOf('\nfunction noteChatGPTHTTPStatus('))
+  assert.match(gate, /health\?\.rateLimited !== true/)
+  assert.match(gate, /domGate: true/)
+
+  // Every supervision path that probes health must hand the slot back as a
+  // passive observation, which is what returns the attempt.
+  const observations = source.match(/noteChatGPTRateLimitGate\(key, health\)\) \{\n\s+return \{ status: 'waiting'[^}]*observation: true/g) || []
+  assert.ok(observations.length >= 3, `expected every probing task path to observe, saw ${observations.length}`)
+})
+
+test('submission pacing widens after rate-limit pressure and decays back on its own', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const gap = source.slice(source.indexOf('function chatAgentSubmissionGapMs('), source.indexOf('\nasync function paceChatGPTWorkerSubmission('))
+  assert.match(gap, /rate_limit_level/)
+  assert.match(gap, /CHAT_AGENT_SUBMIT_GAP_RECOVERY_MS/)
+  // Healthy provider keeps the floor: a permanent ceiling would serialize the
+  // pool long after the account recovered.
+  assert.match(gap, /if \(level <= 0 && !recentlyLimited\) return CHAT_AGENT_SUBMIT_GAP_MS/)
+
+  const pace = source.slice(source.indexOf('async function paceChatGPTWorkerSubmission('))
+  assert.match(pace.slice(0, 600), /chatAgentSubmissionGapMs\(\) - \(Date\.now\(\) - chatGPTWorkerLastSubmissionAt\)/)
+})
+
+test('a Desktop restart during a suspension adopts the durable deadline instead of resuming', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function refreshChatAgentRuntimeState(')
+  const refresh = source.slice(start, source.indexOf('\nfunction publicAgentBrowser(', start))
+  // The local clock is a mirror reset by every restart; the backend owns the
+  // cooldown, so the persisted deadline has to be adopted on refresh.
+  assert.match(refresh, /if \(provider\?\.paused === true\)/)
+  assert.match(refresh, /chatGPTRateLimitUntil = Math\.max\(chatGPTRateLimitUntil, pausedUntil\)/)
 })

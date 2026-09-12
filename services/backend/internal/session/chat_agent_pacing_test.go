@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -56,7 +57,7 @@ func TestChatAgentRateLimitBackoffIsProgressive(t *testing.T) {
 	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute}
 	for index, pause := range want {
 		before := time.Now().UTC()
-		state, err := store.RecordChatAgentRateLimit("conversation_transport")
+		state, err := store.RecordChatAgentRateLimit("conversation_transport", ChatAgentRateLimitTransport)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,5 +68,60 @@ func TestChatAgentRateLimitBackoffIsProgressive(t *testing.T) {
 		if got < pause-time.Second || got > pause+time.Second {
 			t.Fatalf("pause level %d=%v want about %v", index+1, got, pause)
 		}
+	}
+}
+
+// The incident this covers: workers kept claiming and submitting straight into
+// ChatGPT's account-wide "too many requests" block, because the only response
+// available was the transport ladder, whose first step is one minute.
+func TestChatAgentRateLimitGateSuspendsProviderForThirtyMinutes(t *testing.T) {
+	store := NewStore()
+	before := time.Now().UTC()
+	state, err := store.RecordChatAgentRateLimit("dom_gate", ChatAgentRateLimitGate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Paused || state.PausedUntil == nil {
+		t.Fatalf("gate did not pause the provider: %#v", state)
+	}
+	got := state.PausedUntil.Sub(before)
+	if got < chatAgentRateLimitGatePause-time.Second || got > chatAgentRateLimitGatePause+time.Second {
+		t.Fatalf("gate pause=%v want about %v", got, chatAgentRateLimitGatePause)
+	}
+	// Pinned at the ceiling so the navigation gate resumes protective, not healthy.
+	if state.RateLimitLevel != chatAgentMaxRateLimitLevel {
+		t.Fatalf("gate level=%d want %d", state.RateLimitLevel, chatAgentMaxRateLimitLevel)
+	}
+	if !strings.Contains(state.Reason, "gate") {
+		t.Fatalf("gate reason=%q", state.Reason)
+	}
+}
+
+// A transport 429 observed during the gate's countdown must not shorten the
+// suspension to its own five-minute ladder step.
+func TestChatAgentTransportRateLimitNeverShortensAnActiveGate(t *testing.T) {
+	store := NewStore()
+	gate, err := store.RecordChatAgentRateLimit("dom_gate", ChatAgentRateLimitGate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.RecordChatAgentRateLimit("conversation_transport", ChatAgentRateLimitTransport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.PausedUntil == nil || after.PausedUntil.Before(*gate.PausedUntil) {
+		t.Fatalf("transport 429 shortened the gate: gate=%v after=%v", gate.PausedUntil, after.PausedUntil)
+	}
+}
+
+func TestChatAgentRateLimitKindDefaultsToTransport(t *testing.T) {
+	store := NewStore()
+	before := time.Now().UTC()
+	state, err := store.RecordChatAgentRateLimit("main_frame", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.PausedUntil == nil || state.PausedUntil.Sub(before) > 2*time.Minute {
+		t.Fatalf("unknown kind did not fall back to the transport ladder: %#v", state)
 	}
 }

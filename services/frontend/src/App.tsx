@@ -122,6 +122,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [attentionSessions, setAttentionSessions] = useState<Record<string, Session | undefined>>({})
   const [chatgptAttentionNonce, setChatgptAttentionNonce] = useState(0)
   const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
+  // Bumped whenever a runtime task's "Ver orquestração" action lands the
+  // operator in Orchestrator, so it always opens on the planning queue that
+  // sent them there instead of whichever section was last left open.
+  const [orchestratorFocusNonce, setOrchestratorFocusNonce] = useState(0)
   // The side rail and its drawer live beside every mode surface, so the open
   // panel and its width belong to the shell rather than to one workspace.
   const [sideDrawer, setSideDrawer] = useState<Drawer>('')
@@ -2692,6 +2696,41 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (item.target) setInspectorAttention((current) => ({ tab: item.target as AttentionTarget, nonce: current.nonce + 1 }))
   }
 
+  // Shared by the Tarefas drawer and the Orchestrator planning queue: a
+  // durable task's chat_id is the real Harness chat id for ordinary work, but
+  // is the synthetic orchestrator request id for ORCHESTRATOR_PLAN tasks —
+  // session_id is the fallback that resolves either shape to a real chat.
+  function chatIdForRuntimeTask(chatId?: string, sessionId?: string) {
+    if (chatId && chats.some((chat) => chat.id === chatId)) return chatId
+    if (sessionId) return chats.find((chat) => chat.sessionId === sessionId)?.id
+    return undefined
+  }
+
+  async function goToRuntimeTaskChat(chatId?: string, sessionId?: string) {
+    const target = chatIdForRuntimeTask(chatId, sessionId)
+    if (!target) return
+    setMode('agent')
+    if (target !== activeChatId) await selectChat(target)
+  }
+
+  function goToOrchestratorFromTask() {
+    setMode('orchestrator')
+    setOrchestratorFocusNonce((current) => current + 1)
+  }
+
+  // Mirrors the Agents drawer's own "Seguir (flow)" action: land on the
+  // Engine tab of the task's owning chat, then dispatch the same global event
+  // ChatGPTDesktopPane already listens for to show that exact Worker instance.
+  async function followRuntimeTaskInstance(agentId: string, chatId?: string, sessionId?: string) {
+    setMode('agent')
+    const target = chatIdForRuntimeTask(chatId, sessionId)
+    if (target && target !== activeChatId) await selectChat(target)
+    setInspectorAttention((current) => ({ tab: 'chatgpt', nonce: current.nonce + 1 }))
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId } }))
+    }))
+  }
+
   async function runAttentionItemAction(item: AttentionItem) {
     if (!item.action) return
     if (item.chatId !== activeChatId) {
@@ -2737,6 +2776,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         drawer={sideDrawer}
         onDrawer={setSideDrawer}
         chats={chats}
+        onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
+        onGoToOrchestrator={goToOrchestratorFromTask}
+        onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
         archivedChats={archivedChats}
         activeChatId={activeChatId}
         activeEvents={events}
@@ -2760,7 +2802,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
-        <OrchestratorWorkspace session={session} onError={setError} />
+        <OrchestratorWorkspace
+          session={session}
+          chats={chats}
+          onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
+          onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
+          focusNonce={orchestratorFocusNonce}
+          onError={setError}
+        />
       </div>
       <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
         {chats.length === 0 ? <div className="agent-empty-workspace">
