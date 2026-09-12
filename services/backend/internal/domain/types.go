@@ -450,7 +450,7 @@ type AttemptLedger struct {
 	// NarrativeRequestID records which round authored the current narrative,
 	// so a degraded round that returned none is visible rather than silently
 	// presenting stale prose as current.
-	NarrativeRequestID string `json:"narrative_request_id,omitempty"`
+	NarrativeRequestID string    `json:"narrative_request_id,omitempty"`
 	UpdatedAt          time.Time `json:"updated_at,omitempty"`
 }
 
@@ -488,16 +488,16 @@ type ContextDeltaFile struct {
 // got a new manifest hash. Naming the exact divergence lets it keep reasoning
 // against the snapshot it already has.
 type ContextDelta struct {
-	Protocol            string             `json:"protocol"`
-	BaseRequestID       string             `json:"base_request_id"`
-	BaseManifestSHA256  string             `json:"base_manifest_sha256,omitempty"`
-	BaseCommit          string             `json:"base_commit,omitempty"`
-	CurrentRequestID    string             `json:"current_request_id"`
-	CurrentManifestSHA  string             `json:"current_manifest_sha256,omitempty"`
-	CurrentCommit       string             `json:"current_commit,omitempty"`
-	Source              string             `json:"source"`
-	Unchanged           bool               `json:"unchanged"`
-	Files               []ContextDeltaFile `json:"files,omitempty"`
+	Protocol           string             `json:"protocol"`
+	BaseRequestID      string             `json:"base_request_id"`
+	BaseManifestSHA256 string             `json:"base_manifest_sha256,omitempty"`
+	BaseCommit         string             `json:"base_commit,omitempty"`
+	CurrentRequestID   string             `json:"current_request_id"`
+	CurrentManifestSHA string             `json:"current_manifest_sha256,omitempty"`
+	CurrentCommit      string             `json:"current_commit,omitempty"`
+	Source             string             `json:"source"`
+	Unchanged          bool               `json:"unchanged"`
+	Files              []ContextDeltaFile `json:"files,omitempty"`
 	// Truncated reports that more paths diverged than the report lists, so the
 	// planner knows the list is a sample rather than the complete write set.
 	Truncated bool `json:"truncated,omitempty"`
@@ -775,12 +775,12 @@ type Session struct {
 	// request is gone.
 	RequestContextDeltas   map[string]ContextDelta `json:"-"`
 	LastMainRequestSummary string                  `json:"last_main_request_summary,omitempty"`
-	LastBundle                         *ExecutionBundleInfo       `json:"last_bundle,omitempty"`
-	LastTurn                           *AgentTurn                 `json:"last_turn,omitempty"`
-	RepairAttempt                      int                        `json:"repair_attempt,omitempty"`
-	AutomationAttempt                  int                        `json:"automation_attempt,omitempty"`
-	ImprovementAttempt                 int                        `json:"improvement_attempt,omitempty"`
-	RepairParentPlanID                 string                     `json:"repair_parent_plan_id,omitempty"`
+	LastBundle             *ExecutionBundleInfo    `json:"last_bundle,omitempty"`
+	LastTurn               *AgentTurn              `json:"last_turn,omitempty"`
+	RepairAttempt          int                     `json:"repair_attempt,omitempty"`
+	AutomationAttempt      int                     `json:"automation_attempt,omitempty"`
+	ImprovementAttempt     int                     `json:"improvement_attempt,omitempty"`
+	RepairParentPlanID     string                  `json:"repair_parent_plan_id,omitempty"`
 	// ConflictAttempt counts automatic rounds requesting resolution of the
 	// SAME IntegrationConflict.ID (a real Git merge conflict or a ChangeSet
 	// replay conflict). Distinct from RepairAttempt, which already measures

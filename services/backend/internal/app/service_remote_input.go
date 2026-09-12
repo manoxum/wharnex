@@ -122,7 +122,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	temporaryPath := temporary.Name()
 	_ = temporary.Close()
 	defer os.Remove(temporaryPath)
-	digest, size, err := buildRemoteInputArchive(temporaryPath, item.Context.ZipPath, request, knowledgeSnapshot, attachments, artifacts)
+	digest, size, err := buildRemoteInputArchive(temporaryPath, item.Context.ZipPath, request, knowledgeSnapshot, continuationArtifacts(item, request.RequestID), attachments, artifacts)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -309,7 +309,7 @@ func decodeRemoteFiles(files []RemoteInputFile, totalLimit int) ([]decodedRemote
 	return decoded, nil
 }
 
-func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, attachments, artifacts []decodedRemoteFile) (string, int64, error) {
+func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, continuation []continuationArtifact, attachments, artifacts []decodedRemoteFile) (string, int64, error) {
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", 0, err
@@ -335,6 +335,14 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 					writeErr = writeZipBytes(archive, "knowledge/"+entry.ID+".md", []byte(strings.TrimSpace(entry.Content)))
 				}
 			}
+		}
+	}
+	// harness.attempts/v1 and harness.context-delta/v1 travel as real files, so
+	// a planner that reads the archive rather than the prompt sees the same
+	// measured round history and project divergence the prompt describes.
+	for _, entry := range continuation {
+		if writeErr == nil {
+			writeErr = writeZipBytes(archive, entry.Name, entry.Raw)
 		}
 	}
 	if writeErr == nil && request.IncludeContext {

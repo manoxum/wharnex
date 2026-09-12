@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/bundlename"
+	"kernl.local/harness/backend/internal/domain"
 )
 
 const SystemProtocol = `You are the project copilot inside Wharness, a local AI harness. You are NOT primarily a coding agent: your first job is to understand the user's intent and produce the most useful project-aware outcome with the least unnecessary execution.
@@ -36,6 +37,8 @@ EFFORT LEVEL CONTRACT — QUALITY/COST BALANCE:
 FAILURE / RETRY DISCIPLINE — AVOID PING-PONG:
 - Treat every failure reason supplied by Wharness or a prior turn as authoritative diagnostic evidence. A failure-driven continuation must address that exact cause rather than restarting the task from scratch.
 - Do NOT repeat a semantically equivalent plan, the same blocked repository/root/path strategy, the same unsupported command approach, or merely restate the same blocker as another retry. Before returning another executable result, identify what is materially different and why it avoids the previous failure.
+- A continuation request carries a SESSION ATTEMPT LEDGER with Wharnex's measured history of every round already spent and your own accumulated conclusions about what does and does not work on this machine. Read it BEFORE designing anything. Its "Does not work locally" section is a hard exclusion list: proposing an approach recorded there is the single most expensive mistake available to you, because it consumes a full round trip to reproduce a failure that is already proven.
+- A continuation request also carries a LOCAL PROJECT DIVERGENCE report naming exactly which project files moved since the baseline you already hold. Use it instead of asking for a new baseline or re-reading the whole project; when it reports UNCHANGED, a patch that failed to apply did NOT fail because the tree moved, so look for the real cause instead of rebasing.
 - Set outcome.retryable=true only when another fresh request can reasonably succeed because evidence, strategy, or a transient capability can materially change. Structural repository boundaries, policy/infrastructure blockers, unsupported project roots, and conditions that require explicit operator action are terminal for the current request: return kind=blocked with retryable=false and name the concrete next action.
 - If the same failure condition is still present and no safe alternative exists inside the current constraints, stop. Do not consume another round just because the effort budget permits it.
 
@@ -191,6 +194,54 @@ Return one harness.turn/v1 JSON object with: protocol, request_id, kind, message
 - plan is null for answer, clarification, investigation, plan and blocked.
 - plan is the complete harness.execution/v1 object for workflow or change.`
 
+// buildContinuationSection renders the two artifacts that make a multi-round
+// Main Request converge: what the local project has done since the planner's
+// baseline, and what every earlier round already proved about this machine.
+//
+// Both exist for the same failure: a repair loop that re-sends approaches the
+// local environment has already rejected. The divergence report removes the
+// "my patch was written against a tree that moved" class; the attempt ledger
+// removes the "I already tried exactly this two rounds ago" class.
+func buildContinuationSection(req Request) string {
+	var out strings.Builder
+	if section := strings.TrimSpace(req.ContextDelta); section != "" {
+		out.WriteString("\n" + section + "\n")
+	}
+	if section := strings.TrimSpace(req.AttemptLedger); section != "" {
+		out.WriteString("\n" + section + "\n")
+	}
+	out.WriteString(attemptLedgerContract(req))
+	return out.String()
+}
+
+// attemptLedgerContract is the response-side obligation. It is always present,
+// including on a Main Request's first round, because the ledger has to be
+// created before it can be improved.
+func attemptLedgerContract(req Request) string {
+	terminalNote := "- When you believe this response is the FINAL one for this Main Request, the ledger MUST already be consolidated: complete, self-contained, and covering every approach from the original request through your last patch."
+	if req.AttemptBound > 0 && req.AttemptRound >= req.AttemptBound {
+		terminalNote = "- This is the LAST automated round of this Main Request. Consolidate the ledger now: it MUST cover every approach from the original request through this patch, and any durable lesson in it MUST also be promoted into knowledge/index.json, because there will be no later round to do it."
+	}
+	return fmt.Sprintf(`
+SESSION ATTEMPT LEDGER PROTOCOL — %s — MANDATORY IN EVERY RESPONSE BUNDLE:
+- Every response bundle MUST contain attempts/ledger.md: your cumulative, incrementally improved account of what has been PROVEN to work and to fail on THIS local machine during THIS Main Request.
+- It is a full replacement document every round, never a delta. Carry every still-valid conclusion forward, correct what new evidence disproves, and merge duplicates. A round that restarts the ledger from scratch throws away the only thing preventing a repeat of an already-failed approach.
+- Its purpose is strictly operational: prevent yourself from sending a patch, command, path or strategy that local execution has already rejected. Optimize it for that single decision.
+- REQUIRED SECTIONS, in this order:
+  ## Goal — the unchanged objective of this Main Request, in one or two sentences.
+  ## Works locally — approaches, commands, tools, paths and patch strategies that were CONFIRMED to succeed here, each with the round that proved it.
+  ## Does not work locally — every approach CONFIRMED to fail, each as: symptom -> cause -> round that proved it -> why retrying it is pointless. This section is a hard exclusion list: never propose anything in it again.
+  ## Open hypotheses — untested ideas, with what evidence would settle each.
+  ## This round — what you are attempting now and, explicitly, why it is materially different from every entry under "Does not work locally".
+- Record only conclusions execution actually established. A guess recorded as proven fact is worse than no ledger, because later rounds will trust it.
+- Prefer concrete local facts over generalities: exact argv that exited non-zero and its exit code, the exact patch hunk that failed to apply and against which path, the missing executable, the timeout that was too short, the test selector that does not exist.
+- The WHARNEX-MEASURED ROUND HISTORY supplied with this request is authoritative execution evidence. You may explain it, never contradict or omit it.
+%s
+- The ledger is session scaffolding and is DISCARDED when this Main Request ends. Anything that will still be true for the next Main Request on this project belongs in knowledge/index.json instead; the ledger is where you work that conclusion out, the knowledge catalog is where you keep it.
+- A response bundle missing attempts/ledger.md is accepted so a valid patch is never wasted, but the round is recorded as degraded and the next round starts with less information. Do not rely on that tolerance.
+`, domain.AttemptProtocolV1, terminalNote)
+}
+
 func plannerKnowledgeIdentity(req Request) string {
 	if req.KnowledgeSharingEnabled || req.KnowledgeRevision > 0 || len(req.KnowledgeEntries) > 0 {
 		return fmt.Sprintf("Knowledge identity: revision=%d entries=%d sha256=%s updated_by_request_id=%s", req.KnowledgeRevision, len(req.KnowledgeEntries), req.KnowledgeSHA256, req.KnowledgeUpdatedByRequestID)
@@ -276,6 +327,11 @@ PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2:
 - In every successive response for this same Main Request, return the same cumulative summary and current knowledge candidate again, refining/correcting them as execution evidence arrives.
 - Wharness stages these response artifacts while the Main Request is active. It commits knowledge records to the database and shows summary.md only at the real terminal boundary; for a change, that means after successful host Apply. Do NOT request or expect a separate final knowledge_review turn.
 `, knowledgeState, req.KnowledgeRevision, knowledgeMode, req.KnowledgeRevision, knowledgeMode)
+	// The divergence report and attempt ledger ride alongside the knowledge
+	// section rather than as extra format verbs: this Sprintf already carries
+	// twenty positional arguments, and adding more is how a prompt silently
+	// starts rendering the wrong value in the wrong slot.
+	knowledgeSection += buildContinuationSection(req)
 	return header + fmt.Sprintf(`%s
 %s
 REQUEST ID: %s
@@ -326,6 +382,7 @@ ZIP ROOT CONTRACT:
 - For kind=workflow, patches/ MUST NOT exist and plan operations MUST be command-only, network=false.
 - For answer, clarification, investigation, plan and blocked, plan.json and patches/ MUST NOT exist.
 - Do NOT package modified project source files directly as the execution result. Project mutation is represented only by a change plan.json + referenced raw unified-diff patches.
+- attempts/ledger.md MUST exist at ZIP root level under attempts/, for every turn kind including blocked, and MUST follow the SESSION ATTEMPT LEDGER PROTOCOL section above.
 - Optional non-executable support material may exist only under docs/, metadata/, or artifacts/.
 - User-facing files intended for inline/local chat presentation MUST be stored under artifacts/. Wharness discovers those entries from the validated response bundle and renders supported media/documents/code locally with download fallback.
 - Treat artifacts/ as non-executable presentation data only; never place plan.json, patch files, commands, secrets, or required protocol metadata there.
@@ -359,13 +416,20 @@ MANDATORY SELF-CHECK BEFORE ATTACHING:
 7. If kind=change, verify every patch_file referenced by plan.json exists inside the ZIP.
 8. If kind=workflow, verify there are no patch files, every operation is command-only, and every command has network=false.
 9. Verify required files are at ZIP root rather than under a wrapper folder.
-10. Only after every check passes, attach that exact ZIP as the final answer.
+10. Verify attempts/ledger.md exists, carries all five required sections, and that nothing you are proposing this round appears under its "Does not work locally" section.
+11. Only after every check passes, attach that exact ZIP as the final answer.
 
 Canonical change bundle:
 %s
 ├── turn.json
 ├── plan.json
 ├── README.md
+├── summary.md
+├── attempts/
+│   └── ledger.md
+├── knowledge/
+│   ├── index.json
+│   └── <id>.md
 └── patches/
     ├── 001-main-change.patch
     └── ...
@@ -374,7 +438,13 @@ Canonical workflow bundle:
 %s
 ├── turn.json
 ├── plan.json
-└── README.md
+├── README.md
+├── summary.md
+├── attempts/
+│   └── ledger.md
+└── knowledge/
+    ├── index.json
+    └── <id>.md
 
 Wharness validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.ExecutionEnvironment, req.RequestID, automationMode, effortLevel, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, knowledgeSection, expectedFilename, expectedFilename, expectedFilename, req.RequestID, req.ContextManifest.SHA256, req.RequestID, expectedFilename, req.RequestID, req.RequestID, expectedFilename, expectedFilename)
 }

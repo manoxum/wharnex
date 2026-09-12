@@ -133,7 +133,7 @@ func buildRemoteContextUpdateResources(dir string, item domain.Session, state *r
 		}
 	}
 	resourceURL := func(path string) string { return strings.TrimSuffix(state.baseURL, "/") + "/" + path }
-	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, nil, nil, nil, state.fileMapEntries, resourceURL)
+	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, nil, nil, nil, nil, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, err
 	}

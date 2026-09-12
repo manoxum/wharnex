@@ -30,6 +30,7 @@ func (s *Service) prepareImprovementRequest(ctx context.Context, sessionID strin
 	}
 
 	requestID := ids.New("req")
+	s.prepareContinuation(ctx, refreshed, requestID, refreshed.LastRequestID)
 	nextAttempt := automaticAttemptsSpent(refreshed) + 1
 	nextRound := refreshed.ImprovementAttempt + 1
 	message := buildImprovementMessage(refreshed, appliedPlanID, nextAttempt, nextRound)
@@ -45,6 +46,7 @@ func (s *Service) prepareImprovementRequest(ctx context.Context, sessionID strin
 	planned, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
+		ParentRequestID:        refreshed.LastRequestID,
 		Message:                message,
 		ContextTextPath:        refreshed.Context.TextPath,
 		ContextManifest:        refreshed.Context.Manifest,

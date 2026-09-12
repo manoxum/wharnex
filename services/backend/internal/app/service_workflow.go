@@ -177,6 +177,15 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 		return fmt.Errorf("refresh context for workflow continuation: %w", err)
 	}
 	requestID := ids.New("req")
+	s.prepareContinuation(ctx, refreshed, requestID, refreshed.LastRequestID)
+	_, _ = s.store.Update(sessionID, func(item *domain.Session) error {
+		// A workflow round is evidence gathering, not a failure, but it is
+		// still a round the planner spent: recording it stops the next round
+		// re-running probes whose answers are already in hand.
+		recordAttemptRound(item, knowledgeReviewRoot(*item, item.LastRequestID), attemptRoundFromExecution(
+			item.LastRequestID, requestKindEvidence, execution, domain.AttemptOutcomeObservation, "workflow observation round completed"))
+		return nil
+	})
 	message := buildWorkflowObservationMessage(execution, round)
 	s.bus.Publish(sessionID, "workflow.continuation_started", map[string]any{"request_id": requestID, "round": round, "plan_id": execution.PlanID})
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
@@ -186,6 +195,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	planned, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
+		ParentRequestID:        refreshed.LastRequestID,
 		Message:                message,
 		ContextTextPath:        refreshed.Context.TextPath,
 		ContextManifest:        refreshed.Context.Manifest,

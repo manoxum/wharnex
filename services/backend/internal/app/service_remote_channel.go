@@ -281,7 +281,7 @@ func buildRemoteChannelResources(dir string, item domain.Session, request Remote
 		}
 		return strings.TrimSuffix(state.baseURL, "/") + "/" + path
 	}
-	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, request.ProjectFiles, attachments, artifacts, state.fileMapEntries, resourceURL)
+	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, continuationArtifacts(item, request.RequestID), request.ProjectFiles, attachments, artifacts, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, 0, 0, err
 	}

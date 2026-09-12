@@ -533,6 +533,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			current.PendingKnowledgeCandidate = nil
 			current.PendingKnowledgeSummary = ""
 			current.LastMainRequestSummary = ""
+			// The attempt ledger has exactly the lifetime of one Main Request:
+			// it records what worked and failed while pursuing THIS goal, so
+			// carrying it into the next goal would have the planner excluding
+			// approaches for a problem nobody asked about.
+			resetAttemptLedger(current, requestID)
 			current.AutomationAttempt = 1
 			current.ImprovementAttempt = 0
 			return nil
@@ -553,6 +558,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// that patch to the tree it was written for however far the host advances
 	// before the plan comes back.
 	baseCommit := s.captureRequestBase(ctx, sessionID, item.ProjectPath, requestID)
+	// A plan-approval continuation stays inside the same Main Request, so it is
+	// entitled to the same divergence report every other continuation gets. A
+	// brand-new Main Request has no earlier snapshot to diverge from and the
+	// computation returns nothing.
+	contextDelta := s.computeContextDelta(ctx, item, knowledgeReviewRoot(item, parentRequestID), requestID, baseCommit)
 	var releasedBases []string
 	var prunedContexts []string
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -564,6 +574,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)
+		recordRequestContextDelta(current, requestID, contextDelta)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		return nil
 	}); err != nil {
@@ -576,7 +587,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if parentRequestID != "" {
 		expectedFilename = expectedResponseBundleFilenameForDerivedRequest(item, requestID, parentRequestID)
 	}
-	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedFilename}, knowledgeSnapshot, item.ProjectPath))
+	result, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{SessionID: sessionID, RequestID: requestID, ParentRequestID: parentRequestID, Message: message, ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest, PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode, SelfEvolution: s.isSelfEvolution(item), PlanningMode: planningMode, ExpectedBundleFilename: expectedFilename}, knowledgeSnapshot, item.ProjectPath))
 	if err != nil {
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -836,6 +847,11 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			"impact": "the response bundle was accepted; only its knowledge candidate and cumulative summary were not staged for this round",
 		})
 	}
+	// The attempt ledger is staged on its own path, deliberately independent of
+	// knowledge staging above. A catalog revision race must not also cost this
+	// Main Request the record of what it has already proven cannot work locally
+	// — that record is the only thing keeping the next round from repeating it.
+	s.stageResponseAttemptLedger(sessionID, parsed)
 	if refreshed, getErr := s.store.Get(sessionID); getErr == nil {
 		current = refreshed
 	}
@@ -2131,6 +2147,11 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 			updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
 				item.FailureKind = kind
 				item.LastRepairError = cause.Error()
+				// An infrastructure block still costs the operator a round of
+				// wall-clock time, and the next planner round must know the
+				// approach reached this wall rather than a source defect.
+				recordAttemptRound(item, knowledgeReviewRoot(*item, item.LastRequestID), attemptRoundFromExecution(
+					item.LastRequestID, lineageKind, result, domain.AttemptOutcomeInfrastructure, kind+": "+cause.Error()))
 				return nil
 			})
 			if updateErr != nil {
@@ -2145,11 +2166,26 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 		return current, nil
 	}
 
+	// Record the round that just failed BEFORE preparing its correction, so the
+	// repair request carries the complete measured history including the
+	// failure it is answering. Without this the planner sees only the latest
+	// diagnostics and keeps rediscovering that round two already failed the
+	// same way.
+	_, _ = s.store.Update(sessionID, func(item *domain.Session) error {
+		recordAttemptRound(item, knowledgeReviewRoot(*item, item.LastRequestID), attemptRoundFromExecution(
+			item.LastRequestID, lineageKind, result, repairAttemptOutcome(cause), cause.Error()))
+		return nil
+	})
 	refreshed, err := s.refreshContext(sessionID)
 	if err != nil {
 		return current, fmt.Errorf("refresh context for repair: %w", err)
 	}
 	requestID := ids.New("req")
+	// Anchor this correction's own base tree and measure how the local project
+	// diverged from the snapshot the planner already holds. Only the Main
+	// Request used to do this, which left every repair round producing a plan
+	// with no anchored base and no statement of what had actually changed.
+	s.prepareContinuation(ctx, refreshed, requestID, refreshed.LastRequestID)
 	attempt := refreshed.RepairAttempt + 1
 	automationAttempt := automaticAttemptsSpent(refreshed)
 	if !manual {
@@ -2168,6 +2204,7 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 	planned, err := s.planner.Plan(ctx, s.plannerRequest(ctx, planner.Request{
 		SessionID:              sessionID,
 		RequestID:              requestID,
+		ParentRequestID:        refreshed.LastRequestID,
 		Message:                repairMessage,
 		ContextTextPath:        refreshed.Context.TextPath,
 		ContextManifest:        refreshed.Context.Manifest,

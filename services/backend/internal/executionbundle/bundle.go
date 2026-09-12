@@ -22,6 +22,10 @@ const (
 	maxExpandedBytes  = 32 << 20
 	maxEntries        = 256
 	maxKnowledgeBytes = 256 << 10
+	// maxAttemptLedgerBytes bounds attempts/ledger.md. The ledger is a distilled
+	// decision aid, not a transcript; anything larger is a sign the planner is
+	// pasting logs into it and is dropped rather than carried forward.
+	maxAttemptLedgerBytes = 64 << 10
 )
 
 type operationWire struct {
@@ -128,6 +132,16 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 	if len(summaryBytes) > 256<<10 {
 		return Parsed{}, errors.New("summary.md exceeds 256 KiB limit")
 	}
+	// attempts/ledger.md is the planner's cumulative account of what this Main
+	// Request has already proven to work and to fail locally. It is bookkeeping
+	// that makes the NEXT round cheaper, so an absent or oversized ledger is
+	// never a parse failure: rejecting a bundle over it would discard a verified
+	// patch to protect a note about patches. An oversized one is dropped and the
+	// previous round's ledger is retained instead.
+	ledgerBytes := files["attempts/ledger.md"]
+	if len(ledgerBytes) > maxAttemptLedgerBytes {
+		ledgerBytes = nil
+	}
 	knowledgeCandidate, err := parseKnowledgeCandidate(files)
 	if err != nil {
 		return Parsed{}, err
@@ -224,6 +238,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		Filename: path.Base(filename), README: string(readmeBytes), Files: listed,
 		Patches: patches, SHA256: hex.EncodeToString(digest[:]),
 		CumulativeSummary: strings.TrimSpace(string(summaryBytes)), ProjectKnowledgeCandidate: knowledgeCandidate,
+		AttemptLedgerNarrative: strings.TrimSpace(string(ledgerBytes)),
 		ProjectKnowledgeUpdate: string(knowledgeBytes),
 	}, Turn: turn}, nil
 }

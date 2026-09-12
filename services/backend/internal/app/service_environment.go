@@ -40,9 +40,16 @@ func (s *Service) executionEnvironmentSection(ctx context.Context, projectPath s
 // internal continuations construct a request without holding the session.
 func (s *Service) plannerRequest(ctx context.Context, base planner.Request, snapshot domain.RequestKnowledgeSnapshot, projectPath string) planner.Request {
 	request := withPlannerKnowledge(base, snapshot)
-	if request.EffortLevel == "" && request.SessionID != "" {
+	if request.SessionID != "" {
 		if item, err := s.store.Get(request.SessionID); err == nil {
-			request.EffortLevel = normalizeEffortLevel(item.EffortLevel)
+			if request.EffortLevel == "" {
+				request.EffortLevel = normalizeEffortLevel(item.EffortLevel)
+			}
+			// The attempt ledger and the divergence report are attached here,
+			// in the one place every planner request is finished, for the same
+			// reason knowledge is: no call site can then build a continuation
+			// prompt that silently omits what earlier rounds already proved.
+			request = s.withContinuationContext(request, item)
 		}
 	}
 	if request.EffortLevel == "" {

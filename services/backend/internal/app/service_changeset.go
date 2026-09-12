@@ -472,8 +472,9 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 	if err != nil {
 		return item, err
 	}
+	s.prepareContinuation(ctx, item, requestID, item.LastRequestID)
 	prompt := planner.BuildManualPrompt(s.plannerRequest(ctx, planner.Request{
-		SessionID: sessionID, RequestID: requestID, Message: message,
+		SessionID: sessionID, RequestID: requestID, ParentRequestID: item.LastRequestID, Message: message,
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
 		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",

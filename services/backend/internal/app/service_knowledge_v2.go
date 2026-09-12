@@ -181,6 +181,11 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 		current.PendingKnowledgeCandidateRequestID = ""
 		current.PendingKnowledgeCandidate = nil
 		current.PendingKnowledgeSummary = ""
+		// The Main Request reached its real terminal boundary, so the durable
+		// catalog above now holds whatever of this session's learning was worth
+		// keeping. The attempt ledger was the scaffolding used to reach that
+		// conclusion and has no authority past this point.
+		clearAttemptLedger(current, rootID)
 		if newRevision > current.KnowledgeLastSeenRevision {
 			current.KnowledgeLastSeenRevision = newRevision
 		}
