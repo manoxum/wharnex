@@ -16,6 +16,7 @@ import { requestIdFromBundleName } from '../lib/bundlename'
 import { sessionCanApplyHost, sessionHostResolutionBlocked } from '../lib/attentionCenter'
 import { activePendingRequestId } from '../lib/pendingRequest'
 import { sessionCanExecutePlan } from '../lib/executionRecovery'
+import { SignalCore } from './SignalCore'
 
 export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
@@ -72,7 +73,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   return (
     <section className={`inspector-panel ${embedded ? 'embedded' : ''}`}>
       {!embedded && <header className="panel-header inspector-header">
-        <div className="brand-lockup small"><div className="brand-mark">K</div><div><strong>Agent Inspector</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}{desktop ? ' · desktop' : ''}</span></div></div>
+        <div className="brand-lockup small"><SignalCore size="compact" decorative /><div><strong>Agent Inspector</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}{desktop ? ' · desktop' : ''}</span></div></div>
         <div className="header-actions">
           {session.policy && <StatusPill tone={session.policy.allowed ? (session.policy.risk === 'high' ? 'warning' : 'accent') : 'danger'}>{riskLabel(session.policy.risk)}</StatusPill>}
           {direct && <StatusPill tone="warning">Unprotected</StatusPill>}

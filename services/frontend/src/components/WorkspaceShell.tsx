@@ -10,6 +10,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { ErrorToast } from './ErrorToast'
 import { TunnelOverviewModal } from './TunnelOverviewModal'
 import { InstanceBadge } from './InstanceBadge'
+import { SignalCore } from './SignalCore'
 
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 
@@ -174,7 +175,7 @@ export function ShellChrome({ instanceID, projects, activeProject, mode, busy, o
   }, [projectActionsOpen])
 
   return <header className="multi-project-bar">
-    <div className="multi-project-brand"><div className="brand-mark">WHX</div><strong>Wharnex</strong></div>
+    <div className="multi-project-brand"><SignalCore size="compact" /></div>
     <InstanceBadge instanceID={instanceID} />
     {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={14}/> Orchestrator</button></div>}
     <nav className="project-quick-switch" aria-label="Projetos vinculados">

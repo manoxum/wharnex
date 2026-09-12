@@ -24,6 +24,13 @@ describe('WorkspaceShell project actions', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('uses Signal Core alone as the primary toolbar brand mark', () => {
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    expect(screen.getByRole('img', { name: 'Signal Core' })).toBeTruthy()
+    expect(screen.queryByText('WHX')).toBeNull()
+    expect(screen.queryByText('Wharnex')).toBeNull()
+  })
+
   it('places the instance identifier before the Editor and Agent selector', () => {
     render(<ShellChrome instanceID="legacy" projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     const badge = screen.getByLabelText('Instância: legacy')

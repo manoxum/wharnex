@@ -136,7 +136,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   background: #f2f4ee;
   color: var(--theme-text);
 }
-:root[data-theme='light'] .workspace-identity .brand-mark { border-color: #293126; background: #1a1e18; }
 :root[data-theme='light'] .workspace-identity span,
 :root[data-theme='light'] .workspace-topbar .icon-button { color: var(--theme-text-muted); }
 :root[data-theme='light'] .mode-switch,
@@ -517,7 +516,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .desktop-shell-root,
 :root[data-theme='dark'] .bound-project-frame { background: var(--theme-bg); }
 :root[data-theme='dark'] .bootstrap-card { border-color: var(--theme-border); background: var(--theme-surface); box-shadow: 0 24px 70px rgba(0, 0, 0, .38); }
-:root[data-theme='dark'] .bootstrap-card::after { color: #262626; }
+:root[data-theme='dark'] .signal-core-watermark { color: #343434; opacity: .58; }
 :root[data-theme='dark'] .bootstrap-copy p,
 :root[data-theme='dark'] .bootstrap-meta,
 :root[data-theme='dark'] .field-label,
@@ -967,7 +966,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .code-copy { border-color: #c7cec2; background: #fff; color: #4c5748; }
 
 /* ChatGPT-inspired neutral dark refinement: black hierarchy, monochrome chrome. */
-:root[data-theme='dark'] .bootstrap-card::after { color: #2a2a2a; }
 :root[data-theme='dark'] input,
 :root[data-theme='dark'] textarea { background: #171717; }
 :root[data-theme='dark'] .primary-button { border: 1px solid #565656; background: #f2f2f2; color: #171717; }
@@ -984,8 +982,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .agent-commandbar { background: #171717; }
 :root[data-theme='dark'] .project-actions-popover,
 :root[data-theme='dark'] .project-quick-switch button.active { background: #2f2f2f; }
-:root[data-theme='dark'] .workspace-identity .brand-mark,
-:root[data-theme='dark'] .brand-mark { border-color: #424242; background: #0d0d0d; color: #ececec; }
 :root[data-theme='dark'] .topbar-indicator { border-color: #424242; background: #292929; color: #a1a1a1; }
 :root[data-theme='dark'] .topbar-indicator.actionable:hover:not(:disabled) { background: #333; color: #f2f2f2; }
 :root[data-theme='dark'] .topbar-indicator .indicator-dot { box-shadow: 0 0 0 2px #292929; }
