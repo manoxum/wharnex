@@ -291,6 +291,30 @@ export type ExecutionConcurrency = {
   max: number
 }
 
+export type ChatAgentTask = {
+  task_id: string
+  type: string
+  project_id: string
+  chat_id: string
+  session_id: string
+  request_id: string
+  root_request_id: string
+  conversation_id: string
+  parent_task_id: string
+  priority: number
+  status: 'PENDING' | 'LEASED' | 'RUNNING' | 'WAITING' | 'DONE' | 'FAILED' | 'ATTENTION' | 'CANCELLED' | string
+  not_before: string
+  attempt: number
+  max_attempts: number
+  dedupe_key: string
+  lease_owner: string
+  lease_expires_at?: string
+  payload: unknown
+  last_error: string
+  created_at: string
+  updated_at: string
+}
+
 export type BundleQuota = {
   window_hours: number
   limit: number

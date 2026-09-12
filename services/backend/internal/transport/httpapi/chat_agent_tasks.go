@@ -33,9 +33,10 @@ func (a *API) enqueueChatAgentTask(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) listChatAgentTasks(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	active := strings.TrimSpace(r.URL.Query().Get("active"))
 	items, err := a.store.ListChatAgentTasks(session.ChatAgentTaskFilter{
 		ChatID: r.URL.Query().Get("chat_id"), RequestID: r.URL.Query().Get("request_id"),
-		Status: r.URL.Query().Get("status"), Limit: limit,
+		Status: r.URL.Query().Get("status"), ActiveOnly: active == "1" || strings.EqualFold(active, "true"), Limit: limit,
 	})
 	if err != nil {
 		writeChatAgentTaskError(w, err)

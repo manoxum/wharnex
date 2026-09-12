@@ -52,10 +52,11 @@ type ChatAgentTask struct {
 }
 
 type ChatAgentTaskFilter struct {
-	ChatID    string
-	RequestID string
-	Status    string
-	Limit     int
+	ChatID     string
+	RequestID  string
+	Status     string
+	ActiveOnly bool
+	Limit      int
 }
 
 var chatAgentPriorities = map[string]int{
@@ -212,6 +213,9 @@ func (s *Store) ListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask,
 			continue
 		}
 		if filter.Status != "" && task.Status != filter.Status {
+			continue
+		}
+		if filter.ActiveOnly && !chatAgentTaskActive(task.Status) {
 			continue
 		}
 		items = append(items, task)
