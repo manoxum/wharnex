@@ -60,6 +60,26 @@ describe('execution queue CSS', () => {
   })
 })
 
+describe('agent runtime drawer CSS', () => {
+  it('groups health, capacity and instance details into a calm card hierarchy', () => {
+    const summary = lastRule('.agent-runtime-summary')
+    const diagnostics = lastRule('.agent-runtime-diagnostics')
+    const diagnosticRow = lastRule('.agent-runtime-diagnostic-row')
+    const scale = firstRule('.agent-runtime-scale')
+    const body = firstRule('.agent-runtime-body')
+    const activeAgent = lastRule('.agent-runtime-list > button.active')
+    const detail = lastRule('.agent-runtime-detail')
+
+    expect(summary).toContain('grid-template-columns:repeat(3,minmax(0,1fr))')
+    expect(diagnostics).toContain('grid-template-columns:repeat(3,minmax(0,1fr))')
+    expect(diagnosticRow).toContain('border-radius:8px')
+    expect(scale).toContain('grid-template-columns:repeat(2,minmax(0,1fr))')
+    expect(body).toContain('gap:8px')
+    expect(activeAgent).toContain('box-shadow:inset 2px 0 0 var(--theme-accent)')
+    expect(detail).toContain('border-radius:9px')
+  })
+})
+
 describe('composer layout CSS', () => {
   it('uses the whole top composer edge as the vertical resize handle', () => {
     const composer = lastRule('.composer')
