@@ -2239,13 +2239,12 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-goal-copy > span { display:block; margin-bottom:9px; color:var(--theme-accent); font-size:calc(8px * var(--ui-font-scale)); font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
 .orchestrator-goal-copy h1 { margin:0; color:var(--theme-text); font-size:clamp(25px, 3vw, 38px); line-height:1.08; font-weight:700; letter-spacing:-.035em; }
 .orchestrator-goal-copy p { width:min(620px,100%); margin:13px auto 0; color:var(--theme-text-muted); font-size:calc(10px * var(--ui-font-scale)); line-height:1.65; }
-.orchestrator-composer { width:min(820px,100%); overflow:hidden; border:1px solid var(--theme-border); border-radius:18px; background:var(--theme-surface); box-shadow:0 18px 48px color-mix(in srgb, var(--theme-shadow) 55%, transparent); }
-.orchestrator-composer textarea { width:100%; min-height:112px; padding:19px 20px 10px; resize:none; border:0; outline:0; background:transparent; color:var(--theme-text); font:calc(11px * var(--ui-font-scale))/1.55 var(--ui-font-family); }
-.orchestrator-composer textarea::placeholder { color:var(--theme-text-soft); }
-.orchestrator-composer footer { min-height:52px; padding:8px 10px 10px 17px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
-.orchestrator-composer footer > span { display:flex; align-items:center; gap:6px; color:var(--theme-text-soft); font-size:calc(8px * var(--ui-font-scale)); }
-.orchestrator-composer footer button, .orchestrator-proposal-card > header button, .orchestrator-manual-plan .primary, .orchestrator-tasks-toolbar > .primary, .orchestrator-drawer .primary { min-height:34px; padding:0 13px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; background:var(--theme-accent); color:var(--theme-accent-contrast, #fff); font-size:calc(9px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
-.orchestrator-composer footer button:disabled, .orchestrator-proposal-card > header button:disabled, .orchestrator-manual-plan .primary:disabled, .orchestrator-drawer .primary:disabled { opacity:.48; cursor:default; }
+.orchestrator-composer-shell { width:min(980px,100%); }
+.orchestrator-composer-shell .chat-panel.composer-only { width:100%; min-height:0; overflow:visible; border:0; background:transparent; }
+.orchestrator-composer-shell .chat-panel.composer-only .composer { width:100%; margin:0; border-color:var(--theme-border); background:var(--theme-surface); box-shadow:0 18px 48px color-mix(in srgb, var(--theme-shadow) 55%, transparent); }
+.orchestrator-composer-shell .chat-panel.composer-only .request-queue-panel, .orchestrator-composer-shell .chat-panel.composer-only .todo-panel { margin-left:0; margin-right:0; }
+.orchestrator-proposal-card > header button, .orchestrator-manual-plan .primary, .orchestrator-tasks-toolbar > .primary, .orchestrator-drawer .primary { min-height:34px; padding:0 13px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; background:var(--theme-accent); color:var(--theme-accent-contrast, #fff); font-size:calc(9px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
+.orchestrator-proposal-card > header button:disabled, .orchestrator-manual-plan .primary:disabled, .orchestrator-drawer .primary:disabled { opacity:.48; cursor:default; }
 
 .orchestrator-manual-plan, .orchestrator-planning-queue, .orchestrator-proposal-card, .orchestrator-cockpit, .worker-follow-viewer { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
 .worker-follow-viewer { overflow:hidden; }
@@ -2453,8 +2452,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .orchestrator-refresh { grid-column:2; }
   .orchestrator-goal-stage { min-height:390px; padding-top:50px; }
   .orchestrator-goal-copy h1 { font-size:26px; }
-  .orchestrator-composer footer > span { display:none; }
-  .orchestrator-composer footer { justify-content:flex-end; }
+  .orchestrator-composer-shell { width:100%; }
   .orchestrator-proposal-card > header { align-items:flex-start; flex-direction:column; }
   .orchestrator-tasks-toolbar { flex-wrap:wrap; height:auto; min-height:88px; padding:8px; }
   .orchestrator-search { order:2; max-width:none; flex-basis:100%; }

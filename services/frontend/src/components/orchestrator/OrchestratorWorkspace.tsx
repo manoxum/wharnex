@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type ComponentProps, useCallback, useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { errorMessage } from '../../lib/errorMessage'
 import type { ChatAgentTask, OrchestratorOverview as OverviewData, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
@@ -6,12 +6,14 @@ import { Icon } from '../Icon'
 import { OrchestratorOverview } from './OrchestratorOverview'
 import { OrchestratorTasks } from './OrchestratorTasks'
 import type { ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
+import { ChatPanel } from '../ChatPanel'
 
-export function OrchestratorWorkspace({ session, chats = [], onGoToChat, focusNonce, onError }: {
+export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, onError }: {
   session: Session
   // Minimal id/sessionId pairs only: enough to resolve a planning request's
   // owning Harness chat without threading the full workspace-chat record in.
   chats?: ChatAgentTaskChatRef[]
+  chatProps: ComponentProps<typeof ChatPanel>
   onGoToChat?: (chatId?: string, sessionId?: string) => void
   // Bumped by the Tarefas drawer's "Ver orquestração" action so a task that
   // sent the operator here always lands back on the planning queue instead of
@@ -86,6 +88,7 @@ export function OrchestratorWorkspace({ session, chats = [], onGoToChat, focusNo
       overview={overview}
       planningTasks={planningTasks}
       chats={chats}
+      chatProps={chatProps}
       onGoToChat={onGoToChat}
       onError={onError}
       proposal={proposal}

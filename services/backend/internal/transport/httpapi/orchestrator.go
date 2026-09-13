@@ -25,12 +25,19 @@ func (a *API) orchestratorOverview(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) orchestratorProposePlan(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Objective string `json:"objective"`
+		Objective          string                               `json:"objective"`
+		IncludeContext     bool                                 `json:"include_context,omitempty"`
+		ProjectFiles       []string                             `json:"project_files,omitempty"`
+		AttachmentCacheKey string                               `json:"attachment_cache_key,omitempty"`
+		Attachments        []app.OrchestratorPlanningAttachment `json:"attachments,omitempty"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.ProposeOrchestratorPlan(r.Context(), r.PathValue("id"), body.Objective)
+	result, err := a.service.ProposeOrchestratorPlan(r.Context(), r.PathValue("id"), body.Objective, app.OrchestratorComposerContext{
+		IncludeContext: body.IncludeContext, ProjectFiles: body.ProjectFiles,
+		AttachmentCacheKey: body.AttachmentCacheKey, Attachments: body.Attachments,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "orchestrator_plan_failed", err.Error())
 		return

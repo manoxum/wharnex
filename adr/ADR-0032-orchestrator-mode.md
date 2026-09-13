@@ -16,7 +16,7 @@ Wharnex adds **Orchestrator** as a third first-class workspace mode. The respons
 
 `User objective -> Planner -> Draft Plan + Tasks -> User approval -> Orchestrator -> Agent task run`
 
-The Planner decomposes work only. It returns `harness.orchestrator-plan/v1`, a task DAG with acceptance criteria, dependencies, priority, capability/complexity and expected impact/read/barrier files. It never emits shell commands for this protocol. A manual planner result is persisted before the proposal call returns as a highest-priority `ORCHESTRATOR_PLAN` browser-agent task. A hidden Worker requests an exact task-scoped JSON artifact and imports it through the normal validator; mode changes and Desktop restart reclaim the durable task. Copy/paste JSON remains a recovery fallback.
+The Planner decomposes work only. It returns `harness.orchestrator-plan/v1`, a task DAG with acceptance criteria, dependencies, priority, capability/complexity and expected impact/read/barrier files. It never emits shell commands for this protocol. A manual planner result is persisted before the proposal call returns as a highest-priority `ORCHESTRATOR_PLAN` browser-agent task. A hidden Worker requests the exact canonical response bundle and imports it through the normal validator; mode changes and Desktop restart reclaim the durable task. The Orchestrator reuses the Agent `ChatPanel` composer for intake, so selected context, file references, attachments and project-level composer controls do not fork into a second UI implementation. The retained prompt/manual-import path remains a recovery fallback when automated delivery cannot complete.
 The wire contract is documented by `schemas/orchestrator-plan.schema.json`; backend validation additionally enforces referential integrity and DAG acyclicity that JSON Schema alone cannot express.
 
 The Orchestrator owns durable, project-scoped `Plan`, `Task`, `TaskDependency` and `TaskRun` records in PostgreSQL. They are not embedded inside `Session` JSON. Plans start `DRAFT`; generated tasks start `PENDING` with a plan-approval condition. Approval activates the plan and a deterministic readiness evaluator moves dependency-satisfied work to `READY`.
@@ -29,7 +29,7 @@ V1 exposes exactly **one mutation slot per canonical project**. The Orchestrator
 
 The UI has two Orchestrator pages backed by the same project-scoped source of truth:
 
-- **Overview**: a spacious objective composer, draft-plan review/approval, active-slot indicator and operational metrics/recent tasks.
+- **Overview**: the shared Agent composer rendered in objective-only mode, draft-plan review/approval, active-slot indicator and operational metrics/recent tasks.
 - **Tasks**: Kanban, table, list and dependency-graph views; manual task creation; task details/runs; and lifecycle actions. Kanban drag/drop requests backend transitions rather than becoming a client-side state authority.
 
 ## Consequences

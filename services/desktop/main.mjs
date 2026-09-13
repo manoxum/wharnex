@@ -4263,8 +4263,14 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
   const sessionId = sanitizeSessionId(task.session_id || payload.session_id)
   const requestId = String(task.request_id || payload.request_id || '').trim()
   const prompt = String(payload.prompt || '').trim()
+  const includeContext = payload.include_context === true
+  const attachmentCacheKey = String(payload.attachment_cache_key || '').trim()
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : []
   if (!/^orp_[A-Za-z0-9_-]{8,180}$/.test(requestId) || !prompt) {
     return { status: 'failed', error: 'orchestrator planning worker payload is incomplete' }
+  }
+  if (attachments.length && !/^[A-Za-z0-9_-]{1,128}$/.test(attachmentCacheKey)) {
+    return { status: 'failed', error: 'orchestrator planning attachment cache key is invalid' }
   }
 
   // A request already checkpointed under the legacy contract finishes on it;
@@ -4284,6 +4290,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
   if (retained) {
     const imported = await importRetainedOrchestratorPlan(sessionId, requestId, delivery, retained)
     if (imported) {
+      if (attachmentCacheKey) await removeStoredChatAttachments(chatAttachmentRoot(), attachmentCacheKey).catch(() => undefined)
       console.log(`[orchestrator-worker] imported retained plan task=${task.task_id} request=${requestId}`)
       return imported
     }
@@ -4319,7 +4326,26 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
       const filled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-fill-composer', chatGPTFillComposerScript(orchestratorPlanInstruction(prompt, filename, false)))
       if (!filled) throw new Error('ChatGPT orchestrator composer could not be populated')
-      await wait(150)
+
+      const uploadPaths = []
+      let uploadBytes = 0
+      if (includeContext) {
+        const context = await fetchContextZip(sessionId)
+        const contextPath = path.join(dir, 'wharnex-project-context.zip')
+        await writeFile(contextPath, context.bytes, { mode: 0o600 })
+        uploadPaths.push(contextPath)
+        uploadBytes += context.bytes.byteLength
+      }
+      for (const attachment of attachments) {
+        const filePath = await storedAttachmentPath(chatAttachmentRoot(), String(attachment?.storage_ref || ''))
+        uploadPaths.push(filePath)
+        uploadBytes += Math.max(0, Number(attachment?.size || 0))
+      }
+      for (let index = 0; index < uploadPaths.length; index += 1) {
+        await pasteChatGPTFile(target.entry, uploadPaths[index], index + 1, uploadPaths.length)
+      }
+      if (uploadPaths.length) await wait(chatInputSettleDelay(uploadBytes, uploadPaths.length))
+      else await wait(150)
       assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
       await submitChatGPTDraft(key, target.entry, target.conversationUrl)
       conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
@@ -4406,7 +4432,11 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
   } finally {
     if (expectedChatGPTOrchestratorPlans.get(filename) === expected) expectedChatGPTOrchestratorPlans.delete(filename)
     await rm(dir, { recursive: true, force: true }).catch(() => undefined)
-    if (conversationUrl && (terminalCleanup || Number(task.attempt || 0) >= Number(task.max_attempts || 0))) {
+    const terminalAttempt = terminalCleanup || Number(task.attempt || 0) >= Number(task.max_attempts || 0)
+    if (terminalAttempt && attachmentCacheKey) {
+      await removeStoredChatAttachments(chatAttachmentRoot(), attachmentCacheKey).catch(() => undefined)
+    }
+    if (conversationUrl && terminalAttempt) {
       enqueueChatAgentTask('DELETE_TEMP_CHAT', {
         key, requestId, rootRequestId: requestId, conversationURL: conversationUrl,
         parentTaskID: task.task_id, dedupeKey: `delete-orchestrator:${chatAgentConversationID(conversationUrl)}`,
