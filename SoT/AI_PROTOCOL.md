@@ -148,6 +148,9 @@ The protocol requires the planner to:
 - keep every command inside the published `budgets`, whose violation is a protocol error that discards the entire bundle including a correct patch;
 - size verification against the published container limits, host memory and free disk, preferring narrow targeted tests over a whole-repository race or parallel build when headroom is small, because a device-full or out-of-memory failure is an infrastructure fault that no source patch repairs and for which Wharness will not request a repair;
 - treat `network=false` as implying `GOPROXY=off` against a Wharness-owned module cache, so dependencies that are neither vendored nor cached are unavailable and a package-manager install is not a valid workaround.
+- write tests only against the capabilities `test_harnesses` publishes for the package being tested: the listed runner's own matchers plus its `assertion_extensions`, importing only from the listed `libraries`. An empty `assertion_extensions` list is an affirmative statement that no matcher package is registered — jest-dom style matchers such as `toHaveAttribute` or `toBeInTheDocument` then fail at run time as an invalid property, which is indistinguishable from a defect in the change and costs the whole round to discover.
+
+`test_harnesses` is measured from the project's own package manifests, not from the runner image: it is bounded per project, lists only packages that declare a test script, and reports assertion extensions from an explicit set rather than a heuristic, because publishing a matcher set the project does not have is the exact mistake it exists to prevent.
 
 The manifest is descriptive. It never grants a capability, and a plan is still evaluated by the policy engine, the protocol validator and the runner exactly as before.
 

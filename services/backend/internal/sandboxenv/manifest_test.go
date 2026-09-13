@@ -3,6 +3,8 @@ package sandboxenv
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -116,4 +118,70 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// The observed failure: a generated test called toHaveAttribute, a jest-dom
+// matcher, in a project that has never depended on jest-dom. Vitest reports it
+// as "Invalid Chai property", which reads like a defect in the change rather
+// than a missing capability — and costs a model turn, a container run and the
+// whole suite to discover.
+func TestProbeTestHarnessesReportsWhatTheProjectActuallyRegisters(t *testing.T) {
+	root := t.TempDir()
+	frontend := filepath.Join(root, "services", "frontend")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(dir, body string) {
+		if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Mirrors this repository: vitest and React Testing Library, no jest-dom.
+	write(frontend, `{"scripts":{"test":"vitest"},"devDependencies":{"vitest":"3","@testing-library/react":"16"}}`)
+	// A package with no test script is not a harness.
+	other := filepath.Join(root, "services", "tunnel")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(other, `{"scripts":{"build":"tsc"}}`)
+
+	harnesses := probeTestHarnesses(root)
+	if len(harnesses) != 1 {
+		t.Fatalf("expected exactly the package that declares a test script, got %+v", harnesses)
+	}
+	harness := harnesses[0]
+	if harness.Package != "services/frontend" || harness.Runner != "vitest" {
+		t.Fatalf("unexpected harness: %+v", harness)
+	}
+	// The empty list is the whole point, and it must be present rather than nil
+	// so the published JSON states it instead of omitting it.
+	if harness.AssertionExtensions == nil || len(harness.AssertionExtensions) != 0 {
+		t.Fatalf("a project without matcher packages must report an empty list, got %+v", harness.AssertionExtensions)
+	}
+	if len(harness.Libraries) != 1 || harness.Libraries[0] != "@testing-library/react" {
+		t.Fatalf("declared testing libraries must be reported, got %+v", harness.Libraries)
+	}
+
+	// A project that does register jest-dom must say so, or the section would
+	// forbid matchers that genuinely work there.
+	write(frontend, `{"scripts":{"test":"vitest"},"devDependencies":{"vitest":"3","@testing-library/jest-dom":"6"}}`)
+	harness = probeTestHarnesses(root)[0]
+	if len(harness.AssertionExtensions) != 1 || harness.AssertionExtensions[0] != "@testing-library/jest-dom" {
+		t.Fatalf("a registered matcher package must be reported, got %+v", harness.AssertionExtensions)
+	}
+}
+
+// The rendered section must state the consequence, not just the data: a planner
+// reading a bare empty list does not know it means "those matchers will throw".
+func TestRenderExplainsAnEmptyMatcherInventory(t *testing.T) {
+	manifest := Manifest{
+		Schema:        SchemaVersion,
+		TestHarnesses: []TestHarness{{Package: "services/frontend", Runner: "vitest", AssertionExtensions: []string{}}},
+	}
+	section := manifest.Render()
+	for _, want := range []string{"assertion_extensions", "toHaveAttribute", "Invalid Chai property"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("the section must warn about %q, got:\n%s", want, section)
+		}
+	}
 }

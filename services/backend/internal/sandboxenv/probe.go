@@ -65,6 +65,7 @@ func (p *Prober) Manifest(ctx context.Context, projectPath string) Manifest {
 		Policy:  describePolicy(),
 		Budgets: describeBudgets(),
 	}
+	manifest.TestHarnesses = probeTestHarnesses(projectPath)
 	tools, warning := p.toolchain(ctx)
 	manifest.Tools = tools
 	if warning != "" {

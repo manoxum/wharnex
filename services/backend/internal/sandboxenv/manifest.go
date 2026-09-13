@@ -27,13 +27,17 @@ const SchemaVersion = "wharness.environment/v1"
 // Manifest is the complete environment description attached to a planner
 // request. Every field is Wharnex-derived; none of it is planner-supplied.
 type Manifest struct {
-	Schema   string          `json:"schema"`
-	Host     Host            `json:"host"`
-	Sandbox  Sandbox         `json:"sandbox"`
-	Tools    []Tool          `json:"tools"`
-	Policy   PolicySummary   `json:"policy"`
-	Budgets  ProtocolBudgets `json:"budgets"`
-	Warnings []string        `json:"warnings,omitempty"`
+	Schema  string          `json:"schema"`
+	Host    Host            `json:"host"`
+	Sandbox Sandbox         `json:"sandbox"`
+	Tools   []Tool          `json:"tools"`
+	Policy  PolicySummary   `json:"policy"`
+	Budgets ProtocolBudgets `json:"budgets"`
+	// TestHarnesses describes the project's own test setup per package: the
+	// command, the runner, and the assertion extensions actually registered.
+	// It is measured from the project, not from the runner image.
+	TestHarnesses []TestHarness `json:"test_harnesses,omitempty"`
+	Warnings      []string      `json:"warnings,omitempty"`
 }
 
 // Host describes the operator machine that owns the project and runs the
@@ -170,6 +174,11 @@ func (m Manifest) Render() string {
 			paths = append(paths, fmt.Sprintf("%s (%d MB free)", volume.Purpose, volume.FreeMB))
 		}
 		b.WriteString("- DISK PRESSURE WARNING: " + strings.Join(paths, ", ") + ". Keep verification narrow; a full parallel/race build is likely to fail with a device-full error that no source patch can fix.\n")
+	}
+	if len(m.TestHarnesses) > 0 {
+		b.WriteString("- test_harnesses describes THIS project's own test setup. A test you write runs under the listed runner with its built-in matchers plus assertion_extensions, and nothing else.\n")
+		b.WriteString("- An EMPTY assertion_extensions list is a statement, not an omission: jest-dom style matchers such as toHaveAttribute, toBeInTheDocument, toHaveClass and toHaveTextContent DO NOT EXIST there. Vitest reports them as `Invalid Chai property`, which looks like a defect in your change. Assert with the runner's own matchers instead, and follow whatever the neighbouring tests in the same file already use.\n")
+		b.WriteString("- Import only from the listed libraries. A testing package that is not declared is not installed, exactly like an absent executable.\n")
 	}
 	for _, warning := range m.Warnings {
 		b.WriteString("- NOTE: " + warning + "\n")
