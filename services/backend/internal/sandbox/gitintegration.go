@@ -204,6 +204,10 @@ type HostMerge struct {
 // work. Afterwards it realigns the submodule checkouts the merge moved, which
 // Git itself leaves stale.
 func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge, error) {
+	return mergeBranchOnHost(ctx, hostPath, branch, nil)
+}
+
+func mergeBranchOnHost(ctx context.Context, hostPath, branch string, sync func([]hostrepo.Submodule) hostrepo.SyncResult) (HostMerge, error) {
 	topology, err := hostrepo.Inspect(ctx, hostPath)
 	if err != nil {
 		return HostMerge{}, err
@@ -238,7 +242,7 @@ func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge,
 			managed, ordinary := partitionManagedMergePaths(paths)
 			if len(managed) > 0 && len(ordinary) == 0 {
 				if preserveErr := preserveManagedMergeConflicts(ctx, hostPath, topology, result.PreMergeSHA, managed); preserveErr == nil {
-					result.SubmoduleSync, _ = hostrepo.SyncSubmodules(ctx, hostPath, preMerge.Submodules)
+					result.SubmoduleSync = runSubmoduleSync(ctx, hostPath, preMerge.Submodules, sync)
 					return result, nil
 				} else {
 					_, _ = runGit(ctx, hostPath, "merge", "--abort")
@@ -255,8 +259,16 @@ func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge,
 	// A failed realignment is not a reason to undo a merge that succeeded:
 	// the superproject is correct either way, and the skip list names exactly
 	// what the operator still has to update themselves.
-	result.SubmoduleSync, _ = hostrepo.SyncSubmodules(ctx, hostPath, preMerge.Submodules)
+	result.SubmoduleSync = runSubmoduleSync(ctx, hostPath, preMerge.Submodules, sync)
 	return result, nil
+}
+
+func runSubmoduleSync(ctx context.Context, hostPath string, before []hostrepo.Submodule, sync func([]hostrepo.Submodule) hostrepo.SyncResult) hostrepo.SyncResult {
+	if sync != nil {
+		return sync(before)
+	}
+	result, _ := hostrepo.SyncSubmodules(ctx, hostPath, before)
+	return result
 }
 
 // ChangedPathsBetween returns the paths that differ between two commits,

@@ -242,15 +242,30 @@ func sessionFailureKind(item domain.Session) string {
 	return ""
 }
 
+// legacySubmoduleWriteDiagnostics are the refusal texts earlier versions wrote
+// into a session before adr/ADR-0050 narrowed this condition. A session
+// persisted under one of them must still classify as a submodule-write refusal,
+// or reopening it would offer a source repair for a repository-topology
+// condition no patch can fix.
+var legacySubmoduleWriteDiagnostics = []string{
+	"change writes inside a Git submodule, which Wharnex integrates as a pointer rather than as content",
+	"change targets a Git submodule that is unavailable for repository-tree integration",
+}
+
 func sessionHasSubmoduleWriteDiagnostic(item domain.Session) bool {
-	needle := strings.ToLower(ErrSubmoduleWrite.Error())
+	needles := []string{strings.ToLower(ErrSubmoduleWrite.Error())}
+	for _, legacy := range legacySubmoduleWriteDiagnostics {
+		needles = append(needles, strings.ToLower(legacy))
+	}
 	details := []string{item.LastRepairError}
 	if item.LastExecution != nil {
 		details = append(details, item.LastExecution.Error)
 	}
 	for _, detail := range details {
-		if strings.Contains(strings.ToLower(detail), needle) {
-			return true
+		for _, needle := range needles {
+			if strings.Contains(strings.ToLower(detail), needle) {
+				return true
+			}
 		}
 	}
 	return false

@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,13 +16,27 @@ import (
 
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/hostrepo"
 )
 
 func copyProject(source string) (Workspace, error) {
+	return copyProjectWithSubmodules(source, map[string]bool{})
+}
+
+func copyProjectWithSubmodules(source string, ancestors map[string]bool) (Workspace, error) {
 	root, err := filepath.Abs(source)
 	if err != nil {
 		return Workspace{}, err
 	}
+	root = filepath.Clean(root)
+	if ancestors[root] {
+		return Workspace{}, fmt.Errorf("recursive submodule cycle at %s", root)
+	}
+	lineage := make(map[string]bool, len(ancestors)+1)
+	for path := range ancestors {
+		lineage[path] = true
+	}
+	lineage[root] = true
 	tmp, err := os.MkdirTemp("", "kernl-workspace-*")
 	if err != nil {
 		return Workspace{}, err
@@ -51,6 +66,12 @@ func copyProject(source string) (Workspace, error) {
 		return Workspace{}, fmt.Errorf("copy project: %w", err)
 	}
 	if tracked {
+		if err := copyInitializedSubmodules(root, tmp, lineage); err != nil {
+			_ = os.RemoveAll(tmp)
+			return Workspace{}, fmt.Errorf("copy project submodules: %w", err)
+		}
+	}
+	if tracked {
 		if err := configureSandboxGitRemotes(root, tmp); err != nil {
 			_ = os.RemoveAll(tmp)
 			return Workspace{}, fmt.Errorf("configure sandbox git remotes: %w", err)
@@ -60,6 +81,41 @@ func copyProject(source string) (Workspace, error) {
 		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
 	}
 	return Workspace{Path: tmp, SourcePath: root, SubmoduleBaselines: submoduleBaselines}, nil
+}
+
+// copyInitializedSubmodules gives every initialized submodule in the isolated
+// workspace its own cloned Git metadata and history. Copying only its files
+// makes them invisible to the superproject index and is the reason verified
+// submodule patches could not previously be committed.
+func copyInitializedSubmodules(sourceRoot, targetRoot string, ancestors map[string]bool) error {
+	topology, err := hostrepo.Inspect(context.Background(), sourceRoot)
+	if err != nil {
+		return err
+	}
+	for _, submodule := range topology.Submodules {
+		if !submodule.Initialized {
+			continue
+		}
+		source := filepath.Join(sourceRoot, filepath.FromSlash(submodule.Path))
+		child, err := copyProjectWithSubmodules(source, ancestors)
+		if err != nil {
+			return fmt.Errorf("%s: %w", submodule.Path, err)
+		}
+		destination := filepath.Join(targetRoot, filepath.FromSlash(submodule.Path))
+		if err := os.RemoveAll(destination); err != nil {
+			_ = os.RemoveAll(child.Path)
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			_ = os.RemoveAll(child.Path)
+			return err
+		}
+		if err := os.Rename(child.Path, destination); err != nil {
+			_ = os.RemoveAll(child.Path)
+			return err
+		}
+	}
+	return nil
 }
 
 // HydrateMissingProjectFiles completes a private partial request base with

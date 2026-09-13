@@ -48,7 +48,7 @@ A workspace rebuilt from an immutable archived request base has a synthetic root
 commit and no ancestry in common with the host. It keeps the legacy
 `ChangeSet` path unchanged, because there is nothing to branch or merge onto.
 
-## Host repository shape and dirty-worktree integration (v1.3.3)
+## Host repository shape and dirty-worktree integration (v1.3.4)
 
 The host project's repository shape is measured, never assumed (see
 `adr/ADR-0039`). `internal/hostrepo` resolves the repository's real Git
@@ -93,6 +93,10 @@ files into a directory the index shadows with a gitlink, so they are visible to
 a compiler and invisible to Git, and a verified patch dies at
 `fatal: Pathspec … is in submodule` after the whole verification suite has
 already been spent on it.
+
+A Protected workspace MUST therefore contain a real local clone for every
+initialized submodule the plan touches; copying a submodule's files without its
+independent Git metadata is forbidden.
 
 Every unit then anchors its own request base, receives its own integration
 branch, is committed with the plan's own `commit_message`, and is pushed into

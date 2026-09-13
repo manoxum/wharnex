@@ -252,9 +252,31 @@ commit. In no-auto-commit mode only the superproject unwinds; submodule commits
 are kept, because a gitlink can only point at a commit, and the change surfaces
 as an uncommitted pointer move over real commits in the submodules.
 
-Submodule commits are local. Wharnex never pushes to a submodule's remote —
-push is an explicit human action — so every unit Wharnex committed into is named
-in the terminal applied event and on the Git surface.
+A submodule is advanced on the branch it was checked out on, never detached:
+`git submodule update` would check out a detached HEAD, so the realignment pass
+skips a unit whose checkout already holds the commit the parent now records —
+the normal outcome once that unit merged in its own repository. A submodule
+already detached stays detached.
+
+A candidate records each unit's checkout at verification time — the branch and
+the commit it pointed at — and Apply refuses before touching anything when a
+submodule has since moved to another branch, because merging then would advance
+a branch in a repository Wharnex does not own with work never built against it.
+A candidate carrying no recorded checkout is not guarded, so candidates
+persisted before this contract stay appliable.
+
+Publishing a candidate's branches is all-or-nothing: a failure part-way through
+deletes the refs already pushed, and a successful Apply removes every unit's
+temporary integration branch. Without that, a candidate that never existed
+leaves refs behind in the operator's repositories and blocks the next attempt at
+the same request id.
+
+The operator's explicit Apply confirmation authorizes this bounded repository
+tree as one transaction. It does not authorize remote pushes, and it does not
+extend to unrelated nested Git repositories. Submodule commits are local —
+Wharnex never pushes to a submodule's remote, push being an explicit human
+action — so every unit Wharnex committed into is named in the terminal applied
+event and on the Git surface.
 
 ## Persistent integration race (v1.3.2)
 

@@ -2727,6 +2727,17 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		return failure
 	}
 	if useIntegrationBranches {
+		// Refuse before anything is touched when a submodule is no longer the
+		// checkout this candidate was verified against. Merging into a branch
+		// the operator moved to meanwhile would advance a repository Wharnex
+		// does not own with work never built against it, and the refusal costs
+		// nothing because no unit has been mutated yet.
+		if driftErr := sandbox.GuardUnitDrift(ctx, item.ProjectPath, pendingUnitCheckouts(pending)); driftErr != nil {
+			s.bus.Publish(sessionID, "integration.unit_drift_blocked", map[string]any{
+				"plan_id": latestPlanID, "error": driftErr.Error(),
+			})
+			return item, abortPreparedTransaction(fmt.Errorf("%w: %v", ErrHostWorkingStateBlocked, driftErr))
+		}
 		var mergeErr error
 		var failedPlanID string
 		mergedIntegrationBranches, integrationRollback, failedPlanID, mergeErr = s.mergeIntegrationBranches(ctx, sessionID, item.ProjectPath, pending)

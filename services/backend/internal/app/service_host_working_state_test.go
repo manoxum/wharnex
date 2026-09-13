@@ -102,6 +102,23 @@ func TestRouteSubmoduleWritesRefusesAnUninitializedSubmodule(t *testing.T) {
 	}
 }
 
+// A submodule the operator deinitialized reaches the same state by a different
+// route than one that was never initialized in a fresh clone, and both have to
+// be refused: `git submodule deinit` empties the checkout while leaving the
+// gitlink and the .gitmodules entry in place, so the boundary is still there
+// and there is still no repository behind it.
+func TestRouteSubmoduleWritesRefusesADeinitializedSubmodule(t *testing.T) {
+	requireGitForApp(t)
+	root := newAppRepoWithSubmodule(t, "mod/app")
+	runGitForApp(t, root, "submodule", "deinit", "-f", "--", "mod/app")
+	service := &Service{bus: audit.NewBus()}
+
+	err := service.routeSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt"))
+	if !errors.Is(err, ErrSubmoduleWrite) || !strings.Contains(err.Error(), "mod/app") {
+		t.Fatalf("expected an actionable uninitialized submodule refusal, got %v", err)
+	}
+}
+
 func TestRouteSubmoduleWritesAllowsSuperprojectPaths(t *testing.T) {
 	requireGitForApp(t)
 	root := newAppRepoWithSubmodule(t, "mod/app")

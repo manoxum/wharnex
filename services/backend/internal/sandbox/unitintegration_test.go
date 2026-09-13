@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -262,5 +263,85 @@ func TestOrderUnitsDeepestFirstPutsTheSuperprojectLast(t *testing.T) {
 		if ordered[index] != want[index] {
 			t.Fatalf("unit %d is %q, want %q", index, ordered[index], want[index])
 		}
+	}
+}
+
+// Verification commits inside a submodule's own repository and records which
+// branch that repository was on. If the operator checks it out onto something
+// else before Apply, merging would advance a branch the candidate was never
+// built against — in a repository Wharnex does not own.
+func TestGuardUnitDriftRefusesASubmoduleMovedSinceVerification(t *testing.T) {
+	requireGit(t)
+	host := newHostRepoWithSubmodule(t, "services/app")
+	ctx := context.Background()
+	appRoot := filepath.Join(host, "services", "app")
+	mustGit(t, appRoot, "checkout", "-q", "-B", "devup")
+
+	verified := CaptureUnitCheckouts(ctx, host, []string{hostrepo.RootUnitPath, "services/app"})
+	if verified["services/app"].TargetBranch != "devup" || verified["services/app"].BaseCommit == "" {
+		t.Fatalf("the capture must record the branch and its commit, got %+v", verified["services/app"])
+	}
+	if err := GuardUnitDrift(ctx, host, verified); err != nil {
+		t.Fatalf("an unchanged checkout must pass the guard: %v", err)
+	}
+
+	mustGit(t, appRoot, "checkout", "-q", "-B", "other")
+	err := GuardUnitDrift(ctx, host, verified)
+	var drift *UnitDriftError
+	if !errors.As(err, &drift) {
+		t.Fatalf("expected a typed drift refusal, got %v", err)
+	}
+	if drift.UnitPath != "services/app" || !strings.Contains(drift.Error(), "devup") || !strings.Contains(drift.Error(), "other") {
+		t.Fatalf("the refusal must name the unit and both branches, got %v", drift)
+	}
+}
+
+// A candidate persisted before checkouts were recorded must stay appliable, and
+// a submodule the operator deliberately keeps detached is not drift.
+func TestGuardUnitDriftIgnoresUnrecordedAndDetachedUnits(t *testing.T) {
+	requireGit(t)
+	host := newHostRepoWithSubmodule(t, "services/app")
+	ctx := context.Background()
+
+	if err := GuardUnitDrift(ctx, host, nil); err != nil {
+		t.Fatalf("a candidate with no recorded checkout must not be guarded: %v", err)
+	}
+	detached := map[string]UnitCheckout{"services/app": {BaseCommit: "deadbeef"}}
+	if err := GuardUnitDrift(ctx, host, detached); err != nil {
+		t.Fatalf("a unit verified while detached must not be guarded: %v", err)
+	}
+}
+
+// A push that fails part-way must not leave refs behind for a candidate that
+// never existed; the next attempt at the same request id would then fail to
+// create a branch it had apparently already pushed.
+func TestPushUnitsToHostUnwindsRefsItAlreadyPublished(t *testing.T) {
+	requireGit(t)
+	host := newHostRepoWithSubmodule(t, "services/app")
+	workspace, err := copyProject(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(workspace.Path)
+	ctx := context.Background()
+	writeFile(t, workspace.Path, "services/app/lib.txt", "v2\n")
+	units, err := hostrepo.InspectUnits(ctx, workspace.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := CommitVerifiedUnits(ctx, workspace.Path, "whx/req_unwind", units,
+		units.Group([]string{"services/app/lib.txt"}), nil, unitMessage(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Make the LAST unit's push fail by pointing it at a destination that is
+	// not a repository, after the first one has already been published.
+	broken := append([]UnitCommit(nil), commits...)
+	broken[len(broken)-1].UnitPath = "definitely/not/a/repository"
+	if err := PushUnitsToHost(ctx, workspace.Path, host, broken); err == nil {
+		t.Fatal("expected the publish to fail")
+	}
+	if _, lookupErr := runGit(ctx, filepath.Join(host, "services", "app"), "rev-parse", "--verify", "-q", "whx/req_unwind"); lookupErr == nil {
+		t.Fatal("a failed publish left the branch it had already pushed behind in the submodule")
 	}
 }

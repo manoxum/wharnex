@@ -622,6 +622,19 @@ type IntegrationUnit struct {
 	// records. It is what makes a pointer-only superproject commit legible in
 	// an audit trail instead of looking like an empty change.
 	PointerUpdates []string `json:"pointer_updates,omitempty"`
+	// TargetBranch and BaseCommit are the operator's own checkout of this unit
+	// as it stood when the candidate was verified: the branch the unit was on,
+	// and the commit that branch pointed at. Empty TargetBranch means the unit
+	// was detached, which is the ordinary resting state of a submodule.
+	//
+	// They exist so Apply can prove it is still integrating into what it
+	// verified. Verification commits inside a submodule's own repository, and
+	// between then and Apply an operator may check that submodule out onto
+	// another branch entirely; merging anyway would advance a branch the
+	// candidate was never built against. Recording the pair makes that
+	// detectable, and a detected drift is refused rather than merged.
+	TargetBranch string `json:"target_branch,omitempty"`
+	BaseCommit   string `json:"base_commit,omitempty"`
 }
 
 type IntegrationOutcome string

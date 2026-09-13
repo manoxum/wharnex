@@ -175,12 +175,100 @@ func CommitVerifiedUnits(
 // own .git on the host, by absolute filesystem path. Never a network remote and
 // never the operator's configured origin, exactly as the superproject push has
 // always worked.
+// A failure part-way through is unwound: every unit already published in this
+// call has its branch deleted again. Without that, a candidate that published
+// two submodules and failed on the third would leave two refs behind in
+// repositories the operator owns, for a candidate that never existed — and the
+// next attempt at the same request id would then fail to create the branch it
+// had apparently already pushed.
 func PushUnitsToHost(ctx context.Context, workspacePath, hostPath string, commits []UnitCommit) error {
+	published := make([]UnitCommit, 0, len(commits))
 	for _, commit := range commits {
 		source := unitWorkspaceRoot(workspacePath, commit.UnitPath)
 		destination := unitWorkspaceRoot(hostPath, commit.UnitPath)
 		if output, err := runGit(ctx, source, "push", "--no-verify", "--", destination, commit.Branch+":refs/heads/"+commit.Branch); err != nil {
+			DeleteHostUnitBranches(ctx, hostPath, published)
 			return fmt.Errorf("push integration branch into %s: %s", unitLabel(commit.UnitPath), output)
+		}
+		published = append(published, commit)
+	}
+	return nil
+}
+
+// UnitCheckout is a repository unit's own checkout as it stood at one moment:
+// the branch it was on, empty when detached, and the commit that branch pointed
+// at.
+type UnitCheckout struct {
+	TargetBranch string
+	BaseCommit   string
+}
+
+// CaptureUnitCheckouts records what each unit's checkout looked like, so a
+// later Apply can prove it is still integrating into what it verified.
+func CaptureUnitCheckouts(ctx context.Context, root string, unitPaths []string) map[string]UnitCheckout {
+	checkouts := map[string]UnitCheckout{}
+	for _, unitPath := range unitPaths {
+		unitRoot := unitWorkspaceRoot(root, unitPath)
+		topology, err := hostrepo.Inspect(ctx, unitRoot)
+		if err != nil {
+			continue
+		}
+		head, _ := CurrentHeadSHA(ctx, unitRoot)
+		checkouts[unitPath] = UnitCheckout{TargetBranch: topology.Branch, BaseCommit: head}
+	}
+	return checkouts
+}
+
+// UnitDriftError reports a repository unit whose checkout moved between
+// verification and Apply.
+type UnitDriftError struct {
+	UnitPath string
+	Detail   string
+}
+
+func (e *UnitDriftError) Error() string {
+	return fmt.Sprintf("%s moved since this change was verified: %s", unitLabel(e.UnitPath), e.Detail)
+}
+
+// GuardUnitDrift refuses an Apply whose submodule checkouts are no longer the
+// ones the candidate was verified against.
+//
+// Verification commits inside a submodule's own repository and records which
+// branch that repository was on. Between then and Apply the operator may check
+// that submodule out onto something else entirely — a different feature branch,
+// or a detached bisect. Merging anyway would advance a branch the candidate was
+// never built against, in a repository Wharnex does not own. It is checked
+// before any unit is touched, so a refusal costs nothing and leaves the whole
+// project exactly as it was.
+//
+// A unit with no recorded checkout is not guarded: candidates persisted before
+// this was recorded keep their previous behavior rather than becoming
+// unappliable.
+func GuardUnitDrift(ctx context.Context, hostPath string, checkouts map[string]UnitCheckout) error {
+	paths := make([]string, 0, len(checkouts))
+	for unitPath := range checkouts {
+		paths = append(paths, unitPath)
+	}
+	sort.Strings(paths)
+	for _, unitPath := range paths {
+		expected := checkouts[unitPath]
+		if unitPath == hostrepo.RootUnitPath || expected.TargetBranch == "" {
+			continue
+		}
+		unitRoot := unitWorkspaceRoot(hostPath, unitPath)
+		topology, err := hostrepo.Inspect(ctx, unitRoot)
+		if err != nil {
+			return &UnitDriftError{UnitPath: unitPath, Detail: "it can no longer be measured as a repository"}
+		}
+		if topology.Branch != expected.TargetBranch {
+			current := topology.Branch
+			if current == "" {
+				current = "a detached HEAD"
+			}
+			return &UnitDriftError{
+				UnitPath: unitPath,
+				Detail:   fmt.Sprintf("it was verified on branch %s and is now on %s", expected.TargetBranch, current),
+			}
 		}
 	}
 	return nil

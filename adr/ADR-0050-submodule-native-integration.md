@@ -199,6 +199,33 @@ because push is an explicit human action and always has been. The terminal
 `host.applied` event and the Git surface name every unit Wharnex committed into,
 so the operator knows precisely which repositories have unpushed work.
 
+### Checkout drift, ref hygiene and compatibility
+
+Three obligations come from the parallel implementation this decision absorbed
+(`fix/submodule-versioning`), and each closes a hole the unit model left open.
+
+A candidate records each unit's checkout at verification — the branch it was on
+and the commit that branch pointed at. Apply refuses, before touching anything,
+when a submodule has since moved to a different branch: merging then would
+advance a branch in a repository Wharnex does not own with work never built
+against it. The refusal is free because no unit has been mutated yet.
+
+Publishing a candidate's branches is all-or-nothing. A failure part-way through
+deletes the refs already pushed, and a successful Apply removes every unit's
+temporary branch. Without that, a candidate that never existed leaves refs in
+the operator's repositories and blocks the next attempt at the same request id.
+
+A submodule is advanced on the branch it was checked out on and is never
+detached. `git submodule update` checks out a detached HEAD, so the realignment
+pass skips any unit whose checkout already holds the commit the parent now
+records — the normal outcome once that unit merged in its own repository.
+
+Compatibility is additive in both directions. A candidate persisted before unit
+records existed falls back to superproject-only integration, which is exactly
+what it was; one carrying no recorded checkout is not drift-guarded, so it stays
+appliable. Initialized projects need no migration, and an uninitialized
+submodule keeps the same fail-closed outcome with a narrower remedy.
+
 ## Alternatives rejected
 
 - **Keep rejecting, and tell the operator to open the submodule as a project.**

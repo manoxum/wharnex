@@ -147,22 +147,31 @@ skipped) and strictly non-destructive (a submodule holding uncommitted work is
 never checked out over). Skips are published rather than hidden, because the
 superproject is then knowingly ahead of a checkout the operator must update.
 
-### Early rejection of submodule writes
+### Early rejection of submodule writes — superseded by `adr/ADR-0050`
 
-A `change` bundle whose patch writes inside a submodule is rejected **at
-ingestion**, at the same seam and for the same reason as the `commit_message`
-contract: it cannot be integrated at all, so every step between ingestion and
-that discovery is wasted. Measurement failure never rejects: a project Wharnex
-cannot inspect is admitted exactly as before.
+This decision rejected every patch inside a submodule **at ingestion**, at the
+same seam and for the same reason as the `commit_message` contract: it could not
+be integrated at all, so every step between ingestion and that discovery was
+wasted. Measurement failure never rejected: a project Wharnex could not inspect
+was admitted exactly as before.
 
-Writing *inside* a submodule remains unsupported by design in this decision. A
-submodule is a different repository with its own remote, history and review
-process; Wharnex committing into it is a distinct authority question, not an
-extension of the superproject Apply it already owns. The refusal is surfaced as
-the typed `submodule_write` terminal condition: it does not spend a fresh
-ChatGPT request trying the same superproject again, and the operator is directed
-to open the submodule repository itself. This states the real constraint
-instead of failing late with a Git pathspec error or entering a retry loop.
+Writing *inside* a submodule was held unsupported by design here, on the grounds
+that a submodule is a different repository with its own remote, history and
+review process, and that committing into it is a distinct authority question
+rather than an extension of the superproject Apply.
+
+**`adr/ADR-0050` reverses that position and supersedes this section.** The
+reasoning above describes the mechanism as it then existed, not a constraint of
+Git: a project is now modelled as a tree of repository units and a change inside
+an initialized submodule is committed in that submodule's own repository, with
+the parent recording the resulting pointer. Read ADR-0050 for the current
+contract. What survives from this section is its narrow residue — a submodule
+with no usable checkout still has no repository to commit into, and keeps the
+typed `submodule_write` terminal condition.
+
+Everything else in this ADR — shape measurement, the dirty-worktree
+classification, the refusal conditions, and offline realignment — remains in
+force and is extended rather than replaced by ADR-0050.
 
 ### Containment fix found on the way
 
@@ -207,6 +216,8 @@ that must not reach it. `.git` is now excluded whichever it is.
   operator's own remedy rather than a GPT repair.
 - Submodule checkouts follow the superproject through both merge and revert, so
   post-merge verification runs against the tree it is verifying.
-- A patch inside a submodule is rejected before execution and does not consume
-  a fresh ChatGPT recovery request. The operator is directed to the submodule
-  repository that actually owns the requested files.
+- A patch inside an initialized submodule produces a nested verified candidate
+  (`adr/ADR-0050`); only submodule topology Wharnex cannot execute against is
+  rejected before execution, and that rejection does not consume a fresh ChatGPT
+  recovery request. The operator is directed to initialize or repair the
+  submodule that actually owns the requested files.

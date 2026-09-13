@@ -191,9 +191,17 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 	if pushErr != nil {
 		return nil, pushErr
 	}
+	// The operator's own checkout of each unit is recorded alongside the
+	// verified commit, so Apply can prove it is still integrating into the
+	// repositories this candidate was actually built against. It is read from
+	// the HOST, not the sandbox: the sandbox's units are detached clones, while
+	// what matters is the branch the operator has checked out.
+	checkouts := sandbox.CaptureUnitCheckouts(ctx, projectPath, unitPathsOf(commits))
 	for _, commit := range commits {
+		checkout := checkouts[commit.UnitPath]
 		units = append(units, domain.IntegrationUnit{
 			Path: commit.UnitPath, Branch: commit.Branch, Commit: commit.CommitSHA, PointerUpdates: commit.PointerUpdates,
+			TargetBranch: checkout.TargetBranch, BaseCommit: checkout.BaseCommit,
 		})
 		s.bus.Publish(sessionID, "integration.branch_committed", map[string]any{
 			"plan_id": plan.PlanID, "branch": commit.Branch, "commit": commit.CommitSHA,
@@ -201,6 +209,30 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 		})
 	}
 	return units, nil
+}
+
+// unitPathsOf lists the units a set of verified commits covers.
+func unitPathsOf(commits []sandbox.UnitCommit) []string {
+	paths := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		paths = append(paths, commit.UnitPath)
+	}
+	return paths
+}
+
+// pendingUnitCheckouts rebuilds the checkout each unit had when this candidate
+// was verified, for the Apply-time drift guard.
+func pendingUnitCheckouts(pending []domain.PendingHostChange) map[string]sandbox.UnitCheckout {
+	checkouts := map[string]sandbox.UnitCheckout{}
+	for index := range pending {
+		for _, unit := range pending[index].IntegrationUnits {
+			if unit.TargetBranch == "" && unit.BaseCommit == "" {
+				continue
+			}
+			checkouts[unit.Path] = sandbox.UnitCheckout{TargetBranch: unit.TargetBranch, BaseCommit: unit.BaseCommit}
+		}
+	}
+	return checkouts
 }
 
 // rootIntegrationUnit finds the superproject's record, which is what the legacy
