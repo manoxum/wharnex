@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { api } from '../lib/api'
 import type { WorkspaceChatBindingCandidate } from '../types'
+import { Icon } from './Icon'
 
 // Shown when a chat has no conversation binding. A chat in that state opens the
 // ChatGPT home surface as if it had never been bound, and until now the only
@@ -51,45 +52,60 @@ export function ChatBindingRecovery({ chatId, onBind }: {
 
   return (
     <div className="chat-binding-recovery">
-      <p className="chat-binding-recovery-summary">
-        Este chat não está vinculado a nenhuma conversa do ChatGPT, por isso abre a página inicial.
-      </p>
-      <button type="button" onClick={search} disabled={busy}>
-        {busy ? 'A procurar…' : 'Recuperar vínculo'}
-      </button>
+      <div className="chat-binding-recovery-header">
+        <Icon name="link" size={18} />
+        <div className="chat-binding-recovery-header-text">
+          <strong>Este chat perdeu sua conversa</strong>
+          <span>Recupere o vínculo com a conversa do ChatGPT</span>
+        </div>
+      </div>
+      <div className="chat-binding-recovery-actions">
+        <button type="button" className="chat-binding-recovery-primary" onClick={search} disabled={busy}>
+          <Icon name="refresh" size={14} />
+          {busy ? 'A procurar…' : 'Recuperar vínculo automático'}
+        </button>
+      </div>
+      {candidates !== null && candidates.length > 0 && (
+        <div className="chat-binding-recovery-candidates-section">
+          <p className="chat-binding-recovery-label">Conversas encontradas:</p>
+          <ul className="chat-binding-recovery-candidates">
+            {candidates.map((candidate) => (
+              <li key={candidate.chatgpt_url} className={candidate.conflict ? 'conflict' : ''}>
+                <div className="chat-binding-recovery-candidate-info">
+                  <code>{candidate.chatgpt_url}</code>
+                  <span className="chat-binding-recovery-evidence">
+                    {EVIDENCE_LABEL[candidate.evidence] || 'origem desconhecida'}
+                  </span>
+                </div>
+                {candidate.conflict
+                  ? <span className="chat-binding-recovery-conflict">Já vinculado a outro chat</span>
+                  : <button type="button" className="chat-binding-recovery-candidate-bind" onClick={() => void bind(candidate.chatgpt_url)}>Vincular</button>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {candidates !== null && candidates.length === 0 && (
         <p className="chat-binding-recovery-empty">
-          Nenhuma conversa encontrada nos registos deste chat. Abra a conversa no ChatGPT e cole o endereço abaixo.
+          Nenhuma conversa encontrada nos registos. Abra a conversa do ChatGPT e cole o endereço.
         </p>
       )}
-      {candidates !== null && candidates.length > 0 && (
-        <ul className="chat-binding-recovery-candidates">
-          {candidates.map((candidate) => (
-            <li key={candidate.chatgpt_url}>
-              <code>{candidate.chatgpt_url}</code>
-              <span className="chat-binding-recovery-evidence">
-                Encontrado na {EVIDENCE_LABEL[candidate.evidence] || 'origem desconhecida'}
-              </span>
-              {candidate.conflict
-                ? <span className="chat-binding-recovery-conflict">Já pertence a outro chat</span>
-                : <button type="button" onClick={() => void bind(candidate.chatgpt_url)}>Vincular</button>}
-            </li>
-          ))}
-        </ul>
-      )}
-      <label className="chat-binding-recovery-manual">
-        <span>Ou cole o endereço da conversa</span>
-        <input
-          type="url"
-          value={manual}
-          placeholder="https://chatgpt.com/c/…"
-          onChange={(event) => setManual(event.target.value)}
-        />
-      </label>
-      <button type="button" disabled={!manual.trim()} onClick={() => void bind(manual.trim())}>
-        Vincular este endereço
-      </button>
-      {error && <p className="chat-binding-recovery-error">{error}</p>}
+      <div className="chat-binding-recovery-manual-section">
+        <p className="chat-binding-recovery-label">Ou cole manualmente:</p>
+        <label className="chat-binding-recovery-manual">
+          <input
+            type="url"
+            value={manual}
+            placeholder="https://chatgpt.com/c/…"
+            onChange={(event) => setManual(event.target.value)}
+            aria-label="Endereço da conversa do ChatGPT"
+          />
+          <button type="button" className="chat-binding-recovery-secondary" disabled={!manual.trim()} onClick={() => void bind(manual.trim())}>
+            Vincular
+          </button>
+        </label>
+      </div>
+      {error && <p className="chat-binding-recovery-error"><Icon name="alert" size={14}/>{error}</p>}
     </div>
   )
 }

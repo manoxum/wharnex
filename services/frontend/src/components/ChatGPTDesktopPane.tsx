@@ -429,8 +429,9 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
     {/* An unbound chat opens the ChatGPT home surface and looks indistinguishable
         from a brand-new one, so the way back has to be offered here rather than
-        left to the operator's memory of which conversation it was. */}
-    {!linkedConversation && !externalAuth && <ChatBindingRecovery chatId={chatId} onBind={onChatGPTURL} />}
+        left to the operator's memory of which conversation it was. Only show
+        recovery if the chat had messages (state.url !== home page). */}
+    {!linkedConversation && !externalAuth && state.url !== CHATGPT_HOME && <ChatBindingRecovery chatId={chatId} onBind={onChatGPTURL} />}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
     {followedAgentId && <div className="desktop-chatgpt-follow"><div><Icon name="monitor" size={13}/><strong>Seguindo {followedAgentId.replace('worker-', 'Worker ')}</strong><small>Instância real do Worker em tempo real; o scheduler continua proprietário.</small></div><button type="button" className="text-button" onClick={() => setFollowedAgentId('')}>Parar de seguir</button></div>}
     <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharnex retomará esta vista automaticamente.</span></div> : <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div>}</div>
