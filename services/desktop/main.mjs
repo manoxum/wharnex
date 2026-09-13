@@ -402,7 +402,9 @@ function supervisorKeyForSlot(slotID) {
 function chatSupervisorLeaseKeys() {
   const keys = new Set()
   for (const runtime of chatSupervisorStates.values()) {
-    const key = sanitizeChatCacheKey(runtime?.task?.chat_id || '')
+    const taskChatId = runtime?.task?.chat_id
+    if (!taskChatId) continue
+    const key = sanitizeChatCacheKey(taskChatId)
     if (key) keys.add(key)
   }
   return keys
@@ -2201,7 +2203,9 @@ function ensureChatGPTWorkerPool(windowState) {
 
 function assignChatGPTWorker(entry, task) {
   if (!entry || entry.role !== 'worker') throw new Error('Chat-agent worker slot is unavailable')
-  const key = sanitizeChatCacheKey(task?.chat_id || task?.chatId)
+  const chatId = task?.chat_id || task?.chatId
+  if (!chatId) throw new Error('Chat-agent task has no chat id')
+  const key = sanitizeChatCacheKey(chatId)
   const lane = chatAgentLane(task)
   if (!lane) throw new Error('Chat-agent task has no resident lane')
   const assignment = chatAgentResidency.beginAssignment(entry.slotId, lane)
@@ -2495,7 +2499,8 @@ function chatAgentRuntimeState() {
     // loops and the renderer bindings are both capped at SUPERVISOR_SLOTS but are
     // assigned independently, so pairing them by index would attribute one slot's
     // task to another slot's chat.
-    const own = key && sanitizeChatCacheKey(runtime.task?.chat_id || '') === key ? runtime : {}
+    const taskChatId = runtime.task?.chat_id
+    const own = key && taskChatId && sanitizeChatCacheKey(taskChatId) === key ? runtime : {}
     const hold = key ? supervisorBindingHold(key, entry) : ''
     return {
       id, label: `Supervisor ${slot}`, role: 'supervisor',
