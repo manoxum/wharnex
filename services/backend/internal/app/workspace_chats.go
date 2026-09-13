@@ -73,9 +73,21 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 	// binding, never drop one: that matches the affinity invariant, where only
 	// an explicit rebind or an explicit Send against a different conversation
 	// counts as intent.
-	if chat.ChatGPTURL == "" {
+	//
+	// Archive state is omitted by the same serializer for the same reason and
+	// is protected the same way. Archiving was renderer-local plus a session
+	// archive call, so the durable row still said "active"; on restart the
+	// durable record wins the merge and every chat archived since it became
+	// durable came back open. Both fields now survive a save that simply does
+	// not mention them.
+	if chat.ChatGPTURL == "" || chat.ArchivedAt == nil {
 		if existing, err := s.store.GetWorkspaceChat(chat.ID); err == nil {
-			chat.ChatGPTURL = normalizeChatGPTConversationURL(existing.ChatGPTURL)
+			if chat.ChatGPTURL == "" {
+				chat.ChatGPTURL = normalizeChatGPTConversationURL(existing.ChatGPTURL)
+			}
+			if chat.ArchivedAt == nil {
+				chat.ArchivedAt = existing.ArchivedAt
+			}
 		}
 	}
 	chat.ConversationID = chatGPTConversationIDFromURL(chat.ChatGPTURL)
@@ -103,6 +115,36 @@ func (s *Service) UpdateWorkspaceChatRemote(chatID, chatGPTURL, projectRef, remo
 	}
 	return s.store.UpdateWorkspaceChatRemote(id, url, chatGPTConversationIDFromURL(url),
 		boundedText(projectRef, 256), boundedText(remoteTitle, maxChatTitleLength), boundedText(remoteState, 64))
+}
+
+// SetWorkspaceChatArchived is the explicit archive/restore action for a chat
+// row. It exists because a generic save can no longer clear `archived_at`, and
+// because it must not be able to: archiving was previously persisted only in
+// the browser and in the session's own archive state, so the durable chat row
+// still read as active and every archived chat reopened on the next restart.
+//
+// Restoring is the one operation allowed to clear the flag, and it says so.
+func (s *Service) SetWorkspaceChatArchived(chatID string, archived bool) (domain.WorkspaceChat, error) {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return domain.WorkspaceChat{}, ErrInvalidWorkspaceChat
+	}
+	chat, err := s.store.GetWorkspaceChat(id)
+	if err != nil {
+		return domain.WorkspaceChat{}, err
+	}
+	if archived {
+		if chat.ArchivedAt == nil {
+			at := time.Now().UTC()
+			chat.ArchivedAt = &at
+		}
+	} else {
+		chat.ArchivedAt = nil
+	}
+	if err := s.store.SaveWorkspaceChat(chat); err != nil {
+		return domain.WorkspaceChat{}, err
+	}
+	return chat, nil
 }
 
 func (s *Service) DeleteWorkspaceChat(chatID string) error {

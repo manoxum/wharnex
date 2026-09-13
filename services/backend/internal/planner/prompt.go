@@ -1,7 +1,6 @@
 package planner
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -321,12 +320,10 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 
 `
 	}
-	manifestForPlanner := req.ContextManifest
-	// Structured exclusion details exist for local audit/UI inspection. The
-	// legacy exclusion summary is sufficient for the model and avoids sending
-	// the same exclusion inventory twice.
-	manifestForPlanner.ExcludedDetails = nil
-	manifest, _ := json.MarshalIndent(manifestForPlanner, "", "  ")
+	// Bounded by construction: the inventory grows with the project while the
+	// transport refuses a prompt over 1 MiB, and that refusal used to arrive as
+	// a hard failure at the very last step. See prompt_manifest.go.
+	manifest := renderContextManifest(req.ContextManifest)
 	automationMode := string(req.AutomationMode)
 	if automationMode == "" {
 		automationMode = "manual"

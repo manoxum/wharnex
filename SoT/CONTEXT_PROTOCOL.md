@@ -263,3 +263,42 @@ A Main Request delivers one complete project snapshot. Every later request in th
 ## Desktop request archive layout (v1.3.1)
 
 When Desktop builds the outer ChatGPT input archive, the managed project snapshot MUST be expanded beneath `context/` in that archive. It MUST NOT embed the snapshot as a second ZIP. Entry paths, symlink metadata, compression methods, expansion ratio, per-entry size and aggregate expanded size remain validated before composition.
+
+## The prompt's context inventory is bounded (v1.4)
+
+The planner prompt embeds the context manifest so every path a change intends to
+touch can be resolved before the bundle is written. That inventory grows with
+the project while the Desktop transport refuses a prompt over 1 MiB, and the
+refusal used to arrive as a hard failure after the request was planned, its base
+anchored and its context built (see `adr/ADR-0048`).
+
+- The rendered manifest MUST be capped well below the transport limit, leaving
+  the majority of the budget to the instructions, the user's message and the
+  knowledge section.
+- Selection under the cap MUST be deterministic, so the same project does not
+  produce a different prompt on every request.
+- Truncation MUST be declared in the prompt itself: how many entries were
+  omitted, that the attached context bundle carries the complete set, the
+  authoritative manifest SHA-256, and explicitly that absence from the list is
+  NOT evidence that a file does not exist. A silently shortened inventory
+  invites the planner to recreate a file that already exists, which is worse
+  than a list it knows is partial.
+- Package-manager content stores and build caches MUST be pruned as
+  dependencies regardless of directory name. One project's repository-local
+  pnpm store accounted for 98.9% of its files and made every prompt in that
+  project undeliverable.
+
+The context ZIP MUST deflate text entries and store non-text ones. Storing
+everything made the archive the raw byte sum of the project and turned a
+greeting into a twenty-minute upload; deflating an already-compressed payload
+would spend CPU for nothing. Archives never enter the bundle at all. Bundle
+identity MUST remain independent of the archive bytes — the manifest SHA-256 is
+computed from paths and content hashes — and the context/bundle size budgets
+MUST keep counting raw content, because they bound what the planner reads rather
+than what the transport carries.
+
+Package-manager content stores, build caches, IDE metadata and generated test
+output MUST be pruned as dependencies regardless of directory name. Pruning is
+mandatory and cannot be reopened by project configuration, so it MUST name only
+unambiguous non-source directories: SQL migrations, for instance, are project
+source and MUST stay.

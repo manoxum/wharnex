@@ -361,12 +361,25 @@ func TestContextFingerprintIsStableWithoutProjectChanges(t *testing.T) {
 	}
 }
 
-func TestContextSnapshotStoresEntriesWithoutRecompression(t *testing.T) {
+// Text is deflated and non-text is stored. The original contract was "no
+// recompression" and that half is preserved: deflating an already-compressed
+// payload spends CPU to gain nothing. Source text has never been compressed
+// before, and storing it made the context ZIP the raw byte sum of the project —
+// 21 MB for one 2,487-file project, whose upload ChatGPT timed out on four
+// times before succeeding.
+func TestContextSnapshotDeflatesTextAndStoresOpaqueContent(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "large.txt"), bytes.Repeat([]byte("context-line\n"), 4096), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bundle, err := NewBuilder(1<<20, 2<<20).Build(root)
+	// Included via the project's include list, so the binary check does not
+	// drop it before the archive is written.
+	mustWrite(t, filepath.Join(root, "whaness.yml"), "version: 1\ncontext:\n  auto_exclude: false\n  max_file_bytes: 2097152\n  include: []\n  exclude: []\n")
+	opaque := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03}
+	if err := os.WriteFile(filepath.Join(root, "logo.png"), bytes.Repeat(opaque, 512), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := NewBuilder(1<<20, 8<<20).Build(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,17 +389,74 @@ func TestContextSnapshotStoresEntriesWithoutRecompression(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer archive.Close()
-	found := false
+	methods := map[string]uint16{}
+	var storedText uint64
 	for _, entry := range archive.File {
-		if entry.Name != "large.txt" {
-			continue
-		}
-		found = true
-		if entry.Method != zip.Store {
-			t.Fatalf("context snapshot recompressed %s with ZIP method %d", entry.Name, entry.Method)
+		methods[entry.Name] = entry.Method
+		if entry.Name == "large.txt" {
+			storedText = entry.CompressedSize64
 		}
 	}
-	if !found {
-		t.Fatal("context snapshot did not contain large.txt")
+	if methods["large.txt"] != zip.Deflate {
+		t.Fatalf("source text must be deflated, got ZIP method %d", methods["large.txt"])
+	}
+	if storedText == 0 || storedText >= 4096*13/2 {
+		t.Fatalf("deflating highly repetitive text saved nothing: %d compressed bytes", storedText)
+	}
+	if method, ok := methods["logo.png"]; ok && method != zip.Store {
+		t.Fatalf("opaque content must not be recompressed, got ZIP method %d", method)
+	}
+}
+
+// A pnpm project configured with a repository-local store put 14,468
+// content-addressed dependency blobs into one project's context. The manifest
+// alone reached 5.8 MiB — six times what the Desktop can hand ChatGPT — so no
+// prompt in that project could be delivered at all. These are dependency
+// payloads under a different directory name, exactly like node_modules.
+func TestDependencyStoresAreExcludedFromContext(t *testing.T) {
+	for _, dir := range []string{
+		".pnpm-store", ".pnpm", ".yarn-cache", ".turbo", ".parcel-cache",
+		"__pycache__", ".venv", ".tox", ".mypy_cache", ".pytest_cache",
+		"node_modules",
+	} {
+		if !ShouldIgnore(dir, true) {
+			t.Fatalf("%s must be excluded from context bundles", dir)
+		}
+		if !ShouldIgnore("services/app/"+dir, true) {
+			t.Fatalf("a nested %s must be excluded too", dir)
+		}
+	}
+	// Ordinary source must remain eligible: over-pruning hides the code the
+	// request is actually about.
+	for _, path := range []string{"services/app/src/main.ts", "internal/app/service.go", "docs/venv-setup.md"} {
+		if ShouldIgnore(path, false) {
+			t.Fatalf("%s must stay in context", path)
+		}
+	}
+}
+
+// Generated reports, IDE metadata and build caches are not project source, and
+// carrying them cost one project 1.8 MB of every request. AGENTS.md already
+// asked for both classes to be pruned; they were simply never named.
+func TestGeneratedAndIDEArtefactsAreExcludedFromContext(t *testing.T) {
+	for _, dir := range []string{".idea", ".vscode", "playwright-report", "test-results", ".nyc_output"} {
+		if !ShouldIgnore(dir, true) {
+			t.Fatalf("%s must be excluded from context bundles", dir)
+		}
+		if !ShouldIgnore("services/flowcore-app/"+dir, true) {
+			t.Fatalf("a nested %s must be excluded too", dir)
+		}
+	}
+	for _, file := range []string{"tsconfig.app.tsbuildinfo", "services/app/lcov.lcov"} {
+		if !ShouldIgnore(file, false) {
+			t.Fatalf("%s must be excluded from context bundles", file)
+		}
+	}
+	// SQL migrations are project source and MUST stay: this list cannot be
+	// reopened by project configuration, so over-pruning here is unrecoverable.
+	for _, file := range []string{"services/flowcore-migration/001_init.sql", "db/migrations/0002_add_index.sql"} {
+		if ShouldIgnore(file, false) {
+			t.Fatalf("%s is project source and must stay in context", file)
+		}
 	}
 }

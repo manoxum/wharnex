@@ -644,6 +644,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         saveArchivedWorkspaceChats(projectPath, moved.archived)
         setArchivedChats(moved.archived)
       }
+      // The durable chat row has to learn about the archive too. It used to
+      // learn only about the session, so on the next restart the durable
+      // record — which wins the hydration merge — still said "active" and
+      // every chat archived since it became durable reopened.
+      try { await api.setWorkspaceChatArchived(chatId, true) } catch { /* retried on the next archive/restore */ }
       // Best-effort: the local transcript archive above stays authoritative
       // and is never blocked on this. It only gives the backend a trigger
       // to eventually compact this session's own artifacts/logs (ADR-0031).
@@ -700,6 +705,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const projectPath = session.project_path
       const moved = restoreStoredChat(projectPath, chatId)
+      // Clearing the durable archive flag is the counterpart of setting it: a
+      // generic save can no longer do it, so restoring has to say so explicitly.
+      try { await api.setWorkspaceChatArchived(chatId, false) } catch { /* retried on the next archive/restore */ }
       let selected = moved.active.find((chat) => chat.id === chatId) || target
       let restored: Session
       try {

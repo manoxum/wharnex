@@ -184,7 +184,29 @@ func addContextFile(zw *zip.Writer, textWriter *bufio.Writer, manifest *domain.C
 	manifest.Files = append(manifest.Files, domain.ContextFile{Path: rel, Size: int64(len(data)), SHA256: sha, ContentType: contentType})
 	_, _ = io.WriteString(projectHash, rel+":"+sha+"\n")
 
-	header := &zip.FileHeader{Name: rel, Method: zip.Store}
+	// Text is deflated; anything else is stored.
+	//
+	// Storing everything made the ZIP the raw byte sum of the project: a
+	// 2,487-file project produced a 21 MB attachment, whose upload ChatGPT
+	// timed out on four times before succeeding — roughly twenty minutes spent
+	// answering a greeting. Measured on that project's own sources, deflating
+	// text takes 7.66 MB to 1.95 MB, a 3.9x reduction.
+	//
+	// The original rule was "no recompression", and that half is kept: a
+	// non-text entry is already-compressed media or an opaque payload, where
+	// deflate spends CPU to gain nothing. Source text has never been
+	// compressed before, so compressing it is not recompression. Archives
+	// never reach here at all — the guard above refuses to nest one.
+	//
+	// Bundle identity is unaffected: the manifest SHA-256 is computed from
+	// paths and content hashes, never from the archive bytes. The size budgets
+	// above deliberately keep counting raw content, because they bound what the
+	// planner reads rather than what the transport carries.
+	method := zip.Store
+	if contentType == "text/plain; charset=utf-8" {
+		method = zip.Deflate
+	}
+	header := &zip.FileHeader{Name: rel, Method: method}
 	header.SetMode(mode)
 	writer, err := zw.CreateHeader(header)
 	if err != nil {
@@ -292,9 +314,23 @@ func ShouldIgnore(rel string, isDir bool) bool {
 	return false
 }
 
+// mandatoryBlockedDirs also covers the package-manager content stores, which
+// are dependency payloads rather than project source however they are spelled.
+// A pnpm project configured with a repository-local `.pnpm-store` put 14,468
+// content-addressed blobs into one project's context: the manifest alone was
+// 5.8 MiB, six times the 1 MiB the Desktop can hand ChatGPT, so no prompt in
+// that project could be delivered at all. `node_modules` was already blocked;
+// these are the same thing under a different directory name.
 var mandatoryBlockedDirs = []string{
 	".git", "node_modules", "dist", "build", "coverage", ".next", ".vite", ".harness",
 	"vendor", "secrets", ".ssh", ".aws", ".gnupg",
+	".pnpm-store", ".pnpm", ".yarn-cache", ".turbo", ".parcel-cache",
+	"__pycache__", ".venv", ".tox", ".mypy_cache", ".pytest_cache",
+	// IDE metadata and generated test output. `AGENTS.md` §10 already asks for
+	// both to be pruned; they were simply never named. One project carried
+	// 0.92 MB of JetBrains datasource XML and 0.9 MB of Playwright report and
+	// screenshots into every request, none of it project source.
+	".idea", ".vscode", "playwright-report", "test-results", ".nyc_output",
 }
 
 // mandatoryBlockedDirPrefixes catches directories a prior bundle round-trip
@@ -318,6 +354,11 @@ var mandatoryBlockedNames = []string{
 var mandatoryBlockedExtensions = []string{
 	".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".dump",
 	".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar",
+	// Build caches and coverage output are generated text: they pass the binary
+	// check and are large, so they reached the planner as though they were
+	// source. `.sql` is deliberately NOT here — migrations are project source,
+	// and this list cannot be reopened by project configuration.
+	".tsbuildinfo", ".lcov",
 }
 
 func stringIn(value string, values []string) bool {

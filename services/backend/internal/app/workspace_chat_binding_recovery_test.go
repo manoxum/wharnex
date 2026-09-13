@@ -172,3 +172,69 @@ func TestBindingRecoveryDoesNotRebindOnItsOwn(t *testing.T) {
 		t.Fatalf("recovery must not bind by itself, stored %q", stored.ChatGPTURL)
 	}
 }
+
+// Archiving used to live only in the browser and in the session's own archive
+// state, so the durable chat row still read as active. On restart the durable
+// record wins the hydration merge and every chat archived since it became
+// durable reopened — the whole archive silently undone by a restart.
+func TestAnOrdinaryChatSaveCannotReopenAnArchivedChat(t *testing.T) {
+	service := bindingService(t)
+	root := t.TempDir()
+	if _, err := service.SaveWorkspaceChat(domain.WorkspaceChat{ID: "chat-a", ProjectPath: root, Title: "Arquivado"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetWorkspaceChatArchived("chat-a", true); err != nil {
+		t.Fatal(err)
+	}
+	// The renderer re-saves the whole list; its copy knows nothing of the archive.
+	saved, err := service.SaveWorkspaceChat(domain.WorkspaceChat{ID: "chat-a", ProjectPath: root, Title: "Arquivado, renomeado"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.ArchivedAt == nil {
+		t.Fatal("an ordinary save reopened an archived chat")
+	}
+	if saved.Title != "Arquivado, renomeado" {
+		t.Fatalf("the save must still apply its own changes, got %q", saved.Title)
+	}
+}
+
+// Restoring is the one operation allowed to clear the flag, and it still works.
+func TestExplicitRestoreClearsTheArchiveFlag(t *testing.T) {
+	service := bindingService(t)
+	root := t.TempDir()
+	if _, err := service.SaveWorkspaceChat(domain.WorkspaceChat{ID: "chat-b", ProjectPath: root, Title: "Arquivado"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetWorkspaceChatArchived("chat-b", true); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := service.SetWorkspaceChatArchived("chat-b", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.ArchivedAt != nil {
+		t.Fatal("an explicit restore must clear the archive flag")
+	}
+}
+
+// Archiving twice must not move the timestamp: the archive date is when the
+// operator archived it, not when something last touched the row.
+func TestArchivingIsIdempotent(t *testing.T) {
+	service := bindingService(t)
+	root := t.TempDir()
+	if _, err := service.SaveWorkspaceChat(domain.WorkspaceChat{ID: "chat-c", ProjectPath: root, Title: "Arquivado"}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.SetWorkspaceChatArchived("chat-c", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.SetWorkspaceChatArchived("chat-c", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ArchivedAt == nil || second.ArchivedAt == nil || !first.ArchivedAt.Equal(*second.ArchivedAt) {
+		t.Fatalf("archiving twice moved the timestamp: %v -> %v", first.ArchivedAt, second.ArchivedAt)
+	}
+}

@@ -139,6 +139,11 @@ export const api = {
   // Proposes the conversations a chat with a lost binding may belong to. It is
   // read-only: rebinding stays the explicit remote update below, so recovery
   // can never silently point a chat at another chat's conversation.
+  // Archiving must reach the durable row, not only localStorage: the durable
+  // record wins the merge on restart, so a browser-only archive reopened every
+  // archived chat the next time the instance started.
+  setWorkspaceChatArchived: (chatId: string, archived: boolean) =>
+    request<DurableWorkspaceChatRecord>(`/api/workspace-chats/${encodeURIComponent(chatId)}/archived`, { method: 'PATCH', body: JSON.stringify({ archived }) }),
   workspaceChatBindingRecovery: (chatId: string) => request<WorkspaceChatBindingRecovery>(`/api/workspace-chats/${encodeURIComponent(chatId)}/binding-recovery`),
   updateWorkspaceChatRemote: (chatId: string, remote: { chatgpt_url?: string; remote_project_ref?: string; remote_title?: string; remote_state?: string }) =>
     request<{ ok: boolean }>(`/api/workspace-chats/${encodeURIComponent(chatId)}/remote`, { method: 'PATCH', body: JSON.stringify(remote) }),
