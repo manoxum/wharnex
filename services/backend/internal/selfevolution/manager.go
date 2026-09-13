@@ -40,6 +40,43 @@ var (
 	runtimeInstanceID = makeInstanceID()
 )
 
+// BlockedTransactionError explains a refusal to start self-evolution because an
+// earlier transaction is parked in a fail-closed phase.
+//
+// The bare ErrBusy it replaces was true and useless. A fail-closed phase such
+// as rollback_failed deliberately holds the global batch lock so an operator
+// can recover by hand — but nothing told them the phase, which transaction, why
+// it stopped, or what action releases it, and no endpoint offered to release
+// it. The result was a permanent deadlock: every later self-evolution refused,
+// with a message that named no remedy, for a lock only a human can clear.
+//
+// It reports as ErrBusy to errors.Is, so every existing caller keeps its
+// behavior while gaining the detail.
+type BlockedTransactionError struct {
+	Phase       string
+	Transaction string
+	PlanID      string
+	Detail      string
+	Remedy      string
+}
+
+func (e *BlockedTransactionError) Error() string {
+	message := fmt.Sprintf("%s: transaction %s is held in phase %q", ErrBusy, e.Transaction, e.Phase)
+	if e.PlanID != "" {
+		message += fmt.Sprintf(" from plan %s", e.PlanID)
+	}
+	if e.Detail != "" {
+		message += ": " + e.Detail
+	}
+	if e.Remedy != "" {
+		message += "; " + e.Remedy
+	}
+	return message
+}
+
+// Is keeps errors.Is(err, ErrBusy) true for every pre-existing caller.
+func (e *BlockedTransactionError) Is(target error) bool { return target == ErrBusy }
+
 // hostToolchainMismatchMarkers are literal substrings observed in real
 // `make build-stage` output when a pinned dependency's install/postinstall
 // step fails because the host's own runtime is too old to run it — not
@@ -180,6 +217,11 @@ func (m *Manager) Prepare(sessionID, planID string, patches []string) (Transacti
 		_ = os.Remove(lockPath)
 		return m.Prepare(sessionID, planID, patches)
 	}
+	if held := m.blockedTransaction(status); held != nil {
+		if _, txErr := m.transactionFromStatus(status); txErr == nil {
+			return Transaction{}, held
+		}
+	}
 	if _, txErr := m.transactionFromStatus(status); txErr != nil {
 		if !errors.Is(txErr, errTransactionDirectoryUnavailable) {
 			return Transaction{}, txErr
@@ -199,6 +241,74 @@ func (m *Manager) Prepare(sessionID, planID string, patches []string) (Transacti
 		return m.Prepare(sessionID, planID, patches)
 	}
 	return Transaction{}, ErrBusy
+}
+
+// blockedTransaction describes a fail-closed transaction that is holding the
+// batch lock, so the refusal can name what an operator has to decide.
+// BlockedStatus exposes blockedTransaction so the application layer can show
+// the operator what is holding self-evolution without duplicating the phase
+// classification.
+func (m *Manager) BlockedStatus(status Status) *BlockedTransactionError {
+	return m.blockedTransaction(status)
+}
+
+func (m *Manager) blockedTransaction(status Status) *BlockedTransactionError {
+	// An extendable pending phase is a batch legitimately waiting for its
+	// restart, not a fail-closed block: Prepare joins it rather than refusing,
+	// and offering to release it would discard work that is still on its way.
+	if !persistentSelfEvolutionPhase(status.Phase) || extendablePendingPhase(status.Phase) {
+		return nil
+	}
+	return &BlockedTransactionError{
+		Phase:       status.Phase,
+		Transaction: status.Transaction,
+		PlanID:      status.PlanID,
+		Detail:      status.Detail,
+		Remedy: "inspect that transaction's recorded baseline under .harness/self-evolution/" + status.Transaction +
+			", finish the recovery it describes, then release it explicitly to allow self-evolution again",
+	}
+}
+
+// ReleaseBlockedTransaction is the operator's explicit acknowledgement that a
+// fail-closed transaction has been dealt with, and the only supported way to
+// free the batch lock it holds.
+//
+// It is deliberately narrow. The caller must name the exact transaction, which
+// makes releasing an accident impossible and makes the audit trail say which
+// state a human actually looked at. Only a fail-closed phase is releasable: a
+// live or pending transaction is real work and must never be freed from under
+// itself. The transaction directory is left on disk, because it holds the
+// rollback baseline and source backup that are the evidence for whatever the
+// operator just did.
+func (m *Manager) ReleaseBlockedTransaction(transactionID string) (Status, error) {
+	transactionID = strings.TrimSpace(transactionID)
+	if transactionID == "" {
+		return Status{}, errors.New("the transaction to release must be named")
+	}
+	status, err := m.LastStatus()
+	if err != nil {
+		return Status{}, fmt.Errorf("read self-evolution status: %w", err)
+	}
+	if status.Transaction != transactionID {
+		return Status{}, fmt.Errorf("transaction %s does not hold the self-evolution lock; %s does", transactionID, status.Transaction)
+	}
+	if m.blockedTransaction(status) == nil {
+		return Status{}, fmt.Errorf("transaction %s is in phase %q, which is active work rather than a fail-closed state", transactionID, status.Phase)
+	}
+	base := filepath.Join(m.root, ".harness", "self-evolution")
+	m.logRecovery(fmt.Sprintf("lock_released_by_operator transaction=%s phase=%s plan=%s detail=%s",
+		sanitizeLabel(transactionID), sanitizeLabel(status.Phase), sanitizeLabel(status.PlanID), sanitizeLabel(status.Detail)))
+	_ = os.Remove(filepath.Join(base, "stage.lock"))
+	if err := os.Remove(filepath.Join(base, "active.lock")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Status{}, fmt.Errorf("release self-evolution lock: %w", err)
+	}
+	released := status
+	released.Phase = "released"
+	released.Detail = "released by the operator after " + status.Phase
+	if err := m.recordReleasedStatus(released); err != nil {
+		return Status{}, err
+	}
+	return released, nil
 }
 
 func (m *Manager) prepareNewBatch(base, lockPath, stageLockPath, sessionID, planID string, patches []string) (Transaction, error) {
@@ -594,6 +704,39 @@ func (m *Manager) RecordStatus(tx Transaction, sessionID, planID, phase, detail 
 		return closeErr
 	}
 	return os.Rename(tempPath, statusPath)
+}
+
+// recordReleasedStatus persists the outcome of an operator release. It writes
+// the same record shape RecordStatus does, but takes a Status rather than a
+// live Transaction: by this point the transaction is finished and its lock is
+// gone, so there is no Transaction left to hold.
+func (m *Manager) recordReleasedStatus(status Status) error {
+	base := filepath.Join(m.root, ".harness", "self-evolution")
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(base, ".status-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0o600); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	_, writeErr := fmt.Fprintf(temp, "phase=%s\nsession_id=%s\nplan_id=%s\ntransaction=%s\nupdated_at=%s\n",
+		sanitizeLabel(status.Phase), sanitizeLabel(status.SessionID), sanitizeLabel(status.PlanID),
+		sanitizeLabel(status.Transaction), time.Now().UTC().Format(time.RFC3339))
+	if clean := sanitizeDetail(status.Detail); clean != "" {
+		_, _ = fmt.Fprintf(temp, "detail=%s\n", clean)
+	}
+	if closeErr := temp.Close(); writeErr != nil {
+		return writeErr
+	} else if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(tempPath, filepath.Join(base, "status"))
 }
 
 func sanitizeDetail(value string) string {

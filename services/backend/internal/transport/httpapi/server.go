@@ -129,6 +129,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/self-evolution/evidence", a.selfEvolutionEvidence)
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/analyze", a.selfEvolutionAnalyze)
 	mux.HandleFunc("POST /api/sessions/{id}/self-evolution/evidence/resolve", a.selfEvolutionResolveEvidence)
+	mux.HandleFunc("GET /api/self-evolution/block", a.selfEvolutionBlock)
+	mux.HandleFunc("POST /api/self-evolution/block/release", a.releaseSelfEvolutionBlock)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
 	mux.HandleFunc("GET /api/sessions/{id}/events/history", a.eventHistory)
 	mux.HandleFunc("GET /api/sessions/{id}/knowledge", a.projectKnowledge)
@@ -744,6 +746,37 @@ func (a *API) pruneStorage(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// selfEvolutionBlock reports the fail-closed transaction holding the
+// self-evolution lock, so an operator can see what is waiting for them instead
+// of only being refused.
+func (a *API) selfEvolutionBlock(w http.ResponseWriter, _ *http.Request) {
+	block, blocked := a.service.SelfEvolutionBlocked()
+	if !blocked {
+		writeJSON(w, http.StatusOK, map[string]any{"blocked": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"blocked": true, "block": block})
+}
+
+// releaseSelfEvolutionBlock is an explicit human action, never reachable from a
+// model plan: it frees a lock a fail-closed transaction is deliberately holding.
+// The transaction must be named, so releasing is always an acknowledgement of a
+// specific state rather than a blanket reset.
+func (a *API) releaseSelfEvolutionBlock(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Transaction string `json:"transaction"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	released, err := a.service.ReleaseSelfEvolutionBlock(body.Transaction)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "self_evolution_release_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"released": released})
 }
 
 func (a *API) clearStorage(w http.ResponseWriter, r *http.Request) {

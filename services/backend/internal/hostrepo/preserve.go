@@ -31,7 +31,59 @@ const (
 	// BlockedIndexLocked: another Git process holds the repository index, or a
 	// crashed one left its lock behind.
 	BlockedIndexLocked BlockedReason = "index_locked"
+	// BlockedRepositoryOwnership: Git refuses the repository as owned by
+	// another user (safe.directory).
+	BlockedRepositoryOwnership BlockedReason = "repository_ownership"
+	// BlockedRepositoryPermission: the repository's own metadata is not
+	// writable by the process Wharnex runs as.
+	BlockedRepositoryPermission BlockedReason = "repository_permission"
+	// BlockedDiskFull: the filesystem holding the repository is full.
+	BlockedDiskFull BlockedReason = "disk_full"
 )
+
+// HostGitBlocked classifies a failed host Git write as an operator- or
+// infrastructure-owned condition, returning nil for anything else.
+//
+// Every condition it covers shares one property: no patch a planner can write
+// will clear it. Left unclassified they reach the generic error path, which
+// reads them as defects in the generated change and spends an automatic repair
+// round asking the planner to fix a lock file, a filesystem permission or a
+// full disk. The round cannot succeed, and the next Apply reproduces the same
+// failure — so the whole budget drains against a condition only the operator
+// can resolve, while the verified candidate is discarded along the way.
+//
+// Classifying them keeps the candidate, consumes no repair round, and hands
+// back the one action that actually clears the condition.
+func HostGitBlocked(ctx context.Context, root, output string) *BlockedError {
+	if blocked := IndexLockBlocked(ctx, root, output); blocked != nil {
+		return blocked
+	}
+	lowered := strings.ToLower(output)
+	switch {
+	case strings.Contains(lowered, "dubious ownership"):
+		return &BlockedError{
+			Reason: BlockedRepositoryOwnership,
+			Detail: "Git refuses this repository because it is owned by a different user than the one Wharnex runs as",
+			Paths:  []string{root},
+			Remedy: "run: git config --global --add safe.directory " + root + " (or correct the directory's ownership) and apply again",
+		}
+	case strings.Contains(lowered, "no space left on device"):
+		return &BlockedError{
+			Reason: BlockedDiskFull,
+			Detail: "the filesystem holding this repository is full, so Git could not write its index or objects",
+			Paths:  []string{root},
+			Remedy: "free disk space on that filesystem and apply again",
+		}
+	case strings.Contains(lowered, "permission denied"), strings.Contains(lowered, "read-only file system"):
+		return &BlockedError{
+			Reason: BlockedRepositoryPermission,
+			Detail: "Git could not write into this repository: " + truncate(output, 200),
+			Paths:  []string{root},
+			Remedy: "restore write access to the repository and its .git directory, then apply again",
+		}
+	}
+	return nil
+}
 
 // IndexLockBlocked classifies a Git failure caused by the repository index
 // lock, returning nil for any other failure.
@@ -172,7 +224,7 @@ func Preserve(ctx context.Context, root, message string) (Preservation, error) {
 	}
 	preservation.StagedPaths = append(append([]string(nil), state.Stageable...), state.GitlinkChanges...)
 	if output, err := run(ctx, root, StageArgs(state.EmbeddedRepositories)...); err != nil {
-		if blocked := IndexLockBlocked(ctx, root, output); blocked != nil {
+		if blocked := HostGitBlocked(ctx, root, output); blocked != nil {
 			return Preservation{}, blocked
 		}
 		return Preservation{}, fmt.Errorf("stage host working tree before integration: %s", output)
@@ -184,7 +236,7 @@ func Preserve(ctx context.Context, root, message string) (Preservation, error) {
 		// the status read and the commit. An empty commit is then correct and
 		// unremarkable, not a reason to abort the operator's Apply.
 		if !strings.Contains(output, "nothing to commit") && !strings.Contains(output, "no changes added to commit") {
-			if blocked := IndexLockBlocked(ctx, root, output); blocked != nil {
+			if blocked := HostGitBlocked(ctx, root, output); blocked != nil {
 				return Preservation{}, blocked
 			}
 			return Preservation{}, fmt.Errorf("commit host working tree before integration: %s", output)
@@ -251,3 +303,14 @@ const (
 	CommitAuthorName  = "Wharnex"
 	CommitAuthorEmail = "wharness@localhost"
 )
+
+// hostGitFailure wraps a failed host Git write, returning the typed
+// operator-owned condition when the output names one and an ordinary error
+// otherwise. Every host-facing write goes through it so that none of them can
+// quietly hand an unfixable condition to the repair loop.
+func hostGitFailure(ctx context.Context, root, output, action string) error {
+	if blocked := HostGitBlocked(ctx, root, output); blocked != nil {
+		return blocked
+	}
+	return fmt.Errorf("%s: %s", action, RedactRemoteURL(output))
+}

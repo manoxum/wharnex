@@ -159,7 +159,7 @@ func BeginMergeResolution(ctx context.Context, root, ref string, conflictPaths [
 			// patch decides its final content either way.
 			if !strings.Contains(output, "does not have our version") {
 				_, _ = run(ctx, root, "merge", "--abort")
-				return fmt.Errorf("restore our version of %s: %s", path, output)
+				return hostGitFailure(ctx, root, output, "restore our version of "+path)
 			}
 		}
 	}
@@ -181,7 +181,7 @@ func CompleteMergeResolution(ctx context.Context, root string, conflictPaths []s
 		return "", fmt.Errorf("resolution left unresolved paths: %s", strings.Join(strings.Fields(remaining), ", "))
 	}
 	if output, commitErr := run(ctx, root, "commit", "-q", "--no-edit", "-m", message); commitErr != nil {
-		return "", fmt.Errorf("commit merge resolution: %s", output)
+		return "", hostGitFailure(ctx, root, output, "commit merge resolution")
 	}
 	head, err := run(ctx, root, "rev-parse", "HEAD")
 	if err != nil {

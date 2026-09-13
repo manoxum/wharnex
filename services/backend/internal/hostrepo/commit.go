@@ -43,7 +43,7 @@ func CommitPaths(ctx context.Context, root, message string, paths []string) (com
 	// committing one pending change at a time meaningful at all.
 	stage := append([]string{"add", "--all", "--"}, paths...)
 	if output, addErr := run(ctx, root, stage...); addErr != nil {
-		return "", fmt.Errorf("stage selected paths: %s", output)
+		return "", hostGitFailure(ctx, root, output, "stage selected paths")
 	}
 	staged, err := run(ctx, root, "diff", "--cached", "--name-only", "--")
 	if err == nil && strings.TrimSpace(staged) == "" {
@@ -54,7 +54,7 @@ func CommitPaths(ctx context.Context, root, message string, paths []string) (com
 	}
 	commit := append([]string{"commit", "-q", "-m", message, "--"}, paths...)
 	if output, commitErr := run(ctx, root, commit...); commitErr != nil {
-		return "", fmt.Errorf("commit selected paths: %s", output)
+		return "", hostGitFailure(ctx, root, output, "commit selected paths")
 	}
 	sha, err := run(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
@@ -75,7 +75,7 @@ func CommitInternalPaths(ctx context.Context, root, message string, paths []stri
 	}
 	stage := append([]string{"add", "--all", "--"}, paths...)
 	if output, err := run(ctx, root, stage...); err != nil {
-		return "", fmt.Errorf("stage internal paths: %s", output)
+		return "", hostGitFailure(ctx, root, output, "stage internal paths")
 	}
 	staged, err := run(ctx, root, "diff", "--cached", "--name-only", "--")
 	if err != nil {
@@ -91,7 +91,7 @@ func CommitInternalPaths(ctx context.Context, root, message string, paths []stri
 	}
 	args = append(args, paths...)
 	if output, err := run(ctx, root, args...); err != nil {
-		return "", fmt.Errorf("commit internal paths: %s", output)
+		return "", hostGitFailure(ctx, root, output, "commit internal paths")
 	}
 	sha, err := run(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
@@ -124,7 +124,7 @@ func UnwindToCommit(ctx context.Context, root, commitSHA string) error {
 		return errors.New("a target commit is required")
 	}
 	if output, err := run(ctx, root, "reset", "--mixed", "--quiet", commitSHA); err != nil {
-		return fmt.Errorf("return host history to %s: %s", commitSHA, output)
+		return hostGitFailure(ctx, root, output, "return host history to "+commitSHA)
 	}
 	return nil
 }

@@ -793,3 +793,78 @@ func TestScheduleRestartStackUsesDetachedSupervisorContainer(t *testing.T) {
 		}
 	}
 }
+
+// A fail-closed phase deliberately holds the global batch lock so a human can
+// recover. That only works if the human is told what is waiting for them and
+// has a way to end it: before this, every later self-evolution was refused with
+// "another transaction is already active", naming no phase, no cause and no
+// action, and no endpoint could release it.
+func TestBlockedTransactionIsExplainedAndReleasable(t *testing.T) {
+	root := t.TempDir()
+	manager := New(root)
+	base := filepath.Join(root, ".harness", "self-evolution")
+	if err := os.MkdirAll(filepath.Join(base, "txn-held"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	status := Status{
+		Phase: "rollback_failed", SessionID: "ses_x", PlanID: "plan_x",
+		Transaction: "txn-held", Detail: "host git history advanced with overlapping unrelated changes",
+	}
+	if err := manager.recordReleasedStatus(status); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "active.lock"), []byte("pid=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	blocked := manager.BlockedStatus(status)
+	if blocked == nil {
+		t.Fatal("a fail-closed phase must be reported as blocking")
+	}
+	if !errors.Is(blocked, ErrBusy) {
+		t.Fatal("the typed refusal must still satisfy errors.Is(err, ErrBusy) for existing callers")
+	}
+	for _, want := range []string{"rollback_failed", "txn-held", "plan_x", "overlapping unrelated changes"} {
+		if !strings.Contains(blocked.Error(), want) {
+			t.Fatalf("the refusal must name %q, got %q", want, blocked.Error())
+		}
+	}
+	if blocked.Remedy == "" {
+		t.Fatal("the refusal must carry the action that releases it")
+	}
+
+	// Releasing must name the exact transaction, so it is never accidental.
+	if _, err := manager.ReleaseBlockedTransaction("txn-other"); err == nil {
+		t.Fatal("releasing a transaction that does not hold the lock must be refused")
+	}
+	released, err := manager.ReleaseBlockedTransaction("txn-held")
+	if err != nil {
+		t.Fatalf("the operator must be able to release a fail-closed transaction: %v", err)
+	}
+	if released.Phase != "released" {
+		t.Fatalf("unexpected phase after release: %q", released.Phase)
+	}
+	if _, statErr := os.Stat(filepath.Join(base, "active.lock")); !os.IsNotExist(statErr) {
+		t.Fatal("the batch lock must be gone after an explicit release")
+	}
+	// The evidence the operator may still need is deliberately kept.
+	if _, statErr := os.Stat(filepath.Join(base, "txn-held")); statErr != nil {
+		t.Fatal("the transaction directory holds the rollback baseline and must survive the release")
+	}
+}
+
+// Active work must never be freed from under itself.
+func TestReleaseRefusesATransactionThatIsStillWorking(t *testing.T) {
+	root := t.TempDir()
+	manager := New(root)
+	status := Status{Phase: "restart_pending", Transaction: "txn-live", PlanID: "plan_y"}
+	if err := manager.recordReleasedStatus(status); err != nil {
+		t.Fatal(err)
+	}
+	if manager.BlockedStatus(status) != nil {
+		t.Fatal("a pending restart is extendable work, not a fail-closed block")
+	}
+	if _, err := manager.ReleaseBlockedTransaction("txn-live"); err == nil {
+		t.Fatal("a live transaction must not be releasable")
+	}
+}
