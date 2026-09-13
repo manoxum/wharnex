@@ -159,6 +159,21 @@ var chatAgentAccountTypes = []string{
 	"ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_BUNDLE", "DELETE_TEMP_CHAT",
 }
 
+// chatAgentSupervisorTypes is the work the Supervisor pool owns: opening the
+// chat, submitting the request bundle, collecting the response bundle, and
+// following the remote conversation in real time.
+//
+// The partition exists to stop cross-conversation navigation, which is the
+// provider request that earns HTTP 429. A Supervisor is already resident on the
+// conversation these types act on, so handing one to a Worker navigates a
+// second renderer to a page that is already loaded — and then the Supervisor
+// reloads it back when the operator returns to that chat. Everything else is
+// small account-lifecycle or utility work that no Supervisor may take, so a
+// rename or an archive can never evict a conversation that is mid-request.
+var chatAgentSupervisorTypes = []string{
+	"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN",
+}
+
 func chatAgentTaskTypeIn(taskType string, values []string) bool {
 	for _, value := range values {
 		if taskType == value {
@@ -174,6 +189,10 @@ func chatAgentTaskWriter(taskType string) bool {
 
 func chatAgentTaskAccount(taskType string) bool {
 	return chatAgentTaskTypeIn(taskType, chatAgentAccountTypes)
+}
+
+func chatAgentTaskSupervisor(taskType string) bool {
+	return chatAgentTaskTypeIn(taskType, chatAgentSupervisorTypes)
 }
 
 // chatAgentQuietWhileAwaiting lists the task types that drive a conversation's
@@ -216,6 +235,10 @@ func chatAgentTaskWriterSQL(column string) string {
 
 func chatAgentTaskAccountSQL(column string) string {
 	return chatAgentTaskTypesSQL(column, chatAgentAccountTypes)
+}
+
+func chatAgentTaskSupervisorSQL(column string) string {
+	return chatAgentTaskTypesSQL(column, chatAgentSupervisorTypes)
 }
 
 var chatAgentQuietTypes = []string{

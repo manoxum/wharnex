@@ -18,6 +18,10 @@ type chatAgentLeaseRequest struct {
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
 	FallbackMode  string   `json:"fallback_mode"`
+	// Role partitions task types between the chat-bound Supervisor pool and the
+	// small-task Worker pool. Empty stays unrestricted for callers that run no
+	// role-partitioned pool.
+	Role string `json:"role"`
 	// ProjectScoped is what separates "no project is open" from "this caller
 	// cannot scope by project"; an empty OpenProjects cannot express both.
 	ProjectScoped bool     `json:"project_scoped"`
@@ -89,7 +93,7 @@ func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := a.store.ClaimChatAgentTaskWithOptions(body.Owner, lease, session.ChatAgentClaimOptions{
 		WorkerID: body.WorkerID, PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, FallbackMode: body.FallbackMode,
-		ProjectScoped: body.ProjectScoped, OpenProjects: body.OpenProjects,
+		Role: body.Role, ProjectScoped: body.ProjectScoped, OpenProjects: body.OpenProjects,
 	})
 	if err != nil {
 		writeChatAgentTaskError(w, err)

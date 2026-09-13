@@ -492,34 +492,103 @@ test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating 
   assert.doesNotMatch(resume, /pollExpectedChatGPTDownloadKey\(key\)/)
 })
 
-test('the visible Supervisor temporarily owns expected-bundle observation and Workers stand down from that lane', async () => {
+test('the Supervisor bound to a chat owns its expected-bundle observation whether visible or not, and Workers stand down from that lane', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
 
   const ownershipStart = source.indexOf('function chatGPTSupervisorOwnsExpectedResponse(')
-  const ownershipEnd = source.indexOf('\nfunction reconcileChatGPTThrottle', ownershipStart)
+  const ownershipEnd = source.indexOf('\nfunction supervisorBindingHold', ownershipStart)
   const ownership = source.slice(ownershipStart, ownershipEnd)
-  assert.match(ownership, /chatGPTEntryIsActiveVisible\(key, entry\)/)
+  // Ownership must NOT depend on which Supervisor happens to be painted: a
+  // hidden Supervisor stays on its conversation for the whole request, which is
+  // what removes the navigation a Worker would otherwise make.
+  assert.doesNotMatch(ownership, /chatGPTEntryIsActiveVisible/)
   assert.match(ownership, /expectedChatGPTBundles\.get\(key\)/)
   assert.match(ownership, /sameConversationURL\(currentURL, expectedURL\)/)
-  assert.match(ownership, /lanes\.add\(`h:\$\{key\}`\)/)
-  assert.match(ownership, /lanes\.add\(`c:\$\{conversationID\}`\)/)
+  // Manual transport and an in-flight external login cannot be supervised at
+  // all, so claiming the lane there would silence it for every pool.
+  assert.match(ownership, /entry\.externalAuthProvider \|\| chatgptTransportModes\.get\(key\) === 'manual'/)
 
-  const executeStart = source.indexOf('async function executeChatAgentTask(')
-  const assignIndex = source.indexOf('const assigned = assignChatGPTWorker', executeStart)
-  const handoffGuard = source.indexOf("task.type === 'AWAIT_RESPONSE' && chatGPTSupervisorOwnsExpectedResponse", executeStart)
-  assert.ok(handoffGuard > executeStart && handoffGuard < assignIndex, 'a visible Supervisor must stop an await before Worker assignment/navigation')
+  const lanesStart = source.indexOf('function chatSupervisorBoundLanes(')
+  const lanes = source.slice(lanesStart, source.indexOf('\nfunction reconcileChatGPTThrottle', lanesStart))
+  assert.match(lanes, /supervisorBindingHeld\(key, entry\)/)
+  assert.match(lanes, /lanes\.add\(`h:\$\{key\}`\)/)
+  assert.match(lanes, /lanes\.add\(`c:\$\{conversationID\}`\)/)
 
   const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
   const claimOptions = scheduler.slice(scheduler.indexOf('claimOptions: (worker)'), scheduler.indexOf('onIdle:'))
-  assert.match(claimOptions, /const supervisorLanes = chatGPTSupervisorAwaitLanes\(\)/)
+  assert.match(claimOptions, /const supervisorLanes = chatSupervisorBoundLanes\(\)/)
   assert.match(claimOptions, /releaseResidentLane\(entry\.slotId, residentLane\)/)
   assert.match(claimOptions, /excluded_lanes: \[\.\.\.new Set\(\[\.\.\.\(options\.excluded_lanes \|\| \[\]\), \.\.\.supervisorLanes\]\)\]\.slice\(0, 32\)/)
 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
   const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', pollStart)
   const poll = source.slice(pollStart, pollEnd)
-  assert.match(poll, /if \(!entry \|\| !chatGPTEntryIsActiveVisible\(key, entry\)\) return/)
+  assert.match(poll, /if \(!entry \|\| !chatGPTSupervisorOwnsExpectedResponse\(key, expected\.requestId\)\) return/)
+  // The poll is the only place that stamps structural progress, and the durable
+  // supervision's stall bound reads that stamp.
+  assert.match(poll, /if \(completion\?\.thinking === true \|\| completion\?\.complete === true\) expected\.progressAt = now/)
   assert.match(source, /setInterval\(\(\) => \{ void flushQueuedChatGPTComments\(\); void pollChatGPTVisibleActivity\(\); void pollExpectedChatGPTDownloads\(\); void reconcileChatAgentAutoScale\(\) \}, DOM_DOWNLOAD_POLL_MS\)/)
+})
+
+test('the two pools partition the durable queue: Supervisors take chat-bound work and Workers take everything smaller', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const workerPool = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatAgentScheduler.start()'))
+  assert.match(workerPool, /role: 'worker'/)
+  assert.match(workerPool, /execute: executeChatAgentTask/)
+
+  const supervisorPool = source.slice(source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatSupervisorScheduler.start()'))
+  assert.match(supervisorPool, /role: 'supervisor'/)
+  assert.match(supervisorPool, /execute: executeChatSupervisorTask/)
+  assert.match(supervisorPool, /workerCount: SUPERVISOR_SLOTS, maxWorkers: SUPERVISOR_SLOTS/)
+  assert.match(supervisorPool, /agentID: chatSupervisorSlotID/)
+  // A Supervisor mid-request may claim only its own chat's lane: claiming
+  // another conversation is the cross-chat navigation this topology removes.
+  assert.match(supervisorPool, /supervisorBindingHeld\(key, entry\)[\s\S]{0,160}fallback_mode: 'resident_only'/)
+  assert.match(supervisorPool, /excluded_lanes: \[\.\.\.taken\]\.slice\(0, 32\)/)
+
+  const executeStart = source.indexOf('async function executeChatSupervisorTask(')
+  const execute = source.slice(executeStart, source.indexOf('\nasync function executeChatAgentTask(', executeStart))
+  for (const type of ['AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN']) {
+    assert.match(execute, new RegExp(`case '${type}'`), `the Supervisor pool must run ${type}`)
+  }
+  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'TITLE_DISCOVER']) {
+    assert.doesNotMatch(execute, new RegExp(`case '${type}'`), `${type} is small Worker work and must never reach a Supervisor`)
+  }
+  // Navigation is the exception, not the rule: the bound renderer is normally
+  // already on the conversation, and a navigation that does happen is paced by
+  // the same process-wide provider gate every Worker action uses.
+  assert.match(execute, /if \(conversationURL && !sameConversationURL\(current, conversationURL\)\) \{\n\s+await paceChatGPTWorkerNavigation\(\)/)
+  // Every slot still finishing a request is a free wait, never a charged attempt.
+  assert.match(execute, /status: 'waiting', delayMs: CHAT_SUPERVISOR_SLOT_WAIT_MS, observation: true/)
+})
+
+test('a Supervisor releases its chat only after the request settled and another chat needs the slot', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const holdStart = source.indexOf('function supervisorBindingHold(')
+  const hold = source.slice(holdStart, source.indexOf('\nfunction supervisorBindingHeld(', holdStart))
+  for (const reason of ['expected-bundle', 'bundle-delivery', 'queued-comment', 'transport', 'account-operation', 'human-action', 'external-auth', 'supervisor-lease', 'prepared-prompt']) {
+    assert.match(hold, new RegExp(`'${reason}'`), `${reason} must hold a Supervisor binding`)
+  }
+
+  const reusableStart = source.indexOf('function reusableSupervisor(')
+  const reusable = source.slice(reusableStart, source.indexOf('\nfunction ensureChatGPTView(', reusableStart))
+  assert.match(reusable, /!supervisorBindingHeld\(candidateKey, entry\)/)
+
+  const bindStart = source.indexOf('function bindChatSupervisor(')
+  const bind = source.slice(bindStart, source.indexOf('\nfunction noteChatSupervisorLane(', bindStart))
+  assert.match(bind, /chatGPTEntryIsActiveVisible\(reusable\[0\], reusable\[1\]\)/)
+
+  const evictStart = source.indexOf('function evictIdleChatGPTViews(')
+  const evict = source.slice(evictStart, source.indexOf('\nfunction chatGPTSurfaceShouldBeVisible(', evictStart))
+  // Retire only what the cap requires, oldest first, and never a held slot or
+  // the visible one. Releasing on a timer would re-create the churn the binding
+  // exists to remove.
+  assert.match(evict, /const excess = chatgptViews\.size - MAX_RESIDENT_CHATGPT_VIEWS/)
+  assert.match(evict, /!supervisorBindingHeld\(key, entry\) && !chatGPTEntryIsActiveVisible\(key, entry\)/)
+  assert.match(evict, /if \(released >= excess\) break/)
+  assert.doesNotMatch(source, /setInterval\([^)]*evictIdleChatGPTViews/)
 })
 
 test('background ChatGPT views disable renderer throttling and escalate structural or exhausted transport failures to human attention', async () => {
@@ -557,7 +626,11 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   assert.match(needs, /entry\.transportPreparationCount > 0/)
   assert.match(needs, /entry\.conversationRequests\.size > 0/)
   assert.match(needs, /pendingChatGPTComments\.has\(key\)/)
-  assert.match(needs, /expectedChatGPTBundles\.has\(key\) && chatGPTEntryIsActiveVisible\(key, entry\)/)
+  // An armed expectation keeps its Supervisor at full speed whether or not that
+  // slot is the painted one: a hidden Supervisor bound to its chat is the normal
+  // case, and it is the surface the response will be collected from.
+  assert.match(needs, /\|\| expectedChatGPTBundles\.has\(key\)\)/)
+  assert.doesNotMatch(needs, /expectedChatGPTBundles\.has\(key\) && chatGPTEntryIsActiveVisible/)
 
   const reconcileStart = source.indexOf('function reconcileChatGPTThrottle(key, entry)')
   const reconcileEnd = source.indexOf('\nfunction sendToWindowState', reconcileStart)
@@ -837,7 +910,7 @@ test('Agents panel suspension uses the durable provider pause with optional dead
   assert.match(preload, /pauseProvider: \(pausedUntil\) => invoke\('wharness:agents:pause-provider'/)
 })
 
-test('switching chats uses an idle Supervisor slot and preserves visible intent when recycling', async () => {
+test('switching chats reuses a released Supervisor slot and preserves visible intent when recycling', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
   const ensureEnd = source.indexOf('\nfunction evictIdleChatGPTViews', ensureStart)
@@ -845,7 +918,9 @@ test('switching chats uses an idle Supervisor slot and preserves visible intent 
 
   assert.match(ensure, /chatgptViews\.size >= SUPERVISOR_SLOTS/)
   assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
-  assert.match(source, /function reusableSupervisor[\s\S]*Number\(entry\.transportPreparationCount \|\| 0\) === 0/)
+  // Eligibility is the whole binding hold, not just an open transport: a chat
+  // awaiting its response bundle must not lose its renderer to a chat switch.
+  assert.match(source, /function reusableSupervisor[\s\S]*!supervisorBindingHeld\(candidateKey, entry\)/)
   assert.match(ensure, /const preserveVisibleIntent = resolved\?\.chatgptVisible === true/)
   assert.match(ensure, /retireChatGPTSupervisorSurface\(reusable\[0\]\)[\s\S]*if \(preserveVisibleIntent && resolved\) resolved\.chatgptVisible = true/)
 })
@@ -1706,12 +1781,14 @@ test('a slot between two observations of a live response keeps its conversation'
   const helper = source.slice(source.indexOf('function chatAgentSupervisingLiveResponse('))
   assert.match(helper.slice(0, 400), /lastTask\?\.type === 'AWAIT_RESPONSE' && runtime\?\.lastResult\?\.status === 'waiting'/)
 
-  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
+  const scheduler = source.slice(
+    source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('),
+    source.indexOf('chatAgentScheduler.start()'))
   // Releasing the lane here would hand the conversation to another slot, which
   // would reload a page the model is still writing into.
-  assert.match(scheduler.slice(0, 3000), /if \(chatAgentSupervisingLiveResponse\(worker\) \|\| chatAgentKeepFlowingActive\(worker\)\) return/)
+  assert.match(scheduler, /if \(chatAgentSupervisingLiveResponse\(worker\) \|\| chatAgentKeepFlowingActive\(worker\)\) return/)
   // The predicate needs the settled result, so the runtime state has to keep it.
-  assert.match(scheduler.slice(0, 4000), /kind === 'settled'[\s\S]{0,200}lastResult: state\.result/)
+  assert.match(scheduler, /kind === 'settled'[\s\S]{0,200}lastResult: state\.result/)
 })
 
 test('any trusted ChatGPT backend 429 is provider-wide evidence, not just the conversation endpoints', async () => {

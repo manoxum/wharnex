@@ -29,6 +29,11 @@ type DesktopAgentRuntimeAgent = {
   id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'claimed' | 'running' | 'stopped' | 'error' | string
   draining: boolean; loop_active?: boolean; interacting?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
   keep_flowing?: boolean; keep_flowing_active?: boolean; error: string; browser: DesktopAgentRuntimeBrowser; memory?: { available: boolean; rss_bytes: number; os_process_id: number; shared_process: boolean }; residency?: DesktopAgentRuntimeResidency
+  // Why a Supervisor may not release its chat yet (empty when it is free to be
+  // rebound): 'expected-bundle' | 'bundle-delivery' | 'queued-comment' |
+  // 'transport' | 'account-operation' | 'human-action' | 'external-auth' |
+  // 'supervisor-lease' | 'prepared-prompt'.
+  binding_hold?: string
 }
 type DesktopAgentRuntimeState = {
   instance_id: string; desired_workers: number; configured_workers: number; policies: { auto_scale: boolean; auto_scale_max_workers: number; keep_flowing_global: boolean; keep_flowing_workers: string[]; auto_scaled_workers: number }; limits: { min_workers: number; max_workers: number; supervisors: number }

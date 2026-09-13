@@ -15,11 +15,25 @@ const (
 	ChatAgentClaimUnresidentOnly = "unresident_only"
 )
 
+// Pool roles. An empty role is unrestricted and remains the behaviour for any
+// caller that does not run a role-partitioned pool (the dev/web path).
+const (
+	ChatAgentRoleSupervisor = "supervisor"
+	ChatAgentRoleWorker     = "worker"
+)
+
 type ChatAgentClaimOptions struct {
 	WorkerID      string   `json:"worker_id"`
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
 	FallbackMode  string   `json:"fallback_mode"`
+	// Role partitions task types between the Supervisor and Worker pools.
+	//
+	// It belongs in the claim rather than in a client-side check for the same
+	// reason project scoping does: a claim charges an attempt, so claiming work
+	// the wrong pool cannot run and handing it straight back would spend that
+	// task's own bounded retry budget on a routing decision.
+	Role string `json:"role"`
 	// ProjectScoped and OpenProjects restrict the claim to work the operator
 	// can actually supervise: a project currently open in some window.
 	//
@@ -48,6 +62,12 @@ func normalizeChatAgentClaimOptions(input ChatAgentClaimOptions) (ChatAgentClaim
 			return ChatAgentClaimOptions{}, err
 		}
 		input.WorkerID = worker
+	}
+	input.Role = strings.ToLower(strings.TrimSpace(input.Role))
+	switch input.Role {
+	case "", ChatAgentRoleSupervisor, ChatAgentRoleWorker:
+	default:
+		return ChatAgentClaimOptions{}, fmt.Errorf("unsupported chat agent pool role %q", input.Role)
 	}
 	input.PreferredLane = strings.TrimSpace(input.PreferredLane)
 	input.FallbackMode = strings.TrimSpace(input.FallbackMode)
@@ -123,8 +143,26 @@ func chatAgentClaimProjectAllows(task ChatAgentTask, options ChatAgentClaimOptio
 	return false
 }
 
+// chatAgentClaimRoleAllows reports whether this pool may run the task's type.
+//
+// An explicit operator pin overrides the partition: the pin already names one
+// canonical agent, and refusing it by role would leave the task reachable by
+// nobody at all — pinned away from its own pool and barred from the other.
+func chatAgentClaimRoleAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
+	if options.Role == "" || task.AssignedWorker != "" {
+		return true
+	}
+	if options.Role == ChatAgentRoleSupervisor {
+		return chatAgentTaskSupervisor(task.Type)
+	}
+	return !chatAgentTaskSupervisor(task.Type)
+}
+
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
 	if task.AssignedWorker != "" && task.AssignedWorker != options.WorkerID {
+		return false
+	}
+	if !chatAgentClaimRoleAllows(task, options) {
 		return false
 	}
 	if !chatAgentClaimProjectAllows(task, options) {

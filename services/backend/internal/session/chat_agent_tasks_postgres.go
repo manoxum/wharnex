@@ -194,6 +194,16 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 		}
 		projectSQL = " AND (t.project_id='' OR " + chatAgentTaskAccountSQL("t.type") + " OR " + open + ")"
 	}
+	// Pool partition. An explicit operator pin overrides it, exactly as in the
+	// in-memory fallback: otherwise a task pinned across the partition would be
+	// reachable by no pool at all.
+	roleSQL := ""
+	switch options.Role {
+	case ChatAgentRoleSupervisor:
+		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskSupervisorSQL("t.type") + ")"
+	case ChatAgentRoleWorker:
+		roleSQL = " AND (t.assigned_worker<>'' OR NOT " + chatAgentTaskSupervisorSQL("t.type") + ")"
+	}
 	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','WAITING') AND t.not_before<=now() AND t.attempt<t.max_attempts
@@ -202,7 +212,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			$4='any'
 			OR ($4='resident_only' AND ` + laneExpr + `=$3)
 			OR ($4='unresident_only' AND ($3='' OR ` + laneExpr + `<>$3))
-		  )` + excludedSQL + projectSQL + `
+		  )` + excludedSQL + projectSQL + roleSQL + `
 		  AND NOT EXISTS (
 			SELECT 1 FROM harness_chat_agent_provider_state p
 			WHERE p.provider='chatgpt' AND p.paused=true

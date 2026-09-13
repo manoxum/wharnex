@@ -11,16 +11,25 @@ import (
 
 var ErrChatAgentTaskAssignment = errors.New("chat agent task assignment conflict")
 
+// normalizeChatAgentWorkerID canonicalizes an agent id.
+//
+// Both pools address the same durable queue, so both namespaces are accepted:
+// `worker-N` for the small-task pool and `supervisor-N` for the chat-bound pool.
+// A Supervisor claim carries its own id so an operator pin to that Supervisor is
+// honoured by the same `assigned_worker` check Workers already use.
 func normalizeChatAgentWorkerID(value string) (string, error) {
 	value = strings.TrimSpace(strings.ToLower(value))
-	if !strings.HasPrefix(value, "worker-") {
-		return "", errors.New("worker_id must use worker-N format")
+	for _, prefix := range []string{"worker-", "supervisor-"} {
+		if !strings.HasPrefix(value, prefix) {
+			continue
+		}
+		number, err := strconv.Atoi(strings.TrimPrefix(value, prefix))
+		if err != nil || number < 1 || number > 64 {
+			break
+		}
+		return fmt.Sprintf("%s%d", prefix, number), nil
 	}
-	number, err := strconv.Atoi(strings.TrimPrefix(value, "worker-"))
-	if err != nil || number < 1 || number > 64 {
-		return "", errors.New("worker_id must use worker-N format")
-	}
-	return fmt.Sprintf("worker-%d", number), nil
+	return "", errors.New("worker_id must use worker-N or supervisor-N format")
 }
 
 func chatAgentLeaseMatchesWorker(owner, workerID string) bool {

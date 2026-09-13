@@ -160,8 +160,10 @@ twice remotely.
 Browser maintenance is persisted as typed PostgreSQL tasks and leased to one of
 three hidden workers. Archive/delete/title/organization work is idempotent and
 bounded; active request/recovery/write guards defer lifecycle work with
-`WAITING`/`not_before`. A Desktop restart reclaims expired leases. The visible
-Supervisor is reserved for the user and is never borrowed by maintenance.
+`WAITING`/`not_before`. A Desktop restart reclaims expired leases. Maintenance is
+Worker-only by construction: the claim itself refuses these types to the
+Supervisor pool, so a rename or an archive can never take the renderer a chat
+needs for a request in progress (see `adr/ADR-0049`).
 
 A chat opens with a provisional locally-derived title. After the first confirmed
 submission, native-title discovery and project organization are queued

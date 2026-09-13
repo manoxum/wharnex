@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-export const DEFAULT_CHAT_AGENT_WORKERS = 6
+export const DEFAULT_CHAT_AGENT_WORKERS = 3
 export const DEFAULT_CHAT_AGENT_LEASE_SECONDS = 45
 export const DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS = 2_500
 
@@ -38,19 +38,26 @@ export class ChatAgentSchedulerClient {
     fetchImpl = fetch,
     execute,
     workerCount = DEFAULT_CHAT_AGENT_WORKERS,
-    maxWorkers = 6,
+    maxWorkers = 3,
     leaseSeconds = DEFAULT_CHAT_AGENT_LEASE_SECONDS,
     idleMs = 750,
     taskCooldownMs = DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS,
     claimOptions = () => ({}),
     onIdle = () => {},
     onState = () => {},
+    // Pool identity. The durable queue partitions task types by pool role and
+    // enforces Worker pins by canonical agent id, so a second pool driving the
+    // same queue must name itself rather than inherit the Worker namespace.
+    role = '',
+    agentID = (index) => `worker-${index}`,
   }) {
     if (!baseURL) throw new Error('chat-agent scheduler baseURL is required')
     if (typeof execute !== 'function') throw new Error('chat-agent scheduler execute callback is required')
     this.baseURL = baseURL
     this.fetchImpl = fetchImpl
     this.execute = execute
+    this.role = String(role || '')
+    this.agentID = typeof agentID === 'function' ? agentID : (index) => `worker-${index}`
     this.maxWorkers = Math.max(1, Math.floor(maxWorkers) || 1)
     this.workerCount = this.#normalizeWorkerCount(workerCount)
     this.leaseSeconds = leaseSeconds
@@ -161,7 +168,8 @@ export class ChatAgentSchedulerClient {
   }
 
   async #workerLoop(index) {
-    const owner = `${this.instanceID}:worker-${index}`
+    const agent = String(this.agentID(index) || `worker-${index}`)
+    const owner = `${this.instanceID}:${agent}`
     while (this.running && index <= this.workerCount) {
       try {
         const claim = await this.claimOptions(index) || {}
@@ -173,7 +181,8 @@ export class ChatAgentSchedulerClient {
           method: 'POST',
           body: JSON.stringify({
             owner, lease_seconds: this.leaseSeconds,
-            worker_id: `worker-${index}`,
+            worker_id: agent,
+            role: this.role,
             preferred_lane: String(claim.preferred_lane || ''),
             excluded_lanes: Array.isArray(claim.excluded_lanes) ? claim.excluded_lanes : [],
             fallback_mode: String(claim.fallback_mode || 'any'),

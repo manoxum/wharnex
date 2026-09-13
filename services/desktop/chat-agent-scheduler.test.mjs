@@ -2,14 +2,38 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { chatAgentBackoff, ChatAgentSchedulerClient, DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, DEFAULT_CHAT_AGENT_WORKERS } from './chat-agent-scheduler.mjs'
 
-test('scheduler defaults to exactly six autonomous workers', () => {
+test('scheduler defaults to exactly three autonomous small-task workers', () => {
   const scheduler = new ChatAgentSchedulerClient({
     baseURL: 'http://127.0.0.1:8080',
     fetchImpl: async () => { throw new Error('unused') },
     execute: async () => ({ status: 'done' }),
   })
   assert.equal(scheduler.workerCount, DEFAULT_CHAT_AGENT_WORKERS)
-  assert.equal(DEFAULT_CHAT_AGENT_WORKERS, 6)
+  assert.equal(DEFAULT_CHAT_AGENT_WORKERS, 3)
+  assert.equal(scheduler.role, '')
+})
+
+test('a role-partitioned pool names itself in every claim so the queue can route by pool', async () => {
+  const claims = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1, maxWorkers: 6, idleMs: 1, taskCooldownMs: 0,
+    role: 'supervisor', agentID: (index) => `supervisor-${index}`,
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) claims.push(JSON.parse(init.body))
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && claims.length < 1; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(claims.length >= 1)
+  assert.equal(claims[0].role, 'supervisor')
+  assert.equal(claims[0].worker_id, 'supervisor-1')
+  assert.match(claims[0].owner, /:supervisor-1$/)
 })
 
 test('scheduler can apply an explicit cooldown before a worker claims another task', async () => {

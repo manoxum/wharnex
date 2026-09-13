@@ -117,6 +117,11 @@ let mainWindow
 let chatgptViews = new Map()
 const chatGPTWorkerEntries = []
 const chatAgentWorkerStates = new Map()
+// Supervisor pool runtime, indexed 1..SUPERVISOR_SLOTS. Supervisors draw from
+// the same durable queue as Workers but claim only the chat-bound task types,
+// so each slot needs its own loop state and its own chat binding.
+const chatSupervisorStates = new Map()
+let chatSupervisorScheduler
 let configuredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let chatAgentPolicies = normalizeChatAgentPolicies()
@@ -302,7 +307,11 @@ function activeChatGPTEntry(windowState) {
 // background throttling either way; only the remote page's own idle
 // timers/rAF slow down once nothing here is waiting on it.
 function chatGPTEntryNeedsSupervision(key, entry) {
-  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.conversationRequests.size > 0 || pendingChatGPTComments.has(key) || (expectedChatGPTBundles.has(key) && chatGPTEntryIsActiveVisible(key, entry)))
+  // An armed expected bundle keeps its Supervisor at full speed whether or not
+  // that slot happens to be the visible one. A hidden Supervisor is the normal
+  // case now: it stays bound to its chat for the whole request so the response
+  // is collected without ever re-navigating the conversation.
+  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.conversationRequests.size > 0 || pendingChatGPTComments.has(key) || expectedChatGPTBundles.has(key))
 }
 
 function chatGPTEntryIsActiveVisible(key, entry) {
@@ -310,9 +319,23 @@ function chatGPTEntryIsActiveVisible(key, entry) {
   return Boolean(windowState && windowState.activeChatGPTKey === key && windowState.chatgptVisible)
 }
 
+// Whether the Supervisor bound to this chat owns its response supervision.
+//
+// Ownership used to require the slot to be the visible one, because only two
+// slots existed and a hidden one was a warm standby for the next chat. With a
+// Supervisor per chat the relationship is inverted: the slot that sent the
+// request stays on that conversation until its bundle arrives, visible or not,
+// and the main-process poll reads it there. That is what removes the navigation
+// a Worker would otherwise make to a page that is already loaded — the provider
+// request that earned the account its 429s.
+//
+// Manual transport and an in-flight external login are excluded: in both cases
+// no automated supervision may run on the surface, so claiming ownership would
+// silence the lane for everybody.
 function chatGPTSupervisorOwnsExpectedResponse(key, requestId = '', conversationURL = '') {
   const entry = chatgptViews.get(key)
-  if (!entry || !chatGPTEntryIsActiveVisible(key, entry) || entry.view.webContents.isDestroyed()) return false
+  if (!entry || entry.view.webContents.isDestroyed()) return false
+  if (entry.externalAuthProvider || chatgptTransportModes.get(key) === 'manual') return false
   const expected = expectedChatGPTBundles.get(key)
   if (!expected || (requestId && expected.requestId !== String(requestId))) return false
   const currentURL = canonicalChatGPTConversationURL(entry.affinity.boundURL || entry.view.webContents.getURL())
@@ -320,10 +343,81 @@ function chatGPTSupervisorOwnsExpectedResponse(key, requestId = '', conversation
   return Boolean(currentURL && (!expectedURL || sameConversationURL(currentURL, expectedURL)))
 }
 
-function chatGPTSupervisorAwaitLanes() {
+// Why this Supervisor slot may not give its chat up yet.
+//
+// A Supervisor unbinds only once it has nothing left to finish: the request
+// completed and a valid bundle was collected and handed over. Anything still in
+// flight — an armed expectation, a settling delivery, a queued comment, an open
+// transport or account operation, a pending human action, a live Supervisor
+// lease — is work that dies with the renderer, and re-doing it costs exactly the
+// provider requests this topology exists to avoid.
+function supervisorBindingHold(key, entry) {
+  if (!entry) return ''
+  const expected = expectedChatGPTBundles.get(key)
+  if (expected) {
+    if (pendingChatGPTBundleDeliveries.has(expected.requestId)) return 'bundle-delivery'
+    return 'expected-bundle'
+  }
+  if (hasPendingChatGPTComments(key)) return 'queued-comment'
+  if (Number(entry.transportPreparationCount || 0) > 0) return 'transport'
+  if (entry.accountOperationActive) return 'account-operation'
+  if (entry.humanAction?.active) return 'human-action'
+  if (entry.externalAuthProvider) return 'external-auth'
+  if (chatSupervisorLeaseKeys().has(key)) return 'supervisor-lease'
+  // A draft or retry affordance the human may still act on. Both are swept only
+  // when something touches that chat again, so the hold has to expire on its own
+  // recorded age — an abandoned draft must not pin a renderer for the life of
+  // the process while other chats queue for a slot.
+  const drafted = Math.max(
+    Number(preparedChatGPTDrafts.get(key)?.preparedAt || 0),
+    Number(retryableChatGPTPrompts.get(key)?.preparedAt || 0))
+  if (drafted && Date.now() - drafted < RETRYABLE_PROMPT_TTL_MS) return 'prepared-prompt'
+  return ''
+}
+
+function supervisorBindingHeld(key, entry) {
+  return supervisorBindingHold(key, entry) !== ''
+}
+
+function chatSupervisorSlotID(index) {
+  return `supervisor-${Math.max(1, Math.min(SUPERVISOR_SLOTS, Number(index) || 1))}`
+}
+
+function supervisorEntryForSlot(slotID) {
+  const id = String(slotID || '')
+  if (!id) return undefined
+  for (const entry of chatgptViews.values()) if (entry.slotId === id) return entry
+  return undefined
+}
+
+function supervisorKeyForSlot(slotID) {
+  const id = String(slotID || '')
+  if (!id) return ''
+  for (const [key, entry] of chatgptViews) if (entry.slotId === id) return key
+  return ''
+}
+
+// Chats a Supervisor currently holds a durable lease for. A leased task is work
+// in progress by definition, so its chat cannot be handed to another slot.
+function chatSupervisorLeaseKeys() {
+  const keys = new Set()
+  for (const runtime of chatSupervisorStates.values()) {
+    const key = sanitizeChatCacheKey(runtime?.task?.chat_id || '')
+    if (key) keys.add(key)
+  }
+  return keys
+}
+
+// Lanes every bound Supervisor is responsible for, whatever the task.
+//
+// Workers are barred from these lanes as defence in depth: the durable claim
+// already partitions task types by pool, but a Worker arriving on a conversation
+// a Supervisor is resident on is a second navigation of a loaded page even when
+// the task itself is legitimate small work.
+function chatSupervisorBoundLanes() {
   const lanes = new Set()
   for (const [key, entry] of chatgptViews) {
-    if (!chatGPTSupervisorOwnsExpectedResponse(key)) continue
+    if (!supervisorBindingHeld(key, entry)) continue
     lanes.add(`h:${key}`)
     const conversationID = chatAgentConversationID(entry.affinity.boundURL || entry.view.webContents.getURL())
     if (conversationID) lanes.add(`c:${conversationID}`)
@@ -2148,7 +2242,7 @@ function chatAgentSupervisingLiveResponse(worker) {
 
 function workerEntryForAgentID(agentID) {
   const id = String(agentID || '').trim()
-  if (!/^worker-[1-6]$/.test(id)) throw new Error('Only Worker browser instances can enter interaction mode')
+  if (!/^worker-[1-9][0-9]?$/.test(id)) throw new Error('Only Worker browser instances can enter interaction mode')
   const entry = chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
   if (!entry || entry.view.webContents.isDestroyed()) throw new Error('Worker browser instance is not available')
   return entry
@@ -2379,13 +2473,29 @@ function chatAgentRuntimeMemory(agents) {
 
 function chatAgentRuntimeState() {
   const supervisors = Array.from({ length: SUPERVISOR_SLOTS }, (_, offset) => {
-    const id = `supervisor-${offset + 1}`
-    const entry = [...chatgptViews.values()].find((candidate) => candidate.slotId === id)
+    const slot = offset + 1
+    const id = chatSupervisorSlotID(slot)
+    const key = supervisorKeyForSlot(id)
+    const entry = key ? chatgptViews.get(key) : undefined
     const active = Boolean(entry && [...desktopWindows.values()].some((state) => state.activeChatGPTKey === entry.ownerKey))
+    const runtime = chatSupervisorStates.get(slot) || {}
+    // Report the lease whose chat this slot is actually bound to. The execution
+    // loops and the renderer bindings are both capped at SUPERVISOR_SLOTS but are
+    // assigned independently, so pairing them by index would attribute one slot's
+    // task to another slot's chat.
+    const own = key && sanitizeChatCacheKey(runtime.task?.chat_id || '') === key ? runtime : {}
+    const hold = key ? supervisorBindingHold(key, entry) : ''
     return {
-      id, label: `Supervisor ${offset + 1}`, role: 'supervisor',
-      status: entry?.transportPreparationCount ? 'running' : entry?.loading ? 'loading' : entry ? 'idle' : 'stopped',
-      draining: false, loop_active: true, interacting: active, chat_id: String(entry?.ownerKey || ''), task: undefined, error: '', browser: publicAgentBrowser(entry),
+      id, label: `Supervisor ${slot}`, role: 'supervisor',
+      status: own.task ? (String(own.task.status || '').toUpperCase() === 'RUNNING' ? 'running' : 'claimed')
+        : runtime.error ? 'error'
+        : entry?.transportPreparationCount ? 'running'
+        : entry?.loading ? 'loading'
+        : entry ? 'idle' : 'stopped',
+      draining: false, loop_active: runtime.active !== false, interacting: active,
+      chat_id: String(key || ''), task: publicChatAgentTask(own.task),
+      last_task: publicChatAgentTask(own.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
+      binding_hold: hold, error: String(runtime.error || ''), browser: publicAgentBrowser(entry),
     }
   })
   const workers = chatGPTWorkerEntries.map((entry, offset) => {
@@ -2425,7 +2535,7 @@ function publishChatAgentRuntimeState() {
 
 async function chatAgentBrowserSnapshot(agentID) {
   const id = String(agentID || '').trim()
-  const entry = id === 'supervisor' ? supervisorEntry() : /^supervisor-[12]$/.test(id) ? [...chatgptViews.values()].find((candidate) => candidate.slotId === id) : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
+  const entry = id === 'supervisor' ? supervisorEntry() : /^supervisor-[1-9][0-9]?$/.test(id) ? supervisorEntryForSlot(id) : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
   const wc = entry?.view?.webContents
   if (!wc || wc.isDestroyed()) throw new Error('Agent browser instance is not available')
   const layoutKey = entry.ownerKey || (entry.role === 'supervisor' ? supervisorKey(windowStateForEntry(entry)) : entry.slotId || id)
@@ -2476,11 +2586,18 @@ function supervisorSlotID() {
   return 'supervisor-1'
 }
 
+// Which bound Supervisor may release its chat so this chat can have a slot.
+//
+// Only a Supervisor with nothing left to finish is eligible, and it is released
+// only because another chat is waiting — never on a timer. A held Supervisor is
+// mid-request: retiring its renderer would force the conversation to be loaded
+// again, and reloading conversations across a small pool is what produced the
+// sustained rate limiting this binding exists to stop.
 function reusableSupervisor(cacheKey, windowState) {
   const key = sanitizeChatCacheKey(cacheKey)
   const active = String(windowState?.activeChatGPTKey || '')
   const candidates = [...chatgptViews.entries()]
-    .filter(([candidateKey, entry]) => candidateKey !== key && Number(entry.transportPreparationCount || 0) === 0)
+    .filter(([candidateKey, entry]) => candidateKey !== key && !supervisorBindingHeld(candidateKey, entry))
     .sort(([leftKey, left], [rightKey, right]) => {
       const leftActive = leftKey === active ? 1 : 0
       const rightActive = rightKey === active ? 1 : 0
@@ -2497,7 +2614,7 @@ function ensureChatGPTView(cacheKey, windowState) {
     const resolved = windowState || [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
     if (chatgptViews.size >= SUPERVISOR_SLOTS) {
       const reusable = reusableSupervisor(key, resolved)
-      if (!reusable) throw new Error('All ChatGPT Supervisor slots are busy submitting')
+      if (!reusable) throw new Error('Todos os slots de Supervisor estão vinculados a pedidos em curso')
       const preserveVisibleIntent = resolved?.chatgptVisible === true
       retireChatGPTSupervisorSurface(reusable[0])
       if (preserveVisibleIntent && resolved) resolved.chatgptVisible = true
@@ -2518,16 +2635,24 @@ function ensureChatGPTView(cacheKey, windowState) {
   return { key, entry }
 }
 
-// The remote runtime keeps two Supervisor slots as a double buffer. Exactly one
-// is visible; the other may finish a write or stay warm for the next chat. The
-// bounded autonomous worker pool lives outside chatgptViews.
+// One Supervisor slot per chat, up to SUPERVISOR_SLOTS chats resident at once.
+// Exactly one is visible; the rest stay bound to their own conversation so that
+// switching chats is a visibility change rather than a provider navigation. The
+// bounded autonomous Worker pool lives outside chatgptViews.
 const MAX_RESIDENT_CHATGPT_VIEWS = SUPERVISOR_SLOTS
 
+// Retire only as many unheld Supervisors as the cap actually requires, oldest
+// first. A held Supervisor is never retired here: if every slot is busy the
+// newest chat waits for one to finish rather than interrupting a live request.
 function evictIdleChatGPTViews() {
-  const entries = [...chatgptViews.entries()]
-  if (entries.length <= MAX_RESIDENT_CHATGPT_VIEWS) return 0
+  const excess = chatgptViews.size - MAX_RESIDENT_CHATGPT_VIEWS
+  if (excess <= 0) return 0
+  const releasable = [...chatgptViews.entries()]
+    .filter(([key, entry]) => !supervisorBindingHeld(key, entry) && !chatGPTEntryIsActiveVisible(key, entry))
+    .sort(([, left], [, right]) => Number(left.lastUsed || 0) - Number(right.lastUsed || 0))
   let released = 0
-  for (const [key] of entries.slice(0, -MAX_RESIDENT_CHATGPT_VIEWS)) {
+  for (const [key] of releasable) {
+    if (released >= excess) break
     if (retireChatGPTSupervisorSurface(key)) released += 1
   }
   return released
@@ -4554,6 +4679,162 @@ async function chatAgentLifecycleRetry(task, key, conversationURL, error, { pers
   return { status: 'failed', error: detail }
 }
 
+// ─── Supervisor pool ────────────────────────────────────────────────────────
+//
+// A Supervisor owns one Harness chat for the whole life of its request: it opens
+// the conversation, submits the request bundle, follows the remote instance in
+// real time, and collects the response bundle. It never takes renaming,
+// organizing, archiving, deletion, title or translation work, so small jobs can
+// never evict a conversation that is mid-request — and it releases its chat only
+// once that request has settled and another chat actually needs the slot.
+//
+// Everything the pool exists for is the absence of one thing: a cross-chat
+// navigation. The bound renderer is already on the conversation, so observing a
+// response costs no provider request at all, and alternating between chats is a
+// visibility change rather than a reload.
+
+// How long a Supervisor task waits when every slot is still finishing a request.
+// Nothing reached ChatGPT, so this outcome is free and charges no attempt.
+const CHAT_SUPERVISOR_SLOT_WAIT_MS = 15_000
+
+function chatSupervisorHostWindow() {
+  return [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+}
+
+// Bind this chat to a Supervisor slot, reusing the slot it already owns.
+//
+// Throws when every slot is held by a request still in progress: the caller
+// converts that into a free wait rather than interrupting live work.
+function bindChatSupervisor(key) {
+  const existing = chatgptViews.get(key)
+  if (existing && !existing.view.webContents.isDestroyed()) {
+    touchChatGPTEntry(existing)
+    return existing
+  }
+  if (!chatSupervisorHostWindow()) return undefined
+  if (chatgptViews.size >= SUPERVISOR_SLOTS) {
+    const reusable = reusableSupervisor(key)
+    // A background binding must never take the renderer the operator is looking
+    // at: retiring it clears the window's active chat and leaves the Engine area
+    // blank with nothing to navigate it back. Selecting a chat is a human action
+    // and may still recycle the visible slot; claiming a queued task is not.
+    if (!reusable || chatGPTEntryIsActiveVisible(reusable[0], reusable[1])) {
+      throw new Error('Todos os slots de Supervisor estão vinculados a pedidos em curso')
+    }
+  }
+  return ensureChatGPTView(key, undefined).entry
+}
+
+function noteChatSupervisorLane(index, task) {
+  const runtime = chatSupervisorStates.get(index) || {}
+  chatSupervisorStates.set(index, {
+    ...runtime,
+    lane: chatAgentLane(task) || runtime.lane || '',
+    key: sanitizeChatCacheKey(task?.chat_id || '') || runtime.key || '',
+  })
+}
+
+// Lanes other Supervisor slots are currently responsible for, so two slots never
+// contend for one conversation.
+function chatSupervisorLanesHeldByOthers(index) {
+  const lanes = new Set()
+  for (const [slot, runtime] of chatSupervisorStates) {
+    if (slot === index) continue
+    const lane = String(runtime?.lane || '')
+    const key = sanitizeChatCacheKey(runtime?.key || '')
+    if (!lane) continue
+    if (runtime?.task || (key && supervisorBindingHeld(key, chatgptViews.get(key)))) lanes.add(lane)
+  }
+  return lanes
+}
+
+// Supervision of an armed response.
+//
+// The main-process poll already reads this resident page on the bounded DOM
+// cadence and owns recovery, delivery continuations and human attention for it.
+// Probing again from the lease would only duplicate those DOM reads, so the
+// lease hands the slot straight back as an observation while the durable task
+// stays the authority on attempts, cancellation and lineage — and, because it
+// stays claimable, on holding the chat's Supervisor binding.
+async function superviseChatAgentResponse(task, entry, key, payload) {
+  const expected = hydrateExpectedChatAgentBundle(key, task, payload)
+  if (recentlyDeliveredChatGPTBundleRequestId(expected.requestId)) {
+    disarmExpectedChatGPTBundle(key, expected.requestId)
+    return { status: 'done' }
+  }
+  if (pendingChatGPTBundleDeliveries.has(expected.requestId)) {
+    return { status: 'waiting', delayMs: DOM_DOWNLOAD_POLL_MS, observation: true, error: 'a entrega do bundle validado está a concluir' }
+  }
+  if (chatgptTransportModes.get(key) === 'manual') return { status: 'done' }
+  if (entry.humanAction?.active) {
+    return { status: 'attention', error: chatGPTHumanActionMessage(String(entry.humanAction.kind || 'verification')) }
+  }
+  void pollExpectedChatGPTDownloadKey(key)
+  const now = Date.now()
+  // Two evidence-shaped bounds, because a passive observation deliberately never
+  // spends the attempt budget. The first is structural silence: the poll stamps
+  // progress on every generating, completion or download signal, so this clock
+  // only runs while the page shows no sign of life at all. The second is the
+  // task's own age, which survives a Desktop restart and therefore bounds a
+  // supervision whose in-memory expectation was re-armed from the queue.
+  if (now - Number(expected.progressAt || now) >= AWAIT_STALL_ATTENTION_MS) {
+    return {
+      status: 'attention',
+      error: `ChatGPT deixou de dar sinal estrutural para ${expected.filename} durante ${Math.round(AWAIT_STALL_ATTENTION_MS / 60_000)} minutos; a conversa precisa de verificação humana.`,
+    }
+  }
+  const createdAt = Date.parse(String(task?.created_at || '')) || 0
+  if (createdAt && now - createdAt >= EXPECTED_BUNDLE_TTL_MS) {
+    return { status: 'attention', error: `O Wharnex aguardou ${expected.filename} durante mais de uma hora sem entrega válida.` }
+  }
+  return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
+}
+
+async function executeChatSupervisorTask(task, { worker, owner }) {
+  const index = Math.max(1, Number(worker) || 1)
+  const cooldown = chatAgentRateLimitDelayMs()
+  if (cooldown > 0) return { status: 'waiting', delayMs: cooldown, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+  const payload = chatAgentTaskPayload(task)
+  const key = sanitizeChatCacheKey(task?.chat_id || task?.chatId)
+  if (!key) return { status: 'failed', error: 'Supervisor task has no chat binding' }
+  const conversationURL = chatAgentConversationURL(task, payload)
+  noteChatSupervisorLane(index, task)
+  let entry
+  try {
+    entry = bindChatSupervisor(key)
+  } catch (error) {
+    return {
+      status: 'waiting', delayMs: CHAT_SUPERVISOR_SLOT_WAIT_MS, observation: true,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+  if (!entry) {
+    return { status: 'waiting', delayMs: CHAT_SUPERVISOR_SLOT_WAIT_MS, observation: true, error: 'nenhuma janela do Wharnex aloja supervisores neste momento' }
+  }
+  const reason = `chat-supervisor-${String(task.type || '').toLowerCase()}`
+  const current = entry.view.webContents.getURL()
+  // The normal case is no navigation at all: this Supervisor sent the request and
+  // has not left the conversation since.
+  if (conversationURL && !sameConversationURL(current, conversationURL)) {
+    await paceChatGPTWorkerNavigation()
+    await loadOwnedChatGPTURL(key, entry, conversationURL, reason)
+    await waitForChatGPTSurfaceReady(key, entry)
+    const afterNavigation = chatAgentRateLimitDelayMs()
+    if (afterNavigation > 0) return { status: 'waiting', delayMs: afterNavigation, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+  } else if (!conversationURL && !isTrustedChatGPTOrigin(current)) {
+    await paceChatGPTWorkerNavigation()
+    await loadOwnedChatGPTURL(key, entry, CHATGPT_URL, `${reason}-bootstrap`)
+    await waitForChatGPTSurfaceReady(key, entry)
+  }
+  switch (task.type) {
+    case 'AWAIT_RESPONSE': return superviseChatAgentResponse(task, entry, key, payload)
+    case 'BOT_WRITE':
+    case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL)
+    case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner)
+    default: return { status: 'failed', error: `O pool de Supervisores não executa ${task.type}` }
+  }
+}
+
 async function executeChatAgentTask(task, { worker, owner }) {
   const entry = workerEntryForIndex(worker)
   if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
@@ -4876,10 +5157,11 @@ async function pollExpectedChatGPTDownloadKey(key) {
       return
     }
     const entry = chatgptViews.get(key)
-    // A visible Supervisor temporarily owns passive response observation for
-    // its selected chat. Hidden/warm Supervisor slots stand down so background
-    // work remains the durable Worker's responsibility.
-    if (!entry || !chatGPTEntryIsActiveVisible(key, entry)) return
+    // The Supervisor bound to this chat owns its response supervision, visible
+    // or not. It is already on the conversation, so reading it here costs no
+    // provider request at all — which is the whole point of binding a Supervisor
+    // to a chat for the life of its request.
+    if (!entry || !chatGPTSupervisorOwnsExpectedResponse(key, expected.requestId)) return
     // Recovery reloads and DOM probes must not race the serialized upload or
     // prompt preparation currently owning this surface. The next main-process
     // sweep will resume supervision after the transport boundary is released.
@@ -4932,6 +5214,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
         if (clickMode) {
           expected.lastDOMClick = now
           expected.downloadInFlight = true
+          expected.progressAt = now
           recentExpectedDownload = { key, requestId: expected.requestId, at: now }
           console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
           return
@@ -4947,6 +5230,11 @@ async function pollExpectedChatGPTDownloadKey(key) {
       const completion = await wc.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
       expected.domProbeFailures = 0
       noteChatGPTRecoveryAssistantCount(expected.recovery, completion?.assistantCount, now)
+      // Structural evidence the page is alive. The durable supervision reads this
+      // stamp to bound a passive observation that never spends an attempt, so the
+      // clock has to be reset by any generating or completion signal — never by
+      // the mere fact that a probe ran.
+      if (completion?.thinking === true || completion?.complete === true) expected.progressAt = now
       if (completion?.thinking === true) {
         if (!expected.processingObservedAt) expected.processingObservedAt = now
         expected.processingAbsentSince = 0
@@ -5975,6 +6263,10 @@ app.whenReady().then(async () => {
   ensureChatGPTWorkerPool(workerHost)
   chatAgentScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: executeChatAgentTask,
+    // The Worker pool takes only small account-lifecycle and utility work. The
+    // durable claim enforces that partition, so no attempt is charged to reject
+    // a chat-bound task this pool must never navigate to.
+    role: 'worker',
     claimOptions: (worker) => {
       // A suspended provider must stop the pool at the claim, not at the
       // submission. Claiming during a cooldown charges an attempt to every task
@@ -5985,7 +6277,7 @@ app.whenReady().then(async () => {
       const entry = workerEntryForIndex(worker)
       if (!entry) return { skip: true }
       const blocked = Boolean(entry.interactionWindowId || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.loading)
-      const supervisorLanes = chatGPTSupervisorAwaitLanes()
+      const supervisorLanes = chatSupervisorBoundLanes()
       const residentLane = chatAgentResidency.snapshot(entry.slotId).resident_lane
       const keepFlowing = chatAgentKeepFlowingActive(worker)
       if (!blocked && !keepFlowing && residentLane && supervisorLanes.has(residentLane)) {
@@ -6038,6 +6330,55 @@ app.whenReady().then(async () => {
     },
   })
   chatAgentScheduler.start()
+  // The Supervisor pool draws from the same durable queue with the complementary
+  // role: opening the chat, submitting the request bundle, following the remote
+  // instance and collecting the response bundle. One loop per Supervisor slot,
+  // never resized, because the slot count is the number of chats that may stay
+  // resident at once.
+  chatSupervisorScheduler = new ChatAgentSchedulerClient({
+    baseURL: BACKEND_URL, workerCount: SUPERVISOR_SLOTS, maxWorkers: SUPERVISOR_SLOTS,
+    execute: executeChatSupervisorTask, role: 'supervisor', agentID: chatSupervisorSlotID,
+    // Supervision spends almost all of its life handing the slot back between
+    // observations, so a task cooldown here would only delay reading a page that
+    // is already loaded. The provider pacing gate still covers every real action.
+    taskCooldownMs: 0,
+    claimOptions: (index) => {
+      if (chatAgentRateLimitDelayMs() > 0) return { skip: true }
+      if (!chatSupervisorHostWindow()) return { skip: true }
+      const runtime = chatSupervisorStates.get(index) || {}
+      const lane = String(runtime.lane || '')
+      const key = sanitizeChatCacheKey(runtime.key || '')
+      const entry = key ? chatgptViews.get(key) : undefined
+      const scope = { project_scoped: true, open_projects: projectWindowRegistry.openProjects() }
+      // A Supervisor mid-request serves only its own chat. Letting it claim
+      // another conversation is precisely the cross-chat navigation this pool
+      // exists to remove, and it would also abandon a request in flight.
+      if (lane && entry && supervisorBindingHeld(key, entry)) {
+        return { preferred_lane: lane, fallback_mode: 'resident_only', ...scope }
+      }
+      // Free: prefer the chat it already has loaded, but accept any chat-bound
+      // work except the lanes other Supervisors are still holding.
+      const taken = chatSupervisorLanesHeldByOthers(index)
+      return {
+        preferred_lane: lane, fallback_mode: 'any',
+        excluded_lanes: [...taken].slice(0, 32), ...scope,
+      }
+    },
+    onState: (state) => {
+      const slot = Number(state?.worker || 0)
+      if (slot) {
+        const prior = chatSupervisorStates.get(slot) || { active: true, task: undefined, lastTask: undefined, lastClaimAt: '', error: '', lane: '', key: '' }
+        if (state.kind === 'worker-started') chatSupervisorStates.set(slot, { ...prior, active: true })
+        else if (state.kind === 'worker-stopped') chatSupervisorStates.set(slot, { ...prior, active: false, task: undefined })
+        else if (state.kind === 'running') chatSupervisorStates.set(slot, { ...prior, active: true, task: state.task, lastTask: state.task, lastClaimAt: new Date().toISOString(), error: '' })
+        else if (state.kind === 'settled') chatSupervisorStates.set(slot, { ...prior, task: undefined, lastTask: state.task || prior.lastTask, lastResult: state.result, error: '' })
+        else if (state.kind === 'task-error') chatSupervisorStates.set(slot, { ...prior, task: undefined, lastTask: state.task || prior.lastTask, error: String(state?.error?.message || state?.error || '') })
+        else if (state.kind === 'worker-error') chatSupervisorStates.set(slot, { ...prior, task: undefined, error: String(state?.error?.message || state?.error || '') })
+      }
+      publishChatAgentRuntimeState()
+    },
+  })
+  chatSupervisorScheduler.start()
   void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
 })
 
@@ -6046,6 +6387,7 @@ app.on('before-quit', () => {
   persistWindowLayout()
   if (chatGPTDownloadPoller) clearInterval(chatGPTDownloadPoller)
   if (chatAgentScheduler) void chatAgentScheduler.stop()
+  if (chatSupervisorScheduler) void chatSupervisorScheduler.stop()
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow('primary') })

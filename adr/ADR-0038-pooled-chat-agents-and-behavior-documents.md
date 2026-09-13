@@ -2,9 +2,16 @@
 
 ## Status
 
-Accepted. This decision supersedes the per-chat renderer ownership model from
-ADR-0006 and the renderer-rehydration/background-poller portions of ADR-0012
-and ADR-0037.
+Accepted, with the pool topology superseded by `adr/ADR-0049`. This decision
+supersedes the per-chat renderer ownership model from ADR-0006 and the
+renderer-rehydration/background-poller portions of ADR-0012 and ADR-0037.
+
+The durable queue, lease model, behavior documents and inspection boundary below
+remain in force. The slot counts, the warm/standby second Supervisor and the
+visible-Supervisor observation handoff do not: `adr/ADR-0049` binds one
+Supervisor per chat (six slots, three Workers) and partitions the queue by pool
+role, because re-navigating conversations across a two-slot pool was itself the
+provider request that earned the account sustained HTTP 429.
 
 ## Context
 
@@ -21,7 +28,10 @@ Renderers should execute work for those identities rather than own them.
 
 ## Decision
 
-### Two Supervisor slots and a bounded autonomous worker pool
+### A bounded Supervisor pool and a bounded autonomous worker pool
+
+> Superseded by `adr/ADR-0049`: the counts are now six Supervisor slots, each
+> bound to one chat for the life of its request, plus one to three Workers.
 
 For one authenticated ChatGPT profile/Desktop process, Wharnex owns exactly two
 **Supervisor** browser slots (one visible human-facing surface and one warm/standby) plus a configurable pool of one to six persistent
@@ -259,7 +269,7 @@ remain outside the automation inspection boundary.
 
 ## Consequences
 
-- Thirty or more chats still use two Supervisor slots plus a bounded one-to-six Worker pool (six by default).
+- Thirty or more chats still use a bounded renderer pool rather than one renderer per chat. The counts are now six Supervisor slots plus one to three Workers (`adr/ADR-0049`).
 - Browser lifetime is no longer chat lifetime; durable identity and queue state
   survive Desktop restart independently of renderer state.
 - Background work can never navigate the user's visible browser.
