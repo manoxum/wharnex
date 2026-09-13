@@ -8,7 +8,7 @@ import (
 )
 
 const chatAgentTaskColumns = `task_id,type,project_id,chat_id,session_id,request_id,root_request_id,conversation_id,parent_task_id,
-	priority,status,not_before,attempt,max_attempts,dedupe_key,lease_owner,lease_expires_at,payload,last_error,created_at,updated_at`
+	priority,status,not_before,attempt,max_attempts,dedupe_key,assigned_worker,keep_flowing,lease_owner,lease_expires_at,payload,last_error,created_at,updated_at`
 
 func qualifiedChatAgentTaskColumns(alias string) string {
 	columns := strings.Split(chatAgentTaskColumns, ",")
@@ -24,8 +24,8 @@ func scanChatAgentTask(scanner interface{ Scan(...any) error }) (ChatAgentTask, 
 	err := scanner.Scan(
 		&task.TaskID, &task.Type, &task.ProjectID, &task.ChatID, &task.SessionID, &task.RequestID,
 		&task.RootRequestID, &task.ConversationID, &task.ParentTaskID, &task.Priority, &task.Status,
-		&task.NotBefore, &task.Attempt, &task.MaxAttempts, &task.DedupeKey, &task.LeaseOwner,
-		&lease, &task.Payload, &task.LastError, &task.CreatedAt, &task.UpdatedAt,
+		&task.NotBefore, &task.Attempt, &task.MaxAttempts, &task.DedupeKey, &task.AssignedWorker,
+		&task.KeepFlowing, &task.LeaseOwner, &lease, &task.Payload, &task.LastError, &task.CreatedAt, &task.UpdatedAt,
 	)
 	if lease.Valid {
 		value := lease.Time
@@ -51,7 +51,7 @@ func (s *Store) postgresEnqueueChatAgentTask(task ChatAgentTask) (ChatAgentTask,
 		}
 	}
 	result, err := tx.Exec(`INSERT INTO harness_chat_agent_tasks (`+chatAgentTaskColumns+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'',NULL,$16,'',$17,$17)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'',false,'',NULL,$16,'',$17,$17)
 		ON CONFLICT DO NOTHING`,
 		task.TaskID, task.Type, task.ProjectID, task.ChatID, task.SessionID, task.RequestID,
 		task.RootRequestID, task.ConversationID, task.ParentTaskID, task.Priority, task.Status,
@@ -168,7 +168,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	}
 	seconds := int64(lease / time.Second)
 	laneExpr := `CASE WHEN t.conversation_id<>'' THEN 'c:'||t.conversation_id ELSE 'h:'||t.chat_id END`
-	args := []any{owner, seconds, options.PreferredLane, options.FallbackMode}
+	args := []any{owner, seconds, options.PreferredLane, options.FallbackMode, options.WorkerID}
 	excludedSQL := ""
 	if len(options.ExcludedLanes) > 0 {
 		parts := make([]string, 0, len(options.ExcludedLanes))
@@ -197,6 +197,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','WAITING') AND t.not_before<=now() AND t.attempt<t.max_attempts
+		  AND (t.assigned_worker='' OR (t.assigned_worker=$5 AND $5<>''))
 		  AND (
 			$4='any'
 			OR ($4='resident_only' AND ` + laneExpr + `=$3)

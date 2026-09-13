@@ -14,6 +14,7 @@ import (
 type chatAgentLeaseRequest struct {
 	Owner         string   `json:"owner"`
 	LeaseSeconds  int      `json:"lease_seconds"`
+	WorkerID      string   `json:"worker_id"`
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
 	FallbackMode  string   `json:"fallback_mode"`
@@ -87,7 +88,7 @@ func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		lease = 45 * time.Second
 	}
 	task, err := a.store.ClaimChatAgentTaskWithOptions(body.Owner, lease, session.ChatAgentClaimOptions{
-		PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, FallbackMode: body.FallbackMode,
+		WorkerID: body.WorkerID, PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, FallbackMode: body.FallbackMode,
 		ProjectScoped: body.ProjectScoped, OpenProjects: body.OpenProjects,
 	})
 	if err != nil {
@@ -95,6 +96,22 @@ func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"task": task})
+}
+
+func (a *API) assignChatAgentTask(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		WorkerID    string `json:"worker_id"`
+		KeepFlowing bool   `json:"keep_flowing"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	task, err := a.store.AssignChatAgentTask(r.PathValue("id"), body.WorkerID, body.KeepFlowing)
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
 }
 
 func (a *API) startChatAgentTask(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +308,8 @@ func writeChatAgentTaskError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "chat_agent_task_not_found", err.Error())
 	case errors.Is(err, session.ErrChatAgentLeaseOwner):
 		writeError(w, http.StatusConflict, "chat_agent_lease_conflict", err.Error())
+	case errors.Is(err, session.ErrChatAgentTaskAssignment):
+		writeError(w, http.StatusConflict, "chat_agent_assignment_conflict", err.Error())
 	case strings.Contains(err.Error(), "required"), strings.Contains(err.Error(), "unsupported"),
 		strings.Contains(err.Error(), "must be"):
 		writeError(w, http.StatusBadRequest, "invalid_chat_agent_task", err.Error())

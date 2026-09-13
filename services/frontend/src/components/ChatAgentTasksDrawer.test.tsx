@@ -8,7 +8,7 @@ function task(patch: Partial<ChatAgentTask>): ChatAgentTask {
   return {
     task_id: 'cat-1', type: 'AWAIT_RESPONSE', project_id: 'project-1', chat_id: 'chat-1', session_id: 'ses-1', request_id: 'req-1',
     root_request_id: 'req-root', conversation_id: 'conv-1', parent_task_id: '', priority: 1, status: 'PENDING', not_before: '2026-09-11T20:00:00Z',
-    attempt: 1, max_attempts: 30, dedupe_key: '', lease_owner: '', payload: { phase: 'observe' }, last_error: '', created_at: '2026-09-11T19:55:00Z', updated_at: '2026-09-11T20:00:00Z',
+    attempt: 1, max_attempts: 30, dedupe_key: '', assigned_worker: '', keep_flowing: false, lease_owner: '', payload: { phase: 'observe' }, last_error: '', created_at: '2026-09-11T19:55:00Z', updated_at: '2026-09-11T20:00:00Z',
     ...patch,
   }
 }

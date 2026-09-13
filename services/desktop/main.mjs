@@ -156,10 +156,8 @@ const pollingExpectedChatGPTBundles = new Set()
 const chatGPTTransportTails = new Map()
 const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
 let chatGPTSupervisorTransportTail = Promise.resolve()
-let chatGPTWorkerNavigationTail = Promise.resolve()
-let chatGPTWorkerLastNavigationAt = 0
-let chatGPTWorkerSubmissionTail = Promise.resolve()
-let chatGPTWorkerLastSubmissionAt = 0
+let chatGPTWorkerRequestTail = Promise.resolve()
+let chatGPTWorkerLastRequestAt = 0
 let chatGPTRateLimitUntil = 0
 // Conversations whose generated-file artifact ChatGPT no longer serves.
 //
@@ -1990,10 +1988,29 @@ function chatAgentKeepFlowingConfigured(worker) {
   return keepFlowingForWorker(chatAgentPolicies, worker)
 }
 
+function chatAgentTaskKeepFlowing(task) {
+  return task?.keep_flowing === true
+}
+
+function chatAgentKeepFlowingEnabled(worker, task) {
+  const runtime = chatAgentWorkerStates.get(worker)
+  return chatAgentKeepFlowingConfigured(worker) || chatAgentTaskKeepFlowing(runtime?.task) || chatAgentTaskKeepFlowing(task)
+}
+
+function chatAgentTaskKeepFlowingSponsored(runtime) {
+  if (chatAgentTaskKeepFlowing(runtime?.task)) return true
+  if (runtime?.error) return false
+  return String(runtime?.lastResult?.status || '').toLowerCase() === 'waiting'
+    && chatAgentTaskKeepFlowing(runtime?.lastTask)
+}
+
 function chatAgentKeepFlowingActive(worker) {
-  if (!chatAgentKeepFlowingConfigured(worker)) return false
   const runtime = chatAgentWorkerStates.get(worker)
   const task = runtime?.task || runtime?.lastTask
+  // A task-scoped sponsorship survives the durable WAITING/re-claim cycle of
+  // that same task, but releases immediately when the scheduler settles it
+  // terminally. Persistent Worker policy remains the broader request sponsor.
+  if (!chatAgentKeepFlowingConfigured(worker) && !chatAgentTaskKeepFlowingSponsored(runtime)) return false
   const requestId = String(task?.root_request_id || task?.request_id || '').trim()
   if (['attention', 'failed'].includes(String(runtime?.lastResult?.status || '').toLowerCase())) return false
   if (!requestId || recentlyDeliveredChatGPTBundleRequestId(requestId) || pendingChatGPTBundleDeliveries.has(requestId)) return false
@@ -2005,9 +2022,9 @@ function chatAgentKeepFlowingRequestActive(requestId) {
   const id = String(requestId || '').trim()
   if (!id || recentlyDeliveredChatGPTBundleRequestId(id) || pendingChatGPTBundleDeliveries.has(id)) return false
   for (let worker = 1; worker <= chatGPTWorkerEntries.length; worker += 1) {
-    if (!chatAgentKeepFlowingConfigured(worker)) continue
     const runtime = chatAgentWorkerStates.get(worker)
     const task = runtime?.task || runtime?.lastTask
+    if (!chatAgentKeepFlowingConfigured(worker) && !chatAgentTaskKeepFlowingSponsored(runtime)) continue
     if (String(task?.root_request_id || task?.request_id || '').trim() === id) return true
   }
   return false
@@ -2243,6 +2260,7 @@ function publicChatAgentTask(task) {
     request_id: String(task.request_id || ''), root_request_id: String(task.root_request_id || ''),
     conversation_id: String(task.conversation_id || ''), status: String(task.status || ''),
     attempt: Math.max(0, Number(task.attempt || 0)), max_attempts: Math.max(0, Number(task.max_attempts || 0)),
+    assigned_worker: String(task.assigned_worker || ''), keep_flowing: task.keep_flowing === true,
     lease_expires_at: String(task.lease_expires_at || ''), not_before: String(task.not_before || ''),
     last_error: String(task.last_error || ''), created_at: String(task.created_at || ''), updated_at: String(task.updated_at || ''),
   }
@@ -2375,7 +2393,7 @@ function chatAgentRuntimeState() {
     const runtime = chatAgentWorkerStates.get(worker) || {}
     return {
       id: entry.slotId || `worker-${worker}`, label: `Worker ${worker}`, role: 'worker',
-      status: runtime.task ? (String(runtime.task.status || '').toUpperCase() === 'RUNNING' ? 'running' : 'claimed') : runtime.error ? 'error' : entry.loading ? 'loading' : runtime.active === false ? 'stopped' : 'idle',
+      status: runtime.task ? (String(runtime.task.status || '').toUpperCase() === 'RUNNING' ? 'running' : 'claimed') : runtime.error ? 'error' : entry.loading ? 'loading' : runtime.active === false ? 'stopped' : chatAgentKeepFlowingActive(worker) ? 'claimed' : 'idle',
       draining: worker > desiredChatAgentWorkerSlots, loop_active: runtime.active !== false, interacting: Boolean(entry.interactionWindowId),
       chat_id: String(runtime.task?.chat_id || runtime.lastTask?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
       last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
@@ -3326,31 +3344,31 @@ function chatAgentNavigationGapMs() {
   return steps[Math.min(steps.length - 1, Math.max(0, level - 1))]
 }
 
-async function paceChatGPTWorkerNavigation() {
+async function paceChatGPTWorkerRequest(gapMs) {
   let release
-  const previous = chatGPTWorkerNavigationTail
-  chatGPTWorkerNavigationTail = new Promise((resolve) => { release = resolve })
+  const previous = chatGPTWorkerRequestTail
+  chatGPTWorkerRequestTail = new Promise((resolve) => { release = resolve })
   await previous
   try {
-    const remaining = chatAgentNavigationGapMs() - (Date.now() - chatGPTWorkerLastNavigationAt)
+    // Navigation and submission share one authenticated provider account. A
+    // single process-wide gate prevents every resumed Worker from issuing its
+    // next provider-facing action at once; 10s is the hard healthy floor.
+    const effectiveGap = Math.max(CHAT_AGENT_SUBMIT_GAP_MS, Number(gapMs) || 0)
+    const remaining = effectiveGap - (Date.now() - chatGPTWorkerLastRequestAt)
     if (remaining > 0) await wait(remaining)
-    chatGPTWorkerLastNavigationAt = Date.now()
+    chatGPTWorkerLastRequestAt = Date.now()
   } finally {
     release()
   }
 }
 
-// Process-wide spacing for autonomous prompt submissions, mirroring the
-// navigation gap. Transport preparation is serialized per physical Worker slot,
-// which bounds one slot but not the pool: six free slots bound to six different
-// conversations would otherwise all submit in the same instant against a single
-// authenticated account, which is precisely the burst a provider-wide 429
-// answers. Ordering is FIFO through a promise tail, so no submission is starved.
-// Resuming a suspended pool at the healthy floor rebuilds the burst that caused
-// the suspension: every worker whose task came due during the window submits in
-// the same instant. The gap therefore widens with the provider's own rate-limit
-// level and narrows again only as valid bundles prove the account healthy —
-// the same durable evidence the navigation gate uses.
+async function paceChatGPTWorkerNavigation() {
+  await paceChatGPTWorkerRequest(chatAgentNavigationGapMs())
+}
+
+// Process-wide spacing for autonomous prompt submissions, sharing the same
+// request gate as navigation. Pressure-specific gaps still widen independently,
+// but no Worker provider action can follow another by less than 10 seconds.
 function chatAgentSubmissionGapMs() {
   const provider = chatAgentRuntimeDiagnostics.provider || {}
   const level = Math.max(0, Number(provider.rate_limit_level || 0))
@@ -3362,17 +3380,7 @@ function chatAgentSubmissionGapMs() {
 }
 
 async function paceChatGPTWorkerSubmission() {
-  let release
-  const previous = chatGPTWorkerSubmissionTail
-  chatGPTWorkerSubmissionTail = new Promise((resolve) => { release = resolve })
-  await previous
-  try {
-    const remaining = chatAgentSubmissionGapMs() - (Date.now() - chatGPTWorkerLastSubmissionAt)
-    if (remaining > 0) await wait(remaining)
-    chatGPTWorkerLastSubmissionAt = Date.now()
-  } finally {
-    release()
-  }
+  await paceChatGPTWorkerRequest(chatAgentSubmissionGapMs())
 }
 
 async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason, assignment) {
@@ -3918,7 +3926,7 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
     return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
   }
   if (health?.required === true) return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(String(health.kind || 'verification')) }
-  const keepFlowing = chatAgentKeepFlowingConfigured(Number(String(entry.slotId || '').replace('worker-', '')))
+  const keepFlowing = chatAgentKeepFlowingEnabled(Number(String(entry.slotId || '').replace('worker-', '')), task)
   if (keepFlowing) {
     const faultAction = chooseChatGPTRecoveryAction(expected.recovery, {}, Date.now(), { faultOnly: true })
     if (faultAction) {

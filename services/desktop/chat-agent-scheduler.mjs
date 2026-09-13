@@ -173,6 +173,7 @@ export class ChatAgentSchedulerClient {
           method: 'POST',
           body: JSON.stringify({
             owner, lease_seconds: this.leaseSeconds,
+            worker_id: `worker-${index}`,
             preferred_lane: String(claim.preferred_lane || ''),
             excluded_lanes: Array.isArray(claim.excluded_lanes) ? claim.excluded_lanes : [],
             fallback_mode: String(claim.fallback_mode || 'any'),

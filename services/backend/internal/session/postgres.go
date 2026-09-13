@@ -135,6 +135,8 @@ CREATE TABLE IF NOT EXISTS harness_chat_agent_tasks (
     attempt integer NOT NULL DEFAULT 0,
     max_attempts integer NOT NULL DEFAULT 6,
     dedupe_key text NOT NULL DEFAULT '',
+    assigned_worker text NOT NULL DEFAULT '',
+    keep_flowing boolean NOT NULL DEFAULT false,
     lease_owner text NOT NULL DEFAULT '',
     lease_expires_at timestamptz,
     payload jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -142,6 +144,8 @@ CREATE TABLE IF NOT EXISTS harness_chat_agent_tasks (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE harness_chat_agent_tasks ADD COLUMN IF NOT EXISTS assigned_worker text NOT NULL DEFAULT '';
+ALTER TABLE harness_chat_agent_tasks ADD COLUMN IF NOT EXISTS keep_flowing boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_ready_idx
     ON harness_chat_agent_tasks (status, not_before, priority, created_at);
 CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_conversation_idx

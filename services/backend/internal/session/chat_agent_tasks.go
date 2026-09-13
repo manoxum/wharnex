@@ -43,6 +43,8 @@ type ChatAgentTask struct {
 	Attempt        int             `json:"attempt"`
 	MaxAttempts    int             `json:"max_attempts"`
 	DedupeKey      string          `json:"dedupe_key"`
+	AssignedWorker string          `json:"assigned_worker"`
+	KeepFlowing    bool            `json:"keep_flowing"`
 	LeaseOwner     string          `json:"lease_owner"`
 	LeaseExpiresAt *time.Time      `json:"lease_expires_at,omitempty"`
 	Payload        json.RawMessage `json:"payload"`
@@ -100,6 +102,11 @@ func normalizeChatAgentTask(task ChatAgentTask, now time.Time) (ChatAgentTask, e
 	task.ConversationID = strings.TrimSpace(task.ConversationID)
 	task.ParentTaskID = strings.TrimSpace(task.ParentTaskID)
 	task.DedupeKey = strings.TrimSpace(task.DedupeKey)
+	// Routing is an operator action applied after enqueue. Never trust task
+	// producers to smuggle a Worker pin or temporary Keep flowing policy in the
+	// generic enqueue payload.
+	task.AssignedWorker = ""
+	task.KeepFlowing = false
 	task.Priority = priority
 	task.Status = ChatAgentTaskPending
 	task.Attempt = 0

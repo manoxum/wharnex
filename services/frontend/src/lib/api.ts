@@ -95,6 +95,8 @@ export const api = {
   chatAgentTasksForRequest: (requestID: string) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks?request_id=${encodeURIComponent(requestID)}&limit=50`),
   chatAgentTaskSummary: (projectPath = '') =>
     request<ChatAgentQueueSummary>(`/api/chat-agent/tasks/summary${projectPath ? `?project_id=${encodeURIComponent(projectPath)}` : ''}`),
+  assignChatAgentTask: (taskID: string, workerID: string, keepFlowing = false) =>
+    request<ChatAgentTask>(`/api/chat-agent/tasks/${encodeURIComponent(taskID)}/assign`, { method: 'POST', body: JSON.stringify({ worker_id: workerID, keep_flowing: keepFlowing }) }),
   updateExecutionConcurrency: (concurrency: number) => request<ExecutionConcurrency>('/api/execution-concurrency', { method: 'PUT', body: JSON.stringify({ concurrency }) }),
   tunnelConfig: () => request<TunnelProviderConfigResponse>('/api/tunnel-config'),
   updateTunnelConfig: (config: TunnelProviderDocument) => request<TunnelProviderConfigResponse>('/api/tunnel-config', { method: 'PUT', body: JSON.stringify(config) }),

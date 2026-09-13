@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChatAgentQueueSummary, ChatAgentTask } from '../types'
 import { api } from '../lib/api'
+import { desktopBridge } from '../lib/desktop'
 import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../lib/chatAgentTaskNav'
 import { Icon } from './Icon'
 
@@ -37,15 +38,19 @@ export function ChatAgentTasksDrawer({ projectPath, onClose, onError, chats = []
   const [queueSummary, setQueueSummary] = useState<ChatAgentQueueSummary>()
   const [loading, setLoading] = useState(true)
   const [refreshedAt, setRefreshedAt] = useState(Date.now())
+  const [workers, setWorkers] = useState<DesktopAgentRuntimeAgent[]>([])
 
   const refresh = useCallback(async () => {
     try {
-      const [result, summary] = await Promise.all([
+      const bridge = desktopBridge()?.agents
+      const [result, summary, runtime] = await Promise.all([
         api.chatAgentTasks(true, projectPath),
         api.chatAgentTaskSummary(projectPath),
+        bridge ? bridge.state().catch(() => undefined) : Promise.resolve(undefined),
       ])
       setTasks(Array.isArray(result.tasks) ? result.tasks : [])
       setQueueSummary(summary)
+      if (runtime) setWorkers(runtime.agents.filter((agent) => agent.role === 'worker' && !agent.draining && agent.loop_active !== false && agent.status !== 'stopped'))
       setRefreshedAt(Date.now())
     } catch (error) {
       onError?.(error instanceof Error ? error.message : 'Não foi possível carregar as tarefas')
@@ -115,17 +120,27 @@ export function ChatAgentTasksDrawer({ projectPath, onClose, onError, chats = []
   // work is belongs to the project that owns it, not to this panel.
   const otherProjectsCount = queueSummary?.other_projects ?? 0
 
+  const assignTask = async (task: ChatAgentTask, workerID: string, keepFlowing: boolean) => {
+    try {
+      await api.assignChatAgentTask(task.task_id, workerID, keepFlowing)
+      await refresh()
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : 'Não foi possível atribuir a tarefa ao Worker')
+      throw error
+    }
+  }
+
   return <section className="chat-agent-tasks-drawer" aria-label="Tarefas do runtime ChatGPT">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Tarefas</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar tarefas"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></div></header>
     <div className="chat-agent-tasks-summary"><span><b>{runningCount}</b> em execução</span><span><b>{dueCount}</b> por executar</span><span><b>{scheduledCount}</b> {scheduledCount === 1 ? 'agendada' : 'agendadas'}</span>{guardedCount > 0 ? <span><b>{guardedCount}</b> {guardedCount === 1 ? 'aguarda liberação' : 'aguardam liberação'}</span> : null}{blockedCount > 0 ? <span><b>{blockedCount}</b> sem tentativas</span> : null}<small>Atualizado {relativeAge(refreshedAt)}</small></div>
     <p className="chat-agent-tasks-scope">Apenas as tarefas deste projeto.{otherProjectsCount > 0 ? ` Os agentes são partilhados e executam também ${otherProjectsCount} ${otherProjectsCount === 1 ? 'tarefa ativa de outro projeto' : 'tarefas ativas de outros projetos'}.` : ''}</p>
     <div className="chat-agent-tasks-body">
       {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas neste projeto.</strong><span>{otherProjectsCount > 0 ? 'A fila deste projeto está vazia, mas os agentes partilhados estão ocupados com outros projetos.' : 'A fila e os Workers estão livres neste momento.'}</span></div> : <>
-        <TaskSection title="Em execução" tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>
-        <TaskSection title="Por executar" tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>
-        <ScheduledTaskSection tasks={groups.scheduled} nextNotBefore={queueSummary?.next_not_before} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/>
-        {groups.guarded.length ? <TaskSection title="Aguardam liberação" tasks={groups.guarded} empty="" disposition="guarded" guardReasons={groups.guardReasons} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/> : null}
-        {groups.blocked.length ? <TaskSection title="Sem tentativas" tasks={groups.blocked} empty="" disposition="blocked" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/> : null}
+        <TaskSection title="Em execução" tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={assignTask}/>
+        <TaskSection title="Por executar" tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={assignTask}/>
+        <ScheduledTaskSection tasks={groups.scheduled} nextNotBefore={queueSummary?.next_not_before} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/>
+        {groups.guarded.length ? <TaskSection title="Aguardam liberação" tasks={groups.guarded} empty="" disposition="guarded" guardReasons={groups.guardReasons} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/> : null}
+        {groups.blocked.length ? <TaskSection title="Sem tentativas" tasks={groups.blocked} empty="" disposition="blocked" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/> : null}
       </>}
     </div>
   </section>
@@ -136,17 +151,19 @@ type TaskNavProps = {
   onGoToChat?: (chatId?: string, sessionId?: string) => void
   onGoToOrchestrator?: () => void
   onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
+  workers?: DesktopAgentRuntimeAgent[]
+  onAssignTask?: (task: ChatAgentTask, workerID: string, keepFlowing: boolean) => Promise<void>
 }
 
-function TaskSection({ title, tasks, empty, disposition, guardReasons, showPosition = false, chats, onGoToChat, onGoToOrchestrator, onFollowInstance }: { title: string; tasks: ChatAgentTask[]; empty: string; disposition: TaskDisposition; guardReasons?: Map<string, string>; showPosition?: boolean } & TaskNavProps) {
-  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} disposition={disposition} guardReason={guardReasons?.get(task.task_id)} queuePosition={showPosition ? index + 1 : undefined} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>)}</div> : <p>{empty}</p>}</section>
+function TaskSection({ title, tasks, empty, disposition, guardReasons, showPosition = false, chats, onGoToChat, onGoToOrchestrator, onFollowInstance, workers, onAssignTask }: { title: string; tasks: ChatAgentTask[]; empty: string; disposition: TaskDisposition; guardReasons?: Map<string, string>; showPosition?: boolean } & TaskNavProps) {
+  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} disposition={disposition} guardReason={guardReasons?.get(task.task_id)} queuePosition={showPosition ? index + 1 : undefined} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={onAssignTask}/>)}</div> : <p>{empty}</p>}</section>
 }
 
-function ScheduledTaskSection({ tasks, nextNotBefore, chats, onGoToChat, onGoToOrchestrator }: { tasks: ChatAgentTask[]; nextNotBefore?: string } & TaskNavProps) {
+function ScheduledTaskSection({ tasks, nextNotBefore, chats, onGoToChat, onGoToOrchestrator, workers, onAssignTask }: { tasks: ChatAgentTask[]; nextNotBefore?: string } & TaskNavProps) {
   if (!tasks.length) return null
   return <details className="chat-agent-task-section chat-agent-task-scheduled-section">
     <summary><span><strong>Agendadas</strong><small>Aguardam a data de execução, não um Worker. Próxima: {timeLabel(nextNotBefore || tasks[0].not_before)}</small></span><em>{tasks.length}</em></summary>
-    <div className="chat-agent-task-list">{tasks.map((task) => <TaskCard key={task.task_id} task={task} disposition="scheduled" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/>)}</div>
+    <div className="chat-agent-task-list">{tasks.map((task) => <TaskCard key={task.task_id} task={task} disposition="scheduled" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={onAssignTask}/>)}</div>
   </details>
 }
 
@@ -155,8 +172,12 @@ function ScheduledTaskSection({ tasks, nextNotBefore, chats, onGoToChat, onGoToO
 // that matches a known Harness chat, and going to orchestration is offered
 // only for a task whose origin is the Orchestrator planning pipeline. Guessing
 // any of these from partial data would send the operator somewhere wrong.
-function TaskCard({ task, disposition, guardReason, queuePosition, chats = [], onGoToChat, onGoToOrchestrator, onFollowInstance }: { task: ChatAgentTask; disposition: TaskDisposition; guardReason?: string; queuePosition?: number } & TaskNavProps) {
+function TaskCard({ task, disposition, guardReason, queuePosition, chats = [], onGoToChat, onGoToOrchestrator, onFollowInstance, workers = [], onAssignTask }: { task: ChatAgentTask; disposition: TaskDisposition; guardReason?: string; queuePosition?: number } & TaskNavProps) {
   const running = disposition === 'running'
+  const [assignmentWorker, setAssignmentWorker] = useState(task.assigned_worker || '')
+  const [assignmentMode, setAssignmentMode] = useState<'standard' | 'keep_flowing'>(task.keep_flowing ? 'keep_flowing' : 'standard')
+  const [assigning, setAssigning] = useState(false)
+  useEffect(() => { setAssignmentWorker(task.assigned_worker || ''); setAssignmentMode(task.keep_flowing ? 'keep_flowing' : 'standard') }, [task.assigned_worker, task.keep_flowing])
   const workerId = running ? extractWorkerId(task.lease_owner) : undefined
   const resolvedChatId = resolveTaskChatId(task, chats)
   const orchestratorOrigin = task.type === 'ORCHESTRATOR_PLAN'
@@ -176,6 +197,7 @@ function TaskCard({ task, disposition, guardReason, queuePosition, chats = [], o
       <div className="chat-agent-task-heading-meta">{queuePosition ? <em aria-label={`Posição ${queuePosition} na fila`}>#{String(queuePosition).padStart(2, '0')}</em> : null}<span className="chat-agent-task-state">{statusLabel(task.status, disposition)}</span></div>
     </div>
     <div className="chat-agent-task-worker"><span><Icon name="agent" size={13}/><b>{assignmentLabel(task, disposition)}</b></span><small title={schedule}>{schedule}</small></div>
+    {!running && disposition !== 'blocked' && workers.length > 0 && onAssignTask ? <div className="chat-agent-task-assignment" aria-label="Atribuir tarefa ao Worker"><select aria-label="Worker" value={assignmentWorker} disabled={assigning} onChange={(event) => setAssignmentWorker(event.target.value)}><option value="">Selecionar Worker…</option>{workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.label} · {statusLabelForWorker(worker)}</option>)}</select><select aria-label="Modo de execução" value={assignmentMode} disabled={assigning} onChange={(event) => setAssignmentMode(event.target.value === 'keep_flowing' ? 'keep_flowing' : 'standard')}><option value="standard">Modo atual do Worker</option><option value="keep_flowing">Keep flowing temporário</option></select><button type="button" disabled={assigning || !assignmentWorker} onClick={() => { if (!assignmentWorker) return; setAssigning(true); void onAssignTask(task, assignmentWorker, assignmentMode === 'keep_flowing').finally(() => setAssigning(false)) }}>{assigning ? 'A atribuir…' : 'Atribuir'}</button></div> : null}
     {((workerId && onFollowInstance) || (resolvedChatId && onGoToChat) || (orchestratorOrigin && onGoToOrchestrator)) && <div className="chat-agent-task-nav" aria-label="Navegação da tarefa">
       {workerId && onFollowInstance ? <button type="button" onClick={() => onFollowInstance(workerId, resolvedChatId, task.session_id)} title="Acompanhar em tempo real a instância do Worker que executa esta tarefa"><Icon name="monitor" size={13}/> Acompanhar instância</button> : null}
       {resolvedChatId && onGoToChat ? <button type="button" onClick={() => onGoToChat(resolvedChatId, task.session_id)} title="Abrir o chat Harness desta tarefa"><Icon name="bridge" size={13}/> Ver chat</button> : null}
@@ -249,10 +271,18 @@ function workerLabel(owner: string) {
 }
 
 function assignmentLabel(task: ChatAgentTask, disposition: TaskDisposition) {
-  if (disposition === 'scheduled') return 'Atribuição futura'
-  if (disposition === 'guarded') return 'Atribuição protegida'
-  if (disposition === 'blocked') return 'Sem atribuição'
-  return workerLabel(task.lease_owner)
+  const assigned = task.assigned_worker ? `${workerLabel(task.assigned_worker)}${task.keep_flowing ? ' · Keep flowing temporário' : ''}` : ''
+  if (disposition === 'scheduled') return assigned || 'Atribuição futura'
+  if (disposition === 'guarded') return assigned || 'Atribuição protegida'
+  if (disposition === 'blocked') return assigned || 'Sem atribuição'
+  return task.lease_owner ? workerLabel(task.lease_owner) : assigned || 'Por atribuir'
+}
+
+function statusLabelForWorker(worker: DesktopAgentRuntimeAgent) {
+  if (worker.draining) return 'a terminar'
+  if (worker.status === 'running' || worker.status === 'claimed') return 'ocupado'
+  if (worker.status === 'error') return 'com erro'
+  return 'disponível'
 }
 
 function statusLabel(status: string, disposition: TaskDisposition) {

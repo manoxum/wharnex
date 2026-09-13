@@ -308,6 +308,8 @@ export type ChatAgentTask = {
   attempt: number
   max_attempts: number
   dedupe_key: string
+  assigned_worker: string
+  keep_flowing: boolean
   lease_owner: string
   lease_expires_at?: string
   payload: unknown

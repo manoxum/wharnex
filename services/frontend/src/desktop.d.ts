@@ -21,7 +21,7 @@ type DesktopStorageUsage = { total_bytes: number; user_data_bytes: number; brows
 type DesktopBrowserSessionResult = { cancelled: boolean; filename?: string; bytes?: number; files?: number; restarting?: boolean }
 type DesktopAgentRuntimeTask = {
   task_id: string; type: string; chat_id: string; project_id: string; request_id: string; root_request_id: string; conversation_id: string; status: string
-  attempt: number; max_attempts: number; lease_expires_at: string; not_before: string; last_error: string; created_at: string; updated_at: string
+  attempt: number; max_attempts: number; assigned_worker: string; keep_flowing: boolean; lease_expires_at: string; not_before: string; last_error: string; created_at: string; updated_at: string
 }
 type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number; os_process_id?: number; url: string; title: string; loading: boolean }
 type DesktopAgentRuntimeResidency = { slot_id: string; resident_lane: string; resident_since: string; min_resident_until: string; assignment_epoch: number; rotation_position: number; navigation_in_progress: boolean; non_preemptive: boolean }
