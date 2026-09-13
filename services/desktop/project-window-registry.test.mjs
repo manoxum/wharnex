@@ -22,3 +22,20 @@ test('closing a window releases all of its project leases only', () => {
   assert.equal(registry.acquire('window-b', '/tmp/a').ok, true)
   assert.equal(registry.acquire('window-a', '/tmp/c').ok, false)
 })
+
+// The claim scope the durable queue applies. A project no window holds cannot
+// be supervised by anyone, so its request-bound work waits instead of
+// competing for the shared agent pool.
+test('open projects are reported once per project across windows', () => {
+  const registry = new ProjectWindowRegistry()
+  registry.acquire('window-a', '/home/op/alpha')
+  registry.acquire('window-b', '/home/op/beta')
+  registry.acquire('window-a', '/home/op/alpha')
+  assert.deepEqual(registry.openProjects().sort(), ['/home/op/alpha', '/home/op/beta'])
+
+  registry.releaseWindow('window-a')
+  assert.deepEqual(registry.openProjects(), ['/home/op/beta'])
+
+  registry.releaseWindow('window-b')
+  assert.deepEqual(registry.openProjects(), [])
+})

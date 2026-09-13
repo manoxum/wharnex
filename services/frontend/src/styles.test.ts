@@ -71,7 +71,10 @@ describe('agent runtime drawer CSS', () => {
     const activeAgent = lastRule('.agent-runtime-list > button.active')
     const detail = lastRule('.agent-runtime-detail')
 
-    expect(summary).toContain('grid-template-columns:repeat(3,minmax(0,1fr))')
+    // Four tiles since the shared pool gained cross-project occupancy: an
+    // agent busy with another project has to be countable here, or the panel
+    // reports no free Workers beside cards that all look idle.
+    expect(summary).toContain('grid-template-columns:repeat(4,minmax(0,1fr))')
     expect(memorySummary).toContain('grid-template-columns:repeat(5,minmax(0,1fr))')
     expect(diagnostics).toContain('grid-template-columns:repeat(3,minmax(0,1fr))')
     expect(diagnosticRow).toContain('border-radius:8px')

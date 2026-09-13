@@ -64,6 +64,19 @@ func (a *API) updateWorkspaceChatRemote(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// recoverWorkspaceChatBinding proposes the conversations a chat with a lost
+// binding may belong to. It is read-only on purpose: rebinding stays the
+// explicit PATCH .../remote action, so recovery can never silently point a chat
+// at somebody else's conversation.
+func (a *API) recoverWorkspaceChatBinding(w http.ResponseWriter, r *http.Request) {
+	recovery, err := a.service.RecoverWorkspaceChatBinding(r.PathValue("id"))
+	if err != nil {
+		writeWorkspaceChatError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, recovery)
+}
+
 func (a *API) deleteWorkspaceChat(w http.ResponseWriter, r *http.Request) {
 	if err := a.service.DeleteWorkspaceChat(r.PathValue("id")); err != nil {
 		writeWorkspaceChatError(w, err)

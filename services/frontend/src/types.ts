@@ -670,3 +670,19 @@ export type GitPushResult = {
   conflict_id?: string
 }
 export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
+
+// One conversation a chat with a lost binding may belong to, with the evidence
+// that ties it to that chat so the operator can judge it instead of guessing.
+export type WorkspaceChatBindingCandidate = {
+  chatgpt_url: string
+  conversation_id: string
+  evidence: 'agent_queue' | 'transcript' | 'session_events'
+  bound_to_chat_id?: string
+  conflict: boolean
+}
+export type WorkspaceChatBindingRecovery = {
+  chat_id: string
+  bound: boolean
+  chatgpt_url?: string
+  candidates: WorkspaceChatBindingCandidate[]
+}

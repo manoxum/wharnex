@@ -31,6 +31,8 @@ No credentials, generated context bundles, or temporary workspaces committed.
 - CAS races and conditional rollback preserve the external writer's value.
 - Read/barrier changes select integration re-verification without global baseline repair.
 - Frontend tests prove that a conflict uses a persisted cache key distinct from its owning chat's primary ChatGPT view.
+- Browser-agent project scoping MUST be proven at the store, not only in the UI: enqueue resolves the canonical project path from a supplied absolute path, from the task's own workspace chat and from its session, and discards a non-path value; a scoped claim refuses a closed project's request-bound work, admits an open project's, admits unattributed work, and still admits account-lifecycle work whatever is open; an unscoped claim keeps its previous behavior; and an unusable project filter fails closed on both the list and the aggregate rather than widening to the whole account.
+- Frontend tests MUST prove both project-scoped reads carry the project, that the task panel reports other projects only as a count, and that the agents panel marks and names an agent occupied with another project's task while leaving this project's own work unmarked.
 
 ## G5 Build
 

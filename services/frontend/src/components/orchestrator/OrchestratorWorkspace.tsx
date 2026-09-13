@@ -33,14 +33,16 @@ export function OrchestratorWorkspace({ session, chats = [], onGoToChat, focusNo
         api.orchestratorOverview(session.id),
         // The durable task carries the lease owner/chat/session identifiers a
         // planning request itself doesn't; one bulk fetch correlates every
-        // visible planning request instead of one request per row.
-        api.chatAgentTasks(true).catch(() => ({ tasks: [] as ChatAgentTask[] })),
+        // visible planning request instead of one request per row. Scoped to
+        // this project: the queue is shared, and the Overview it feeds only
+        // ever shows this project's planning requests (adr/ADR-0044).
+        api.chatAgentTasks(true, session.project_path).catch(() => ({ tasks: [] as ChatAgentTask[] })),
       ])
       setOverview(nextOverview)
       setPlanningTasks(nextTasks.tasks.filter((task) => task.type === 'ORCHESTRATOR_PLAN'))
     } catch (reason) { if (!quiet) onError(errorMessage(reason)) }
     finally { if (!quiet) setBusy(false) }
-  }, [onError, session.id])
+  }, [onError, session.id, session.project_path])
 
   useEffect(() => {
     void refresh()

@@ -2759,6 +2759,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-agent-tasks-summary { min-height:36px; padding:6px 12px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); }
 .chat-agent-tasks-summary span { display:inline-flex; align-items:baseline; gap:5px; white-space:nowrap; }
 .chat-agent-tasks-summary b { color:var(--theme-text); font:750 calc(9.2px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
+/* The queue is shared; this panel is not. Stating the scope is what keeps an
+   empty project queue from reading as a stopped runtime. */
+.chat-agent-tasks-scope { margin:0; padding:7px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(6.9px * var(--ui-font-scale)); line-height:1.45; }
 .chat-agent-tasks-summary small { margin-left:auto; color:var(--theme-text-muted); font-size:calc(7.1px * var(--ui-font-scale)); white-space:nowrap; }
 .chat-agent-tasks-body { min-height:0; overflow:auto; padding:8px 10px 12px; display:grid; align-content:start; gap:10px; }
 .chat-agent-tasks-body > .agent-drawer-empty { display:grid; gap:4px; }
@@ -2823,7 +2826,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* Desktop Supervisor/Worker runtime management. */
 .agent-runtime-drawer { height:100%; min-height:0; display:grid; grid-template-rows:46px auto auto auto auto minmax(0,1fr); background:color-mix(in srgb, var(--theme-bg) 94%, var(--theme-surface)); color:var(--theme-text); }
 .agent-runtime-heading-actions { display:flex; align-items:center; gap:2px; }
-.agent-runtime-summary { min-height:52px; padding:8px 10px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-summary { min-height:52px; padding:8px 10px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
 .agent-runtime-summary span { min-width:0; padding:7px 9px; display:flex; align-items:baseline; gap:5px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-surface); color:var(--theme-text-muted); }
 .agent-runtime-summary b { color:var(--theme-text); font:700 calc(9px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
 .agent-runtime-summary small { overflow:hidden; font-size:calc(6.7px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
@@ -2881,6 +2884,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-list > button > span:nth-child(2) { min-width:0; display:grid; gap:2px; }
 .agent-runtime-list strong { overflow:hidden; font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-list small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(6.7px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+/* Cross-project occupancy. The agent pool is shared across every open project,
+   so an agent busy elsewhere has to be legible as busy rather than idle. */
+.agent-runtime-scope { margin:0; padding:7px 10px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(6.9px * var(--ui-font-scale)); line-height:1.45; }
+.agent-runtime-list > button.foreign-project { box-shadow:inset 2px 0 0 color-mix(in srgb, var(--warning) 64%, var(--theme-border)); }
+.agent-runtime-foreign { overflow:hidden; color:color-mix(in srgb, var(--warning) 78%, var(--theme-text-muted)); font:650 calc(6.4px * var(--ui-font-scale))/1.3 var(--font-family); font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-foreign-note { margin:0 0 8px; padding:7px 9px; border:1px solid color-mix(in srgb, var(--warning) 38%, var(--theme-border-soft)); border-radius:8px; background:color-mix(in srgb, var(--warning) 9%, var(--theme-surface)); color:var(--theme-text-muted); font-size:calc(7px * var(--ui-font-scale)); line-height:1.45; }
+.agent-runtime-foreign-note b { color:var(--theme-text); font-family:var(--mono-font-family); }
 .agent-runtime-list code { max-width:82px; overflow:hidden; padding:2px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(6.1px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-agent-stats { min-width:0; display:grid; justify-items:end; gap:3px; }
 .agent-runtime-agent-stats code { max-width:96px; }
