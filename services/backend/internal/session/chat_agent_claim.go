@@ -16,6 +16,7 @@ const (
 )
 
 type ChatAgentClaimOptions struct {
+	WorkerID      string   `json:"worker_id"`
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
 	FallbackMode  string   `json:"fallback_mode"`
@@ -41,6 +42,13 @@ func chatAgentTaskLane(task ChatAgentTask) string {
 }
 
 func normalizeChatAgentClaimOptions(input ChatAgentClaimOptions) (ChatAgentClaimOptions, error) {
+	if strings.TrimSpace(input.WorkerID) != "" {
+		worker, err := normalizeChatAgentWorkerID(input.WorkerID)
+		if err != nil {
+			return ChatAgentClaimOptions{}, err
+		}
+		input.WorkerID = worker
+	}
 	input.PreferredLane = strings.TrimSpace(input.PreferredLane)
 	input.FallbackMode = strings.TrimSpace(input.FallbackMode)
 	if input.FallbackMode == "" {
@@ -116,6 +124,9 @@ func chatAgentClaimProjectAllows(task ChatAgentTask, options ChatAgentClaimOptio
 }
 
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
+	if task.AssignedWorker != "" && task.AssignedWorker != options.WorkerID {
+		return false
+	}
 	if !chatAgentClaimProjectAllows(task, options) {
 		return false
 	}

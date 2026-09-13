@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../lib/desktop'
+import { api } from '../lib/api'
+import type { ChatAgentTask } from '../types'
 import { Icon } from './Icon'
 
 type Runtime = DesktopAgentRuntimeState
@@ -30,7 +32,8 @@ function short(value?: string, fallback = '—') {
 // Only the other project's identity is exposed. What its task is belongs to
 // that project's own surfaces.
 function foreignProject(agent: DesktopAgentRuntimeAgent, projectPath: string) {
-  const owner = String(agent.task?.project_id || '').trim()
+  const sponsoredTask = agent.task || (agent.keep_flowing_active ? agent.last_task : undefined)
+  const owner = String(sponsoredTask?.project_id || '').trim()
   if (!owner || !projectPath || owner === projectPath) return ''
   return owner
 }
@@ -90,6 +93,10 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
   const [pauseMode, setPauseMode] = useState<'timed' | 'manual'>('timed')
   const [pauseMinutes, setPauseMinutes] = useState('60')
   const [snapshot, setSnapshot] = useState<Snapshot>()
+  const [taskPickerOpen, setTaskPickerOpen] = useState(false)
+  const [availableTasks, setAvailableTasks] = useState<ChatAgentTask[]>([])
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
+  const [taskAssignmentMode, setTaskAssignmentMode] = useState<'standard' | 'keep_flowing'>('standard')
 
   const refresh = useCallback(async () => {
     if (!bridge) return
@@ -109,6 +116,13 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
   const running = runtime?.agents.filter((agent) => agent.status === 'running' || agent.status === 'claimed').length || 0
   const elsewhere = runtime?.agents.filter((agent) => foreignProject(agent, projectPath)).length || 0
   const selectedForeign = selected ? foreignProject(selected, projectPath) : ''
+
+  useEffect(() => {
+    setTaskPickerOpen(false)
+    setAvailableTasks([])
+    setSelectedTaskIds([])
+    setTaskAssignmentMode('standard')
+  }, [selected?.id])
 
   useEffect(() => {
     if (!bridge || !interactionId || selected?.id !== interactionId || selected.role !== 'worker') return
@@ -191,6 +205,42 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
     try { setRuntime(await bridge.resumeProvider()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível retomar os trabalhos agentic') } finally { setBusy(false) }
   }
 
+  const loadAssignableTasks = async () => {
+    if (!selected || selected.role !== 'worker' || selected.status !== 'idle' || selected.loop_active === false || selected.task || selected.keep_flowing_active || selectedForeign) return
+    setBusy(true)
+    try {
+      const result = await api.chatAgentTasks(true, projectPath)
+      setAvailableTasks((Array.isArray(result.tasks) ? result.tasks : []).filter((task) => ['PENDING', 'WAITING'].includes(task.status) && task.attempt < task.max_attempts))
+      setTaskPickerOpen(true)
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : 'Não foi possível carregar tarefas para este Worker')
+    } finally { setBusy(false) }
+  }
+
+  const assignSelectedTasks = async () => {
+    if (!selected || selected.role !== 'worker' || !selectedTaskIds.length) return
+    setBusy(true)
+    try {
+      for (const taskId of selectedTaskIds) await api.assignChatAgentTask(taskId, selected.id, taskAssignmentMode === 'keep_flowing')
+      setSelectedTaskIds([])
+      setTaskPickerOpen(false)
+      await refresh()
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : 'Não foi possível atribuir as tarefas ao Worker')
+    } finally { setBusy(false) }
+  }
+
+  const enableTaskKeepFlowing = async () => {
+    if (!selected?.task || selected.role !== 'worker') return
+    setBusy(true)
+    try {
+      await api.assignChatAgentTask(selected.task.task_id, selected.id, true)
+      await refresh()
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : 'Não foi possível ativar Keep flowing temporário nesta tarefa')
+    } finally { setBusy(false) }
+  }
+
   const capture = async () => {
     if (!bridge || !selected) return
     setBusy(true)
@@ -268,7 +318,9 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
               about that project's task crosses this boundary. */}
           {selectedForeign ? <p className="agent-runtime-foreign-note" role="status">Ocupado com uma tarefa do projeto <b title={selectedForeign}>{projectLabel(selectedForeign)}</b>. Fica disponível para este projeto quando terminar.</p> : null}
           {(() => { const task = selected.task || selected.last_task; return <dl><div><dt>Loop</dt><dd>{selected.role === 'supervisor' ? 'Interação humana' : selected.loop_active === false ? 'Parado' : 'Ativo'}</dd></div><div><dt>Chat</dt><dd>{short(selected.chat_id)}</dd></div><div><dt>Tarefa</dt><dd>{task ? `${task.type} · ${task.task_id}${selected.task ? '' : ' · última'}` : 'Sem tarefa registada'}</dd></div><div><dt>Task state</dt><dd>{short(task?.status)}</dd></div><div><dt>Pedido</dt><dd>{short(task?.request_id)}</dd></div><div><dt>Lineage</dt><dd>{short(task?.root_request_id)}</dd></div><div><dt>Conversa</dt><dd>{short(task?.conversation_id)}</dd></div><div><dt>Tentativa</dt><dd>{task ? `${task.attempt}/${task.max_attempts}` : '—'}</dd></div><div><dt>Último claim</dt><dd>{timeLabel(selected.last_claim_at)}</dd></div>{selected.residency && <><div><dt>Residência</dt><dd>{short(selected.residency.resident_lane)} · rotação #{selected.residency.rotation_position + 1}</dd></div><div><dt>Dwell mínimo</dt><dd>{timeLabel(selected.residency.min_resident_until)}</dd></div><div><dt>Assignment epoch</dt><dd>{selected.residency.assignment_epoch}{selected.residency.navigation_in_progress ? ' · a navegar' : ''}{selected.residency.non_preemptive ? ' · não preemptível' : ''}</dd></div></>}<div><dt>Lease</dt><dd>{timeLabel(task?.lease_expires_at)}</dd></div><div><dt>not_before</dt><dd>{timeLabel(task?.not_before)}</dd></div><div><dt>Estado</dt><dd>{statusLabel(selected)}{selected.error || task?.last_error ? ` · ${selected.error || task?.last_error}` : ''}</dd></div><div><dt>RAM (RSS)</dt><dd>{memoryLabel(selected.memory?.rss_bytes, selected.memory?.available)}{selected.memory?.shared_process ? ' · processo partilhado' : ''}</dd></div><div><dt>Navegador</dt><dd>{selected.browser.available ? `WebContents #${selected.browser.web_contents_id} · PID ${selected.browser.os_process_id || '—'}` : 'Ainda não criado'}</dd></div><div><dt>Página</dt><dd title={selected.browser.url}>{short(selected.browser.title || selected.browser.url, selected.browser.available ? 'Sem página carregada' : '—')}</dd></div></dl> })()}
-          {selected.role === 'worker' && <div className="agent-runtime-worker-actions"><button type="button" className="agent-runtime-follow" aria-pressed={selected.keep_flowing || runtime.policies.keep_flowing_global} disabled={busy || runtime.policies.keep_flowing_global} onClick={() => void setWorkerKeepFlowing(selected.id, !selected.keep_flowing)}>{runtime.policies.keep_flowing_global ? 'Keep flowing · global' : selected.keep_flowing ? 'Keep flowing · ativo' : 'Keep flowing · inativo'}</button><button type="button" className="agent-runtime-follow" disabled={busy || !selected.browser.available} onClick={followWorker}><Icon name="monitor" size={13}/> Seguir (flow)</button><button type="button" className="agent-runtime-interact" disabled={busy || !selected.browser.available} onClick={() => setInteractionId(interactionId === selected.id ? undefined : selected.id)}><Icon name="monitor" size={13}/> {interactionId === selected.id ? 'Terminar interação' : 'Interagir aqui'}</button></div>}
+          {selected.role === 'worker' && <div className="agent-runtime-worker-actions"><button type="button" className="agent-runtime-follow" aria-pressed={selected.keep_flowing || runtime.policies.keep_flowing_global} disabled={busy || runtime.policies.keep_flowing_global} onClick={() => void setWorkerKeepFlowing(selected.id, !selected.keep_flowing)}>{runtime.policies.keep_flowing_global ? 'Keep flowing · global' : selected.keep_flowing ? 'Keep flowing · ativo' : 'Keep flowing · inativo'}</button>{selected.task && !selectedForeign && !runtime.policies.keep_flowing_global && !selected.keep_flowing && !selected.task.keep_flowing ? <button type="button" className="agent-runtime-follow" disabled={busy} onClick={() => void enableTaskKeepFlowing()}>Keep flowing nesta tarefa</button> : null}{!selected.task && selected.status === 'idle' && selected.loop_active !== false && !selected.keep_flowing_active && !selectedForeign ? <button type="button" className="agent-runtime-follow" disabled={busy} onClick={() => taskPickerOpen ? setTaskPickerOpen(false) : void loadAssignableTasks()}>Selecionar tarefas</button> : null}<button type="button" className="agent-runtime-follow" disabled={busy || !selected.browser.available} onClick={followWorker}><Icon name="monitor" size={13}/> Seguir (flow)</button><button type="button" className="agent-runtime-interact" disabled={busy || !selected.browser.available} onClick={() => setInteractionId(interactionId === selected.id ? undefined : selected.id)}><Icon name="monitor" size={13}/> {interactionId === selected.id ? 'Terminar interação' : 'Interagir aqui'}</button></div>}
+          {selected.role === 'worker' && selected.keep_flowing_active && (selected.task?.keep_flowing || selected.last_task?.keep_flowing) && !selected.keep_flowing && !runtime.policies.keep_flowing_global ? <p className="agent-runtime-task-keep-flowing" role="status">Keep flowing temporário ativo apenas para esta tarefa; mantém-se durante esperas/reclaims da mesma tarefa e termina quando ela concluir.</p> : null}
+          {selected.role === 'worker' && taskPickerOpen && selected.status === 'idle' && selected.loop_active !== false && !selected.task && !selected.keep_flowing_active && !selectedForeign ? <div className="agent-runtime-task-picker"><div className="agent-runtime-task-picker-heading"><strong>Atribuir tarefas a {selected.label}</strong><small>O Worker executa uma tarefa de cada vez. Keep flowing temporário mantém a tarefa durante as esperas e termina quando ela concluir.</small></div>{availableTasks.length ? <div className="agent-runtime-task-picker-list">{availableTasks.map((task) => <label key={task.task_id}><input type="checkbox" checked={selectedTaskIds.includes(task.task_id)} onChange={(event) => setSelectedTaskIds((current) => event.target.checked ? [...current, task.task_id] : current.filter((id) => id !== task.task_id))}/><span><b>{task.type}</b><small>{task.task_id}</small></span></label>)}</div> : <p>Não existem tarefas por executar neste projeto.</p>}<div className="agent-runtime-task-picker-actions"><select aria-label="Modo das tarefas atribuídas" value={taskAssignmentMode} disabled={busy} onChange={(event) => setTaskAssignmentMode(event.target.value === 'keep_flowing' ? 'keep_flowing' : 'standard')}><option value="standard">Modo atual do Worker</option><option value="keep_flowing">Keep flowing temporário</option></select><button type="button" disabled={busy || !selectedTaskIds.length} onClick={() => void assignSelectedTasks()}>Atribuir {selectedTaskIds.length || ''}</button></div></div> : null}
           <button type="button" className="agent-runtime-capture" disabled={busy || !selected.browser.available} onClick={() => void capture()}><Icon name="monitor" size={13}/> Capturar imagem</button>
           {interactionId === selected.id && selected.role === 'worker' && <div className="agent-runtime-interaction"><div className="agent-runtime-interaction-heading"><strong>Interação ao vivo</strong><span>{selected.task ? 'O Worker continua a executar a tarefa; ações manuais afetam a mesma instância.' : 'Está a interagir diretamente com esta instância.'}</span></div><div ref={interactionHostRef} className="agent-runtime-interaction-host" aria-label={`Navegador interativo de ${selected.label}`}/></div>}
           {snapshot?.agentId === selected.id && <figure className="agent-runtime-snapshot"><img src={snapshot.dataUrl} alt={`Captura do navegador de ${selected.label}`}/><figcaption>Capturado às {new Date(snapshot.capturedAt).toLocaleTimeString()}</figcaption></figure>}

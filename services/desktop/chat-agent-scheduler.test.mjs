@@ -161,6 +161,7 @@ test('scheduler sends affinity-aware claim options supplied by the residency lay
   scheduler.start()
   for (let attempt = 0; attempt < 50 && !claimBody; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 2))
   await scheduler.stop()
+  assert.equal(claimBody.worker_id, 'worker-1')
   assert.equal(claimBody.preferred_lane, 'c:conv-a')
   assert.deepEqual(claimBody.excluded_lanes, ['c:conv-b'])
   assert.equal(claimBody.fallback_mode, 'resident_only')

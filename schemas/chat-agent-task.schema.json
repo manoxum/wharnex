@@ -4,7 +4,7 @@
   "title": "Wharnex durable ChatGPT browser-agent task",
   "type": "object",
   "additionalProperties": false,
-  "required": ["task_id", "type", "project_id", "chat_id", "session_id", "request_id", "root_request_id", "conversation_id", "parent_task_id", "priority", "status", "not_before", "attempt", "max_attempts", "dedupe_key", "lease_owner", "payload", "last_error", "created_at", "updated_at"],
+  "required": ["task_id", "type", "project_id", "chat_id", "session_id", "request_id", "root_request_id", "conversation_id", "parent_task_id", "priority", "status", "not_before", "attempt", "max_attempts", "dedupe_key", "assigned_worker", "keep_flowing", "lease_owner", "payload", "last_error", "created_at", "updated_at"],
   "properties": {
     "task_id": {"type": "string", "minLength": 1, "maxLength": 128},
     "type": {"enum": ["TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "BOT_WRITE", "RECOVERY_WRITE", "AWAIT_RESPONSE", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP", "TITLE_AWAIT", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_BUNDLE", "DELETE_TEMP_CHAT"]},
@@ -21,6 +21,8 @@
     "attempt": {"type": "integer", "minimum": 0},
     "max_attempts": {"type": "integer", "minimum": 1, "maximum": 30},
     "dedupe_key": {"type": "string", "maxLength": 512},
+    "assigned_worker": {"type": "string", "maxLength": 64},
+    "keep_flowing": {"type": "boolean"},
     "lease_owner": {"type": "string", "maxLength": 256},
     "lease_expires_at": {"type": ["string", "null"], "format": "date-time"},
     "payload": {"type": "object"},

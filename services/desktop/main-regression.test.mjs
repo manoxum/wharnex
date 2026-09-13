@@ -769,7 +769,7 @@ test('agent runtime reconciles Worker occupancy from durable lease owners', asyn
 
 test('autonomous workers pace chat switches, wait for page settle, and pause on HTTP 429', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const paceStart = source.indexOf('async function paceChatGPTWorkerNavigation()')
+  const paceStart = source.indexOf('async function paceChatGPTWorkerRequest(')
   const paceEnd = source.indexOf('\nasync function pasteChatGPTFile', paceStart)
   const pacing = source.slice(paceStart, paceEnd)
   const executeStart = source.indexOf('async function executeChatAgentTask(task, { worker, owner })')
@@ -1767,8 +1767,24 @@ test('submission pacing widens after rate-limit pressure and decays back on its 
   // pool long after the account recovered.
   assert.match(gap, /if \(level <= 0 && !recentlyLimited\) return CHAT_AGENT_SUBMIT_GAP_MS/)
 
-  const pace = source.slice(source.indexOf('async function paceChatGPTWorkerSubmission('))
-  assert.match(pace.slice(0, 600), /chatAgentSubmissionGapMs\(\) - \(Date\.now\(\) - chatGPTWorkerLastSubmissionAt\)/)
+  const pace = source.slice(source.indexOf('async function paceChatGPTWorkerRequest('), source.indexOf('async function loadAndSettleChatGPTWorkerConversation('))
+  assert.match(pace, /Math\.max\(CHAT_AGENT_SUBMIT_GAP_MS, Number\(gapMs\) \|\| 0\)/)
+  assert.match(pace, /chatGPTWorkerRequestTail/)
+  assert.match(pace, /chatGPTWorkerLastRequestAt/)
+  assert.match(pace, /paceChatGPTWorkerNavigation\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\(\)\)/)
+  assert.match(pace, /paceChatGPTWorkerSubmission\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentSubmissionGapMs\(\)\)/)
+})
+
+test('task-scoped Keep flowing survives WAITING and ends when that task is terminal', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function chatAgentTaskKeepFlowingSponsored(')
+  const sponsorship = source.slice(start, source.indexOf('function chatAgentKeepFlowingFloor(', start))
+  assert.match(sponsorship, /chatAgentTaskKeepFlowing\(runtime\?\.task\)/)
+  assert.match(sponsorship, /lastResult\?\.status[\s\S]*=== 'waiting'/)
+  assert.match(sponsorship, /chatAgentTaskKeepFlowing\(runtime\?\.lastTask\)/)
+  assert.match(sponsorship, /chatAgentTaskKeepFlowingSponsored\(runtime\)/)
+  assert.match(source, /chatAgentKeepFlowingActive\(worker\) \? 'claimed' : 'idle'/)
+  assert.match(source, /keep_flowing: task\.keep_flowing === true/)
 })
 
 test('a Desktop restart during a suspension adopts the durable deadline instead of resuming', async () => {
