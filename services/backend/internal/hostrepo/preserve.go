@@ -3,8 +3,10 @@ package hostrepo
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // BlockedReason is the closed set of host working-tree conditions under which
@@ -26,7 +28,58 @@ const (
 	BlockedDirtySubmoduleGitlink BlockedReason = "dirty_submodule_gitlink_change"
 	// BlockedUnbornHead: the repository has no commit to parent onto.
 	BlockedUnbornHead BlockedReason = "unborn_head"
+	// BlockedIndexLocked: another Git process holds the repository index, or a
+	// crashed one left its lock behind.
+	BlockedIndexLocked BlockedReason = "index_locked"
 )
+
+// IndexLockBlocked classifies a Git failure caused by the repository index
+// lock, returning nil for any other failure.
+//
+// It exists because this condition is indistinguishable, to every layer above,
+// from a defect in the generated change — and it is the opposite of one. No
+// patch a planner can write will remove a lock file, so letting it fall through
+// to the generic error path spends an automatic AI repair round on a question
+// the planner cannot be asked, and the next Apply reproduces it exactly. It
+// belongs with the other host working-tree refusals: name the condition, name
+// the file, name the action that clears it, and keep the verified candidate.
+//
+// The lock's age is reported because it is what decides the operator's action.
+// A lock a few seconds old is a real concurrent Git process and the answer is
+// to wait; one hours old is a crashed process's leftover and the answer is to
+// delete it. Git's own message cannot tell them apart.
+func IndexLockBlocked(ctx context.Context, root, output string) *BlockedError {
+	lowered := strings.ToLower(output)
+	if !strings.Contains(lowered, "index.lock") && !strings.Contains(lowered, "another git process seems to be running") {
+		return nil
+	}
+	lockPath := filepath.Join(root, ".git", "index.lock")
+	if topology, err := Inspect(ctx, root); err == nil && topology.GitDir != "" {
+		lockPath = filepath.Join(topology.GitDir, "index.lock")
+	}
+	detail := "another Git process holds this repository's index lock"
+	remedy := "wait for that process to finish and apply again"
+	if info, err := os.Stat(lockPath); err == nil {
+		age := time.Since(info.ModTime()).Round(time.Second)
+		detail = fmt.Sprintf("the repository index is locked (lock created %s ago)", age)
+		if age > staleIndexLockAge {
+			detail += "; no Git command should hold it for that long, so it is most likely left over from a process that crashed"
+			remedy = "confirm no Git process is running against this repository, then remove " + lockPath + " and apply again"
+		}
+	}
+	return &BlockedError{
+		Reason: BlockedIndexLocked,
+		Detail: detail,
+		Paths:  []string{lockPath},
+		Remedy: remedy,
+	}
+}
+
+// staleIndexLockAge is the point past which an index lock is reported as a
+// probable crash leftover rather than live contention. Wharnex never removes it
+// itself: deleting a lock a live process still holds corrupts that process's
+// write, and the operator is the only one who can tell.
+const staleIndexLockAge = 5 * time.Minute
 
 // BlockedError reports a host state Wharnex deliberately refuses to mutate.
 // It carries the paths involved and the concrete operator action that clears
@@ -119,6 +172,9 @@ func Preserve(ctx context.Context, root, message string) (Preservation, error) {
 	}
 	preservation.StagedPaths = append(append([]string(nil), state.Stageable...), state.GitlinkChanges...)
 	if output, err := run(ctx, root, StageArgs(state.EmbeddedRepositories)...); err != nil {
+		if blocked := IndexLockBlocked(ctx, root, output); blocked != nil {
+			return Preservation{}, blocked
+		}
 		return Preservation{}, fmt.Errorf("stage host working tree before integration: %s", output)
 	}
 	commitArgs := append(internalCommitArgs(topology), "commit", "-q", "--no-verify", "-m", message)
@@ -128,6 +184,9 @@ func Preserve(ctx context.Context, root, message string) (Preservation, error) {
 		// the status read and the commit. An empty commit is then correct and
 		// unremarkable, not a reason to abort the operator's Apply.
 		if !strings.Contains(output, "nothing to commit") && !strings.Contains(output, "no changes added to commit") {
+			if blocked := IndexLockBlocked(ctx, root, output); blocked != nil {
+				return Preservation{}, blocked
+			}
 			return Preservation{}, fmt.Errorf("commit host working tree before integration: %s", output)
 		}
 		return preservation, nil

@@ -244,6 +244,12 @@ func mergeBranchOnHost(ctx context.Context, hostPath, branch string, sync func([
 			return result, &MergeConflictError{Paths: ordinary, Branch: branch, HostSHA: result.PreMergeSHA, MergeBaseSHA: mergeBase}
 		}
 		_, _ = runGit(ctx, hostPath, "merge", "--abort")
+		// The merge reaches for the same index lock the snapshot does, so a
+		// concurrent or crashed Git process surfaces here too. It is a host
+		// condition the operator clears, never a defect in the change.
+		if blocked := hostrepo.IndexLockBlocked(ctx, hostPath, output); blocked != nil {
+			return result, blocked
+		}
 		return result, fmt.Errorf("merge integration branch: %s", output)
 	}
 	// A failed realignment is not a reason to undo a merge that succeeded:

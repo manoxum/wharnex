@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The regression this whole package exists for: a host whose only uncommitted
@@ -180,4 +181,64 @@ func readFile(t *testing.T, root, rel string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// A locked index is a host condition the operator clears, not a defect in the
+// generated change. Left unclassified it fell through to the generic error
+// path, which spends an automatic AI repair round on a question no patch can
+// answer and then reproduces the same failure on the next Apply.
+func TestPreserveRefusesALockedIndexAsATypedHostBlock(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "a.txt", "a\n")
+	write(t, root, "a.txt", "dirty\n")
+	lock := filepath.Join(root, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Preserve(context.Background(), root, "snapshot")
+	var blocked *BlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("expected a typed host block, got %v", err)
+	}
+	if blocked.Reason != BlockedIndexLocked {
+		t.Fatalf("unexpected reason %q", blocked.Reason)
+	}
+	if len(blocked.Paths) != 1 || blocked.Paths[0] != lock {
+		t.Fatalf("the refusal must name the lock file, got %v", blocked.Paths)
+	}
+	if blocked.Remedy == "" {
+		t.Fatal("the refusal must carry the operator action that clears it")
+	}
+}
+
+// The lock's age is what decides the operator's action: seconds old means a
+// live Git process and the answer is to wait; hours old means a crash leftover
+// and the answer is to delete it. Git's own message cannot tell them apart.
+func TestIndexLockBlockedDistinguishesLiveContentionFromACrashLeftover(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "a.txt", "a\n")
+	lock := filepath.Join(root, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := "fatal: Unable to create '" + lock + "': File exists."
+
+	fresh := IndexLockBlocked(context.Background(), root, output)
+	if fresh == nil || strings.Contains(fresh.Remedy, "remove") {
+		t.Fatalf("a fresh lock must be reported as live contention, got %+v", fresh)
+	}
+
+	stale := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(lock, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	old := IndexLockBlocked(context.Background(), root, output)
+	if old == nil || !strings.Contains(old.Remedy, "remove") || !strings.Contains(old.Detail, "crashed") {
+		t.Fatalf("a long-held lock must be reported as a probable crash leftover, got %+v", old)
+	}
+
+	if other := IndexLockBlocked(context.Background(), root, "fatal: not a git repository"); other != nil {
+		t.Fatalf("an unrelated failure must not be classified as a lock, got %+v", other)
+	}
 }
