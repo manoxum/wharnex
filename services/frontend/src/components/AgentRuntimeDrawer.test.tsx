@@ -8,20 +8,23 @@ class TestResizeObserver {
   unobserve() {}
 }
 
-function runtime(desiredWorkers = 6): DesktopAgentRuntimeState {
+function runtime(desiredWorkers = 6, desiredSupervisors = 3): DesktopAgentRuntimeState {
   return {
     instance_id: 'desktop-test',
+    desired_supervisors: desiredSupervisors,
+    configured_supervisors: desiredSupervisors,
     desired_workers: desiredWorkers,
     configured_workers: desiredWorkers,
-    policies: { auto_scale: false, auto_scale_max_workers: 6, keep_flowing_global: false, keep_flowing_workers: [], auto_scaled_workers: 0 },
-    limits: { min_workers: 1, max_workers: 6, supervisors: 2 },
+    policies: { auto_scale: false, auto_scale_max_supervisors: 12, auto_scale_max_workers: 6, keep_flowing_global: false, keep_flowing_workers: [], auto_scaled_supervisors: 0, auto_scaled_workers: 0 },
+    limits: { min_supervisors: 1, max_supervisors: 12, min_workers: 1, max_workers: 6 },
     scheduler: { running: true, backend_reachable: true, last_refresh_at: '2026-09-11T10:00:00Z', last_error: '' },
     queue: { queued: 2, counts: { RUNNING: 1, WAITING: 1 }, due: 1, scheduled: 0, blocked: 0, oldest_due_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
     provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', updated_at: '2026-09-11T10:00:00Z' },
     memory: { available: true, total_workers_bytes: 340 * 1024 * 1024, total_supervisors_bytes: 220 * 1024 * 1024, total_agents_bytes: 560 * 1024 * 1024, desktop_bytes: 420 * 1024 * 1024, total_bytes: 980 * 1024 * 1024 },
     agents: [
-      { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, os_process_id: 1010, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false }, memory: { available: true, rss_bytes: 220 * 1024 * 1024, os_process_id: 1010, shared_process: false } },
+      { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, os_process_id: 1010, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false }, memory: { available: true, rss_bytes: 110 * 1024 * 1024, os_process_id: 1010, shared_process: false } },
       { id: 'supervisor-2', label: 'Supervisor 2', role: 'supervisor', status: 'idle', draining: false, chat_id: '', error: '', browser: { available: false, web_contents_id: 0, os_process_id: 0, url: '', title: '', loading: false }, memory: { available: false, rss_bytes: 0, os_process_id: 0, shared_process: false } },
+      { id: 'supervisor-3', label: 'Supervisor 3', role: 'supervisor', status: 'idle', draining: false, chat_id: '', error: '', browser: { available: false, web_contents_id: 0, os_process_id: 0, url: '', title: '', loading: false }, memory: { available: false, rss_bytes: 0, os_process_id: 0, shared_process: false } },
       { id: 'worker-1', label: 'Worker 1', role: 'worker', status: 'running', draining: false, chat_id: 'chat-1', task: { task_id: 'task-1', type: 'AWAIT_RESPONSE', chat_id: 'chat-1', project_id: '/home/op/alpha', request_id: 'req-1', root_request_id: 'req-root', conversation_id: 'conv-1', status: 'RUNNING', attempt: 2, max_attempts: 30, assigned_worker: '', keep_flowing: false, lease_expires_at: '2026-09-11T10:01:00Z', not_before: '2026-09-11T10:00:00Z', last_error: '', created_at: '2026-09-11T09:55:00Z', updated_at: '2026-09-11T10:00:00Z' }, last_claim_at: '2026-09-11T10:00:00Z', loop_active: true, error: '', browser: { available: true, web_contents_id: 11, os_process_id: 2011, url: 'https://chatgpt.com/c/worker', title: 'Chat worker', loading: false }, memory: { available: true, rss_bytes: 340 * 1024 * 1024, os_process_id: 2011, shared_process: false } },
     ],
   }
@@ -30,8 +33,9 @@ function runtime(desiredWorkers = 6): DesktopAgentRuntimeState {
 function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
   return {
     state: vi.fn(async () => state),
+    setSupervisorCount: vi.fn(async (count: number) => runtime(count, count)),
     setWorkerCount: vi.fn(async (count: number) => runtime(count)),
-    setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => ({ ...state, policies: { ...state.policies, ...policies } })),
+    setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => ({ ...state, policies: { ...state.policies, ...policies } })),
     setWorkerKeepFlowing: vi.fn(async (agentId: string, enabled: boolean) => ({ ...state, agents: state.agents.map((agent) => agent.id === agentId ? { ...agent, keep_flowing: enabled } : agent) })),
     pauseProvider: vi.fn(async (pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true, paused_until: pausedUntil || '' } })),
     resumeProvider: vi.fn(async () => runtime()),
