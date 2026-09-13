@@ -194,3 +194,17 @@ func TestCaptureRequestBaseExcludesManagedKnowledgeWorkingTreeDrift(t *testing.T
 		t.Fatalf("capture disturbed managed working tree: err=%v content=%q", err, current)
 	}
 }
+
+func TestWithoutIntegratingUnitsFiltersOnlyExactGitlinkPaths(t *testing.T) {
+	paths := []string{"README.md", "modules/api", "modules/api/config.yml", "./modules/web"}
+	got := withoutIntegratingUnits(paths, []string{"modules/api", "modules/web"})
+	want := []string{"README.md", "modules/api/config.yml"}
+	if len(got) != len(want) {
+		t.Fatalf("filtered conflicts = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("filtered conflicts = %#v, want %#v", got, want)
+		}
+	}
+}

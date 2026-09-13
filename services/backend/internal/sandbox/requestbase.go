@@ -198,6 +198,35 @@ func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch string, 
 	return &MergeConflictError{Paths: ordinary, Branch: branch, HostSHA: comparison, MergeBaseSHA: mergeBase}, nil
 }
 
+// withoutIntegratingUnits removes only the gitlink paths for submodules that
+// this same host integration is already merging independently. A nested file
+// path is not equivalent to the gitlink itself and must remain an ordinary
+// conflict for the caller to resolve.
+func withoutIntegratingUnits(paths, integratingUnits []string) []string {
+	if len(paths) == 0 || len(integratingUnits) == 0 {
+		return paths
+	}
+	integrating := make(map[string]struct{}, len(integratingUnits))
+	for _, unit := range integratingUnits {
+		unit = filepath.ToSlash(filepath.Clean(strings.TrimSpace(unit)))
+		unit = strings.TrimPrefix(unit, "./")
+		if unit == "" || unit == "." {
+			continue
+		}
+		integrating[unit] = struct{}{}
+	}
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		normalized := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+		normalized = strings.TrimPrefix(normalized, "./")
+		if _, ignored := integrating[normalized]; ignored {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
 // DeleteRequestBaseRef releases a request's anchored base tree once no
 // execution can still need it. The commit object itself becomes unreachable
 // and is reclaimed by Git's own garbage collection; nothing in the host's
