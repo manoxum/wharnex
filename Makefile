@@ -9,7 +9,7 @@ BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
-.PHONY: reset-data clean-all help deps deps-status deps-refresh build-status build-refresh runner-deps build build-stage build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
+.PHONY: reset-data clean-all help deps deps-status deps-refresh build-status build-refresh storage-prune runner-deps build build-stage build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
 	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
@@ -24,6 +24,7 @@ help:
 		'  make deps-refresh  Force deterministic dependency re-hydration' \
 		'  make build-status  Show compiled-artifact fingerprint cache state' \
 		'  make build-refresh Force recompilation while preserving dependency caches' \
+		'  make storage-prune Remove obsolete temporary workspaces and dependency caches' \
 		'  make build-runner  Explicitly build the Protected Docker runner (Docker must already be active)' \
 		'  make build-all     Build desktop lifecycle + runner explicitly' \
 		'  make start    Reconcile Compose services and start Desktop on the host' \
@@ -127,7 +128,11 @@ build-stage:
 
 build: build-stage
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" ensure
+	@$(MAKE) --no-print-directory storage-prune
 	@printf '\nWharness build complete; backend/frontend reconciled and durable tunnel/database preserved.\n'
+
+storage-prune:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/storage-prune.sh"
 
 
 build-all:

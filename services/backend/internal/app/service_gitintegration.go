@@ -318,7 +318,7 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 		// host at all. A doomed merge would otherwise still commit the host's
 		// dirty tree as a pre-merge snapshot on its way to aborting, leaving a
 		// bookkeeping commit behind for a merge that never happened.
-		conflict, preflightErr := sandbox.PreflightMergeIntoHost(ctx, projectPath, branch)
+		conflict, preflightErr := sandbox.PreflightMergeIntoHostExcept(ctx, projectPath, branch, unitPaths)
 		if preflightErr != nil {
 			// The preflight is advisory, so its failure never blocks a merge —
 			// but it is no longer allowed to be silent. It failing means the

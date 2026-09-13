@@ -63,4 +63,20 @@ describe('TunnelProviderSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /Guardar configuração/i }))
     await waitFor(() => expect(api.updateTunnelConfig).toHaveBeenCalledWith({ version: 1, instance_name: 'Oficina', instances: [{ id: 'tailscale_funnel-1', provider: 'tailscale_funnel', priority: 10, public_url: 'https://machine.tailnet.ts.net', local_port: 43127 }] }))
   })
+
+  it('notifies the open workspace after a removed tunnel is saved', async () => {
+    vi.mocked(api.tunnelConfig).mockResolvedValue({
+      config: { version: 1, instance_name: 'Oficina', instances: [{ id: 'trycloudflare-1', provider: 'trycloudflare', priority: 10 }] },
+      restart_required: false,
+    })
+    const onSaved = vi.fn()
+    render(<TunnelProviderSettings onError={vi.fn()} onSaved={onSaved}/>)
+
+    await screen.findByDisplayValue('trycloudflare-1')
+    fireEvent.click(screen.getByTitle('Remover instância'))
+    fireEvent.click(screen.getByRole('button', { name: /Guardar configuração/i }))
+
+    await waitFor(() => expect(api.updateTunnelConfig).toHaveBeenCalledWith({ version: 1, instance_name: 'Oficina', instances: [] }))
+    expect(onSaved).toHaveBeenCalledWith({ version: 1, instance_name: 'Oficina', instances: [] })
+  })
 })

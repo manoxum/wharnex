@@ -1,8 +1,11 @@
 package app
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,8 +14,121 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	manualplanner "kernl.local/harness/backend/internal/planner/manual"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/sandbox"
 	"kernl.local/harness/backend/internal/session"
 )
+
+func TestReclaimObsoleteStorageRemovesOnlyUnreferencedManagedData(t *testing.T) {
+	tempRoot := t.TempDir()
+	cacheRoot := t.TempDir()
+	project := t.TempDir()
+	cutoff := time.Now().Add(-time.Hour)
+	old := cutoff.Add(-time.Hour)
+
+	makeDir := func(root, name string, modified time.Time) string {
+		t.Helper()
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "payload"), []byte("cache"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(dir, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+
+	referenced := makeDir(tempRoot, "wharness-context-referenced", old)
+	activeWorkspace := makeDir(tempRoot, "kernl-workspace-active", old)
+	orphanContext := makeDir(tempRoot, "wharness-context-orphan", old)
+	orphanWorkspace := makeDir(tempRoot, "kernl-workspace-orphan", old)
+	recentContext := makeDir(tempRoot, "wharness-context-recent", time.Now())
+	foreign := makeDir(tempRoot, "unrelated-cache", old)
+
+	activeKey := fmt.Sprintf("%x", sha256.Sum256([]byte(filepath.Clean(project))))
+	activeCache := makeDir(filepath.Join(cacheRoot, "go-mod"), activeKey, old)
+	staleCache := makeDir(filepath.Join(cacheRoot, "go-mod"), strings.Repeat("a", 64), old)
+	recentStaleCache := makeDir(filepath.Join(cacheRoot, "go-mod"), strings.Repeat("b", 64), time.Now())
+
+	store := session.NewStore()
+	if err := store.Put(domain.Session{
+		ID:          "ses_storage_reclaim",
+		ProjectPath: project,
+		CreatedAt:   time.Now().UTC(),
+		Context:     domain.ContextBundle{ZipPath: filepath.Join(referenced, "payload")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	service.devspaces["ses_storage_reclaim"] = sandbox.Workspace{Path: activeWorkspace}
+
+	result, err := service.ReclaimObsoleteStorage(tempRoot, cacheRoot, cutoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TempDirectories != 2 || result.DependencyCacheDirectories != 1 || result.ReclaimedBytes == 0 {
+		t.Fatalf("unexpected reclaim result: %#v", result)
+	}
+	for _, removed := range []string{orphanContext, orphanWorkspace, staleCache} {
+		if _, err := os.Stat(removed); !os.IsNotExist(err) {
+			t.Fatalf("obsolete managed directory survived: %s: %v", removed, err)
+		}
+	}
+	for _, kept := range []string{referenced, activeWorkspace, recentContext, foreign, activeCache, recentStaleCache} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Fatalf("protected or recent directory was removed: %s: %v", kept, err)
+		}
+	}
+}
+
+func TestCheckoutTemporaryRootRejectsSharedOperatingSystemTemp(t *testing.T) {
+	root := t.TempDir()
+	stateFile := filepath.Join(root, ".harness", "state", "sessions.json")
+	owned := filepath.Join(root, ".harness", "bridge", "tmp")
+	if got := CheckoutTemporaryRoot(stateFile, owned); got != filepath.Clean(owned) {
+		t.Fatalf("checkout temp root was not recognized: %q", got)
+	}
+	if got := CheckoutTemporaryRoot(stateFile, os.TempDir()); got != "" {
+		t.Fatalf("shared operating-system temp was accepted: %q", got)
+	}
+}
+
+func TestDeleteSessionRemovesCurrentAndRetainedContextDirectories(t *testing.T) {
+	currentDir, err := os.MkdirTemp("", "wharness-context-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyDir, err := os.MkdirTemp("", "wharness-context-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(currentDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(historyDir) })
+
+	store := session.NewStore()
+	if err := store.Put(domain.Session{
+		ID:          "ses_delete_contexts",
+		ProjectPath: t.TempDir(),
+		CreatedAt:   time.Now().UTC(),
+		Context:     domain.ContextBundle{ZipPath: filepath.Join(currentDir, "current.zip")},
+		RequestContextArchives: map[string]string{
+			"req_history": filepath.Join(historyDir, "history.zip"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	if err := service.DeleteSession("ses_delete_contexts"); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{currentDir, historyDir} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatalf("deleted session left context directory behind: %s: %v", dir, err)
+		}
+	}
+}
 
 func TestStorageUsageCountsAndClearDeletesCompactedArchive(t *testing.T) {
 	store := session.NewStore()

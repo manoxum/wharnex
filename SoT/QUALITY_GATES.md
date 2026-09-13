@@ -42,6 +42,10 @@ Canonical operator build command: `make build`. It must:
 - build the compatibility Go/frontend artifacts and validate the Electron desktop runtime;
 - build backend, frontend and tunnel Compose images;
 - reconcile backend/frontend containers while preserving existing PostgreSQL/tunnel containers.
+- after the replacement backend is healthy, reclaim only ownership-proven obsolete
+  temporary workspaces, context directories and unreachable project dependency
+  caches; persisted sessions, request history, current context bases, artifacts
+  and live sandboxes MUST remain untouched.
 
 `make build-stage` performs the same artifact/image staging but MUST NOT replace running services and is the only build target used by transactional self-evolution. The Protected Docker runner is deliberately excluded from both targets; `make build-runner` remains explicit.
 

@@ -133,6 +133,17 @@ the merge, and its own recorded pre-merge commit. The root unit merges last, so
 its gitlinks land on submodules that already hold the commits they name, and the
 offline realignment pass then finds nothing to move.
 
+The advisory superproject preflight is unit-aware. It excludes the exact
+gitlinks of units this same candidate will merge, because a request-base commit
+and the host's current working-tree snapshot can otherwise make two legitimate
+child commits appear as a superproject pointer conflict before the child merge
+has run. The exclusion is deliberately exact: a file below the unit and a
+gitlink belonging to any other unit remain conflicts. The real deepest-first
+merge is still authoritative and records the child commit that actually lands;
+the preflight merely stops a locally decidable pointer from being mislabeled as
+Wharnex-managed terminal state and sent through an impossible planner-repair
+loop.
+
 `GuardDirtySubmodules` is narrowed rather than removed: it still refuses to move
 the pointer of a dirty submodule Wharnex is **not** integrating, and no longer
 refuses one Wharnex is, because that submodule's own preservation commit now

@@ -7,6 +7,7 @@ START="$ROOT/scripts/start.sh"
 STOP="$ROOT/scripts/stop.sh"
 STACK="$ROOT/scripts/stack.sh"
 LOGS="$ROOT/scripts/logs.sh"
+STORAGE_PRUNE="$ROOT/scripts/storage-prune.sh"
 ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
 DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
 SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
@@ -31,6 +32,14 @@ stop_block=$(section stop)
 
 if ! printf '%s\n' "$build_block" | grep -Fq 'stack.sh" ensure'; then
   echo 'lifecycle regression: make build must reconcile the Compose application stack' >&2
+  exit 1
+fi
+if ! printf '%s\n' "$build_block" | grep -Fq 'storage-prune'; then
+  echo 'lifecycle regression: make build must prune obsolete Wharnex caches after reconciliation' >&2
+  exit 1
+fi
+if [ ! -x "$STORAGE_PRUNE" ] || ! grep -Fq '/api/storage/prune' "$STORAGE_PRUNE"; then
+  echo 'lifecycle regression: storage prune helper must use the backend ownership-aware cleanup' >&2
   exit 1
 fi
 if ! printf '%s\n' "$build_stage_block" | grep -Fq 'stack-build'; then

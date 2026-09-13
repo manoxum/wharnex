@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { TunnelProvider, TunnelProviderInstance } from "../types";
+import type {
+  TunnelProvider,
+  TunnelProviderDocument,
+  TunnelProviderInstance,
+} from "../types";
 import { Icon } from "./Icon";
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 export function TunnelProviderSettings({
   onError,
+  onSaved,
 }: {
   onError: (message: string) => void;
+  onSaved?: (config: TunnelProviderDocument) => void;
 }) {
   const [instances, setInstances] = useState<TunnelProviderInstance[]>();
   const [instanceName, setInstanceName] = useState("");
@@ -144,6 +150,7 @@ export function TunnelProviderSettings({
       });
       setInstanceName(result.config.instance_name || "");
       setInstances(result.config.instances);
+      onSaved?.(result.config);
       setSaved(result.restart_required);
     } catch (error) {
       onError(

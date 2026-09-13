@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
-import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session } from '../types'
+import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
 import { ContextInspector } from './ContextInspector'
 import { Icon } from './Icon'
 import { desktopBridge, formatBytes } from '../lib/desktop'
@@ -14,11 +14,12 @@ import { LanguageSettingsPanel } from './LanguageSettingsPanel'
 
 type SettingsSection = 'appearance' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'data'
 
-export function ProjectSettings({ session, onClose, onSession, onError }: {
+export function ProjectSettings({ session, onClose, onSession, onError, onTunnelConfigSaved }: {
   session: Session
   onClose: () => void
   onSession: (session: Session) => void
   onError: (message: string) => void
+  onTunnelConfigSaved?: (config: TunnelProviderDocument) => void
 }) {
   const [config, setConfig] = useState<ProjectConfig>()
   const [inspection, setInspection] = useState<ContextInspection>()
@@ -207,7 +208,7 @@ export function ProjectSettings({ session, onClose, onSession, onError }: {
         <section className="context-explorer-section">
           {inspection ? <ContextInspector inspection={inspection} refreshing={refreshing} onRefresh={() => void refresh()} /> : inspectionError ? <div className="context-inspection-error"><Icon name="shield" size={16}/><span>{inspectionError}</span><button onClick={() => setReloadNonce((value) => value + 1)}>Tentar novamente</button></div> : <div className="settings-loading compact"><span className="settings-spinner"/>A inspecionar o snapshot final…</div>}
         </section></>) : null}
-        {activeSection === 'tunnel-provider' ? <TunnelProviderSettings onError={onError}/> : null}
+        {activeSection === 'tunnel-provider' ? <TunnelProviderSettings onError={onError} onSaved={onTunnelConfigSaved}/> : null}
         {activeSection === 'remote-storage' ? <RemoteStorageSettings onError={onError}/> : null}
         {activeSection === 'data' ? <section className="wharness-data-section">
           <div className="context-section-title"><div><strong>Dados e armazenamento</strong><span>Sessão do navegador, métricas de disco e operações de limpeza do Wharnex.</span></div><button className="icon-button" disabled={storageBusy} onClick={() => void refreshStorage()} title="Atualizar métricas"><Icon name="refresh" size={15}/></button></div>

@@ -88,6 +88,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/fail", a.failChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/attention", a.attentionChatAgentTask)
 	mux.HandleFunc("GET /api/storage", a.storage)
+	mux.HandleFunc("POST /api/storage/prune", a.pruneStorage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
 	mux.HandleFunc("POST /api/projects/create", a.createProject)
 	mux.HandleFunc("POST /api/projects/clone", a.cloneProject)
@@ -252,12 +253,38 @@ func mergeConfiguredTunnelURLs(document config.TunnelDocument, status app.Remote
 	for _, instance := range document.Instances {
 		configured[instance.ID] = strings.TrimRight(strings.TrimSpace(instance.PublicURL), "/")
 	}
-	for index := range status.Instances {
-		if status.Instances[index].PublicURL == "" {
-			status.Instances[index].PublicURL = configured[status.Instances[index].ID]
+	active := make([]app.RemoteInputInstanceStatus, 0, len(status.Instances))
+	for _, instance := range status.Instances {
+		publicURL, exists := configured[instance.ID]
+		if !exists {
+			continue
 		}
+		if instance.PublicURL == "" {
+			instance.PublicURL = publicURL
+		}
+		active = append(active, instance)
+	}
+	status.Instances = active
+	if len(active) == 0 {
+		status.Enabled = false
+		status.Provider = ""
+		status.Mode = "local_attachments"
 	}
 	return status
+}
+
+func configuredTunnelInstanceIDs(document config.TunnelDocument, requested []string) []string {
+	configured := make(map[string]struct{}, len(document.Instances))
+	for _, instance := range document.Instances {
+		configured[instance.ID] = struct{}{}
+	}
+	selected := make([]string, 0, len(requested))
+	for _, instanceID := range requested {
+		if _, exists := configured[instanceID]; exists {
+			selected = append(selected, instanceID)
+		}
+	}
+	return selected
 }
 
 func (a *API) tunnelConfig(w http.ResponseWriter, _ *http.Request) {
@@ -709,6 +736,16 @@ func (a *API) storage(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.service.StorageUsage())
 }
 
+func (a *API) pruneStorage(w http.ResponseWriter, _ *http.Request) {
+	tempRoot := app.CheckoutTemporaryRoot(a.cfg.StateFile, os.TempDir())
+	result, err := a.service.ReclaimObsoleteStorage(tempRoot, a.cfg.DependencyCacheDir, time.Now().UTC().Add(-app.ObsoleteStorageGrace))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "storage_prune_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (a *API) clearStorage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Confirm string `json:"confirm"`
@@ -970,6 +1007,18 @@ func (a *API) remoteInput(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_remote_input", err.Error())
 		return
+	}
+	if len(body.TunnelInstanceIDs) > 0 {
+		document, err := config.ReadTunnelDocument(a.cfg.Tunnel)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "tunnel_config_read_failed", err.Error())
+			return
+		}
+		body.TunnelInstanceIDs = configuredTunnelInstanceIDs(document, body.TunnelInstanceIDs)
+		if len(body.TunnelInstanceIDs) == 0 {
+			writeError(w, http.StatusConflict, "tunnel_selection_stale", "none of the selected tunnels remains configured")
+			return
+		}
 	}
 	result, err := a.service.PublishRemoteInput(r.Context(), r.PathValue("id"), body)
 	if err != nil {

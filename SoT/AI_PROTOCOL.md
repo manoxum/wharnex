@@ -165,6 +165,7 @@ Routing is passive and belongs to Wharness, not to the plan:
 - `commit_message` is used for every repository the change touches, so it describes the change as a whole rather than one file's repository;
 - a unit the manifest marks `patchable: false` has no checkout to write into; a bundle patching it is rejected at ingestion;
 - a submodule pointer and a `.gitmodules` gitlink entry are commit ids, not content, and a patch targeting one is rejected by the validator on arrival.
+- an exact gitlink for a repository unit already owned by the candidate is reconciled locally by the Engine's deepest-first unit merge and MUST NOT enter `harness.conflict/v1` or request another planner turn; a conflict in a source file inside that unit remains a normal project-relative conflict.
 
 The manifest is descriptive, exactly like the environment manifest. The routing it describes happens whether or not a planner reads it; the section exists so the planner's prose, commit message and impact set can be true about a change that crosses repositories.
 

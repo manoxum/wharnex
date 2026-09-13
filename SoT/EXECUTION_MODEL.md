@@ -215,6 +215,16 @@ that does. Integration therefore runs once per repository unit (see
 child whose commit moved — including a parent whose own file set is empty,
 because the pointer is the only thing it can say about the verified content.
 
+The superproject preflight MUST receive the exact repository units owned by the
+candidate and MUST exclude only those units' exact gitlink paths from its
+conflict result. A moved owned gitlink is expected coordination state: the child
+unit will be merged first and the parent will then record the child commit that
+actually landed. Classifying that pointer as a managed-only conflict is a false
+terminal failure and MUST NOT consume a repair or conflict-resolution turn.
+Files beneath that unit, gitlinks not owned by the candidate, and ordinary
+source paths remain visible to conflict detection. The later per-unit merges
+remain authoritative; this exclusion changes only the advisory preflight.
+
 Each unit receives the complete host-integration treatment in its own
 repository: shape measurement, refusal on an unfinished operation or unresolved
 paths, preservation of the operator's uncommitted work as a snapshot commit, the

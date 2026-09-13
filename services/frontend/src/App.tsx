@@ -76,6 +76,7 @@ import { hasRecordedRequest } from './lib/requestDispatch'
 import { executionNeedsAttention } from './lib/executionRecovery'
 import { errorMessage as messageOf } from './lib/errorMessage'
 import { expectedResponseBundleName } from './lib/bundlename'
+import { reconcileTunnelConfig } from './lib/tunnelConfigState'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
@@ -2806,7 +2807,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   return <main className="workspace-root">
     {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} instanceID={INSTANCE_ID} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
-    {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} />}
+    {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document) => setConfig((current) => reconcileTunnelConfig(current, document))} />}
     {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
       items={interruptedExecutions.map((target) => ({ ...target, queue: executionFIFO.find((item) => item.chatId === target.chat.id && item.planId === target.session.interrupted_execution?.plan_id), humanAction: recoveryHumanAction(target.chat, chatgptHumanActions) }))}

@@ -363,6 +363,9 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		item.WharnexInstanceID = ""
 	}
 	if err := s.store.Put(item); err != nil {
+		if dir := ownedContextArchiveDir(bundle.ZipPath); dir != "" {
+			_ = os.RemoveAll(dir)
+		}
 		return domain.Session{}, fmt.Errorf("persist session: %w", err)
 	}
 	s.bus.Publish(id, "session.created", map[string]any{"files": len(bundle.Manifest.Files), "snapshot": bundle.Manifest.SHA256, "text_truncated": bundle.Manifest.TextTruncated, "execution_mode": executionMode, "automation_mode": automationMode, "effort_level": effortLevel, "self_evolution": selfEvolution})
@@ -434,7 +437,7 @@ func (s *Service) DeleteSession(sessionID string) error {
 	// terminal lifecycle event for its transient tunnel leases.
 	s.releaseSupersededRemoteInputLeases(sessionID, nil)
 	s.closeRemoteInputChannel(sessionID, "request.cancelled")
-	if dir := filepath.Dir(item.Context.ZipPath); dir != "" && dir != "." && strings.HasPrefix(filepath.Base(dir), "wharness-context-") {
+	for _, dir := range ownedContextDirs(item) {
 		_ = os.RemoveAll(dir)
 	}
 	s.bus.Publish(sessionID, "session.deleted", map[string]any{})
@@ -3494,6 +3497,9 @@ func (s *Service) refreshContext(sessionID string) (domain.Session, error) {
 		return nil
 	})
 	if err != nil {
+		if dir := ownedContextArchiveDir(bundle.ZipPath); dir != "" {
+			_ = os.RemoveAll(dir)
+		}
 		return domain.Session{}, err
 	}
 	if oldDir != "" && oldDir != "." && oldDir != filepath.Dir(bundle.ZipPath) && !contextDirectoryReferenced(updated, oldDir) {

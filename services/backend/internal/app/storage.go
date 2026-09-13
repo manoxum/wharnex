@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -13,6 +15,8 @@ import (
 
 	"kernl.local/harness/backend/internal/domain"
 )
+
+const ObsoleteStorageGrace = time.Hour
 
 type ProjectStorageUsage struct {
 	ProjectPath   string `json:"project_path"`
@@ -33,6 +37,37 @@ type StorageUsage struct {
 	ArchiveBytes  int64                 `json:"archive_bytes"`
 	OrphanBytes   int64                 `json:"orphan_bytes"`
 	Projects      []ProjectStorageUsage `json:"projects"`
+}
+
+type StorageReclaim struct {
+	TempDirectories            int   `json:"temp_directories"`
+	DependencyCacheDirectories int   `json:"dependency_cache_directories"`
+	ReclaimedBytes             int64 `json:"reclaimed_bytes"`
+}
+
+// CheckoutTemporaryRoot returns candidate only when it is the private bridge
+// temporary directory belonging to the state file's checkout. This prevents a
+// development backend using the shared operating-system /tmp from sweeping
+// another Wharnex process.
+func CheckoutTemporaryRoot(stateFile, candidate string) string {
+	stateFile = strings.TrimSpace(stateFile)
+	candidate = strings.TrimSpace(candidate)
+	if stateFile == "" || candidate == "" {
+		return ""
+	}
+	absoluteState, err := filepath.Abs(stateFile)
+	if err != nil {
+		return ""
+	}
+	absoluteCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return ""
+	}
+	expected := filepath.Join(filepath.Dir(filepath.Dir(absoluteState)), "bridge", "tmp")
+	if filepath.Clean(absoluteCandidate) != filepath.Clean(expected) {
+		return ""
+	}
+	return filepath.Clean(absoluteCandidate)
 }
 
 func (s *Service) StorageUsage() StorageUsage {
@@ -199,6 +234,120 @@ func orphanWharnessTempBytes(seen map[string]struct{}) int64 {
 		total += directorySize(root)
 	}
 	return total
+}
+
+// ReclaimObsoleteStorage removes only disposable Wharnex directories that are
+// older than before and no longer owned by a persisted session or live
+// workspace. The caller supplies the checkout-private temporary and dependency
+// cache roots; an empty root disables that part of the sweep.
+func (s *Service) ReclaimObsoleteStorage(tempRoot, dependencyCacheRoot string, before time.Time) (StorageReclaim, error) {
+	if before.IsZero() {
+		return StorageReclaim{}, errors.New("storage reclaim cutoff is required")
+	}
+	protected := s.protectedTemporaryDirectories()
+	result := StorageReclaim{}
+	var reclaimErrors []error
+
+	if strings.TrimSpace(tempRoot) != "" {
+		entries, err := os.ReadDir(filepath.Clean(tempRoot))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			reclaimErrors = append(reclaimErrors, fmt.Errorf("read temporary storage: %w", err))
+		} else {
+			for _, entry := range entries {
+				if !entry.IsDir() || !wharnessTempName(entry.Name()) {
+					continue
+				}
+				root := filepath.Join(filepath.Clean(tempRoot), entry.Name())
+				if _, keep := protected[root]; keep {
+					continue
+				}
+				if reclaimed, bytes, removeErr := removeObsoleteDirectory(root, before); removeErr != nil {
+					reclaimErrors = append(reclaimErrors, removeErr)
+				} else if reclaimed {
+					result.TempDirectories++
+					result.ReclaimedBytes += bytes
+				}
+			}
+		}
+	}
+
+	activeCacheKeys := s.activeDependencyCacheKeys()
+	goModuleRoot := filepath.Join(filepath.Clean(dependencyCacheRoot), "go-mod")
+	if strings.TrimSpace(dependencyCacheRoot) != "" {
+		entries, err := os.ReadDir(goModuleRoot)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			reclaimErrors = append(reclaimErrors, fmt.Errorf("read dependency cache: %w", err))
+		} else {
+			for _, entry := range entries {
+				if !entry.IsDir() || !validDependencyCacheKey(entry.Name()) || activeCacheKeys[entry.Name()] {
+					continue
+				}
+				root := filepath.Join(goModuleRoot, entry.Name())
+				if reclaimed, bytes, removeErr := removeObsoleteDirectory(root, before); removeErr != nil {
+					reclaimErrors = append(reclaimErrors, removeErr)
+				} else if reclaimed {
+					result.DependencyCacheDirectories++
+					result.ReclaimedBytes += bytes
+				}
+			}
+		}
+	}
+	return result, errors.Join(reclaimErrors...)
+}
+
+func (s *Service) protectedTemporaryDirectories() map[string]struct{} {
+	protected := map[string]struct{}{}
+	for _, item := range s.store.List() {
+		for _, dir := range ownedContextDirs(item) {
+			protected[filepath.Clean(dir)] = struct{}{}
+		}
+	}
+	s.devMu.Lock()
+	for _, workspace := range s.devspaces {
+		if root := strings.TrimSpace(workspace.Path); root != "" {
+			protected[filepath.Clean(root)] = struct{}{}
+		}
+	}
+	s.devMu.Unlock()
+	return protected
+}
+
+func (s *Service) activeDependencyCacheKeys() map[string]bool {
+	keys := map[string]bool{}
+	for _, item := range s.store.List() {
+		project := strings.TrimSpace(item.ProjectPath)
+		if project == "" {
+			continue
+		}
+		if absolute, err := filepath.Abs(project); err == nil {
+			project = absolute
+		}
+		keys[fmt.Sprintf("%x", sha256.Sum256([]byte(filepath.Clean(project))))] = true
+	}
+	return keys
+}
+
+func validDependencyCacheKey(name string) bool {
+	decoded, err := hex.DecodeString(name)
+	return err == nil && len(decoded) == sha256.Size
+}
+
+func removeObsoleteDirectory(root string, before time.Time) (bool, int64, error) {
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, 0, nil
+	}
+	if err != nil {
+		return false, 0, fmt.Errorf("inspect obsolete storage %s: %w", root, err)
+	}
+	if !info.IsDir() || !info.ModTime().Before(before) {
+		return false, 0, nil
+	}
+	bytes := directorySize(root)
+	if err := os.RemoveAll(root); err != nil {
+		return false, 0, fmt.Errorf("remove obsolete storage %s: %w", root, err)
+	}
+	return true, bytes, nil
 }
 
 func wharnessTempName(name string) bool {

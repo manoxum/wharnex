@@ -83,6 +83,7 @@ func main() {
 	service.SetGitSurface(cfg.GitSettingsFile, pendingcommit.NewStore(cfg.GitPendingCommitsFile))
 	service.SetRuntimeInstanceID(cfg.InstanceID)
 	service.SetEnvironmentProber(sandboxenv.NewProber(cfg.RunnerImage, cfg.Sandbox))
+	reclaimObsoleteStorage(cfg, service)
 	stopArtifacts := configureArtifactStore(cfg, service)
 	defer stopArtifacts()
 	stopChatArchive := configureChatArchive(cfg, service)
@@ -119,6 +120,18 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("shutdown: %v", err)
+	}
+}
+
+func reclaimObsoleteStorage(cfg config.Config, service *app.Service) {
+	tempRoot := app.CheckoutTemporaryRoot(cfg.StateFile, os.TempDir())
+	result, err := service.ReclaimObsoleteStorage(tempRoot, cfg.DependencyCacheDir, time.Now().UTC().Add(-app.ObsoleteStorageGrace))
+	if err != nil {
+		log.Printf("obsolete storage reclaim failed: %v", err)
+		return
+	}
+	if result.ReclaimedBytes > 0 {
+		log.Printf("obsolete storage reclaimed: bytes=%d temp_directories=%d dependency_cache_directories=%d", result.ReclaimedBytes, result.TempDirectories, result.DependencyCacheDirectories)
 	}
 }
 

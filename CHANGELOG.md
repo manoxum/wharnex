@@ -496,6 +496,8 @@
 
 # Changelog
 
+- Bound local storage growth and make `make build` reclaim it. The running checkout had reached 27 GB: 21.6 GB was unreferenced data under `.harness/bridge/tmp`, including 1,996 context directories and 50 copied sandboxes, while seven obsolete Go module-cache keys added another ~1 GB. Session deletion removed only the current context directory and left every retained request base behind; crashes/restarts had no owner-aware sweep at all. Deletion now removes all context directories owned by that session, failed persistence removes its just-built context, backend startup reclaims only old unreferenced Wharnex temporary directories and dependency-cache hashes that match no open project, and `make build` explicitly invokes the same backend-owned cleanup after a healthy rollout. The sweep refuses the shared operating-system temp directory, preserves referenced request bases and live devspaces, ignores unknown names, and leaves durable events/artifacts untouched.
+
 - Fixed ChatGPT bundle interception when Chromium adds a duplicate-download suffix such as `(1)` to an otherwise canonical bundle filename; normalization remains restricted to the exact active request id.
 
 ## v1.2.23.1 — Secure Linux Electron sandbox startup hotfix

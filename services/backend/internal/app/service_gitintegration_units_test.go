@@ -1,11 +1,16 @@
 package app
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/hostrepo"
+	"kernl.local/harness/backend/internal/sandbox"
 )
 
 func unitPlan() *domain.ExecutionPlan {
@@ -92,5 +97,95 @@ func TestIntegratedSubmoduleUnitsDeduplicatesAcrossCandidates(t *testing.T) {
 	}
 	if branches[0].UnitPath != hostrepo.RootUnitPath || branches[1].UnitPath != "services/app" {
 		t.Fatalf("unexpected cleanup targets: %+v", branches)
+	}
+}
+
+// This reproduces the flowKey-deploy failure identified by context snapshot
+// 7310ea4afc10: the request base captured an already-moved services/app
+// checkout, so the superproject preflight saw the same gitlink as a sibling
+// request-base commit and called it a conflict. The gitlink belongs to a unit
+// this integration will merge first; it must not be sent to the planner as
+// Wharnex-managed state.
+func TestMergeIntegrationBranchesDoesNotRejectOwnedSubmoduleGitlinkDrift(t *testing.T) {
+	submoduleSource := t.TempDir()
+	gitIn(t, submoduleSource, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(submoduleSource, "lib.txt"), []byte("one\ntwo\nthree\nfour\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, submoduleSource, "add", "lib.txt")
+	gitIn(t, submoduleSource, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "base")
+
+	host := t.TempDir()
+	gitIn(t, host, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(host, "README.md"), []byte("host\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, host, "add", "README.md")
+	gitIn(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "host base")
+	gitIn(t, host, "-c", "protocol.file.allow=always", "submodule", "add", "-q", submoduleSource, "services/app")
+	gitIn(t, host, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qam", "record app")
+
+	appRoot := filepath.Join(host, "services", "app")
+	const branch = "whx/req_owned_gitlink"
+	gitIn(t, appRoot, "checkout", "-qb", branch)
+	if err := os.WriteFile(filepath.Join(appRoot, "lib.txt"), []byte("one\ntwo\nthree\ncandidate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, appRoot, "add", "lib.txt")
+	gitIn(t, appRoot, "-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost", "commit", "-qm", "candidate app change")
+	appCandidate := gitIn(t, appRoot, "rev-parse", "HEAD")
+	gitIn(t, host, "checkout", "-qb", branch)
+	gitIn(t, host, "add", "services/app")
+	gitIn(t, host, "-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost", "commit", "-qm", "candidate pointer")
+	rootCandidate := gitIn(t, host, "rev-parse", "HEAD")
+
+	gitIn(t, host, "checkout", "-q", "main")
+	gitIn(t, appRoot, "checkout", "-q", "main")
+	if err := os.WriteFile(filepath.Join(appRoot, "lib.txt"), []byte("one\npeer\nthree\nfour\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, appRoot, "add", "lib.txt")
+	gitIn(t, appRoot, "-c", "user.name=Peer", "-c", "user.email=peer@example.invalid", "commit", "-qm", "peer app change")
+	if status := gitIn(t, host, "status", "--porcelain"); !strings.Contains(status, "services/app") {
+		t.Fatalf("fixture must reproduce the moved host gitlink, got %q", status)
+	}
+	legacyConflict, err := sandbox.PreflightMergeIntoHost(context.Background(), host, branch)
+	if err != nil {
+		t.Fatalf("legacy preflight: %v", err)
+	}
+	if legacyConflict == nil || len(legacyConflict.Paths) != 1 || legacyConflict.Paths[0] != "services/app" {
+		t.Fatalf("fixture must reproduce the false services/app conflict, got %#v", legacyConflict)
+	}
+
+	plan := domain.ExecutionPlan{
+		PlanID: "plan_owned_gitlink", RequestID: "req_owned_gitlink",
+		Summary: "update app", CommitMessage: "fix(app): update app",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/services/app/lib.txt\n+++ b/services/app/lib.txt\n"}},
+	}
+	pending := domain.PendingHostChange{
+		Plan: plan, IntegrationBranch: branch, IntegrationCommit: rootCandidate,
+		IntegrationUnits: []domain.IntegrationUnit{
+			{Path: "services/app", Branch: branch, Commit: appCandidate},
+			{Path: hostrepo.RootUnitPath, Branch: branch, Commit: rootCandidate, PointerUpdates: []string{"services/app"}},
+		},
+	}
+	service := &Service{bus: audit.NewBus()}
+	integrated, _, failedPlanID, err := service.mergeIntegrationBranches(context.Background(), "ses_owned_gitlink", host, []domain.PendingHostChange{pending})
+	if err != nil {
+		t.Fatalf("owned services/app gitlink drift must reconcile locally, got %v", err)
+	}
+	if failedPlanID != "" || len(integrated) != 1 {
+		t.Fatalf("integration did not complete: failed_plan=%q integrated=%+v", failedPlanID, integrated)
+	}
+	rootPointer := gitIn(t, host, "rev-parse", "HEAD:services/app")
+	appHead := gitIn(t, appRoot, "rev-parse", "HEAD")
+	if rootPointer != appHead {
+		t.Fatalf("superproject records %s, want integrated app HEAD %s", rootPointer, appHead)
+	}
+	if got, err := os.ReadFile(filepath.Join(appRoot, "lib.txt")); err != nil || string(got) != "one\npeer\nthree\ncandidate\n" {
+		t.Fatalf("candidate app content was not integrated: err=%v content=%q", err, got)
+	}
+	if status := gitIn(t, host, "status", "--porcelain"); strings.TrimSpace(status) != "" {
+		t.Fatalf("integration left the host dirty:\n%s", status)
 	}
 }
