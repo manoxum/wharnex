@@ -182,10 +182,10 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
     try { setRuntime(await bridge.setWorkerCount(next)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível escalar os workers') } finally { setBusy(false) }
   }
 
-  const updatePolicies = async (changes: { auto_scale?: boolean; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => {
+  const updatePolicies = async (changes: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => {
     if (!bridge) return
     setBusy(true)
-    try { setRuntime(await bridge.setPolicies(changes)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível atualizar as políticas dos Workers') } finally { setBusy(false) }
+    try { setRuntime(await bridge.setPolicies(changes)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível atualizar as políticas') } finally { setBusy(false) }
   }
 
   const scaleAutoScaleCeiling = async (delta: number) => {
