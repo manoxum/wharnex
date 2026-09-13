@@ -196,3 +196,13 @@ func TestNormalizeManualPlanRepairsUnescapedQuotesInsidePlainUnifiedPatch(t *tes
 		t.Fatalf("repaired plain unified plan should validate: %v", err)
 	}
 }
+
+func TestNormalizeManualPlanPreservesVersionIncrement(t *testing.T) {
+	plan, err := NormalizeManualPlan([]byte(`{"protocol":"harness.execution/v1","request_id":"req_1","status":"ready","summary":"change","version_increment":{"component":"minor","amount":2},"operations":[],"verification":[]}`), "req_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.VersionIncrement == nil || plan.VersionIncrement.Component != domain.VersionComponentMinor || plan.VersionIncrement.Amount != 2 {
+		t.Fatalf("version increment was not normalized: %#v", plan.VersionIncrement)
+	}
+}

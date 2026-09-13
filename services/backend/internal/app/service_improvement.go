@@ -99,7 +99,7 @@ func (s *Service) prepareImprovementRequest(ctx context.Context, sessionID strin
 		if planned.Plan.RequestID != requestID {
 			return fmt.Errorf("continuous-improvement request_id mismatch: expected %s", requestID)
 		}
-		if err := protocol.Validate(*planned.Plan); err != nil {
+		if err := protocol.ValidateChangePlan(*planned.Plan); err != nil {
 			return err
 		}
 		decision := s.policy.Evaluate(*planned.Plan)

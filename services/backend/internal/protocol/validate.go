@@ -29,6 +29,11 @@ func Validate(plan domain.ExecutionPlan) error {
 	if plan.Risk != "low" && plan.Risk != "medium" && plan.Risk != "high" {
 		return errors.New("invalid risk")
 	}
+	if plan.VersionIncrement != nil {
+		if err := ValidateVersionIncrement(*plan.VersionIncrement); err != nil {
+			return err
+		}
+	}
 	if plan.Status == "blocked" && (len(plan.Operations) != 0 || len(plan.Verification) != 0) {
 		return errors.New("blocked plan cannot contain operations or verification")
 	}
@@ -93,6 +98,26 @@ func Validate(plan domain.ExecutionPlan) error {
 		if err := ValidateCommand(command); err != nil {
 			return fmt.Errorf("verification %d: %w", i, err)
 		}
+	}
+	return nil
+}
+
+func ValidateVersionIncrement(increment domain.VersionIncrement) error {
+	if !domain.ValidVersionComponent(increment.Component) {
+		return fmt.Errorf("version_increment component must be major, medium, minor or patch, got %q", increment.Component)
+	}
+	if increment.Amount < 1 || increment.Amount > 1000 {
+		return errors.New("version_increment amount must be between 1 and 1000")
+	}
+	return nil
+}
+
+func ValidateChangePlan(plan domain.ExecutionPlan) error {
+	if err := Validate(plan); err != nil {
+		return err
+	}
+	if plan.VersionIncrement == nil {
+		return errors.New("change plan requires version_increment")
 	}
 	return nil
 }
@@ -280,7 +305,7 @@ func validatePatchPath(value string) error {
 	lower := strings.ToLower(filepath.ToSlash(clean))
 	base := filepath.Base(lower)
 	safeEnvTemplate := base == ".env.example" || base == ".env.sample" || base == ".env.template"
-	blocked := lower == ".env" || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || IsWharnexManagedPath(lower) || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
+	blocked := lower == "version" || lower == ".env" || (strings.HasPrefix(base, ".env.") && !safeEnvTemplate) || lower == ".npmrc" || lower == ".netrc" || lower == ".pypirc" || lower == ".git-credentials" || lower == "credentials.json" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, ".harness/") || IsWharnexManagedPath(lower) || strings.HasPrefix(lower, ".ssh/") || strings.HasPrefix(lower, ".aws/") || strings.Contains(lower, "/secrets/")
 	if blocked {
 		return fmt.Errorf("sensitive patch path denied: %s", path)
 	}
@@ -294,6 +319,9 @@ func validatePatchPath(value string) error {
 func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 	if err := Validate(plan); err != nil {
 		return err
+	}
+	if plan.VersionIncrement != nil {
+		return errors.New("workflow plan must not contain version_increment")
 	}
 	if plan.Status != "ready" {
 		return errors.New("workflow plan must be ready")

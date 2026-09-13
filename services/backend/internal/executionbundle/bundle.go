@@ -36,20 +36,21 @@ type operationWire struct {
 }
 
 type planWire struct {
-	Protocol          string               `json:"protocol"`
-	BaseContextSHA256 string               `json:"base_context_sha256,omitempty"`
-	ImpactFiles       []string             `json:"impact_files,omitempty"`
-	ReadFiles         []string             `json:"read_files,omitempty"`
-	BarrierFiles      []string             `json:"barrier_files,omitempty"`
-	PlanID            string               `json:"plan_id"`
-	RequestID         string               `json:"request_id"`
-	Status            string               `json:"status"`
-	Summary           string               `json:"summary"`
-	CommitMessage     string               `json:"commit_message,omitempty"`
-	Risk              string               `json:"risk"`
-	RequiresApproval  bool                 `json:"requires_approval"`
-	Operations        []operationWire      `json:"operations"`
-	Verification      []domain.CommandSpec `json:"verification"`
+	Protocol          string                   `json:"protocol"`
+	BaseContextSHA256 string                   `json:"base_context_sha256,omitempty"`
+	ImpactFiles       []string                 `json:"impact_files,omitempty"`
+	ReadFiles         []string                 `json:"read_files,omitempty"`
+	BarrierFiles      []string                 `json:"barrier_files,omitempty"`
+	PlanID            string                   `json:"plan_id"`
+	RequestID         string                   `json:"request_id"`
+	Status            string                   `json:"status"`
+	Summary           string                   `json:"summary"`
+	VersionIncrement  *domain.VersionIncrement `json:"version_increment,omitempty"`
+	CommitMessage     string                   `json:"commit_message,omitempty"`
+	Risk              string                   `json:"risk"`
+	RequiresApproval  bool                     `json:"requires_approval"`
+	Operations        []operationWire          `json:"operations"`
+	Verification      []domain.CommandSpec     `json:"verification"`
 }
 
 type Parsed struct {
@@ -175,7 +176,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		}
 		resolvedPlan := domain.ExecutionPlan{
 			Protocol: wire.Protocol, BaseContextSHA256: wire.BaseContextSHA256, ImpactFiles: wire.ImpactFiles, ReadFiles: wire.ReadFiles, BarrierFiles: wire.BarrierFiles, PlanID: wire.PlanID, RequestID: wire.RequestID,
-			Status: wire.Status, Summary: wire.Summary, CommitMessage: wire.CommitMessage, Risk: wire.Risk,
+			Status: wire.Status, Summary: wire.Summary, VersionIncrement: wire.VersionIncrement, CommitMessage: wire.CommitMessage, Risk: wire.Risk,
 			RequiresApproval: wire.RequiresApproval, Operations: make([]domain.Operation, 0), Verification: wire.Verification,
 		}
 		if resolvedPlan.Verification == nil {

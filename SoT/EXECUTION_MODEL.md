@@ -105,6 +105,14 @@ Host Apply is serialized only for the short integration phase per canonical proj
 
 Every host write performs per-path compare-and-swap against the value observed during staging and uses replace semantics. A race triggers at most three restage attempts; Wharness never overwrites an unexpected external value. The integration journal rolls back only values still owned by Wharness. Protocol, policy, transport, verification, race, and merge-conflict outcomes remain distinct.
 
+## Engine-owned VERSION at Apply (v1.3.5)
+
+`VERSION` is host metadata owned by Wharnex rather than a planner patch target. Session preparation ensures the root file exists, using `v0.0.0.0` only when it is absent. A verified `change` carries a `version_increment`; grouped pending changes apply their increments in the same order as their accepted plans.
+
+Wharnex mutates `VERSION` only after source integration and post-integration verification have succeeded, and after the self-evolution host build when that lifecycle applies. In auto-commit mode the version mutation is recorded by an internal Wharnex commit that stages only `VERSION`. In no-auto-commit mode the same internal commit is included in the integration record and then unwound with the source integration, leaving the verified version edit in the operator's working tree.
+
+The session records the exact before/after values used by the successful Apply. Deterministic host revert restores the recorded prior value only when the file is still at the recorded applied value, so Wharnex does not overwrite a later external version edit. An Apply failure after a legacy direct version write restores the prior value before surfacing the failure.
+
 ## Commit modes and the Git surface (v1.3.4)
 
 A project chooses what happens to its history after a verified change is

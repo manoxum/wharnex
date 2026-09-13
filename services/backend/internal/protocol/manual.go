@@ -13,20 +13,21 @@ import (
 )
 
 type manualPlanEnvelope struct {
-	Protocol          string            `json:"protocol"`
-	Schema            string            `json:"schema"`
-	BaseContextSHA256 string            `json:"base_context_sha256"`
-	ImpactFiles       []string          `json:"impact_files"`
-	ReadFiles         []string          `json:"read_files"`
-	BarrierFiles      []string          `json:"barrier_files"`
-	PlanID            string            `json:"plan_id"`
-	RequestID         string            `json:"request_id"`
-	Status            string            `json:"status"`
-	Summary           string            `json:"summary"`
-	Risk              string            `json:"risk"`
-	RequiresApproval  bool              `json:"requires_approval"`
-	Operations        []manualOperation `json:"operations"`
-	Verification      []json.RawMessage `json:"verification"`
+	Protocol          string                   `json:"protocol"`
+	Schema            string                   `json:"schema"`
+	BaseContextSHA256 string                   `json:"base_context_sha256"`
+	ImpactFiles       []string                 `json:"impact_files"`
+	ReadFiles         []string                 `json:"read_files"`
+	BarrierFiles      []string                 `json:"barrier_files"`
+	PlanID            string                   `json:"plan_id"`
+	RequestID         string                   `json:"request_id"`
+	Status            string                   `json:"status"`
+	Summary           string                   `json:"summary"`
+	VersionIncrement  *domain.VersionIncrement `json:"version_increment"`
+	Risk              string                   `json:"risk"`
+	RequiresApproval  bool                     `json:"requires_approval"`
+	Operations        []manualOperation        `json:"operations"`
+	Verification      []json.RawMessage        `json:"verification"`
 }
 
 type manualOperation struct {
@@ -91,6 +92,7 @@ func NormalizeManualPlan(raw []byte, activeRequestID string) (domain.ExecutionPl
 		RequestID:         requestID,
 		Status:            status,
 		Summary:           input.Summary,
+		VersionIncrement:  input.VersionIncrement,
 		Risk:              risk,
 		RequiresApproval:  input.RequiresApproval,
 		Operations:        make([]domain.Operation, 0, len(input.Operations)),

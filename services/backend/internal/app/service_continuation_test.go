@@ -44,7 +44,7 @@ func TestRepairWaveCarriesMeasuredHistoryAndDivergenceVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","version_increment":{"component":"patch","amount":1},"risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
 	planned, err := service.SubmitManualPlan(started.ID, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestEveryContinuationAnchorsItsOwnRequestBase(t *testing.T) {
 	}
 	originalRequest := prompted.LastRequestID
 
-	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","version_increment":{"component":"patch","amount":1},"risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
 	planned, err := service.SubmitManualPlan(started.ID, raw)
 	if err != nil {
 		t.Fatal(err)

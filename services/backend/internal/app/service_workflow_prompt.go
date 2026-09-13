@@ -48,7 +48,7 @@ func normalizePlannerResult(requestID string, result *planner.Result) error {
 	if result.Turn.Kind == domain.TurnKindWorkflow {
 		return protocol.ValidateWorkflowPlan(*result.Plan)
 	}
-	return protocol.Validate(*result.Plan)
+	return protocol.ValidateChangePlan(*result.Plan)
 }
 
 func buildWorkflowObservationMessage(result domain.ExecutionResult, round int) string {

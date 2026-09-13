@@ -64,6 +64,14 @@ Every request iteration records its immutable `request_id`, `root_request_id`, o
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
+### Engine-owned project version
+
+Every project root MUST contain `VERSION`. Wharnex creates a missing file as `v0.0.0.0`; the planner never creates, patches, renames, copies, or otherwise mutates it. A patch that targets root `VERSION` is rejected at protocol validation, and `VERSION` must not appear in `impact_files`.
+
+Every `change` execution plan MUST carry `version_increment` with exactly two fields: `component` and `amount`. `component` is one of `major`, `medium`, `minor`, or `patch`; `amount` is an integer from 1 through 1000. The canonical version is `vA.B.C.D`, where those component names map to A/B/C/D respectively. Applying an increment raises the selected component by `amount` and resets all lower components to zero. A `workflow` plan MUST omit `version_increment`.
+
+The metadata is an instruction to Wharnex, not part of the candidate patch. Wharnex applies the ordered increments only after the candidate has integrated with the current host and post-integration verification has succeeded. If the host integration fails, `VERSION` does not advance. This keeps version history coupled to accepted project state instead of planner output generation.
+
 `turn.message` is user-facing Markdown, not an execution dump. The planner SHOULD lead with the useful conclusion, keep sections and paragraphs compact, and summarize large logs/diffs/status streams rather than repeating structured execution evidence in prose. CHANGE turns still carry the required `## TODO` checklist, but protocol bookkeeping and raw machine detail belong in their structured bundle fields and dedicated Wharnex views.
 
 ## Plan proposal and approval continuation

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -65,6 +66,40 @@ func CommitPaths(ctx context.Context, root, message string, paths []string) (com
 // HasCommitIdentity reports whether Git can attribute a commit without
 // inventing an identity. `git config user.email` resolves the full
 // system/global/local chain, so a normally configured machine passes.
+// CommitInternalPaths records Wharnex-owned metadata without attributing it
+// to the operator or running project hooks. Only the explicit paths are staged.
+func CommitInternalPaths(ctx context.Context, root, message string, paths []string) (string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" || len(paths) == 0 {
+		return "", errors.New("internal commit requires a message and at least one path")
+	}
+	stage := append([]string{"add", "--all", "--"}, paths...)
+	if output, err := run(ctx, root, stage...); err != nil {
+		return "", fmt.Errorf("stage internal paths: %s", output)
+	}
+	staged, err := run(ctx, root, "diff", "--cached", "--name-only", "--")
+	if err != nil {
+		return "", fmt.Errorf("inspect internal staged paths: %s", staged)
+	}
+	if strings.TrimSpace(staged) == "" {
+		return "", ErrNothingToCommit
+	}
+	args := []string{
+		"-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost",
+		"-c", "commit.gpgSign=false", "-c", "core.hooksPath=" + filepath.Join(root, ".git", "wharnex-hooks-disabled"),
+		"commit", "-q", "--no-verify", "-m", message, "--",
+	}
+	args = append(args, paths...)
+	if output, err := run(ctx, root, args...); err != nil {
+		return "", fmt.Errorf("commit internal paths: %s", output)
+	}
+	sha, err := run(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("resolve internal commit: %s", sha)
+	}
+	return sha, nil
+}
+
 func HasCommitIdentity(ctx context.Context, root string) bool {
 	email, err := run(ctx, root, "config", "--get", "user.email")
 	if err != nil || strings.TrimSpace(email) == "" {

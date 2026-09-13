@@ -236,6 +236,14 @@ func executionPlanSchema(requestID, baselineSHA256 string) map[string]any {
 			"expected_exit_codes": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
 		},
 	}
+	versionIncrement := map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required": []string{"component", "amount"},
+		"properties": map[string]any{
+			"component": map[string]any{"type": "string", "enum": []string{domain.VersionComponentMajor, domain.VersionComponentMedium, domain.VersionComponentMinor, domain.VersionComponentPatch}},
+			"amount":    map[string]any{"type": "integer", "minimum": 1, "maximum": 1000},
+		},
+	}
 	operation := map[string]any{
 		"type": "object", "additionalProperties": false,
 		"required": []string{"type", "patch", "command"},
@@ -258,6 +266,7 @@ func executionPlanSchema(requestID, baselineSHA256 string) map[string]any {
 			"request_id":          map[string]any{"type": "string", "const": requestID},
 			"status":              map[string]any{"type": "string", "enum": []string{"ready", "blocked"}},
 			"summary":             map[string]any{"type": "string"},
+			"version_increment":   versionIncrement,
 			"risk":                map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}},
 			"requires_approval":   map[string]any{"type": "boolean"},
 			"operations":          map[string]any{"type": "array", "items": operation},
