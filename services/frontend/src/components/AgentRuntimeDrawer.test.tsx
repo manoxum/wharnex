@@ -52,6 +52,17 @@ describe('AgentRuntimeDrawer', () => {
     vi.restoreAllMocks()
   })
 
+  it('preserves IPC error messages even when they come from another realm', async () => {
+    const agents = agentsBridge()
+    agents.state = vi.fn(async () => Promise.reject({ message: 'Object has been destroyed' }))
+    const onError = vi.fn()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} onError={onError} />)
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Object has been destroyed'))
+  })
+
   it('lists runtime instances, exposes task details and scales workers', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge

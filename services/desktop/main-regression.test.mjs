@@ -840,6 +840,19 @@ test('agent runtime reconciles Worker occupancy from durable lease owners', asyn
   assert.match(source, /: 'claimed'/)
 })
 
+test('agent runtime browser projection fails closed while WebContents is retiring', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function unavailableAgentBrowser()')
+  const end = source.indexOf('\nfunction chatAgentRuntimeMemory', start)
+  assert.notEqual(start, -1)
+  const projection = source.slice(start, end)
+
+  assert.match(projection, /if \(!wc \|\| wc\.isDestroyed\(\)\) return unavailableAgentBrowser\(\)/)
+  assert.match(projection, /const currentURL = wc\.getURL\(\) \|\| ''/)
+  assert.match(projection, /title: wc\.getTitle\(\) \|\| ''/)
+  assert.match(projection, /catch \{[\s\S]*return unavailableAgentBrowser\(\)[\s\S]*\}/)
+})
+
 test('autonomous workers pace chat switches, wait for page settle, and pause on HTTP 429', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const paceStart = source.indexOf('async function paceChatGPTWorkerRequest(')

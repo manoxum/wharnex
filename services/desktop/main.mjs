@@ -2451,19 +2451,31 @@ async function refreshChatAgentRuntimeState() {
   return chatAgentRuntimeState()
 }
 
+function unavailableAgentBrowser() {
+  return { available: false, web_contents_id: 0, os_process_id: 0, url: '', title: '', loading: false }
+}
+
 function publicAgentBrowser(entry) {
-  const wc = entry?.view?.webContents
-  if (!wc || wc.isDestroyed()) return { available: false, web_contents_id: 0, os_process_id: 0, url: '', title: '', loading: false }
-  const currentURL = wc.getURL() || ''
-  let osProcessID = 0
-  try { osProcessID = Math.max(0, Number(wc.getOSProcessId()) || 0) } catch {}
-  return {
-    available: true,
-    web_contents_id: wc.id,
-    os_process_id: osProcessID,
-    url: currentURL ? sanitizeDiagnosticURL(currentURL) : '',
-    title: wc.getTitle() || '',
-    loading: Boolean(entry.loading),
+  // WebContents can disappear between isDestroyed() and any following getter
+  // while a Supervisor or Worker is being retired. Runtime state is a
+  // diagnostic snapshot, so one closing browser must not reject the whole
+  // wharness:agents:state IPC request.
+  try {
+    const wc = entry?.view?.webContents
+    if (!wc || wc.isDestroyed()) return unavailableAgentBrowser()
+    const currentURL = wc.getURL() || ''
+    let osProcessID = 0
+    try { osProcessID = Math.max(0, Number(wc.getOSProcessId()) || 0) } catch {}
+    return {
+      available: true,
+      web_contents_id: wc.id,
+      os_process_id: osProcessID,
+      url: currentURL ? sanitizeDiagnosticURL(currentURL) : '',
+      title: wc.getTitle() || '',
+      loading: Boolean(entry.loading),
+    }
+  } catch {
+    return unavailableAgentBrowser()
   }
 }
 
