@@ -16,7 +16,7 @@ describe('chat binding recovery', () => {
     const onBind = vi.fn().mockReturnValue(true)
     render(<ChatBindingRecovery chatId="chat-1" onBind={onBind} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Recuperar vínculo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Recuperar vínculo automático' }))
     await screen.findByText('https://chatgpt.com/c/abc')
     // Proposing must not bind: nothing is decided until the operator acts.
     expect(onBind).not.toHaveBeenCalled()
@@ -32,8 +32,8 @@ describe('chat binding recovery', () => {
       candidates: [{ chatgpt_url: 'https://chatgpt.com/c/taken', conversation_id: 'taken', evidence: 'agent_queue', bound_to_chat_id: 'other', conflict: true }],
     })
     render(<ChatBindingRecovery chatId="chat-2" onBind={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Recuperar vínculo' }))
-    await screen.findByText('Já pertence a outro chat')
+    fireEvent.click(screen.getByRole('button', { name: 'Recuperar vínculo automático' }))
+    await screen.findByText('Já vinculado a outro chat')
     expect(screen.queryByRole('button', { name: 'Vincular' })).toBeNull()
   })
 
@@ -43,7 +43,7 @@ describe('chat binding recovery', () => {
     const onBind = vi.fn().mockReturnValue(true)
     render(<ChatBindingRecovery chatId="chat-3" onBind={onBind} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Recuperar vínculo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Recuperar vínculo automático' }))
     await screen.findByText(/Nenhuma conversa encontrada/)
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'https://chatgpt.com/c/manual' } })
     fireEvent.click(screen.getByRole('button', { name: 'Vincular este endereço' }))

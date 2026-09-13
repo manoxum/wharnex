@@ -101,7 +101,7 @@ export function ChatBindingRecovery({ chatId, onBind }: {
             aria-label="Endereço da conversa do ChatGPT"
           />
           <button type="button" className="chat-binding-recovery-secondary" disabled={!manual.trim()} onClick={() => void bind(manual.trim())}>
-            Vincular
+            Vincular este endereço
           </button>
         </label>
       </div>

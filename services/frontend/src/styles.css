@@ -2994,3 +2994,263 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-task-picker-list b { color:var(--theme-text-soft); font-size:calc(7px * var(--ui-font-scale)); }
 .agent-runtime-task-picker-list small { color:var(--theme-text-muted); font:500 calc(6.2px * var(--ui-font-scale))/1.3 var(--mono-font-family); }
 .agent-runtime-task-picker-actions { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; }
+
+/* Chat binding recovery: shown when a chat lost its conversation link but had messages */
+.chat-binding-recovery {
+  margin: 12px 0;
+  padding: 12px 14px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--theme-accent) 6%, var(--theme-surface)), var(--theme-surface));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.chat-binding-recovery-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.chat-binding-recovery-header svg {
+  flex: 0 0 auto;
+  color: var(--theme-accent);
+  margin-top: 2px;
+}
+
+.chat-binding-recovery-header-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-binding-recovery-header-text strong {
+  color: var(--theme-text);
+  font-size: calc(8.5px * var(--ui-font-scale));
+}
+
+.chat-binding-recovery-header-text span {
+  color: var(--theme-text-muted);
+  font-size: calc(7.5px * var(--ui-font-scale));
+  line-height: 1.3;
+}
+
+.chat-binding-recovery-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-binding-recovery-primary {
+  min-height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 60%, var(--theme-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent) 15%, var(--theme-surface));
+  color: var(--theme-text);
+  font-size: calc(8px * var(--ui-font-scale));
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chat-binding-recovery-primary:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 70%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 22%, var(--theme-surface));
+}
+
+.chat-binding-recovery-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat-binding-recovery-candidates-section {
+  display: grid;
+  gap: 8px;
+}
+
+.chat-binding-recovery-label {
+  margin: 0;
+  color: var(--theme-text-soft);
+  font-size: calc(7.5px * var(--ui-font-scale));
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.chat-binding-recovery-candidates {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.chat-binding-recovery-candidates li {
+  padding: 9px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 7px;
+  background: var(--theme-bg);
+  transition: all 0.15s ease;
+}
+
+.chat-binding-recovery-candidates li:not(.conflict):hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 40%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 4%, var(--theme-surface));
+}
+
+.chat-binding-recovery-candidates li.conflict {
+  opacity: 0.6;
+}
+
+.chat-binding-recovery-candidate-info {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.chat-binding-recovery-candidates code {
+  display: block;
+  overflow: hidden;
+  color: var(--theme-text-soft);
+  font-size: calc(7px * var(--ui-font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-all;
+}
+
+.chat-binding-recovery-evidence {
+  display: block;
+  color: var(--theme-text-muted);
+  font-size: calc(6.5px * var(--ui-font-scale));
+}
+
+.chat-binding-recovery-conflict {
+  color: var(--warning);
+  font-size: calc(7px * var(--ui-font-scale));
+  font-weight: 600;
+}
+
+.chat-binding-recovery-candidate-bind {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
+  color: var(--theme-text);
+  font-size: calc(7px * var(--ui-font-scale));
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.chat-binding-recovery-candidate-bind:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 65%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface));
+}
+
+.chat-binding-recovery-manual-section {
+  display: grid;
+  gap: 8px;
+}
+
+.chat-binding-recovery-manual {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.chat-binding-recovery-manual input {
+  min-width: 0;
+  flex: 1;
+  padding: 0 10px;
+  border: 1px solid var(--theme-border);
+  border-radius: 7px;
+  background: var(--theme-bg);
+  color: var(--theme-text-soft);
+  font-size: calc(8px * var(--ui-font-scale));
+}
+
+.chat-binding-recovery-manual input::placeholder {
+  color: var(--theme-text-muted);
+}
+
+.chat-binding-recovery-manual input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border));
+  background: var(--theme-surface);
+}
+
+.chat-binding-recovery-secondary {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
+  color: var(--theme-text);
+  font-size: calc(8px * var(--ui-font-scale));
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.chat-binding-recovery-secondary:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 65%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface));
+}
+
+.chat-binding-recovery-secondary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chat-binding-recovery-empty {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--theme-text-muted);
+  font-size: calc(7.5px * var(--ui-font-scale));
+  line-height: 1.4;
+  background: var(--theme-bg);
+  border: 1px dashed var(--theme-border);
+  border-radius: 7px;
+}
+
+.chat-binding-recovery-error {
+  margin: 0;
+  padding: 8px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--danger);
+  font-size: calc(7.5px * var(--ui-font-scale));
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--danger) 10%, var(--theme-surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--theme-border));
+  border-radius: 7px;
+}
+
+.chat-binding-recovery-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .chat-binding-recovery {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--theme-accent) 4%, var(--theme-surface)), color-mix(in srgb, var(--theme-accent) 2%, var(--theme-surface)));
+  }
+}
