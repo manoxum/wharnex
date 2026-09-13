@@ -325,6 +325,9 @@ export type ChatAgentQueueSummary = {
   blocked: number
   oldest_due_created_at?: string
   next_not_before?: string
+  // Active tasks outside the requested project, reported only as a count: the
+  // pool is shared, so an empty local queue is not an idle pool.
+  other_projects?: number
 }
 
 export type BundleQuota = {

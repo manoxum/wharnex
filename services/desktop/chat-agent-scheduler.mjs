@@ -176,6 +176,11 @@ export class ChatAgentSchedulerClient {
             preferred_lane: String(claim.preferred_lane || ''),
             excluded_lanes: Array.isArray(claim.excluded_lanes) ? claim.excluded_lanes : [],
             fallback_mode: String(claim.fallback_mode || 'any'),
+            // project_scoped is separate from the list because "no project is
+            // open" and "this caller cannot know the window topology" are
+            // opposite instructions that an empty list cannot distinguish.
+            project_scoped: claim.project_scoped === true,
+            open_projects: Array.isArray(claim.open_projects) ? claim.open_projects : [],
           }),
         })
         const task = claimed?.task

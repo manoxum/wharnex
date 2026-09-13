@@ -19,6 +19,15 @@ type ChatAgentClaimOptions struct {
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
 	FallbackMode  string   `json:"fallback_mode"`
+	// ProjectScoped and OpenProjects restrict the claim to work the operator
+	// can actually supervise: a project currently open in some window.
+	//
+	// The flag is separate from the list because "no projects are open" and
+	// "this caller does not know the window topology" are opposite instructions
+	// and an empty slice cannot express both. A caller that cannot scope — the
+	// web/dev path — leaves ProjectScoped false and claims as before.
+	ProjectScoped bool     `json:"project_scoped"`
+	OpenProjects  []string `json:"open_projects"`
 }
 
 func chatAgentTaskLane(task ChatAgentTask) string {
@@ -62,10 +71,54 @@ func normalizeChatAgentClaimOptions(input ChatAgentClaimOptions) (ChatAgentClaim
 		return ChatAgentClaimOptions{}, errors.New("excluded_lanes must contain at most 32 lanes")
 	}
 	input.ExcludedLanes = cleaned
+	projects := make([]string, 0, len(input.OpenProjects))
+	seenProjects := map[string]struct{}{}
+	for _, raw := range input.OpenProjects {
+		project := normalizeChatAgentProjectID(raw)
+		if project == "" {
+			continue
+		}
+		if _, ok := seenProjects[project]; ok {
+			continue
+		}
+		seenProjects[project] = struct{}{}
+		projects = append(projects, project)
+	}
+	if len(projects) > 32 {
+		return ChatAgentClaimOptions{}, errors.New("open_projects must contain at most 32 projects")
+	}
+	input.OpenProjects = projects
 	return input, nil
 }
 
+// chatAgentClaimProjectAllows reports whether a task's owning project permits it
+// to be claimed by this caller.
+//
+// Account-lifecycle work is exempt on purpose. Those types act on the ChatGPT
+// account rather than on a project, and the chat-deletion convergence rule
+// requires deletion to actually reach the remote conversation, its temporary
+// sibling and its library bundles. Scoping them to an open project would leave
+// the operator's account accumulating conversations and files they explicitly
+// asked to be removed, with no surface anywhere explaining why.
+//
+// An unattributed task is likewise claimable: it belongs to no project, so no
+// project's absence can be a reason to hold it.
+func chatAgentClaimProjectAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
+	if !options.ProjectScoped || task.ProjectID == "" || chatAgentTaskAccount(task.Type) {
+		return true
+	}
+	for _, project := range options.OpenProjects {
+		if task.ProjectID == project {
+			return true
+		}
+	}
+	return false
+}
+
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
+	if !chatAgentClaimProjectAllows(task, options) {
+		return false
+	}
 	lane := chatAgentTaskLane(task)
 	for _, excluded := range options.ExcludedLanes {
 		if lane == excluded {

@@ -38,6 +38,52 @@ func IsResourceExhaustionDiagnostic(text string) bool {
 	return false
 }
 
+// unsupportedToolchainMarkers are the phrasings a build driver uses when the
+// environment it is running in cannot perform the requested build mode at all,
+// however correct the source is. They are matched case-insensitively.
+//
+// Production evidence: `go test -race ./...` verified in the Protected runner
+// (which installs build-essential) and then failed post-merge in 5 ms with
+// "go: -race requires cgo; enable cgo by setting CGO_ENABLED=1", because the
+// host verification environment had no C compiler. The exit status was 2 and
+// no binary was missing, so neither existing classifier recognized it and the
+// verified candidate was reverted into a repair round that could never succeed.
+var unsupportedToolchainMarkers = []string{
+	"requires cgo; enable cgo by setting cgo_enabled=1",
+	"-race requires cgo",
+	"-msan requires cgo",
+	"-asan requires cgo",
+	"-race is only supported on",
+	"race detector not supported on",
+	"cgo: c compiler",
+	`c compiler "gcc" not found`,
+	`c compiler "cc" not found`,
+	`exec: "gcc": executable file not found`,
+	`exec: "cc": executable file not found`,
+	`exec: "clang": executable file not found`,
+}
+
+// IsUnsupportedToolchainDiagnostic reports whether command output proves the
+// environment cannot run the command's build mode — cgo disabled, no C
+// compiler, an instrumentation mode unavailable for this platform. Unlike a
+// missing executable, the tool being invoked is installed; it is the
+// capability behind it that is absent.
+//
+// This says nothing about whether the patch is correct. It is an environment
+// measurement, so a source patch is never its remedy.
+func IsUnsupportedToolchainDiagnostic(text string) bool {
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, marker := range unsupportedToolchainMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // missingExecutableMarkers are how a missing binary surfaces through the
 // runner's `exec` entrypoint and through the common language runtimes.
 var missingExecutableMarkers = []string{

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -24,16 +25,38 @@ func NewDockerRunner(image string) *DockerRunner { return &DockerRunner{image: i
 func NewDockerRunnerWithDependencyCache(image, cacheDir string) *DockerRunner {
 	return &DockerRunner{image: image, dependencyCacheDir: filepath.Clean(cacheDir)}
 }
-func (r *DockerRunner) Prepare(_ context.Context, projectRoot string) (Workspace, error) {
-	workspace, err := copyProject(projectRoot)
+func (r *DockerRunner) Prepare(ctx context.Context, projectRoot string) (Workspace, error) {
+	return r.PrepareFromProject(ctx, projectRoot, projectRoot)
+}
+
+// PrepareFromProject copies executionRoot into an isolated workspace while
+// keying the private dependency cache on projectPath. The two differ whenever a
+// request is rooted at its own immutable base: the tree to execute is a
+// temporary extraction, but the cache it must share belongs to the project.
+func (r *DockerRunner) PrepareFromProject(_ context.Context, executionRoot, projectPath string) (Workspace, error) {
+	workspace, err := copyProject(executionRoot)
 	if err != nil {
 		return Workspace{}, err
 	}
+	workspace.ProjectPath = canonicalProjectPath(projectPath, workspace.SourcePath)
 	if r.dependencyCacheDir != "" && r.dependencyCacheDir != "." {
-		projectKey := fmt.Sprintf("%x", sha256.Sum256([]byte(filepath.Clean(workspace.SourcePath))))
+		projectKey := fmt.Sprintf("%x", sha256.Sum256([]byte(workspace.ProjectPath)))
 		workspace.GoModuleCachePath = filepath.Join(r.dependencyCacheDir, "go-mod", projectKey)
 	}
 	return workspace, nil
+}
+
+// canonicalProjectPath resolves the key the dependency cache is bound to,
+// falling back to the executed tree only when no project is supplied — never
+// silently, because that fallback is the defect this function exists to close.
+func canonicalProjectPath(projectPath, sourcePath string) string {
+	if trimmed := strings.TrimSpace(projectPath); trimmed != "" {
+		if absolute, err := filepath.Abs(trimmed); err == nil {
+			return filepath.Clean(absolute)
+		}
+		return filepath.Clean(trimmed)
+	}
+	return filepath.Clean(sourcePath)
 }
 func (r *DockerRunner) Cleanup(workspace Workspace) error { return os.RemoveAll(workspace.Path) }
 

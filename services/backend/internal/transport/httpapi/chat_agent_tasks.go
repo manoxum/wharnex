@@ -17,6 +17,10 @@ type chatAgentLeaseRequest struct {
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
 	FallbackMode  string   `json:"fallback_mode"`
+	// ProjectScoped is what separates "no project is open" from "this caller
+	// cannot scope by project"; an empty OpenProjects cannot express both.
+	ProjectScoped bool     `json:"project_scoped"`
+	OpenProjects  []string `json:"open_projects"`
 }
 
 func (a *API) enqueueChatAgentTask(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +40,8 @@ func (a *API) listChatAgentTasks(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	active := strings.TrimSpace(r.URL.Query().Get("active"))
 	items, err := a.store.ListChatAgentTasks(session.ChatAgentTaskFilter{
-		ChatID: r.URL.Query().Get("chat_id"), RequestID: r.URL.Query().Get("request_id"),
+		ProjectID: r.URL.Query().Get("project_id"),
+		ChatID:    r.URL.Query().Get("chat_id"), RequestID: r.URL.Query().Get("request_id"),
 		Status: r.URL.Query().Get("status"), ActiveOnly: active == "1" || strings.EqualFold(active, "true"), Limit: limit,
 	})
 	if err != nil {
@@ -56,8 +61,12 @@ func (a *API) listChatAgentTasks(w http.ResponseWriter, r *http.Request) {
 // the list window: that window is ordered oldest-first, so it fills with
 // completed history and hides the live queue. Counting in the store is exact
 // regardless of table size.
+//
+// `project_id` scopes every counter to one project so a project-scoped panel's
+// totals describe the same queue as its cards; omitting it reports the whole
+// account-wide queue, which is what the global runtime diagnostics read.
 func (a *API) chatAgentTaskSummary(w http.ResponseWriter, r *http.Request) {
-	summary, err := a.store.ChatAgentQueueSummary()
+	summary, err := a.store.ChatAgentQueueSummary(r.URL.Query().Get("project_id"))
 	if err != nil {
 		writeChatAgentTaskError(w, err)
 		return
@@ -79,6 +88,7 @@ func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := a.store.ClaimChatAgentTaskWithOptions(body.Owner, lease, session.ChatAgentClaimOptions{
 		PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, FallbackMode: body.FallbackMode,
+		ProjectScoped: body.ProjectScoped, OpenProjects: body.OpenProjects,
 	})
 	if err != nil {
 		writeChatAgentTaskError(w, err)

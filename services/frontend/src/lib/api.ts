@@ -75,13 +75,26 @@ export function normalizeGitOverview(overview: GitOverview): GitOverview {
   }
 }
 
+function chatAgentQuery(activeOnly: boolean, projectPath: string) {
+  const params = new URLSearchParams()
+  if (activeOnly) params.set('active', '1')
+  if (projectPath) params.set('project_id', projectPath)
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
 export const api = {
   url: API_URL,
   config: () => request<AppConfig>('/api/config'),
   executionConcurrency: () => request<ExecutionConcurrency>('/api/execution-concurrency'),
-  chatAgentTasks: (activeOnly = false) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${activeOnly ? '?active=1' : ''}`),
+  // projectPath scopes the queue to one project. A project-scoped view MUST
+  // always pass it: the queue is shared by every open project, and the panel
+  // exists to answer whether *this* project is stuck (see adr/ADR-0044).
+  chatAgentTasks: (activeOnly = false, projectPath = '') =>
+    request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${chatAgentQuery(activeOnly, projectPath)}`),
   chatAgentTasksForRequest: (requestID: string) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks?request_id=${encodeURIComponent(requestID)}&limit=50`),
-  chatAgentTaskSummary: () => request<ChatAgentQueueSummary>('/api/chat-agent/tasks/summary'),
+  chatAgentTaskSummary: (projectPath = '') =>
+    request<ChatAgentQueueSummary>(`/api/chat-agent/tasks/summary${projectPath ? `?project_id=${encodeURIComponent(projectPath)}` : ''}`),
   updateExecutionConcurrency: (concurrency: number) => request<ExecutionConcurrency>('/api/execution-concurrency', { method: 'PUT', body: JSON.stringify({ concurrency }) }),
   tunnelConfig: () => request<TunnelProviderConfigResponse>('/api/tunnel-config'),
   updateTunnelConfig: (config: TunnelProviderDocument) => request<TunnelProviderConfigResponse>('/api/tunnel-config', { method: 'PUT', body: JSON.stringify(config) }),

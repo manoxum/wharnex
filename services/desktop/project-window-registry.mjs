@@ -26,6 +26,16 @@ export class ProjectWindowRegistry {
     return { ok: true, released: true, path: projectPath }
   }
 
+  // The projects currently open in some window, in canonical form.
+  //
+  // This is the scope the durable claim uses: browser-agent work for a project
+  // no window holds cannot be supervised — the operator cannot see its chat,
+  // read its response or act when it needs attention — so it waits instead of
+  // competing for the shared pool (see adr/ADR-0044).
+  openProjects() {
+    return [...new Set(this.owners.keys())]
+  }
+
   releaseWindow(windowId) {
     const released = []
     for (const [projectPath, ownerWindowId] of this.owners) {

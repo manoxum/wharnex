@@ -19,13 +19,67 @@ Wharnex MUST answer the second question by running the same command against the 
 
 That last rule is load bearing rather than cosmetic. Handed an undifferentiated suite log, a planner has no way to tell its own breakage from the repository's, and the cheapest way to make a gate green is to change the thing being verified: relax the assertion, delete the test, revert the symbol it expects. That destroys work that was already accepted, and it passes every structural check on the way through.
 
+## A gate the host verification environment cannot run yields no verdict
+
+Post-merge verification re-runs a plan's own gates against the real merged host
+tree. Those gates were authored and verified in the Protected runner image,
+which carries the project build toolchain; the host re-run happens in Wharnex's
+own control container, whose inventory is narrower. When that container cannot
+run a gate **at all**, the run answers nothing about the merge, and treating
+"no verdict" as "failed" discards a verified candidate over an infrastructure
+fault (see `adr/ADR-0043`).
+
+Such a gate MUST be recorded as unverified on host and integration MUST
+continue:
+
+- The evidence is the failing command's own recorded output — exit 127 with a
+  missing-executable marker, or a build driver reporting that the requested mode
+  is unavailable (cgo disabled, no C compiler, an instrumentation mode this
+  platform does not support). Wharnex never consults an inventory it maintains
+  itself.
+- Each such gate publishes `integration.verification_unsupported` with its argv,
+  cwd, exit code, reason and diagnostic, and the terminal `host.applied` event
+  carries `unverified_host_gates` naming every gate the Apply went without.
+- This is not a gate relaxed to make it pass. The gate ran in full against this
+  exact candidate in the Protected runner; only the host-side corroboration is
+  missing, and its absence is reported rather than absorbed.
+- The classification is narrow and fails closed. An ordinary test failure, a
+  detected data race, a compile error in the merged result, or a runner
+  error (timeout, cancellation) remains an ordinary post-merge failure that
+  reverts the host to its exact pre-merge commit.
+
+Skipping is a fallback, never the goal. The control container's toolchain MUST
+be kept wide enough to actually run the gates the hosted projects declare;
+observing this event repeatedly for the same gate is a signal to widen it.
+
+## A change bundle must be able to deliver what it declares
+
+A `change` bundle that declares an `impact_files` entry the patch does not write
+**and** that does not exist in the project is structurally incomplete: it
+promises a file that will exist nowhere, so the definition its own patch
+references cannot resolve. It MUST be rejected at ingestion — before Policy and
+before sandbox verification — publishing `bundle.incomplete_impact_files` with
+the offending paths (see `adr/ADR-0045`).
+
+Both conditions are required. `impact_files` stays a forecast: over-declaring a
+file that already exists is ordinary planner imprecision and is accepted. The
+check MUST fail open, treating any path it cannot resolve as deliverable,
+because rejecting a legitimate change is worse than missing a detection.
+
+The reason for catching it here is the diagnostic, not only the cost. Discovered
+by the compiler instead, the failure reaches the planner as `undefined: <symbol>`
+— which invites re-reading source that was never at fault rather than shipping
+the file the plan already promised. Measured across the archived bundles, two
+incomplete bundles produced exactly that outcome and no complete bundle was
+misread as incomplete.
+
 ## Session failure classification (`FailureKind`)
 
 A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set classification (`domain.FailureKind*`), always derived by Wharness itself from a local/sandbox error or a planner turn's reason code — never copied verbatim from planner-supplied text. Frontend recovery affordances MUST key off this field, never off error-message substrings.
 
 | `failure_kind` | Meaning | Recovery |
 | --- | --- | --- |
-| `offline_go_module_cache` | Neither the Wharness-owned private Go cache nor the host compatibility cache can satisfy the build list under `GOPROXY=off`. | Human-approved, narrowly scoped network grant for the eligible Go commands (`RetryDependencyNetwork`; see `SANDBOX_MODEL.md`). |
+| `offline_go_module_cache` | Neither the Wharnex-owned private Go cache for this project nor the Wharnex runtime's own compatibility cache can satisfy the build list under `GOPROXY=off`. That private cache is keyed on the canonical project and MUST stay so even when the run executes an extracted immutable base (`adr/ADR-0045`); the compatibility fallback reads the Wharnex runtime's GOMODCACHE, which is the operator's machine only in development mode. | Human-approved, narrowly scoped network grant for the eligible Go commands (`RetryDependencyNetwork`; see `SANDBOX_MODEL.md`). |
 | `host_dependency_state` | Host-only npm/node dependency defect discovered after Protected verification already passed (e.g. the npm optional-dependency bug, npm/cli#4828). | Fixed, human-approved reinstall recipe run directly on host (`RetryHostDependencyRepair`; see `SANDBOX_MODEL.md`). |
 | `host_build_toolchain_mismatch` | Host's own toolchain (e.g. Node running a self-evolution build) can't satisfy a pinned dependency's engine requirement. | None — no source patch changes the host's installed runtime. Manual host upgrade only. |
 | `self_evolution_transaction_busy` | Another self-evolution transaction currently owns the activation lock. | Retry Apply once the other transaction clears — the verified candidate is retained. |

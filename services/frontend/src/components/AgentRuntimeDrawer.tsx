@@ -22,6 +22,24 @@ function short(value?: string, fallback = '—') {
   return text || fallback
 }
 
+// The agent pool is global: every open project shares the same Supervisors and
+// Workers. An agent busy with another project's task therefore has to say so,
+// or this panel reports "0 available" beside cards that all look idle to the
+// operator reading it from the project that is *not* running (adr/ADR-0044).
+//
+// Only the other project's identity is exposed. What its task is belongs to
+// that project's own surfaces.
+function foreignProject(agent: DesktopAgentRuntimeAgent, projectPath: string) {
+  const owner = String(agent.task?.project_id || '').trim()
+  if (!owner || !projectPath || owner === projectPath) return ''
+  return owner
+}
+
+function projectLabel(projectPath: string) {
+  const segments = projectPath.split('/').filter(Boolean)
+  return segments[segments.length - 1] || projectPath
+}
+
 function timeLabel(value?: string) {
   const text = String(value || '').trim()
   if (!text) return '—'
@@ -60,7 +78,7 @@ function interactionBounds(host: HTMLElement) {
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; onError?: (message: string) => void }) {
+export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectPath: string; onClose: () => void; onError?: (message: string) => void }) {
   const bridge = desktopBridge()?.agents
   const interactionHostRef = useRef<HTMLDivElement>(null)
   const onErrorRef = useRef(onError)
@@ -89,6 +107,8 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
 
   const selected = useMemo(() => runtime?.agents.find((agent) => agent.id === selectedId) || runtime?.agents[0], [runtime, selectedId])
   const running = runtime?.agents.filter((agent) => agent.status === 'running' || agent.status === 'claimed').length || 0
+  const elsewhere = runtime?.agents.filter((agent) => foreignProject(agent, projectPath)).length || 0
+  const selectedForeign = selected ? foreignProject(selected, projectPath) : ''
 
   useEffect(() => {
     if (!bridge || !interactionId || selected?.id !== interactionId || selected.role !== 'worker') return
@@ -196,7 +216,10 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
   return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Agentes</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar agentes"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></div></header>
     {!runtime ? <div className="agent-drawer-empty">A carregar instâncias do runtime…</div> : <>
-      <div className="agent-runtime-summary"><span><b>{runtime.agents.length}</b><small>instâncias</small></span><span><b>{running}</b><small>ocupadas</small></span><span><b>{runtime.desired_workers}</b><small>{runtime.policies?.auto_scaled_workers ? `${runtime.configured_workers} base · +${runtime.policies.auto_scaled_workers} auto` : 'workers'}</small></span></div>
+      <div className="agent-runtime-summary"><span><b>{runtime.agents.length}</b><small>instâncias</small></span><span><b>{running}</b><small>ocupadas</small></span><span><b>{elsewhere}</b><small>noutro projeto</small></span><span><b>{runtime.desired_workers}</b><small>{runtime.policies?.auto_scaled_workers ? `${runtime.configured_workers} base · +${runtime.policies.auto_scaled_workers} auto` : 'workers'}</small></span></div>
+      {/* The pool is shared deliberately; only the claim is scoped. Saying so
+          here is what stops a busy pool from reading as a broken one. */}
+      <p className="agent-runtime-scope">Os agentes são partilhados por todos os projetos abertos, mas só executam tarefas de projetos abertos nalguma janela.</p>
       <div className="agent-runtime-memory-summary" aria-label="Consumo de RAM do runtime">
         <span><small>Total Workers</small><b>{memoryLabel(runtime.memory?.total_workers_bytes, runtime.memory?.available)}</b></span>
         <span><small>Total Supervisores</small><b>{memoryLabel(runtime.memory?.total_supervisors_bytes, runtime.memory?.available)}</b></span>
@@ -236,11 +259,14 @@ export function AgentRuntimeDrawer({ onClose, onError }: { onClose: () => void; 
         <div className="agent-runtime-scale-card"><div><strong>Keep flowing</strong><small>Globalmente fixa cada Worker ao pedido até existir um bundle válido entregue ao processamento; 429 suspende sem abandonar a tarefa.</small></div><button type="button" className="agent-runtime-resume" aria-pressed={runtime.policies.keep_flowing_global} disabled={busy} onClick={() => void updatePolicies({ keep_flowing_global: !runtime.policies.keep_flowing_global })}>{runtime.policies.keep_flowing_global ? 'Global ativo' : 'Global inativo'}</button></div>
       </div>
       <div className="agent-runtime-body">
-        <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => <button type="button" role="listitem" key={agent.id} className={selected?.id === agent.id ? 'active' : ''} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>
-          <span className={`agent-runtime-dot ${agent.status}`} aria-hidden="true"/><span><strong>{agent.label}</strong><small>{agent.role === 'supervisor' ? 'Supervisor' : 'Worker'} · {statusLabel(agent)}{agent.keep_flowing_active ? ' · Keep flowing' : ''}</small></span><span className="agent-runtime-agent-stats">{agent.task && <code>{agent.task.type}</code>}<code className="agent-runtime-memory-pill">{memoryLabel(agent.memory?.rss_bytes, agent.memory?.available)}</code></span>
-        </button>)}</div>
+        <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active' : ''}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>
+          <span className={`agent-runtime-dot ${agent.status}`} aria-hidden="true"/><span><strong>{agent.label}</strong><small>{agent.role === 'supervisor' ? 'Supervisor' : 'Worker'} · {statusLabel(agent)}{agent.keep_flowing_active ? ' · Keep flowing' : ''}</small>{foreign ? <em className="agent-runtime-foreign" title={`Ocupado com uma tarefa do projeto ${foreign}`}>Outro projeto · {projectLabel(foreign)}</em> : null}</span><span className="agent-runtime-agent-stats">{agent.task && <code>{agent.task.type}</code>}<code className="agent-runtime-memory-pill">{memoryLabel(agent.memory?.rss_bytes, agent.memory?.available)}</code></span>
+        </button> })}</div>
         {selected && <div className="agent-runtime-detail">
           <div className="agent-runtime-detail-heading"><div><span className={`agent-runtime-dot ${selected.status}`} aria-hidden="true"/><strong>{selected.label}</strong></div><span className="agent-runtime-status-pill">{statusLabel(selected)}</span></div>
+          {/* Naming the owning project explains the occupancy; nothing else
+              about that project's task crosses this boundary. */}
+          {selectedForeign ? <p className="agent-runtime-foreign-note" role="status">Ocupado com uma tarefa do projeto <b title={selectedForeign}>{projectLabel(selectedForeign)}</b>. Fica disponível para este projeto quando terminar.</p> : null}
           {(() => { const task = selected.task || selected.last_task; return <dl><div><dt>Loop</dt><dd>{selected.role === 'supervisor' ? 'Interação humana' : selected.loop_active === false ? 'Parado' : 'Ativo'}</dd></div><div><dt>Chat</dt><dd>{short(selected.chat_id)}</dd></div><div><dt>Tarefa</dt><dd>{task ? `${task.type} · ${task.task_id}${selected.task ? '' : ' · última'}` : 'Sem tarefa registada'}</dd></div><div><dt>Task state</dt><dd>{short(task?.status)}</dd></div><div><dt>Pedido</dt><dd>{short(task?.request_id)}</dd></div><div><dt>Lineage</dt><dd>{short(task?.root_request_id)}</dd></div><div><dt>Conversa</dt><dd>{short(task?.conversation_id)}</dd></div><div><dt>Tentativa</dt><dd>{task ? `${task.attempt}/${task.max_attempts}` : '—'}</dd></div><div><dt>Último claim</dt><dd>{timeLabel(selected.last_claim_at)}</dd></div>{selected.residency && <><div><dt>Residência</dt><dd>{short(selected.residency.resident_lane)} · rotação #{selected.residency.rotation_position + 1}</dd></div><div><dt>Dwell mínimo</dt><dd>{timeLabel(selected.residency.min_resident_until)}</dd></div><div><dt>Assignment epoch</dt><dd>{selected.residency.assignment_epoch}{selected.residency.navigation_in_progress ? ' · a navegar' : ''}{selected.residency.non_preemptive ? ' · não preemptível' : ''}</dd></div></>}<div><dt>Lease</dt><dd>{timeLabel(task?.lease_expires_at)}</dd></div><div><dt>not_before</dt><dd>{timeLabel(task?.not_before)}</dd></div><div><dt>Estado</dt><dd>{statusLabel(selected)}{selected.error || task?.last_error ? ` · ${selected.error || task?.last_error}` : ''}</dd></div><div><dt>RAM (RSS)</dt><dd>{memoryLabel(selected.memory?.rss_bytes, selected.memory?.available)}{selected.memory?.shared_process ? ' · processo partilhado' : ''}</dd></div><div><dt>Navegador</dt><dd>{selected.browser.available ? `WebContents #${selected.browser.web_contents_id} · PID ${selected.browser.os_process_id || '—'}` : 'Ainda não criado'}</dd></div><div><dt>Página</dt><dd title={selected.browser.url}>{short(selected.browser.title || selected.browser.url, selected.browser.available ? 'Sem página carregada' : '—')}</dd></div></dl> })()}
           {selected.role === 'worker' && <div className="agent-runtime-worker-actions"><button type="button" className="agent-runtime-follow" aria-pressed={selected.keep_flowing || runtime.policies.keep_flowing_global} disabled={busy || runtime.policies.keep_flowing_global} onClick={() => void setWorkerKeepFlowing(selected.id, !selected.keep_flowing)}>{runtime.policies.keep_flowing_global ? 'Keep flowing · global' : selected.keep_flowing ? 'Keep flowing · ativo' : 'Keep flowing · inativo'}</button><button type="button" className="agent-runtime-follow" disabled={busy || !selected.browser.available} onClick={followWorker}><Icon name="monitor" size={13}/> Seguir (flow)</button><button type="button" className="agent-runtime-interact" disabled={busy || !selected.browser.available} onClick={() => setInteractionId(interactionId === selected.id ? undefined : selected.id)}><Icon name="monitor" size={13}/> {interactionId === selected.id ? 'Terminar interação' : 'Interagir aqui'}</button></div>}
           <button type="button" className="agent-runtime-capture" disabled={busy || !selected.browser.available} onClick={() => void capture()}><Icon name="monitor" size={13}/> Capturar imagem</button>

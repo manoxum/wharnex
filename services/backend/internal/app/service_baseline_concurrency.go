@@ -277,6 +277,66 @@ func patchTouchedPaths(patch string) []string {
 	return normalizedPaths(paths)
 }
 
+// patchCreatedPaths returns the paths a patch brings into existence — the `+++`
+// side of a hunk header whose `---` side is /dev/null.
+//
+// The distinction matters because a created file cannot possibly be present in
+// the request's immutable context archive: that archive is a snapshot of the
+// project as it was when the request was planned, and the file did not exist
+// yet. Requiring it there made archive reconciliation impossible for every
+// change that adds a file — an ADR, a new Go file, a new test — which is most
+// non-trivial changes (see adr/ADR-0045).
+func patchCreatedPaths(patch string) []string {
+	paths := make([]string, 0)
+	lines := strings.Split(patch, "\n")
+	for index, line := range lines {
+		if !strings.HasPrefix(line, "--- ") || index+1 >= len(lines) {
+			continue
+		}
+		if patchHeaderPath(line) != "/dev/null" {
+			continue
+		}
+		next := lines[index+1]
+		if !strings.HasPrefix(next, "+++ ") {
+			continue
+		}
+		if created := patchHeaderPath(next); created != "" && created != "/dev/null" {
+			paths = append(paths, created)
+		}
+	}
+	return normalizedPaths(paths)
+}
+
+// patchHeaderPath extracts the path from one `---`/`+++` diff header line,
+// preserving the literal /dev/null marker so creation can be recognized.
+func patchHeaderPath(line string) string {
+	if len(line) < 4 {
+		return ""
+	}
+	value := strings.TrimSpace(line[4:])
+	if fields := strings.Fields(value); len(fields) > 0 {
+		value = fields[0]
+	}
+	if value == "/dev/null" {
+		return value
+	}
+	return strings.TrimPrefix(strings.TrimPrefix(value, "a/"), "b/")
+}
+
+// planCreatedFiles is every path the plan's patches create, across operations.
+func planCreatedFiles(plan *domain.ExecutionPlan) []string {
+	if plan == nil {
+		return nil
+	}
+	paths := make([]string, 0)
+	for _, op := range plan.Operations {
+		if op.Type == "apply_patch" {
+			paths = append(paths, patchCreatedPaths(op.Patch)...)
+		}
+	}
+	return normalizedPaths(paths)
+}
+
 func normalizedPaths(values []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(values))

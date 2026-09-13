@@ -16,8 +16,20 @@ import (
 type LocalRunner struct{}
 
 func NewLocalRunner() *LocalRunner { return &LocalRunner{} }
-func (r *LocalRunner) Prepare(_ context.Context, projectRoot string) (Workspace, error) {
-	return copyProject(projectRoot)
+func (r *LocalRunner) Prepare(ctx context.Context, projectRoot string) (Workspace, error) {
+	return r.PrepareFromProject(ctx, projectRoot, projectRoot)
+}
+
+// PrepareFromProject mirrors DockerRunner's project scoping so development-mode
+// execution records the same canonical project, even though the local runner
+// keeps no private dependency cache of its own.
+func (r *LocalRunner) PrepareFromProject(_ context.Context, executionRoot, projectPath string) (Workspace, error) {
+	workspace, err := copyProject(executionRoot)
+	if err != nil {
+		return Workspace{}, err
+	}
+	workspace.ProjectPath = canonicalProjectPath(projectPath, workspace.SourcePath)
+	return workspace, nil
 }
 func (r *LocalRunner) Cleanup(workspace Workspace) error { return os.RemoveAll(workspace.Path) }
 

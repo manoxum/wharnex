@@ -116,6 +116,12 @@ anything, leaving the change in the working tree as uncommitted work. The
 integration is never skipped: the merge is what reconciles the change with host
 drift, and skipping it would reintroduce the failure `adr/ADR-0035` removed.
 
+Post-merge verification runs through the host runner — an in-process `exec`,
+and therefore Wharnex's own control container — while the same gates were
+verified in the Protected runner image. A gate the control container cannot run
+at all is recorded as unverified on host and integration continues; see
+`SoT/ERROR_MODEL.md` and `adr/ADR-0043`. Every other failure is a real failure.
+
 For a failed post-merge verification, the rollback boundary is the first real
 merge's `PreMergeSHA`. When preservation committed dirty operator work just
 before that merge, this is the preservation snapshot commit rather than the
@@ -168,6 +174,19 @@ Whether two changes can be combined is decided by that merge, never by
 impact-file, line-range or column overlap. `impact_files` remains a scheduling
 forecast; the authoritative write set is still derived from the validated
 patch.
+
+A base-rooted run executes a temporary extraction of the archive, and that is
+the only thing the temporary directory decides. The canonical project still owns
+the run: the private dependency cache and every other project-scoped resource
+stay keyed on it, and workspace preparation is told which project that is rather
+than inferring it from the tree it receives (`adr/ADR-0045`).
+
+Archive completeness is measured against what the patch modifies, reads and
+declares as a barrier. A path the patch creates cannot be in a snapshot taken
+before it existed, so it is exempt — and is withheld from base hydration too, so
+the base keeps matching the tree the patch was authored against. A peer that
+created the same path meanwhile is an ordinary collision for the three-way merge
+at Apply, not a patch error.
 
 Capture and rooting are both best effort. A repository with no commit yet, or
 any Git refusal, degrades to executing against the host's current tree rather

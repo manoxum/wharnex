@@ -27,7 +27,7 @@ describe('ChatAgentTasksDrawer', () => {
     ] })
     vi.spyOn(api, 'chatAgentTaskSummary').mockResolvedValue(summary({ queued: 2, counts: { RUNNING: 1, WAITING: 1 }, scheduled: 1 }))
 
-    render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
+    render(<ChatAgentTasksDrawer projectPath="/home/op/alpha" onClose={vi.fn()}/>)
 
     expect(await screen.findByText('Worker 2')).toBeTruthy()
     expect(screen.getByText('Enviar pedido')).toBeTruthy()
@@ -41,15 +41,30 @@ describe('ChatAgentTasksDrawer', () => {
     fireEvent.click(screen.getAllByText('Detalhes')[0])
     expect(details?.hasAttribute('open')).toBe(true)
     expect(screen.getByText('cat-running')).toBeTruthy()
-    await waitFor(() => expect(api.chatAgentTasks).toHaveBeenCalledWith(true))
-    expect(api.chatAgentTaskSummary).toHaveBeenCalled()
+    // Both reads are scoped to the drawer's own project. One durable queue
+    // serves every open project, so an unscoped read would show this project
+    // another project's chats, request ids and lineage.
+    await waitFor(() => expect(api.chatAgentTasks).toHaveBeenCalledWith(true, '/home/op/alpha'))
+    expect(api.chatAgentTaskSummary).toHaveBeenCalledWith('/home/op/alpha')
   })
 
   it('keeps empty runtime state explicit', async () => {
     vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [] })
     vi.spyOn(api, 'chatAgentTaskSummary').mockResolvedValue(summary())
-    render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
-    expect(await screen.findByText('Sem tarefas ativas.')).toBeTruthy()
+    render(<ChatAgentTasksDrawer projectPath="/home/op/alpha" onClose={vi.fn()}/>)
+    expect(await screen.findByText('Sem tarefas ativas neste projeto.')).toBeTruthy()
+    expect(screen.getByText(/A fila e os Workers estão livres neste momento/)).toBeTruthy()
+  })
+
+  // An empty local queue is not an idle pool: the agents are shared. Saying
+  // only "nothing active" would read as a runtime that has stopped working.
+  it('reports other projects as a bare count and never as tasks', async () => {
+    vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [] })
+    vi.spyOn(api, 'chatAgentTaskSummary').mockResolvedValue(summary({ other_projects: 3 }))
+    render(<ChatAgentTasksDrawer projectPath="/home/op/alpha" onClose={vi.fn()}/>)
+    expect(await screen.findByText(/3 tarefas ativas de outros projetos/)).toBeTruthy()
+    expect(screen.getByText(/os agentes partilhados estão ocupados com outros projetos/)).toBeTruthy()
+    expect(screen.queryByText('Detalhes')).toBeNull()
   })
 
   it('does not present a future retention cleanup as waiting for an idle Worker', async () => {
@@ -61,7 +76,7 @@ describe('ChatAgentTasksDrawer', () => {
     ] })
     vi.spyOn(api, 'chatAgentTaskSummary').mockResolvedValue(summary({ queued: 1, counts: { PENDING: 1 }, scheduled: 1, next_not_before: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString() }))
 
-    const { container } = render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
+    const { container } = render(<ChatAgentTasksDrawer projectPath="/home/op/alpha" onClose={vi.fn()}/>)
 
     expect(await screen.findByText('Limpar bundle')).toBeTruthy()
     expect(screen.getByText('Agendada')).toBeTruthy()
@@ -77,7 +92,7 @@ describe('ChatAgentTasksDrawer', () => {
     vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [task({ not_before: new Date(Date.now() - 30_000).toISOString() })] })
     vi.spyOn(api, 'chatAgentTaskSummary').mockResolvedValue(summary({ queued: 1, counts: { PENDING: 1 }, due: 1 }))
 
-    render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
+    render(<ChatAgentTasksDrawer projectPath="/home/op/alpha" onClose={vi.fn()}/>)
 
     expect(await screen.findByText('Pronta para atribuição')).toBeTruthy()
     expect(screen.getByText('Por executar', { selector: '.chat-agent-task-state' })).toBeTruthy()
@@ -92,7 +107,7 @@ describe('ChatAgentTasksDrawer', () => {
     ] })
     vi.spyOn(api, 'chatAgentTaskSummary').mockResolvedValue(summary({ queued: 2, counts: { PENDING: 1, WAITING: 1 }, scheduled: 1, guarded: 1 }))
 
-    const { container } = render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
+    const { container } = render(<ChatAgentTasksDrawer projectPath="/home/op/alpha" onClose={vi.fn()}/>)
 
     expect(await screen.findByText('A aguardar conclusão da resposta')).toBeTruthy()
     expect(screen.getByText('Protegida')).toBeTruthy()
@@ -106,7 +121,7 @@ describe('ChatAgentTasksDrawer', () => {
     vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [task({ not_before: new Date(Date.now() - 30_000).toISOString() })] })
     vi.spyOn(api, 'chatAgentTaskSummary').mockResolvedValue(summary({ queued: 1, counts: { PENDING: 1 }, guarded: 1 }))
 
-    render(<ChatAgentTasksDrawer onClose={vi.fn()}/>)
+    render(<ChatAgentTasksDrawer projectPath="/home/op/alpha" onClose={vi.fn()}/>)
 
     expect(await screen.findByText('A aguardar liberação do provider')).toBeTruthy()
     expect(screen.queryByLabelText('Posição 1 na fila')).toBeNull()

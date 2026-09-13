@@ -103,7 +103,7 @@ func TestPostgresChatAgentSummaryUsesConversationClaimGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := store.ChatAgentQueueSummary()
+	summary, err := store.ChatAgentQueueSummary("")
 	if err != nil {
 		t.Fatal(err)
 	}

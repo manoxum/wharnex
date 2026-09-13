@@ -1321,6 +1321,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             contextSha256: response.session.context.manifest.sha256, lastContextSha256: targetChat.lastContextSha256,
             lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0, preferCurrentConversation: true,
             firstRequest, chatTitle: generatedChatTitle, projectName: chatGPTProjectName(projectPath),
+            // The owning project of every task this request enqueues. The
+            // backend can also resolve it from the chat, but a first request
+            // may run before that chat row is durable, and an unattributed
+            // task appears in no project's Tarefas panel at all.
+            projectPath,
           })
           try {
             const artifactSession = await api.getSession(response.session.id)
@@ -1936,6 +1941,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       projectFiles: [],
 	  contextSha256: promptSession.context.manifest.sha256, lastContextSha256: dedicatedConflict ? undefined : targetChat.lastContextSha256,
 	  lastContextChatgptUrl: dedicatedConflict ? undefined : targetChat.lastContextChatgptUrl, includeContext: dedicatedConflict || continuationArtifacts.context, preferCurrentConversation: false,
+      projectPath: promptSession.project_path,
     })
 	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(cacheKey, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}

@@ -61,6 +61,23 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 	// A conversation binding is only ever a trusted ChatGPT conversation URL;
 	// anything else is dropped rather than stored and later navigated to.
 	chat.ChatGPTURL = normalizeChatGPTConversationURL(chat.ChatGPTURL)
+	// A chat save is a full replace of a renderer-owned row, so a client copy
+	// that simply does not know the binding would otherwise erase it. The wire
+	// format omits chatgpt_url entirely when the renderer has none, and omission
+	// decoded as "" is indistinguishable from a deliberate clear — which is how
+	// a chat silently lost its conversation and fell back to the ChatGPT home
+	// surface, permanently, on an ordinary title or transcript save.
+	//
+	// Unbinding is an explicit act with its own endpoint
+	// (UpdateWorkspaceChatRemote). A generic save may establish or change a
+	// binding, never drop one: that matches the affinity invariant, where only
+	// an explicit rebind or an explicit Send against a different conversation
+	// counts as intent.
+	if chat.ChatGPTURL == "" {
+		if existing, err := s.store.GetWorkspaceChat(chat.ID); err == nil {
+			chat.ChatGPTURL = normalizeChatGPTConversationURL(existing.ChatGPTURL)
+		}
+	}
 	chat.ConversationID = chatGPTConversationIDFromURL(chat.ChatGPTURL)
 	chat.RemoteProjectRef = boundedText(chat.RemoteProjectRef, 256)
 	chat.RemoteTitle = boundedText(chat.RemoteTitle, maxChatTitleLength)

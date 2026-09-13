@@ -41,7 +41,7 @@ func copyProject(source string) (Workspace, error) {
 			return Workspace{}, fmt.Errorf("clear sandbox worktree: %w", err)
 		}
 	}
-	if err := copyEligibleProjectFiles(root, tmp, false); err != nil {
+	if err := copyEligibleProjectFiles(root, tmp, false, nil); err != nil {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("copy project: %w", err)
 	}
@@ -62,6 +62,21 @@ func copyProject(source string) (Workspace, error) {
 // already present in that base. Patch/read/barrier paths must be proven present
 // separately before this compatibility operation is selected.
 func HydrateMissingProjectFiles(target, source string) error {
+	return HydrateMissingProjectFilesExcept(target, source, nil)
+}
+
+// HydrateMissingProjectFilesExcept is HydrateMissingProjectFiles with a set of
+// paths left absent on purpose.
+//
+// It exists for the paths the plan's patch CREATES. Those are absent from the
+// archive because they did not exist when the request was planned, which is
+// correct. Hydrating them from the current project would only matter when a
+// peer created the same path meanwhile — and then the creation hunk fails to
+// apply, turning a perfectly ordinary collision into an unrecoverable patch
+// error. Leaving them absent keeps the base faithful to the tree the patch was
+// authored against, so the candidate applies cleanly and the collision is
+// decided where it belongs: the real three-way merge at Apply (ADR-0035).
+func HydrateMissingProjectFilesExcept(target, source string, skip []string) error {
 	root, err := filepath.Abs(source)
 	if err != nil {
 		return err
@@ -73,10 +88,16 @@ func HydrateMissingProjectFiles(target, source string) error {
 	if filepath.Clean(root) == filepath.Clean(destination) {
 		return errors.New("partial base target must differ from project source")
 	}
-	return copyEligibleProjectFiles(root, destination, true)
+	excluded := make(map[string]bool, len(skip))
+	for _, path := range skip {
+		if trimmed := strings.TrimSpace(path); trimmed != "" {
+			excluded[filepath.ToSlash(filepath.Clean(trimmed))] = true
+		}
+	}
+	return copyEligibleProjectFiles(root, destination, true, excluded)
 }
 
-func copyEligibleProjectFiles(root, target string, onlyMissing bool) error {
+func copyEligibleProjectFiles(root, target string, onlyMissing bool, excluded map[string]bool) error {
 	patterns := contextbundle.LoadIgnorePatterns(root)
 	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -87,6 +108,9 @@ func copyEligibleProjectFiles(root, target string, onlyMissing bool) error {
 			return err
 		}
 		relSlash := filepath.ToSlash(rel)
+		if !entry.IsDir() && excluded[relSlash] {
+			return nil
+		}
 		if contextbundle.ShouldIgnoreWithPatterns(relSlash, entry.IsDir(), patterns) {
 			if entry.IsDir() {
 				return filepath.SkipDir
@@ -362,21 +386,38 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 			return fmt.Errorf("reset incomplete private Go module cache: %w", err)
 		}
 	}
+	// This fallback reads the GOMODCACHE of the process Wharnex itself runs in.
+	// That is the operator's machine only in development mode; in the normal
+	// stack it is the control container, whose /go/pkg/mod does not exist at
+	// all. Calling it "host" made a container measurement read as a statement
+	// about the operator's machine, so the diagnostic names what was actually
+	// inspected (see adr/ADR-0045).
 	cacheOutput, err := exec.Command("go", "env", "GOMODCACHE").Output()
 	if err != nil {
-		return fmt.Errorf("%w: resolve host Go module cache: %v", ErrOfflineDependenciesUnavailable, err)
+		return fmt.Errorf("%w: resolve the Wharnex runtime Go module cache: %v", ErrOfflineDependenciesUnavailable, err)
 	}
-	hostCache := strings.TrimSpace(string(cacheOutput))
-	if hostCache == "" || !filepath.IsAbs(hostCache) {
-		return fmt.Errorf("%w: host GOMODCACHE is unavailable", ErrOfflineDependenciesUnavailable)
+	runtimeCache := strings.TrimSpace(string(cacheOutput))
+	if runtimeCache == "" || !filepath.IsAbs(runtimeCache) {
+		return fmt.Errorf("%w: the Wharnex runtime reports no usable GOMODCACHE", ErrOfflineDependenciesUnavailable)
 	}
-	if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, hostCache, "host Go module cache"); err != nil {
+	if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, runtimeCache, runtimeCacheLabel(runtimeCache)); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(targetCache, 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
+}
+
+// runtimeCacheLabel names the compatibility cache in the operator's own terms.
+// The distinction is load-bearing for the remedy: an absent cache inside the
+// control container is Wharnex's own infrastructure to fix, while an absent
+// cache in development mode points at the operator's Go installation.
+func runtimeCacheLabel(path string) string {
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		return "Wharnex runtime Go module cache (" + path + ", which does not exist in this runtime)"
+	}
+	return "Wharnex runtime Go module cache (" + path + ")"
 }
 
 func hydrateGoDependenciesFromCache(moduleRoot, targetCache, sourceCache, cacheLabel string) error {

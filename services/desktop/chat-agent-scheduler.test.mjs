@@ -357,3 +357,53 @@ test('an observation on the final attempt is not treated as exhaustion', async (
   assert.ok(transitions.includes('wait'))
   assert.ok(!transitions.includes('fail'))
 })
+
+// The pool is shared across projects, but a Worker may only take work the
+// operator can supervise. The Desktop is the only side that knows which
+// projects are open in which windows, so the claim has to carry that scope —
+// and carry the flag separately, because "no project is open" and "this caller
+// cannot scope" are opposite instructions one empty list cannot express.
+test('claim forwards the open-project scope to the durable claim', async () => {
+  const bodies = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    claimOptions: () => ({ fallback_mode: 'any', project_scoped: true, open_projects: ['/home/op/alpha'] }),
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) bodies.push(JSON.parse(init.body))
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && !bodies.length; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(bodies.length >= 1)
+  assert.equal(bodies[0].project_scoped, true)
+  assert.deepEqual(bodies[0].open_projects, ['/home/op/alpha'])
+})
+
+test('a caller that does not scope by project claims exactly as before', async () => {
+  const bodies = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    workerCount: 1,
+    idleMs: 1,
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) bodies.push(JSON.parse(init.body))
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && !bodies.length; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  await scheduler.stop()
+  assert.ok(bodies.length >= 1)
+  assert.equal(bodies[0].project_scoped, false)
+  assert.deepEqual(bodies[0].open_projects, [])
+})

@@ -101,6 +101,14 @@ func (s *Service) RetryHostDependencyRepair(ctx context.Context, sessionID strin
 	for _, run := range dedupedIntegrationVerifications(pending) {
 		result, runErr := s.hostRunner.Run(ctx, workspace, run.command)
 		if runErr != nil || !result.Success {
+			// A gate this environment cannot run at all is the same
+			// infrastructure fault ApplyToHost records rather than fails on.
+			// Reporting it here as "the reinstall did not fix the build" would
+			// blame the remediation for a toolchain gap it never touched.
+			if gate, unsupported := classifyUnsupportedHostGate(run.command, result); runErr == nil && unsupported {
+				s.bus.Publish(sessionID, "integration.verification_unsupported", gate.event(""))
+				continue
+			}
 			// The reinstall ran clean but did not actually fix the build:
 			// this is no longer the known npm optional-deps pattern, so
 			// clear the (now-misleading) host_dependency_state label and

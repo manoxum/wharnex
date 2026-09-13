@@ -21,8 +21,19 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharness-backend .
 FROM golang:1.23-alpine3.21
 ARG WHARNESS_UID=1000
 ARG WHARNESS_GID=1000
+#
+# `build-base` is load-bearing for the same reason: post-merge verification
+# re-runs a plan's own gates HERE, against the merged host tree, while those
+# gates were authored and verified against the runner image (which installs
+# build-essential). Without a C compiler this container reports CGO_ENABLED=0,
+# so `go test -race ./...` dies in milliseconds with "-race requires cgo" —
+# a verified candidate reverted over a toolchain gap no patch can close.
+# Wharnex now records such a gate as unverified-on-host rather than failing,
+# but skipping real verification is a fallback, not the intent: keep the
+# toolchain here wide enough that the gates actually run.
 RUN apk add --no-cache \
       ca-certificates curl git make nodejs npm zip \
+      build-base \
       docker-cli docker-cli-compose docker-cli-buildx \
  && addgroup -g "${WHARNESS_GID}" wharness \
  && adduser -D -u "${WHARNESS_UID}" -G wharness wharness

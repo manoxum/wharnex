@@ -178,6 +178,22 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 		}
 		excludedSQL = " AND " + laneExpr + " NOT IN (" + strings.Join(parts, ",") + ")"
 	}
+	// Project scoping belongs in the claim itself, not after it: a claim charges
+	// an attempt, so claiming and releasing would spend a task's own retry
+	// budget on a decision about which windows are open.
+	projectSQL := ""
+	if options.ProjectScoped {
+		open := "FALSE"
+		if len(options.OpenProjects) > 0 {
+			parts := make([]string, 0, len(options.OpenProjects))
+			for _, project := range options.OpenProjects {
+				args = append(args, project)
+				parts = append(parts, fmt.Sprintf("$%d", len(args)))
+			}
+			open = "t.project_id IN (" + strings.Join(parts, ",") + ")"
+		}
+		projectSQL = " AND (t.project_id='' OR " + chatAgentTaskAccountSQL("t.type") + " OR " + open + ")"
+	}
 	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','WAITING') AND t.not_before<=now() AND t.attempt<t.max_attempts
@@ -185,7 +201,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			$4='any'
 			OR ($4='resident_only' AND ` + laneExpr + `=$3)
 			OR ($4='unresident_only' AND ($3='' OR ` + laneExpr + `<>$3))
-		  )` + excludedSQL + `
+		  )` + excludedSQL + projectSQL + `
 		  AND NOT EXISTS (
 			SELECT 1 FROM harness_chat_agent_provider_state p
 			WHERE p.provider='chatgpt' AND p.paused=true

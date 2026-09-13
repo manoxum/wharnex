@@ -92,7 +92,7 @@ func normalizeChatAgentTask(task ChatAgentTask, now time.Time) (ChatAgentTask, e
 	if task.TaskID == "" {
 		task.TaskID = newChatAgentTaskID()
 	}
-	task.ProjectID = strings.TrimSpace(task.ProjectID)
+	task.ProjectID = normalizeChatAgentProjectID(task.ProjectID)
 	task.ChatID = strings.TrimSpace(task.ChatID)
 	task.SessionID = strings.TrimSpace(task.SessionID)
 	task.RequestID = strings.TrimSpace(task.RequestID)
@@ -239,6 +239,10 @@ func (s *Store) EnqueueChatAgentTask(input ChatAgentTask) (ChatAgentTask, error)
 	if err != nil {
 		return ChatAgentTask{}, err
 	}
+	// Attribution is resolved here rather than trusted from the caller, so a
+	// caller that forgets — or passes a ChatGPT display name, as the transport
+	// path did — cannot create a task that escapes every project filter.
+	task.ProjectID = s.resolveChatAgentTaskProject(task)
 	stored, err := s.enqueueChatAgentTask(task)
 	if err != nil {
 		return ChatAgentTask{}, err
@@ -290,6 +294,15 @@ func (s *Store) GetChatAgentTask(taskID string) (ChatAgentTask, error) {
 }
 
 func (s *Store) ListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask, error) {
+	// A project filter fails closed. Normalizing an unusable value to "" would
+	// silently widen the query from one project to the whole account, which is
+	// precisely the disclosure a project-scoped view exists to prevent.
+	if strings.TrimSpace(filter.ProjectID) != "" {
+		filter.ProjectID = normalizeChatAgentProjectID(filter.ProjectID)
+		if filter.ProjectID == "" {
+			return []ChatAgentTask{}, nil
+		}
+	}
 	if s.db != nil {
 		return s.postgresListChatAgentTasks(filter)
 	}

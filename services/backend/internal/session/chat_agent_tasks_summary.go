@@ -3,6 +3,7 @@ package session
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -43,6 +44,14 @@ type ChatAgentQueueSummary struct {
 	OldestDueCreatedAt *time.Time `json:"oldest_due_created_at,omitempty"`
 	// NextNotBefore is when the earliest deferred task wakes up.
 	NextNotBefore *time.Time `json:"next_not_before,omitempty"`
+	// OtherProjects counts active tasks outside the requested project, and is
+	// meaningful only when one was requested.
+	//
+	// It is a bare number on purpose. The agent pool is shared across projects,
+	// so an operator whose own queue is empty still needs to know the pool is
+	// busy elsewhere — but the identity of that work belongs to the project
+	// that owns it, not to whoever happens to be looking at this panel.
+	OtherProjects int `json:"other_projects"`
 }
 
 func chatAgentTaskClaimable(status string) bool {
@@ -61,9 +70,19 @@ func earliest(current *time.Time, candidate time.Time) *time.Time {
 }
 
 // ChatAgentQueueSummary reports queue depth without materializing the queue.
-func (s *Store) ChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
+//
+// projectID scopes every counter to one project, so a project-scoped panel's
+// totals describe the same queue as its cards. An empty projectID reports the
+// whole account-wide queue, which is what the global runtime diagnostics want.
+func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, error) {
+	project := normalizeChatAgentProjectID(projectID)
+	// Like the list, a project filter fails closed: degrading an unusable value
+	// to "" would publish the whole account's backlog to one project's panel.
+	if project == "" && strings.TrimSpace(projectID) != "" {
+		return ChatAgentQueueSummary{Counts: map[string]int{}}, nil
+	}
 	if s.db != nil {
-		return s.postgresChatAgentQueueSummary()
+		return s.postgresChatAgentQueueSummary(project)
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -73,6 +92,10 @@ func (s *Store) ChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
 		(s.chatAgentProvider.PausedUntil == nil || s.chatAgentProvider.PausedUntil.After(now))
 	for _, task := range s.chatAgentTasks {
 		if !chatAgentTaskActive(task.Status) {
+			continue
+		}
+		if project != "" && task.ProjectID != project {
+			summary.OtherProjects++
 			continue
 		}
 		summary.Queued++
@@ -123,25 +146,30 @@ func (s *Store) PruneChatAgentTasks(before time.Time) (int, error) {
 	return removed, nil
 }
 
-func (s *Store) postgresChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
+// postgresChatAgentQueueSummary partitions one pass over the live queue into
+// this project's work and everybody else's, so the scoped counters and the
+// other-project total can never be computed from two different readings.
+func (s *Store) postgresChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, error) {
 	rows, err := s.db.Query(`WITH classified AS (
 		SELECT t.status,t.not_before,t.attempt,t.max_attempts,t.created_at,
+			($1='' OR t.project_id=$1) AS mine,
 			(EXISTS (
 				SELECT 1 FROM harness_chat_agent_provider_state p
 				WHERE p.provider='chatgpt' AND p.paused=true
 				  AND (p.paused_until IS NULL OR p.paused_until>now())
-			) OR ` + chatAgentBlockedByActiveTaskSQL("t") + `) AS guarded
+			) OR `+chatAgentBlockedByActiveTaskSQL("t")+`) AS guarded
 		FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','LEASED','RUNNING','WAITING')
 	)
-		SELECT status, count(*),
-			count(*) FILTER (WHERE not_before<=now() AND attempt<max_attempts AND NOT guarded),
-			count(*) FILTER (WHERE not_before>now() AND attempt<max_attempts),
-			count(*) FILTER (WHERE not_before<=now() AND attempt<max_attempts AND guarded),
-			count(*) FILTER (WHERE attempt>=max_attempts),
-			min(created_at) FILTER (WHERE not_before<=now() AND attempt<max_attempts AND NOT guarded),
-			min(not_before) FILTER (WHERE not_before>now() AND attempt<max_attempts)
-		FROM classified GROUP BY status`)
+		SELECT status, count(*) FILTER (WHERE mine),
+			count(*) FILTER (WHERE mine AND not_before<=now() AND attempt<max_attempts AND NOT guarded),
+			count(*) FILTER (WHERE mine AND not_before>now() AND attempt<max_attempts),
+			count(*) FILTER (WHERE mine AND not_before<=now() AND attempt<max_attempts AND guarded),
+			count(*) FILTER (WHERE mine AND attempt>=max_attempts),
+			min(created_at) FILTER (WHERE mine AND not_before<=now() AND attempt<max_attempts AND NOT guarded),
+			min(not_before) FILTER (WHERE mine AND not_before>now() AND attempt<max_attempts),
+			count(*) FILTER (WHERE NOT mine)
+		FROM classified GROUP BY status`, projectID)
 	if err != nil {
 		return ChatAgentQueueSummary{}, fmt.Errorf("summarize chat agent queue: %w", err)
 	}
@@ -149,17 +177,22 @@ func (s *Store) postgresChatAgentQueueSummary() (ChatAgentQueueSummary, error) {
 	summary := ChatAgentQueueSummary{Counts: make(map[string]int)}
 	for rows.Next() {
 		var status string
-		var total, due, scheduled, guarded, blocked int
+		var total, due, scheduled, guarded, blocked, others int
 		var oldestDue, nextNotBefore sql.NullTime
-		if err := rows.Scan(&status, &total, &due, &scheduled, &guarded, &blocked, &oldestDue, &nextNotBefore); err != nil {
+		if err := rows.Scan(&status, &total, &due, &scheduled, &guarded, &blocked, &oldestDue, &nextNotBefore, &others); err != nil {
 			return ChatAgentQueueSummary{}, fmt.Errorf("scan chat agent queue summary: %w", err)
 		}
 		// A settled task has left the queue; only work still in it is depth.
 		if !chatAgentTaskActive(status) {
 			continue
 		}
+		summary.OtherProjects += others
 		summary.Queued += total
-		summary.Counts[status] = total
+		// A status group can exist purely because another project holds work in
+		// it. Recording a zero would publish a state this project is not in.
+		if total > 0 {
+			summary.Counts[status] = total
+		}
 		// Only the claimable statuses carry backlog semantics; a LEASED or
 		// RUNNING task is already being worked.
 		if !chatAgentTaskClaimable(status) {

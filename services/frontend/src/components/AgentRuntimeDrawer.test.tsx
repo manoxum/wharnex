@@ -22,7 +22,7 @@ function runtime(desiredWorkers = 6): DesktopAgentRuntimeState {
     agents: [
       { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, os_process_id: 1010, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false }, memory: { available: true, rss_bytes: 220 * 1024 * 1024, os_process_id: 1010, shared_process: false } },
       { id: 'supervisor-2', label: 'Supervisor 2', role: 'supervisor', status: 'idle', draining: false, chat_id: '', error: '', browser: { available: false, web_contents_id: 0, os_process_id: 0, url: '', title: '', loading: false }, memory: { available: false, rss_bytes: 0, os_process_id: 0, shared_process: false } },
-      { id: 'worker-1', label: 'Worker 1', role: 'worker', status: 'running', draining: false, chat_id: 'chat-1', task: { task_id: 'task-1', type: 'AWAIT_RESPONSE', chat_id: 'chat-1', request_id: 'req-1', root_request_id: 'req-root', conversation_id: 'conv-1', status: 'RUNNING', attempt: 2, max_attempts: 30, lease_expires_at: '2026-09-11T10:01:00Z', not_before: '2026-09-11T10:00:00Z', last_error: '', created_at: '2026-09-11T09:55:00Z', updated_at: '2026-09-11T10:00:00Z' }, last_claim_at: '2026-09-11T10:00:00Z', loop_active: true, error: '', browser: { available: true, web_contents_id: 11, os_process_id: 2011, url: 'https://chatgpt.com/c/worker', title: 'Chat worker', loading: false }, memory: { available: true, rss_bytes: 340 * 1024 * 1024, os_process_id: 2011, shared_process: false } },
+      { id: 'worker-1', label: 'Worker 1', role: 'worker', status: 'running', draining: false, chat_id: 'chat-1', task: { task_id: 'task-1', type: 'AWAIT_RESPONSE', chat_id: 'chat-1', project_id: '/home/op/alpha', request_id: 'req-1', root_request_id: 'req-root', conversation_id: 'conv-1', status: 'RUNNING', attempt: 2, max_attempts: 30, lease_expires_at: '2026-09-11T10:01:00Z', not_before: '2026-09-11T10:00:00Z', last_error: '', created_at: '2026-09-11T09:55:00Z', updated_at: '2026-09-11T10:00:00Z' }, last_claim_at: '2026-09-11T10:00:00Z', loop_active: true, error: '', browser: { available: true, web_contents_id: 11, os_process_id: 2011, url: 'https://chatgpt.com/c/worker', title: 'Chat worker', loading: false }, memory: { available: true, rss_bytes: 340 * 1024 * 1024, os_process_id: 2011, shared_process: false } },
     ],
   }
 }
@@ -56,7 +56,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     expect(await screen.findByText('Worker 1')).toBeTruthy()
     fireEvent.click(screen.getByText('Worker 1'))
     expect(screen.getByText(/AWAIT_RESPONSE · task-1/)).toBeTruthy()
@@ -77,7 +77,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Inativo' }))
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ auto_scale: true }))
     fireEvent.click(screen.getByRole('button', { name: 'Global inativo' }))
@@ -88,7 +88,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Diminuir teto Auto scale' }))
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ auto_scale_max_workers: 5 }))
   })
@@ -97,7 +97,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByText('Worker 1'))
     fireEvent.click(screen.getByRole('button', { name: 'Keep flowing · inativo' }))
     await waitFor(() => expect(agents.setWorkerKeepFlowing).toHaveBeenCalledWith('worker-1', true))
@@ -113,7 +113,7 @@ describe('AgentRuntimeDrawer', () => {
     }
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
-    const { container } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     expect(await screen.findByText('Mais antiga por executar: —')).toBeTruthy()
     const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
     expect(rows).toContain('0 por executar36 agendadas')
@@ -127,7 +127,7 @@ describe('AgentRuntimeDrawer', () => {
     }
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
-    const { container } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     await screen.findByText('Worker 1')
     const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
     expect(rows).toContain('0 por executar1 agendadas1 aguardam liberação')
@@ -143,7 +143,7 @@ describe('AgentRuntimeDrawer', () => {
     }
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
-    const { container } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     await screen.findByText('Worker 1')
     const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
     expect(rows).toContain('2 PENDING1 RUNNING')
@@ -158,7 +158,7 @@ describe('AgentRuntimeDrawer', () => {
     if (worker.task) worker.task.status = 'LEASED'
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     expect(await screen.findByText('Worker · Ocupado')).toBeTruthy()
   })
 
@@ -166,7 +166,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByText('Worker 1'))
     fireEvent.click(screen.getByRole('button', { name: /Interagir aqui/ }))
     await waitFor(() => expect(agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.objectContaining({ width: 1, height: 1 })))
@@ -184,7 +184,7 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
     window.addEventListener('wharnex:agent-follow', listener)
 
-    render(<AgentRuntimeDrawer onClose={onClose} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={onClose} />)
     fireEvent.click(await screen.findByText('Worker 1'))
     fireEvent.click(screen.getByRole('button', { name: /Seguir \(flow\)/ }))
 
@@ -203,7 +203,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge(state)
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     const button = await screen.findByRole('button', { name: /Capturar imagem/ })
     expect(button).not.toHaveProperty('disabled', true)
     fireEvent.click(button)
@@ -215,7 +215,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     await screen.findByText('Trabalhos agentic')
     fireEvent.change(screen.getByLabelText('Minutos até retoma automática'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
@@ -230,7 +230,7 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    const { unmount } = render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    const { unmount } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     await screen.findByText('Trabalhos agentic')
     fireEvent.change(screen.getByLabelText('Modo de retoma'), { target: { value: 'manual' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
@@ -242,12 +242,36 @@ describe('AgentRuntimeDrawer', () => {
     const pausedAgents = agentsBridge(paused)
     pausedAgents.resumeProvider = vi.fn(async () => runtime())
     window.wharnessDesktop = { agents: pausedAgents } as unknown as WharnessDesktopBridge
-    render(<AgentRuntimeDrawer onClose={() => undefined} />)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
 
     const pausedLabel = await screen.findByText('Pausado globalmente')
     expect(pausedLabel.closest('.agent-runtime-diagnostic-row')?.className).toContain('tone-warning')
     expect(screen.getByText('Suspensos · retoma manual')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar agora' }))
     await waitFor(() => expect(pausedAgents.resumeProvider).toHaveBeenCalledTimes(1))
+  })
+
+  // The pool is shared across every open project. Without naming the owning
+  // project, this panel reports "0 available" beside cards that all look idle
+  // to whoever reads it from the project that is not running.
+  it('marks an agent occupied with another project and names that project', async () => {
+    window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/beta" onClose={() => undefined} />)
+
+    expect(await screen.findByText('Outro projeto · alpha')).toBeTruthy()
+    const elsewhere = screen.getByText('noutro projeto').previousSibling
+    expect(elsewhere?.textContent).toBe('1')
+  })
+
+  it('does not mark an agent running this project’s own work', async () => {
+    window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+
+    expect(await screen.findByText('Worker 1')).toBeTruthy()
+    expect(screen.queryByText(/Outro projeto ·/)).toBeNull()
+    const elsewhere = screen.getByText('noutro projeto').previousSibling
+    expect(elsewhere?.textContent).toBe('0')
   })
 })

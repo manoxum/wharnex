@@ -47,10 +47,22 @@ func canReconcilePlanFromArchive(item domain.Session, plan *domain.ExecutionPlan
 	}
 	required := append(actualPatchFiles(plan), plan.ReadFiles...)
 	required = append(required, plan.BarrierFiles...)
+	// A file the patch CREATES cannot be in the archive: the archive is the
+	// project as it stood when the request was planned, and the file did not
+	// exist then. Demanding it made reconciliation structurally impossible for
+	// every change that adds a file, which then fell through to the legacy
+	// rebase that retargets the plan onto a tree it was not authored against —
+	// the dead end adr/ADR-0035 forbids — or, for a command-bearing plan, threw
+	// the whole verified bundle away at ingestion (see adr/ADR-0045).
+	created := make(map[string]bool)
+	for _, path := range planCreatedFiles(plan) {
+		created[path] = true
+	}
 	for _, path := range normalizedPaths(required) {
-		if !entries[path] {
-			return false
+		if entries[path] || created[path] {
+			continue
 		}
+		return false
 	}
 	return true
 }
@@ -67,13 +79,23 @@ func executionBase(item domain.Session, plan *domain.ExecutionPlan, stale bool) 
 	if err != nil {
 		return "", func() {}, err
 	}
-	if err := sandbox.HydrateMissingProjectFiles(root, item.ProjectPath); err != nil {
+	if err := sandbox.HydrateMissingProjectFilesExcept(root, item.ProjectPath, planCreatedFiles(plan)); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("hydrate immutable request base: %w", err)
 	}
 	return root, cleanup, nil
 }
 
+// bindExecutionDependencySource points dependency resolution at the real
+// project when the executed tree came from an extracted immutable base, so the
+// Go module root is located in the project rather than in the extraction.
+//
+// It is NOT sufficient on its own, and believing otherwise cost three separate
+// chats a dependency stall. The private module cache key is derived inside
+// Prepare, before this runs, so rewriting SourcePath afterwards left the key
+// already computed from the temporary directory. Preparation therefore has to
+// be told the canonical project up front — see sandbox.PrepareExecutionWorkspace
+// and adr/ADR-0045 — and this function keeps only its original narrower job.
 func bindExecutionDependencySource(workspace *sandbox.Workspace, item domain.Session, restoredBase bool) {
 	if restoredBase && workspace != nil {
 		workspace.SourcePath = item.ProjectPath

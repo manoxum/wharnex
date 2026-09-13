@@ -30,6 +30,31 @@ func TestIsResourceExhaustionDiagnostic(t *testing.T) {
 	}
 }
 
+func TestIsUnsupportedToolchainDiagnostic(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		text string
+		want bool
+	}{
+		// The exact stderr of the production post-merge failure: the gate
+		// passed in the runner image and died in 5 ms in the control container.
+		{"observed cgo-less race build", "go: -race requires cgo; enable cgo by setting CGO_ENABLED=1", true},
+		{"missing C compiler", `# runtime/cgo
+exec: "gcc": executable file not found in $PATH`, true},
+		{"unsupported race platform", "-race is only supported on linux/amd64, linux/ppc64le, ...", true},
+		{"ordinary test failure", "--- FAIL: TestThing\n  want 3, got 4", false},
+		{"ordinary build error", "./x.go:7:2: undefined: Foo", false},
+		{"prose mentioning cgo", "// cgo is used by this package", false},
+		{"empty", "", false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := IsUnsupportedToolchainDiagnostic(testCase.text); got != testCase.want {
+				t.Fatalf("IsUnsupportedToolchainDiagnostic = %t, want %t", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestIsMissingExecutableDiagnostic(t *testing.T) {
 	// The exact runner entrypoint output for the `jq` plan that failed.
 	observed := "/usr/local/bin/kernl-entrypoint: 3: exec: jq: not found\n"

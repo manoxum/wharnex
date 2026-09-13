@@ -2236,6 +2236,10 @@ function publicChatAgentTask(task) {
   if (!task) return undefined
   return {
     task_id: String(task.task_id || ''), type: String(task.type || ''), chat_id: String(task.chat_id || ''),
+    // The agents panel is global because the pool is. Without the owning
+    // project it reports "no Workers available" beside cards that all look
+    // idle to whoever is reading it from the project that is *not* running.
+    project_id: String(task.project_id || ''),
     request_id: String(task.request_id || ''), root_request_id: String(task.root_request_id || ''),
     conversation_id: String(task.conversation_id || ''), status: String(task.status || ''),
     attempt: Math.max(0, Number(task.attempt || 0)), max_attempts: Math.max(0, Number(task.max_attempts || 0)),
@@ -3507,14 +3511,14 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
       await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
         expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
         sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
-        projectName: request?.projectName || '', workspaceChatId,
+        projectName: request?.projectName || '', projectPath: request?.projectPath || '', workspaceChatId,
       })
     } catch (error) {
       console.error(`[chatgpt-supervision] submitted request ${requestId} but durable follow-up scheduling failed: ${error instanceof Error ? error.message : String(error)}`)
     }
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId })
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=1 archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
@@ -3563,7 +3567,7 @@ async function queuePreparedPromptForWorker(request) {
     rootRequestId: requestId,
     conversationURL,
     sessionID: sessionId,
-    projectID: String(request?.projectName || ''),
+    projectID: String(request?.projectPath || ''),
     dedupeKey: `prepare:${requestId}`,
     payload: { operation: 'PREPARE_PROMPT', request: workerRequest, workspace_chat_id: workspaceChatId },
     maxAttempts: 6,
@@ -3697,7 +3701,7 @@ async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
     await enqueueChatAgentFollowups(key, prepared.requestId, conversationUrl, {
       expectedFilename, assistantBaseline, recoveryBootstrap: prepared.recoveryBootstrap,
       originalPrompt: prepared.originalPrompt || '', sessionId: prepared.sessionId || '', liveTunnels: prepared.liveTunnels || [],
-      projectName: prepared.projectName || '', fallbackTitle: prepared.chatTitle || '', workspaceChatId,
+      projectName: prepared.projectName || '', projectPath: prepared.projectPath || '', fallbackTitle: prepared.chatTitle || '', workspaceChatId,
     })
   } catch (error) {
     console.error(`[chatgpt-supervision] submitted request ${prepared.requestId} but durable follow-up scheduling failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -3828,7 +3832,10 @@ async function enqueueChatAgentLifecycleTask(type, request = {}) {
   }
   const task = await enqueueChatAgentTask(type, {
     key, requestId, rootRequestId: requestId, conversationURL,
-    projectID: String(request.projectId || projectName || ''), sessionID: String(request.sessionId || ''),
+    // Only the canonical host project path, never the ChatGPT display name:
+    // that label is renameable from ChatGPT's own UI and is not an identity.
+    // An absent path is resolved by the backend from the task's own chat.
+    projectID: String(request.projectId || ''), sessionID: String(request.sessionId || ''),
     dedupeKey: `${type.toLowerCase()}:${conversationID}:${dedupeSuffix}`,
     payload: { project_name: projectName, title }, maxAttempts: type === 'RENAME_CHAT' ? 8 : 12,
   })
@@ -3843,7 +3850,8 @@ function expectedChatAgentPayload(key, requestId, conversationURL, values = {}) 
     assistant_baseline: Math.max(0, Number(values.assistantBaseline || 0)),
     recovery_bootstrap: String(values.recoveryBootstrap || ''), original_prompt: String(values.originalPrompt || ''),
     session_id: String(values.sessionId || ''), live_tunnels: Array.isArray(values.liveTunnels) ? values.liveTunnels.slice(0, 16) : [],
-    project_name: String(values.projectName || ''), fallback_title: String(values.fallbackTitle || ''), recovery_count: Math.max(0, Number(values.recoveryCount || 0)),
+    project_name: String(values.projectName || ''), project_path: String(values.projectPath || ''),
+    fallback_title: String(values.fallbackTitle || ''), recovery_count: Math.max(0, Number(values.recoveryCount || 0)),
     workspace_chat_id: String(values.workspaceChatId || ''),
     request_eligible_at: String(values.requestEligibleAt || ''),
   }
@@ -3852,7 +3860,9 @@ function expectedChatAgentPayload(key, requestId, conversationURL, values = {}) 
 async function enqueueChatAgentFollowups(key, requestId, conversationURL, values = {}) {
   const requestEligibleAt = String(values.requestEligibleAt || new Date(Date.now() + chatAgentInitialRequestWaitMs()).toISOString())
   const payload = expectedChatAgentPayload(key, requestId, conversationURL, { ...values, requestEligibleAt })
-  const common = { key, requestId, rootRequestId: requestId, conversationURL, sessionID: payload.session_id, projectID: values.projectName || '', payload, notBefore: requestEligibleAt }
+  // The canonical host project path, never the ChatGPT display name. An empty
+  // value is resolved by the backend from the task's own chat or session.
+  const common = { key, requestId, rootRequestId: requestId, conversationURL, sessionID: payload.session_id, projectID: payload.project_path, payload, notBefore: requestEligibleAt }
   await enqueueChatAgentTask('AWAIT_RESPONSE', { ...common, dedupeKey: `await:${requestId}`, maxAttempts: 30 })
 }
 
@@ -4052,7 +4062,7 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL)
   const nextPayload = expectedChatAgentPayload(key, task.request_id, result.conversationUrl, {
     expectedFilename: result.expectedFilename, assistantBaseline: result.assistantBaseline, recoveryBootstrap: result.recoveryBootstrap,
     originalPrompt: payload.original_prompt || prompt, sessionId: payload.session_id || task.session_id || '', liveTunnels: result.liveTunnels || payload.live_tunnels || [],
-    projectName: payload.project_name || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0, requestEligibleAt: payload.request_eligible_at || '', workspaceChatId,
+    projectName: payload.project_name || '', projectPath: payload.project_path || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0, requestEligibleAt: payload.request_eligible_at || '', workspaceChatId,
   })
   try {
     await enqueueChatAgentTask('AWAIT_RESPONSE', {
@@ -5947,8 +5957,13 @@ app.whenReady().then(async () => {
         blocked,
         pinResident: chatAgentSupervisingLiveResponse(worker) || keepFlowing,
       })
-      if (options.skip || supervisorLanes.size === 0) return options
-      return { ...options, excluded_lanes: [...new Set([...(options.excluded_lanes || []), ...supervisorLanes])].slice(0, 32) }
+      // The pool is shared across projects, but a Worker may only take work the
+      // operator can actually supervise. This Desktop knows which projects are
+      // open in which windows; the durable claim applies that scope so no
+      // attempt is charged to reject work (see adr/ADR-0044).
+      const scope = { project_scoped: true, open_projects: projectWindowRegistry.openProjects() }
+      if (options.skip || supervisorLanes.size === 0) return { ...options, ...scope }
+      return { ...options, ...scope, excluded_lanes: [...new Set([...(options.excluded_lanes || []), ...supervisorLanes])].slice(0, 32) }
     },
     // An empty claim is the only proof a resident lane has run dry. Without it
     // residency never expired, so a slot stayed bound to a chat that had been

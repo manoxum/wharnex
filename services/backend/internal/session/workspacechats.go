@@ -83,6 +83,47 @@ func (s *Store) ListWorkspaceChats(projectPath string) ([]domain.WorkspaceChat, 
 	return chats, rows.Err()
 }
 
+// GetWorkspaceChat returns one chat by id. It exists so a save can consult what
+// is already stored before overwriting it: the renderer sends a whole row, and
+// a field it does not know about must not be read as a field it cleared.
+func (s *Store) GetWorkspaceChat(chatID string) (domain.WorkspaceChat, error) {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return domain.WorkspaceChat{}, fmt.Errorf("workspace chat id is required")
+	}
+	if s.db == nil {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		for _, chats := range s.chatFallback() {
+			for _, chat := range chats {
+				if chat.ID == id {
+					return chat, nil
+				}
+			}
+		}
+		return domain.WorkspaceChat{}, sql.ErrNoRows
+	}
+	var chat domain.WorkspaceChat
+	var archivedAt sql.NullTime
+	var payload []byte
+	err := s.db.QueryRow(`SELECT id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
+		remote_title, remote_state, archived_at, created_at, updated_at, payload
+		FROM harness_workspace_chats WHERE id=$1`, id).Scan(&chat.ID, &chat.ProjectPath, &chat.SessionID, &chat.Title,
+		&chat.ChatGPTURL, &chat.ConversationID, &chat.RemoteProjectRef, &chat.RemoteTitle, &chat.RemoteState,
+		&archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload)
+	if err != nil {
+		return domain.WorkspaceChat{}, err
+	}
+	if archivedAt.Valid {
+		at := archivedAt.Time
+		chat.ArchivedAt = &at
+	}
+	if len(payload) > 0 {
+		_ = json.Unmarshal(payload, &chat.Extra)
+	}
+	return chat, nil
+}
+
 // SaveWorkspaceChat inserts or updates one chat. It is an upsert because the
 // renderer owns chat identity: the same chat is written repeatedly as its
 // title, binding or archive state changes.

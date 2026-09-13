@@ -18,7 +18,12 @@ const TASK_LABELS: Record<string, string> = {
   DELETE_CHAT: 'Eliminar chat', DELETE_BUNDLE: 'Limpar bundle', DELETE_TEMP_CHAT: 'Limpar chat temporário',
 }
 
-export function ChatAgentTasksDrawer({ onClose, onError, chats = [], onGoToChat, onGoToOrchestrator, onFollowInstance }: {
+export function ChatAgentTasksDrawer({ projectPath, onClose, onError, chats = [], onGoToChat, onGoToOrchestrator, onFollowInstance }: {
+  // The project this drawer belongs to. One durable queue serves every open
+  // project, so without it the panel showed each project the other projects'
+  // chats, request ids and lineage — and answered a question about a backlog
+  // the operator was not looking at (see adr/ADR-0044).
+  projectPath: string
   onClose: () => void
   onError?: (message: string) => void
   // Minimal shape only: resolving a task's owning Harness chat needs just the
@@ -36,8 +41,8 @@ export function ChatAgentTasksDrawer({ onClose, onError, chats = [], onGoToChat,
   const refresh = useCallback(async () => {
     try {
       const [result, summary] = await Promise.all([
-        api.chatAgentTasks(true),
-        api.chatAgentTaskSummary(),
+        api.chatAgentTasks(true, projectPath),
+        api.chatAgentTaskSummary(projectPath),
       ])
       setTasks(Array.isArray(result.tasks) ? result.tasks : [])
       setQueueSummary(summary)
@@ -47,7 +52,7 @@ export function ChatAgentTasksDrawer({ onClose, onError, chats = [], onGoToChat,
     } finally {
       setLoading(false)
     }
-  }, [onError])
+  }, [onError, projectPath])
 
   useEffect(() => {
     void refresh()
@@ -105,12 +110,17 @@ export function ChatAgentTasksDrawer({ onClose, onError, chats = [], onGoToChat,
   const scheduledCount = queueSummary?.scheduled ?? groups.scheduled.length
   const guardedCount = queueSummary?.guarded ?? groups.guarded.length
   const blockedCount = queueSummary?.blocked ?? groups.blocked.length
+  // The agent pool is shared with every other open project, so an empty queue
+  // here does not mean an idle pool. This is a bare count on purpose: what that
+  // work is belongs to the project that owns it, not to this panel.
+  const otherProjectsCount = queueSummary?.other_projects ?? 0
 
   return <section className="chat-agent-tasks-drawer" aria-label="Tarefas do runtime ChatGPT">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Tarefas</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar tarefas"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></div></header>
     <div className="chat-agent-tasks-summary"><span><b>{runningCount}</b> em execução</span><span><b>{dueCount}</b> por executar</span><span><b>{scheduledCount}</b> {scheduledCount === 1 ? 'agendada' : 'agendadas'}</span>{guardedCount > 0 ? <span><b>{guardedCount}</b> {guardedCount === 1 ? 'aguarda liberação' : 'aguardam liberação'}</span> : null}{blockedCount > 0 ? <span><b>{blockedCount}</b> sem tentativas</span> : null}<small>Atualizado {relativeAge(refreshedAt)}</small></div>
+    <p className="chat-agent-tasks-scope">Apenas as tarefas deste projeto.{otherProjectsCount > 0 ? ` Os agentes são partilhados e executam também ${otherProjectsCount} ${otherProjectsCount === 1 ? 'tarefa ativa de outro projeto' : 'tarefas ativas de outros projetos'}.` : ''}</p>
     <div className="chat-agent-tasks-body">
-      {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas.</strong><span>A fila e os Workers estão livres neste momento.</span></div> : <>
+      {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas neste projeto.</strong><span>{otherProjectsCount > 0 ? 'A fila deste projeto está vazia, mas os agentes partilhados estão ocupados com outros projetos.' : 'A fila e os Workers estão livres neste momento.'}</span></div> : <>
         <TaskSection title="Em execução" tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>
         <TaskSection title="Por executar" tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance}/>
         <ScheduledTaskSection tasks={groups.scheduled} nextNotBefore={queueSummary?.next_not_before} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator}/>

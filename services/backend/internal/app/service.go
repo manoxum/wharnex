@@ -1115,6 +1115,14 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if err := s.rejectSubmoduleWrites(ctx, sessionID, current.ProjectPath, parsed.Plan); err != nil {
 			return BundleSubmission{}, err
 		}
+		// A change that declares a file it neither writes nor can find is
+		// incomplete before anything runs: the definition its own patch
+		// references will exist nowhere. Caught here it costs one re-request;
+		// caught by the compiler it costs a sandbox run and a repair round whose
+		// diagnostic points at source that was never at fault.
+		if err := s.rejectUndeliverableImpactFiles(sessionID, current.ProjectPath, parsed.Plan); err != nil {
+			return BundleSubmission{}, err
+		}
 	}
 	if err := validateConflictResolutionPlan(current, parsed.Plan); err != nil {
 		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
@@ -1676,7 +1684,11 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		return s.failExecution(ctx, sessionID, result, fmt.Errorf("prepare immutable task base: %w", err))
 	}
 	defer cleanupExecutionBase()
-	workspace, err := runner.Prepare(ctx, executionRoot)
+	// executionRoot is the project itself for an ordinary run and a temporary
+	// extraction when the request is rooted at its own immutable base. Project
+	// scoped resources — the private Go module cache above all — must follow the
+	// project, never that temporary directory (see adr/ADR-0045).
+	workspace, err := sandbox.PrepareExecutionWorkspace(ctx, runner, executionRoot, item.ProjectPath)
 	if err != nil {
 		return s.failExecution(ctx, sessionID, result, err)
 	}
@@ -2762,6 +2774,10 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 	}
 
+	// Gates the host verification environment could not run at all. They are
+	// not failures: they are corroboration this Apply went without, reported
+	// with the terminal host.applied event so the operator knows exactly which.
+	unsupportedHostGates := make([]unsupportedHostGate, 0)
 	if useIntegrationBranches && !selfEvolution {
 		// Re-run the same gates already run in the sandbox (deduplicated
 		// exactly like the sandbox integration pass), now against the
@@ -2776,6 +2792,15 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, command, "host")
 			if runErr != nil || !result.Success {
 				diagnostic := commandResultDiagnostic(result)
+				// A gate this environment cannot run at all returns no verdict
+				// about the merge. It already passed in the Protected runner
+				// against this same candidate, so reverting over it would
+				// discard a verified payload for an infrastructure fault.
+				if gate, unsupported := classifyUnsupportedHostGate(command, result); runErr == nil && unsupported {
+					unsupportedHostGates = append(unsupportedHostGates, gate)
+					s.bus.Publish(sessionID, "integration.verification_unsupported", gate.event(pending[index].Plan.PlanID))
+					continue
+				}
 				if runErr == nil {
 					runErr = fmt.Errorf("post-merge verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), result.ExitCode, diagnostic)
 				}
@@ -2875,7 +2900,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 
 	s.resetDevspace(sessionID)
-	s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": latestPlanID, "plan_count": len(pending)})
+	appliedEvent := map[string]any{"plan_id": latestPlanID, "plan_count": len(pending)}
+	if summary := unsupportedHostGateSummary(unsupportedHostGates); summary != nil {
+		appliedEvent["unverified_host_gates"] = summary
+	}
+	s.bus.Publish(sessionID, "host.applied", appliedEvent)
 	if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
 		updated = refreshed
 		s.publishBaselineUpdate(ctx, updated, currentBaseline, refreshed.Context.Manifest.SHA256, latestPlanID, changedFiles)

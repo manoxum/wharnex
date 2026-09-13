@@ -21,7 +21,7 @@ func TestChatAgentQueueSummarySeparatesDeferredFromDue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := store.ChatAgentQueueSummary()
+	summary, err := store.ChatAgentQueueSummary("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestChatAgentQueueSummaryHasNoAgeWhenNothingIsDue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := store.ChatAgentQueueSummary()
+	summary, err := store.ChatAgentQueueSummary("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestChatAgentQueueSummaryCountsExhaustedTasksAsBlocked(t *testing.T) {
 	store.chatAgentTasks[saved.TaskID] = exhausted
 	store.mu.Unlock()
 
-	summary, err := store.ChatAgentQueueSummary()
+	summary, err := store.ChatAgentQueueSummary("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestChatAgentQueueSummaryDoesNotCountQuietConversationWorkAsDue(t *testing.
 	store.chatAgentTasks[supervision.TaskID] = deferred
 	store.mu.Unlock()
 
-	summary, err := store.ChatAgentQueueSummary()
+	summary, err := store.ChatAgentQueueSummary("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestChatAgentQueueSummaryCountsProviderPausedWorkAsGuarded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := store.ChatAgentQueueSummary()
+	summary, err := store.ChatAgentQueueSummary("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestChatAgentQueueSummaryExcludesSettledTasks(t *testing.T) {
 		store.mu.Unlock()
 	}
 
-	summary, err := store.ChatAgentQueueSummary()
+	summary, err := store.ChatAgentQueueSummary("")
 	if err != nil {
 		t.Fatal(err)
 	}
