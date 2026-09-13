@@ -601,17 +601,20 @@ type PendingHostChange struct {
 	// after it was created, for audit/diagnostics.
 	IntegrationCommit string `json:"integration_commit,omitempty"`
 	// SubmoduleIntegrations are verified commits created in repositories nested
-	// below the open superproject. Apply advances these repositories before it
-	// merges IntegrationBranch, whose tree records the resulting gitlinks.
+	// below the open superproject. Apply merges IntegrationBranch, then advances
+	// each nested repository on the branch captured during verification.
 	SubmoduleIntegrations []RepositoryIntegration `json:"submodule_integrations,omitempty"`
 }
 
-// RepositoryIntegration identifies one nested repository candidate. Path is
-// relative to the open superproject; Branch exists only in that repository.
+// RepositoryIntegration identifies one nested repository candidate. Branch is
+// Wharnex's temporary ref; TargetBranch and BaseCommit preserve the operator's
+// original checkout across Apply and rollback.
 type RepositoryIntegration struct {
-	Path   string `json:"path"`
-	Branch string `json:"branch"`
-	Commit string `json:"commit"`
+	Path         string `json:"path"`
+	Branch       string `json:"branch"`
+	Commit       string `json:"commit"`
+	TargetBranch string `json:"target_branch,omitempty"`
+	BaseCommit   string `json:"base_commit,omitempty"`
 }
 
 type IntegrationOutcome string

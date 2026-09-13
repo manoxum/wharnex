@@ -88,12 +88,15 @@ from deepest to shallowest, so each parent candidate records the resulting
 gitlink, and publishes every candidate branch only into the matching local host
 repository.
 
-Apply merges the superproject candidate, then recursively synchronizes each
-initialized checkout to the exact locally published commit recorded by its
-parent gitlink. A dirty nested repository, an uninitialized submodule or a
+Apply merges the superproject candidate, then advances each initialized
+submodule on the branch recorded at verification (`devup`, `main`, `master`,
+or any other project branch) to the exact locally published commit. A
+submodule already detached remains detached. Successful Apply removes the
+temporary nested candidate branch after the original branch retains its
+commit. A dirty nested repository, an uninitialized submodule or a
 missing candidate commit remains fail-closed. A later merge or verification
-failure resets the superproject to its pre-Apply HEAD and recursively restores
-the checkout tree from the old gitlinks. The superproject's explicit Apply
+failure resets the superproject to its pre-Apply HEAD and restores every
+affected submodule branch to its recorded base commit. The superproject's explicit Apply
 confirmation authorizes this bounded repository tree as one transaction; it
 does not authorize remote pushes or unrelated nested Git repositories.
 

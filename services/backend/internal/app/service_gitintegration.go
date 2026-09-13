@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -192,14 +193,15 @@ func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID str
 // diff would be "everything that happened during this Apply", which mixes the
 // operator's own work into a message describing the planner's.
 type integratedCandidate struct {
-	planID    string
-	requestID string
-	sessionID string
-	branch    string
-	beforeSHA string
-	afterSHA  string
-	message   string
-	paths     []string
+	planID     string
+	requestID  string
+	sessionID  string
+	branch     string
+	beforeSHA  string
+	afterSHA   string
+	message    string
+	paths      []string
+	submodules []domain.RepositoryIntegration
 }
 
 func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, projectPath string, pending []domain.PendingHostChange) (integrated []integratedCandidate, preMergeSHA string, failedPlanID string, err error) {
@@ -230,7 +232,7 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": planID, "branch": branch, "paths": conflict.Paths})
 			return integrated, preMergeSHA, planID, conflict
 		}
-		merge, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch)
+		merge, mergeErr := sandbox.MergeRepositoryTreeOnHost(ctx, projectPath, branch, pending[index].SubmoduleIntegrations)
 		s.publishHostStatePreservation(sessionID, planID, merge.Preservation)
 		// Preserve() may have committed an operator's dirty tree immediately
 		// before the first merge. That snapshot is the true rollback boundary:
@@ -250,14 +252,15 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 		}
 		plan := pending[index].Plan
 		integrated = append(integrated, integratedCandidate{
-			planID:    planID,
-			requestID: plan.RequestID,
-			sessionID: sessionID,
-			branch:    branch,
-			beforeSHA: merge.PreMergeSHA,
-			afterSHA:  afterSHA,
-			message:   commitMessageForPlan(&plan),
-			paths:     rootIntegrationPaths(&plan, pending[index].SubmoduleIntegrations),
+			planID:     planID,
+			requestID:  plan.RequestID,
+			sessionID:  sessionID,
+			branch:     branch,
+			beforeSHA:  merge.PreMergeSHA,
+			afterSHA:   afterSHA,
+			message:    commitMessageForPlan(&plan),
+			paths:      rootIntegrationPaths(&plan, pending[index].SubmoduleIntegrations),
+			submodules: append([]domain.RepositoryIntegration(nil), pending[index].SubmoduleIntegrations...),
 		})
 		s.bus.Publish(sessionID, "integration.merge_completed", map[string]any{"plan_id": planID, "branch": branch})
 	}
@@ -291,6 +294,20 @@ func integratedBranches(integrated []integratedCandidate) []string {
 		}
 	}
 	return branches
+}
+
+func integratedSubmodules(integrated []integratedCandidate, rollback bool) []domain.RepositoryIntegration {
+	result := make([]domain.RepositoryIntegration, 0)
+	if rollback {
+		for index := len(integrated) - 1; index >= 0; index-- {
+			result = append(result, integrated[index].submodules...)
+		}
+		return result
+	}
+	for _, candidate := range integrated {
+		result = append(result, candidate.submodules...)
+	}
+	return result
 }
 
 // commitMessageForPlan builds the exact message the integration commit used,
@@ -349,8 +366,14 @@ func (s *Service) publishSubmoduleSync(sessionID, planID, phase string, sync hos
 // revertHostMerge undoes this Apply's merges and reports the submodule
 // realignment that undo required, so a revert leaves a host that is genuinely
 // back where it started rather than one Git reports as permanently modified.
-func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projectPath, preMergeSHA string) error {
-	sync, err := sandbox.RevertHostMerge(ctx, projectPath, preMergeSHA)
+func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projectPath, preMergeSHA string, integrations []domain.RepositoryIntegration) error {
+	var sync hostrepo.SyncResult
+	var err error
+	if len(integrations) > 0 {
+		sync, err = sandbox.RevertRepositoryTreeMerge(ctx, projectPath, preMergeSHA, integrations)
+	} else {
+		sync, err = sandbox.RevertHostMerge(ctx, projectPath, preMergeSHA)
+	}
 	s.publishSubmoduleSync(sessionID, planID, "revert", sync)
 	return err
 }
@@ -362,6 +385,18 @@ func (s *Service) deleteIntegrationBranches(ctx context.Context, sessionID, proj
 	for _, branch := range branches {
 		if err := sandbox.DeleteHostBranch(ctx, projectPath, branch); err != nil {
 			s.bus.Publish(sessionID, "integration.branch_cleanup_failed", map[string]any{"branch": branch, "error": err.Error()})
+		}
+	}
+}
+
+func (s *Service) deleteSubmoduleIntegrationBranches(ctx context.Context, sessionID, projectPath string, integrations []domain.RepositoryIntegration) {
+	for _, integration := range integrations {
+		if integration.TargetBranch == "" || integration.Branch == "" {
+			continue
+		}
+		repository := filepath.Join(projectPath, filepath.FromSlash(integration.Path))
+		if err := sandbox.DeleteHostBranch(ctx, repository, integration.Branch); err != nil {
+			s.bus.Publish(sessionID, "integration.branch_cleanup_failed", map[string]any{"branch": integration.Branch, "repository": integration.Path, "error": err.Error()})
 		}
 	}
 }

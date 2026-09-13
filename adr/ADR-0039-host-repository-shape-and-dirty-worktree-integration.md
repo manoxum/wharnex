@@ -156,11 +156,14 @@ it explicitly.
 
 An initialized submodule is cloned as a repository inside the Protected
 workspace. Verified changes are committed deepest-first and every parent
-candidate records its child's commit as a gitlink. Apply merges the
-superproject and recursively synchronizes the checkouts to the commits recorded
-by those gitlinks. Failure resets the root and performs the same recursive
-synchronization against the old gitlinks, so Apply remains atomic from the
-operator's point of view.
+candidate records its child's commit as a gitlink. The candidate also records
+the submodule's checked-out branch and base commit. Apply merges the
+superproject and fast-forwards that same branch to the verified commit; a
+submodule that started detached remains detached. Failure resets the root and
+restores the affected branches to their recorded bases, so Apply remains
+atomic from the operator's point of view. After success, temporary nested
+integration branches are removed because the original branches retain the
+commits.
 
 The existing `submodule_write` terminal condition now covers topology that
 cannot be executed safely, such as an uninitialized checkout. Dirty nested

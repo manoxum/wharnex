@@ -12,6 +12,7 @@ import (
 func TestRepositoryTreeVersionsSubmoduleAndRollsBackAtomically(t *testing.T) {
 	requireGit(t)
 	host := newHostRepoWithSubmodule(t, "services/admin")
+	mustGit(t, filepath.Join(host, "services", "admin"), "switch", "-qc", "devup")
 	workspace, err := copyProject(host)
 	if err != nil {
 		t.Fatal(err)
@@ -33,12 +34,15 @@ func TestRepositoryTreeVersionsSubmoduleAndRollsBackAtomically(t *testing.T) {
 	if rootCommit == "" || len(integrations) != 1 || integrations[0].Path != "services/admin" {
 		t.Fatalf("unexpected repository candidates: root=%q nested=%+v", rootCommit, integrations)
 	}
+	if integrations[0].TargetBranch == "" || integrations[0].BaseCommit == "" {
+		t.Fatalf("submodule branch identity was not retained: %+v", integrations[0])
+	}
 	if err := ValidateRepositoryIntegrations(context.Background(), host, integrations); err != nil {
 		t.Fatalf("verified nested candidate must be present locally: %v", err)
 	}
 
 	childBefore := mustGit(t, filepath.Join(host, "services", "admin"), "rev-parse", "HEAD")
-	rootMerge, err := MergeBranchOnHost(context.Background(), host, branch)
+	rootMerge, err := MergeRepositoryTreeOnHost(context.Background(), host, branch, integrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,12 +53,24 @@ func TestRepositoryTreeVersionsSubmoduleAndRollsBackAtomically(t *testing.T) {
 	if recorded := mustGit(t, host, "rev-parse", "HEAD:services/admin"); recorded != integrations[0].Commit {
 		t.Fatalf("superproject recorded %s, want %s", recorded, integrations[0].Commit)
 	}
+	if childBranch := mustGit(t, filepath.Join(host, "services", "admin"), "branch", "--show-current"); childBranch != integrations[0].TargetBranch {
+		t.Fatalf("submodule branch changed to %q, want %q", childBranch, integrations[0].TargetBranch)
+	}
+	if err := DeleteHostBranch(context.Background(), filepath.Join(host, "services", "admin"), branch); err != nil {
+		t.Fatalf("remove temporary submodule branch: %v", err)
+	}
+	if childBranch := mustGit(t, filepath.Join(host, "services", "admin"), "branch", "--show-current"); childBranch != "devup" {
+		t.Fatalf("temporary branch cleanup changed active branch to %q", childBranch)
+	}
 
-	if _, err := RevertHostMerge(context.Background(), host, rootMerge.PreMergeSHA); err != nil {
+	if _, err := RevertRepositoryTreeMerge(context.Background(), host, rootMerge.PreMergeSHA, integrations); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustGit(t, filepath.Join(host, "services", "admin"), "rev-parse", "HEAD"); got != childBefore {
 		t.Fatalf("nested rollback restored %s, want %s", got, childBefore)
+	}
+	if childBranch := mustGit(t, filepath.Join(host, "services", "admin"), "branch", "--show-current"); childBranch != integrations[0].TargetBranch {
+		t.Fatalf("rollback detached submodule from %q", integrations[0].TargetBranch)
 	}
 	if recorded := mustGit(t, host, "rev-parse", "HEAD:services/admin"); recorded != childBefore {
 		t.Fatalf("superproject rollback recorded %s, want %s", recorded, childBefore)
@@ -126,7 +142,7 @@ func TestRepositoryTreeSupportsNestedSubmodules(t *testing.T) {
 	if len(integrations) != 2 || integrations[0].Path != "modules/child" || integrations[1].Path != "modules/child/modules/leaf" {
 		t.Fatalf("nested repository candidates = %+v", integrations)
 	}
-	merge, err := MergeBranchOnHost(context.Background(), root, branch)
+	merge, err := MergeRepositoryTreeOnHost(context.Background(), root, branch, integrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +150,7 @@ func TestRepositoryTreeSupportsNestedSubmodules(t *testing.T) {
 	if err != nil || string(data) != "after\n" {
 		t.Fatalf("recursive checkout was not synchronized: %q err=%v", data, err)
 	}
-	if _, err := RevertHostMerge(context.Background(), root, merge.PreMergeSHA); err != nil {
+	if _, err := RevertRepositoryTreeMerge(context.Background(), root, merge.PreMergeSHA, integrations); err != nil {
 		t.Fatal(err)
 	}
 	data, err = os.ReadFile(filepath.Join(root, "modules", "child", "modules", "leaf", "leaf.txt"))

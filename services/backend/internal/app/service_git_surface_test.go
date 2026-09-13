@@ -111,7 +111,7 @@ func TestMergeRollbackAnchorKeepsPreservedOperatorWork(t *testing.T) {
 	if rollbackSHA != integrated[0].beforeSHA {
 		t.Fatalf("rollback anchor %s does not match first exact pre-merge SHA %s", rollbackSHA, integrated[0].beforeSHA)
 	}
-	if err := service.revertHostMerge(context.Background(), "ses_preserve", plan.PlanID, host, rollbackSHA); err != nil {
+	if err := service.revertHostMerge(context.Background(), "ses_preserve", plan.PlanID, host, rollbackSHA, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := headOf(t, host); got != rollbackSHA {

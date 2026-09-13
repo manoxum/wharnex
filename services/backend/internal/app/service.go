@@ -2699,7 +2699,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			// file/build-artifact snapshots, but knows nothing about Git
 			// refs, so HEAD would otherwise keep pointing at the merge
 			// commit while the working tree no longer matches it.
-			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA); revertErr != nil {
+			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true)); revertErr != nil {
 				cause = fmt.Errorf("%w; git revert also failed: %v", cause, revertErr)
 			}
 			if selfEvolution {
@@ -2735,7 +2735,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				// merged cleanly before this one conflicted — all-or-
 				// nothing, matching the legacy ChangeSet path's semantics.
 				if len(mergedIntegrationBranches) > 0 {
-					_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA)
+					_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true))
 				}
 				updated, prepareErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, item, item.ProjectPath, failedPlanID, conflict)
 				if errors.Is(prepareErr, ErrManagedStateConflict) {
@@ -2747,7 +2747,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				return updated, abortPreparedTransaction(fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflict.Paths, ", ")))
 			}
 			if len(mergedIntegrationBranches) > 0 {
-				_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA)
+				_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true))
 			}
 			// A refused host state is not a defect in the generated change and
 			// no new patch can resolve it: the operator has an unfinished
@@ -2920,6 +2920,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	if len(mergedIntegrationBranches) > 0 {
 		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, integratedBranches(mergedIntegrationBranches))
+		s.deleteSubmoduleIntegrationBranches(ctx, sessionID, item.ProjectPath, integratedSubmodules(mergedIntegrationBranches, false))
 	}
 
 	if selfEvolution {

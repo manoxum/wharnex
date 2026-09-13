@@ -78,7 +78,13 @@ export type PendingHostChange = {
   change_set?: ChangeSet
   integration_branch?: string
   integration_commit?: string
-  submodule_integrations?: Array<{ path: string; branch: string; commit: string }>
+  submodule_integrations?: Array<{
+    path: string
+    branch: string
+    commit: string
+    target_branch?: string
+    base_commit?: string
+  }>
 }
 
 export type IntegrationOutcome = 'planning' | 'verified' | 'merging' | 'checking' | 'ready' | 'integrated' | 'conflict' | 'semantic_recheck' | 'retryable_race'

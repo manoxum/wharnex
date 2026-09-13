@@ -12,8 +12,10 @@ import (
 )
 
 type repositoryNode struct {
-	path   string
-	parent string
+	path         string
+	parent       string
+	targetBranch string
+	baseCommit   string
 }
 
 // CommitVerifiedRepositoryTree commits a verified patch in every repository
@@ -69,7 +71,9 @@ func CommitVerifiedRepositoryTree(ctx context.Context, workspaceRoot, hostRoot, 
 			rootCommit = commit
 			continue
 		}
-		integrations = append(integrations, domain.RepositoryIntegration{Path: repository.path, Branch: branch, Commit: commit})
+		integrations = append(integrations, domain.RepositoryIntegration{
+			Path: repository.path, Branch: branch, Commit: commit, TargetBranch: repository.targetBranch, BaseCommit: repository.baseCommit,
+		})
 		parentRelative := strings.TrimPrefix(repository.path, repository.parent+"/")
 		groups[repository.parent] = append(groups[repository.parent], parentRelative)
 	}
@@ -106,18 +110,141 @@ func ValidateRepositoryIntegrations(ctx context.Context, hostRoot string, integr
 			return fmt.Errorf("nested repository %s is not an initialized registered submodule", integration.Path)
 		}
 		repository := filepath.Join(root, rel)
-		if _, err := hostrepo.Inspect(ctx, repository); err != nil {
+		topology, err := hostrepo.Inspect(ctx, repository)
+		if err != nil {
 			return fmt.Errorf("inspect nested repository %s: %w", integration.Path, err)
 		}
 		if !HasCommit(ctx, repository, integration.Commit) {
 			return fmt.Errorf("verified commit %s is missing from nested repository %s", integration.Commit, integration.Path)
 		}
+		if integration.TargetBranch != "" {
+			if topology.Branch != integration.TargetBranch {
+				return fmt.Errorf("nested repository %s moved from branch %s to %s", integration.Path, integration.TargetBranch, topology.Branch)
+			}
+			head, headErr := CurrentHeadSHA(ctx, repository)
+			if headErr != nil {
+				return fmt.Errorf("resolve nested repository %s HEAD: %w", integration.Path, headErr)
+			}
+			if integration.BaseCommit != "" && head != integration.BaseCommit {
+				return fmt.Errorf("nested repository %s branch %s moved from %s to %s", integration.Path, integration.TargetBranch, integration.BaseCommit, head)
+			}
+			if integration.BaseCommit != "" {
+				if _, ancestorErr := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.BaseCommit, integration.Commit); ancestorErr != nil {
+					return fmt.Errorf("verified commit %s cannot fast-forward nested repository %s branch %s", integration.Commit, integration.Path, integration.TargetBranch)
+				}
+			}
+		}
 	}
 	return nil
 }
 
+// MergeRepositoryTreeOnHost merges the superproject candidate and then moves
+// every affected submodule on the branch it had when verification started.
+// Git's ordinary submodule update checks out a detached HEAD; this branch-aware
+// path keeps repositories such as devup, main and master selected.
+func MergeRepositoryTreeOnHost(ctx context.Context, hostRoot, branch string, integrations []domain.RepositoryIntegration) (HostMerge, error) {
+	return mergeBranchOnHost(ctx, hostRoot, branch, func(before []hostrepo.Submodule) hostrepo.SyncResult {
+		return syncRepositoryIntegrations(ctx, hostRoot, before, integrations, false)
+	})
+}
+
+// RevertRepositoryTreeMerge restores both the superproject and the branches
+// advanced in its submodules. It is used only for the exact Apply transaction
+// being rolled back, and refuses to move a branch whose HEAD changed meanwhile.
+func RevertRepositoryTreeMerge(ctx context.Context, hostRoot, preMergeSHA string, integrations []domain.RepositoryIntegration) (hostrepo.SyncResult, error) {
+	before, inspectErr := hostrepo.Inspect(ctx, hostRoot)
+	if output, err := runGit(ctx, hostRoot, "reset", "--hard", preMergeSHA); err != nil {
+		return hostrepo.SyncResult{}, fmt.Errorf("revert host merge to %s: %s", preMergeSHA, output)
+	}
+	if inspectErr != nil {
+		return hostrepo.SyncResult{}, nil
+	}
+	return syncRepositoryIntegrations(ctx, hostRoot, before.Submodules, integrations, true), nil
+}
+
+func syncRepositoryIntegrations(ctx context.Context, hostRoot string, before []hostrepo.Submodule, integrations []domain.RepositoryIntegration, rollback bool) hostrepo.SyncResult {
+	result := hostrepo.SyncResult{}
+	for _, integration := range integrations {
+		repository := filepath.Join(hostRoot, filepath.FromSlash(integration.Path))
+		destination := integration.Commit
+		expected := integration.BaseCommit
+		if rollback {
+			destination, expected = integration.BaseCommit, integration.Commit
+		}
+		if destination == "" {
+			continue
+		}
+		topology, err := hostrepo.Inspect(ctx, repository)
+		if err != nil {
+			result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: err.Error()})
+			continue
+		}
+		head, err := CurrentHeadSHA(ctx, repository)
+		if err != nil {
+			result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: err.Error()})
+			continue
+		}
+		if integration.TargetBranch == "" {
+			if output, checkoutErr := runGit(ctx, repository, "checkout", "--detach", destination); checkoutErr != nil {
+				result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: strings.TrimSpace(output)})
+				continue
+			}
+			result.Updated = append(result.Updated, integration.Path)
+			continue
+		}
+		if topology.Branch != integration.TargetBranch {
+			result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: fmt.Sprintf("branch changed from %s to %s", integration.TargetBranch, topology.Branch)})
+			continue
+		}
+		if head != destination {
+			if expected != "" && head != expected {
+				result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: fmt.Sprintf("branch %s moved to %s", integration.TargetBranch, head)})
+				continue
+			}
+			args := []string{"merge", "--ff-only", destination}
+			if rollback {
+				args = []string{"reset", "--hard", destination}
+			}
+			if output, moveErr := runGit(ctx, repository, args...); moveErr != nil {
+				result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: strings.TrimSpace(output)})
+				continue
+			}
+		}
+		result.Updated = append(result.Updated, integration.Path)
+	}
+
+	// Tell generic reconciliation that repositories handled above are already
+	// at the desired gitlink. Omitting them would make the generic pass treat
+	// them as newly discovered and detach them with `submodule update`.
+	filtered := append([]hostrepo.Submodule(nil), before...)
+	for _, submodule := range before {
+		for index := range integrations {
+			if integrations[index].Path == submodule.Path {
+				destination := integrations[index].Commit
+				if rollback {
+					destination = integrations[index].BaseCommit
+				}
+				for filteredIndex := range filtered {
+					if filtered[filteredIndex].Path == submodule.Path {
+						filtered[filteredIndex].CommitSHA = destination
+					}
+				}
+			}
+		}
+	}
+	generic, _ := hostrepo.SyncSubmodules(ctx, hostRoot, filtered)
+	result.Updated = append(result.Updated, generic.Updated...)
+	result.Skipped = append(result.Skipped, generic.Skipped...)
+	return result
+}
+
 func discoverRepositoryTree(ctx context.Context, root string) ([]repositoryNode, error) {
-	repositories := []repositoryNode{{path: ".", parent: ""}}
+	rootTopology, err := hostrepo.Inspect(ctx, root)
+	if err != nil {
+		return nil, fmt.Errorf("inspect repository .: %w", err)
+	}
+	rootHead, _ := CurrentHeadSHA(ctx, root)
+	repositories := []repositoryNode{{path: ".", parent: "", targetBranch: rootTopology.Branch, baseCommit: rootHead}}
 	for index := 0; index < len(repositories); index++ {
 		parent := repositories[index]
 		path := filepath.Join(root, filepath.FromSlash(parent.path))
@@ -133,7 +260,18 @@ func discoverRepositoryTree(ctx context.Context, root string) ([]repositoryNode,
 			if parent.path != "." {
 				child = parent.path + "/" + child
 			}
-			repositories = append(repositories, repositoryNode{path: child, parent: parent.path})
+			childPath := filepath.Join(root, filepath.FromSlash(child))
+			childTopology, childErr := hostrepo.Inspect(ctx, childPath)
+			if childErr != nil {
+				return nil, fmt.Errorf("inspect repository %s: %w", child, childErr)
+			}
+			childHead, headErr := CurrentHeadSHA(ctx, childPath)
+			if headErr != nil {
+				return nil, fmt.Errorf("resolve repository %s HEAD: %w", child, headErr)
+			}
+			repositories = append(repositories, repositoryNode{
+				path: child, parent: parent.path, targetBranch: childTopology.Branch, baseCommit: childHead,
+			})
 		}
 	}
 	return repositories, nil
