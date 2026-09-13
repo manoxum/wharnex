@@ -48,7 +48,7 @@ A workspace rebuilt from an immutable archived request base has a synthetic root
 commit and no ancestry in common with the host. It keeps the legacy
 `ChangeSet` path unchanged, because there is nothing to branch or merge onto.
 
-## Host repository shape and dirty-worktree integration (v1.3.3)
+## Host repository shape and dirty-worktree integration (v1.3.4)
 
 The host project's repository shape is measured, never assumed (see
 `adr/ADR-0039`). `internal/hostrepo` resolves the repository's real Git
@@ -80,14 +80,27 @@ gitlink. Consequently:
   submodule's checkout, which Git does not do. Realignment is offline and never
   touches a submodule holding uncommitted work; skips are reported.
 
-A patch writing inside a registered submodule is rejected at ingestion: the
-superproject's index holds a single gitlink there, so the path cannot be
-staged, committed or merged, and no planner repair can change that. The HTTP
-boundary returns a stable submodule-write rejection, the session is classified
-`submodule_write`, and Auto mode MUST stop without consuming a fresh remote
-request. Recovery is to open the indicated submodule as its own Wharness
-project, make the change in that repository, and update the superproject
-gitlink when appropriate. A project Wharnex cannot inspect is admitted
+An initialized registered submodule is a supported repository boundary. A
+Protected workspace MUST contain a real local clone for every initialized
+submodule touched by the plan; copying its files without its independent Git
+metadata is forbidden. After verification Wharnex commits touched repositories
+from deepest to shallowest, so each parent candidate records the resulting
+gitlink, and publishes every candidate branch only into the matching local host
+repository.
+
+Apply merges the superproject candidate, then recursively synchronizes each
+initialized checkout to the exact locally published commit recorded by its
+parent gitlink. A dirty nested repository, an uninitialized submodule or a
+missing candidate commit remains fail-closed. A later merge or verification
+failure resets the superproject to its pre-Apply HEAD and recursively restores
+the checkout tree from the old gitlinks. The superproject's explicit Apply
+confirmation authorizes this bounded repository tree as one transaction; it
+does not authorize remote pushes or unrelated nested Git repositories.
+
+`submodule_write` remains the stable failure for a path inside a registered
+submodule that cannot participate in that transaction, including an
+uninitialized checkout. It is no longer emitted merely because an initialized
+submodule owns the file. A project Wharnex cannot inspect remains admitted
 unchanged — a measurement failure never rejects a legitimate change.
 
 ## Runner toolchain and environment disclosure

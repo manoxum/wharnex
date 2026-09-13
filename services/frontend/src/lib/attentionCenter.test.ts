@@ -122,7 +122,7 @@ describe('attention center', () => {
 
     expect(items).toEqual([
       expect.objectContaining({
-        title: 'Alteração pertence a outro repositório',
+        title: 'Submódulo indisponível para integração',
         detail: failed.last_repair_error,
         tone: 'danger',
       }),

@@ -65,22 +65,32 @@ func planPatching(path string) *domain.ExecutionPlan {
 	}
 }
 
-// A patch inside a submodule cannot be staged, committed or merged: the
-// superproject's index holds a single gitlink there. Left undetected it
-// applied to disk, passed every verification gate, and then died at commit
-// time with an opaque Git error — after a full model turn and container run,
-// and with no repair a planner could possibly produce.
-func TestRejectSubmoduleWritesRefusesPatchesInsideASubmodule(t *testing.T) {
+func TestRejectSubmoduleWritesAdmitsInitializedSubmoduleRepositories(t *testing.T) {
 	requireGitForApp(t)
 	root := newAppRepoWithSubmodule(t, "mod/app")
 	service := &Service{bus: audit.NewBus()}
 
-	err := service.rejectSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt"))
-	if !errors.Is(err, ErrSubmoduleWrite) {
-		t.Fatalf("expected ErrSubmoduleWrite, got %v", err)
+	if err := service.rejectSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt")); err != nil {
+		t.Fatalf("initialized submodule must be routed as a repository candidate: %v", err)
 	}
-	if !strings.Contains(err.Error(), "mod/app") {
-		t.Fatalf("the refusal must name the submodule, got %v", err)
+}
+
+func TestRejectSubmoduleWritesRefusesUninitializedSubmodule(t *testing.T) {
+	requireGitForApp(t)
+	root := newAppRepoWithSubmodule(t, "mod/app")
+	runGitForApp(t, root, "submodule", "deinit", "-f", "--", "mod/app")
+	service := &Service{bus: audit.NewBus()}
+	err := service.rejectSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt"))
+	if !errors.Is(err, ErrSubmoduleWrite) || !strings.Contains(err.Error(), "mod/app") {
+		t.Fatalf("expected actionable uninitialized submodule refusal, got %v", err)
+	}
+}
+
+func TestRootIntegrationPathsStagesGitlinkForNestedFiles(t *testing.T) {
+	plan := planPatching("services/admin/client/app.js")
+	paths := rootIntegrationPaths(plan, []domain.RepositoryIntegration{{Path: "services/admin"}})
+	if len(paths) != 1 || paths[0] != "services/admin" {
+		t.Fatalf("root write set = %v, want the submodule gitlink", paths)
 	}
 }
 

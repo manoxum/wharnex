@@ -79,7 +79,7 @@ func SyncSubmodules(ctx context.Context, root string, before []Submodule) (SyncR
 			})
 			continue
 		}
-		if output, err := run(ctx, root, "submodule", "update", "--no-fetch", "--checkout", "--", submodule.Path); err != nil {
+		if output, err := run(ctx, root, "submodule", "update", "--recursive", "--no-fetch", "--checkout", "--", submodule.Path); err != nil {
 			result.Skipped = append(result.Skipped, SyncSkip{Path: submodule.Path, Reason: truncate(output, 300)})
 			continue
 		}

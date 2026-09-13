@@ -147,22 +147,30 @@ skipped) and strictly non-destructive (a submodule holding uncommitted work is
 never checked out over). Skips are published rather than hidden, because the
 superproject is then knowingly ahead of a checkout the operator must update.
 
-### Early rejection of submodule writes
+### Repository-tree integration for submodule writes
 
-A `change` bundle whose patch writes inside a submodule is rejected **at
-ingestion**, at the same seam and for the same reason as the `commit_message`
-contract: it cannot be integrated at all, so every step between ingestion and
-that discovery is wasted. Measurement failure never rejects: a project Wharnex
-cannot inspect is admitted exactly as before.
+The original decision rejected every patch inside a submodule. That avoided a
+late `git add` failure, but prevented a superproject workspace from owning a
+normal cross-repository change. This revision retains the boundary and models
+it explicitly.
 
-Writing *inside* a submodule remains unsupported by design in this decision. A
-submodule is a different repository with its own remote, history and review
-process; Wharnex committing into it is a distinct authority question, not an
-extension of the superproject Apply it already owns. The refusal is surfaced as
-the typed `submodule_write` terminal condition: it does not spend a fresh
-ChatGPT request trying the same superproject again, and the operator is directed
-to open the submodule repository itself. This states the real constraint
-instead of failing late with a Git pathspec error or entering a retry loop.
+An initialized submodule is cloned as a repository inside the Protected
+workspace. Verified changes are committed deepest-first and every parent
+candidate records its child's commit as a gitlink. Apply merges the
+superproject and recursively synchronizes the checkouts to the commits recorded
+by those gitlinks. Failure resets the root and performs the same recursive
+synchronization against the old gitlinks, so Apply remains atomic from the
+operator's point of view.
+
+The existing `submodule_write` terminal condition now covers topology that
+cannot be executed safely, such as an uninitialized checkout. Dirty nested
+work and concurrent divergence remain host-state blocks with the candidate
+retained. No path is staged by the wrong repository and no remote is pushed.
+
+Compatibility: persisted candidates without nested-repository metadata keep
+their existing root-only behavior. The new metadata is additive. Existing
+initialized projects require no migration; uninitialized submodules keep the
+same fail-closed outcome and gain a narrower remedy.
 
 ### Containment fix found on the way
 
@@ -207,6 +215,8 @@ that must not reach it. `.git` is now excluded whichever it is.
   operator's own remedy rather than a GPT repair.
 - Submodule checkouts follow the superproject through both merge and revert, so
   post-merge verification runs against the tree it is verifying.
-- A patch inside a submodule is rejected before execution and does not consume
-  a fresh ChatGPT recovery request. The operator is directed to the submodule
+- A patch inside an initialized submodule produces a nested verified candidate;
+  unsupported submodule topology is rejected before execution and does not
+  consume a fresh ChatGPT recovery request. The operator is directed to repair
+  or initialize the submodule.
   repository that actually owns the requested files.

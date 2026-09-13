@@ -148,36 +148,28 @@ func planIDForIntegrationBranch(pending []domain.PendingHostChange, branch strin
 // out already, so committing must not try to create it a second time — and
 // must not re-root it at the host's newer tip, which is exactly the parentage
 // this whole mechanism exists to avoid.
-func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath, baseRootedBranch string) (branch, commitSHA string, err error) {
+func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath, baseRootedBranch string) (branch, commitSHA string, submodules []domain.RepositoryIntegration, err error) {
 	patchFiles := actualPatchFiles(plan)
 	if len(patchFiles) == 0 {
-		return "", "", nil
+		return "", "", nil, nil
 	}
 	message := commitMessageForPlan(plan)
 	branch = integrationBranchName(plan.RequestID)
-	if strings.TrimSpace(baseRootedBranch) == branch {
-		commitSHA, err = sandbox.CommitBaseRootedPatch(ctx, workspacePath, message, patchFiles)
-	} else {
-		commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message, patchFiles)
-	}
-	if err != nil {
-		return "", "", err
-	}
 	// Creating the commit happens entirely inside the disposable sandbox, but
-	// the push writes a ref into the host's own .git. That is the only
-	// host-facing mutation in the whole verification phase, so it — and
+	// each local push writes a ref into the matching host repository. Those are
+	// the only host-facing mutations in the verification phase, so they — and
 	// nothing longer — is what must be serialized per project. Holding the
 	// project lock only here is what lets two chats verify concurrently
 	// without racing each other's ref updates.
 	pushLock := s.projectApplyLock(projectPath)
 	pushLock.Lock()
-	pushErr := sandbox.PushBranchToHost(ctx, workspacePath, projectPath, branch)
+	commitSHA, submodules, pushErr := sandbox.CommitVerifiedRepositoryTree(ctx, workspacePath, projectPath, branch, message, patchFiles, strings.TrimSpace(baseRootedBranch) == branch)
 	pushLock.Unlock()
 	if pushErr != nil {
-		return "", "", pushErr
+		return "", "", submodules, pushErr
 	}
-	s.bus.Publish(sessionID, "integration.branch_committed", map[string]any{"plan_id": plan.PlanID, "branch": branch, "commit": commitSHA})
-	return branch, commitSHA, nil
+	s.bus.Publish(sessionID, "integration.branch_committed", map[string]any{"plan_id": plan.PlanID, "branch": branch, "commit": commitSHA, "submodules": submodules})
+	return branch, commitSHA, submodules, nil
 }
 
 // mergeIntegrationBranches merges every pending candidate's integration
@@ -265,11 +257,29 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			beforeSHA: merge.PreMergeSHA,
 			afterSHA:  afterSHA,
 			message:   commitMessageForPlan(&plan),
-			paths:     actualPatchFiles(&plan),
+			paths:     rootIntegrationPaths(&plan, pending[index].SubmoduleIntegrations),
 		})
 		s.bus.Publish(sessionID, "integration.merge_completed", map[string]any{"plan_id": planID, "branch": branch})
 	}
 	return integrated, preMergeSHA, "", nil
+}
+
+// rootIntegrationPaths is the write set the superproject can stage. Files
+// owned by a nested repository become the shallowest affected gitlink.
+func rootIntegrationPaths(plan *domain.ExecutionPlan, nested []domain.RepositoryIntegration) []string {
+	paths := make([]string, 0, len(actualPatchFiles(plan)))
+	for _, path := range actualPatchFiles(plan) {
+		rootPath := path
+		for _, repository := range nested {
+			if path == repository.Path || strings.HasPrefix(path, repository.Path+"/") {
+				if rootPath == path || len(repository.Path) < len(rootPath) {
+					rootPath = repository.Path
+				}
+			}
+		}
+		paths = append(paths, rootPath)
+	}
+	return normalizedPaths(paths)
 }
 
 // integratedBranches lists the branch refs an Apply merged, for cleanup.

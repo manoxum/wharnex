@@ -2483,7 +2483,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         appendChatItem(active, updated.project_path, {
           id: itemId, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
 		  text: submoduleBlocked
-		    ? `O bundle foi recusado porque a alteração tenta escrever dentro de um submódulo Git, que pertence a outro repositório. Nenhuma correção automática foi lançada. Abra o submódulo indicado na causa como projeto Wharnex, repita a alteração nesse repositório e, se necessário, atualize depois o ponteiro no superprojeto.\n\nCausa: ${reason}`
+		    ? `O bundle foi recusado porque o submódulo indicado não está inicializado ou o checkout Git dele não pode participar da integração protegida. Inicialize ou repare esse submódulo e repita o pedido.\n\nCausa: ${reason}`
 		    : automaticallyRecovered
 		      ? `O bundle foi recusado com segurança. O WHX preservou a falha como diagnóstico, criou uma nova base imutável e preparou automaticamente um único pedido de correção.\n\nCausa: ${reason}`
 		      : `O pedido remoto terminou por falha de protocolo ou comunicação. Nenhum bundle foi executado. Ao repetir, o WHX enviará esta causa para que o ChatGPT corrija o contrato antes de gerar outro ZIP.\n\nCausa: ${reason}`,

@@ -140,8 +140,8 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
         chat,
         'submodule-write',
         'danger',
-        'Alteração pertence a outro repositório',
-        session.last_repair_error || 'Abra o submódulo indicado como projeto Wharnex e repita o pedido nesse repositório.',
+        'Submódulo indisponível para integração',
+        session.last_repair_error || 'Inicialize ou repare o checkout Git do submódulo indicado e repita o pedido.',
       ))
       failureAlertAdded = true
       break

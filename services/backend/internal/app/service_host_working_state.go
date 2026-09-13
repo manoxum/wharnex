@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -58,10 +59,13 @@ func (s *Service) failHostStateBlocked(
 
 // ErrSubmoduleWrite marks a change plan whose patch set writes inside a Git
 // submodule of the open project.
-var ErrSubmoduleWrite = errors.New("change writes inside a Git submodule, which Wharnex integrates as a pointer rather than as content")
+var ErrSubmoduleWrite = errors.New("change targets a Git submodule that is unavailable for repository-tree integration")
 
-// rejectSubmoduleWrites refuses, at ingestion, a change plan that patches a
-// path inside one of the host project's submodules.
+const legacySubmoduleWriteDiagnostic = "change writes inside a Git submodule, which Wharnex integrates as a pointer rather than as content"
+
+// rejectSubmoduleWrites refuses only submodule writes that Wharnex cannot
+// version as repositories, such as an uninitialized checkout. Initialized
+// submodules are admitted and become nested integration candidates.
 //
 // A submodule shadows its own directory in the superproject: the index holds a
 // single gitlink there, so `git add -- <submodule>/<file>` is a hard error
@@ -90,10 +94,21 @@ func (s *Service) rejectSubmoduleWrites(ctx context.Context, sessionID, projectP
 		return nil
 	}
 	blocked := map[string][]string{}
+	routed := map[string][]string{}
 	for _, path := range paths {
-		if submodule, found := topology.SubmoduleFor(path); found {
-			blocked[submodule.Path] = append(blocked[submodule.Path], path)
+		submodulePath, initialized, found := deepestSubmoduleFor(ctx, projectPath, path)
+		if found {
+			if initialized {
+				routed[submodulePath] = append(routed[submodulePath], path)
+			} else {
+				blocked[submodulePath] = append(blocked[submodulePath], path)
+			}
 		}
+	}
+	if len(routed) > 0 {
+		s.bus.Publish(sessionID, "bundle.submodule_writes_routed", map[string]any{
+			"plan_id": plan.PlanID, "submodules": sortedMapKeys(routed), "paths": sortedMapValues(routed),
+		})
 	}
 	if len(blocked) == 0 {
 		return nil
@@ -110,9 +125,61 @@ func (s *Service) rejectSubmoduleWrites(ctx context.Context, sessionID, projectP
 		"plan_id": plan.PlanID, "submodules": names, "paths": offending,
 	})
 	return fmt.Errorf(
-		"%w: %s belong(s) to submodule(s) %s. The superproject records only a commit pointer there, so those files cannot be staged, committed or merged from this project. Change files in the superproject itself, or make the change in the submodule's own repository and update the pointer there",
+		"%w: %s belong(s) to uninitialized submodule(s) %s. Initialize those repositories before retrying so Wharnex can verify their content and version their gitlinks transactionally",
 		ErrSubmoduleWrite, strings.Join(offending, ", "), strings.Join(names, ", "),
 	)
+}
+
+// deepestSubmoduleFor follows initialized repository boundaries so nested
+// uninitialized modules cannot be mistaken for ordinary files of their parent.
+func deepestSubmoduleFor(ctx context.Context, root, path string) (string, bool, bool) {
+	remaining := filepath.ToSlash(filepath.Clean(path))
+	repositoryRoot := root
+	prefix := ""
+	found := false
+	for {
+		topology, err := hostrepo.Inspect(ctx, repositoryRoot)
+		if err != nil {
+			return prefix, true, found
+		}
+		submodule, nested := topology.SubmoduleFor(remaining)
+		if !nested {
+			return prefix, true, found
+		}
+		found = true
+		if prefix == "" {
+			prefix = submodule.Path
+		} else {
+			prefix += "/" + submodule.Path
+		}
+		if !submodule.Initialized {
+			return prefix, false, true
+		}
+		repositoryRoot = filepath.Join(repositoryRoot, filepath.FromSlash(submodule.Path))
+		remaining = strings.TrimPrefix(remaining, submodule.Path)
+		remaining = strings.TrimPrefix(remaining, "/")
+		if remaining == "" {
+			return prefix, true, true
+		}
+	}
+}
+
+func sortedMapKeys(values map[string][]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedMapValues(values map[string][]string) []string {
+	result := make([]string, 0)
+	for _, paths := range values {
+		result = append(result, paths...)
+	}
+	sort.Strings(result)
+	return result
 }
 
 // partitionSubmoduleConflictPaths separates conflicting paths that are

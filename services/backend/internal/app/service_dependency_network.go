@@ -243,14 +243,16 @@ func sessionFailureKind(item domain.Session) string {
 }
 
 func sessionHasSubmoduleWriteDiagnostic(item domain.Session) bool {
-	needle := strings.ToLower(ErrSubmoduleWrite.Error())
+	needles := []string{strings.ToLower(ErrSubmoduleWrite.Error()), strings.ToLower(legacySubmoduleWriteDiagnostic)}
 	details := []string{item.LastRepairError}
 	if item.LastExecution != nil {
 		details = append(details, item.LastExecution.Error)
 	}
 	for _, detail := range details {
-		if strings.Contains(strings.ToLower(detail), needle) {
-			return true
+		for _, needle := range needles {
+			if strings.Contains(strings.ToLower(detail), needle) {
+				return true
+			}
 		}
 	}
 	return false

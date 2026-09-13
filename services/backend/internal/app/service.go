@@ -1839,6 +1839,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
 	var integrationBranch, integrationCommit string
+	var submoduleIntegrations []domain.RepositoryIntegration
 	var canonicalChangeSet *domain.ChangeSet
 	if !unprotected {
 		if reconcileFromArchive {
@@ -1857,7 +1858,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 				s.bus.Publish(sessionID, "changeset.verified", map[string]any{"changeset_id": canonicalChangeSet.ID, "plan_id": item.Plan.PlanID, "files": changeSetPaths(*canonicalChangeSet)})
 			}
 		} else {
-			integrationBranch, integrationCommit, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path, baseRootedBranch)
+			integrationBranch, integrationCommit, submoduleIntegrations, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path, baseRootedBranch)
 			if err != nil {
 				return s.failExecution(ctx, sessionID, result, fmt.Errorf("commit verified patch to integration branch: %w", err))
 			}
@@ -1889,7 +1890,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			}
 			if planRequiresHostApply(item.Plan) {
 				current.PendingHostChanges = upsertPendingHostChange(pendingBase, domain.PendingHostChange{
-					Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt, ChangeSet: canonicalChangeSet, IntegrationBranch: integrationBranch, IntegrationCommit: integrationCommit,
+					Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt, ChangeSet: canonicalChangeSet, IntegrationBranch: integrationBranch, IntegrationCommit: integrationCommit, SubmoduleIntegrations: submoduleIntegrations,
 				})
 			} else {
 				// Verification-only/no-op plans are allowed to validate an existing
@@ -2719,6 +2720,11 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		return failure
 	}
 	if useIntegrationBranches {
+		for _, change := range pending {
+			if validateErr := sandbox.ValidateRepositoryIntegrations(ctx, item.ProjectPath, change.SubmoduleIntegrations); validateErr != nil {
+				return item, abortPreparedTransaction(fmt.Errorf("validate submodule candidates: %w", validateErr))
+			}
+		}
 		var mergeErr error
 		var failedPlanID string
 		mergedIntegrationBranches, preMergeIntegrationSHA, failedPlanID, mergeErr = s.mergeIntegrationBranches(ctx, sessionID, item.ProjectPath, pending)

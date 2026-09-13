@@ -600,6 +600,18 @@ type PendingHostChange struct {
 	// IntegrationCommit is the commit SHA IntegrationBranch pointed to right
 	// after it was created, for audit/diagnostics.
 	IntegrationCommit string `json:"integration_commit,omitempty"`
+	// SubmoduleIntegrations are verified commits created in repositories nested
+	// below the open superproject. Apply advances these repositories before it
+	// merges IntegrationBranch, whose tree records the resulting gitlinks.
+	SubmoduleIntegrations []RepositoryIntegration `json:"submodule_integrations,omitempty"`
+}
+
+// RepositoryIntegration identifies one nested repository candidate. Path is
+// relative to the open superproject; Branch exists only in that repository.
+type RepositoryIntegration struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+	Commit string `json:"commit"`
 }
 
 type IntegrationOutcome string
