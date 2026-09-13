@@ -4,50 +4,183 @@
   "title": "Wharness Execution Plan v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "base_context_sha256", "impact_files", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"],
+  "required": [
+    "protocol",
+    "base_context_sha256",
+    "impact_files",
+    "plan_id",
+    "request_id",
+    "status",
+    "summary",
+    "risk",
+    "requires_approval",
+    "operations",
+    "verification"
+  ],
   "properties": {
-    "protocol": {"const": "harness.execution/v1"},
-    "base_context_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "impact_files": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
-    "read_files": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
-    "barrier_files": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
-    "plan_id": {"type": "string", "minLength": 1},
-    "request_id": {"type": "string", "minLength": 1},
-    "status": {"enum": ["ready", "blocked"]},
-    "summary": {"type": "string", "minLength": 1, "maxLength": 600, "description": "Short human-facing description of what this bundle actually did, mandatory on every plan-bearing response and validated at ingestion. Wharnex shows it in the chat transcript and in the self-evolution activation dialog, where it is the only prose explaining what a restart would activate. State the concrete implemented, corrected or investigated outcome; placeholders such as 'short summary', 'changes' or 'done' are rejected."},
-    "commit_message": {"type": "string", "minLength": 1, "maxLength": 4000, "description": "Planner-authored Git commit message for change plans, mandatory and validated before execution. The first line is a Conventional Commits subject of at most 72 characters that classifies the dominant change and states the concrete implemented or corrected technical outcome; bookkeeping subjects such as 'update files' or 'apply patch' are rejected. An optional body, separated by exactly one blank line, explains why the change was made and is preserved verbatim in the real commit. Workflow plans omit the field."},
-    "risk": {"enum": ["low", "medium", "high"]},
-    "requires_approval": {"type": "boolean"},
+    "protocol": {
+      "const": "harness.execution/v1"
+    },
+    "base_context_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "impact_files": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "read_files": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "barrier_files": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "blocked"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600,
+      "description": "Short human-facing description of what this bundle actually did, mandatory on every plan-bearing response and validated at ingestion. Wharnex shows it in the chat transcript and in the self-evolution activation dialog, where it is the only prose explaining what a restart would activate. State the concrete implemented, corrected or investigated outcome; placeholders such as 'short summary', 'changes' or 'done' are rejected."
+    },
+    "version_increment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "amount"
+      ],
+      "properties": {
+        "component": {
+          "enum": [
+            "major",
+            "medium",
+            "minor",
+            "patch"
+          ],
+          "description": "Four-part vA.B.C.D component: major=A, medium=B, minor=C, patch=D."
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "description": "Required for change plans and forbidden for workflow plans. Wharnex applies it to engine-owned root VERSION only after successful host integration; planners never patch VERSION directly."
+    },
+    "commit_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "Planner-authored Git commit message for change plans, mandatory and validated before execution. The first line is a Conventional Commits subject of at most 72 characters that classifies the dominant change and states the concrete implemented or corrected technical outcome; bookkeeping subjects such as 'update files' or 'apply patch' are rejected. An optional body, separated by exactly one blank line, explains why the change was made and is preserved verbatim in the real commit. Workflow plans omit the field."
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "requires_approval": {
+      "type": "boolean"
+    },
     "operations": {
       "type": "array",
-      "items": {"$ref": "#/$defs/operation"}
+      "items": {
+        "$ref": "#/$defs/operation"
+      }
     },
     "verification": {
       "type": "array",
-      "items": {"$ref": "#/$defs/command"}
+      "items": {
+        "$ref": "#/$defs/command"
+      }
     }
   },
   "$defs": {
     "command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["argv", "cwd", "timeout_seconds", "network", "expected_exit_codes"],
+      "required": [
+        "argv",
+        "cwd",
+        "timeout_seconds",
+        "network",
+        "expected_exit_codes"
+      ],
       "properties": {
-        "argv": {"type": "array", "items": {"type": "string"}},
-        "cwd": {"type": "string"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800},
-        "network": {"type": "boolean"},
-        "expected_exit_codes": {"type": "array", "items": {"type": "integer"}}
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1800
+        },
+        "network": {
+          "type": "boolean"
+        },
+        "expected_exit_codes": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        }
       }
     },
     "operation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "patch", "command"],
+      "required": [
+        "type",
+        "patch",
+        "command"
+      ],
       "properties": {
-        "type": {"enum": ["apply_patch", "command"]},
-        "patch": {"type": "string"},
-        "command": {"$ref": "#/$defs/command"}
+        "type": {
+          "enum": [
+            "apply_patch",
+            "command"
+          ]
+        },
+        "patch": {
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        }
       }
     }
   }

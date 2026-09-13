@@ -34,6 +34,9 @@ type fakePlanner struct{ plan domain.ExecutionPlan }
 func (f fakePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
 	plan := f.plan
 	plan.RequestID = request.RequestID
+	if plan.VersionIncrement == nil {
+		plan.VersionIncrement = &domain.VersionIncrement{Component: domain.VersionComponentPatch, Amount: 1}
+	}
 	return planner.Result{Plan: &plan}, nil
 }
 
@@ -830,7 +833,7 @@ func (p *contextCapturePlanner) Plan(_ context.Context, request planner.Request)
 		return planner.Result{}, err
 	}
 	p.seen = string(data)
-	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "capture", RequestID: request.RequestID, Status: "ready", Summary: "capture", Risk: "low", Operations: []domain.Operation{}, Verification: []domain.CommandSpec{}}
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "capture", RequestID: request.RequestID, Status: "ready", Summary: "capture", VersionIncrement: &domain.VersionIncrement{Component: domain.VersionComponentPatch, Amount: 1}, Risk: "low", Operations: []domain.Operation{}, Verification: []domain.CommandSpec{}}
 	return planner.Result{Plan: &plan}, nil
 }
 
@@ -989,6 +992,7 @@ func TestManualChatGPTPlanNormalizationExecutesAndApplies(t *testing.T) {
 		"request_id":"` + s.LastRequestID + `",
 		"status":"ready",
 		"summary":"Criar ola.txt",
+		"version_increment":{"component":"patch","amount":1},
 		"operations":[{"type":"apply_patch","cwd":".","patch":"*** Begin Patch\n*** Add File: ola.txt\n+ola mundo\n*** End Patch","command":{"argv":[]}}],
 		"verification":[{"type":"command","cwd":".","command":{"argv":["git","diff","--check"]},"patch":""}]
 	}`)
@@ -1169,7 +1173,7 @@ func TestNewManualRequestSupersedesEarlierPendingRequest(t *testing.T) {
 		t.Fatalf("expected only the latest request to remain active, got %#v", s.PendingManualRequestIDs)
 	}
 
-	rawA := []byte(`{"protocol":"harness.execution/v1","plan_id":"plan-a","request_id":"` + requestA + `","status":"ready","summary":"A","risk":"low","requires_approval":false,"operations":[],"verification":[]}`)
+	rawA := []byte(`{"protocol":"harness.execution/v1","plan_id":"plan-a","request_id":"` + requestA + `","status":"ready","summary":"A","version_increment":{"component":"patch","amount":1},"risk":"low","requires_approval":false,"operations":[],"verification":[]}`)
 	if _, err := service.SubmitManualPlan(s.ID, rawA); err == nil || !strings.Contains(err.Error(), "not pending") {
 		t.Fatalf("superseded plan must be rejected, got %v", err)
 	}
@@ -1327,7 +1331,7 @@ func TestExecutionFailurePreparesFreshManualRepairRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalRequest := prompted.LastRequestID
-	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","version_increment":{"component":"patch","amount":1},"risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
 	planned, err := service.SubmitManualPlan(started.ID, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -1500,7 +1504,7 @@ func TestExecutionFailureRepairRequestIncludesProjectKnowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalRequest := prompted.LastRequestID
-	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"failed-plan","request_id":"` + originalRequest + `","status":"ready","summary":"test failure","version_increment":{"component":"patch","amount":1},"risk":"low","requires_approval":false,"operations":[],"verification":[{"argv":["npm","run","build"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}]}`)
 	planned, err := service.SubmitManualPlan(started.ID, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -1529,7 +1533,7 @@ func TestSuccessfulRetainedPlanRetryRetiresObsoleteRepairRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalRequest := prompted.LastRequestID
-	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"retained-plan","request_id":"` + originalRequest + `","status":"ready","summary":"update file","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch":"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n","command":{"argv":[],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`)
+	raw := []byte(`{"protocol":"harness.execution/v1","plan_id":"retained-plan","request_id":"` + originalRequest + `","status":"ready","summary":"update file","version_increment":{"component":"patch","amount":1},"commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch":"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n","command":{"argv":[],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`)
 	planned, err := service.SubmitManualPlan(started.ID, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -1600,7 +1604,7 @@ func makeExecutionBundleWithBaseline(t *testing.T, requestID, baseline string) [
 	entries := map[string]string{
 		"README.md":         "# Automatic fix\nChanges hello.txt from old to new.\n",
 		"patches/001.patch": "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n",
-		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"Replace the hello greeting text in the demo file","commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"bundle-plan","request_id":"` + requestID + `","status":"ready","summary":"Replace the hello greeting text in the demo file","version_increment":{"component":"patch","amount":1},"commit_message":"fix(demo): replace the hello greeting text","risk":"low","requires_approval":false` + baselineField + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Atualização cumulativa do pedido de teste.")
 	for name, value := range entries {
@@ -2510,7 +2514,7 @@ func makePolicyBlockedBundle(t *testing.T, requestID string) []byte {
 	writer := zip.NewWriter(&out)
 	entries := map[string]string{
 		"README.md": "# Docker attempt\nThis intentionally exercises Policy repair.\n",
-		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"blocked-docker","request_id":"` + requestID + `","status":"ready","summary":"run docker compose","commit_message":"build(deploy): validate the compose configuration","risk":"high","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["docker","compose","config","--quiet"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"blocked-docker","request_id":"` + requestID + `","status":"ready","summary":"run docker compose","version_increment":{"component":"patch","amount":1},"commit_message":"build(deploy): validate the compose configuration","risk":"high","requires_approval":false,"operations":[{"type":"command","patch":"","command":{"argv":["docker","compose","config","--quiet"],"cwd":".","timeout_seconds":30,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Resumo cumulativo da tentativa bloqueada pela Policy.")
 	for name, value := range entries {

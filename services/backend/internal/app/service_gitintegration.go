@@ -276,7 +276,9 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 func integratedBranches(integrated []integratedCandidate) []string {
 	branches := make([]string, 0, len(integrated))
 	for _, candidate := range integrated {
-		branches = append(branches, candidate.branch)
+		if strings.TrimSpace(candidate.branch) != "" {
+			branches = append(branches, candidate.branch)
+		}
 	}
 	return branches
 }

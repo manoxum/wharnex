@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -130,5 +131,23 @@ func TestExecutionFormatRequiresExplicitPlannerOutcome(t *testing.T) {
 	outcome := properties["outcome"].(map[string]any)
 	if outcome["additionalProperties"] != false {
 		t.Fatalf("outcome schema is not strict: %#v", outcome)
+	}
+}
+
+func TestExecutionPlanSchemaExposesStrictVersionIncrement(t *testing.T) {
+	schema := executionPlanSchema("req-version", strings.Repeat("a", 64))
+	properties := schema["properties"].(map[string]any)
+	version := properties["version_increment"].(map[string]any)
+	if version["additionalProperties"] != false {
+		t.Fatalf("version increment schema is not strict: %#v", version)
+	}
+	required := version["required"].([]string)
+	if len(required) != 2 || required[0] != "component" || required[1] != "amount" {
+		t.Fatalf("unexpected version increment required fields: %#v", required)
+	}
+	component := version["properties"].(map[string]any)["component"].(map[string]any)
+	enum := component["enum"].([]string)
+	if len(enum) != 4 || enum[1] != domain.VersionComponentMedium || enum[3] != domain.VersionComponentPatch {
+		t.Fatalf("unexpected version component enum: %#v", enum)
 	}
 }

@@ -240,16 +240,38 @@ type Operation struct {
 	Command CommandSpec `json:"command"`
 }
 
+type VersionIncrement struct {
+	Component string `json:"component"`
+	Amount    int    `json:"amount"`
+}
+
+const (
+	VersionComponentMajor  = "major"
+	VersionComponentMedium = "medium"
+	VersionComponentMinor  = "minor"
+	VersionComponentPatch  = "patch"
+)
+
+func ValidVersionComponent(component string) bool {
+	switch component {
+	case VersionComponentMajor, VersionComponentMedium, VersionComponentMinor, VersionComponentPatch:
+		return true
+	default:
+		return false
+	}
+}
+
 type ExecutionPlan struct {
-	Protocol          string   `json:"protocol"`
-	BaseContextSHA256 string   `json:"base_context_sha256,omitempty"`
-	ImpactFiles       []string `json:"impact_files,omitempty"`
-	ReadFiles         []string `json:"read_files,omitempty"`
-	BarrierFiles      []string `json:"barrier_files,omitempty"`
-	PlanID            string   `json:"plan_id"`
-	RequestID         string   `json:"request_id"`
-	Status            string   `json:"status"`
-	Summary           string   `json:"summary"`
+	Protocol          string            `json:"protocol"`
+	BaseContextSHA256 string            `json:"base_context_sha256,omitempty"`
+	ImpactFiles       []string          `json:"impact_files,omitempty"`
+	ReadFiles         []string          `json:"read_files,omitempty"`
+	BarrierFiles      []string          `json:"barrier_files,omitempty"`
+	PlanID            string            `json:"plan_id"`
+	RequestID         string            `json:"request_id"`
+	Status            string            `json:"status"`
+	Summary           string            `json:"summary"`
+	VersionIncrement  *VersionIncrement `json:"version_increment,omitempty"`
 	// CommitMessage is the planner-authored Git commit message for a
 	// `change` plan's patch, used verbatim (after sanitization) as the
 	// commit Wharnex makes on the sandbox's own integration branch before
@@ -745,6 +767,8 @@ type Session struct {
 	LastRevertedChanges     []PendingHostChange  `json:"last_reverted_changes,omitempty"`
 	LastHostCommands        []CommandResult      `json:"last_host_commands,omitempty"`
 	LastHostAppliedAt       time.Time            `json:"last_host_applied_at,omitempty"`
+	LastVersionBefore       string               `json:"last_version_before,omitempty"`
+	LastVersionAfter        string               `json:"last_version_after,omitempty"`
 	LastProviderResponseID  string               `json:"last_provider_response_id,omitempty"`
 	LastRequestID           string               `json:"last_request_id,omitempty"`
 	PendingManualRequestIDs []string             `json:"pending_manual_request_ids,omitempty"`

@@ -239,6 +239,10 @@ func (s *Service) CreateProject(ctx context.Context, parentPath, name string) (s
 	if err != nil {
 		return "", err
 	}
+	if err := s.ensureProjectVersion("", root); err != nil {
+		_ = os.RemoveAll(root)
+		return "", fmt.Errorf("create project VERSION: %w", err)
+	}
 	if _, _, err := projectconfig.Ensure(root); err != nil {
 		_ = os.RemoveAll(root)
 		return "", fmt.Errorf("create %s: %w", projectconfig.FileName, err)
@@ -250,6 +254,9 @@ func (s *Service) CloneProject(ctx context.Context, repository, parentPath, dire
 	root, err := projectgit.Clone(ctx, repository, parentPath, directory)
 	if err != nil {
 		return "", err
+	}
+	if err := s.ensureProjectVersion("", root); err != nil {
+		return "", fmt.Errorf("create project VERSION after clone: %w", err)
 	}
 	if _, _, err := projectconfig.Ensure(root); err != nil {
 		return "", fmt.Errorf("create %s after clone: %w", projectconfig.FileName, err)
@@ -325,6 +332,9 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	}
 	if automationMode == domain.AutomationModeAuto && executionMode != domain.ExecutionModeProtected {
 		return domain.Session{}, errors.New("auto mode requires protected execution mode")
+	}
+	if err := s.ensureProjectVersion(id, projectPath); err != nil {
+		return domain.Session{}, fmt.Errorf("prepare project VERSION: %w", err)
 	}
 	initialized, err := projectgit.Ensure(ctx, projectPath)
 	if err != nil {
@@ -789,7 +799,7 @@ func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session
 	if err := augmentConflictResolutionPlan(current, &plan); err != nil {
 		return domain.Session{}, fmt.Errorf("conflict resolution protocol: %w", err)
 	}
-	if err := protocol.Validate(plan); err != nil {
+	if err := protocol.ValidateChangePlan(plan); err != nil {
 		return domain.Session{}, err
 	}
 	if err := validateConflictResolutionPlan(current, &plan); err != nil {
@@ -1085,7 +1095,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if err := augmentConflictResolutionPlan(current, parsed.Plan); err != nil {
 		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
 	}
-	if err := protocol.Validate(*parsed.Plan); err != nil {
+	if err := protocol.ValidateChangePlan(*parsed.Plan); err != nil {
 		return BundleSubmission{}, err
 	}
 	// The summary is the one sentence a human reads to learn what this bundle
@@ -2343,7 +2353,7 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 		if planned.Plan.RequestID != requestID {
 			return fmt.Errorf("repair planner request_id mismatch: expected %s", requestID)
 		}
-		if err := protocol.Validate(*planned.Plan); err != nil {
+		if err := protocol.ValidateChangePlan(*planned.Plan); err != nil {
 			return err
 		}
 		decision := s.policy.Evaluate(*planned.Plan)
@@ -2670,7 +2680,13 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	// verification) fails. Declared here so the closure can see them.
 	var mergedIntegrationBranches []integratedCandidate
 	var preMergeIntegrationSHA string
+	var versionChange appliedVersionChange
 	failApply := func(cause error) error {
+		if !useIntegrationBranches && versionChange.After != "" {
+			if restoreErr := restoreProjectVersion(item.ProjectPath, versionChange.After, versionChange.Before); restoreErr != nil {
+				cause = fmt.Errorf("%w; VERSION rollback also failed: %v", cause, restoreErr)
+			}
+		}
 		var failure error
 		switch {
 		case useIntegrationBranches && preMergeIntegrationSHA != "":
@@ -2835,6 +2851,25 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 	}
 
+	versionBeforeHead := ""
+	if useIntegrationBranches {
+		versionBeforeHead, err = sandbox.CurrentHeadSHA(ctx, item.ProjectPath)
+		if err != nil {
+			return item, failApply(fmt.Errorf("resolve host HEAD before VERSION increment: %w", err))
+		}
+	}
+	versionCommitSHA := ""
+	versionChange, versionCommitSHA, err = s.bumpProjectVersion(ctx, sessionID, item.ProjectPath, pending, useIntegrationBranches)
+	if err != nil {
+		return item, failApply(fmt.Errorf("apply project VERSION increment: %w", err))
+	}
+	if versionChange.After != "" && versionChange.After != versionChange.Before {
+		changedFiles = normalizedPaths(append(changedFiles, "VERSION"))
+		if commitMode == gitsettings.CommitModeManual && useIntegrationBranches && versionCommitSHA != "" {
+			mergedIntegrationBranches = append(mergedIntegrationBranches, versionCandidate(sessionID, pending, versionBeforeHead, versionCommitSHA, versionChange))
+		}
+	}
+
 	// The change is verified and on disk. In manual mode the only thing left
 	// to decide is whether it becomes history now or when the operator says
 	// so: record what each candidate contributed, then return the branch to
@@ -2858,6 +2893,8 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		current.LastRevertedChanges = nil
 		current.LastHostCommands = append([]domain.CommandResult(nil), hostCommands...)
 		current.LastHostAppliedAt = hostAppliedAt
+		current.LastVersionBefore = versionChange.Before
+		current.LastVersionAfter = versionChange.After
 		current.PendingHostChanges = nil
 		clearSessionFailure(current)
 		if selfEvolution && current.LastTurn != nil && len(current.LastTurn.ResolvedEvidenceIDs) > 0 {
@@ -2873,7 +2910,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		return nil
 	})
 	if err != nil {
-		return item, rollback(err)
+		return item, failApply(err)
 	}
 	if len(mergedIntegrationBranches) > 0 {
 		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, integratedBranches(mergedIntegrationBranches))
@@ -2958,12 +2995,15 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 	for index := range applied {
 		patches = append(patches, planPatches(&applied[index].Plan)...)
 	}
-	if len(patches) == 0 {
-		return item, errors.New("the current plan has no patch changes to revert")
+	if len(patches) == 0 && strings.TrimSpace(item.LastVersionBefore) == "" {
+		return item, errors.New("the current plan has no patch or VERSION changes to revert")
 	}
 	changedFiles := make([]string, 0)
 	for _, patch := range patches {
 		changedFiles = append(changedFiles, patchTouchedPaths(patch)...)
+	}
+	if strings.TrimSpace(item.LastVersionBefore) != "" {
+		changedFiles = append(changedFiles, "VERSION")
 	}
 	changedFiles = normalizedPaths(changedFiles)
 	latestPlanID := applied[len(applied)-1].Plan.PlanID
@@ -3015,12 +3055,18 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 		}
 	}
 
+	if err := restoreProjectVersion(item.ProjectPath, item.LastVersionAfter, item.LastVersionBefore); err != nil {
+		return item, fmt.Errorf("restore project VERSION during revert: %w", err)
+	}
+
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.State = "reverted"
 		current.LastRevertedChanges = append([]domain.PendingHostChange(nil), applied...)
 		current.LastAppliedChanges = nil
 		current.LastHostCommands = nil
 		current.LastHostAppliedAt = time.Time{}
+		current.LastVersionBefore = ""
+		current.LastVersionAfter = ""
 		return nil
 	})
 	if err != nil {

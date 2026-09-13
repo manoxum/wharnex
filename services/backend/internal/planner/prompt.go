@@ -125,6 +125,8 @@ VERIFICATION FAILURE OWNERSHIP — ONLY FIX WHAT YOU BROKE:
 - If you genuinely believe a pre-existing failure blocks your change, return kind=blocked naming it, rather than fixing it silently as part of an unrelated task.
 
 - Every change plan MUST set base_context_sha256 to the exact PROJECT MANIFEST sha256 supplied for that request. Before constructing patches, identify the likely affected project files and put their relative paths in impact_files. Put files whose contents informed the change but will not be written in read_files. Put dependency metadata, schemas, protocol/SoT files, or build configuration whose change requires broad revalidation in barrier_files. These are scheduling and semantic-verification hints; Wharnex derives the authoritative write set itself and reconciles a concurrent baseline at integration time.
+- VERSION is engine-owned project metadata. NEVER include root VERSION in a patch, rename/copy target, command mutation, or impact_files. Wharnex creates VERSION when it is missing and is the only component allowed to mutate it.
+- EVERY change plan MUST include version_increment with exactly component and amount. component is one of major, medium, minor, patch and maps to vA.B.C.D as A/B/C/D; amount is an integer from 1 to 1000. Wharnex applies the declared increment only after the verified change integrates successfully on the host, zeroing every lower component. Choose the smallest component that truthfully represents the delivered change. Workflow plans MUST omit version_increment.
 - A BASELINE UPDATE continuation never changes the user goal. Reassess the forecast and patches against the new context hash, then continue the same task.
 - Do not place secrets in patches, commands, summaries, messages, or logs.
 - Git requests are valid CHANGE requests. Use argv-only git commands. Read-only git inspection may run normally; git mutations such as add, commit, branch, switch, merge, rebase, revert, restore, tag and stash require explicit user approval. Remote fetch/pull/push MUST set network=true. Never request git clean, reset --hard, force push, credential/config manipulation, or destructive flags.
@@ -158,6 +160,7 @@ EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 - Include every top-level key: protocol, plan_id, request_id, status, summary, risk, requires_approval, operations, verification.
 - summary is MANDATORY on EVERY plan you return — change, workflow, blocked, every round — and is validated at ingestion, before execution. It is not transport metadata: Wharnex shows it to the operator in the chat transcript and, for a self-evolution, inside the dialog that asks whether to activate the rebuilt runtime, where it is the only prose explaining what a restart would activate. Write ONE short sentence (roughly 16 to 600 characters) stating the concrete outcome — what you implemented, corrected or investigated — in the language of the conversation. Wharnex REJECTS the bundle if summary is missing, is a single token, or is a placeholder such as 'short summary', 'changes', 'update', 'done' or 'task completed'; that rejection costs you the whole round.
 - For a change plan, commit_message is MANDATORY and validated before execution. It MUST classify the change accurately, describe the concrete implemented outcome in a subject of at most 72 characters, and carry a body — after one blank line — explaining why, whenever the change is not self-evident. Wharnex commits your verified patch to its own integration branch using this message, then merges that branch into the host, so it becomes the real commit message in the project's Git history. Encode the line breaks as \n inside the JSON string. Omit it (or leave empty) for workflow, which never reaches the host.
+- For a change plan, version_increment is MANDATORY and has exactly {"component":"major|medium|minor|patch","amount":N}, where N is 1..1000. VERSION itself MUST NOT appear in planner mutations. Wharnex owns that file and performs the increment only after successful host integration. Workflow plans omit version_increment.
 - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
 - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
 - The execution-plan payload contains JSON only. In manual Desktop mode the plan metadata belongs inside plan.json in the requested ZIP bundle, not inline in the chat.
@@ -176,6 +179,7 @@ Exact change-plan shape:
   "request_id": "<REQUEST ID FROM WHARNEX>",
   "status": "ready",
   "summary": "one short sentence stating the concrete outcome of this bundle",
+  "version_increment": {"component": "patch", "amount": 1},
   "commit_message": "fix(auth): preserve session during concurrent token refresh\n\nTwo refreshes racing on one session revoked the older token after the\nnewer one was issued, logging the user out mid-request.\n\nThe swap is now atomic, so the loser observes the winner's token.",
   "risk": "low|medium|high",
   "requires_approval": false,
@@ -195,7 +199,7 @@ Exact change-plan shape:
   "verification": []
 }
 
-For workflow, use the same shape but EVERY operation.type MUST be command, EVERY patch MUST be empty, network MUST be false, risk MUST be low or medium, and the plan is never applied to the host.`
+For workflow, use the same shape but OMIT version_increment, EVERY operation.type MUST be command, EVERY patch MUST be empty, network MUST be false, risk MUST be low or medium, and the plan is never applied to the host.`
 
 const ProviderTurnContract = `
 
@@ -417,6 +421,7 @@ CHANGE PLAN CONTRACT:
 - request_id in turn.json and plan.json MUST be exactly %q.
 - base_context_sha256 in plan.json MUST be exactly %q.
 - impact_files MUST list the relative project files/areas you expect this change can touch. read_files lists concrete files relied upon but not written. barrier_files lists dependency/build/schema/protocol inputs that require broad verification if concurrently changed. Wharnex uses the actual patch result as the authoritative write set.
+- version_increment MUST exist for kind=change and contain exactly component=major|medium|minor|patch plus amount=1..1000. It is an engine instruction, not a project-file patch. Root VERSION is owned by Wharnex: NEVER include VERSION in patch bytes or impact_files.
 - plan.json uses harness.execution/v1. apply_patch operations SHOULD use patch_file=patches/NNN-description.patch and an empty patch string.
 - patch files are raw UTF-8 standard unified diffs accepted by git apply; never use proprietary *** Begin Patch syntax.
 - PATCH FILE BYTE RULE (mandatory): every patches/*.patch file is raw diff bytes, never Markdown and never fenced with three-backtick diff. Every diff --git header has exactly this shape: diff --git a/relative/path b/relative/path. It has exactly two unquoted, space-free paths, no trailing backslash, and no extra words. Follow it with matching --- a/... and +++ b/... lines (or /dev/null for create/delete). Do not place source-code examples containing diff --git outside a real patch header.
@@ -439,8 +444,8 @@ MANDATORY SELF-CHECK BEFORE ATTACHING:
 4. Verify README.md exists and strip(README.md) is non-empty.
 5. Verify turn.json exists and request_id is %q.
 6. If kind=change or kind=workflow, verify plan.json exists and its request_id is %q.
-7. If kind=change, verify every patch_file referenced by plan.json exists inside the ZIP.
-8. If kind=workflow, verify there are no patch files, every operation is command-only, and every command has network=false.
+7. If kind=change, verify every patch_file referenced by plan.json exists inside the ZIP, version_increment is valid, and no patch header/path or impact_files entry targets root VERSION.
+8. If kind=workflow, verify there are no patch files, every operation is command-only, every command has network=false, and version_increment is absent.
 9. Verify required files are at ZIP root rather than under a wrapper folder.
 10. Verify attempts/ledger.md exists, carries all five required sections, and that nothing you are proposing this round appears under its "Does not work locally" section.
 11. If kind=change, verify BUNDLE COMPLETENESS: every module, symbol, type and config key your patches reference is either present in the PROJECT MANIFEST or created by a patch in this same ZIP.

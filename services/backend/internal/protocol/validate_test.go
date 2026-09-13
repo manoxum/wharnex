@@ -119,3 +119,45 @@ func TestValidateBaselineAndImpactMetadata(t *testing.T) {
 		t.Fatal("expected impact traversal rejection")
 	}
 }
+
+func TestValidateChangePlanRequiresVersionIncrement(t *testing.T) {
+	plan := validPlan()
+	if err := ValidateChangePlan(plan); err == nil || !strings.Contains(err.Error(), "requires version_increment") {
+		t.Fatalf("missing version increment was not rejected: %v", err)
+	}
+	plan.VersionIncrement = &domain.VersionIncrement{Component: domain.VersionComponentMinor, Amount: 1}
+	if err := ValidateChangePlan(plan); err != nil {
+		t.Fatalf("valid change increment was rejected: %v", err)
+	}
+	plan.VersionIncrement.Amount = 0
+	if err := ValidateChangePlan(plan); err == nil {
+		t.Fatal("zero version increment amount must be rejected")
+	}
+	plan.VersionIncrement = &domain.VersionIncrement{Component: "medion", Amount: 1}
+	if err := ValidateChangePlan(plan); err == nil {
+		t.Fatal("unknown version increment component must be rejected")
+	}
+}
+
+func TestValidatePatchPathsRejectsEngineOwnedVersion(t *testing.T) {
+	patches := []string{
+		"diff --git a/VERSION b/VERSION\n--- a/VERSION\n+++ b/VERSION\n@@ -1 +1 @@\n-v1.0.0.0\n+v1.0.0.1\n",
+		"diff --git a/old.txt b/VERSION\nrename from old.txt\nrename to VERSION\n",
+	}
+	for _, patch := range patches {
+		if err := ValidatePatchPaths(patch); err == nil {
+			t.Fatalf("VERSION mutation was not rejected: %q", patch)
+		}
+	}
+}
+
+func TestValidateWorkflowPlanRejectsVersionIncrement(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "wf-version", RequestID: "req_12345678", Status: "ready", Summary: "inspect version", Risk: "low",
+		VersionIncrement: &domain.VersionIncrement{Component: domain.VersionComponentPatch, Amount: 1},
+		Operations:       []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"git", "status", "--short"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "must not contain version_increment") {
+		t.Fatalf("workflow version increment was not rejected: %v", err)
+	}
+}

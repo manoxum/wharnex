@@ -319,3 +319,18 @@ func TestParseKnowledgeV2CatalogAndSummary(t *testing.T) {
 		t.Fatalf("unexpected v2 knowledge candidate: %#v", candidate)
 	}
 }
+
+func TestParsePreservesVersionIncrementMetadata(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Change\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"change","message":"Aplicar melhoria.","outcome":{"status":"completed","retryable":false}}`,
+		"plan.json": `{"protocol":"harness.execution/v1","plan_id":"p-version","request_id":"req_12345678","status":"ready","summary":"implement version metadata","version_increment":{"component":"minor","amount":2},"risk":"medium","requires_approval":false,"operations":[],"verification":[]}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Plan == nil || parsed.Plan.VersionIncrement == nil || parsed.Plan.VersionIncrement.Component != domain.VersionComponentMinor || parsed.Plan.VersionIncrement.Amount != 2 {
+		t.Fatalf("version increment metadata was not preserved: %#v", parsed.Plan)
+	}
+}

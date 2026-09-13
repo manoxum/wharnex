@@ -397,3 +397,20 @@ func TestBuildManualPromptForbidsFixingFailuresTheChangeDidNotCause(t *testing.T
 		}
 	}
 }
+
+func TestBuildManualPromptMakesVersionEngineOwned(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-version-owned", Message: "implementar melhoria"})
+	for _, want := range []string{
+		"VERSION is engine-owned project metadata",
+		"NEVER include root VERSION in a patch",
+		"version_increment",
+		"major, medium, minor, patch",
+		"vA.B.C.D",
+		"only after the verified change integrates successfully on the host",
+		"Workflow plans MUST omit version_increment",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("version contract prompt missing %q", want)
+		}
+	}
+}
