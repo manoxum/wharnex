@@ -31,6 +31,7 @@ func copyProject(source string) (Workspace, error) {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("inspect source git repository: %w", err)
 	}
+	var submoduleBaselines []SubmoduleBaseline
 	if tracked {
 		if err := cloneGitBaseline(root, tmp); err != nil {
 			_ = os.RemoveAll(tmp)
@@ -40,6 +41,10 @@ func copyProject(source string) (Workspace, error) {
 			_ = os.RemoveAll(tmp)
 			return Workspace{}, fmt.Errorf("clear sandbox worktree: %w", err)
 		}
+		// Submodules become real repositories here, before the overlay, so the
+		// overlay writes the host's current content on top of real history
+		// instead of into a directory Git only holds a pointer to.
+		submoduleBaselines = prepareSubmoduleBaselines(root, tmp)
 	}
 	if err := copyEligibleProjectFiles(root, tmp, false, nil); err != nil {
 		_ = os.RemoveAll(tmp)
@@ -54,7 +59,7 @@ func copyProject(source string) (Workspace, error) {
 		_ = os.RemoveAll(tmp)
 		return Workspace{}, fmt.Errorf("initialize sandbox git baseline: %w", err)
 	}
-	return Workspace{Path: tmp, SourcePath: root}, nil
+	return Workspace{Path: tmp, SourcePath: root, SubmoduleBaselines: submoduleBaselines}, nil
 }
 
 // HydrateMissingProjectFiles completes a private partial request base with

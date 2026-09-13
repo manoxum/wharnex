@@ -26,7 +26,14 @@ const (
 // aborts the merge before returning this error. HostSHA/Branch/MergeBaseSHA
 // carry enough for the caller to build a BASE/CURRENT/RESULT conflict
 // capsule via ReadFileAtRef without any further merge attempt.
+// Unit names the repository unit the conflict happened in — empty for the
+// superproject, the submodule's project-relative path otherwise. Paths stay
+// PROJECT-relative whatever the unit is: the planner wrote project paths and
+// must never be handed a path silently rebased onto a repository boundary it
+// was not told about. HostSHA/MergeBaseSHA/Branch resolve inside that unit's
+// own repository, so a reader must join Unit onto the project root first.
 type MergeConflictError struct {
+	Unit         string
 	Paths        []string
 	Branch       string
 	HostSHA      string
@@ -34,6 +41,9 @@ type MergeConflictError struct {
 }
 
 func (e *MergeConflictError) Error() string {
+	if strings.TrimSpace(e.Unit) != "" {
+		return fmt.Sprintf("merge conflict in submodule %s on %s", e.Unit, strings.Join(e.Paths, ", "))
+	}
 	return fmt.Sprintf("merge conflict on %s", strings.Join(e.Paths, ", "))
 }
 

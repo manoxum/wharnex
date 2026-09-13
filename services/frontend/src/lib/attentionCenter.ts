@@ -140,8 +140,8 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
         chat,
         'submodule-write',
         'danger',
-        'Alteração pertence a outro repositório',
-        session.last_repair_error || 'Abra o submódulo indicado como projeto Wharnex e repita o pedido nesse repositório.',
+        'Submódulo sem checkout utilizável',
+        session.last_repair_error || 'O submódulo indicado não está inicializado neste worktree, por isso não existe repositório onde gravar a alteração. Inicialize-o (git submodule update --init) e repita o pedido.',
       ))
       failureAlertAdded = true
       break

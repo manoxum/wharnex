@@ -80,6 +80,20 @@ type Preservation struct {
 // `git commit` exits non-zero with "no changes added to commit" and nothing in
 // the flow could ever clear the condition.
 func Preserve(ctx context.Context, root, message string) (Preservation, error) {
+	return PreserveExcept(ctx, root, message, nil)
+}
+
+// PreserveExcept is Preserve with paths the snapshot must not capture.
+//
+// It exists for one case, and that case is load bearing. A unit-aware
+// integration merges the submodules first, which moves their gitlinks in the
+// superproject; the superproject's own snapshot then ran a moment later and
+// dutifully committed those moved pointers as though they were the operator's
+// uncommitted work. That is wrong twice over: it writes a Wharnex bookkeeping
+// commit into the operator's history describing a change Wharnex had just made
+// itself, and it moves the rollback boundary past it, so a revert could not
+// return the superproject to where it started (adr/ADR-0050).
+func PreserveExcept(ctx context.Context, root, message string, excluded []string) (Preservation, error) {
 	topology, err := Inspect(ctx, root)
 	if err != nil {
 		return Preservation{}, err
@@ -110,6 +124,7 @@ func Preserve(ctx context.Context, root, message string) (Preservation, error) {
 			Remedy: "resolve or reset those paths and apply again",
 		}
 	}
+	state = state.without(excluded)
 	preservation := Preservation{
 		LeftInPlace:     state.EmbeddedRepositories,
 		DirtySubmodules: state.DirtySubmodules,
@@ -118,7 +133,7 @@ func Preserve(ctx context.Context, root, message string) (Preservation, error) {
 		return preservation, nil
 	}
 	preservation.StagedPaths = append(append([]string(nil), state.Stageable...), state.GitlinkChanges...)
-	if output, err := run(ctx, root, StageArgs(state.EmbeddedRepositories)...); err != nil {
+	if output, err := run(ctx, root, StageArgs(append(append([]string(nil), state.EmbeddedRepositories...), excluded...))...); err != nil {
 		return Preservation{}, fmt.Errorf("stage host working tree before integration: %s", output)
 	}
 	commitArgs := append(internalCommitArgs(topology), "commit", "-q", "--no-verify", "-m", message)

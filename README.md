@@ -248,6 +248,12 @@ The workspace top bar contains a project-scoped execution switch:
 
 The preference is stored by project path and restored when that workspace is reopened. All Harness chats belonging to the workspace follow the same project preference. The interactive Editor terminal deliberately stays sandboxed in both modes.
 
+### Projects with Git submodules
+
+A superproject and its submodules are treated as one project made of several repositories (see `adr/ADR-0050`). A change may write anywhere in it — including inside `services/app/` or any other submodule — using ordinary project-relative paths; Wharnex resolves each path to the repository that owns it, verifies the change in a sandbox where every submodule is a real repository, commits it there, records the moved pointer in the superproject, and merges both. Nothing has to be configured and no second Wharnex project is needed.
+
+Two consequences are worth knowing. Submodule commits are **local**: Wharnex never pushes to a submodule's remote, so the terminal Apply report and the Git surface name every repository that now holds unpushed work. And a submodule with no checkout still cannot receive a change — there is no repository to commit into — so such a bundle is refused with the action that clears it: `git submodule update --init -- <path>`.
+
 ## Workspace persistence
 
 The active project path, current mode, recent workspaces, active Harness chat, per-chat transcript, per-chat backend session ID, and per-chat ChatGPT conversation URL are stored locally. After `F5` or reopening Wharness Desktop, the active workspace and chat are restored. Selecting another Harness chat restores its own transcript and activates that chat's dedicated embedded ChatGPT renderer, navigating only that renderer to the linked conversation URL. Remote renderers are never reassigned between Harness chats; the common persistent browser partition is used only to share the authenticated ChatGPT browser session. If the Go backend has restarted and a remembered in-memory session no longer exists, Wharness creates a fresh backend session for that chat while preserving the local transcript and ChatGPT URL.

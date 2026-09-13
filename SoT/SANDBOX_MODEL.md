@@ -80,15 +80,39 @@ gitlink. Consequently:
   submodule's checkout, which Git does not do. Realignment is offline and never
   touches a submodule holding uncommitted work; skips are reported.
 
-A patch writing inside a registered submodule is rejected at ingestion: the
-superproject's index holds a single gitlink there, so the path cannot be
-staged, committed or merged, and no planner repair can change that. The HTTP
-boundary returns a stable submodule-write rejection, the session is classified
-`submodule_write`, and Auto mode MUST stop without consuming a fresh remote
-request. Recovery is to open the indicated submodule as its own Wharness
-project, make the change in that repository, and update the superproject
-gitlink when appropriate. A project Wharnex cannot inspect is admitted
-unchanged — a measurement failure never rejects a legitimate change.
+## Submodule-native integration (v1.3.7)
+
+A project is a tree of repository units (see `adr/ADR-0050`): the superproject
+plus every initialized submodule reachable from an index, recursively. The
+verification sandbox reproduces that tree — after the superproject clone and
+worktree clear, each initialized submodule is cloned locally from the host's own
+checkout into its gitlink path and detached at the commit the superproject
+records, before the ordinary file overlay runs on top. Without that, the
+sandbox is a clone of the superproject alone: the overlay writes a submodule's
+files into a directory the index shadows with a gitlink, so they are visible to
+a compiler and invisible to Git, and a verified patch dies at
+`fatal: Pathspec … is in submodule` after the whole verification suite has
+already been spent on it.
+
+Every unit then anchors its own request base, receives its own integration
+branch, is committed with the plan's own `commit_message`, and is pushed into
+its own `.git` on the host by absolute path. Commits run deepest first, and each
+parent additionally records the gitlink of every child that moved.
+
+Reproduction is best effort per submodule. One that cannot be cloned —
+uninitialized, unreadable, or whose recorded commit is absent locally — is
+reported at workspace preparation and keeps the previous behavior, where its
+files exist but nothing there is integrable. Workspace preparation never fails
+because one submodule could not be reproduced.
+
+A patch writing inside a submodule with no usable checkout is still rejected at
+ingestion: there is no repository to commit into, and no planner repair can
+change that. The HTTP boundary returns a stable submodule-write rejection, the
+session is classified `submodule_write`, and Auto mode MUST stop without
+consuming a fresh remote request. Recovery is to initialize the submodule
+(`git submodule update --init`) and repeat the request. A project Wharnex cannot
+inspect is admitted unchanged — a measurement failure never rejects a legitimate
+change.
 
 ## Runner toolchain and environment disclosure
 

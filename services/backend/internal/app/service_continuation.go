@@ -38,7 +38,7 @@ func (s *Service) prepareContinuation(ctx context.Context, item domain.Session, 
 	}
 	baseCommit := s.captureRequestBase(ctx, item.ID, item.ProjectPath, requestID)
 	rootID := knowledgeReviewRoot(item, parentRequestID)
-	delta := s.computeContextDelta(ctx, item, rootID, requestID, baseCommit)
+	delta := s.computeContextDelta(ctx, item, rootID, requestID, baseCommit.Root)
 
 	var released []string
 	_, _ = s.store.Update(item.ID, func(current *domain.Session) error {

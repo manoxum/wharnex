@@ -600,6 +600,28 @@ type PendingHostChange struct {
 	// IntegrationCommit is the commit SHA IntegrationBranch pointed to right
 	// after it was created, for audit/diagnostics.
 	IntegrationCommit string `json:"integration_commit,omitempty"`
+	// IntegrationUnits records every repository unit this candidate was
+	// committed into, deepest first (see adr/ADR-0050). A project with no
+	// submodules produces exactly one entry for the superproject, which is
+	// redundant with IntegrationBranch/IntegrationCommit and kept only so the
+	// apply path has one shape to consume. Empty on a candidate persisted
+	// before this field existed; the apply path then falls back to the
+	// superproject-only branch above.
+	IntegrationUnits []IntegrationUnit `json:"integration_units,omitempty"`
+}
+
+// IntegrationUnit is one repository unit's verified commit for a candidate.
+//
+// Path is the project-relative unit root and is empty for the superproject, so
+// that a single-repository project's record reads exactly as it always did.
+type IntegrationUnit struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+	Commit string `json:"commit,omitempty"`
+	// PointerUpdates lists the child units whose gitlink this unit's commit
+	// records. It is what makes a pointer-only superproject commit legible in
+	// an audit trail instead of looking like an empty change.
+	PointerUpdates []string `json:"pointer_updates,omitempty"`
 }
 
 type IntegrationOutcome string
@@ -829,7 +851,15 @@ type Session struct {
 	// branch here makes the patch apply by construction no matter how far the
 	// host has advanced since, and turns real divergence into an ordinary
 	// three-way merge instead of a dead-end apply failure.
-	RequestBaseCommits     map[string]string                   `json:"request_base_commits,omitempty"`
+	RequestBaseCommits map[string]string `json:"request_base_commits,omitempty"`
+	// RequestBaseUnitCommits records the same anchor for every OTHER repository
+	// unit the project is made of, keyed request id then project-relative unit
+	// path (see adr/ADR-0050). A submodule's content lives in another
+	// repository, so no single commit can describe the tree a planner was shown
+	// for a project that has one; each unit anchors its own. The superproject's
+	// anchor stays in RequestBaseCommits above, unchanged, so every
+	// pre-submodule read path and every already-persisted session keep working.
+	RequestBaseUnitCommits map[string]map[string]string        `json:"request_base_unit_commits,omitempty"`
 	RequestContextArchives map[string]string                   `json:"-"`
 	RequestKnowledge       map[string]RequestKnowledgeSnapshot `json:"-"`
 	BaselineFileSnapshots  map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`

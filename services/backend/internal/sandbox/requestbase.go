@@ -165,6 +165,22 @@ func captureWorkingTreeCommit(ctx context.Context, repoPath, message string, exc
 // on planner-resolvable paths never reaches the host and never leaves a
 // pre-merge snapshot commit behind for nothing.
 func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*MergeConflictError, error) {
+	return PreflightMergeIntoHostExcept(ctx, hostPath, branch, nil)
+}
+
+// PreflightMergeIntoHostExcept is PreflightMergeIntoHost with the gitlinks of
+// the submodules this same integration is about to merge treated as
+// already-decided rather than as conflicts.
+//
+// The superproject's branch records each submodule at the commit the SANDBOX
+// made; the host records wherever its own copy is. A dry-run merge of the
+// superproject alone therefore reports a gitlink conflict whenever a submodule
+// moved on either side — which is exactly the case this whole mechanism exists
+// to handle, and which the real integration resolves by merging that submodule
+// first and then recording where it landed. Counting it as an ordinary
+// conflict would abort a legitimate integration and hand a planner a commit id
+// to patch (adr/ADR-0050).
+func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch string, integratingUnits []string) (*MergeConflictError, error) {
 	comparison, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharnex merge preflight")
 	if err != nil {
 		return nil, err
@@ -174,6 +190,7 @@ func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*Merg
 		return nil, err
 	}
 	_, ordinary := partitionManagedMergePaths(preflight.ConflictPaths)
+	ordinary = withoutIntegratingUnits(ordinary, integratingUnits)
 	if len(ordinary) == 0 {
 		return nil, nil
 	}

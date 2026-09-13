@@ -56,63 +56,83 @@ func (s *Service) failHostStateBlocked(
 	return updated, abort(fmt.Errorf("%w: %s", ErrHostWorkingStateBlocked, detail))
 }
 
-// ErrSubmoduleWrite marks a change plan whose patch set writes inside a Git
-// submodule of the open project.
-var ErrSubmoduleWrite = errors.New("change writes inside a Git submodule, which Wharnex integrates as a pointer rather than as content")
+// ErrSubmoduleWrite marks a change plan whose patch set writes into a submodule
+// Wharnex cannot integrate into at all.
+//
+// Its scope narrowed with adr/ADR-0050. Writing inside an ordinary initialized
+// submodule is now supported end to end: the path is routed to the repository
+// that owns it, committed there, and the parent's pointer moved to match. What
+// remains refused is the case where that is impossible — a submodule with no
+// checkout, or one Wharnex could not measure as a repository of its own. There
+// is nothing to patch and nothing to commit into, and no planner repair can
+// change that, so it keeps the original non-repairable classification.
+var ErrSubmoduleWrite = errors.New("change writes inside a Git submodule that has no usable checkout in this project")
 
-// rejectSubmoduleWrites refuses, at ingestion, a change plan that patches a
-// path inside one of the host project's submodules.
+// routeSubmoduleWrites classifies a change plan's write set against the
+// project's real repository-unit tree, refusing only the writes no repository
+// can receive.
 //
-// A submodule shadows its own directory in the superproject: the index holds a
-// single gitlink there, so `git add -- <submodule>/<file>` is a hard error
-// ("Pathspec is in submodule"), and a local clone of the superproject does not
-// even carry the submodule's content. The result was a change that applied to
-// disk, passed every verification gate, and then died at commit time with an
-// opaque Git message — after the model turn, the container run and the full
-// verification suite had all been spent, and with no repair a planner could
-// possibly produce, because the defect is in the repository topology rather
-// than in the source.
+// The previous behavior refused every write inside any submodule, which was
+// correct for the mechanism as it then existed — the superproject's index holds
+// one gitlink per submodule, so `git add -- <submodule>/<file>` is a hard error
+// and the whole verification round was spent before reaching it. It was the
+// wrong contract for the projects Wharnex hosts: a deployment superproject
+// whose entire source lives in submodules could receive no change at all.
 //
-// Rejecting here costs one re-request and states the real constraint. The
-// project's own context is what teaches the planner to avoid those paths on
-// the retry; this check is the enforcement, not the explanation.
-//
-// It is best effort with respect to measurement: a project Wharnex cannot
-// inspect (no git, an unreadable repository) is admitted exactly as before,
-// because a measurement failure must never reject a user's legitimate change.
-func (s *Service) rejectSubmoduleWrites(ctx context.Context, sessionID, projectPath string, plan *domain.ExecutionPlan) error {
+// Routing is a measurement, never a plan field. A project Wharnex cannot
+// inspect resolves entirely to the superproject and is admitted exactly as
+// before, because a measurement failure must never reject a legitimate change.
+func (s *Service) routeSubmoduleWrites(ctx context.Context, sessionID, projectPath string, plan *domain.ExecutionPlan) error {
 	paths := actualPatchFiles(plan)
 	if plan == nil || len(paths) == 0 || strings.TrimSpace(projectPath) == "" {
 		return nil
 	}
-	topology, err := hostrepo.Inspect(ctx, projectPath)
-	if err != nil || len(topology.Submodules) == 0 {
+	units, err := hostrepo.InspectUnits(ctx, projectPath)
+	if err != nil || !units.HasSubmodules() {
 		return nil
 	}
-	blocked := map[string][]string{}
-	for _, path := range paths {
-		if submodule, found := topology.SubmoduleFor(path); found {
-			blocked[submodule.Path] = append(blocked[submodule.Path], path)
-		}
-	}
+	blocked := units.UnintegrableWrites(paths)
 	if len(blocked) == 0 {
+		if routed := submoduleWriteRouting(units, paths); len(routed) > 0 {
+			s.bus.Publish(sessionID, "bundle.submodule_write_routed", map[string]any{
+				"plan_id": plan.PlanID, "units": routed,
+				"note": "these paths are committed in their own submodule repository and the superproject pointer is moved to match",
+			})
+		}
 		return nil
 	}
 	names := make([]string, 0, len(blocked))
 	offending := make([]string, 0, len(paths))
-	for submodule, inside := range blocked {
-		names = append(names, submodule)
-		offending = append(offending, inside...)
+	reasons := make([]string, 0, len(blocked))
+	for name, set := range blocked {
+		names = append(names, name)
+		offending = append(offending, set.ProjectPaths...)
+		reasons = append(reasons, fmt.Sprintf("%s (%s)", name, firstNonEmpty(set.Unit.Unmeasurable, "not a usable repository in this worktree")))
 	}
 	sort.Strings(names)
 	sort.Strings(offending)
+	sort.Strings(reasons)
 	s.bus.Publish(sessionID, "bundle.submodule_write_rejected", map[string]any{
-		"plan_id": plan.PlanID, "submodules": names, "paths": offending,
+		"plan_id": plan.PlanID, "submodules": names, "paths": offending, "reasons": reasons,
 	})
 	return fmt.Errorf(
-		"%w: %s belong(s) to submodule(s) %s. The superproject records only a commit pointer there, so those files cannot be staged, committed or merged from this project. Change files in the superproject itself, or make the change in the submodule's own repository and update the pointer there",
-		ErrSubmoduleWrite, strings.Join(offending, ", "), strings.Join(names, ", "),
+		"%w: %s belong(s) to %s. Wharnex integrates a submodule by committing in that submodule's own repository, and there is no repository to commit into here. Initialize the submodule (git submodule update --init -- %s) and repeat the request, or change files outside it",
+		ErrSubmoduleWrite, strings.Join(offending, ", "), strings.Join(reasons, ", "), strings.Join(names, " "),
 	)
+}
+
+// submoduleWriteRouting reports which submodule each routed path landed in, for
+// the ingestion event. It exists so that a change crossing a repository
+// boundary is visible in the audit trail at the moment it is accepted, rather
+// than only later as an unexplained commit in another repository.
+func submoduleWriteRouting(units hostrepo.Units, paths []string) map[string][]string {
+	routed := map[string][]string{}
+	for _, set := range units.Group(paths) {
+		if !set.Unit.IsRoot() {
+			routed[set.Unit.Path] = set.ProjectPaths
+		}
+	}
+	return routed
 }
 
 // partitionSubmoduleConflictPaths separates conflicting paths that are
@@ -123,9 +143,20 @@ func (s *Service) rejectSubmoduleWrites(ctx context.Context, sessionID, projectP
 // planner the path exists on no side and then ask it to write a file there —
 // a request the patch validator rejects on arrival, every round, until the
 // bounded budget is exhausted.
+//
+// Only a path that IS a submodule root is partitioned out. A path *inside* a
+// submodule is an ordinary file in that submodule's own repository and is
+// perfectly resolvable there (adr/ADR-0050); a superproject merge cannot report
+// one anyway, because the gitlink shadows the directory, so partitioning by
+// prefix only ever removed paths a submodule's own merge had legitimately
+// reported.
 func partitionSubmoduleConflictPaths(topology hostrepo.Topology, paths []string) (submodulePaths, resolvable []string) {
+	roots := map[string]bool{}
+	for _, submodule := range topology.Submodules {
+		roots[submodule.Path] = true
+	}
 	for _, path := range paths {
-		if _, found := topology.SubmoduleFor(path); found {
+		if roots[strings.TrimSuffix(strings.TrimSpace(path), "/")] {
 			submodulePaths = append(submodulePaths, path)
 			continue
 		}

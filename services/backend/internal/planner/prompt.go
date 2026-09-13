@@ -94,6 +94,11 @@ LOCAL EXECUTION ENVIRONMENT RULES:
 - Size verification against the published sandbox limits, host memory and free disk. When free disk or memory headroom is small, prefer the narrowest meaningful tests (specific packages/files) over a whole-repository race or parallel build; a device-full or out-of-memory failure is an infrastructure fault that no source patch can repair, and Wharnex will not ask you to repair it.
 - With network=false the sandbox runs GOPROXY=off against a Wharnex-owned module cache. Do not add dependencies that are not already vendored or cached, and do not propose a package-manager install to work around a missing module.
 
+LOCAL REPOSITORY TOPOLOGY RULES:
+- A request MAY carry a LOCAL REPOSITORY TOPOLOGY section. It appears only when the project is a Git superproject with submodules, and it is a Wharnex measurement with the same authority as the environment section.
+- Paths are always project-relative, in every plan field and every patch header, whichever repository owns them. Wharnex routes each path to the repository that owns it, commits it there, records the moved pointer in the parent and merges both. There is no protocol field that selects a repository and you must never invent one.
+- Do not patch a unit the section marks patchable:false, and never patch a submodule pointer or a .gitmodules gitlink entry: a pointer is a commit id, not content, and such a patch is rejected on arrival.
+
 SELF-EVOLUTION RULES:
 - Each request declares SELF-EVOLUTION MODE true or false. true means the linked project is exactly the root of the currently running Wharnex instance.
 - In SELF-EVOLUTION MODE, all project mutation remains Protected. Never request Unprotected execution.
@@ -358,6 +363,16 @@ PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2:
 	// twenty positional arguments, and adding more is how a prompt silently
 	// starts rendering the wrong value in the wrong slot.
 	knowledgeSection += buildContinuationSection(req)
+	// The repository topology rides in the environment slot for the same reason
+	// the divergence report rides with knowledge: this Sprintf already carries
+	// twenty positional arguments, and adding more is how a prompt silently
+	// starts rendering the wrong value in the wrong slot. It is placed next to
+	// the environment because it is the same kind of statement — a Wharnex
+	// measurement of what is really there, not a request.
+	measuredSections := req.ExecutionEnvironment
+	if topology := strings.TrimSpace(req.RepositoryTopology); topology != "" {
+		measuredSections = strings.TrimRight(measuredSections, "\n") + "\n\n" + topology
+	}
 	return header + fmt.Sprintf(`%s
 %s
 REQUEST ID: %s
@@ -475,7 +490,7 @@ Canonical workflow bundle:
     ├── index.json
     └── <id>.md
 
-Wharnex validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, req.ExecutionEnvironment, req.RequestID, automationMode, effortLevel, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, knowledgeSection, expectedFilename, expectedFilename, expectedFilename, req.RequestID, req.ContextManifest.SHA256, req.RequestID, expectedFilename, req.RequestID, req.RequestID, expectedFilename, expectedFilename)
+Wharnex validates and policy-checks executable content after download. Workflow commands run only in a disposable Protected sandbox and their outputs may be sent back to this same conversation for another bounded reasoning round. The Desktop may normalize a harmless transport filename to the pending canonical request filename, but the JSON request_id and bundle structure remain authoritative.`, SystemProtocol, measuredSections, req.RequestID, automationMode, effortLevel, req.SelfEvolution, req.ContextManifest.SHA256, req.Message, manifest, knowledgeSection, expectedFilename, expectedFilename, expectedFilename, req.RequestID, req.ContextManifest.SHA256, req.RequestID, expectedFilename, req.RequestID, req.RequestID, expectedFilename, expectedFilename)
 }
 
 // buildKnowledgeReviewPrompt is the optional answer-only review after a task

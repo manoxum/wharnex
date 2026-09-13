@@ -191,11 +191,11 @@ func TestRequestBaseIsCapturedWithoutDisturbingTheHost(t *testing.T) {
 
 func TestRecordRequestBaseCommitEvictsOnlyReleasableAnchors(t *testing.T) {
 	item := &domain.Session{LastRequestID: "keep-active", PendingManualRequestIDs: []string{"keep-pending"}}
-	recordRequestBaseCommit(item, "keep-active", "a1")
-	recordRequestBaseCommit(item, "keep-pending", "a2")
+	recordRequestBaseCommit(item, "keep-active", requestBaseAnchors{Root: "a1"})
+	recordRequestBaseCommit(item, "keep-pending", requestBaseAnchors{Root: "a2"})
 	var released []string
 	for index := 0; index < maxRetainedRequestBases+5; index++ {
-		released = append(released, recordRequestBaseCommit(item, "req-"+string(rune('a'+index)), "sha")...)
+		released = append(released, recordRequestBaseCommit(item, "req-"+string(rune('a'+index)), requestBaseAnchors{Root: "sha"})...)
 	}
 	if len(released) == 0 {
 		t.Fatal("expected eviction beyond the retention bound")

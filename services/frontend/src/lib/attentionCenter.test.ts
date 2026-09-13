@@ -111,18 +111,18 @@ describe('attention center', () => {
     expect(items.map((entry) => entry.title)).not.toContain('Erro reparável com GPT')
   })
 
-  it('surfaces a submodule write as a repository remedy without retry actions', () => {
+  it('surfaces an uninitialized submodule as a repository remedy without retry actions', () => {
     const failed = session('ses-chat-2')
     failed.state = 'failed'
     failed.failure_kind = 'submodule_write'
     failed.last_request_id = 'req-submodule'
-    failed.last_repair_error = 'change writes inside a Git submodule: services/admin'
+    failed.last_repair_error = 'change writes inside a Git submodule that has no usable checkout: services/admin'
 
     const items = collectAttentionItems([chat('chat-2', 'Submódulo')], { 'chat-2': failed })
 
     expect(items).toEqual([
       expect.objectContaining({
-        title: 'Alteração pertence a outro repositório',
+        title: 'Submódulo sem checkout utilizável',
         detail: failed.last_repair_error,
         tone: 'danger',
       }),

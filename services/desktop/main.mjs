@@ -3800,12 +3800,21 @@ async function retryPersistedChatGPTPrompt(request, entryOverride = undefined) {
 async function retryPreparedChatGPTPrompt(request, entryOverride = undefined) {
   const key = sanitizeChatCacheKey(request?.cacheKey)
   const requestId = String(request?.expectedRequestId || '').trim()
+  // A response bundle already validated and acknowledged for this exact
+  // request id is a completed round trip, whether or not a retryable draft
+  // still lingers in memory (its TTL is independent of delivery). Checking
+  // this only in the "no retryable draft" branch below let a stale-but-not-yet
+  // -expired retryable entry win the race: the UI kept showing "Entrega ao
+  // ChatGPT pendente" and every retry click re-ran the whole submission
+  // against a request ChatGPT had already answered, instead of recognizing
+  // it was already delivered.
+  if (requestId && recentlyDeliveredChatGPTBundleRequestId(requestId)) {
+    retryableChatGPTPrompts.delete(key)
+    return { ok: true, cacheKey: key, requestId, alreadyDelivered: true }
+  }
   const retryable = retryableChatGPTPrompts.get(key)
   if (!retryable || Date.now() - retryable.preparedAt > RETRYABLE_PROMPT_TTL_MS) {
     retryableChatGPTPrompts.delete(key)
-    if (requestId && recentlyDeliveredChatGPTBundleRequestId(requestId)) {
-      return { ok: true, cacheKey: key, requestId, alreadyDelivered: true }
-    }
     return retryPersistedChatGPTPrompt(request, entryOverride)
   }
   if (requestId && String(retryable.request?.requestId || '') !== requestId) {
@@ -6353,10 +6362,16 @@ app.whenReady().then(async () => {
       // would reload a page the model is still writing into — the very
       // interruption the resident probe exists to avoid.
       if (chatAgentSupervisingLiveResponse(worker) || chatAgentKeepFlowingActive(worker)) return
-      if (chatAgentResidency.noteIdleClaim(entry.slotId)) {
-        console.log(`[chat-agent] residency-released slot=${entry.slotId} reason=idle-lane`)
-        publishChatAgentRuntimeState()
-      }
+      let released = chatAgentResidency.noteIdleClaim(entry.slotId)
+      if (released) console.log(`[chat-agent] residency-released slot=${entry.slotId} reason=idle-lane`)
+      // A claim that reaches the backend and finds nothing is proof the
+      // scheduler loop itself is healthy again. Without this, a Worker whose
+      // last claim attempt failed (worker-error) stayed painted "Com erro"
+      // forever once no further task ever landed on it, even though the very
+      // next claim succeeded.
+      const prior = chatAgentWorkerStates.get(worker)
+      if (prior?.error) { chatAgentWorkerStates.set(worker, { ...prior, error: '' }); released = true }
+      if (released) publishChatAgentRuntimeState()
     },
     onState: (state) => {
       const worker = Number(state?.worker || 0)
@@ -6408,6 +6423,18 @@ app.whenReady().then(async () => {
         preferred_lane: lane, fallback_mode: 'any',
         excluded_lanes: [...taken].slice(0, 32), ...scope,
       }
+    },
+    // A claim that reaches the backend and finds nothing proves this slot's
+    // loop is healthy again. Without this, a Supervisor whose last claim
+    // attempt failed (worker-error) stayed painted "Com erro" indefinitely —
+    // the whole pool read as broken even once the underlying condition (a
+    // slow backend restart, a transient network hiccup) had long resolved,
+    // because nothing ever cleared a sticky error on an otherwise-idle slot.
+    onIdle: (index) => {
+      const prior = chatSupervisorStates.get(index)
+      if (!prior?.error) return
+      chatSupervisorStates.set(index, { ...prior, error: '' })
+      publishChatAgentRuntimeState()
     },
     onState: (state) => {
       const slot = Number(state?.worker || 0)

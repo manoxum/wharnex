@@ -2020,3 +2020,46 @@ test('orchestrator planning carries shared-composer context and attachments into
   assert.match(worker, /await pasteChatGPTFile\(target\.entry, uploadPaths\[index\], index \+ 1, uploadPaths\.length\)/)
   assert.match(worker, /removeStoredChatAttachments\(chatAttachmentRoot\(\), attachmentCacheKey\)/)
 })
+
+test('a Supervisor or Worker whose sticky error clears on the next successful (even empty) claim', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  // Supervisors: chatSupervisorScheduler previously had no onIdle handler at
+  // all, so a slot that hit worker-error once and then simply found no more
+  // matching work stayed painted "Com erro" forever, even though the very
+  // next claim reached the backend fine. onIdle is the only signal proving
+  // the loop is healthy again for a slot with nothing currently assigned.
+  const supervisorSchedulerStart = source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient(')
+  const supervisorScheduler = source.slice(supervisorSchedulerStart, source.indexOf('\n  chatSupervisorScheduler.start()', supervisorSchedulerStart))
+  const supervisorOnIdleStart = supervisorScheduler.indexOf('onIdle: (index) => {')
+  assert.notEqual(supervisorOnIdleStart, -1, 'chatSupervisorScheduler must define onIdle to clear a stale worker-error')
+  const supervisorOnIdle = supervisorScheduler.slice(supervisorOnIdleStart, supervisorScheduler.indexOf('\n    onState:', supervisorOnIdleStart))
+  assert.match(supervisorOnIdle, /chatSupervisorStates\.set\(index, \{ \.\.\.prior, error: '' \}\)/)
+  assert.match(supervisorOnIdle, /publishChatAgentRuntimeState\(\)/)
+
+  // Workers: the existing onIdle handler released residency but never cleared
+  // a prior worker-error, so the same staleness applied to the Worker pool.
+  const workerOnIdleStart = source.indexOf('onIdle: (worker) => {')
+  const workerOnIdle = source.slice(workerOnIdleStart, source.indexOf('\n    onState:', workerOnIdleStart))
+  assert.match(workerOnIdle, /chatAgentWorkerStates\.get\(worker\)/)
+  assert.match(workerOnIdle, /chatAgentWorkerStates\.set\(worker, \{ \.\.\.prior, error: '' \}\)/)
+})
+
+test('retrying a prepared ChatGPT prompt recognizes an already-delivered response before consulting a stale retryable draft', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function retryPreparedChatGPTPrompt(')
+  const fn = source.slice(start, source.indexOf('\nasync function attachContextToChatGPT', start))
+
+  // The already-delivered check must run unconditionally, before the function
+  // ever looks at retryableChatGPTPrompts. Its TTL is independent of whether a
+  // round trip already completed, so gating this check behind "no retryable
+  // draft exists" let a still-live draft win the race: the composer sent
+  // "Entrega ao ChatGPT pendente" and a retry click replayed the full
+  // submission against a request ChatGPT had already answered.
+  const deliveredCheckIndex = fn.indexOf('recentlyDeliveredChatGPTBundleRequestId(requestId)')
+  const retryableGetIndex = fn.indexOf('retryableChatGPTPrompts.get(key)')
+  assert.notEqual(deliveredCheckIndex, -1)
+  assert.notEqual(retryableGetIndex, -1)
+  assert.ok(deliveredCheckIndex < retryableGetIndex, 'the delivered-bundle check must precede reading the retryable draft')
+  assert.match(fn, /alreadyDelivered: true/)
+})

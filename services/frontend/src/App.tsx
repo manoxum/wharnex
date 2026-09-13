@@ -1792,7 +1792,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		if (targetSession && targetChat && sessionHasPendingRequest(targetSession, requestId)) {
 			const failureKind = bundleFailureKind(e)
 			const failurePrefix = failureKind === 'submodule_write'
-				? 'Alteração rejeitada por pertencer a um submódulo Git'
+				? 'Alteração rejeitada por visar um submódulo sem checkout utilizável'
 				: 'Falha de protocolo ao validar o bundle'
 			const recovered = await failRemoteInput(requestId, `${failurePrefix}: ${message}`, failureKind, targetSession, targetChat)
 			if (recovered?.last_request_id && recovered.last_request_id !== requestId) return `Bundle recusado; recuperação automática ${recovered.last_request_id} preparada.`
@@ -2483,12 +2483,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         appendChatItem(active, updated.project_path, {
           id: itemId, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
 		  text: submoduleBlocked
-		    ? `O bundle foi recusado porque a alteração tenta escrever dentro de um submódulo Git, que pertence a outro repositório. Nenhuma correção automática foi lançada. Abra o submódulo indicado na causa como projeto Wharnex, repita a alteração nesse repositório e, se necessário, atualize depois o ponteiro no superprojeto.\n\nCausa: ${reason}`
+		    ? `O bundle foi recusado porque a alteração escreve num submódulo que não tem checkout neste worktree: não existe repositório onde a gravar. Alterações dentro de submódulos inicializados são suportadas — o WHX grava-as no repositório do próprio submódulo e move o ponteiro no superprojeto. Inicialize o submódulo indicado na causa (git submodule update --init) e repita o pedido. Nenhuma correção automática foi lançada.\n\nCausa: ${reason}`
 		    : automaticallyRecovered
 		      ? `O bundle foi recusado com segurança. O WHX preservou a falha como diagnóstico, criou uma nova base imutável e preparou automaticamente um único pedido de correção.\n\nCausa: ${reason}`
 		      : `O pedido remoto terminou por falha de protocolo ou comunicação. Nenhum bundle foi executado. Ao repetir, o WHX enviará esta causa para que o ChatGPT corrija o contrato antes de gerar outro ZIP.\n\nCausa: ${reason}`,
 		  meta: submoduleBlocked
-		    ? `Alteração pertence a submódulo · use o repositório do submódulo · ${reason.slice(0, 150)}`
+		    ? `Submódulo sem checkout · inicialize-o e repita · ${reason.slice(0, 150)}`
 		    : automaticallyRecovered
 		      ? `Recuperação automática preparada · ${updated.last_request_id}`
 		      : `Falha de protocolo/comunicação · pedido pode ser repetido · ${reason.slice(0, 180)}`,

@@ -57,6 +57,41 @@ func (w WorkingState) Committable() bool {
 	return len(w.Stageable) > 0 || len(w.GitlinkChanges) > 0
 }
 
+// without drops every entry under one of the given path prefixes, so a caller
+// can classify the state that remains once paths it is deliberately excluding
+// from a snapshot are set aside. It is what keeps the superproject's own
+// pre-merge snapshot from claiming a gitlink Wharnex itself just moved as the
+// operator's uncommitted work.
+func (w WorkingState) without(excluded []string) WorkingState {
+	if len(excluded) == 0 {
+		return w
+	}
+	keep := func(paths []string) []string {
+		out := make([]string, 0, len(paths))
+		for _, path := range paths {
+			dropped := false
+			for _, prefix := range excluded {
+				prefix = strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(prefix)), "/")
+				if prefix != "" && (path == prefix || strings.HasPrefix(path, prefix+"/")) {
+					dropped = true
+					break
+				}
+			}
+			if !dropped {
+				out = append(out, path)
+			}
+		}
+		return out
+	}
+	return WorkingState{
+		Stageable:            keep(w.Stageable),
+		DirtySubmodules:      keep(w.DirtySubmodules),
+		GitlinkChanges:       keep(w.GitlinkChanges),
+		EmbeddedRepositories: keep(w.EmbeddedRepositories),
+		Unmerged:             keep(w.Unmerged),
+	}
+}
+
 // Working classifies a repository's current uncommitted state.
 //
 // It reads `git status --porcelain=v2 -z --untracked-files=all`, whose

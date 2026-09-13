@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -140,44 +141,91 @@ func planIDForIntegrationBranch(pending []domain.PendingHostChange, branch strin
 
 // commitVerifiedPatchToBranch commits a just-verified sandbox workspace's
 // applied patch onto its own integration branch and pushes that branch into
-// the host's own .git (never a remote — see PushBranchToHost). Returns ""
-// for a command-only plan with no patch, which has nothing to commit.
-// baseRootedBranch is non-empty when the workspace was already repointed at
-// the request's own base and that branch opened there (see
-// prepareBaseRootedWorkspace). In that case the branch exists and is checked
-// out already, so committing must not try to create it a second time — and
-// must not re-root it at the host's newer tip, which is exactly the parentage
-// this whole mechanism exists to avoid.
-func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath, baseRootedBranch string) (branch, commitSHA string, err error) {
+// the host's own .git (never a remote — see PushUnitsToHost). Returns nil for
+// a command-only plan with no patch, which has nothing to commit.
+//
+// rooted names the units whose integration branch a base-rooted checkout
+// already opened (see prepareBaseRootedWorkspace). For those the branch exists
+// and is checked out already, so committing must not try to create it a second
+// time — and must not re-root it at the host's newer tip, which is exactly the
+// parentage that whole mechanism exists to avoid.
+//
+// It commits per repository unit (adr/ADR-0050). For an ordinary project that
+// is exactly one unit — the superproject — and the result is identical to what
+// this function always did. For a project with submodules, each unit's own
+// paths are committed in that unit's own repository, deepest first, and every
+// parent additionally records the gitlink of each child that moved, because a
+// superproject cannot hold a submodule's bytes and a pointer is the only thing
+// it can say about them.
+func (s *Service) commitVerifiedPatchToBranch(ctx context.Context, sessionID string, plan *domain.ExecutionPlan, projectPath, workspacePath string, rooted map[string]bool) (units []domain.IntegrationUnit, err error) {
 	patchFiles := actualPatchFiles(plan)
 	if len(patchFiles) == 0 {
-		return "", "", nil
+		return nil, nil
 	}
-	message := commitMessageForPlan(plan)
-	branch = integrationBranchName(plan.RequestID)
-	if strings.TrimSpace(baseRootedBranch) == branch {
-		commitSHA, err = sandbox.CommitBaseRootedPatch(ctx, workspacePath, message, patchFiles)
-	} else {
-		commitSHA, err = sandbox.CommitVerifiedPatch(ctx, workspacePath, branch, message, patchFiles)
-	}
+	branch := integrationBranchName(plan.RequestID)
+	// The SANDBOX is measured here, not the host: these commits are made in the
+	// sandbox's repositories, and a submodule the sandbox failed to reproduce
+	// is one no commit can be made in however healthy the host's copy is.
+	workspaceUnits, err := hostrepo.InspectUnits(ctx, workspacePath)
 	if err != nil {
-		return "", "", err
+		return nil, fmt.Errorf("measure verification workspace repositories: %w", err)
 	}
-	// Creating the commit happens entirely inside the disposable sandbox, but
-	// the push writes a ref into the host's own .git. That is the only
-	// host-facing mutation in the whole verification phase, so it — and
+	sets := workspaceUnits.Group(patchFiles)
+	commits, err := sandbox.CommitVerifiedUnits(ctx, workspacePath, branch, workspaceUnits, sets, rooted,
+		func(unit hostrepo.Unit, pointerUpdates []string) string {
+			return commitMessageForUnit(plan, unit.Path, pointerUpdates)
+		})
+	if err != nil {
+		return nil, err
+	}
+	// Creating the commits happens entirely inside the disposable sandbox, but
+	// the push writes refs into the host's own .git — one per unit. That is the
+	// only host-facing mutation in the whole verification phase, so it — and
 	// nothing longer — is what must be serialized per project. Holding the
 	// project lock only here is what lets two chats verify concurrently
 	// without racing each other's ref updates.
 	pushLock := s.projectApplyLock(projectPath)
 	pushLock.Lock()
-	pushErr := sandbox.PushBranchToHost(ctx, workspacePath, projectPath, branch)
+	pushErr := sandbox.PushUnitsToHost(ctx, workspacePath, projectPath, commits)
 	pushLock.Unlock()
 	if pushErr != nil {
-		return "", "", pushErr
+		return nil, pushErr
 	}
-	s.bus.Publish(sessionID, "integration.branch_committed", map[string]any{"plan_id": plan.PlanID, "branch": branch, "commit": commitSHA})
-	return branch, commitSHA, nil
+	for _, commit := range commits {
+		units = append(units, domain.IntegrationUnit{
+			Path: commit.UnitPath, Branch: commit.Branch, Commit: commit.CommitSHA, PointerUpdates: commit.PointerUpdates,
+		})
+		s.bus.Publish(sessionID, "integration.branch_committed", map[string]any{
+			"plan_id": plan.PlanID, "branch": commit.Branch, "commit": commit.CommitSHA,
+			"unit": commit.UnitPath, "pointer_updates": commit.PointerUpdates,
+		})
+	}
+	return units, nil
+}
+
+// rootIntegrationUnit finds the superproject's record, which is what the legacy
+// single-branch fields on a pending candidate still describe.
+func rootIntegrationUnit(units []domain.IntegrationUnit) (domain.IntegrationUnit, bool) {
+	for _, unit := range units {
+		if unit.Path == hostrepo.RootUnitPath {
+			return unit, true
+		}
+	}
+	return domain.IntegrationUnit{}, false
+}
+
+// integrationUnitPaths lists the units a candidate was committed into, for the
+// apply path. A candidate persisted before ADR-0050 has no unit records and
+// falls back to the superproject alone, which is exactly what it was.
+func integrationUnitPaths(change domain.PendingHostChange) []string {
+	if len(change.IntegrationUnits) == 0 {
+		return []string{hostrepo.RootUnitPath}
+	}
+	paths := make([]string, 0, len(change.IntegrationUnits))
+	for _, unit := range change.IntegrationUnits {
+		paths = append(paths, unit.Path)
+	}
+	return paths
 }
 
 // mergeIntegrationBranches merges every pending candidate's integration
@@ -208,21 +256,64 @@ type integratedCandidate struct {
 	afterSHA  string
 	message   string
 	paths     []string
+	// units names the submodule repositories this candidate was also committed
+	// into. Those commits are local to their own repositories until a human
+	// pushes them, which is the one thing about this integration an operator
+	// must not have to discover by accident.
+	units []string
 }
 
-func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, projectPath string, pending []domain.PendingHostChange) (integrated []integratedCandidate, preMergeSHA string, failedPlanID string, err error) {
+// hostRollback is the exact position every repository unit occupied before this
+// Apply touched it.
+//
+// A single SHA was sufficient while an integration only ever moved the
+// superproject. It is not sufficient now: a revert that reset only the
+// superproject would leave each submodule sitting on a merge commit the
+// superproject no longer names — a repository permanently reporting itself
+// ahead, which is the condition that used to make every subsequent Apply fail
+// before it began.
+type hostRollback struct {
+	// RootSHA is the superproject's pre-merge commit, and stays the value every
+	// pre-submodule caller consumes (the manual-mode unwind target, the VERSION
+	// bookkeeping bracket).
+	RootSHA string
+	units   []sandbox.UnitMerge
+	seen    map[string]bool
+}
+
+// record keeps the EARLIEST position each unit was seen at, because a batch may
+// merge several candidates into the same unit and the rollback boundary is
+// where that unit started, not where the last merge found it.
+func (r *hostRollback) record(merge sandbox.UnitsMerge) {
+	if r.seen == nil {
+		r.seen = map[string]bool{}
+	}
+	for _, unit := range merge.Units {
+		if unit.PreMergeSHA == "" || r.seen[unit.UnitPath] {
+			continue
+		}
+		r.seen[unit.UnitPath] = true
+		r.units = append(r.units, unit)
+	}
+}
+
+// Engaged reports whether anything was merged and therefore needs reverting.
+func (r hostRollback) Engaged() bool { return r.RootSHA != "" }
+
+func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, projectPath string, pending []domain.PendingHostChange) (integrated []integratedCandidate, rollback hostRollback, failedPlanID string, err error) {
 	originalHead, err := sandbox.CurrentHeadSHA(ctx, projectPath)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("resolve host HEAD before merge: %w", err)
+		return nil, hostRollback{}, "", fmt.Errorf("resolve host HEAD before merge: %w", err)
 	}
-	preMergeSHA = originalHead
+	rollback.RootSHA = originalHead
 	for index := range pending {
 		branch := pending[index].IntegrationBranch
 		if branch == "" {
 			continue
 		}
+		unitPaths := integrationUnitPaths(pending[index])
 		planID := pending[index].Plan.PlanID
-		s.bus.Publish(sessionID, "integration.merge_started", map[string]any{"plan_id": planID, "branch": branch})
+		s.bus.Publish(sessionID, "integration.merge_started", map[string]any{"plan_id": planID, "branch": branch, "units": unitPaths})
 		// Ask Git whether this merge can succeed before letting it touch the
 		// host at all. A doomed merge would otherwise still commit the host's
 		// dirty tree as a pre-merge snapshot on its way to aborting, leaving a
@@ -236,25 +327,31 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			s.bus.Publish(sessionID, "integration.merge_preflight_degraded", map[string]any{"plan_id": planID, "branch": branch, "error": preflightErr.Error()})
 		} else if conflict != nil {
 			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": planID, "branch": branch, "paths": conflict.Paths})
-			return integrated, preMergeSHA, planID, conflict
+			return integrated, rollback, planID, conflict
 		}
-		merge, mergeErr := sandbox.MergeBranchOnHost(ctx, projectPath, branch)
-		s.publishHostStatePreservation(sessionID, planID, merge.Preservation)
+		merge, mergeErr := sandbox.MergeUnitsOnHost(ctx, projectPath, branch, unitPaths)
+		rootMerge, _ := merge.Root()
+		s.publishHostStatePreservation(sessionID, planID, rootMerge.Preservation)
+		s.publishUnitPreservation(sessionID, planID, merge)
 		// Preserve() may have committed an operator's dirty tree immediately
 		// before the first merge. That snapshot is the true rollback boundary:
 		// resetting to originalHead would erase the very work preservation was
 		// designed to protect, which is what made successful auto commits appear
 		// to vanish after a later verification/build failure.
-		if len(integrated) == 0 && merge.PreMergeSHA != "" {
-			preMergeSHA = merge.PreMergeSHA
+		if len(integrated) == 0 && rootMerge.PreMergeSHA != "" {
+			rollback.RootSHA = rootMerge.PreMergeSHA
 		}
+		// Units are recorded even on failure: a merge that got through two
+		// submodules and failed on the third has already moved two
+		// repositories, and the revert has to know about them.
+		rollback.record(merge)
 		if mergeErr != nil {
-			return integrated, preMergeSHA, planID, mergeErr
+			return integrated, rollback, planID, mergeErr
 		}
 		s.publishSubmoduleSync(sessionID, planID, "merge", merge.SubmoduleSync)
 		afterSHA, headErr := sandbox.CurrentHeadSHA(ctx, projectPath)
 		if headErr != nil {
-			return integrated, preMergeSHA, planID, fmt.Errorf("resolve host HEAD after merge: %w", headErr)
+			return integrated, rollback, planID, fmt.Errorf("resolve host HEAD after merge: %w", headErr)
 		}
 		plan := pending[index].Plan
 		integrated = append(integrated, integratedCandidate{
@@ -262,25 +359,65 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			requestID: plan.RequestID,
 			sessionID: sessionID,
 			branch:    branch,
-			beforeSHA: merge.PreMergeSHA,
+			beforeSHA: rootMerge.PreMergeSHA,
 			afterSHA:  afterSHA,
-			message:   commitMessageForPlan(&plan),
+			message:   commitMessageForUnit(&plan, hostrepo.RootUnitPath, rootPointerUpdates(pending[index])),
 			paths:     actualPatchFiles(&plan),
+			units:     merge.SubmodulePaths(),
 		})
-		s.bus.Publish(sessionID, "integration.merge_completed", map[string]any{"plan_id": planID, "branch": branch})
+		s.bus.Publish(sessionID, "integration.merge_completed", map[string]any{
+			"plan_id": planID, "branch": branch, "submodule_units": merge.SubmodulePaths(),
+		})
 	}
-	return integrated, preMergeSHA, "", nil
+	return integrated, rollback, "", nil
 }
 
-// integratedBranches lists the branch refs an Apply merged, for cleanup.
-func integratedBranches(integrated []integratedCandidate) []string {
-	branches := make([]string, 0, len(integrated))
+// rootPointerUpdates recovers which submodule pointers the superproject's own
+// integration commit recorded, so a manual-mode pending record carries the same
+// message the automatic commit used.
+func rootPointerUpdates(change domain.PendingHostChange) []string {
+	root, found := rootIntegrationUnit(change.IntegrationUnits)
+	if !found {
+		return nil
+	}
+	return root.PointerUpdates
+}
+
+// integratedBranches lists every branch ref an Apply merged, paired with the
+// repository unit it lives in — each unit holds its own branch under the same
+// name, so cleaning only the superproject would leave a ref behind in every
+// submodule the change touched.
+func integratedBranches(integrated []integratedCandidate) []sandbox.UnitCommit {
+	branches := make([]sandbox.UnitCommit, 0, len(integrated))
 	for _, candidate := range integrated {
-		if strings.TrimSpace(candidate.branch) != "" {
-			branches = append(branches, candidate.branch)
+		if strings.TrimSpace(candidate.branch) == "" {
+			continue
+		}
+		branches = append(branches, sandbox.UnitCommit{UnitPath: hostrepo.RootUnitPath, Branch: candidate.branch})
+		for _, unitPath := range candidate.units {
+			branches = append(branches, sandbox.UnitCommit{UnitPath: unitPath, Branch: candidate.branch})
 		}
 	}
 	return branches
+}
+
+// integratedSubmoduleUnits lists every submodule repository this Apply
+// committed into, deduplicated. Those commits exist only locally until a human
+// pushes them, which is what the terminal event has to say.
+func integratedSubmoduleUnits(integrated []integratedCandidate) []string {
+	seen := map[string]bool{}
+	units := make([]string, 0)
+	for _, candidate := range integrated {
+		for _, unitPath := range candidate.units {
+			if unitPath == hostrepo.RootUnitPath || seen[unitPath] {
+				continue
+			}
+			seen[unitPath] = true
+			units = append(units, unitPath)
+		}
+	}
+	sort.Strings(units)
+	return units
 }
 
 // commitMessageForPlan builds the exact message the integration commit used,
@@ -291,8 +428,33 @@ func integratedBranches(integrated []integratedCandidate) []string {
 // a change committed manually would carry different history from the same
 // change committed automatically.
 func commitMessageForPlan(plan *domain.ExecutionPlan) string {
+	return commitMessageForUnit(plan, hostrepo.RootUnitPath, nil)
+}
+
+// commitMessageForUnit is that same construction for one repository unit.
+//
+// The planner's own message is used in every repository the change touches,
+// because it is one change: splitting it would make each repository's history
+// describe a fragment. What differs is the bookkeeping the message must still
+// be honest about. A commit that moves a submodule pointer says so in its body,
+// or a superproject commit whose subject describes a source change would sit in
+// `git log` above a diff containing nothing but a 40-character hash. The unit
+// and each moved pointer are additionally recorded as trailers, in the same
+// trailer paragraph as Request-Id/Plan-Id, so the relationship between the
+// repositories is machine-readable after the fact.
+func commitMessageForUnit(plan *domain.ExecutionPlan, unitPath string, pointerUpdates []string) string {
 	message := sanitizeCommitMessage(plan.CommitMessage, plan.Summary)
-	return fmt.Sprintf("%s\n\nRequest-Id: %s\nPlan-Id: %s", message, plan.RequestID, plan.PlanID)
+	if len(pointerUpdates) > 0 {
+		message += fmt.Sprintf("\n\nRecords the submodule commit(s) this change was verified against: %s.", strings.Join(pointerUpdates, ", "))
+	}
+	trailers := fmt.Sprintf("\n\nRequest-Id: %s\nPlan-Id: %s", plan.RequestID, plan.PlanID)
+	if strings.TrimSpace(unitPath) != hostrepo.RootUnitPath {
+		trailers += "\nWharnex-Unit: " + unitPath
+	}
+	for _, pointer := range pointerUpdates {
+		trailers += "\nWharnex-Submodule-Update: " + pointer
+	}
+	return message + trailers
 }
 
 // publishHostStatePreservation reports what the pre-merge snapshot could and
@@ -336,11 +498,79 @@ func (s *Service) publishSubmoduleSync(sessionID, planID, phase string, sync hos
 	})
 }
 
-// revertHostMerge undoes this Apply's merges and reports the submodule
-// realignment that undo required, so a revert leaves a host that is genuinely
-// back where it started rather than one Git reports as permanently modified.
-func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projectPath, preMergeSHA string) error {
-	sync, err := sandbox.RevertHostMerge(ctx, projectPath, preMergeSHA)
+// publishSubmoduleBaselines reports which submodules a verification sandbox
+// reproduced as real repositories, and which it could not.
+//
+// The second half is the one that matters. A submodule the sandbox could not
+// clone is one no patch can be committed into, however healthy the host's copy
+// is — and that is discovered at commit time, after the container run and the
+// whole verification suite. Publishing it at workspace preparation puts the
+// cause in the timeline before the symptom.
+func (s *Service) publishSubmoduleBaselines(sessionID string, plan *domain.ExecutionPlan, workspace sandbox.Workspace) {
+	if len(workspace.SubmoduleBaselines) == 0 {
+		return
+	}
+	planID := ""
+	if plan != nil {
+		planID = plan.PlanID
+	}
+	cloned := make([]string, 0, len(workspace.SubmoduleBaselines))
+	degraded := make([]string, 0)
+	for _, baseline := range workspace.SubmoduleBaselines {
+		if baseline.Cloned && baseline.Reason == "" {
+			cloned = append(cloned, baseline.Path)
+			continue
+		}
+		degraded = append(degraded, baseline.Path+": "+baseline.Reason)
+	}
+	s.bus.Publish(sessionID, "execution.submodule_baselines", map[string]any{
+		"plan_id": planID, "integrable": cloned, "degraded": degraded,
+	})
+}
+
+// publishUnitPreservation reports what each submodule repository's own
+// pre-merge snapshot captured.
+//
+// The superproject's preservation is published separately and has always been;
+// this is the part that is new and that an operator cannot infer. Wharnex now
+// commits inside submodules, so it also preserves the operator's uncommitted
+// work there — in a repository they own and Wharnex does not — and saying so is
+// the minimum that makes that acceptable.
+func (s *Service) publishUnitPreservation(sessionID, planID string, merge sandbox.UnitsMerge) {
+	for _, unit := range merge.Units {
+		if unit.UnitPath == hostrepo.RootUnitPath || !unit.Preservation.Committed {
+			continue
+		}
+		s.bus.Publish(sessionID, "integration.submodule_state_preserved", map[string]any{
+			"plan_id": planID, "unit": unit.UnitPath, "commit": unit.Preservation.CommitSHA,
+			"path_count": len(unit.Preservation.StagedPaths),
+			"reason":     "the integration commits inside this submodule, so its uncommitted work was snapshotted there first",
+		})
+	}
+}
+
+// revertHostMerge undoes this Apply's merges in every repository unit they
+// moved and reports the submodule realignment that undo required, so a revert
+// leaves a host that is genuinely back where it started rather than one Git
+// reports as permanently modified.
+func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projectPath string, rollback hostRollback) error {
+	if len(rollback.units) > 0 {
+		// The realignment baseline must be read BEFORE the reset. Realigning
+		// against nothing would force every submodule to the pointer the
+		// superproject records, including ones this Apply never touched and
+		// that the operator deliberately left elsewhere.
+		before, inspectErr := hostrepo.Inspect(ctx, projectPath)
+		if err := sandbox.RevertHostUnits(ctx, projectPath, sandbox.UnitsMerge{Units: rollback.units}); err != nil {
+			return err
+		}
+		if inspectErr != nil {
+			return nil
+		}
+		sync, _ := hostrepo.SyncSubmodules(ctx, projectPath, before.Submodules)
+		s.publishSubmoduleSync(sessionID, planID, "revert", sync)
+		return nil
+	}
+	sync, err := sandbox.RevertHostMerge(ctx, projectPath, rollback.RootSHA)
 	s.publishSubmoduleSync(sessionID, planID, "revert", sync)
 	return err
 }
@@ -348,11 +578,9 @@ func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projec
 // deleteIntegrationBranches best-effort cleans up branches after a
 // successful Apply. The merge commits themselves remain in the host's log
 // regardless of whether this cleanup succeeds.
-func (s *Service) deleteIntegrationBranches(ctx context.Context, sessionID, projectPath string, branches []string) {
-	for _, branch := range branches {
-		if err := sandbox.DeleteHostBranch(ctx, projectPath, branch); err != nil {
-			s.bus.Publish(sessionID, "integration.branch_cleanup_failed", map[string]any{"branch": branch, "error": err.Error()})
-		}
+func (s *Service) deleteIntegrationBranches(ctx context.Context, sessionID, projectPath string, branches []sandbox.UnitCommit) {
+	if failures := sandbox.DeleteHostUnitBranches(ctx, projectPath, branches); len(failures) > 0 {
+		s.bus.Publish(sessionID, "integration.branch_cleanup_failed", map[string]any{"error": strings.Join(failures, "; ")})
 	}
 }
 
@@ -415,17 +643,24 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
+	// The three sides are read from the repository the conflict happened in,
+	// which is not the project root when the candidate wrote inside a
+	// submodule: that unit's SHAs and branch resolve nowhere else. The capsule
+	// still carries project-relative paths, because those are what the planner
+	// wrote and what its resolution patch must target.
+	conflictRepo := sandbox.UnitRepoPath(repoPath, conflict.Unit)
 	files := make([]conflictCapsuleFile, 0, len(paths))
 	for _, path := range paths {
-		base, baseExists, err := sandbox.ReadFileAtRef(ctx, repoPath, conflict.MergeBaseSHA, path)
+		unitPath := sandbox.UnitRelativePath(conflict.Unit, path)
+		base, baseExists, err := sandbox.ReadFileAtRef(ctx, conflictRepo, conflict.MergeBaseSHA, unitPath)
 		if err != nil {
 			return item, fmt.Errorf("read merge-base content for %s: %w", path, err)
 		}
-		current, currentExists, err := sandbox.ReadFileAtRef(ctx, repoPath, conflict.HostSHA, path)
+		current, currentExists, err := sandbox.ReadFileAtRef(ctx, conflictRepo, conflict.HostSHA, unitPath)
 		if err != nil {
 			return item, fmt.Errorf("read host content for %s: %w", path, err)
 		}
-		result, resultExists, err := sandbox.ReadFileAtRef(ctx, repoPath, conflict.Branch, path)
+		result, resultExists, err := sandbox.ReadFileAtRef(ctx, conflictRepo, conflict.Branch, unitPath)
 		if err != nil {
 			return item, fmt.Errorf("read candidate content for %s: %w", path, err)
 		}
@@ -491,4 +726,18 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths, "surface_key": conflictSurfaceKey(sessionID, conflictID)})
 	}
 	return updated, err
+}
+
+// rootIntegrationBranch/rootIntegrationCommit keep a candidate's legacy
+// single-branch fields populated from its unit records, so every reader that
+// predates ADR-0050 — the apply-eligibility check, the conflict attribution,
+// the UI — keeps seeing exactly what it always saw for the superproject.
+func rootIntegrationBranch(units []domain.IntegrationUnit) string {
+	root, _ := rootIntegrationUnit(units)
+	return root.Branch
+}
+
+func rootIntegrationCommit(units []domain.IntegrationUnit) string {
+	root, _ := rootIntegrationUnit(units)
+	return root.Commit
 }

@@ -18,6 +18,13 @@ type Workspace struct {
 	// resources must NOT follow the executed tree.
 	ProjectPath       string
 	GoModuleCachePath string
+	// SubmoduleBaselines records which of the project's submodules this
+	// workspace reproduced as real Git repositories. A cloned submodule is a
+	// unit Wharnex can commit, push and merge inside (adr/ADR-0050); an
+	// uncloned one keeps the pre-submodule behavior, where its files exist but
+	// Git sees only the superproject's pointer. Empty for a project with no
+	// submodules and for the host runner, which works in the project itself.
+	SubmoduleBaselines []SubmoduleBaseline
 }
 
 type Runner interface {

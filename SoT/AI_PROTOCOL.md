@@ -151,6 +151,23 @@ The protocol requires the planner to:
 
 The manifest is descriptive. It never grants a capability, and a plan is still evaluated by the policy engine, the protocol validator and the runner exactly as before.
 
+## Local repository topology (`wharness.repository/v1`, v1.3.7 — see `adr/ADR-0050`)
+
+A planner request for a project that is a Git superproject with submodules additionally carries a `LOCAL REPOSITORY TOPOLOGY` section holding a Wharness-measured `wharness.repository/v1` document: the superproject and every submodule reachable from an index, each with its HEAD, its branch or detached state, the pointer its parent records, and whether a patch can be delivered there. Repository URLs are deliberately omitted, for the same reason project exports omit them.
+
+The section is published **only** for a project with submodules. Publishing it everywhere would spend context restating what a planner already assumes and would train planners to skim past it in the one case that matters.
+
+Routing is passive and belongs to Wharness, not to the plan:
+
+- every path in every plan field and every patch header stays project-relative, whichever repository owns it;
+- Wharness resolves each path to the repository that owns it by longest matching prefix, commits it there, records the moved pointer in the parent, and merges both;
+- there is no protocol field by which a plan selects a repository, and a planner MUST NOT invent one — a measurement against the index cannot disagree with the index, while a planner-supplied repository can;
+- `commit_message` is used for every repository the change touches, so it describes the change as a whole rather than one file's repository;
+- a unit the manifest marks `patchable: false` has no checkout to write into; a bundle patching it is rejected at ingestion;
+- a submodule pointer and a `.gitmodules` gitlink entry are commit ids, not content, and a patch targeting one is rejected by the validator on arrival.
+
+The manifest is descriptive, exactly like the environment manifest. The routing it describes happens whether or not a planner reads it; the section exists so the planner's prose, commit message and impact set can be true about a change that crosses repositories.
+
 ## Patch representation
 
 Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown fences and proprietary patch dialects are invalid.

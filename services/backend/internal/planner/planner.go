@@ -33,6 +33,15 @@ type Request struct {
 	// dependencies; empty when the environment could not be measured, in
 	// which case the prompt simply omits the section.
 	ExecutionEnvironment string
+	// RepositoryTopology is the pre-rendered LOCAL REPOSITORY TOPOLOGY section
+	// (internal/repomanifest): which repositories this project is actually made
+	// of, and which of them a patch can be delivered into. Empty for an
+	// ordinary single-repository project, which is every project that has no
+	// submodules — the section exists to describe a layout the planner would
+	// otherwise have to guess at, not to restate the common case.
+	//
+	// Kept as rendered text for the same reason ExecutionEnvironment is.
+	RepositoryTopology string
 	// KnowledgeEntries are the v2 request snapshot. Manual/Desktop transport
 	// serializes every entry as its own knowledge/<id>.md file; the prompt only
 	// carries catalog identity and usage rules so knowledge is a real artifact,

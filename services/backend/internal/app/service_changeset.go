@@ -184,10 +184,17 @@ func (s *Service) replayPendingChangeSets(ctx context.Context, sessionID, hostPr
 			// merging both branches into host afterwards would then look
 			// like two independent edits to the same line — a spurious
 			// conflict, not the clean sequential build this actually is.
-			if fetchErr := sandbox.FetchBranchFromHost(ctx, workspace.Path, hostProjectPath, change.IntegrationBranch); fetchErr != nil {
+			//
+			// Both halves run per repository unit for the same reason the real
+			// host integration does: a candidate that wrote inside a submodule
+			// has a commit in that submodule's own repository, and replaying
+			// only the superproject's branch would rebuild a sandbox holding
+			// the pointer without the content it points at.
+			unitPaths := integrationUnitPaths(change)
+			if fetchErr := sandbox.FetchBranchFromHostUnits(ctx, workspace.Path, hostProjectPath, change.IntegrationBranch, unitPaths); fetchErr != nil {
 				return fmt.Errorf("fetch pending integration branch %s: %w", change.IntegrationBranch, fetchErr)
 			}
-			if _, mergeErr := sandbox.MergeBranchOnHost(ctx, workspace.Path, change.IntegrationBranch); mergeErr != nil {
+			if _, mergeErr := sandbox.MergeUnitsOnHost(ctx, workspace.Path, change.IntegrationBranch, unitPaths); mergeErr != nil {
 				var conflict *sandbox.MergeConflictError
 				if errors.As(mergeErr, &conflict) {
 					return &pendingIntegrationReplayConflict{workspacePath: workspace.Path, conflict: conflict}
@@ -752,6 +759,20 @@ func conflictSurfaceKey(sessionID, conflictID string) string {
 // the pending record predates the Git-native path — falls back to the plan's
 // own recorded patches, which is exactly what the legacy replay tail does.
 func (s *Service) replayIntegrationCommitAsPatch(ctx context.Context, sessionID, hostProjectPath string, runner sandbox.Runner, workspace sandbox.Workspace, change domain.PendingHostChange, result *domain.ExecutionResult) error {
+	// A candidate that wrote inside a submodule cannot be replayed from the
+	// superproject's commit at all: that commit holds the submodule's change as
+	// a gitlink, so its diff is a pair of commit ids rather than the content
+	// they name, and a workspace with no shared ancestry has neither. The
+	// plan's own patches are the real source diffs and are project-relative, so
+	// they reproduce every unit's content in one pass.
+	if len(change.IntegrationUnits) > 1 {
+		s.bus.Publish(sessionID, "integration.branch_replay_downgraded", map[string]any{
+			"branch": change.IntegrationBranch, "plan_id": change.Plan.PlanID,
+			"units":  integrationUnitPaths(change),
+			"reason": "the candidate spans several repositories, whose content the superproject commit records only as pointers; replaying the plan's own patches instead",
+		})
+		return s.replayPlanPatches(ctx, runner, workspace, change, result)
+	}
 	commit := strings.TrimSpace(change.IntegrationCommit)
 	if commit == "" || !sandbox.HasCommit(ctx, hostProjectPath, commit) {
 		s.bus.Publish(sessionID, "integration.branch_replay_downgraded", map[string]any{
