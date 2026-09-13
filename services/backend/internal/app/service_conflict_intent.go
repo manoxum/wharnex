@@ -38,14 +38,7 @@ func (s *Service) buildConflictIntent(ctx context.Context, item domain.Session, 
 		intent.PreviousAttempts = append([]string(nil), item.IntegrationConflict.AttemptHistory...)
 	}
 	if conflict != nil {
-		// The incoming side's history lives in the repository the conflict
-		// happened in, addressed by that repository's own paths.
-		unitRepo := sandbox.UnitRepoPath(repoPath, conflict.Unit)
-		unitPaths := make([]string, 0, len(paths))
-		for _, path := range paths {
-			unitPaths = append(unitPaths, sandbox.UnitRelativePath(conflict.Unit, path))
-		}
-		changes, err := sandbox.CommitsTouching(ctx, unitRepo, conflict.MergeBaseSHA, conflict.HostSHA, unitPaths)
+		changes, err := sandbox.CommitsTouching(ctx, repoPath, conflict.MergeBaseSHA, conflict.HostSHA, paths)
 		if err == nil {
 			for index, change := range changes {
 				if index >= maxConflictIntentChanges {

@@ -600,39 +600,19 @@ type PendingHostChange struct {
 	// IntegrationCommit is the commit SHA IntegrationBranch pointed to right
 	// after it was created, for audit/diagnostics.
 	IntegrationCommit string `json:"integration_commit,omitempty"`
-	// IntegrationUnits records every repository unit this candidate was
-	// committed into, deepest first (see adr/ADR-0050). A project with no
-	// submodules produces exactly one entry for the superproject, which is
-	// redundant with IntegrationBranch/IntegrationCommit and kept only so the
-	// apply path has one shape to consume. Empty on a candidate persisted
-	// before this field existed; the apply path then falls back to the
-	// superproject-only branch above.
-	IntegrationUnits []IntegrationUnit `json:"integration_units,omitempty"`
+	// SubmoduleIntegrations are verified commits created in repositories nested
+	// below the open superproject. Apply merges IntegrationBranch, then advances
+	// each nested repository on the branch captured during verification.
+	SubmoduleIntegrations []RepositoryIntegration `json:"submodule_integrations,omitempty"`
 }
 
-// IntegrationUnit is one repository unit's verified commit for a candidate.
-//
-// Path is the project-relative unit root and is empty for the superproject, so
-// that a single-repository project's record reads exactly as it always did.
-type IntegrationUnit struct {
-	Path   string `json:"path"`
-	Branch string `json:"branch"`
-	Commit string `json:"commit,omitempty"`
-	// PointerUpdates lists the child units whose gitlink this unit's commit
-	// records. It is what makes a pointer-only superproject commit legible in
-	// an audit trail instead of looking like an empty change.
-	PointerUpdates []string `json:"pointer_updates,omitempty"`
-	// TargetBranch and BaseCommit are the operator's own checkout of this unit
-	// as it stood when the candidate was verified: the branch the unit was on,
-	// and the commit that branch pointed at. Empty TargetBranch means the unit
-	// was detached, which is the ordinary resting state of a submodule.
-	//
-	// They exist so Apply can prove it is still integrating into what it
-	// verified. Verification commits inside a submodule's own repository, and
-	// between then and Apply an operator may check that submodule out onto
-	// another branch entirely; merging anyway would advance a branch the
-	// candidate was never built against. Recording the pair makes that
-	// detectable, and a detected drift is refused rather than merged.
+// RepositoryIntegration identifies one nested repository candidate. Branch is
+// Wharnex's temporary ref; TargetBranch and BaseCommit preserve the operator's
+// original checkout across Apply and rollback.
+type RepositoryIntegration struct {
+	Path         string `json:"path"`
+	Branch       string `json:"branch"`
+	Commit       string `json:"commit"`
 	TargetBranch string `json:"target_branch,omitempty"`
 	BaseCommit   string `json:"base_commit,omitempty"`
 }
@@ -864,15 +844,7 @@ type Session struct {
 	// branch here makes the patch apply by construction no matter how far the
 	// host has advanced since, and turns real divergence into an ordinary
 	// three-way merge instead of a dead-end apply failure.
-	RequestBaseCommits map[string]string `json:"request_base_commits,omitempty"`
-	// RequestBaseUnitCommits records the same anchor for every OTHER repository
-	// unit the project is made of, keyed request id then project-relative unit
-	// path (see adr/ADR-0050). A submodule's content lives in another
-	// repository, so no single commit can describe the tree a planner was shown
-	// for a project that has one; each unit anchors its own. The superproject's
-	// anchor stays in RequestBaseCommits above, unchanged, so every
-	// pre-submodule read path and every already-persisted session keep working.
-	RequestBaseUnitCommits map[string]map[string]string        `json:"request_base_unit_commits,omitempty"`
+	RequestBaseCommits     map[string]string                   `json:"request_base_commits,omitempty"`
 	RequestContextArchives map[string]string                   `json:"-"`
 	RequestKnowledge       map[string]RequestKnowledgeSnapshot `json:"-"`
 	BaselineFileSnapshots  map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`

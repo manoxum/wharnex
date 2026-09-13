@@ -68,16 +68,6 @@ func SyncSubmodules(ctx context.Context, root string, before []Submodule) (SyncR
 			// checkout to move and nothing depends on its content.
 			continue
 		}
-		if head, known := submoduleHead(ctx, root, submodule); known && head == submodule.CommitSHA {
-			// The checkout already holds the commit the superproject now
-			// records. This is the normal case once Wharnex integrates inside
-			// the submodule itself (adr/ADR-0050): its own merge moved that
-			// repository's HEAD, and the superproject merely recorded where it
-			// landed. Running `submodule update` anyway would check the same
-			// commit out in DETACHED HEAD and silently take the operator — or
-			// Wharnex's own just-merged branch — off the branch it was on.
-			continue
-		}
 		if dirty[submodule.Path] {
 			result.Skipped = append(result.Skipped, SyncSkip{Path: submodule.Path, Reason: "submodule holds uncommitted work and was left untouched"})
 			continue
@@ -110,36 +100,6 @@ func hasCommit(ctx context.Context, root string, submodule Submodule) bool {
 	path := root + "/" + submodule.Path
 	_, err := run(ctx, path, "cat-file", "-e", submodule.CommitSHA+"^{commit}")
 	return err == nil
-}
-
-// submoduleHead resolves what a submodule's own checkout currently points at.
-func submoduleHead(ctx context.Context, root string, submodule Submodule) (string, bool) {
-	output, err := run(ctx, root+"/"+submodule.Path, "rev-parse", "--verify", "-q", "HEAD")
-	if err != nil || strings.TrimSpace(output) == "" {
-		return "", false
-	}
-	return strings.TrimSpace(output), true
-}
-
-// GuardDirtySubmodulesExcept is GuardDirtySubmodules restricted to submodules
-// Wharnex is NOT integrating into itself.
-//
-// The guard exists because Git will happily move a gitlink out from under an
-// operator's uncommitted submodule work and leave the checkout behind. That
-// reasoning does not apply to a submodule Wharnex is integrating: that unit
-// runs the full integration in its own repository first — including a snapshot
-// commit that preserves exactly the work this guard was protecting — so
-// refusing there would block the feature on the state it already handles (see
-// adr/ADR-0050).
-func GuardDirtySubmodulesExcept(ctx context.Context, root, branch string, dirtySubmodules []string, integrating map[string]bool) error {
-	remaining := make([]string, 0, len(dirtySubmodules))
-	for _, path := range dirtySubmodules {
-		if integrating[path] {
-			continue
-		}
-		remaining = append(remaining, path)
-	}
-	return GuardDirtySubmodules(ctx, root, branch, remaining)
 }
 
 // GitlinkAt returns the commit a ref records for a submodule path, which is

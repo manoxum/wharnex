@@ -274,3 +274,51 @@ func TestStorageUsageTracksAndClearRemovesRetainedRequestContexts(t *testing.T) 
 		}
 	}
 }
+
+// The Go toolchain makes every cached module file and its containing
+// directories read-only. Unlinking a file needs write permission on its PARENT
+// directory, so os.RemoveAll alone fails with "permission denied" on any
+// abandoned sandbox that hydrated Go dependencies — which made the whole prune,
+// and the `make build` that runs it, fail permanently while the directories it
+// could not delete accumulated forever.
+func TestRemoveObsoleteDirectoryReclaimsAReadOnlyGoModuleCache(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "kernl-workspace-readonly")
+	cache := filepath.Join(root, ".kernl", "go-mod", "golang.org", "x", "crypto@v0.37.0", "internal", "poly1305")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	module := filepath.Join(cache, "sum_asm.go")
+	if err := os.WriteFile(module, []byte("package poly1305\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	// Lock the tree down exactly as the module cache does, deepest first.
+	for dir := cache; dir != root; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = removeTreeWithReadOnlyDirs(root) })
+
+	// Sanity: this is genuinely the failure being fixed, not a no-op test.
+	if err := os.RemoveAll(root); err == nil {
+		t.Skip("this filesystem does not enforce directory write permission")
+	}
+
+	past := time.Now().UTC().Add(-2 * time.Hour)
+	if err := os.Chtimes(root, past, past); err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, _, err := removeObsoleteDirectory(root, time.Now().UTC().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("a read-only module cache must still be reclaimable: %v", err)
+	}
+	if !reclaimed {
+		t.Fatal("expected the obsolete directory to be reported as reclaimed")
+	}
+	if _, statErr := os.Stat(root); !os.IsNotExist(statErr) {
+		t.Fatalf("the directory survived the prune: %v", statErr)
+	}
+}

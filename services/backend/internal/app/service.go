@@ -624,7 +624,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// entitled to the same divergence report every other continuation gets. A
 	// brand-new Main Request has no earlier snapshot to diverge from and the
 	// computation returns nothing.
-	contextDelta := s.computeContextDelta(ctx, item, knowledgeReviewRoot(item, parentRequestID), requestID, baseCommit.Root)
+	contextDelta := s.computeContextDelta(ctx, item, knowledgeReviewRoot(item, parentRequestID), requestID, baseCommit)
 	var releasedBases []string
 	var prunedContexts []string
 	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -1126,8 +1126,8 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		// repository that owns it, and refused only when no repository there
 		// can receive it — the same reasoning as the commit message: the cost
 		// is not the error text, it is the round spent before reaching it.
-		// See routeSubmoduleWrites and adr/ADR-0050.
-		if err := s.routeSubmoduleWrites(ctx, sessionID, current.ProjectPath, parsed.Plan); err != nil {
+		// See rejectSubmoduleWrites and adr/ADR-0039.
+		if err := s.rejectSubmoduleWrites(ctx, sessionID, current.ProjectPath, parsed.Plan); err != nil {
 			return BundleSubmission{}, err
 		}
 		// A change that declares a file it neither writes nor can find is
@@ -1709,7 +1709,6 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	}
 	bindExecutionDependencySource(&workspace, item, reconcileFromArchive)
 	defer runner.Cleanup(workspace)
-	s.publishSubmoduleBaselines(sessionID, item.Plan, workspace)
 	// Root this candidate's integration branch at the tree its patch was
 	// actually authored against, before anything is applied. Without this the
 	// patch is applied to whatever the host has drifted to since the request
@@ -1719,10 +1718,10 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	// applies by construction, and genuine divergence surfaces later as a
 	// normal three-way merge, which Git resolves without a model turn whenever
 	// the changes are actually compatible.
-	baseRootedUnits := map[string]bool{}
+	baseRootedBranch := ""
 	if !unprotected && !reconcileFromArchive {
-		if _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, item.Plan, workspace.Path); len(rooted) > 0 {
-			baseRootedUnits = rooted
+		if branch, _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, item.Plan, workspace.Path); rooted {
+			baseRootedBranch = branch
 		}
 	}
 	pendingForExecution := item.PendingHostChanges
@@ -1844,7 +1843,8 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
-	var integrationUnits []domain.IntegrationUnit
+	var integrationBranch, integrationCommit string
+	var submoduleIntegrations []domain.RepositoryIntegration
 	var canonicalChangeSet *domain.ChangeSet
 	if !unprotected {
 		if reconcileFromArchive {
@@ -1863,7 +1863,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 				s.bus.Publish(sessionID, "changeset.verified", map[string]any{"changeset_id": canonicalChangeSet.ID, "plan_id": item.Plan.PlanID, "files": changeSetPaths(*canonicalChangeSet)})
 			}
 		} else {
-			integrationUnits, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path, baseRootedUnits)
+			integrationBranch, integrationCommit, submoduleIntegrations, err = s.commitVerifiedPatchToBranch(ctx, sessionID, item.Plan, item.ProjectPath, workspace.Path, baseRootedBranch)
 			if err != nil {
 				return s.failExecution(ctx, sessionID, result, fmt.Errorf("commit verified patch to integration branch: %w", err))
 			}
@@ -1895,9 +1895,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			}
 			if planRequiresHostApply(item.Plan) {
 				current.PendingHostChanges = upsertPendingHostChange(pendingBase, domain.PendingHostChange{
-					Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt, ChangeSet: canonicalChangeSet,
-					IntegrationBranch: rootIntegrationBranch(integrationUnits), IntegrationCommit: rootIntegrationCommit(integrationUnits),
-					IntegrationUnits: integrationUnits,
+					Plan: *item.Plan, Execution: result, VerifiedAt: result.CompletedAt, ChangeSet: canonicalChangeSet, IntegrationBranch: integrationBranch, IntegrationCommit: integrationCommit, SubmoduleIntegrations: submoduleIntegrations,
 				})
 			} else {
 				// Verification-only/no-op plans are allowed to validate an existing
@@ -2687,7 +2685,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	// them if a LATER step (a model-requested git command, or post-merge
 	// verification) fails. Declared here so the closure can see them.
 	var mergedIntegrationBranches []integratedCandidate
-	var integrationRollback hostRollback
+	var preMergeIntegrationSHA string
 	var versionChange appliedVersionChange
 	failApply := func(cause error) error {
 		if !useIntegrationBranches && versionChange.After != "" {
@@ -2697,7 +2695,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		}
 		var failure error
 		switch {
-		case useIntegrationBranches && integrationRollback.Engaged():
+		case useIntegrationBranches && preMergeIntegrationSHA != "":
 			// A real `git reset --hard` to the exact pre-merge HEAD undoes
 			// every merge this Apply attempt made, in one step — simpler
 			// and more reliable than the CAS journal's per-write rollback.
@@ -2706,7 +2704,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			// file/build-artifact snapshots, but knows nothing about Git
 			// refs, so HEAD would otherwise keep pointing at the merge
 			// commit while the working tree no longer matches it.
-			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, integrationRollback); revertErr != nil {
+			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true)); revertErr != nil {
 				cause = fmt.Errorf("%w; git revert also failed: %v", cause, revertErr)
 			}
 			if selfEvolution {
@@ -2727,20 +2725,14 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		return failure
 	}
 	if useIntegrationBranches {
-		// Refuse before anything is touched when a submodule is no longer the
-		// checkout this candidate was verified against. Merging into a branch
-		// the operator moved to meanwhile would advance a repository Wharnex
-		// does not own with work never built against it, and the refusal costs
-		// nothing because no unit has been mutated yet.
-		if driftErr := sandbox.GuardUnitDrift(ctx, item.ProjectPath, pendingUnitCheckouts(pending)); driftErr != nil {
-			s.bus.Publish(sessionID, "integration.unit_drift_blocked", map[string]any{
-				"plan_id": latestPlanID, "error": driftErr.Error(),
-			})
-			return item, abortPreparedTransaction(fmt.Errorf("%w: %v", ErrHostWorkingStateBlocked, driftErr))
+		for _, change := range pending {
+			if validateErr := sandbox.ValidateRepositoryIntegrations(ctx, item.ProjectPath, change.SubmoduleIntegrations); validateErr != nil {
+				return item, abortPreparedTransaction(fmt.Errorf("validate submodule candidates: %w", validateErr))
+			}
 		}
 		var mergeErr error
 		var failedPlanID string
-		mergedIntegrationBranches, integrationRollback, failedPlanID, mergeErr = s.mergeIntegrationBranches(ctx, sessionID, item.ProjectPath, pending)
+		mergedIntegrationBranches, preMergeIntegrationSHA, failedPlanID, mergeErr = s.mergeIntegrationBranches(ctx, sessionID, item.ProjectPath, pending)
 		if mergeErr != nil {
 			var conflict *sandbox.MergeConflictError
 			if errors.As(mergeErr, &conflict) {
@@ -2748,7 +2740,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				// merged cleanly before this one conflicted — all-or-
 				// nothing, matching the legacy ChangeSet path's semantics.
 				if len(mergedIntegrationBranches) > 0 {
-					_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, integrationRollback)
+					_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true))
 				}
 				updated, prepareErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, item, item.ProjectPath, failedPlanID, conflict)
 				if errors.Is(prepareErr, ErrManagedStateConflict) {
@@ -2760,7 +2752,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				return updated, abortPreparedTransaction(fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflict.Paths, ", ")))
 			}
 			if len(mergedIntegrationBranches) > 0 {
-				_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, integrationRollback)
+				_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true))
 			}
 			// A refused host state is not a defect in the generated change and
 			// no new patch can resolve it: the operator has an unfinished
@@ -2894,7 +2886,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	// so: record what each candidate contributed, then return the branch to
 	// where they left it, leaving everything in the working tree.
 	if commitMode == gitsettings.CommitModeManual && len(mergedIntegrationBranches) > 0 {
-		if unwindErr := s.recordAndUnwindIntegration(ctx, sessionID, item.ProjectPath, mergedIntegrationBranches, integrationRollback.RootSHA); unwindErr != nil {
+		if unwindErr := s.recordAndUnwindIntegration(ctx, sessionID, item.ProjectPath, mergedIntegrationBranches, preMergeIntegrationSHA); unwindErr != nil {
 			return item, failApply(unwindErr)
 		}
 	}
@@ -2933,6 +2925,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	if len(mergedIntegrationBranches) > 0 {
 		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, integratedBranches(mergedIntegrationBranches))
+		s.deleteSubmoduleIntegrationBranches(ctx, sessionID, item.ProjectPath, integratedSubmodules(mergedIntegrationBranches, false))
 	}
 
 	if selfEvolution {
@@ -2965,8 +2958,12 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	// performs one. This is the one consequence of submodule-native integration
 	// an operator must not have to discover by accident, so it travels with the
 	// terminal event rather than only in the Git surface.
-	if units := integratedSubmoduleUnits(mergedIntegrationBranches); len(units) > 0 {
-		appliedEvent["submodule_units"] = units
+	if nested := integratedSubmodules(mergedIntegrationBranches, false); len(nested) > 0 {
+		paths := make([]string, 0, len(nested))
+		for _, integration := range nested {
+			paths = append(paths, integration.Path)
+		}
+		appliedEvent["submodule_units"] = paths
 		appliedEvent["submodule_units_unpushed"] = true
 	}
 	s.bus.Publish(sessionID, "host.applied", appliedEvent)

@@ -22,10 +22,12 @@ const maxUnitDepth = 4
 //
 // A project is a tree of these, not a single repository: the superproject is
 // the root unit and every initialized submodule reachable from an index is a
-// nested unit. Wharnex performs its host-facing Git work — base capture,
-// verified commit, local push, merge, revert — once per unit rather than once
-// per project, which is what lets a change write inside a submodule (see
-// adr/ADR-0050).
+// nested unit.
+//
+// This inventory is a READ-ONLY measurement. It exists to publish the project's
+// repository topology to the planner (`wharness.repository/v1`, adr/ADR-0050)
+// and performs no mutation; host-facing submodule integration is owned by
+// internal/sandbox/repositorytree.go (adr/ADR-0039).
 type Unit struct {
 	// Path is the project-relative slash path of this unit's worktree root,
 	// empty for the superproject.
@@ -82,18 +84,6 @@ func (u Unit) Label() string {
 // then by increasing depth.
 type Units struct {
 	List []Unit
-}
-
-// UnitWriteSet is one unit's share of a plan's write set.
-//
-// ProjectPaths are as the planner wrote them; UnitPaths are the same paths
-// relative to that unit's own worktree, which is what `git add` inside the unit
-// needs. Keeping both is what lets Wharnex route passively while still
-// reporting the paths the planner and the operator recognise.
-type UnitWriteSet struct {
-	Unit         Unit
-	ProjectPaths []string
-	UnitPaths    []string
 }
 
 // InspectUnits measures a project's whole repository-unit tree.
@@ -178,134 +168,8 @@ func HeadSHA(ctx context.Context, root string) (string, bool) {
 	return strings.TrimSpace(output), true
 }
 
-// Root returns the superproject unit.
-func (u Units) Root() Unit {
-	for _, unit := range u.List {
-		if unit.IsRoot() {
-			return unit
-		}
-	}
-	return Unit{}
-}
-
-// Lookup finds a unit by its project-relative path.
-func (u Units) Lookup(path string) (Unit, bool) {
-	path = normalizeUnitPath(path)
-	for _, unit := range u.List {
-		if unit.Path == path {
-			return unit, true
-		}
-	}
-	return Unit{}, false
-}
-
-// Submodules lists every non-root unit.
-func (u Units) Submodules() []Unit {
-	out := make([]Unit, 0, len(u.List))
-	for _, unit := range u.List {
-		if !unit.IsRoot() {
-			out = append(out, unit)
-		}
-	}
-	return out
-}
-
 // HasSubmodules reports whether this project is more than one repository.
 func (u Units) HasSubmodules() bool { return len(u.List) > 1 }
-
-// Route resolves a project-relative path to the unit that owns it and the path
-// relative to that unit.
-//
-// Ownership is by longest matching prefix, which is what makes nested
-// submodules work: `a/b/c.go` belongs to `a/b` when that is a unit, and to `a`
-// otherwise. A path inside no submodule belongs to the superproject, and the
-// returned relative path is then the path itself — so an ordinary project
-// routes to exactly the values every pre-submodule call site already used.
-func (u Units) Route(path string) (Unit, string) {
-	path = normalizeProjectPath(path)
-	best := u.Root()
-	bestLen := -1
-	for _, unit := range u.List {
-		if unit.IsRoot() {
-			continue
-		}
-		if path == unit.Path || strings.HasPrefix(path, unit.Path+"/") {
-			if len(unit.Path) > bestLen {
-				best, bestLen = unit, len(unit.Path)
-			}
-		}
-	}
-	if bestLen < 0 {
-		return best, path
-	}
-	if path == best.Path {
-		return best, "."
-	}
-	return best, strings.TrimPrefix(path, best.Path+"/")
-}
-
-// Group partitions a write set by owning unit, deepest first.
-//
-// The order is not cosmetic. A nested unit must be committed before the unit
-// that records its pointer, or the parent's gitlink would name a commit that
-// does not exist yet. Every caller that commits, pushes or merges consumes this
-// order directly rather than re-deriving it.
-func (u Units) Group(paths []string) []UnitWriteSet {
-	grouped := map[string]*UnitWriteSet{}
-	for _, path := range paths {
-		normalized := normalizeProjectPath(path)
-		if normalized == "" {
-			continue
-		}
-		unit, rel := u.Route(normalized)
-		set, known := grouped[unit.Path]
-		if !known {
-			set = &UnitWriteSet{Unit: unit}
-			grouped[unit.Path] = set
-		}
-		set.ProjectPaths = append(set.ProjectPaths, normalized)
-		set.UnitPaths = append(set.UnitPaths, rel)
-	}
-	out := make([]UnitWriteSet, 0, len(grouped))
-	for _, set := range grouped {
-		sort.Strings(set.ProjectPaths)
-		sort.Strings(set.UnitPaths)
-		out = append(out, *set)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Unit.Depth != out[j].Unit.Depth {
-			return out[i].Unit.Depth > out[j].Unit.Depth
-		}
-		return out[i].Unit.Path < out[j].Unit.Path
-	})
-	return out
-}
-
-// UnintegrableWrites reports the write sets whose unit Wharnex cannot integrate
-// into, with the reason. These are the only writes that still have to be
-// refused at ingestion: there is no checkout to patch and no repository to
-// commit into, and no planner repair can change that.
-func (u Units) UnintegrableWrites(paths []string) map[string]UnitWriteSet {
-	blocked := map[string]UnitWriteSet{}
-	for _, set := range u.Group(paths) {
-		if !set.Unit.Integrable() {
-			blocked[set.Unit.Path] = set
-		}
-	}
-	return blocked
-}
-
-// PathsFor returns the subset of paths owned by one unit, as project paths.
-func (u Units) PathsFor(unitPath string, paths []string) []string {
-	unitPath = normalizeUnitPath(unitPath)
-	owned := make([]string, 0, len(paths))
-	for _, path := range paths {
-		if unit, _ := u.Route(path); unit.Path == unitPath {
-			owned = append(owned, normalizeProjectPath(path))
-		}
-	}
-	return owned
-}
 
 func normalizeProjectPath(path string) string {
 	path = filepath.ToSlash(strings.TrimSpace(path))

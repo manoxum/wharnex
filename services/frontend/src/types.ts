@@ -78,16 +78,10 @@ export type PendingHostChange = {
   change_set?: ChangeSet
   integration_branch?: string
   integration_commit?: string
-  /**
-   * Every repository unit this candidate was committed into, deepest first.
-   * A project with no submodules produces exactly one entry, for the
-   * superproject, whose path is the empty string.
-   */
-  integration_units?: Array<{
+  submodule_integrations?: Array<{
     path: string
     branch: string
-    commit?: string
-    pointer_updates?: string[]
+    commit: string
     target_branch?: string
     base_commit?: string
   }>

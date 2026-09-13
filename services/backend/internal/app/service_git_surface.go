@@ -120,24 +120,13 @@ func (s *Service) recordAndUnwindIntegration(ctx context.Context, sessionID, pro
 			"plan_id": candidate.planID, "pending_id": record.ID, "subject": firstLineOf(record.Message), "paths": record.Paths,
 		})
 	}
-	// Only the superproject unwinds. A submodule's change is a commit in its own
-	// repository and the superproject can hold nothing but a pointer to it, so
-	// unwinding the submodule too would either lose the change or leave the
-	// superproject naming a commit that does not exist. What the operator sees
-	// instead is exactly right: an uncommitted gitlink move in the
-	// superproject, pointing at a real commit in the submodule.
 	if err := hostrepo.UnwindToCommit(ctx, projectPath, targetSHA); err != nil {
 		return rollback(err)
 	}
-	event := map[string]any{
+	s.bus.Publish(sessionID, "git.integration_left_uncommitted", map[string]any{
 		"commit": targetSHA, "candidates": len(integrated),
 		"reason": "this project applies changes without committing; the change is in the working tree",
-	}
-	if units := integratedSubmoduleUnits(integrated); len(units) > 0 {
-		event["submodule_units_committed"] = units
-		event["submodule_note"] = "changes inside these submodules stay committed in their own repositories; the superproject keeps the moved pointer uncommitted"
-	}
-	s.bus.Publish(sessionID, "git.integration_left_uncommitted", event)
+	})
 	return nil
 }
 

@@ -250,9 +250,20 @@ The preference is stored by project path and restored when that workspace is reo
 
 ### Projects with Git submodules
 
-A superproject and its submodules are treated as one project made of several repositories (see `adr/ADR-0050`). A change may write anywhere in it — including inside `services/app/` or any other submodule — using ordinary project-relative paths; Wharnex resolves each path to the repository that owns it, verifies the change in a sandbox where every submodule is a real repository, commits it there, records the moved pointer in the superproject, and merges both. Nothing has to be configured and no second Wharnex project is needed.
+A superproject and its submodules are treated as one project made of several
+repositories (see `adr/ADR-0039` and `adr/ADR-0050`). A change may write
+anywhere in it — including inside `services/app/` or any other initialized
+submodule — using ordinary project-relative paths. Wharnex verifies the change
+with every touched submodule present as a real repository, commits deepest-first
+so each parent records its child's gitlink, and on Apply advances each submodule
+on the branch it was already on. Nothing has to be configured and no second
+Wharnex project is needed.
 
-Two consequences are worth knowing. Submodule commits are **local**: Wharnex never pushes to a submodule's remote, so the terminal Apply report and the Git surface name every repository that now holds unpushed work. And a submodule with no checkout still cannot receive a change — there is no repository to commit into — so such a bundle is refused with the action that clears it: `git submodule update --init -- <path>`.
+Two consequences are worth knowing. Those commits are **local**: Wharnex never
+pushes to a submodule's remote, so the repositories it committed into hold work
+only you can push. And a submodule with no usable checkout still cannot receive
+a change — there is no repository to commit into — so such a bundle is refused
+with the action that clears it: `git submodule update --init -- <path>`.
 
 ## Workspace persistence
 

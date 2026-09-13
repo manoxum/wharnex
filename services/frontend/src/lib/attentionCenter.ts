@@ -140,8 +140,8 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
         chat,
         'submodule-write',
         'danger',
-        'Submódulo sem checkout utilizável',
-        session.last_repair_error || 'O submódulo indicado não está inicializado, ou o seu checkout não pode ser lido como repositório próprio, por isso não existe onde gravar a alteração. Inicialize-o ou repare-o (git submodule update --init) e repita o pedido.',
+        'Submódulo indisponível para integração',
+        session.last_repair_error || 'Inicialize ou repare o checkout Git do submódulo indicado e repita o pedido.',
       ))
       failureAlertAdded = true
       break

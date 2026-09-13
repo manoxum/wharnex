@@ -344,10 +344,54 @@ func removeObsoleteDirectory(root string, before time.Time) (bool, int64, error)
 		return false, 0, nil
 	}
 	bytes := directorySize(root)
-	if err := os.RemoveAll(root); err != nil {
+	if err := removeTreeWithReadOnlyDirs(root); err != nil {
 		return false, 0, fmt.Errorf("remove obsolete storage %s: %w", root, err)
 	}
 	return true, bytes, nil
+}
+
+// removeTreeWithReadOnlyDirs deletes a tree that may contain a Go module cache.
+//
+// `os.RemoveAll` alone cannot: the Go toolchain deliberately makes every cached
+// module file AND its containing directories read-only, and unlinking a file
+// needs write permission on its parent directory, not on the file. Every
+// abandoned sandbox that hydrated Go dependencies therefore failed to reclaim
+// with "permission denied", which made the whole prune — and the `make build`
+// that runs it — fail permanently, while the directories it could not delete
+// accumulated forever.
+//
+// Owner-write is restored on directories on the way down before the tree is
+// removed. Only directories are touched, and only under a root the caller has
+// already established is a disposable Wharnex directory.
+func removeTreeWithReadOnlyDirs(root string) error {
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			// A directory that cannot even be read is reported by RemoveAll
+			// below with a better message; skip rather than abort the walk.
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			if entry != nil && entry.IsDir() {
+				_ = os.Chmod(path, 0o700)
+			}
+			return nil
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return nil
+		}
+		if info.Mode().Perm()&0o200 == 0 {
+			_ = os.Chmod(path, info.Mode().Perm()|0o700)
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, os.ErrNotExist) {
+		return walkErr
+	}
+	return os.RemoveAll(root)
 }
 
 func wharnessTempName(name string) bool {

@@ -65,82 +65,57 @@ func planPatching(path string) *domain.ExecutionPlan {
 	}
 }
 
-// A path inside an initialized submodule is ordinary, integrable source: it is
-// committed in that submodule's own repository and the superproject's pointer
-// is moved to match (adr/ADR-0050). Refusing it — the pre-ADR-0050 behavior —
-// made a deployment superproject whose whole source lives in submodules unable
-// to receive any change at all.
-func TestRouteSubmoduleWritesAdmitsAnInitializedSubmodule(t *testing.T) {
+func TestRejectSubmoduleWritesAdmitsInitializedSubmoduleRepositories(t *testing.T) {
 	requireGitForApp(t)
 	root := newAppRepoWithSubmodule(t, "mod/app")
 	service := &Service{bus: audit.NewBus()}
 
-	if err := service.routeSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt")); err != nil {
-		t.Fatalf("a write inside an initialized submodule must be admitted: %v", err)
+	if err := service.rejectSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt")); err != nil {
+		t.Fatalf("initialized submodule must be routed as a repository candidate: %v", err)
 	}
 }
 
-// What remains refused is the case where no repository can receive the change:
-// a submodule with no checkout is an empty directory, so there is nothing to
-// patch and nothing to commit into, and no planner repair can change that.
-func TestRouteSubmoduleWritesRefusesAnUninitializedSubmodule(t *testing.T) {
-	requireGitForApp(t)
-	origin := newAppRepoWithSubmodule(t, "mod/app")
-	root := filepath.Join(t.TempDir(), "clone")
-	runGitForApp(t, t.TempDir(), "clone", "-q", "--", origin, root)
-	service := &Service{bus: audit.NewBus()}
-
-	err := service.routeSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt"))
-	if !errors.Is(err, ErrSubmoduleWrite) {
-		t.Fatalf("expected ErrSubmoduleWrite, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "mod/app") {
-		t.Fatalf("the refusal must name the submodule, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "submodule update --init") {
-		t.Fatalf("the refusal must carry the operator action that clears it, got %v", err)
-	}
-}
-
-// A submodule the operator deinitialized reaches the same state by a different
-// route than one that was never initialized in a fresh clone, and both have to
-// be refused: `git submodule deinit` empties the checkout while leaving the
-// gitlink and the .gitmodules entry in place, so the boundary is still there
-// and there is still no repository behind it.
-func TestRouteSubmoduleWritesRefusesADeinitializedSubmodule(t *testing.T) {
+func TestRejectSubmoduleWritesRefusesUninitializedSubmodule(t *testing.T) {
 	requireGitForApp(t)
 	root := newAppRepoWithSubmodule(t, "mod/app")
 	runGitForApp(t, root, "submodule", "deinit", "-f", "--", "mod/app")
 	service := &Service{bus: audit.NewBus()}
-
-	err := service.routeSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt"))
+	err := service.rejectSubmoduleWrites(context.Background(), "session", root, planPatching("mod/app/lib.txt"))
 	if !errors.Is(err, ErrSubmoduleWrite) || !strings.Contains(err.Error(), "mod/app") {
-		t.Fatalf("expected an actionable uninitialized submodule refusal, got %v", err)
+		t.Fatalf("expected actionable uninitialized submodule refusal, got %v", err)
 	}
 }
 
-func TestRouteSubmoduleWritesAllowsSuperprojectPaths(t *testing.T) {
+func TestRootIntegrationPathsStagesGitlinkForNestedFiles(t *testing.T) {
+	plan := planPatching("services/admin/client/app.js")
+	paths := rootIntegrationPaths(plan, []domain.RepositoryIntegration{{Path: "services/admin"}})
+	if len(paths) != 1 || paths[0] != "services/admin" {
+		t.Fatalf("root write set = %v, want the submodule gitlink", paths)
+	}
+}
+
+func TestRejectSubmoduleWritesAllowsSuperprojectPaths(t *testing.T) {
 	requireGitForApp(t)
 	root := newAppRepoWithSubmodule(t, "mod/app")
 	service := &Service{bus: audit.NewBus()}
 
-	if err := service.routeSubmoduleWrites(context.Background(), "session", root, planPatching("README.md")); err != nil {
+	if err := service.rejectSubmoduleWrites(context.Background(), "session", root, planPatching("README.md")); err != nil {
 		t.Fatalf("a superproject path must be admitted: %v", err)
 	}
 	// A path that merely shares a prefix with the submodule is not inside it.
-	if err := service.routeSubmoduleWrites(context.Background(), "session", root, planPatching("mod/apple.txt")); err != nil {
+	if err := service.rejectSubmoduleWrites(context.Background(), "session", root, planPatching("mod/apple.txt")); err != nil {
 		t.Fatalf("a path outside the submodule must be admitted: %v", err)
 	}
 }
 
 // A project Wharnex cannot measure must behave exactly as before: a
 // measurement failure may never reject a legitimate change.
-func TestRouteSubmoduleWritesAdmitsWhenTheProjectCannotBeInspected(t *testing.T) {
+func TestRejectSubmoduleWritesAdmitsWhenTheProjectCannotBeInspected(t *testing.T) {
 	service := &Service{bus: audit.NewBus()}
-	if err := service.routeSubmoduleWrites(context.Background(), "session", filepath.Join(t.TempDir(), "missing"), planPatching("a.txt")); err != nil {
+	if err := service.rejectSubmoduleWrites(context.Background(), "session", filepath.Join(t.TempDir(), "missing"), planPatching("a.txt")); err != nil {
 		t.Fatalf("an unmeasurable project must degrade to the previous behavior, got %v", err)
 	}
-	if err := service.routeSubmoduleWrites(context.Background(), "session", "", planPatching("a.txt")); err != nil {
+	if err := service.rejectSubmoduleWrites(context.Background(), "session", "", planPatching("a.txt")); err != nil {
 		t.Fatalf("an empty project path must degrade, got %v", err)
 	}
 }
@@ -148,18 +123,14 @@ func TestRouteSubmoduleWritesAdmitsWhenTheProjectCannotBeInspected(t *testing.T)
 // A gitlink conflict is three commit ids: `git show <ref>:<submodule>` returns
 // nothing, so a capsule built from it tells the planner the path exists on no
 // side and then asks for a patch there — rejected on arrival, every round.
-//
-// A path INSIDE the submodule is the opposite case: it is an ordinary file in
-// that submodule's own repository, reported by that repository's own merge, and
-// a planner resolves it exactly like any other file.
-func TestPartitionSubmoduleConflictPathsSeparatesOnlyGitlinks(t *testing.T) {
+func TestPartitionSubmoduleConflictPathsSeparatesGitlinks(t *testing.T) {
 	topology := hostrepo.Topology{Submodules: []hostrepo.Submodule{{Path: "mod/app"}}}
 	submodulePaths, resolvable := partitionSubmoduleConflictPaths(topology, []string{"README.md", "mod/app", "mod/app/lib.txt"})
-	if len(submodulePaths) != 1 || submodulePaths[0] != "mod/app" {
-		t.Fatalf("expected only the gitlink partitioned out, got %v", submodulePaths)
+	if len(submodulePaths) != 2 || !strings.Contains(strings.Join(submodulePaths, ","), "mod/app") {
+		t.Fatalf("expected both submodule paths partitioned out, got %v", submodulePaths)
 	}
-	if len(resolvable) != 2 || resolvable[0] != "README.md" || resolvable[1] != "mod/app/lib.txt" {
-		t.Fatalf("expected the superproject file and the in-submodule file left for a planner, got %v", resolvable)
+	if len(resolvable) != 1 || resolvable[0] != "README.md" {
+		t.Fatalf("expected only README.md left for a planner, got %v", resolvable)
 	}
 }
 

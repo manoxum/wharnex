@@ -147,31 +147,33 @@ skipped) and strictly non-destructive (a submodule holding uncommitted work is
 never checked out over). Skips are published rather than hidden, because the
 superproject is then knowingly ahead of a checkout the operator must update.
 
-### Early rejection of submodule writes — superseded by `adr/ADR-0050`
+### Repository-tree integration for submodule writes
 
-This decision rejected every patch inside a submodule **at ingestion**, at the
-same seam and for the same reason as the `commit_message` contract: it could not
-be integrated at all, so every step between ingestion and that discovery was
-wasted. Measurement failure never rejected: a project Wharnex could not inspect
-was admitted exactly as before.
+The original decision rejected every patch inside a submodule. That avoided a
+late `git add` failure, but prevented a superproject workspace from owning a
+normal cross-repository change. This revision retains the boundary and models
+it explicitly.
 
-Writing *inside* a submodule was held unsupported by design here, on the grounds
-that a submodule is a different repository with its own remote, history and
-review process, and that committing into it is a distinct authority question
-rather than an extension of the superproject Apply.
+An initialized submodule is cloned as a repository inside the Protected
+workspace. Verified changes are committed deepest-first and every parent
+candidate records its child's commit as a gitlink. The candidate also records
+the submodule's checked-out branch and base commit. Apply merges the
+superproject and fast-forwards that same branch to the verified commit; a
+submodule that started detached remains detached. Failure resets the root and
+restores the affected branches to their recorded bases, so Apply remains
+atomic from the operator's point of view. After success, temporary nested
+integration branches are removed because the original branches retain the
+commits.
 
-**`adr/ADR-0050` reverses that position and supersedes this section.** The
-reasoning above describes the mechanism as it then existed, not a constraint of
-Git: a project is now modelled as a tree of repository units and a change inside
-an initialized submodule is committed in that submodule's own repository, with
-the parent recording the resulting pointer. Read ADR-0050 for the current
-contract. What survives from this section is its narrow residue — a submodule
-with no usable checkout still has no repository to commit into, and keeps the
-typed `submodule_write` terminal condition.
+The existing `submodule_write` terminal condition now covers topology that
+cannot be executed safely, such as an uninitialized checkout. Dirty nested
+work and concurrent divergence remain host-state blocks with the candidate
+retained. No path is staged by the wrong repository and no remote is pushed.
 
-Everything else in this ADR — shape measurement, the dirty-worktree
-classification, the refusal conditions, and offline realignment — remains in
-force and is extended rather than replaced by ADR-0050.
+Compatibility: persisted candidates without nested-repository metadata keep
+their existing root-only behavior. The new metadata is additive. Existing
+initialized projects require no migration; uninitialized submodules keep the
+same fail-closed outcome and gain a narrower remedy.
 
 ### Containment fix found on the way
 
@@ -216,8 +218,8 @@ that must not reach it. `.git` is now excluded whichever it is.
   operator's own remedy rather than a GPT repair.
 - Submodule checkouts follow the superproject through both merge and revert, so
   post-merge verification runs against the tree it is verifying.
-- A patch inside an initialized submodule produces a nested verified candidate
-  (`adr/ADR-0050`); only submodule topology Wharnex cannot execute against is
-  rejected before execution, and that rejection does not consume a fresh ChatGPT
-  recovery request. The operator is directed to initialize or repair the
-  submodule that actually owns the requested files.
+- A patch inside an initialized submodule produces a nested verified candidate;
+  unsupported submodule topology is rejected before execution and does not
+  consume a fresh ChatGPT recovery request. The operator is directed to repair
+  or initialize the submodule.
+  repository that actually owns the requested files.

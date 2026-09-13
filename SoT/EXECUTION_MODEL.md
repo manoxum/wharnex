@@ -207,76 +207,34 @@ against the host's real current content, including uncommitted state, because
 the real merge commits that state first. A Git build that cannot answer yields
 "unknown", never "clean"; the atomic merge remains authoritative.
 
-## Submodule-native host integration (v1.3.7)
+## Submodule integration (v1.3.7)
 
 A superproject cannot hold a submodule's bytes, only a pointer to the commit
-that does. Integration therefore runs once per repository unit (see
-`adr/ADR-0050`), deepest first, and each parent records the gitlink of every
-child whose commit moved — including a parent whose own file set is empty,
-because the pointer is the only thing it can say about the verified content.
+that does. A change touching an initialized submodule is therefore verified and
+committed as a **repository tree** (`adr/ADR-0039`): touched repositories are
+committed deepest-first so each parent records its child's resulting gitlink,
+and every candidate branch is published only into the matching local host
+repository.
 
-The superproject preflight MUST receive the exact repository units owned by the
-candidate and MUST exclude only those units' exact gitlink paths from its
-conflict result. A moved owned gitlink is expected coordination state: the child
-unit will be merged first and the parent will then record the child commit that
-actually landed. Classifying that pointer as a managed-only conflict is a false
-terminal failure and MUST NOT consume a repair or conflict-resolution turn.
-Files beneath that unit, gitlinks not owned by the candidate, and ordinary
-source paths remain visible to conflict detection. The later per-unit merges
-remain authoritative; this exclusion changes only the advisory preflight.
+Apply merges the superproject candidate and then advances each affected
+submodule, on the branch it was checked out on at verification, to the exact
+locally published commit. A submodule that started detached stays detached. A
+later merge or verification failure resets the superproject to its pre-Apply
+HEAD and restores every affected submodule branch to its recorded base commit,
+so Apply stays atomic from the operator's point of view. Temporary nested
+integration branches are removed after success.
 
-Each unit receives the complete host-integration treatment in its own
-repository: shape measurement, refusal on an unfinished operation or unresolved
-paths, preservation of the operator's uncommitted work as a snapshot commit, the
-real merge, and its own recorded pre-merge commit. Two consequences are load
-bearing and neither is optional:
-
-- A parent's snapshot excludes the gitlinks of the units the same integration is
-  moving. Capturing them would commit Wharnex's own work into the operator's
-  history as though it were theirs, and would move the rollback boundary past
-  it, so a revert could not return the parent to where it started.
-- After a merge, a parent records the commit the child actually landed on — the
-  merge of the host's prior state with the candidate's — not the commit the
-  candidate's branch named. Leaving the sandbox commit there would let the
-  realignment pass check the child out at a stale pointer, discarding what the
-  host-side merge preserved, including the snapshot holding the operator's own
-  work.
-
-The dirty-submodule gitlink guard is narrowed accordingly: it still refuses to
-move the pointer of a submodule Wharnex is not integrating into, and no longer
-refuses one it is, because that unit's own preservation commit now holds the
-work the guard existed to protect.
-
-A revert unwinds every unit it moved, to that unit's own recorded pre-merge
-commit. In no-auto-commit mode only the superproject unwinds; submodule commits
-are kept, because a gitlink can only point at a commit, and the change surfaces
-as an uncommitted pointer move over real commits in the submodules.
-
-A submodule is advanced on the branch it was checked out on, never detached:
-`git submodule update` would check out a detached HEAD, so the realignment pass
-skips a unit whose checkout already holds the commit the parent now records —
-the normal outcome once that unit merged in its own repository. A submodule
-already detached stays detached.
-
-A candidate records each unit's checkout at verification time — the branch and
-the commit it pointed at — and Apply refuses before touching anything when a
-submodule has since moved to another branch, because merging then would advance
-a branch in a repository Wharnex does not own with work never built against it.
-A candidate carrying no recorded checkout is not guarded, so candidates
-persisted before this contract stay appliable.
-
-Publishing a candidate's branches is all-or-nothing: a failure part-way through
-deletes the refs already pushed, and a successful Apply removes every unit's
-temporary integration branch. Without that, a candidate that never existed
-leaves refs behind in the operator's repositories and blocks the next attempt at
-the same request id.
+The advisory superproject preflight excludes the gitlinks of the nested
+repositories the same candidate owns. The superproject branch records each
+submodule at the commit verification produced, so a dry-run merge of the
+superproject alone would otherwise report a pointer conflict whenever that
+submodule moved on either side — the very case the mechanism exists to handle,
+and one the real Apply resolves by advancing that submodule first.
 
 The operator's explicit Apply confirmation authorizes this bounded repository
-tree as one transaction. It does not authorize remote pushes, and it does not
-extend to unrelated nested Git repositories. Submodule commits are local —
-Wharnex never pushes to a submodule's remote, push being an explicit human
-action — so every unit Wharnex committed into is named in the terminal applied
-event and on the Git surface.
+tree as one transaction. It does not authorize remote pushes and does not extend
+to unrelated nested Git repositories, so every repository Wharnex committed into
+still holds work only the operator can push.
 
 ## Persistent integration race (v1.3.2)
 

@@ -179,7 +179,7 @@ func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*Merg
 // to handle, and which the real integration resolves by merging that submodule
 // first and then recording where it landed. Counting it as an ordinary
 // conflict would abort a legitimate integration and hand a planner a commit id
-// to patch (adr/ADR-0050).
+// to patch (adr/ADR-0039).
 func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch string, integratingUnits []string) (*MergeConflictError, error) {
 	comparison, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharnex merge preflight")
 	if err != nil {

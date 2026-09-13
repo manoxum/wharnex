@@ -98,24 +98,24 @@ func TestMergeRollbackAnchorKeepsPreservedOperatorWork(t *testing.T) {
 		Summary: "Add the application entry point.", CommitMessage: "feat(app): add entry point", Risk: "low",
 		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/app.go\n+++ b/app.go\n@@ -1 +1,3 @@\n package main\n+\n+func main() {}\n"}},
 	}
-	integrated, rollback, failedPlanID, err := service.mergeIntegrationBranches(context.Background(), "ses_preserve", host, []domain.PendingHostChange{{Plan: plan, IntegrationBranch: "whx/req_preserve"}})
+	integrated, rollbackSHA, failedPlanID, err := service.mergeIntegrationBranches(context.Background(), "ses_preserve", host, []domain.PendingHostChange{{Plan: plan, IntegrationBranch: "whx/req_preserve"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if failedPlanID != "" || len(integrated) != 1 {
 		t.Fatalf("unexpected merge result: failed=%q integrated=%+v", failedPlanID, integrated)
 	}
-	if rollback.RootSHA == originalHead {
+	if rollbackSHA == originalHead {
 		t.Fatal("rollback anchor ignored the dirty-tree preservation snapshot")
 	}
-	if rollback.RootSHA != integrated[0].beforeSHA {
-		t.Fatalf("rollback anchor %s does not match first exact pre-merge SHA %s", rollback.RootSHA, integrated[0].beforeSHA)
+	if rollbackSHA != integrated[0].beforeSHA {
+		t.Fatalf("rollback anchor %s does not match first exact pre-merge SHA %s", rollbackSHA, integrated[0].beforeSHA)
 	}
-	if err := service.revertHostMerge(context.Background(), "ses_preserve", plan.PlanID, host, rollback); err != nil {
+	if err := service.revertHostMerge(context.Background(), "ses_preserve", plan.PlanID, host, rollbackSHA, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := headOf(t, host); got != rollback.RootSHA {
-		t.Fatalf("expected rollback at preserved snapshot %s, got %s", rollback.RootSHA, got)
+	if got := headOf(t, host); got != rollbackSHA {
+		t.Fatalf("expected rollback at preserved snapshot %s, got %s", rollbackSHA, got)
 	}
 	operatorWork, err := os.ReadFile(filepath.Join(host, "operator.txt"))
 	if err != nil || string(operatorWork) != "keep this work\n" {
