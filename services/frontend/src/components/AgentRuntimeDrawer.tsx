@@ -24,6 +24,13 @@ function short(value?: string, fallback = '—') {
   return text || fallback
 }
 
+function runtimeErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'string') return error.trim() || fallback
+  if (!error || typeof error !== 'object' || !('message' in error)) return fallback
+  const message = String((error as { message?: unknown }).message || '').trim()
+  return message || fallback
+}
+
 // The agent pool is global: every open project shares the same Supervisors and
 // Workers. An agent busy with another project's task therefore has to say so,
 // or this panel reports "0 available" beside cards that all look idle to the
@@ -100,13 +107,15 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
 
   const refresh = useCallback(async () => {
     if (!bridge) return
-    try { setRuntime(await bridge.state()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível carregar os agentes') }
-  }, [bridge, onError])
+    try { setRuntime(await bridge.state()) } catch (error) { onErrorRef.current?.(runtimeErrorMessage(error, 'Não foi possível carregar os agentes')) }
+  }, [bridge])
 
   useEffect(() => {
     if (!bridge) return
     let alive = true
-    void bridge.state().then((value) => { if (alive) setRuntime(value) }).catch(() => {})
+    void bridge.state().then((value) => { if (alive) setRuntime(value) }).catch((error) => {
+      if (alive) onErrorRef.current?.(runtimeErrorMessage(error, 'Não foi possível carregar os agentes'))
+    })
     const off = bridge.onState((value) => { if (alive) setRuntime(value) })
     const timer = window.setInterval(() => { void refresh() }, 5_000)
     return () => { alive = false; off(); window.clearInterval(timer) }
