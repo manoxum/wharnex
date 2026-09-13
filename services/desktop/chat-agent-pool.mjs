@@ -13,11 +13,12 @@
 // Supervisors cover the conversations an operator actually alternates between,
 // while small account-lifecycle and utility work needs far fewer slots.
 
-export const SUPERVISOR_SLOTS = 6
+export const DEFAULT_SUPERVISOR_SLOTS = 3
+export const MIN_SUPERVISOR_SLOTS = 1
+export const HARD_MAX_SUPERVISOR_SLOTS = 12
 export const MIN_WORKER_SLOTS = 1
-export const DEFAULT_WORKER_SLOTS = 3
-export const DEFAULT_TOTAL_SLOTS = SUPERVISOR_SLOTS + DEFAULT_WORKER_SLOTS
-export const HARD_MAX_WORKER_SLOTS = 3
+export const DEFAULT_WORKER_SLOTS = 2
+export const HARD_MAX_WORKER_SLOTS = 6
 
 // Task types the Supervisor pool owns: opening the chat, submitting the
 // request bundle, collecting the response bundle, and following the remote
@@ -35,37 +36,46 @@ export function isSupervisorTaskType(taskType) {
   return SUPERVISOR_TASK_TYPES.includes(String(taskType || '').trim().toUpperCase())
 }
 
+export function normalizeSupervisorSlotCount(supervisorSlots = DEFAULT_SUPERVISOR_SLOTS) {
+  const numeric = Number(supervisorSlots)
+  const requested = Number.isFinite(numeric) ? Math.floor(numeric) : DEFAULT_SUPERVISOR_SLOTS
+  return Math.min(HARD_MAX_SUPERVISOR_SLOTS, Math.max(MIN_SUPERVISOR_SLOTS, requested))
+}
+
 export function normalizeWorkerSlotCount(workerSlots = DEFAULT_WORKER_SLOTS) {
   const numeric = Number(workerSlots)
   const requested = Number.isFinite(numeric) ? Math.floor(numeric) : DEFAULT_WORKER_SLOTS
   return Math.min(HARD_MAX_WORKER_SLOTS, Math.max(MIN_WORKER_SLOTS, requested))
 }
 
-export function desiredSlotCount(chatCount, workerSlots = DEFAULT_WORKER_SLOTS) {
+export function desiredSlotCount(chatCount, supervisorSlots = DEFAULT_SUPERVISOR_SLOTS, workerSlots = DEFAULT_WORKER_SLOTS) {
   const chats = Math.max(0, Math.floor(Number(chatCount) || 0))
   if (!chats) return 0
-  return SUPERVISOR_SLOTS + normalizeWorkerSlotCount(workerSlots)
+  return normalizeSupervisorSlotCount(supervisorSlots) + normalizeWorkerSlotCount(workerSlots)
 }
 
-export function slotBlueprints(workerSlots = DEFAULT_WORKER_SLOTS) {
+export function slotBlueprints(supervisorSlots = DEFAULT_SUPERVISOR_SLOTS, workerSlots = DEFAULT_WORKER_SLOTS) {
+  const supervisors = normalizeSupervisorSlotCount(supervisorSlots)
   const workers = normalizeWorkerSlotCount(workerSlots)
   return [
-    ...Array.from({ length: SUPERVISOR_SLOTS }, (_, index) => ({ id: `supervisor-${index + 1}`, role: 'supervisor' })),
+    ...Array.from({ length: supervisors }, (_, index) => ({ id: `supervisor-${index + 1}`, role: 'supervisor' })),
     ...Array.from({ length: workers }, (_, index) => ({ id: `worker-${index + 1}`, role: 'worker' })),
   ]
 }
 
 // A slot is a Supervisor because it was declared or named one, capped at
-// SUPERVISOR_SLOTS. Backfilling the cap from undeclared slots would now swallow
-// the whole pool — with six Supervisor slots, a list of two Supervisors and
-// three Workers would report five Supervisors and no Worker at all — so the
-// backfill is limited to guaranteeing one human surface when nothing is declared.
-export function assignRoles(slots) {
+// the configured supervisor count. Backfilling the cap from undeclared slots
+// would now swallow the whole pool — with three Supervisor slots, a list of two
+// Supervisors and three Workers would report five Supervisors and no Worker at
+// all — so the backfill is limited to guaranteeing one human surface when
+// nothing is declared.
+export function assignRoles(slots, supervisorSlots = DEFAULT_SUPERVISOR_SLOTS) {
+  const supervisorCap = normalizeSupervisorSlotCount(supervisorSlots)
   const live = slots.filter((slot) => !slot.destroyed)
   if (!live.length) return []
   const declared = live
     .filter((slot) => slot.role === 'supervisor' || /^supervisor(?:-|$)/.test(String(slot.id || '')))
-    .slice(0, SUPERVISOR_SLOTS)
+    .slice(0, supervisorCap)
   const supervisorIDs = new Set(declared.map((slot) => slot.id))
   if (!supervisorIDs.size) supervisorIDs.add(live[0].id)
   return live.map((slot) => ({ ...slot, role: supervisorIDs.has(slot.id) ? 'supervisor' : 'worker' }))

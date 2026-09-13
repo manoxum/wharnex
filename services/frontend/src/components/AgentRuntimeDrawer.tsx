@@ -164,6 +164,15 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
     }
   }, [bridge, interactionId, selected?.id, selected?.role])
 
+  const scaleSupervisors = async (delta: number) => {
+    if (!bridge || !runtime) return
+    const configured = runtime.configured_supervisors || runtime.desired_supervisors
+    const next = Math.max(runtime.limits.min_supervisors, Math.min(runtime.limits.max_supervisors, configured + delta))
+    if (next === configured) return
+    setBusy(true)
+    try { setRuntime(await bridge.setSupervisorCount(next)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível escalar os supervisores') } finally { setBusy(false) }
+  }
+
   const scaleWorkers = async (delta: number) => {
     if (!bridge || !runtime) return
     const configured = runtime.configured_workers || runtime.desired_workers
@@ -185,6 +194,14 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
     const next = Math.max(runtime.limits.min_workers, Math.min(runtime.limits.max_workers, ceiling + delta))
     if (next === ceiling) return
     await updatePolicies({ auto_scale_max_workers: next })
+  }
+
+  const scaleAutoScaleSupervisorCeiling = async (delta: number) => {
+    if (!runtime) return
+    const ceiling = runtime.policies.auto_scale_max_supervisors || runtime.limits.max_supervisors
+    const next = Math.max(runtime.limits.min_supervisors, Math.min(runtime.limits.max_supervisors, ceiling + delta))
+    if (next === ceiling) return
+    await updatePolicies({ auto_scale_max_supervisors: next })
   }
 
   const setWorkerKeepFlowing = async (agentId: string, enabled: boolean) => {
@@ -309,8 +326,11 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
         {runtime.provider?.paused && <button type="button" className="agent-runtime-resume" disabled={busy} onClick={() => void resumeProvider()}>Retomar agora</button>}
       </div>
       <div className="agent-runtime-scale">
-        <div className="agent-runtime-scale-card"><div><strong>Supervisores</strong><small>Um por chat: abre a conversa, envia e recolhe o bundle, e só liberta o chat quando o pedido termina</small></div><div className="agent-runtime-stepper locked"><button disabled aria-label="Diminuir supervisores">−</button><b>{runtime.limits.supervisors}</b><button disabled aria-label="Aumentar supervisores">+</button></div></div>
+        <div className="agent-runtime-scale-card"><div><strong>Supervisores</strong><small>Um por chat: abre a conversa, envia e recolhe o bundle, e só liberta o chat quando o pedido termina</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.configured_supervisors <= runtime.limits.min_supervisors} onClick={() => void scaleSupervisors(-1)} aria-label="Diminuir supervisores">−</button><b>{runtime.configured_supervisors}</b><button disabled={busy || runtime.configured_supervisors >= runtime.limits.max_supervisors} onClick={() => void scaleSupervisors(1)} aria-label="Aumentar supervisores">+</button></div></div>
         <div className="agent-runtime-scale-card"><div><strong>Workers</strong><small>Base configurada; extras podem ser geridos por Auto scale</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.configured_workers <= runtime.limits.min_workers} onClick={() => void scaleWorkers(-1)} aria-label="Diminuir workers">−</button><b>{runtime.configured_workers}</b><button disabled={busy || runtime.configured_workers >= runtime.limits.max_workers} onClick={() => void scaleWorkers(1)} aria-label="Aumentar workers">+</button></div></div>
+      </div>
+      <div className="agent-runtime-scale" aria-label="Políticas dos Supervisores">
+        <div className="agent-runtime-scale-card"><div><strong>Teto Auto scale Supervisores</strong><small>Máximo total de Supervisores que o Auto scale pode atingir; a base manual nunca é reduzida por este teto.</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.policies.auto_scale_max_supervisors <= runtime.limits.min_supervisors} onClick={() => void scaleAutoScaleSupervisorCeiling(-1)} aria-label="Diminuir teto Auto scale Supervisores">−</button><b>{runtime.policies.auto_scale_max_supervisors}</b><button disabled={busy || runtime.policies.auto_scale_max_supervisors >= runtime.limits.max_supervisors} onClick={() => void scaleAutoScaleSupervisorCeiling(1)} aria-label="Aumentar teto Auto scale Supervisores">+</button></div></div>
       </div>
       <div className="agent-runtime-scale" aria-label="Políticas dos Workers">
         <div className="agent-runtime-scale-card"><div><strong>Auto scale</strong><small>Cria um Worker extra quando chega trabalho executável e todos os Workers ativos estão ocupados, até ao teto configurado.</small></div><button type="button" className="agent-runtime-resume" aria-pressed={runtime.policies.auto_scale} disabled={busy} onClick={() => void updatePolicies({ auto_scale: !runtime.policies.auto_scale })}>{runtime.policies.auto_scale ? 'Ativo' : 'Inativo'}</button></div>

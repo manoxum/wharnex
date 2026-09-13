@@ -540,7 +540,7 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
   const supervisorPool = source.slice(source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatSupervisorScheduler.start()'))
   assert.match(supervisorPool, /role: 'supervisor'/)
   assert.match(supervisorPool, /execute: executeChatSupervisorTask/)
-  assert.match(supervisorPool, /workerCount: SUPERVISOR_SLOTS, maxWorkers: SUPERVISOR_SLOTS/)
+  assert.match(supervisorPool, /workerCount: desiredChatAgentSupervisorSlots, maxWorkers: HARD_MAX_SUPERVISOR_SLOTS/)
   assert.match(supervisorPool, /agentID: chatSupervisorSlotID/)
   // A Supervisor mid-request may claim only its own chat's lane: claiming
   // another conversation is the cross-chat navigation this topology removes.
@@ -585,7 +585,7 @@ test('a Supervisor releases its chat only after the request settled and another 
   // Retire only what the cap requires, oldest first, and never a held slot or
   // the visible one. Releasing on a timer would re-create the churn the binding
   // exists to remove.
-  assert.match(evict, /const excess = chatgptViews\.size - MAX_RESIDENT_CHATGPT_VIEWS/)
+  assert.match(evict, /const excess = chatgptViews\.size - desiredChatAgentSupervisorSlots/)
   assert.match(evict, /!supervisorBindingHeld\(key, entry\) && !chatGPTEntryIsActiveVisible\(key, entry\)/)
   assert.match(evict, /if \(released >= excess\) break/)
   assert.doesNotMatch(source, /setInterval\([^)]*evictIdleChatGPTViews/)
@@ -786,11 +786,11 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   const workerEnd = source.indexOf('\nfunction assignChatGPTWorker', workerStart)
   const workers = source.slice(workerStart, workerEnd)
   assert.match(source, /const chatGPTWorkerEntries = \[\]/)
-  assert.match(source, /const MAX_RESIDENT_CHATGPT_VIEWS = SUPERVISOR_SLOTS/)
+  assert.match(source, /let desiredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS/)
   assert.match(source, /let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS/)
   assert.match(ensure, /entry\.role = 'supervisor'/)
   assert.match(ensure, /entry\.slotId = supervisorSlotID\(\)/)
-  assert.match(ensure, /chatgptViews\.size >= SUPERVISOR_SLOTS/)
+  assert.match(ensure, /chatgptViews\.size >= desiredChatAgentSupervisorSlots/)
   assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
   assert.match(ensure, /retireChatGPTSupervisorSurface\(reusable\[0\]\)/)
   assert.match(workers, /index < desiredChatAgentWorkerSlots/)
@@ -929,7 +929,7 @@ test('switching chats reuses a released Supervisor slot and preserves visible in
   const ensureEnd = source.indexOf('\nfunction evictIdleChatGPTViews', ensureStart)
   const ensure = source.slice(ensureStart, ensureEnd)
 
-  assert.match(ensure, /chatgptViews\.size >= SUPERVISOR_SLOTS/)
+  assert.match(ensure, /chatgptViews\.size >= desiredChatAgentSupervisorSlots/)
   assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
   // Eligibility is the whole binding hold, not just an open transport: a chat
   // awaiting its response bundle must not lose its renderer to a chat switch.

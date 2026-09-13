@@ -80,6 +80,12 @@ export class ChatAgentSchedulerClient {
     return Math.min(this.maxWorkers, Math.max(1, requested))
   }
 
+  #normalizeCount(value, max = this.maxWorkers) {
+    const numeric = Number(value)
+    const requested = Number.isFinite(numeric) ? Math.floor(numeric) : 1
+    return Math.min(max, Math.max(1, requested))
+  }
+
   async enqueue(task) {
     return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/tasks', {
       method: 'POST', body: JSON.stringify(task),
@@ -147,6 +153,15 @@ export class ChatAgentSchedulerClient {
 
   setWorkerCount(value) {
     const next = this.#normalizeWorkerCount(value)
+    if (next === this.workerCount) return this.workerCount
+    this.workerCount = next
+    if (this.running) this.#reconcileLoops()
+    this.onState({ kind: 'scaled', workerCount: this.workerCount })
+    return this.workerCount
+  }
+
+  setSupervisorCount(value) {
+    const next = this.#normalizeCount(value, this.maxWorkers)
     if (next === this.workerCount) return this.workerCount
     this.workerCount = next
     if (this.running) this.#reconcileLoops()

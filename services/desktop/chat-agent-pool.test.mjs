@@ -1,44 +1,45 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  DEFAULT_TOTAL_SLOTS,
+  DEFAULT_SUPERVISOR_SLOTS,
   DEFAULT_WORKER_SLOTS,
+  HARD_MAX_SUPERVISOR_SLOTS,
   HARD_MAX_WORKER_SLOTS,
+  MIN_SUPERVISOR_SLOTS,
   MIN_WORKER_SLOTS,
-  SUPERVISOR_SLOTS,
   SUPERVISOR_TASK_TYPES,
   assignRoles,
   canonicalConversationID,
   canonicalConversationURL,
   desiredSlotCount,
   isSupervisorTaskType,
+  normalizeSupervisorSlotCount,
   normalizeWorkerSlotCount,
   selectSlotForJob,
   selectSupervisorForRebind,
   slotBlueprints,
 } from './chat-agent-pool.mjs'
 
-test('one active profile uses six chat-bound supervisors plus three workers by default', () => {
+test('one active profile uses three chat-bound supervisors plus two workers by default', () => {
   assert.equal(desiredSlotCount(0), 0)
-  assert.equal(desiredSlotCount(1), 9)
-  assert.equal(desiredSlotCount(30), 9)
-  assert.equal(SUPERVISOR_SLOTS, 6)
-  assert.equal(DEFAULT_WORKER_SLOTS, 3)
-  assert.equal(DEFAULT_TOTAL_SLOTS, 9)
+  assert.equal(desiredSlotCount(1), 5)
+  assert.equal(desiredSlotCount(30), 5)
+  assert.equal(DEFAULT_SUPERVISOR_SLOTS, 3)
+  assert.equal(DEFAULT_WORKER_SLOTS, 2)
   assert.deepEqual(slotBlueprints().map((slot) => slot.role), [
-    'supervisor', 'supervisor', 'supervisor', 'supervisor', 'supervisor', 'supervisor',
-    'worker', 'worker', 'worker',
+    'supervisor', 'supervisor', 'supervisor',
+    'worker', 'worker',
   ])
 })
 
-test('assignRoles preserves six exclusive supervisors', () => {
+test('assignRoles preserves three exclusive supervisors by default', () => {
   const roles = assignRoles([
     { id: 'worker-1' },
-    ...Array.from({ length: SUPERVISOR_SLOTS }, (_, index) => ({ id: `supervisor-${index + 1}`, role: 'supervisor' })),
+    ...Array.from({ length: DEFAULT_SUPERVISOR_SLOTS }, (_, index) => ({ id: `supervisor-${index + 1}`, role: 'supervisor' })),
     { id: 'worker-2' },
   ])
-  assert.equal(roles.filter((slot) => slot.role === 'supervisor').length, SUPERVISOR_SLOTS)
-  for (let index = 1; index <= SUPERVISOR_SLOTS; index += 1) {
+  assert.equal(roles.filter((slot) => slot.role === 'supervisor').length, DEFAULT_SUPERVISOR_SLOTS)
+  for (let index = 1; index <= DEFAULT_SUPERVISOR_SLOTS; index += 1) {
     assert.equal(roles.find((slot) => slot.id === `supervisor-${index}`).role, 'supervisor')
   }
   assert.equal(roles.find((slot) => slot.id === 'worker-1').role, 'worker')
@@ -99,16 +100,20 @@ test('conversation identity survives project URL changes', () => {
 })
 
 
-test('worker topology clamps operator scaling to the supported bounds', () => {
+test('worker and supervisor topology clamps operator scaling to the supported bounds', () => {
   assert.equal(normalizeWorkerSlotCount(0), MIN_WORKER_SLOTS)
   assert.equal(normalizeWorkerSlotCount(1), 1)
   assert.equal(normalizeWorkerSlotCount(2), 2)
-  assert.equal(HARD_MAX_WORKER_SLOTS, 3)
+  assert.equal(HARD_MAX_WORKER_SLOTS, 6)
   assert.equal(normalizeWorkerSlotCount(99), HARD_MAX_WORKER_SLOTS)
-  assert.equal(desiredSlotCount(1, 1), SUPERVISOR_SLOTS + 1)
-  assert.equal(desiredSlotCount(1, 6), SUPERVISOR_SLOTS + HARD_MAX_WORKER_SLOTS)
-  assert.deepEqual(slotBlueprints(2).map((slot) => slot.id), [
-    'supervisor-1', 'supervisor-2', 'supervisor-3', 'supervisor-4', 'supervisor-5', 'supervisor-6',
+  assert.equal(normalizeSupervisorSlotCount(0), MIN_SUPERVISOR_SLOTS)
+  assert.equal(normalizeSupervisorSlotCount(3), 3)
+  assert.equal(HARD_MAX_SUPERVISOR_SLOTS, 12)
+  assert.equal(normalizeSupervisorSlotCount(99), HARD_MAX_SUPERVISOR_SLOTS)
+  assert.equal(desiredSlotCount(1, 3, 1), 4)
+  assert.equal(desiredSlotCount(1, 3, 6), 9)
+  assert.deepEqual(slotBlueprints(2, 2).map((slot) => slot.id), [
+    'supervisor-1', 'supervisor-2',
     'worker-1', 'worker-2',
   ])
 })

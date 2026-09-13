@@ -1,8 +1,9 @@
-import { HARD_MAX_WORKER_SLOTS } from './chat-agent-pool.mjs'
+import { HARD_MAX_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS } from './chat-agent-pool.mjs'
 
 export const DEFAULT_CHAT_AGENT_POLICIES = Object.freeze({
   auto_scale: true,
   auto_scale_max_workers: HARD_MAX_WORKER_SLOTS,
+  auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS,
   keep_flowing_global: true,
   keep_flowing_workers: Object.freeze([]),
 })
@@ -12,21 +13,27 @@ function workerNumber(value) {
   return match ? Number(match[1]) : 0
 }
 
-export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, maxWorkers = HARD_MAX_WORKER_SLOTS) {
-  const limit = Math.max(1, Math.floor(Number(maxWorkers) || HARD_MAX_WORKER_SLOTS))
+export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, maxWorkers = HARD_MAX_WORKER_SLOTS, maxSupervisors = HARD_MAX_SUPERVISOR_SLOTS) {
+  const workerLimit = Math.max(1, Math.floor(Number(maxWorkers) || HARD_MAX_WORKER_SLOTS))
+  const supervisorLimit = Math.max(1, Math.floor(Number(maxSupervisors) || HARD_MAX_SUPERVISOR_SLOTS))
   const workers = Array.isArray(value?.keep_flowing_workers) ? value.keep_flowing_workers : []
   const keepFlowingWorkers = [...new Set(workers
     .map((item) => workerNumber(item))
-    .filter((worker) => worker >= 1 && worker <= limit))]
+    .filter((worker) => worker >= 1 && worker <= workerLimit))]
     .sort((a, b) => a - b)
     .map((worker) => `worker-${worker}`)
-  const requestedAutoScaleMax = Number(value?.auto_scale_max_workers)
-  const autoScaleMaxWorkers = Number.isFinite(requestedAutoScaleMax)
-    ? Math.min(limit, Math.max(1, Math.floor(requestedAutoScaleMax)))
-    : Math.min(limit, DEFAULT_CHAT_AGENT_POLICIES.auto_scale_max_workers)
+  const requestedAutoScaleMaxWorkers = Number(value?.auto_scale_max_workers)
+  const autoScaleMaxWorkers = Number.isFinite(requestedAutoScaleMaxWorkers)
+    ? Math.min(workerLimit, Math.max(1, Math.floor(requestedAutoScaleMaxWorkers)))
+    : Math.min(workerLimit, DEFAULT_CHAT_AGENT_POLICIES.auto_scale_max_workers)
+  const requestedAutoScaleMaxSupervisors = Number(value?.auto_scale_max_supervisors)
+  const autoScaleMaxSupervisors = Number.isFinite(requestedAutoScaleMaxSupervisors)
+    ? Math.min(supervisorLimit, Math.max(1, Math.floor(requestedAutoScaleMaxSupervisors)))
+    : Math.min(supervisorLimit, DEFAULT_CHAT_AGENT_POLICIES.auto_scale_max_supervisors)
   return {
     auto_scale: value?.auto_scale === true,
     auto_scale_max_workers: autoScaleMaxWorkers,
+    auto_scale_max_supervisors: autoScaleMaxSupervisors,
     keep_flowing_global: value?.keep_flowing_global === true,
     keep_flowing_workers: keepFlowingWorkers,
   }

@@ -23,7 +23,7 @@ import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieD
 import { ProjectWindowRegistry } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
-import { DEFAULT_WORKER_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_WORKER_SLOTS, SUPERVISOR_SLOTS, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
+import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies } from './chat-agent-policies.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
@@ -117,11 +117,13 @@ let mainWindow
 let chatgptViews = new Map()
 const chatGPTWorkerEntries = []
 const chatAgentWorkerStates = new Map()
-// Supervisor pool runtime, indexed 1..SUPERVISOR_SLOTS. Supervisors draw from
-// the same durable queue as Workers but claim only the chat-bound task types,
-// so each slot needs its own loop state and its own chat binding.
+// Supervisor pool runtime, indexed 1..desiredChatAgentSupervisorSlots. Supervisors
+// draw from the same durable queue as Workers but claim only the chat-bound task
+// types, so each slot needs its own loop state and its own chat binding.
 const chatSupervisorStates = new Map()
 let chatSupervisorScheduler
+let configuredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS
+let desiredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS
 let configuredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
 let chatAgentPolicies = normalizeChatAgentPolicies()
@@ -380,7 +382,7 @@ function supervisorBindingHeld(key, entry) {
 }
 
 function chatSupervisorSlotID(index) {
-  return `supervisor-${Math.max(1, Math.min(SUPERVISOR_SLOTS, Number(index) || 1))}`
+  return `supervisor-${Math.max(1, Math.min(desiredChatAgentSupervisorSlots, Number(index) || 1))}`
 }
 
 function supervisorEntryForSlot(slotID) {
@@ -2144,6 +2146,15 @@ function chatAgentAvailableWorkers() {
   return available
 }
 
+function setChatAgentSupervisorTarget(target) {
+  const normalized = normalizeSupervisorSlotCount(target)
+  if (normalized === desiredChatAgentSupervisorSlots) return normalized
+  desiredChatAgentSupervisorSlots = normalized
+  chatAgentScheduler?.setSupervisorCount(normalized)
+  publishChatAgentRuntimeState()
+  return normalized
+}
+
 function setChatAgentWorkerTarget(target, windowState) {
   const normalized = normalizeWorkerSlotCount(target)
   if (normalized === desiredChatAgentWorkerSlots) return normalized
@@ -2488,7 +2499,7 @@ function chatAgentRuntimeMemory(agents) {
 }
 
 function chatAgentRuntimeState() {
-  const supervisors = Array.from({ length: SUPERVISOR_SLOTS }, (_, offset) => {
+  const supervisors = Array.from({ length: desiredChatAgentSupervisorSlots }, (_, offset) => {
     const slot = offset + 1
     const id = chatSupervisorSlotID(slot)
     const key = supervisorKeyForSlot(id)
@@ -2496,8 +2507,8 @@ function chatAgentRuntimeState() {
     const active = Boolean(entry && [...desktopWindows.values()].some((state) => state.activeChatGPTKey === entry.ownerKey))
     const runtime = chatSupervisorStates.get(slot) || {}
     // Report the lease whose chat this slot is actually bound to. The execution
-    // loops and the renderer bindings are both capped at SUPERVISOR_SLOTS but are
-    // assigned independently, so pairing them by index would attribute one slot's
+    // loops and the renderer bindings are both capped at desiredChatAgentSupervisorSlots
+    // but are assigned independently, so pairing them by index would attribute one slot's
     // task to another slot's chat.
     const taskChatId = runtime.task?.chat_id
     const own = key && taskChatId && sanitizeChatCacheKey(taskChatId) === key ? runtime : {}
@@ -2532,10 +2543,21 @@ function chatAgentRuntimeState() {
   const memory = chatAgentRuntimeMemory(agents)
   return {
     instance_id: String(chatAgentScheduler?.instanceID || ''),
+    desired_supervisors: desiredChatAgentSupervisorSlots,
+    configured_supervisors: configuredChatAgentSupervisorSlots,
     desired_workers: desiredChatAgentWorkerSlots,
     configured_workers: configuredChatAgentWorkerSlots,
-    policies: { ...chatAgentPolicies, auto_scaled_workers: Math.max(0, desiredChatAgentWorkerSlots - configuredChatAgentWorkerSlots) },
-    limits: { min_workers: MIN_WORKER_SLOTS, max_workers: HARD_MAX_WORKER_SLOTS, supervisors: SUPERVISOR_SLOTS },
+    policies: {
+      ...chatAgentPolicies,
+      auto_scaled_supervisors: Math.max(0, desiredChatAgentSupervisorSlots - configuredChatAgentSupervisorSlots),
+      auto_scaled_workers: Math.max(0, desiredChatAgentWorkerSlots - configuredChatAgentWorkerSlots),
+    },
+    limits: {
+      min_supervisors: MIN_SUPERVISOR_SLOTS,
+      max_supervisors: HARD_MAX_SUPERVISOR_SLOTS,
+      min_workers: MIN_WORKER_SLOTS,
+      max_workers: HARD_MAX_WORKER_SLOTS,
+    },
     scheduler: chatAgentRuntimeDiagnostics.scheduler,
     queue: chatAgentRuntimeDiagnostics.queue,
     provider: chatAgentRuntimeDiagnostics.provider,
@@ -2596,7 +2618,7 @@ function supervisorEntry(windowState) {
 
 function supervisorSlotID() {
   const used = new Set([...chatgptViews.values()].map((entry) => String(entry.slotId || '')))
-  for (let index = 1; index <= SUPERVISOR_SLOTS; index += 1) {
+  for (let index = 1; index <= desiredChatAgentSupervisorSlots; index += 1) {
     const id = `supervisor-${index}`
     if (!used.has(id)) return id
   }
@@ -2629,7 +2651,7 @@ function ensureChatGPTView(cacheKey, windowState) {
   let entry = chatgptViews.get(key)
   if (!entry) {
     const resolved = windowState || [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
-    if (chatgptViews.size >= SUPERVISOR_SLOTS) {
+    if (chatgptViews.size >= desiredChatAgentSupervisorSlots) {
       const reusable = reusableSupervisor(key, resolved)
       if (!reusable) throw new Error('Todos os slots de Supervisor estão vinculados a pedidos em curso')
       const preserveVisibleIntent = resolved?.chatgptVisible === true
@@ -2652,17 +2674,16 @@ function ensureChatGPTView(cacheKey, windowState) {
   return { key, entry }
 }
 
-// One Supervisor slot per chat, up to SUPERVISOR_SLOTS chats resident at once.
+// One Supervisor slot per chat, up to desiredChatAgentSupervisorSlots chats resident at once.
 // Exactly one is visible; the rest stay bound to their own conversation so that
 // switching chats is a visibility change rather than a provider navigation. The
 // bounded autonomous Worker pool lives outside chatgptViews.
-const MAX_RESIDENT_CHATGPT_VIEWS = SUPERVISOR_SLOTS
 
 // Retire only as many unheld Supervisors as the cap actually requires, oldest
 // first. A held Supervisor is never retired here: if every slot is busy the
 // newest chat waits for one to finish rather than interrupting a live request.
 function evictIdleChatGPTViews() {
-  const excess = chatgptViews.size - MAX_RESIDENT_CHATGPT_VIEWS
+  const excess = chatgptViews.size - desiredChatAgentSupervisorSlots
   if (excess <= 0) return 0
   const releasable = [...chatgptViews.entries()]
     .filter(([key, entry]) => !supervisorBindingHeld(key, entry) && !chatGPTEntryIsActiveVisible(key, entry))
@@ -2750,7 +2771,7 @@ function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
     console.log(`[chatgpt-supervisor] deferred-switch from=${activeTransport[0]} to=${key} request=${activeTransport[1].transportRequestId || '-'}`)
     return true
   }
-  if (chatgptViews.has(key) || chatgptViews.size < SUPERVISOR_SLOTS || reusableSupervisor(key, windowState)) {
+  if (chatgptViews.has(key) || chatgptViews.size < desiredChatAgentSupervisorSlots || reusableSupervisor(key, windowState)) {
     clearDeferredSupervisorNavigation()
     return false
   }
@@ -2764,7 +2785,7 @@ function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
 async function applyDeferredSupervisorNavigation() {
   const pending = deferredSupervisorNavigation
   if (!pending) return
-  if (chatgptViews.size >= SUPERVISOR_SLOTS && !reusableSupervisor(pending.key, pending.windowState)) return
+  if (chatgptViews.size >= desiredChatAgentSupervisorSlots && !reusableSupervisor(pending.key, pending.windowState)) return
   deferredSupervisorNavigation = undefined
   const state = pending.windowState
   if (!state?.window || state.window.isDestroyed()) return
@@ -4729,7 +4750,7 @@ function bindChatSupervisor(key) {
     return existing
   }
   if (!chatSupervisorHostWindow()) return undefined
-  if (chatgptViews.size >= SUPERVISOR_SLOTS) {
+  if (chatgptViews.size >= desiredChatAgentSupervisorSlots) {
     const reusable = reusableSupervisor(key)
     // A background binding must never take the renderer the operator is looking
     // at: retiring it clears the window's active chat and leaves the Engine area
@@ -6065,6 +6086,13 @@ function registerIPC() {
     trustedSender(event)
     return refreshChatAgentRuntimeState()
   })
+  ipcMain.handle('wharness:agents:set-supervisor-count', async (event, request) => {
+    trustedSender(event)
+    configuredChatAgentSupervisorSlots = normalizeSupervisorSlotCount(request?.count)
+    setChatAgentSupervisorTarget(configuredChatAgentSupervisorSlots)
+    await refreshChatAgentRuntimeState()
+    return publishChatAgentRuntimeState()
+  })
   ipcMain.handle('wharness:agents:set-worker-count', async (event, request) => {
     const windowState = trustedSender(event)
     configuredChatAgentWorkerSlots = normalizeWorkerSlotCount(request?.count)
@@ -6353,7 +6381,7 @@ app.whenReady().then(async () => {
   // never resized, because the slot count is the number of chats that may stay
   // resident at once.
   chatSupervisorScheduler = new ChatAgentSchedulerClient({
-    baseURL: BACKEND_URL, workerCount: SUPERVISOR_SLOTS, maxWorkers: SUPERVISOR_SLOTS,
+    baseURL: BACKEND_URL, workerCount: desiredChatAgentSupervisorSlots, maxWorkers: HARD_MAX_SUPERVISOR_SLOTS,
     execute: executeChatSupervisorTask, role: 'supervisor', agentID: chatSupervisorSlotID,
     // Supervision spends almost all of its life handing the slot back between
     // observations, so a task cooldown here would only delay reading a page that

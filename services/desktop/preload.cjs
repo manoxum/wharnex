@@ -135,6 +135,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   }),
   agents: Object.freeze({
     state: () => invoke('wharness:agents:state'),
+    setSupervisorCount: (count) => invoke('wharness:agents:set-supervisor-count', { count: Number(count) }),
     setWorkerCount: (count) => invoke('wharness:agents:set-worker-count', { count: Number(count) }),
     setPolicies: (policies) => invoke('wharness:agents:set-policies', policies || {}),
     setWorkerKeepFlowing: (agentId, enabled) => invoke('wharness:agents:set-worker-keep-flowing', { agentId: String(agentId || ''), enabled: enabled === true }),
