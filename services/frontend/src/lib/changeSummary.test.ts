@@ -43,3 +43,14 @@ it('projects an applied session into one durable final summary and one diff card
   expect(once.filter((item) => item.presentation === 'change')).toHaveLength(1)
   expect(twice).toEqual(once)
 })
+
+it('rebuilds the terminal package with one summary followed by the diff even from legacy order', () => {
+  const summary: ChatItem = { id: 'host-applied-summary:p:t', role: 'harness', source: 'chatgpt', presentation: 'message', createdAt: 't', text: 'Resumo final', meta: 'Resumo cumulativo da Main Request' }
+  const change: ChatItem = { id: 'host-applied-change:p:t', role: 'harness', source: 'wharness', presentation: 'change', createdAt: 't', text: 'Alterações', change: { planId: 'p', files: [], appliedAt: 't', canRevert: false } }
+  const legacyTurn: ChatItem = { id: 'turn', role: 'harness', source: 'chatgpt', presentation: 'message', createdAt: 't', text: 'Mensagem anterior do GPT', meta: 'AUTO · Host aplicado' }
+  const user: ChatItem = { id: 'user', role: 'user', text: 'Faça a mudança', createdAt: 'before' }
+
+  const merged = mergeAppliedChangePresentationItems([user, change, legacyTurn, summary], [summary, change])
+
+  expect(merged).toEqual([user, summary, change])
+})

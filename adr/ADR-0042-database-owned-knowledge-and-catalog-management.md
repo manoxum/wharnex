@@ -50,6 +50,16 @@ An empty consolidation result is refused outright. Reorganizing must never becom
 
 Consolidation reads the durable catalog alone, never a staged candidate: promoting an in-flight Main Request's unproven learning would bypass the terminal boundary that exists to gate exactly that.
 
+### Terminal reporting
+
+The planner reports its proposed learning in cumulative `summary.md`, but only
+terminal reconciliation knows what became durable. Wharnex therefore
+canonicalizes the final summary after reconciliation with an authoritative
+`## Conhecimento adquirido` section saying whether the catalog actually
+changed. The UI presents that cumulative summary once and the structured
+applied-change card immediately after it; the transient turn message is not a
+second final answer.
+
 ## Migration
 
 A project still carrying `.wharnex/knowledge/` files adopts them into the database exactly once, on first catalog access, so upgrading does not look like losing every lesson the project had earned. Adoption is one-way and idempotent; local records win. After it, the files are never read as a store again, and an explicit adopt action remains available for recovery.

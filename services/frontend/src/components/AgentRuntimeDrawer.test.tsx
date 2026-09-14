@@ -90,6 +90,29 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(5))
   })
 
+  it('makes idle, writing, listening, waiting and chat-without-jobs states distinct at a glance', async () => {
+    const state = runtime()
+    state.agents = [
+      { ...state.agents[1], id: 'worker-idle', label: 'Worker idle', role: 'worker', status: 'idle', chat_id: '', task: undefined },
+      { ...state.agents[0], id: 'supervisor-empty', label: 'Supervisor empty', status: 'idle', chat_id: 'chat-human', task: undefined },
+      { ...state.agents[0], id: 'supervisor-writing', label: 'Supervisor writing', status: 'running', chat_id: 'chat-human', task: { ...state.agents[3].task!, type: 'BOT_WRITE', status: 'RUNNING' } },
+      { ...state.agents[3], id: 'worker-listening', label: 'Worker listening', status: 'running', task: { ...state.agents[3].task!, type: 'AWAIT_RESPONSE', status: 'RUNNING' } },
+      { ...state.agents[3], id: 'worker-waiting', label: 'Worker waiting', status: 'claimed', task: { ...state.agents[3].task!, type: 'DELETE_BUNDLE', status: 'WAITING' } },
+    ]
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+
+    expect(await screen.findByText('Worker · Ocioso')).toBeTruthy()
+    expect(screen.getByText('Supervisor · Chat sem jobs')).toBeTruthy()
+    expect(screen.getByText('Supervisor · A escrever')).toBeTruthy()
+    expect(screen.getByText('Worker · A escutar')).toBeTruthy()
+    expect(screen.getByText('Worker · A aguardar')).toBeTruthy()
+    for (const stateName of ['idle', 'chat-empty', 'writing', 'listening', 'waiting']) {
+      expect(container.querySelector(`.agent-runtime-list > button.state-${stateName}`)).toBeTruthy()
+    }
+  })
+
   it('toggles Auto scale and global Keep flowing policies', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
@@ -171,7 +194,7 @@ describe('AgentRuntimeDrawer', () => {
     expect(rows.join(' ')).not.toMatch(/DONE|FAILED|CANCELLED|ATTENTION/)
   })
 
-  it('shows a durable leased task as occupied instead of available', async () => {
+  it('shows a durable leased response observation as listening instead of idle', async () => {
     const state = runtime()
     const worker = state.agents.find((agent) => agent.id === 'worker-1')!
     worker.status = 'claimed'
@@ -179,7 +202,7 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    expect(await screen.findByText('Worker · Ocupado')).toBeTruthy()
+    expect(await screen.findByText('Worker · A escutar')).toBeTruthy()
   })
 
   it('opens and closes live interaction for a Worker browser', async () => {

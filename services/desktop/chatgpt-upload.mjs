@@ -84,7 +84,13 @@ export async function selectChatGPTUploadFile(webContents, filePath) {
     const document = await client.sendCommand('DOM.getDocument', { depth: 0, pierce: false })
     const rootNodeId = Number(document?.root?.nodeId || 0)
     if (!rootNodeId) throw new Error('ChatGPT upload DOM root is unavailable')
-    const target = await client.sendCommand('DOM.querySelector', { nodeId: rootNodeId, selector: 'input#upload-files' })
+    // The stable id has changed in ChatGPT releases. Keep this deliberately
+    // bounded to the composer's general-file inputs: an id/test-id carrying
+    // upload semantics, or the multi-file input used by the attachment menu.
+    // A bare input[type=file] would be too broad (camera/avatar inputs exist on
+    // other account surfaces) and could select the wrong control silently.
+    const selector = 'input#upload-files, input[type="file"][data-testid*="upload" i], input[type="file"][multiple]'
+    const target = await client.sendCommand('DOM.querySelector', { nodeId: rootNodeId, selector })
     const nodeId = Number(target?.nodeId || 0)
     if (!nodeId) throw new Error('ChatGPT upload file input was not found')
     await client.sendCommand('DOM.setFileInputFiles', { nodeId, files: [resolvedPath] })
@@ -127,6 +133,13 @@ export class ChatGPTUploadCoordinator {
     })
   }
 
+  cancel(webContentsId, reason = 'ChatGPT upload observation cancelled') {
+    const state = this.pendingByWebContents.get(webContentsId)
+    if (!state) return false
+    state.finish(new Error(reason))
+    return true
+  }
+
   stateFor(details) {
     const requestState = this.pendingByRequest.get(String(details?.id ?? ''))
     if (requestState) return requestState
@@ -167,6 +180,7 @@ export class ChatGPTUploadCoordinator {
 
 export async function pasteWithUploadRetry({
   beginUpload,
+  cancelUpload = () => {},
   paste,
   beforeAttempt = async () => {},
   attempts = 5,
@@ -182,7 +196,19 @@ export async function pasteWithUploadRetry({
       // escaping the retry loop on the first transient miss.
       await beforeAttempt(attempt)
       const upload = beginUpload()
-      await paste()
+      // Selection itself can fail before Chromium emits any upload request.
+      // Attach a handler immediately and cancel the observation in that path;
+      // otherwise each retry leaves an 8-second timer behind, the next attempt
+      // supersedes it, and the final orphan reports the misleading
+      // "did not start" error as an unhandled rejection.
+      void upload.catch(() => undefined)
+      try {
+        await paste()
+      } catch (error) {
+        cancelUpload(error)
+        await upload.catch(() => undefined)
+        throw error
+      }
       return await upload
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))

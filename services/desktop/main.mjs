@@ -3680,6 +3680,7 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
       if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
     },
     beginUpload: () => chatGPTUploads.expect(wc.id),
+    cancelUpload: (error) => chatGPTUploads.cancel(wc.id, `ChatGPT upload selection failed: ${error instanceof Error ? error.message : String(error)}`),
     paste: async () => {
       await selectChatGPTUploadFile(wc, filePath)
     },
@@ -4104,6 +4105,10 @@ async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId =
     parent_task_id: String(parentTaskID || ''), dedupe_key: String(dedupeKey || ''), max_attempts: Number(maxAttempts || 8),
     not_before: chatAgentRequestEligibleAt(type, payload, notBefore), payload: { ...payload, conversation_url: canonicalChatGPTConversationURL(conversationURL) },
   })
+  // Supervisor and Worker claims are separate loops over the same queue. The
+  // enqueue call wakes the Worker client that owns the HTTP request; explicitly
+  // wake the complementary pool too so Supervisor work is seen immediately.
+  chatSupervisorScheduler?.wake()
   if (chatAgentPolicies.auto_scale === true) void reconcileChatAgentAutoScale()
   return queued
 }

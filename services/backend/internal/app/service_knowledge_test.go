@@ -355,7 +355,7 @@ func TestCommitPendingKnowledgePersistsToTheDatabaseAndNotTheProjectTree(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if committed.LastMainRequestSummary != "Resumo cumulativo." {
+	if committed.LastMainRequestSummary != "Resumo cumulativo.\n\n## Conhecimento adquirido\n\nSim. O catálogo de conhecimento durável do projeto foi atualizado nesta Main Request." {
 		t.Fatalf("summary not committed: %q", committed.LastMainRequestSummary)
 	}
 	catalog, ok, err := store.GetProjectKnowledgeCatalog(root)
@@ -367,6 +367,19 @@ func TestCommitPendingKnowledgePersistsToTheDatabaseAndNotTheProjectTree(t *test
 	}
 	if _, present, loadErr := projectknowledge.Load(root); loadErr != nil || present {
 		t.Fatalf("committing knowledge must not write into the project tree: present=%v err=%v", present, loadErr)
+	}
+}
+
+func TestCanonicalKnowledgeSummaryReplacesPlannerClaimWithActualNoChange(t *testing.T) {
+	got := canonicalKnowledgeSummary("## Resumo\n\nTrabalho concluído.\n\n## Conhecimento adquirido\n\nSim, foi proposto um registo.", false)
+	if strings.Count(got, "## Conhecimento adquirido") != 1 {
+		t.Fatalf("expected exactly one knowledge outcome section: %q", got)
+	}
+	if !strings.Contains(got, "Não. Esta Main Request não gerou novo conhecimento durável para persistir.") {
+		t.Fatalf("summary did not report the real no-change outcome: %q", got)
+	}
+	if strings.Contains(got, "foi proposto") {
+		t.Fatalf("planner claim survived authoritative canonicalization: %q", got)
 	}
 }
 

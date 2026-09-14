@@ -31,7 +31,7 @@ test('ChatGPT upload uses the native file input so the canonical basename is pre
   assert.deepEqual(calls, [
     ['attach', '1.3'],
     ['DOM.getDocument', { depth: 0, pierce: false }],
-    ['DOM.querySelector', { nodeId: 7, selector: 'input#upload-files' }],
+    ['DOM.querySelector', { nodeId: 7, selector: 'input#upload-files, input[type="file"][data-testid*="upload" i], input[type="file"][multiple]' }],
     ['DOM.setFileInputFiles', { nodeId: 9, files: ['/tmp/whx_bundle_req_chat-1_req_20260907T111505_example.zip'] }],
     ['detach'],
   ])
@@ -47,6 +47,29 @@ test('ChatGPT upload fails closed when the dedicated file input is unavailable',
   }
   await assert.rejects(() => selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/request.zip'), /file input was not found/)
   assert.equal(attached, false)
+})
+
+test('ChatGPT upload accepts the bounded general-file fallback when the stable id changes', async () => {
+  let attached = false
+  const calls = []
+  const debuggerClient = {
+    isAttached: () => attached,
+    attach: () => { attached = true },
+    detach: () => { attached = false },
+    sendCommand: async (method, params) => {
+      calls.push([method, params])
+      if (method === 'DOM.getDocument') return { root: { nodeId: 1 } }
+      if (method === 'DOM.querySelector') {
+        return params.selector.includes('input[type="file"][multiple]') ? { nodeId: 12 } : { nodeId: 0 }
+      }
+      if (method === 'DOM.setFileInputFiles') return {}
+      throw new Error(`unexpected command ${method}`)
+    },
+  }
+
+  const result = await selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/request.zip')
+  assert.equal(result.name, 'request.zip')
+  assert.ok(calls.some(([method, params]) => method === 'DOM.querySelector' && params.selector.includes('input[type="file"][multiple]')))
 })
 
 test('new-chat focus targets the centered composer instead of the conversation footer', () => {
@@ -150,6 +173,26 @@ test('exhausted upload failures reject instead of permitting submit', async () =
   }), /failed after 2 attempts/)
 
   assert.equal(pasteCount, 2)
+})
+
+test('a failed file selection cancels its observation before another retry starts', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  let pasteCount = 0
+
+  await assert.rejects(() => pasteWithUploadRetry({
+    attempts: 2,
+    beginUpload: () => coordinator.expect(71, { startTimeoutMs: 5_000 }),
+    cancelUpload: () => coordinator.cancel(71),
+    paste: async () => {
+      pasteCount += 1
+      throw new Error('ChatGPT upload file input was not found')
+    },
+    wait: async () => {},
+  }), /file input was not found/)
+
+  assert.equal(pasteCount, 2)
+  assert.equal(coordinator.pendingByWebContents.size, 0)
+  assert.equal(coordinator.pendingByRequest.size, 0)
 })
 
 test('ChatGPT upload observation tolerates bounded upload endpoint revisions', async () => {

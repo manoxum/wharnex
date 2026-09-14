@@ -184,7 +184,7 @@ func TestBuildManualPromptPinsContextBaselineAndImpactForecast(t *testing.T) {
 
 func TestBuildManualPromptAlwaysDeclaresKnowledgeV2(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-no-knowledge", Message: "update UI"})
-	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "harness.knowledge/v2", "sharing=off", "summary.md", "knowledge/index.json", "only keys are protocol, base_revision, mode, and entries", "Do NOT add request_id", "base_revision MUST be 0 and mode MUST be overlay", "repair/continuation that receives a Wharnex-measured failure", "post-success planner turn", "Do NOT request or expect a separate final knowledge_review turn"} {
+	for _, want := range []string{"PROJECT KNOWLEDGE PROTOCOL", "harness.knowledge/v2", "sharing=off", "summary.md", "## Conhecimento adquirido", "authoritative persistence outcome", "knowledge/index.json", "only keys are protocol, base_revision, mode, and entries", "Do NOT add request_id", "base_revision MUST be 0 and mode MUST be overlay", "repair/continuation that receives a Wharnex-measured failure", "post-success planner turn", "Do NOT request or expect a separate final knowledge_review turn"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("knowledge protocol prompt missing %q", want)
 		}

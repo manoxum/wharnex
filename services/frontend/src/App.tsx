@@ -78,6 +78,8 @@ import { executionNeedsAttention } from './lib/executionRecovery'
 import { errorMessage as messageOf } from './lib/errorMessage'
 import { expectedResponseBundleName } from './lib/bundlename'
 import { reconcileTunnelConfig } from './lib/tunnelConfigState'
+import { mergeDurableChatItems } from './lib/chatHistory'
+import { executionStartedNotice } from './lib/executionNotice'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
@@ -173,6 +175,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
   const [boundProjects, setBoundProjects] = useState<string[]>(() => embeddedProject ? [embeddedProject] : [])
   const relatedProjectsSyncRef = useRef('')
+  // A chat may be painted from its small synchronous cache while its durable
+  // transcript is loading. Never let that cache overwrite the longer backend
+  // history during this window.
+  const transcriptReadyRef = useRef(new Set<string>())
+  const transcriptMutationQueuesRef = useRef(new Map<string, Promise<void>>())
 
   const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
   const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
@@ -253,7 +260,20 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   function mutateChatItems(targetChat: WorkspaceChat, projectPath: string, mutate: (current: ChatItem[]) => ChatItem[]) {
     if (activeChatIdRef.current === targetChat.id) { setItems(mutate); return }
-    saveChat(projectPath, targetChat.id, mutate(loadChat(projectPath, targetChat.id)))
+    queueInactiveChatMutation(targetChat.id, projectPath, mutate)
+  }
+
+  function queueInactiveChatMutation(chatId: string, projectPath: string, mutate: (current: ChatItem[]) => ChatItem[]) {
+    const previous = transcriptMutationQueuesRef.current.get(chatId) || Promise.resolve()
+    const queued = previous.then(async () => {
+      const current = await hydrateChatTranscript(projectPath, chatId)
+      const transcript = mutate(current)
+      saveChat(projectPath, chatId, transcript)
+      await api.replaceWorkspaceChatItems(chatId, transcript)
+    }).catch(() => undefined).finally(() => {
+      if (transcriptMutationQueuesRef.current.get(chatId) === queued) transcriptMutationQueuesRef.current.delete(chatId)
+    })
+    transcriptMutationQueuesRef.current.set(chatId, queued)
   }
 
   // Async work remains owned by the chat that started it. A self-evolution
@@ -275,6 +295,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const parsed = JSON.parse(event.data) as HarnessEvent
         const planId = String(parsed.data.plan_id || '')
         if (parsed.type === 'host.applied') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
+        if (parsed.type === 'execution.started') {
+          const owner = loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId)
+          if (owner) appendChatItem(owner, projectPath, executionStartedNotice(parsed))
+        }
         if (planId && ['execution.queued', 'execution.dequeued', 'execution.started'].includes(parsed.type)) {
           const status: FrontendExecutionQueueItem['status'] = parsed.type === 'execution.queued' ? 'queued' : 'running'
           const owner = loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId)
@@ -337,6 +361,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
   }
 
+  async function hydrateChatTranscript(projectPath: string, chatId: string) {
+    const local = loadChat(projectPath, chatId)
+    try {
+      const response = await api.workspaceChatItems(chatId)
+      const durable = (response.items || []).map((item) => item.payload)
+      const merged = mergeDurableChatItems(local, durable)
+      saveChat(projectPath, chatId, merged)
+      return merged
+    } catch {
+      return local
+    }
+  }
+
   useEffect(() => {
     let alive = true
     async function initialize() {
@@ -383,10 +420,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           nextChat = { ...nextChat, sessionId: restored.id }
           nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
         }
+        const chatItems = await hydrateChatTranscript(restored.project_path, nextChat.id)
+        transcriptReadyRef.current.add(nextChat.id)
         saveWorkspaceChats(restored.project_path, nextChats)
         setChats(nextChats); setArchivedChats(restored.project_path === active.projectPath ? hydrated.archived : loadArchivedWorkspaceChats(restored.project_path)); activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored)
         setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(restored.effort_level || loadEffortLevel(restored.project_path)); setChatTransportMode(restored.chat_transport_mode || 'scraper'); setManualPrompt(restored.last_manual_prompt || '')
-        const chatItems = loadChat(restored.project_path, nextChat.id)
         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
         connectEvents(restored.id, restored.project_path, nextChat.id)
         saveActiveWorkspace({ sessionId: restored.id, projectPath: restored.project_path, mode: 'agent', chatId: nextChat.id, executionMode: projectExecutionMode, automationMode: projectAutomationMode, effortLevel: projectEffortLevel })
@@ -450,7 +488,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [embeddedProject, mode])
 
   useEffect(() => {
-    if (!session || !activeChatOwnsSession || !activeChatId || !items.length) return
+    if (!session || !activeChatOwnsSession || !activeChatId || !items.length || !transcriptReadyRef.current.has(activeChatId)) return
     saveChat(session.project_path, activeChatId, items)
     void api.replaceWorkspaceChatItems(activeChatId, items).catch(() => undefined)
   }, [session, activeChatOwnsSession, activeChatId, items])
@@ -554,9 +592,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const legacy = loadLegacyChat(created.project_path)
         if (legacy.length) saveChat(created.project_path, selected.id, legacy)
       }
+      const chatItems = await hydrateChatTranscript(created.project_path, selected.id)
+      transcriptReadyRef.current.add(selected.id)
       persistChats(created.project_path, nextChats)
       setArchivedChats(hydrated.archived); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
-      const chatItems = loadChat(created.project_path, selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
       setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
       connectEvents(selectedSession.id, selectedSession.project_path, selected.id)
@@ -629,6 +668,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       await api.saveWorkspaceChat(durableWorkspaceChat(created.project_path, chat))
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
+      transcriptReadyRef.current.add(chat.id)
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
       setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); connectEvents(created.id, created.project_path, chat.id)
     } catch (e) { setError(messageOf(e)) } finally { creatingChatRef.current = false }
@@ -728,10 +768,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
       }
 
+      const chatItems = await hydrateChatTranscript(projectPath, nextChat.id)
+      transcriptReadyRef.current.add(nextChat.id)
       persistChats(projectPath, nextChats)
       activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored); setEvents([])
       setManualPrompt(restored.last_manual_prompt || '')
-      const chatItems = loadChat(projectPath, nextChat.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
       connectEvents(restored.id, restored.project_path, nextChat.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
@@ -765,9 +806,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         saveWorkspaceChats(projectPath, moved.active)
       }
       sourceRef.current?.close(); sourceRef.current = null
+      const chatItems = await hydrateChatTranscript(projectPath, selected.id)
+      transcriptReadyRef.current.add(selected.id)
       setChats(moved.active); setArchivedChats(moved.archived); activeChatIdRef.current = selected.id; setActiveChatId(selected.id); setSession(restored); setEvents([])
       setManualPrompt(restored.last_manual_prompt || '')
-      const chatItems = loadChat(projectPath, selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
       connectEvents(restored.id, restored.project_path, selected.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
@@ -866,10 +908,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     // perceives on a chat switch — the active tab, the transcript, the composer
     // draft — is already on this machine.
     sourceRef.current?.close(); sourceRef.current = null
+    transcriptReadyRef.current.delete(chatId)
     activeChatIdRef.current = chatId
     setActiveChatId(chatId)
     setEvents([])
     setItems(loadChat(projectPath, chatId))
+    const transcriptPromise = hydrateChatTranscript(projectPath, chatId)
 
     const cached = sessionCacheRef.current[chatId]
     if (cached && cached.id === selected.sessionId) {
@@ -899,6 +943,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       const wasCached = Boolean(cached && cached.id === selected.sessionId)
       applyRestoredSession(chatId, restored)
+      const hydratedItems = await transcriptPromise
+      transcriptReadyRef.current.add(chatId)
+      if (activeChatIdRef.current === chatId) setItems((current) => {
+        const merged = mergeDurableChatItems(current, hydratedItems)
+        return merged.length ? merged : [welcomeItem(restored)]
+      })
       // A cached switch already opened its stream against the same session id;
       // reopening it would drop and recreate a healthy connection. connectEvents
       // closes and replaces any stream it finds, so it is the only thing that
@@ -998,13 +1048,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   function appendChatItem(targetChat: WorkspaceChat, projectPath: string, item: ChatItem) {
     if (targetChat.id === activeChatIdRef.current) {
-      setItems((current) => [...current, item])
+      setItems((current) => current.some((candidate) => candidate.id === item.id) ? current : [...current, item])
       return
     }
     const prior = loadChat(projectPath, targetChat.id)
-    const transcript = [...prior, item]
-    saveChat(projectPath, targetChat.id, transcript)
-    void api.replaceWorkspaceChatItems(targetChat.id, transcript).catch(() => undefined)
+    if (prior.some((candidate) => candidate.id === item.id)) return
+    queueInactiveChatMutation(targetChat.id, projectPath, (current) => current.some((candidate) => candidate.id === item.id) ? current : [...current, item])
     setChats((current) => {
       const next = current.map((chat) => chat.id === targetChat.id ? { ...chat, updatedAt: new Date().toISOString() } : chat)
       saveWorkspaceChats(projectPath, next)
@@ -1792,23 +1841,26 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           }
         }
       }
+      const appliedTerminalPackage = knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview)
       if (waitingForKnowledgeReview) {
         appendChatItem(targetChat, updated.project_path, {
           id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
           text: updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.',
           meta: 'Host aplicado · revisão final',
         })
-      } else {
-        appendChatItem(targetChat, updated.project_path, bundleItem)
-        if (!submission.auto_applied && updated.last_main_request_summary?.trim() && updated.last_main_request_summary.trim() !== bundleItem.text.trim()) {
-          appendChatItem(targetChat, updated.project_path, {
-            id: crypto.randomUUID(), role: 'harness', source: 'chatgpt', presentation: 'message', createdAt: new Date().toISOString(),
-            text: updated.last_main_request_summary.trim(), meta: 'Resumo cumulativo da Main Request',
-          })
-        }
-      }
-      if (knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview)) {
+      } else if (appliedTerminalPackage) {
+        // `presentAppliedSession` owns the whole terminal package: one
+        // cumulative GPT summary followed by the diff card. Appending the
+        // transient turn message here produced two GPT answers and left the
+        // diff stranded before the final summary.
         presentAppliedSession(targetChat, updated)
+      } else {
+        const cumulativeSummary = updated.last_main_request_summary?.trim()
+        appendChatItem(targetChat, updated.project_path, cumulativeSummary ? {
+          ...bundleItem,
+          text: cumulativeSummary,
+          meta: 'Resumo cumulativo da Main Request',
+        } : bundleItem)
       }
       if (submission.auto_error && !pendingApproval) reportChatError(`A execução automática do bundle falhou:\n\n${submission.auto_error}`, 'Execução do bundle falhou', targetChat, updated.project_path)
       if (submission.auto_executed && updated.last_execution) updateWorkspaceChat(targetChat.id, updated.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: updated.last_execution.success === false } })

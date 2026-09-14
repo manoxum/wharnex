@@ -2957,8 +2957,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-tabs button span { font-weight:700; }
 .agent-runtime-tabs button small { padding:2px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); line-height:1; }
 .agent-runtime-tab-panel { min-height:0; overflow:auto; background:color-mix(in srgb,var(--theme-bg) 96%,var(--theme-surface)); }
-.agent-runtime-tab-panel.agents { overflow:hidden; }
+.agent-runtime-tab-panel.agents { overflow:hidden; display:grid; grid-template-rows:auto minmax(0,1fr); }
 .agent-runtime-tab-panel.agents .agent-runtime-body { height:100%; }
+.agent-runtime-state-legend { padding:7px 12px; display:flex; flex-wrap:wrap; gap:6px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-state-legend > span { display:inline-flex; align-items:center; gap:6px; color:var(--theme-text-muted); font-size:calc(8px * var(--ui-font-scale)); white-space:nowrap; }
 .agent-runtime-tab-panel.policies { padding-bottom:10px; }
 .agent-runtime-memory-summary { padding:10px 12px; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb, var(--theme-bg) 96%, var(--theme-surface)); }
 .agent-runtime-memory-summary span { min-width:0; padding:8px 10px; display:grid; gap:4px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
@@ -3008,9 +3010,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-stepper.locked { opacity:.65; }
 .agent-runtime-body { min-height:0; padding:10px 12px 12px; display:grid; grid-template-columns:minmax(175px,.8fr) minmax(240px,1.2fr); gap:9px; background:color-mix(in srgb, var(--theme-bg) 94%, var(--theme-surface)); }
 .agent-runtime-list { min-height:0; overflow:auto; padding:7px; display:grid; align-content:start; gap:5px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
-.agent-runtime-list > button { min-width:0; min-height:56px; padding:9px 10px; display:grid; grid-template-columns:9px minmax(0,1fr) auto; align-items:center; gap:8px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--theme-text); text-align:left; cursor:pointer; }
+.agent-runtime-list > button { --agent-state:var(--theme-text-muted); min-width:0; min-height:56px; padding:9px 10px; display:grid; grid-template-columns:9px minmax(0,1fr) auto; align-items:center; gap:8px; border:1px solid color-mix(in srgb,var(--agent-state) 20%,transparent); border-radius:8px; background:color-mix(in srgb,var(--agent-state) 4%,transparent); box-shadow:inset 3px 0 0 color-mix(in srgb,var(--agent-state) 72%,transparent); color:var(--theme-text); text-align:left; cursor:pointer; }
 .agent-runtime-list > button:hover { border-color:var(--theme-border-soft); background:var(--theme-hover); }
-.agent-runtime-list > button.active { border-color:color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border)); background:color-mix(in srgb, var(--theme-accent-soft) 48%, var(--theme-surface)); box-shadow:inset 2px 0 0 var(--theme-accent); }
+.agent-runtime-list > button.active { border-color:color-mix(in srgb, var(--agent-state) 52%, var(--theme-border)); background:color-mix(in srgb, var(--agent-state) 11%, var(--theme-surface)); box-shadow:inset 4px 0 0 var(--agent-state); }
 .agent-runtime-list > button > span:nth-child(2) { min-width:0; display:grid; gap:3px; }
 .agent-runtime-list strong { overflow:hidden; font-size:calc(10.8px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-list small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(8.6px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
@@ -3025,7 +3027,27 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-agent-stats { min-width:0; display:grid; justify-items:end; gap:4px; }
 .agent-runtime-agent-stats code { max-width:112px; }
 .agent-runtime-agent-stats .agent-runtime-memory-pill { color:var(--theme-text-soft); font-variant-numeric:tabular-nums; }
+.agent-runtime-list > button.state-idle { --agent-state:#7c8aa0; }
+.agent-runtime-list > button.state-writing { --agent-state:#9b6cff; }
+.agent-runtime-list > button.state-listening { --agent-state:#16a6c9; }
+.agent-runtime-list > button.state-waiting { --agent-state:#df9c24; }
+.agent-runtime-list > button.state-chat-empty { --agent-state:#3f86d9; }
+.agent-runtime-list > button.state-working { --agent-state:#25a86b; }
+.agent-runtime-list > button.state-loading { --agent-state:#d6ad34; }
+.agent-runtime-list > button.state-error { --agent-state:var(--danger); }
+.agent-runtime-list > button.state-stopped { --agent-state:#68707f; }
+.agent-runtime-list > button.state-draining { --agent-state:#c27535; }
 .agent-runtime-dot { width:9px; height:9px; display:inline-block; border-radius:50%; background:var(--theme-text-muted); }
+.agent-runtime-dot.state-idle { background:#7c8aa0; }
+.agent-runtime-dot.state-writing { background:#9b6cff; box-shadow:0 0 0 4px color-mix(in srgb,#9b6cff 15%,transparent); }
+.agent-runtime-dot.state-listening { background:#16a6c9; box-shadow:0 0 0 4px color-mix(in srgb,#16a6c9 15%,transparent); }
+.agent-runtime-dot.state-waiting { background:#df9c24; }
+.agent-runtime-dot.state-chat-empty { background:#3f86d9; }
+.agent-runtime-dot.state-working { background:#25a86b; box-shadow:0 0 0 4px color-mix(in srgb,#25a86b 15%,transparent); }
+.agent-runtime-dot.state-loading { background:#d6ad34; }
+.agent-runtime-dot.state-error { background:var(--danger); box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 15%,transparent); }
+.agent-runtime-dot.state-stopped { background:#68707f; opacity:.6; }
+.agent-runtime-dot.state-draining { background:#c27535; }
 .agent-runtime-dot.running { background:var(--success); box-shadow:0 0 0 4px color-mix(in srgb, var(--success) 15%, transparent); }
 .agent-runtime-dot.claimed { background:var(--warning); box-shadow:0 0 0 4px color-mix(in srgb, var(--warning) 13%, transparent); }
 .agent-runtime-dot.stopped { opacity:.55; }

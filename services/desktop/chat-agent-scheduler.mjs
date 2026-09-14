@@ -72,6 +72,7 @@ export class ChatAgentSchedulerClient {
     this.instanceID = `desktop-${randomUUID()}`
     this.running = false
     this.loops = new Map()
+    this.idleWaiters = new Set()
   }
 
   #normalizeWorkerCount(value) {
@@ -87,9 +88,11 @@ export class ChatAgentSchedulerClient {
   }
 
   async enqueue(task) {
-    return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/tasks', {
+    const queued = await requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/tasks', {
       method: 'POST', body: JSON.stringify(task),
     })
+    this.wake()
+    return queued
   }
 
   async list(query = {}) {
@@ -147,6 +150,7 @@ export class ChatAgentSchedulerClient {
 
   async stop() {
     this.running = false
+    this.wake()
     await Promise.allSettled([...this.loops.values()])
     this.loops.clear()
   }
@@ -156,6 +160,7 @@ export class ChatAgentSchedulerClient {
     if (next === this.workerCount) return this.workerCount
     this.workerCount = next
     if (this.running) this.#reconcileLoops()
+    this.wake()
     this.onState({ kind: 'scaled', workerCount: this.workerCount })
     return this.workerCount
   }
@@ -165,6 +170,7 @@ export class ChatAgentSchedulerClient {
     if (next === this.workerCount) return this.workerCount
     this.workerCount = next
     if (this.running) this.#reconcileLoops()
+    this.wake()
     this.onState({ kind: 'scaled', workerCount: this.workerCount })
     return this.workerCount
   }
@@ -180,6 +186,26 @@ export class ChatAgentSchedulerClient {
       })
       this.loops.set(index, loop)
     }
+  }
+
+  wake() {
+    for (const resolve of this.idleWaiters) resolve()
+    this.idleWaiters.clear()
+  }
+
+  #waitForWork(milliseconds) {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        this.idleWaiters.delete(finish)
+        resolve()
+      }
+      const timer = setTimeout(finish, Math.max(0, Number(milliseconds) || 0))
+      this.idleWaiters.add(finish)
+    })
   }
 
   async #workerLoop(index) {
@@ -211,7 +237,7 @@ export class ChatAgentSchedulerClient {
         const task = claimed?.task
         if (!task) {
           this.onIdle(index)
-          await wait(this.idleMs)
+          await this.#waitForWork(this.idleMs)
           continue
         }
         const result = await this.#runTask(owner, task, index)
