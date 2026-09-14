@@ -118,6 +118,11 @@ make build-runner
 make build-all
 ```
 
+Wharnex never pulls the Protected runner from a registry. If it is absent,
+Protected execution and the copied-sandbox terminal stop before `docker run`
+and name the exact `make build-runner RUNNER_IMAGE=...` command required to
+build the configured image locally.
+
 On Linux/systemd, database startup, runner construction and Protected execution refuse to invoke Docker when `docker.socket` is active but `docker.service` is stopped. Start Docker explicitly before `make start`.
 
 ### Start all services + Electron

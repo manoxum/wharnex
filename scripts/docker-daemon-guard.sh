@@ -21,12 +21,5 @@ if systemctl is-active --quiet docker.service 2>/dev/null; then
   exit 0
 fi
 
-printf 'Docker is stopped; starting docker.service...\n' >&2
-sudo systemctl start docker.service
-
-if ! systemctl is-active --quiet docker.service 2>/dev/null; then
-  echo 'Docker service did not become active after start request.' >&2
-  exit 1
-fi
-
-exit 0
+echo 'Docker is stopped. Start docker.service explicitly, then retry.' >&2
+exit 1

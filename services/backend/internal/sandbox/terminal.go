@@ -145,6 +145,11 @@ func (r *DockerRunner) StartInteractive(workspace Workspace, options TerminalOpt
 	if err := refuseDockerSocketActivation(); err != nil {
 		return nil, err
 	}
+	imageCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := ensureLocalRunnerImage(imageCtx, r.image); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Join(workspace.Path, ".kernl", "go-build"), 0o700); err != nil {
 		return nil, fmt.Errorf("prepare sandbox build cache: %w", err)
 	}
