@@ -38,6 +38,14 @@ RUN apk add --no-cache \
  && addgroup -g "${WHARNESS_GID}" wharness \
  && adduser -D -u "${WHARNESS_UID}" -G wharness wharness
 COPY --from=build /out/wharness-backend /usr/local/bin/wharness-backend
+# The build stage already downloaded every module in go.sum. Discarding that
+# cache made each self-evolution host build re-fetch the identical bytes from
+# the network, so a transient DNS or proxy fault reverted a candidate that had
+# already passed verification — a build failing on the one input that is
+# provably unrelated to the change. Carrying the cache forward makes the
+# common case (go.sum unchanged since the image was built) need no network at
+# all. It is owned by the build user because that is who runs the build.
+COPY --from=build --chown=${WHARNESS_UID}:${WHARNESS_GID} /go/pkg/mod /go/pkg/mod
 USER wharness
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/wharness-backend"]

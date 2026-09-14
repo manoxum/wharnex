@@ -89,7 +89,69 @@ func classifyExecutionFailure(cause error) string {
 	if isArtifactStorageFullDiagnostic(cause.Error()) {
 		return domain.FailureKindArtifactStorageFull
 	}
+	if isDependencyNetworkDiagnostic(cause.Error()) {
+		return domain.FailureKindHostBuildDependencyNetwork
+	}
 	return ""
+}
+
+// dependencyNetworkDiagnostics are the shapes a package manager produces when
+// the network, and not the project, is what failed.
+//
+// They are matched against real command output, never planner prose. Each is
+// specific enough that it cannot describe a source defect: a module proxy that
+// did not resolve, a registry that reset the connection, a fetch that timed
+// out. The candidate is identical before and after, so a repair round could
+// only rewrite code that was never implicated.
+var dependencyNetworkDiagnostics = []string{
+	"dial tcp",
+	"server misbehaving",
+	"no such host",
+	"temporary failure in name resolution",
+	"tls handshake timeout",
+	"connection reset by peer",
+	"connection refused",
+	"i/o timeout",
+	"network is unreachable",
+	"proxy.golang.org",
+	"econnreset",
+	"etimedout",
+	"enotfound",
+	"eai_again",
+}
+
+// dependencyFetchContexts keeps the diagnostics above from matching a project
+// that legitimately fails on a network error of its own — an integration test
+// exercising a refused connection, for example. The output must also show the
+// failure happened while a package manager was fetching.
+var dependencyFetchContexts = []string{
+	"go mod download",
+	"hydrating go module cache",
+	"go: ",
+	"npm error",
+	"npm err!",
+	"registry.npmjs.org",
+	"proxy.golang.org",
+}
+
+func isDependencyNetworkDiagnostic(diagnostic string) bool {
+	lower := strings.ToLower(diagnostic)
+	fetching := false
+	for _, context := range dependencyFetchContexts {
+		if strings.Contains(lower, context) {
+			fetching = true
+			break
+		}
+	}
+	if !fetching {
+		return false
+	}
+	for _, marker := range dependencyNetworkDiagnostics {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // isArtifactStorageFullDiagnostic recognizes the local object store refusing

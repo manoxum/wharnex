@@ -153,7 +153,7 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false); return false }
   }
 
-  const chrome = <ShellChrome instanceID={INSTANCE_ID} version={config?.version} projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={() => void unbindProject(activeProject)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  const chrome = <ShellChrome instanceID={INSTANCE_ID} version={config?.version} projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
   const linkModal = linkModalOpen ? <ProjectLinkModal recent={recent} boundProjects={projects} busy={busy} error={error} onOpen={bindProject} onBrowse={chooseAndBind} onCreate={createProject} onClone={cloneProject} onClose={() => setLinkModalOpen(false)} /> : null
 
   if (!projects.length) return <div className="desktop-shell-root">
@@ -184,7 +184,7 @@ export function ShellChrome({ instanceID, version, projects, activeProject, mode
   version?: string
   projects: string[]; activeProject: string; busy: boolean
   mode: WorkspaceMode
-  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onSettings: () => void; onUnbind: () => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
+  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
 }) {
   const [projectActionsOpen, setProjectActionsOpen] = useState(false)
   const [projectWindowOpen, setProjectWindowOpen] = useState(false)
@@ -252,11 +252,11 @@ export function ShellChrome({ instanceID, version, projects, activeProject, mode
         </div>}
       </div>
       {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
-      {activeProject && <button type="button" disabled={busy} onClick={onUnbind} aria-label="Fechar workspace" title="Fechar workspace"><Icon name="close" size={14}/></button>}
+      {activeProject && <button type="button" disabled={busy} onClick={() => onUnbind(activeProject)} aria-label="Desvincular projeto" title="Desvincular projeto desta janela"><Icon name="close" size={14}/></button>}
     </div>
     {projectWindowOpen && projectWindowAnchor && <div ref={projectWindowRef} className="project-window-popover" data-chatgpt-overlay-blocker="true" style={{ left: projectWindowAnchor.left, top: projectWindowAnchor.top, minWidth: Math.max(270, projectWindowAnchor.width + 90) }}>
-      <div className="project-window-popover-heading"><span>Projetos abertos</span><small>Troque nesta janela ou traga outra para a frente.</small></div>
-      <div className="project-window-group"><b>Nesta janela</b>{projects.map((projectPath) => <button type="button" key={projectPath} className={projectPath === activeProject ? 'current' : ''} style={projectAccentStyle(projectPath)} onClick={() => { setProjectWindowOpen(false); onActivate(projectPath) }}><span className="project-window-accent"/><span><strong>{projectName(projectPath)}</strong><small>{projectPath === activeProject ? 'Projeto atual' : 'Vinculado nesta janela'}</small></span>{projectPath === activeProject && <Icon name="check" size={13}/>}</button>)}</div>
+      <div className="project-window-popover-heading"><span>Projetos abertos</span><small>Troque ou desvincule nesta janela; projetos de outras janelas podem ser trazidos para a frente.</small></div>
+      <div className="project-window-group"><b>Nesta janela</b>{projects.map((projectPath) => <div key={projectPath} className={`project-window-local-row ${projectPath === activeProject ? 'current' : ''}`} style={projectAccentStyle(projectPath)}><button type="button" className="project-window-project" onClick={() => { setProjectWindowOpen(false); onActivate(projectPath) }}><span className="project-window-accent"/><span><strong>{projectName(projectPath)}</strong><small>{projectPath === activeProject ? 'Projeto atual' : 'Vinculado nesta janela'}</small></span>{projectPath === activeProject && <Icon name="check" size={13}/>}</button><button type="button" className="project-window-unbind" disabled={busy} onClick={() => { setProjectWindowOpen(false); onUnbind(projectPath) }} aria-label={`Desvincular ${projectName(projectPath)} desta janela`} title="Desvincular desta janela"><Icon name="close" size={12}/></button></div>)}</div>
       <div className="project-window-group"><b>Outras janelas</b>{otherWindows.length ? otherWindows.map((item) => <button type="button" key={`${item.windowId}:${item.projectPath}`} style={projectAccentStyle(item.projectPath)} onClick={() => void focusOpenProject(item)}><span className="project-window-accent"/><span><strong>{projectName(item.projectPath)}</strong><small>{item.focused ? 'Janela atualmente em foco' : 'Trazer janela para a frente'}</small></span><Icon name="external" size={12}/></button>) : <p>Nenhum outro projeto aberto noutra janela.</p>}</div>
     </div>}
     {tunnelsOpen && <TunnelOverviewModal onClose={() => setTunnelsOpen(false)}/>}
