@@ -35,6 +35,7 @@ type interactiveRecordingRunner struct {
 	workspace sandbox.Workspace
 	options   sandbox.TerminalOptions
 	terminal  *recordingTerminal
+	terminals []*recordingTerminal
 }
 
 func (r *interactiveRecordingRunner) Prepare(_ context.Context, projectRoot string) (sandbox.Workspace, error) {
@@ -51,6 +52,7 @@ func (*interactiveRecordingRunner) Cleanup(sandbox.Workspace) error { return nil
 func (r *interactiveRecordingRunner) StartInteractive(_ sandbox.Workspace, options sandbox.TerminalOptions, onOutput func([]byte), _ func(int, error)) (sandbox.InteractiveTerminal, error) {
 	r.options = options
 	r.terminal = &recordingTerminal{}
+	r.terminals = append(r.terminals, r.terminal)
 	onOutput([]byte("shell ready\r\n"))
 	return r.terminal, nil
 }
@@ -96,6 +98,48 @@ func TestInteractiveTerminalCarriesOpaquePTYInputWithoutPersistingIt(t *testing.
 	}
 	if err := service.CloseInteractiveTerminal(started.ID, descriptor.TerminalID); err != nil || !runner.terminal.closed {
 		t.Fatalf("terminal did not close: err=%v terminal=%#v", err, runner.terminal)
+	}
+}
+
+func TestInteractiveTerminalsRemainIndependentWithinOneSession(t *testing.T) {
+	root := t.TempDir()
+	runner := &interactiveRecordingRunner{}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), runner)
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.StartInteractiveTerminal(context.Background(), started.ID, domain.TerminalTargetSandbox, ".", false, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.StartInteractiveTerminal(context.Background(), started.ID, domain.TerminalTargetSandbox, ".", false, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.TerminalID == second.TerminalID || len(runner.terminals) != 2 {
+		t.Fatalf("expected two independent PTYs, first=%q second=%q count=%d", first.TerminalID, second.TerminalID, len(runner.terminals))
+	}
+	if runner.terminals[0].closed {
+		t.Fatal("starting a second terminal closed the first terminal")
+	}
+	if err := service.WriteInteractiveTerminal(started.ID, first.TerminalID, "echo first\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WriteInteractiveTerminal(started.ID, second.TerminalID, "echo second\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(runner.terminals[0].writes, ""); got != "echo first\n" {
+		t.Fatalf("first PTY received the wrong input: %q", got)
+	}
+	if got := strings.Join(runner.terminals[1].writes, ""); got != "echo second\n" {
+		t.Fatalf("second PTY received the wrong input: %q", got)
+	}
+	if err := service.CloseInteractiveTerminal(started.ID, first.TerminalID); err != nil {
+		t.Fatal(err)
+	}
+	if !runner.terminals[0].closed || runner.terminals[1].closed {
+		t.Fatalf("closing one PTY must not close its sibling: first=%v second=%v", runner.terminals[0].closed, runner.terminals[1].closed)
 	}
 }
 
