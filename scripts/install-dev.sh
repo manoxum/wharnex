@@ -33,13 +33,22 @@ launcher="$bin_dir/wharnex-$slug"
 # available for test or portable environments.
 data_home=${WHARNESS_DESKTOP_DATA_HOME:-"$HOME/.local/share"}
 icon_dir="$data_home/icons/hicolor/scalable/apps"
+icon_raster_dir="$data_home/icons/hicolor/256x256/apps"
 application_dir="$data_home/applications"
 icon_name="wharnex-$slug"
 icon_path="$icon_dir/$icon_name.svg"
+icon_raster_path="$icon_raster_dir/$icon_name.png"
 desktop_path="$application_dir/$icon_name.desktop"
+desktop_icon="$icon_path"
 
-mkdir -p "$bin_dir" "$icon_dir" "$application_dir"
+mkdir -p "$bin_dir" "$icon_dir" "$icon_raster_dir" "$application_dir"
 install -m 0644 "$ROOT/services/frontend/public/favicon.svg" "$icon_path"
+# GNOME's application overview is more reliable with a concrete raster icon
+# than with a newly-installed SVG name whose theme cache may be stale. Keep the
+# SVG as the scalable source, and use the PNG directly in the desktop entry.
+if command -v convert >/dev/null 2>&1 && convert -background none "$icon_path" -resize 256x256 "$icon_raster_path"; then
+  desktop_icon="$icon_raster_path"
+fi
 
 tmp_launcher=$(mktemp "$bin_dir/.wharnex-launcher.XXXXXX")
 cat >"$tmp_launcher" <<EOF
@@ -64,7 +73,7 @@ Type=Application
 Name=Wharnex - $instance
 Comment=Wharnex development instance $instance
 Exec=$launcher
-Icon=$icon_name
+Icon=$desktop_icon
 Terminal=false
 Categories=Development;IDE;
 # Electron exposes the package's Linux WM_CLASS, not the app-level display
@@ -78,6 +87,9 @@ mv -f "$tmp_desktop" "$desktop_path"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$application_dir" >/dev/null 2>&1 || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t "$data_home/icons/hicolor" >/dev/null 2>&1 || true
 fi
 
 printf 'Wharnex development launcher installed.\n'

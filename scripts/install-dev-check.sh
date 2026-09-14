@@ -19,6 +19,7 @@ WHARNESS_INSTANCE_ID='snap-test' \
 
 desktop="$fixture_home/.local/share/applications/wharnex-snap-test.desktop"
 icon="$fixture_home/.local/share/icons/hicolor/scalable/apps/wharnex-snap-test.svg"
+icon_raster="$fixture_home/.local/share/icons/hicolor/256x256/apps/wharnex-snap-test.png"
 launcher="$fixture_root/dist/bin/wharnex-snap-test"
 
 test -x "$launcher"
@@ -27,7 +28,12 @@ test -f "$icon"
 test ! -e "$fixture_snap_data/applications/wharnex-snap-test.desktop"
 grep -Fqx 'Name=Wharnex - snap-test' "$desktop"
 grep -Fqx "Exec=$launcher" "$desktop"
-grep -Fqx 'Icon=wharnex-snap-test' "$desktop"
+if command -v convert >/dev/null 2>&1; then
+  test -s "$icon_raster"
+  grep -Fqx "Icon=$icon_raster" "$desktop"
+else
+  grep -Fqx "Icon=$icon" "$desktop"
+fi
 grep -Fqx 'StartupWMClass=wharness-desktop' "$desktop"
 grep -Fqx "export WHARNESS_DESKTOP_USER_DATA_DIR='$fixture_home/.config/wharnex-snap-test'" "$launcher"
 grep -Fqx 'exec make start' "$launcher"
