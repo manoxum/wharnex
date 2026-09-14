@@ -167,6 +167,14 @@ if ! grep -Fq 'coordinatorKeepAlive' "$DESKTOP_DEV"; then
   echo 'lifecycle regression: detached Electron must retain a tracked coordinator owner' >&2
   exit 1
 fi
+if ! grep -Fq 'wharnex-host-pty' "$MAKEFILE" || ! grep -Fq "run('hostpty'" "$DESKTOP_DEV"; then
+  echo 'lifecycle regression: stack Host PTY must be built and launched natively by the Desktop coordinator' >&2
+  exit 1
+fi
+if ! grep -Fq 'HARNESS_HOST_PTY_SOCKET:' "$COMPOSE"; then
+  echo 'lifecycle regression: Compose backend must proxy Host PTY sessions through the checkout bridge socket' >&2
+  exit 1
+fi
 printf 'Lifecycle immutable Electron runtime checks passed.\n'
 
 if [ ! -x "$LOGS" ]; then

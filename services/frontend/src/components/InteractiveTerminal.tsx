@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { api, APIError } from '../lib/api'
 import { confirmDialog } from '../lib/appDialog'
+import { desktopBridge } from '../lib/desktop'
 import type { Session, TerminalFrame, TerminalTarget } from '../types'
 import { Icon } from './Icon'
 
@@ -70,6 +71,25 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
       inputBuffer += data
       if (!inputTimer) inputTimer = window.setTimeout(flushInput, 12)
     })
+    const clipboardShortcut = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      const copy = key === 'c' && ((event.ctrlKey && event.shiftKey) || event.metaKey)
+      const paste = key === 'v' && ((event.ctrlKey && event.shiftKey) || event.metaKey)
+      if (!copy && !paste) return
+      event.preventDefault()
+      event.stopPropagation()
+      const bridge = desktopBridge()
+      if (copy) {
+        const text = terminal.getSelection()
+        if (!text) return
+        if (bridge) void bridge.clipboard.writeText(text).catch(reportError)
+        else if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(text).catch(reportError)
+        return
+      }
+      const read = bridge?.clipboard.readText ? bridge.clipboard.readText() : navigator.clipboard?.readText?.()
+      if (read) void read.then((text) => { if (active && text) terminal.paste(text) }).catch(reportError)
+    }
+    root.addEventListener('keydown', clipboardShortcut, true)
     const resizeDisposable = terminal.onResize(({ cols, rows }) => {
       window.clearTimeout(resizeTimer)
       resizeTimer = window.setTimeout(() => {
@@ -110,7 +130,7 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
     return () => {
       active = false
       window.cancelAnimationFrame(frame); window.clearTimeout(inputTimer); window.clearTimeout(resizeTimer)
-      observer?.disconnect(); source?.close(); inputDisposable.dispose(); resizeDisposable.dispose(); terminal.dispose()
+      observer?.disconnect(); source?.close(); root.removeEventListener('keydown', clipboardShortcut, true); inputDisposable.dispose(); resizeDisposable.dispose(); terminal.dispose()
       fitRef.current = null
       if (terminalIDRef.current === terminalID) terminalIDRef.current = ''
       if (terminalID) void api.closeTerminal(session.id, terminalID).catch(() => undefined)
@@ -155,8 +175,8 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
         <button className="terminal-size-button" title="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button>
       </div>
     </header>
-    {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Ficheiros reais e Docker do sistema; as ferramentas disponíveis vêm do ambiente Host do Wharnex.</span></div>}
-    <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa comandos e caminhos; Ctrl+R pesquisa o histórico, ↑/↓ navega pelas entradas anteriores e Ctrl+C interrompe o processo atual." />
+    {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Sessão real do utilizador do sistema, com HOME, PATH, hostname e ferramentas do host. Ctrl+Shift+C/V copia e cola.</span></div>}
+    <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa; Ctrl+R pesquisa; ↑/↓ navega; Ctrl+C interrompe; Ctrl+Shift+C/V copia e cola (⌘C/⌘V no macOS)." />
   </section>
 }
 
