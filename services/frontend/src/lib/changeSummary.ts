@@ -1,4 +1,4 @@
-import type { ChatChangeFile, ChatChangeSummary, CommandResult, ExecutionPlan } from '../types'
+import type { ChatChangeFile, ChatChangeSummary, ChatItem, CommandResult, ExecutionPlan, Session } from '../types'
 
 export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = new Date().toISOString(), hostCommands: CommandResult[] = []): ChatChangeSummary | undefined {
   if (!plan) return undefined
@@ -18,6 +18,41 @@ export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = 
   if (!values.length && !hostCommands.length) return undefined
   const canRevert = values.length > 0 && plan.operations.every((operation) => operation.type === 'apply_patch')
   return { planId: plan.plan_id, summary: plan.summary?.trim() || undefined, files: values, hostCommands, appliedAt, canRevert }
+}
+
+export function appliedChangePresentationItems(session: Session): ChatItem[] {
+  const applied = session.last_applied_changes || []
+  if (!applied.length) return []
+  const latest = applied[applied.length - 1].plan
+  const plan: ExecutionPlan = {
+    ...latest,
+    summary: applied.map((change) => change.plan.summary).filter(Boolean).join(' + '),
+    operations: applied.flatMap((change) => change.plan.operations || []),
+    verification: applied.flatMap((change) => change.plan.verification || []),
+  }
+  const appliedAt = session.last_host_applied_at || applied[applied.length - 1].verified_at
+  const change = buildChangeSummary(plan, appliedAt, session.last_host_commands || [])
+  if (!change) return []
+  const identity = `${change.planId}:${change.appliedAt}`
+  const items: ChatItem[] = []
+  if (session.last_main_request_summary?.trim()) {
+    items.push({ id: `host-applied-summary:${identity}`, role: 'harness', source: 'chatgpt', presentation: 'message', createdAt: change.appliedAt, text: session.last_main_request_summary.trim(), meta: 'Resumo cumulativo da Main Request' })
+  }
+  items.push({ id: `host-applied-change:${identity}`, role: 'harness', source: 'wharness', presentation: 'change', createdAt: change.appliedAt, text: 'Alterações e comandos aplicados ao host.', change })
+  return items
+}
+
+export function mergeAppliedChangePresentationItems(current: ChatItem[], projected: ChatItem[]) {
+  const next = [...current]
+  for (const candidate of projected) {
+    const exists = next.some((item) => item.id === candidate.id || (
+      candidate.presentation === 'change'
+        ? item.presentation === 'change' && item.change?.planId === candidate.change?.planId && item.change?.appliedAt === candidate.change?.appliedAt
+        : item.meta === candidate.meta && item.text.trim() === candidate.text.trim()
+    ))
+    if (!exists) next.push(candidate)
+  }
+  return next
 }
 
 function splitPatchByFile(patch: string): ChatChangeFile[] {

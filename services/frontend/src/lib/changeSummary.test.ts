@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildChangeSummary } from './changeSummary'
-import type { ExecutionPlan } from '../types'
+import { appliedChangePresentationItems, buildChangeSummary, mergeAppliedChangePresentationItems } from './changeSummary'
+import type { ChatItem, ExecutionPlan, Session } from '../types'
 
 it('summarizes changed files and line counts from unified patches', () => {
   const plan: ExecutionPlan = { protocol: 'harness.execution/v1', plan_id: 'p1', request_id: 'r1', status: 'ready', summary: 'x', risk: 'low', requires_approval: false, operations: [{ type: 'apply_patch', patch: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n-old\n+new\n+more\n', command: { argv: [], cwd: '.', timeout_seconds: 60, network: false, expected_exit_codes: [0] } }], verification: [] }
@@ -20,4 +20,26 @@ describe('revert eligibility', () => {
     expect(summary.hostCommands?.[0]?.argv).toEqual(['git', 'add', 'x'])
     expect(summary.canRevert).toBe(false)
   })
+})
+
+it('projects an applied session into one durable final summary and one diff card idempotently', () => {
+  const plan: ExecutionPlan = { protocol: 'harness.execution/v1', plan_id: 'p-applied', request_id: 'r-applied', status: 'ready', summary: 'Resumo curto', risk: 'low', requires_approval: false, operations: [{ type: 'apply_patch', patch: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n', command: { argv: [], cwd: '.', timeout_seconds: 60, network: false, expected_exit_codes: [0] } }], verification: [] }
+  const session = {
+    id: 'ses-applied', project_path: '/workspace/project', state: 'applied', execution_mode: 'protected', automation_mode: 'auto', created_at: '2026-09-14T06:00:00Z',
+    context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/workspace/project', sha256: 'sha', files: [], excluded: [], text_truncated: false } },
+    last_main_request_summary: '# Resumo final\n\nImplementação concluída.',
+    last_host_applied_at: '2026-09-14T06:41:10Z',
+    last_applied_changes: [{ plan, execution: { plan_id: 'p-applied', success: true, started_at: '', completed_at: '', commands: [] }, verified_at: '2026-09-14T06:40:00Z' }],
+  } satisfies Session
+
+  const projected = appliedChangePresentationItems(session)
+  expect(projected).toHaveLength(2)
+  expect(projected[0]).toMatchObject({ presentation: 'message', text: session.last_main_request_summary, meta: 'Resumo cumulativo da Main Request' })
+  expect(projected[1]).toMatchObject({ presentation: 'change', change: { planId: 'p-applied', files: [{ path: 'a.txt', additions: 1, deletions: 1 }] } })
+
+  const legacyItems: ChatItem[] = [{ id: 'legacy-random-id', role: 'harness', source: 'wharness', presentation: 'change', text: 'Alterações e comandos aplicados ao host.', change: projected[1].change }]
+  const once = mergeAppliedChangePresentationItems(legacyItems, projected)
+  const twice = mergeAppliedChangePresentationItems(once, projected)
+  expect(once.filter((item) => item.presentation === 'change')).toHaveLength(1)
+  expect(twice).toEqual(once)
 })

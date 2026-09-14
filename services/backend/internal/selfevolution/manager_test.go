@@ -508,6 +508,26 @@ func TestBuildHostClassifiesHostToolchainMismatchAsUnrepairable(t *testing.T) {
 	}
 }
 
+func TestBuildHostClassifiesUnsupportedBusyBoxFlockAsLocalInfrastructure(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
+		"\t@printf 'flock: unrecognized option: w\\n' >&2\n"+
+		"\t@exit 2\n", 0o644)
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-busybox-flock", "plan-busybox-flock", []string{patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+
+	_, err = manager.BuildHost(context.Background(), tx, nil)
+	if !errors.Is(err, ErrHostBuildToolchainMismatch) {
+		t.Fatalf("unsupported host flock must remain local infrastructure, got %v", err)
+	}
+}
+
 func TestBuildHostStreamsOutputAsItArrivesInsteadOfOnlyAtCompletion(t *testing.T) {
 	// A host build can run for minutes; without incremental delivery it
 	// looks hung until it finally succeeds or fails. onOutput must fire
@@ -564,6 +584,7 @@ func TestIsHostToolchainMismatchIsNarrow(t *testing.T) {
 	positive := []string{
 		"Error [ERR_REQUIRE_ESM]: require() of ES Module ... not supported",
 		"Error: Electron failed to install correctly. Please delete `node_modules/electron`",
+		"flock: unrecognized option: w",
 	}
 	for _, output := range positive {
 		if !IsHostToolchainMismatch(output) {

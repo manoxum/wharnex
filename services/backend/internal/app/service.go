@@ -1408,7 +1408,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 				s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": applyErr.Error(), "kind": "offline_dependencies"})
 				return result
 			}
-			if repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, execution, applyErr); repairErr == nil {
+			if repaired, repairErr := s.TriggerApplyFailureRepair(ctx, sessionID, applyErr); repairErr == nil {
 				result.Session = repaired
 				result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
 			}
@@ -2150,10 +2150,67 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	return result, updated, cause
 }
 
+// plannerRepairableApplyError is an internal capability marker. Apply starts a
+// new planner request only when the local integration path reached a concrete
+// candidate defect after doing its own rollback/recovery. Preconditions,
+// coordination locks, persistence failures and unknown local plumbing errors
+// are deliberately unmarked and therefore cannot spend a GPT round.
+type plannerRepairableApplyError struct{ cause error }
+
+func (e *plannerRepairableApplyError) Error() string { return e.cause.Error() }
+func (e *plannerRepairableApplyError) Unwrap() error { return e.cause }
+
+// localApplyRecoveryError overrides a nested candidate-defect marker when the
+// integration engine itself could not finish rollback/recovery. A planner may
+// repair source, but it cannot repair Wharnex's transaction or Git machinery.
+type localApplyRecoveryError struct{ cause error }
+
+func (e *localApplyRecoveryError) Error() string { return e.cause.Error() }
+func (e *localApplyRecoveryError) Unwrap() error { return e.cause }
+
+func localApplyRecoveryFailure(cause error) error {
+	if cause == nil {
+		return nil
+	}
+	var local *localApplyRecoveryError
+	if errors.As(cause, &local) {
+		return cause
+	}
+	return &localApplyRecoveryError{cause: cause}
+}
+
+func plannerRepairableApplyFailure(cause error) error {
+	if cause == nil {
+		return nil
+	}
+	var marked *plannerRepairableApplyError
+	if errors.As(cause, &marked) {
+		return cause
+	}
+	return &plannerRepairableApplyError{cause: cause}
+}
+
+func isPlannerRepairableApplyFailure(cause error) bool {
+	var local *localApplyRecoveryError
+	if errors.As(cause, &local) {
+		return false
+	}
+	var marked *plannerRepairableApplyError
+	return errors.As(cause, &marked)
+}
+
 func (s *Service) TriggerApplyFailureRepair(ctx context.Context, sessionID string, cause error) (domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return item, err
+	}
+	if !isPlannerRepairableApplyFailure(cause) {
+		planID := ""
+		if item.LastExecution != nil {
+			planID = item.LastExecution.PlanID
+		}
+		s.bus.Publish(sessionID, "automation.local_recovery_retained", map[string]any{"error": cause.Error(), "plan_id": planID})
+		return item, nil
 	}
 	if item.LastExecution != nil {
 		repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, *item.LastExecution, cause)
@@ -2677,7 +2734,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "rollback_failed", rollbackErr.Error())
 			s.updateSelfEvolutionBatchSessions(transaction, "restart_pending", rollbackErr.Error())
 			transaction.ReleaseStage()
-			return fmt.Errorf("%w; automatic self-evolution rollback also failed: %v", cause, rollbackErr)
+			return localApplyRecoveryFailure(fmt.Errorf("%w; automatic self-evolution rollback also failed: %v", cause, rollbackErr))
 		}
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "rolled_back", cause.Error())
 		s.updateSelfEvolutionBatchSessions(transaction, "verified", cause.Error())
@@ -2720,7 +2777,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 			// refs, so HEAD would otherwise keep pointing at the merge
 			// commit while the working tree no longer matches it.
 			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true)); revertErr != nil {
-				cause = fmt.Errorf("%w; git revert also failed: %v", cause, revertErr)
+				cause = localApplyRecoveryFailure(fmt.Errorf("%w; git revert also failed: %v", cause, revertErr))
 			}
 			if selfEvolution {
 				failure = rollback(cause)
@@ -2795,9 +2852,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				patchResult, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, op.Patch)
 				if applyErr != nil || !patchResult.Success {
 					if applyErr != nil {
-						return item, failApply(fmt.Errorf("host apply failed: %w", applyErr))
+						return item, failApply(plannerRepairableApplyFailure(fmt.Errorf("host apply failed: %w", applyErr)))
 					}
-					return item, failApply(fmt.Errorf("host apply failed: %s", strings.TrimSpace(patchResult.Stderr)))
+					return item, failApply(plannerRepairableApplyFailure(fmt.Errorf("host apply failed: %s", strings.TrimSpace(patchResult.Stderr))))
 				}
 				appliedPatches = append(appliedPatches, op.Patch)
 				s.bus.Publish(sessionID, "patch.applied", map[string]any{"run_id": runID, "target": "host", "files": patchPaths(op.Patch), "duration_ms": patchResult.DurationMS})
@@ -2807,9 +2864,9 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, op.Command, "host")
 				if runErr != nil || !result.Success {
 					if runErr != nil {
-						return item, failApply(fmt.Errorf("host git operation failed: %w", runErr))
+						return item, failApply(plannerRepairableApplyFailure(fmt.Errorf("host git operation failed: %w", runErr)))
 					}
-					return item, failApply(fmt.Errorf("host git operation failed: %s", strings.TrimSpace(result.Stderr)))
+					return item, failApply(plannerRepairableApplyFailure(fmt.Errorf("host git operation failed: %s", strings.TrimSpace(result.Stderr))))
 				}
 				hostCommands = append(hostCommands, result)
 			}
@@ -2847,7 +2904,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 					runErr = fmt.Errorf("post-merge verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), result.ExitCode, diagnostic)
 				}
 				runErr = wrapHostDependencyState(runErr, diagnostic)
-				return item, failApply(runErr)
+				return item, failApply(plannerRepairableApplyFailure(runErr))
 			}
 			hostCommands = append(hostCommands, result)
 			s.bus.Publish(sessionID, "integration.verification_completed", map[string]any{"plan_id": pending[index].Plan.PlanID, "exit_code": result.ExitCode, "target": "host"})
@@ -2870,7 +2927,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 				buildErr = fmt.Errorf("%w\n%s", buildErr, detail)
 			}
 			s.bus.Publish(sessionID, "self_evolution.host_build_failed", map[string]any{"plan_id": latestPlanID, "error": buildErr.Error()})
-			return item, failApply(buildErr)
+			return item, failApply(plannerRepairableApplyFailure(buildErr))
 		}
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "restart_pending", "host build passed; explicit restart confirmation pending")
 		hostCommands = append(hostCommands, domain.CommandResult{Argv: []string{"make", "build-stage"}, Cwd: ".", ExitCode: 0, Success: true, DurationMS: time.Since(buildStarted).Milliseconds()})

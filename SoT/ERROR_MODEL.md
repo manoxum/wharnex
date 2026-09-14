@@ -95,6 +95,8 @@ A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set c
 
 None of these classifications consume an automatic ChatGPT source-repair round. `planner_guidance_required` may start a manual GPT round only after the operator supplies new evidence; the remaining kinds use their dedicated infrastructure, lifecycle, host, or transport recovery.
 
+Host Apply is local-first and fail-closed for planner escalation. An Apply error MAY start a bounded GPT repair only when the integration engine explicitly marked it as a candidate defect after completing its applicable local rollback/recovery. State preconditions, an already-active planner/repair turn, transaction coordination, Git/persistence plumbing and unclassified local failures retain the verified candidate and MUST NOT create another request. This is a closed opt-in boundary: the absence of a known infrastructure `failure_kind` is not, by itself, evidence that GPT can repair the failure. Host build output proving an unavailable lifecycle capability (including an unsupported `flock` option under BusyBox) is `host_build_toolchain_mismatch` and remains local.
+
 ## Auxiliary-payload failures MUST NOT invalidate an executable payload
 
 A response bundle carries a verified executable result plus auxiliary material: the archived copy of the bundle itself and the project-knowledge candidate with its cumulative summary. A defect in the auxiliary material MUST NOT reject the bundle.
@@ -108,4 +110,4 @@ This rule exists because both failures were observed discarding a complete, veri
 
 A missing executable (exit 127 for a binary absent from the runner image) is repairable — the planner can pick another tool — but only when the repair request says so. The repair prompt MUST identify the missing executable explicitly instead of handing over raw output, which invites re-reading project source that was never at fault. The environment manifest (`SoT/SANDBOX_MODEL.md`) publishes the installed inventory so this condition should not arise at all.
 
-Failures without one of these classifications are repairable planner failures. Wharness attempts their bounded GPT repair automatically and retains a manual GPT repair fallback with optional operator guidance after automatic preparation, transport, or attempt exhaustion fails.
+Sandbox execution failures without one of these classifications are repairable planner failures. Wharness attempts their bounded GPT repair automatically and retains a manual GPT repair fallback with optional operator guidance after automatic preparation, transport, or attempt exhaustion fails. Host Apply uses the stricter explicit candidate-defect boundary above.

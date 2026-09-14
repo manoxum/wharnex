@@ -87,6 +87,12 @@ func (e *BlockedTransactionError) Is(target error) bool { return target == ErrBu
 var hostToolchainMismatchMarkers = []string{
 	"ERR_REQUIRE_ESM",
 	"Electron failed to install correctly",
+	// `make build-stage` runs inside Alpine as well as on util-linux hosts.
+	// An unsupported flock flag is a lifecycle/runtime incompatibility; no
+	// change to the candidate source can teach the installed binary that flag.
+	"flock: unrecognized option",
+	"flock: invalid option",
+	"flock: illegal option",
 }
 
 func IsHostToolchainMismatch(output string) bool {

@@ -110,6 +110,50 @@ func TestLocalCoordinationFailuresNeverClassifyAsSourceRepair(t *testing.T) {
 	}
 }
 
+func TestApplyFailureRepairRequiresExplicitCandidateDefectEvidence(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalRequestID := "req-original"
+	seeded, err := store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "verified"
+		item.LastRequestID = originalRequestID
+		item.LastExecution = &domain.ExecutionResult{PlanID: "plan-original", Success: true}
+		item.PendingHostChanges = []domain.PendingHostChange{{Plan: domain.ExecutionPlan{PlanID: "plan-original"}}}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unchanged, err := service.TriggerApplyFailureRepair(context.Background(), seeded.ID, errors.New("finish the active planner/repair turn before applying pending host changes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.LastRequestID != originalRequestID || unchanged.State != "verified" || unchanged.LastManualPrompt != "" || len(unchanged.PendingManualRequestIDs) != 0 {
+		t.Fatalf("local apply precondition incorrectly opened a GPT repair: %#v", unchanged)
+	}
+	suppressed, err := service.TriggerApplyFailureRepair(context.Background(), seeded.ID, localApplyRecoveryFailure(plannerRepairableApplyFailure(errors.New("candidate build failed; rollback failed"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suppressed.LastRequestID != originalRequestID || suppressed.State != "verified" || suppressed.LastManualPrompt != "" || len(suppressed.PendingManualRequestIDs) != 0 {
+		t.Fatalf("local rollback failure incorrectly preserved nested GPT authority: %#v", suppressed)
+	}
+
+	repaired, err := service.TriggerApplyFailureRepair(context.Background(), seeded.ID, plannerRepairableApplyFailure(errors.New("post-merge verification failed: generated source does not compile")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.State != "repair_pending" || repaired.LastRequestID == originalRequestID || repaired.LastManualPrompt == "" || len(repaired.PendingManualRequestIDs) != 1 {
+		t.Fatalf("explicit candidate defect did not open the bounded GPT repair: %#v", repaired)
+	}
+}
+
 func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 	cases := map[string]string{
 		"host_build_toolchain_mismatch":                domain.FailureKindHostBuildToolchain,

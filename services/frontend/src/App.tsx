@@ -65,7 +65,7 @@ const ATTENTION_REFRESH_INTERVAL_MS = 15_000
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
-import { buildChangeSummary } from './lib/changeSummary'
+import { appliedChangePresentationItems, buildChangeSummary, mergeAppliedChangePresentationItems } from './lib/changeSummary'
 import { confirmDialog } from './lib/appDialog'
 import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable, promptGPTRepairDetail } from './lib/plannerRecovery'
 import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
@@ -152,6 +152,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [editorOpenPath, setEditorOpenPath] = useState<string>()
   const [editorOpenNonce, setEditorOpenNonce] = useState(0)
   const sourceRef = useRef<EventSource | null>(null)
+  const [hostAppliedPresentation, setHostAppliedPresentation] = useState<{ eventId: string; sessionId: string; projectPath: string; chatId: string }>()
+  const presentedHostAppliedEventsRef = useRef(new Set<string>())
   const activeChatIdRef = useRef(activeChatId)
   const baselineSeenRef = useRef(new Set<string>())
   const repairDispatchRef = useRef(new Set<string>())
@@ -270,6 +272,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       try {
         const parsed = JSON.parse(event.data) as HarnessEvent
         const planId = String(parsed.data.plan_id || '')
+        if (parsed.type === 'host.applied') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
         if (planId && ['execution.queued', 'execution.dequeued', 'execution.started'].includes(parsed.type)) {
           const status: FrontendExecutionQueueItem['status'] = parsed.type === 'execution.queued' ? 'queued' : 'running'
           const owner = loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId)
@@ -975,6 +978,38 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       return next
     })
   }
+
+  function presentAppliedSession(targetChat: WorkspaceChat, updated: Session) {
+    const projected = appliedChangePresentationItems(updated)
+    if (!projected.length) return
+    mutateChatItems(targetChat, updated.project_path, (current) => mergeAppliedChangePresentationItems(current, projected))
+  }
+
+  useEffect(() => {
+    if (!session?.last_host_applied_at || !session.last_applied_changes?.length) return
+    const target = chats.find((chat) => chat.id === activeChatId && chat.sessionId === session.id)
+    if (target) presentAppliedSession(target, session)
+  }, [activeChatId, chats, session?.id, session?.last_host_applied_at])
+
+  useEffect(() => {
+    if (!hostAppliedPresentation || presentedHostAppliedEventsRef.current.has(hostAppliedPresentation.eventId)) return
+    presentedHostAppliedEventsRef.current.add(hostAppliedPresentation.eventId)
+    let cancelled = false
+    void api.getSession(hostAppliedPresentation.sessionId).then((updated) => {
+      if (cancelled) return
+      const target = chats.find((chat) => chat.id === hostAppliedPresentation.chatId && chat.sessionId === updated.id)
+      if (!target) {
+        presentedHostAppliedEventsRef.current.delete(hostAppliedPresentation.eventId)
+        return
+      }
+      acceptSessionForChat(target, updated)
+      presentAppliedSession(target, updated)
+    }).catch((cause) => {
+      presentedHostAppliedEventsRef.current.delete(hostAppliedPresentation.eventId)
+      console.warn('host applied chat presentation recovery failed', messageOf(cause))
+    })
+    return () => { cancelled = true }
+  }, [chats, hostAppliedPresentation])
 
   function reportChatError(message: string, meta = 'Erro', targetChat?: WorkspaceChat, projectPath?: string) {
     const target = targetChat || chats.find((chat) => chat.id === activeChatId)
@@ -1730,7 +1765,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         })
       } else {
         appendChatItem(targetChat, updated.project_path, bundleItem)
-        if (updated.last_main_request_summary?.trim() && updated.last_main_request_summary.trim() !== bundleItem.text.trim()) {
+        if (!submission.auto_applied && updated.last_main_request_summary?.trim() && updated.last_main_request_summary.trim() !== bundleItem.text.trim()) {
           appendChatItem(targetChat, updated.project_path, {
             id: crypto.randomUUID(), role: 'harness', source: 'chatgpt', presentation: 'message', createdAt: new Date().toISOString(),
             text: updated.last_main_request_summary.trim(), meta: 'Resumo cumulativo da Main Request',
@@ -1738,8 +1773,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
       }
       if (knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview)) {
-        const change = buildAppliedChangeSummary(updated)
-        if (change) appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'change', createdAt: change.appliedAt, text: 'Alterações e comandos aplicados ao host.', change })
+        presentAppliedSession(targetChat, updated)
       }
       if (submission.auto_error && !pendingApproval) reportChatError(`A execução automática do bundle falhou:\n\n${submission.auto_error}`, 'Execução do bundle falhou', targetChat, updated.project_path)
       if (submission.auto_executed && updated.last_execution) updateWorkspaceChat(targetChat.id, updated.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: updated.last_execution.success === false } })
@@ -2178,13 +2212,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           }
         }
       }
-      const change = waitingForKnowledgeReview ? undefined : buildAppliedChangeSummary(updated)
-      const resultItems: ChatItem[] = [
-        { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: waitingForKnowledgeReview ? (updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.') : (updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.'), meta: waitingForKnowledgeReview ? 'Host aplicado · revisão final' : (updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado') },
-        ...(!waitingForKnowledgeReview && updated.last_main_request_summary?.trim() ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'chatgpt' as const, presentation: 'message' as const, createdAt: new Date().toISOString(), text: updated.last_main_request_summary.trim(), meta: 'Resumo cumulativo da Main Request' }] : []),
-        ...(change ? [{ id: crypto.randomUUID(), role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, createdAt: change.appliedAt, text: 'Alterações e comandos aplicados ao host.', change }] : []),
-      ]
-      mutateChatItems(targetChat, updated.project_path, (current) => [...current, ...resultItems])
+      const notice: ChatItem = { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: waitingForKnowledgeReview ? (updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.') : (updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.'), meta: waitingForKnowledgeReview ? 'Host aplicado · revisão final' : (updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado') }
+      mutateChatItems(targetChat, updated.project_path, (current) => mergeAppliedChangePresentationItems([...current, notice], waitingForKnowledgeReview ? [] : appliedChangePresentationItems(updated)))
     } catch (e) {
       setError(messageOf(e))
       try {
