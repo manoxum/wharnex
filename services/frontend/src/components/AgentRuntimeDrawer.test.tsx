@@ -78,12 +78,14 @@ describe('AgentRuntimeDrawer', () => {
     expect(screen.getByText('RUNNING', { selector: '.agent-runtime-detail dd' })).toBeTruthy()
     expect(screen.getByText('WebContents #11 · PID 2011')).toBeTruthy()
     expect(screen.getByText('340 MiB', { selector: '.agent-runtime-detail dd' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: /Runtime/ }))
     expect(screen.getByText('Total Workers').parentElement?.textContent).toContain('340 MiB')
     expect(screen.getByText('Total Supervisores').parentElement?.textContent).toContain('220 MiB')
     expect(screen.getByText('Total Agent').parentElement?.textContent).toContain('560 MiB')
     expect(screen.getByText('Desktop').parentElement?.textContent).toContain('420 MiB')
     expect(screen.getByText('Total', { selector: '.agent-runtime-memory-summary small' }).parentElement?.textContent).toContain('980 MiB')
 
+    fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Diminuir workers' }))
     await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(5))
   })
@@ -93,7 +95,8 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Inativo' }))
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Inativo' }))
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ auto_scale: true }))
     fireEvent.click(screen.getByRole('button', { name: 'Global inativo' }))
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ keep_flowing_global: true }))
@@ -104,7 +107,8 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Diminuir teto Auto scale' }))
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Diminuir teto Auto scale' }))
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ auto_scale_max_workers: 5 }))
   })
 
@@ -129,7 +133,8 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
     const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    expect(await screen.findByText('Mais antiga por executar: —')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('tab', { name: /Runtime/ }))
+    expect(screen.getByText('Mais antiga por executar: —')).toBeTruthy()
     const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
     expect(rows).toContain('0 por executar36 agendadas')
   })
@@ -143,7 +148,7 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
     const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    await screen.findByText('Worker 1')
+    fireEvent.click(await screen.findByRole('tab', { name: /Runtime/ }))
     const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
     expect(rows).toContain('0 por executar1 agendadas1 aguardam liberação')
   })
@@ -159,7 +164,7 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
     const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    await screen.findByText('Worker 1')
+    fireEvent.click(await screen.findByRole('tab', { name: /Runtime/ }))
     const rows = [...container.querySelectorAll('.agent-runtime-queue')].map((row) => row.textContent)
     expect(rows).toContain('2 PENDING1 RUNNING')
     expect(rows.join(' ')).not.toMatch(/tarefas/)
@@ -231,6 +236,7 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
     await screen.findByText('Trabalhos agentic')
     fireEvent.change(screen.getByLabelText('Minutos até retoma automática'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
@@ -241,11 +247,12 @@ describe('AgentRuntimeDrawer', () => {
     expect(Date.parse(pausedUntil)).toBeLessThan(Date.now() + 31 * 60_000)
   })
 
-  it('supports indefinite suspension and explicit resume from the Agents panel', async () => {
+  it('supports indefinite suspension and explicit resume from the policies tab', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     const { unmount } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
     await screen.findByText('Trabalhos agentic')
     fireEvent.change(screen.getByLabelText('Modo de retoma'), { target: { value: 'manual' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
@@ -259,8 +266,10 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: pausedAgents } as unknown as WharnessDesktopBridge
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
 
+    fireEvent.click(await screen.findByRole('tab', { name: /Runtime/ }))
     const pausedLabel = await screen.findByText('Pausado globalmente')
     expect(pausedLabel.closest('.agent-runtime-diagnostic-row')?.className).toContain('tone-warning')
+    fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
     expect(screen.getByText('Suspensos · retoma manual')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar agora' }))
     await waitFor(() => expect(pausedAgents.resumeProvider).toHaveBeenCalledTimes(1))

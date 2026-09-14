@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../lib/api'
 import { loadBoundProjects, saveBoundActiveProject, saveBoundProjects } from '../lib/projectBindings'
+import { rememberRecent } from '../lib/workspaceMemory'
 import { ShellChrome, WorkspaceShell } from './WorkspaceShell'
 
 describe('WorkspaceShell project actions', () => {
@@ -37,6 +38,56 @@ describe('WorkspaceShell project actions', () => {
     expect(badge.textContent).toBe('legacy · v1.2.46.13')
     const editor = screen.getByRole('button', { name: 'Editor' })
     expect(Boolean(badge.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  })
+
+
+  it('shows recent projects before opening the native folder chooser', async () => {
+    vi.spyOn(api, 'config').mockResolvedValue({ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false })
+    rememberRecent('/tmp/recent-project')
+    const pickDirectory = vi.fn().mockResolvedValue({ cancelled: true })
+    window.wharnessDesktop = {
+      projects: { pickDirectory },
+      windows: { open: vi.fn() },
+    } as unknown as WharnessDesktopBridge
+
+    render(<WorkspaceShell />)
+    const trigger = await screen.findByRole('button', { name: 'Ações de projeto' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /Vincular projeto/ }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Vincular projeto' })
+    const modal = within(dialog)
+    expect(modal.getByText('recent-project')).toBeTruthy()
+    expect(modal.getByRole('button', { name: /Criar projeto/ })).toBeTruthy()
+    expect(modal.getByRole('button', { name: /Clonar Git/ })).toBeTruthy()
+    expect(pickDirectory).not.toHaveBeenCalled()
+
+    fireEvent.click(modal.getByRole('button', { name: /Carregar outro/ }))
+    await waitFor(() => expect(pickDirectory).toHaveBeenCalledWith({ title: 'Vincular projeto' }))
+  })
+
+  it('gives every linked project a stable accent and focuses projects owned by another window', async () => {
+    const focusProject = vi.fn().mockResolvedValue({ ok: true, windowId: 'window-b', projectPath: '/tmp/beta' })
+    window.wharnessDesktop = {
+      windows: {
+        projects: vi.fn().mockResolvedValue({ currentWindowId: 'window-a', items: [{ windowId: 'window-b', projectPath: '/tmp/beta', focused: false }] }),
+        focusProject,
+      },
+    } as unknown as WharnessDesktopBridge
+    const onActivate = vi.fn()
+
+    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    const alpha = screen.getByRole('button', { name: /alpha/ })
+    const gamma = screen.getByRole('button', { name: /gamma/ })
+    expect(alpha.style.getPropertyValue('--project-hue')).not.toBe('')
+    expect(gamma.style.getPropertyValue('--project-hue')).not.toBe('')
+    expect(alpha.style.getPropertyValue('--project-hue')).not.toBe(gamma.style.getPropertyValue('--project-hue'))
+
+    fireEvent.click(alpha)
+    expect(await screen.findByText('Outras janelas')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: /beta.*Trazer janela para a frente/i }))
+    await waitFor(() => expect(focusProject).toHaveBeenCalledWith('/tmp/beta'))
+    expect(onActivate).not.toHaveBeenCalledWith('/tmp/beta')
   })
 
   it('answers a loaded project readiness handshake with its current activation state', async () => {

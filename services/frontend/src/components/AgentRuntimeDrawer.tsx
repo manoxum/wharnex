@@ -104,6 +104,7 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
   const [availableTasks, setAvailableTasks] = useState<ChatAgentTask[]>([])
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
   const [taskAssignmentMode, setTaskAssignmentMode] = useState<'standard' | 'keep_flowing'>('standard')
+  const [activeTab, setActiveTab] = useState<'agents' | 'runtime' | 'policies'>('agents')
 
   const refresh = useCallback(async () => {
     if (!bridge) return
@@ -284,6 +285,11 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
     window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: selected.id } }))
   }
 
+  const selectRuntimeTab = (tab: 'agents' | 'runtime' | 'policies') => {
+    if (tab !== 'agents') setInteractionId(undefined)
+    setActiveTab(tab)
+  }
+
   if (!bridge) return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime local</span><strong>Agentes</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></header>
     <div className="agent-drawer-empty"><strong>Bridge preload indisponível.</strong><span>Abra esta área no Wharnex Desktop/Electron. Sem a bridge não é possível distinguir o scheduler, o backend ou os browsers dos Workers.</span></div>
@@ -293,8 +299,14 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Agentes</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar agentes"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></div></header>
     {!runtime ? <div className="agent-drawer-empty">A carregar instâncias do runtime…</div> : <>
       <div className="agent-runtime-summary"><span><b>{runtime.agents.length}</b><small>instâncias</small></span><span><b>{running}</b><small>ocupadas</small></span><span><b>{elsewhere}</b><small>noutro projeto</small></span><span><b>{runtime.desired_workers}</b><small>{runtime.policies?.auto_scaled_workers ? `${runtime.configured_workers} base · +${runtime.policies.auto_scaled_workers} auto` : 'workers'}</small></span></div>
+      <div className="agent-runtime-tabs" role="tablist" aria-label="Áreas do painel de agentes">
+        <button type="button" role="tab" aria-selected={activeTab === 'agents'} className={activeTab === 'agents' ? 'active' : ''} onClick={() => selectRuntimeTab('agents')}><Icon name="agent" size={14}/><span>Agentes</span><small>{runtime.agents.length}</small></button>
+        <button type="button" role="tab" aria-selected={activeTab === 'runtime'} className={activeTab === 'runtime' ? 'active' : ''} onClick={() => selectRuntimeTab('runtime')}><Icon name="monitor" size={14}/><span>Runtime</span><small>{runtime.scheduler?.running ? 'online' : 'atenção'}</small></button>
+        <button type="button" role="tab" aria-selected={activeTab === 'policies'} className={activeTab === 'policies' ? 'active' : ''} onClick={() => selectRuntimeTab('policies')}><Icon name="settings" size={14}/><span>Políticas</span><small>{runtime.policies.auto_scale ? 'auto' : 'manual'}</small></button>
+      </div>
       {/* The pool is shared deliberately; only the claim is scoped. Saying so
           here is what stops a busy pool from reading as a broken one. */}
+      {activeTab === 'runtime' && <div className="agent-runtime-tab-panel runtime" role="tabpanel">
       <p className="agent-runtime-scope">Os agentes são partilhados por todos os projetos abertos, mas só executam tarefas de projetos abertos nalguma janela.</p>
       <div className="agent-runtime-memory-summary" aria-label="Consumo de RAM do runtime">
         <span><small>Total Workers</small><b>{memoryLabel(runtime.memory?.total_workers_bytes, runtime.memory?.available)}</b></span>
@@ -320,6 +332,8 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
         <div className="agent-runtime-queue"><span><b>{runtime.queue?.due || 0}</b> por executar</span><span><b>{runtime.queue?.scheduled || 0}</b> agendadas</span>{(runtime.queue?.guarded || 0) > 0 && <span><b>{runtime.queue.guarded}</b> aguardam liberação</span>}{(runtime.queue?.blocked || 0) > 0 && <span><b>{runtime.queue.blocked}</b> sem tentativas</span>}</div>
         <div className="agent-runtime-queue-times"><span>Mais antiga por executar: {timeLabel(runtime.queue?.oldest_due_created_at)}</span><span>Próxima agendada: {timeLabel(runtime.queue?.next_not_before)}</span></div>
       </div>
+      </div>}
+      {activeTab === 'policies' && <div className="agent-runtime-tab-panel policies" role="tabpanel">
       <div className={`agent-runtime-pause${runtime.provider?.paused ? ' is-paused' : ''}`}>
         <div className="agent-runtime-pause-copy"><strong>Trabalhos agentic</strong><small>{runtime.provider?.paused ? (runtime.provider.paused_until ? `Suspensos · retoma automática em ${timeLabel(runtime.provider.paused_until)}` : 'Suspensos · retoma manual') : 'Suspende novos claims globalmente; trabalhos já em curso terminam sem perder estado.'}</small></div>
         {!runtime.provider?.paused && <div className="agent-runtime-pause-controls"><select aria-label="Modo de retoma" value={pauseMode} disabled={busy} onChange={(event) => setPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Retoma manual</option></select>{pauseMode === 'timed' && <label><input aria-label="Minutos até retoma automática" type="number" min="1" max="10080" step="1" value={pauseMinutes} disabled={busy} onChange={(event) => setPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" disabled={busy} onClick={() => void suspendProvider()}>Suspender trabalhos</button></div>}
@@ -337,6 +351,8 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
         <div className="agent-runtime-scale-card"><div><strong>Teto Auto scale</strong><small>Máximo total de Workers que o Auto scale pode atingir; a base manual nunca é reduzida por este teto.</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.policies.auto_scale_max_workers <= runtime.limits.min_workers} onClick={() => void scaleAutoScaleCeiling(-1)} aria-label="Diminuir teto Auto scale">−</button><b>{runtime.policies.auto_scale_max_workers}</b><button disabled={busy || runtime.policies.auto_scale_max_workers >= runtime.limits.max_workers} onClick={() => void scaleAutoScaleCeiling(1)} aria-label="Aumentar teto Auto scale">+</button></div></div>
         <div className="agent-runtime-scale-card"><div><strong>Keep flowing</strong><small>Globalmente fixa cada Worker ao pedido até existir um bundle válido entregue ao processamento; 429 suspende sem abandonar a tarefa.</small></div><button type="button" className="agent-runtime-resume" aria-pressed={runtime.policies.keep_flowing_global} disabled={busy} onClick={() => void updatePolicies({ keep_flowing_global: !runtime.policies.keep_flowing_global })}>{runtime.policies.keep_flowing_global ? 'Global ativo' : 'Global inativo'}</button></div>
       </div>
+      </div>}
+      {activeTab === 'agents' && <div className="agent-runtime-tab-panel agents" role="tabpanel">
       <div className="agent-runtime-body">
         <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active' : ''}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>
           <span className={`agent-runtime-dot ${agent.status}`} aria-hidden="true"/><span><strong>{agent.label}</strong><small>{agent.role === 'supervisor' ? 'Supervisor' : 'Worker'} · {statusLabel(agent)}{agent.keep_flowing_active ? ' · Keep flowing' : ''}</small>{foreign ? <em className="agent-runtime-foreign" title={`Ocupado com uma tarefa do projeto ${foreign}`}>Outro projeto · {projectLabel(foreign)}</em> : null}</span><span className="agent-runtime-agent-stats">{agent.task && <code>{agent.task.type}</code>}<code className="agent-runtime-memory-pill">{memoryLabel(agent.memory?.rss_bytes, agent.memory?.available)}</code></span>
@@ -355,6 +371,7 @@ export function AgentRuntimeDrawer({ projectPath, onClose, onError }: { projectP
           {snapshot?.agentId === selected.id && <figure className="agent-runtime-snapshot"><img src={snapshot.dataUrl} alt={`Captura do navegador de ${selected.label}`}/><figcaption>Capturado às {new Date(snapshot.capturedAt).toLocaleTimeString()}</figcaption></figure>}
         </div>}
       </div>
+      </div>}
     </>}
   </section>
 }
