@@ -752,16 +752,29 @@ type ContextManifest struct {
 }
 
 type ContextBundle struct {
-	ID       string          `json:"id"`
-	ZipPath  string          `json:"-"`
-	TextPath string          `json:"-"`
-	Manifest ContextManifest `json:"manifest"`
+	ID              string                  `json:"id"`
+	ZipPath         string                  `json:"-"`
+	TextPath        string                  `json:"-"`
+	Manifest        ContextManifest         `json:"manifest"`
+	WorkspaceSHA256 string                  `json:"workspace_sha256,omitempty"`
+	RelatedProjects []RelatedProjectContext `json:"related_projects,omitempty"`
+}
+
+// RelatedProjectContext describes a user-bound companion repository included
+// as namespaced, read-only evidence in the planner context. The primary
+// manifest remains the only execution baseline for this Session.
+type RelatedProjectContext struct {
+	ProjectPath string          `json:"project_path"`
+	Name        string          `json:"name"`
+	Prefix      string          `json:"prefix"`
+	Manifest    ContextManifest `json:"manifest"`
 }
 
 type Session struct {
 	ID                      string               `json:"id"`
 	ChatID                  string               `json:"chat_id,omitempty"`
 	ProjectPath             string               `json:"project_path"`
+	RelatedProjectPaths     []string             `json:"related_project_paths,omitempty"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
 	EffortLevel             EffortLevel          `json:"effort_level"`

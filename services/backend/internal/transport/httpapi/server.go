@@ -150,6 +150,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
+	mux.HandleFunc("PUT /api/sessions/{id}/related-projects", a.relatedProjects)
 	mux.HandleFunc("GET /api/sessions/{id}/project-config", a.projectConfig)
 	mux.HandleFunc("PUT /api/sessions/{id}/project-config", a.updateProjectConfig)
 	mux.HandleFunc("GET /api/sessions/{id}/files", a.files)
@@ -1330,6 +1331,21 @@ func (a *API) refreshContext(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.RefreshContext(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "context_refresh_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) relatedProjects(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProjectPaths []string `json:"project_paths"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetRelatedProjects(r.Context(), r.PathValue("id"), body.ProjectPaths)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "related_projects_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

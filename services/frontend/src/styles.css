@@ -1558,7 +1558,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 /* Multi-window / multi-project workspace shell */
 .desktop-shell-root { position: relative; width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 43px minmax(0, 1fr); overflow: hidden; background: var(--app-bg, #eceee7); }
-.multi-project-bar { min-width: 0; height: 43px; padding: 0 9px; display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; }
+.multi-project-bar { min-width: 0; height: 43px; padding: 0 9px; display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; }
 .multi-project-brand { display: flex; align-items: center; color: #30352d; }
 .project-quick-switch { min-width: 0; height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: thin; }
 .project-quick-switch button, .multi-project-actions button { height: 29px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #677061; cursor: pointer; font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; }
@@ -1575,6 +1575,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-actions-popover span { display: grid; gap: 1px; }
 .project-actions-popover strong { font-size: calc(9px * var(--ui-font-scale)); }
 .project-actions-popover small { color: #7b8476; font-size: calc(7.5px * var(--ui-font-scale)); }
+.project-path-link { display: grid; gap: 4px; padding: 7px 8px; color: #586052; font-size: calc(8px * var(--ui-font-scale)); }
+.project-path-link input { width: 100%; height: 29px; padding: 0 7px; border: 1px solid #cfd2c7; border-radius: 6px; background: #fff; color: #2e362a; font: inherit; }
+.project-path-link button { margin-top: 1px; }
+.multi-project-context { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: #747c6e; font-size: calc(8px * var(--ui-font-scale)); }
 .shell-mode-switch { display: inline-flex; align-items: center; padding: 2px; border: 1px solid #cfd5c9; border-radius: 8px; background: #e8ebe4; }
 .shell-mode-switch button { min-height: 25px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: #687063; }
 .shell-mode-switch button.active { background: #fff; color: #293126; box-shadow: 0 1px 4px rgba(30,37,27,.1); }

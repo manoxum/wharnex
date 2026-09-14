@@ -352,7 +352,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	}
 	s.bus.Publish(id, "project.config_ready", map[string]any{"config_file": projectconfig.FileName, "created": configCreated})
 	s.bus.Publish(id, "context.scanning", map[string]any{"project_path": projectPath})
-	bundle, err := s.context.Build(projectPath)
+	bundle, err := s.context.BuildWorkspace(projectPath, nil)
 	if err != nil {
 		s.bus.Publish(id, "context.failed", map[string]any{"error": err.Error()})
 		return domain.Session{}, err
@@ -373,6 +373,108 @@ func (s *Service) GetSession(sessionID string) (domain.Session, error) {
 	s.reconcileSelfEvolutionStatus()
 	item, err := s.store.Get(sessionID)
 	return item, err
+}
+
+const maxRelatedProjects = 11
+
+// SetRelatedProjects records the additional project roots explicitly bound by
+// the user to this Agent workspace. They are rebuilt as namespaced context and
+// never change this session's primary execution/apply root.
+func (s *Service) SetRelatedProjects(ctx context.Context, sessionID string, projectPaths []string) (domain.Session, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	if len(projectPaths) > maxRelatedProjects {
+		return item, fmt.Errorf("related projects exceed the limit of %d", maxRelatedProjects)
+	}
+	primary, err := canonicalProjectPath(item.ProjectPath)
+	if err != nil {
+		return item, fmt.Errorf("resolve primary project: %w", err)
+	}
+	seen := map[string]bool{primary: true}
+	canonical := make([]string, 0, len(projectPaths))
+	for _, candidate := range projectPaths {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if !filepath.IsAbs(candidate) {
+			return item, fmt.Errorf("related project path must be absolute: %s", candidate)
+		}
+		resolved, resolveErr := canonicalProjectPath(candidate)
+		if resolveErr != nil {
+			return item, fmt.Errorf("resolve related project %s: %w", candidate, resolveErr)
+		}
+		if seen[resolved] {
+			continue
+		}
+		if _, ensureErr := projectgit.Ensure(ctx, resolved); ensureErr != nil {
+			return item, fmt.Errorf("prepare related project git repository %s: %w", resolved, ensureErr)
+		}
+		seen[resolved] = true
+		canonical = append(canonical, resolved)
+	}
+	if stringSlicesEqual(item.RelatedProjectPaths, canonical) {
+		return item, nil
+	}
+	bundle, err := s.context.BuildWorkspace(item.ProjectPath, canonical)
+	if err != nil {
+		return item, fmt.Errorf("build multi-project context: %w", err)
+	}
+	oldDir := filepath.Dir(item.Context.ZipPath)
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.RelatedProjectPaths = append([]string(nil), canonical...)
+		current.Context = bundle
+		return nil
+	})
+	if err != nil {
+		removeContextDirectory(bundle.ZipPath)
+		return item, err
+	}
+	if oldDir != "" && oldDir != "." && oldDir != filepath.Dir(bundle.ZipPath) && !contextDirectoryReferenced(updated, oldDir) {
+		_ = os.RemoveAll(oldDir)
+	}
+	s.bus.Publish(sessionID, "context.related_projects_changed", map[string]any{"project_paths": canonical, "projects": len(canonical), "snapshot": bundle.Manifest.SHA256})
+	return updated, nil
+}
+
+func canonicalProjectPath(value string) (string, error) {
+	abs, err := filepath.Abs(value)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", errors.New("project path must be an existing directory")
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func stringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func removeContextDirectory(zipPath string) {
+	directory := filepath.Dir(zipPath)
+	if strings.HasPrefix(filepath.Base(directory), "wharness-context-") {
+		_ = os.RemoveAll(directory)
+	}
 }
 
 // chatIDPattern is deliberately stricter than the desktop's own cacheKey
@@ -582,6 +684,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if err != nil {
 		return planner.Result{}, domain.Session{}, err
 	}
+	message = messageWithRelatedProjects(message, item.ProjectPath, item.Context.RelatedProjects)
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
@@ -771,6 +874,23 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// longer schedules a post-terminal knowledge_review. Provider-only turns
 	// have no file bundle, so there is nothing to stage/commit here.
 	return result, updated, nil
+}
+
+func messageWithRelatedProjects(message, primary string, related []domain.RelatedProjectContext) string {
+	if len(related) == 0 {
+		return message
+	}
+	var builder strings.Builder
+	builder.WriteString(message)
+	builder.WriteString("\n\nMULTI-PROJECT WORKSPACE (Wharnex-owned scope metadata):\n")
+	builder.WriteString("Primary project and execution root: ")
+	builder.WriteString(primary)
+	builder.WriteString("\nRelated project contexts are available under their RELATED_PROJECTS namespaces:\n")
+	for _, project := range related {
+		fmt.Fprintf(&builder, "- %s (%s): %s\n", project.Name, project.ProjectPath, project.Prefix)
+	}
+	builder.WriteString("Analyze cross-project contracts and dependencies as needed. This response's executable plan may mutate only the primary project. When a related project also needs changes, name that project and the required follow-up clearly; Wharnex will execute it through that project's own session, Policy check, Protected sandbox, verification, and explicit Apply.")
+	return builder.String()
 }
 
 func (s *Service) SubmitManualPlan(sessionID string, raw []byte) (domain.Session, error) {
@@ -2002,6 +2122,7 @@ func normalizedVerificationOutput(result domain.CommandResult) string {
 }
 
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
+	command = repositoryTreeCommand(ctx, workspace.Path, command)
 	runID := ids.New("run")
 	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
 	var result domain.CommandResult
@@ -3467,7 +3588,7 @@ func (s *Service) refreshContext(sessionID string) (domain.Session, error) {
 	if err != nil {
 		return domain.Session{}, err
 	}
-	bundle, err := s.context.Build(item.ProjectPath)
+	bundle, err := s.context.BuildWorkspace(item.ProjectPath, item.RelatedProjectPaths)
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("refresh project context: %w", err)
 	}

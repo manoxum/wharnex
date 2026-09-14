@@ -344,7 +344,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     {!composerOnly && <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
       <div className="chat-header-context" aria-label="Contexto isolado">
         <span className="chat-header-context-icon"><Icon name="shield" size={13}/></span>
-        <span><strong>Contexto isolado</strong><small>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</small></span>
+        <span><strong>{session.context.related_projects?.length ? `Contexto de ${session.context.related_projects.length + 1} projetos` : 'Contexto isolado'}</strong><small>{session.context.manifest.files.length} ficheiros primários · {(session.context.workspace_sha256 || session.context.manifest.sha256).slice(0, 12)}</small></span>
       </div>
       <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages} />
       <div className="chat-header-actions">
