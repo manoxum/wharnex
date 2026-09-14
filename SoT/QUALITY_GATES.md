@@ -49,6 +49,8 @@ Canonical operator build command: `make build`. It must:
 
 `make build-stage` performs the same artifact/image staging but MUST NOT replace running services and is the only build target used by transactional self-evolution. The Protected Docker runner is deliberately excluded from both targets; `make build-runner` remains explicit.
 
+The checkout-scoped lifecycle lock used by build, activation, rollback and teardown MUST remain bounded and MUST work in both the host util-linux environment and the Alpine/BusyBox backend container that executes self-evolution staging. Portable non-blocking acquisition with a bounded retry loop is required; util-linux-only `flock` flags are forbidden on this path.
+
 ## G6 Security
 
 Recommended CI additions: `gosec`, `govulncheck`, `npm audit`, Trivy, secret scanning.

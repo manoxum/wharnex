@@ -49,10 +49,19 @@ acquire_stack_operation_lock() {
   # calls can remove a container after the other process resolved its id,
   # producing Docker's misleading "No such container" recreate failure.
   exec 9>"$STACK_OPERATION_LOCK"
-  if ! flock -w 1800 9; then
-    echo 'Timed out waiting for another Wharnex lifecycle operation to finish.' >&2
-    exit 1
-  fi
+  # BusyBox flock (used by the backend image that runs self-evolution builds)
+  # has no util-linux -w option. Both implementations support -n, so implement
+  # the same bounded wait portably instead of turning a healthy build into a
+  # fake lock timeout before it can stage its images.
+  lock_waited=0
+  while ! flock -n 9; do
+    if [ "$lock_waited" -ge 1800 ]; then
+      echo 'Timed out waiting for another Wharnex lifecycle operation to finish.' >&2
+      exit 1
+    fi
+    sleep 1
+    lock_waited=$((lock_waited + 1))
+  done
 }
 
 require_docker() {
