@@ -40,10 +40,12 @@ Patch execution first uses `git apply --check`. If a generated unified diff has 
 
 The Editor terminal is a human-initiated execution surface with two explicit targets:
 
-- `Sandbox` (default): argv executes in the persistent isolated project copy. Network is disabled by default and is an explicit per-command user choice. Reset recreates the copied workspace from the host.
-- `Host`: argv executes directly in the real project root. Entering this target requires an explicit warning/confirmation and the UI keeps a persistent host-direct warning visible. Host networking is inherited from the machine, so the sandbox network toggle is unavailable.
+- `Sandbox` (default): a PTY login shell runs in the persistent isolated project copy. Network is disabled by default and is an explicit session choice. Reset recreates the copied workspace from the host.
+- `Host`: a PTY login shell runs directly in the real project root. Entering this target requires an explicit warning/confirmation and the UI keeps a persistent host-direct warning visible. Host networking is inherited from the machine, so the sandbox network toggle is unavailable.
 
-Both targets remain shell-string-free and pass through the Policy Engine, but human terminal commands use a dedicated interactive profile rather than the stricter model-plan profile. That profile may allow normal development mutations such as Git staging/commits, package-manager operations, language runtimes executing project files, and file removal. Shell interpreters, privilege escalation, container/host administration, destructive storage/process management, and inline-code evaluator flags remain denied. Terminal Host is a human-only exception and MUST NOT be selected or driven by Agent execution mode, a model plan, or automation.
+The interactive surface opens a backend-owned PTY login shell. Sandbox retains the runner's container isolation, capability drop, `no-new-privileges`, resource limits and network-off default. Host opens the operating-system user's shell in the real project root only after the dedicated confirmation. The Host PTY consequently has that user's full project and host command authority; its persistent warning must say so plainly. PTY sessions are human-only and MUST NOT be selected or driven by Agent mode, a model plan, automation or a generic IPC primitive.
+
+The terminal renders through an ANSI-capable emulator with bounded scrollback and automatically fits its viewport. Narrow session-scoped operations carry bounded input, resize events, ephemeral output and close. Raw PTY input and output are not durable audit records because they may contain credentials or editor buffers; only lifecycle metadata without command text may be audited. The legacy one-shot terminal endpoint remains argv-only and Policy Engine constrained for compatibility and non-interactive tooling.
 
 Editor file saves and Explorer create/rename/delete actions are explicit human mutations to the host project. File saves use optimistic SHA-256 concurrency checks; all Editor/Explorer filesystem operations retain root containment, secret/excluded-path denial and symlink-escape denial. A live sandbox copy is mirrored best-effort after Explorer mutations so the next interactive sandbox command sees the same tree.
 
@@ -59,9 +61,9 @@ Editor file saves and Explorer create/rename/delete actions are explicit human m
 
 Opening, creating, and cloning a project occurs before Agent execution and is driven only by explicit local UI actions. Creating a project makes a new directory and initializes its Git boundary. Cloning uses `git clone --recurse-submodules` into a destination that did not previously exist. These bootstrap actions do not change Protected/Unprotected mode and are never emitted or triggered by a model execution plan.
 
-## Interactive Host terminal submit semantics (v1.2.17.4)
+## Interactive Host terminal semantics (v1.2.17.4, amended v1.2.52)
 
-The human Host terminal remains a direct argv executor rooted at the real project. Submission is available through both Enter/form submit and an explicit run button. This UI affordance does not introduce a shell: tokenization remains client-side argv parsing, backend interactive policy validation remains mandatory, and the Host runner executes the selected executable directly with the project-relative cwd.
+The human Host terminal is a real PTY rooted at the project and guarded by its dedicated confirmation and persistent warning. The backend chooses the shell executable; renderer input is only bounded PTY data tied to the opaque session id. Closing the panel, switching targets or losing its owning renderer closes the PTY. Model and automation execution remain on the structured argv protocol.
 
 ## Transactional self-evolution (v1.2.23, amended v1.2.34)
 

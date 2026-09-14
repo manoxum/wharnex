@@ -282,7 +282,12 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .terminal-controls .icon-button { color: #72796d; }
 .terminal-size-button { width: 26px; height: 25px; border: 0; background: transparent; color: #777e71; cursor: pointer; border-radius: 5px; }
 .terminal-size-button:hover { background: #292d27; }
-.terminal-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; scrollbar-width: thin; font: 10px/1.55 ui-monospace, 'SFMono-Regular', Consolas, monospace; }
+.terminal-xterm { flex: 1; min-height: 0; overflow: hidden; padding: 8px 10px 4px; background: #121411; }
+.terminal-xterm .xterm { height: 100%; }
+.terminal-xterm .xterm-viewport { scrollbar-width: thin; }
+.terminal-status-connected { color: #95cf50 !important; }
+.terminal-status-error { color: #e36a60 !important; }
+.terminal-status-closed { color: #d6a56b !important; }
 .ide-terminal-entry { margin-bottom: 11px; }
 .terminal-prompt { color: #d2d8cb; white-space: pre-wrap; overflow-wrap: anywhere; }
 .terminal-prompt span, .terminal-input-row > span { color: #8db94b; }

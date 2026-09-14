@@ -11,15 +11,16 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # has no network by default and those executables are denied by policy anyway.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       git make ca-certificates build-essential pkg-config \
-       jq ripgrep patch diffutils \
+       bash bash-completion git make ca-certificates build-essential pkg-config \
+       jq ripgrep patch diffutils vim-tiny nano less \
        unzip zip xz-utils file tree \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable \
     && useradd --create-home --uid 10001 runner
 COPY docker/runner/entrypoint.sh /usr/local/bin/kernl-entrypoint
 COPY docker/runner/toolchain.sh /usr/local/bin/kernl-toolchain
-RUN chmod 0755 /usr/local/bin/kernl-entrypoint /usr/local/bin/kernl-toolchain
+COPY docker/runner/terminal-profile.sh /etc/profile.d/wharnex-terminal.sh
+RUN chmod 0755 /usr/local/bin/kernl-entrypoint /usr/local/bin/kernl-toolchain /etc/profile.d/wharnex-terminal.sh
 WORKDIR /workspace
 USER runner
 ENTRYPOINT ["/usr/local/bin/kernl-entrypoint"]

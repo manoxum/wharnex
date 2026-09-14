@@ -105,6 +105,8 @@ type Service struct {
 	remoteChannels          map[string]*remoteInputChannelState
 	devMu                   sync.Mutex
 	devspaces               map[string]sandbox.Workspace
+	terminalMu              sync.Mutex
+	terminals               map[string]*terminalSessionState
 	applyMu                 sync.Mutex
 	projectApplyLocks       map[string]*sync.Mutex
 	executionQueue          *projectExecutionQueue
@@ -211,7 +213,7 @@ func (s *Service) TunnelProviders() []TunnelProviderDescriptor {
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
 	manager := selfevolution.New(selfevolution.DiscoverRoot())
-	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), terminals: make(map[string]*terminalSessionState), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
@@ -3766,6 +3768,7 @@ func (s *Service) devspace(sessionID string) (sandbox.Workspace, bool) {
 }
 
 func (s *Service) resetDevspace(sessionID string) {
+	s.closeInteractiveTerminals(sessionID)
 	s.devMu.Lock()
 	workspace, ok := s.devspaces[sessionID]
 	if ok {
