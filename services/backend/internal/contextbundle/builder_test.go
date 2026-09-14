@@ -187,6 +187,91 @@ func TestAutoExcludeRemovesCommonGeneratedArtifacts(t *testing.T) {
 	}
 }
 
+func TestAutoExcludeRemovesMobileToolchainsAndFrameworkCaches(t *testing.T) {
+	for _, dir := range []string{".android-sdk", ".cxx", ".expo", ".metro-cache", ".npm-cache", "DerivedData", ".nuxt", ".svelte-kit", ".terragrunt-cache"} {
+		if reason, ignored := autoExclude("services/mobile/"+dir, true); !ignored || reason == "" {
+			t.Fatalf("%s should be auto-excluded", dir)
+		}
+	}
+	for _, file := range []string{"dist/app-release.apk", "public/app.js.map", "build/classes.dex"} {
+		if reason, ignored := autoExclude(file, false); !ignored || reason == "" {
+			t.Fatalf("%s should be auto-excluded", file)
+		}
+	}
+}
+
+func TestIncludeOverrideRestoresOneHeuristicPathWithoutNarrowingProject(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "src", "main.go"), "package main\n")
+	mustWrite(t, filepath.Join(root, ".expo", "important.txt"), "keep me\n")
+	mustWrite(t, filepath.Join(root, ".expo", "cache.txt"), "drop me\n")
+	mustWrite(t, filepath.Join(root, "whaness.yml"), `version: 1
+project:
+  name: "override"
+context:
+  auto_exclude: true
+  max_file_bytes: 2097152
+  include: []
+  include_overrides:
+    - ".expo/important.txt"
+  exclude: []
+`)
+	bundle, err := NewBuilder(1024*1024, 1024*1024).Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := zipNames(t, bundle.ZipPath)
+	if !names["src/main.go"] || !names[".expo/important.txt"] || names[".expo/cache.txt"] {
+		t.Fatalf("unexpected override context files: %#v", names)
+	}
+}
+
+func TestIncludeOverrideCannotRestoreBinaryContent(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "payload.dat"), string([]byte{0x00, 0x01, 0x02, 0x03}))
+	mustWrite(t, filepath.Join(root, "whaness.yml"), `version: 1
+project:
+  name: "binary-override"
+context:
+  auto_exclude: true
+  max_file_bytes: 2097152
+  include: []
+  include_overrides:
+    - "payload.dat"
+  exclude: []
+`)
+	bundle, err := NewBuilder(1024*1024, 1024*1024).Build(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if zipNames(t, bundle.ZipPath)["payload.dat"] {
+		t.Fatal("explicit UI override must not restore binary content")
+	}
+	seen := false
+	for _, item := range bundle.Manifest.ExcludedDetails {
+		if item.Path == "payload.dat" && item.Rule == "binary-content" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatalf("binary exclusion should remain visible: %#v", bundle.Manifest.ExcludedDetails)
+	}
+}
+
+func zipNames(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	names := make(map[string]bool, len(zr.File))
+	for _, file := range zr.File {
+		names[file.Name] = true
+	}
+	return names
+}
+
 func TestBuildRecordsStructuredExclusionDetails(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
@@ -226,6 +311,9 @@ func TestContextInspectionShowsRootsRulesAndFinalInventory(t *testing.T) {
 	seenIncluded, seenExcludedRoot := false, false
 	for _, item := range inspection.Entries {
 		if item.Path == "src/main.go" && item.Status == "included" {
+			if item.ModifiedAt == nil || !item.Configurable {
+				t.Fatalf("included file should expose sortable metadata and configuration action: %#v", item)
+			}
 			seenIncluded = true
 		}
 	}

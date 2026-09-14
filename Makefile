@@ -13,7 +13,7 @@ BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
-	run-backend run-frontend run-desktop clean export export-check
+	run-backend run-frontend run-desktop install-dev clean export export-check
 
 help:
 	@printf '%s\n' \
@@ -25,9 +25,10 @@ help:
 		'  make build-status  Show compiled-artifact fingerprint cache state' \
 		'  make build-refresh Force recompilation while preserving dependency caches' \
 		'  make storage-prune Remove obsolete temporary workspaces and dependency caches' \
-		'  make build-runner  Explicitly build the Protected Docker runner (Docker must already be active)' \
+		'  make build-runner  Explicitly build the Protected Docker runner (starts Docker when required)' \
 		'  make build-all     Build desktop lifecycle + runner explicitly' \
 		'  make start    Reconcile Compose services and start Desktop on the host' \
+		'  make install-dev Install the per-instance launcher/OS shortcut, then build and start Wharnex' \
 		'  make stop     Stop Desktop only; Compose services and tunnel URLs stay alive' \
 		'  make restart  Restart Desktop/application containers while preserving tunnel/database' \
 		'  make stack-up     Ensure the persistent Compose stack is running' \
@@ -200,6 +201,10 @@ electron-sandbox-restore: electron-runtime-install
 
 start:
 	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_RUNNER_IMAGE="$(RUNNER_IMAGE)" "$(ROOT_DIR)/scripts/start.sh"
+
+install-dev:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/install-dev.sh"
+	@$(MAKE) --no-print-directory build start
 
 stop:
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stop.sh"

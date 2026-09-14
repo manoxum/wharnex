@@ -21,6 +21,7 @@ import { chatGPTDeliveryContinuationPrompt, chatGPTStalledRecoveryPrompt, choose
 import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } from './chatgpt-rate-limit.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
+import { desktopIconSVG, desktopInstanceName, desktopWindowTitle } from './desktop-identity.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
@@ -31,6 +32,9 @@ import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROB
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
+const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
+const DESKTOP_ICON = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(desktopIconSVG(DESKTOP_INSTANCE)).toString('base64')}`)
+app.setName(`Wharnex - ${desktopInstanceName(DESKTOP_INSTANCE)}`)
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
 const BACKEND_URL = requireLocalHTTPURL(process.env.WHARNESS_API_URL || 'http://127.0.0.1:8888', 'Backend URL').href
 const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
@@ -541,18 +545,27 @@ function acquireProjectForWindow(windowState, value) {
     return { ...lock, message: 'Este projeto já está aberto noutra janela do Wharnex. A janela proprietária foi trazida para a frente.' }
   }
   windowState.projects.add(lock.path)
+  windowState.activeProject = lock.path
+  windowState.window.setTitle(desktopWindowTitle(lock.path, DESKTOP_INSTANCE))
   return lock
 }
 
 function releaseProjectForWindow(windowState, value) {
   const result = projectWindowRegistry.release(windowState.id, value)
-  if (result.released) windowState.projects.delete(result.path)
+  if (result.released) {
+    windowState.projects.delete(result.path)
+    if (windowState.activeProject === result.path) {
+      windowState.activeProject = [...windowState.projects][0] || ''
+      windowState.window.setTitle(desktopWindowTitle(windowState.activeProject, DESKTOP_INSTANCE))
+    }
+  }
   return result
 }
 
 function releaseWindowProjects(windowState) {
   projectWindowRegistry.releaseWindow(windowState.id)
   windowState.projects.clear()
+  windowState.activeProject = ''
 }
 
 function windowLayoutPath() { return path.join(app.getPath('userData'), 'wharness-window-layout.json') }
@@ -5518,7 +5531,8 @@ function openInternalChatGPTBrowser(windowState, value) {
     height: 860,
     minWidth: 900,
     minHeight: 640,
-    title: 'Wharnex · ChatGPT',
+    title: desktopWindowTitle(windowState.activeProject, DESKTOP_INSTANCE),
+    icon: DESKTOP_ICON,
     parent: windowState.window,
     autoHideMenuBar: true,
     webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }),
@@ -5555,14 +5569,15 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     height: 960,
     minWidth: 1100,
     minHeight: 720,
-    title: 'Wharnex · WHX',
+    title: desktopWindowTitle('', DESKTOP_INSTANCE),
+    icon: DESKTOP_ICON,
     name: `wharness-${id}`,
     windowStatePersistence: true,
     backgroundColor: '#eceee7',
     autoHideMenuBar: true,
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
-  const state = { id, window: win, projects: new Set(), activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }
+  const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }
   desktopWindows.set(id, state)
   mainWindow = win
 
@@ -5644,6 +5659,14 @@ function registerIPC() {
   })
   ipcMain.handle('wharness:projects:acquire', (event, request) => acquireProjectForWindow(trustedSender(event), request?.projectPath))
   ipcMain.handle('wharness:projects:release', (event, request) => releaseProjectForWindow(trustedSender(event), request?.projectPath))
+  ipcMain.handle('wharness:projects:activate', (event, request) => {
+    const windowState = trustedSender(event)
+    const projectPath = canonicalProjectPath(request?.projectPath)
+    if (!windowState.projects.has(projectPath)) throw new Error('Projeto ativo não pertence a esta janela')
+    windowState.activeProject = projectPath
+    windowState.window.setTitle(desktopWindowTitle(projectPath, DESKTOP_INSTANCE))
+    return { ok: true, path: projectPath }
+  })
   ipcMain.handle('wharness:projects:bindings', (event) => {
     const windowState = trustedSender(event)
     return { windowId: windowState.id, projects: [...windowState.projects] }

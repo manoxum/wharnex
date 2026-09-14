@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
+const changeSummarySource = readFileSync(resolve(process.cwd(), 'src/lib/changeSummary.ts'), 'utf8')
 
 describe('App knowledge-review dispatch', () => {
   it('dispatches the post-apply knowledge review prompt keyed on its own field, never on session.state', () => {
@@ -43,8 +44,8 @@ describe('App knowledge-review dispatch', () => {
     expect(source).toContain('await transportPlannerContinuation(updated, targetChat)')
     const reviewIndex = source.indexOf('if (knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview))')
     expect(reviewIndex).toBeGreaterThan(-1)
-    expect(source.slice(reviewIndex, reviewIndex + 600)).toContain('buildAppliedChangeSummary(updated)')
-    expect(source).toContain('Alterações e comandos aplicados ao host.')
+    expect(source.slice(reviewIndex, reviewIndex + 600)).toContain('presentAppliedSession(targetChat, updated)')
+    expect(changeSummarySource).toContain('Alterações e comandos aplicados ao host.')
     expect(source).toContain('restartModalOpen && restartPresentationKey && <RestartConfirmation')
     expect(source).toContain('change={buildAppliedChangeSummary(session)}')
   })

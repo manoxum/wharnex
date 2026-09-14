@@ -7,10 +7,11 @@ const resolver = readFileSync(resolve(process.cwd(), 'src/components/ConflictRes
 const app = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 
 describe('manual conflict resolution surface', () => {
-  it('offers an explicit manual or GPT choice instead of auto-dispatching a conflict', () => {
+  it('keeps manual and GPT conflict controls while semantic conflicts join bounded automatic recovery', () => {
     expect(inspector).toContain('Resolver manualmente')
     expect(inspector).toContain('Resolver com GPT')
-    expect(app).toContain("!['repair_pending', 'baseline_update_pending'].includes(session.state)")
+    expect(app).toContain("!['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state)")
+    expect(app).toContain("session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)")
   })
 
   it('uses a three-way editable workbench and supports hybrid delegation', () => {

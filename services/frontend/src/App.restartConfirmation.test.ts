@@ -20,7 +20,7 @@ describe('App restart confirmation recovery', () => {
   })
 
   it('derives modal presentation from persisted ready state instead of only apply responses', () => {
-    expect(source).toMatch(/const restartPresentationKey = restartConfirmationKey\(session\)/)
+    expect(source).toMatch(/const restartPresentationKey = activeChatOwnsSession \? restartConfirmationKey\(session\) : ''/)
     expect(source).toMatch(/if \(!dismissedRestartKeysRef\.current\.has\(restartPresentationKey\)\) setRestartModalOpen\(true\)/)
     expect(source).toContain('restartModalOpen && restartPresentationKey && <RestartConfirmation')
     expect(source).toContain('change={buildAppliedChangeSummary(session)}')

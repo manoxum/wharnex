@@ -135,6 +135,10 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
   }
 
+  useEffect(() => {
+    if (activeProject) void desktopBridge()?.projects.activate?.(activeProject)
+  }, [activeProject])
+
   async function createProject(parentPath: string, name: string): Promise<boolean> {
     setBusy(true); setError(undefined)
     try {

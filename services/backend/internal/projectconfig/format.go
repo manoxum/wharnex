@@ -29,6 +29,10 @@ func Validate(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("context.include: %w", err)
 	}
+	cfg.Context.IncludeOverride, err = normalizePatterns(cfg.Context.IncludeOverride)
+	if err != nil {
+		return fmt.Errorf("context.include_overrides: %w", err)
+	}
 	cfg.Context.Exclude, err = normalizePatterns(cfg.Context.Exclude)
 	if err != nil {
 		return fmt.Errorf("context.exclude: %w", err)
@@ -99,6 +103,16 @@ func render(cfg Config) string {
 	} else {
 		b.WriteString("\n  include:\n")
 		for _, value := range cfg.Context.Include {
+			b.WriteString("    - ")
+			b.WriteString(strconv.Quote(value))
+			b.WriteByte('\n')
+		}
+	}
+	if len(cfg.Context.IncludeOverride) == 0 {
+		b.WriteString("  include_overrides: []\n")
+	} else {
+		b.WriteString("  include_overrides:\n")
+		for _, value := range cfg.Context.IncludeOverride {
 			b.WriteString("    - ")
 			b.WriteString(strconv.Quote(value))
 			b.WriteByte('\n')

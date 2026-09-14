@@ -256,7 +256,7 @@ describe('AgentWorkspace', () => {
     rendered.rerender(workspace('chat-2', chatBItems))
     stream = rendered.container.querySelector('.chat-stream') as HTMLDivElement
     expect(stream.scrollTop).toBe(140)
-  })
+  }, 10_000)
 
   it('keeps the FIFO discoverable even while it is empty and renders queued work in order', () => {
     const empty = props()

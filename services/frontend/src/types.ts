@@ -124,6 +124,9 @@ export type ContextInventoryEntry = {
   size?: number
   reason?: string
   rule?: string
+  created_at?: string
+  modified_at?: string
+  configurable?: boolean
 }
 
 export type ContextRootEntry = {
@@ -135,6 +138,9 @@ export type ContextRootEntry = {
   excluded_items: number
   included_bytes: number
   reason?: string
+  created_at?: string
+  modified_at?: string
+  configurable?: boolean
 }
 
 export type ContextInspection = {
@@ -462,6 +468,7 @@ export type ProjectConfig = {
     auto_exclude: boolean
     max_file_bytes: number
     include: string[]
+    include_overrides?: string[]
     exclude: string[]
   }
 }
