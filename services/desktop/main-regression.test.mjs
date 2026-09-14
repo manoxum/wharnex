@@ -82,6 +82,29 @@ test('Supervisor transport keeps the captured chat entry and exposes no focus IP
   assert.match(source, /attachPromptToChatGPT\(request, entry\)/)
 })
 
+test('linked projects expose owning windows and can bring an existing owner forward', async () => {
+  const [source, preload] = await Promise.all([
+    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
+  ])
+
+  const projectsStart = source.indexOf("ipcMain.handle('wharness:windows:projects'")
+  const focusStart = source.indexOf("ipcMain.handle('wharness:windows:focus-project'")
+  const openStart = source.indexOf("ipcMain.handle('wharness:windows:open'", focusStart)
+  assert.notEqual(projectsStart, -1)
+  assert.notEqual(focusStart, -1)
+  const projectsHandler = source.slice(projectsStart, focusStart)
+  const focusHandler = source.slice(focusStart, openStart)
+  assert.match(projectsHandler, /for \(const state of desktopWindows\.values\(\)\)/)
+  assert.match(projectsHandler, /currentWindowId: current\.id/)
+  assert.match(focusHandler, /canonicalProjectPath\(request\?\.projectPath\)/)
+  assert.match(focusHandler, /sendToWindowState\(owner, 'wharness:windows:activate-project', \{ projectPath \}\)/)
+  assert.match(focusHandler, /owner\.window\.show\(\); owner\.window\.focus\(\)/)
+  assert.match(preload, /projects: \(\) => invoke\('wharness:windows:projects'\)/)
+  assert.match(preload, /focusProject: \(projectPath\) => invoke\('wharness:windows:focus-project'/)
+  assert.match(preload, /wharness:windows:activate-project/)
+})
+
 test('a failed prompt delivery remains retryable without asking the planner for a new prompt', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')

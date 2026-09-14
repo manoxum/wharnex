@@ -56,6 +56,9 @@ interface WharnessDesktopBridge {
   }
   windows: {
     info(): Promise<{ windowId: string; windowCount: number }>
+    projects(): Promise<{ currentWindowId: string; items: Array<{ windowId: string; projectPath: string; focused: boolean }> }>
+    focusProject(projectPath: string): Promise<{ ok: boolean; windowId: string; projectPath: string }>
+    onActivateProject(callback: (payload: { projectPath: string }) => void): () => void
     open(): Promise<{ ok: boolean; windowId: string }>
     prepareRestart(scope: 'all' | 'current'): Promise<{ ok: boolean; scope: 'all' | 'current'; windowCount: number }>
   }

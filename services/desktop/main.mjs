@@ -20,7 +20,7 @@ import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinity
 import { chatGPTDeliveryContinuationPrompt, chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
 import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } from './chatgpt-rate-limit.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
-import { ProjectWindowRegistry } from './project-window-registry.mjs'
+import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
@@ -5647,6 +5647,25 @@ function registerIPC() {
   ipcMain.handle('wharness:windows:info', (event) => {
     const windowState = trustedSender(event)
     return { windowId: windowState.id, windowCount: desktopWindows.size }
+  })
+  ipcMain.handle('wharness:windows:projects', (event) => {
+    const current = trustedSender(event)
+    const focused = BrowserWindow.getFocusedWindow()
+    const items = []
+    for (const state of desktopWindows.values()) {
+      if (state.window.isDestroyed()) continue
+      for (const projectPath of state.projects) items.push({ windowId: state.id, projectPath, focused: focused === state.window })
+    }
+    return { currentWindowId: current.id, items }
+  })
+  ipcMain.handle('wharness:windows:focus-project', (event, request) => {
+    trustedSender(event)
+    const projectPath = canonicalProjectPath(request?.projectPath)
+    const owner = [...desktopWindows.values()].find((state) => !state.window.isDestroyed() && state.projects.has(projectPath))
+    if (!owner) throw new Error('O projeto já não está aberto noutra janela do Wharnex.')
+    sendToWindowState(owner, 'wharness:windows:activate-project', { projectPath })
+    owner.window.show(); owner.window.focus()
+    return { ok: true, windowId: owner.id, projectPath }
   })
   ipcMain.handle('wharness:windows:open', (event) => {
     trustedSender(event)
