@@ -9,6 +9,7 @@ Wharness is an engineering workspace, not a chatbot skin.
 - execution state must be understandable without relying only on color;
 - destructive/apply actions are visually distinct and require explicit intent;
 - mobile layout stacks panels without hiding execution state.
+- the fixed chat header labels the bounded context hash and stable Harness chat ID; one adjacent icon-only, keyboard-accessible control copies both complete values, regardless of visual truncation.
 
 ## Appearance themes
 

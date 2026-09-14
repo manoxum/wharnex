@@ -337,6 +337,37 @@ func TestRollbackRefusesWhenUnrelatedGitMergeOverlapsBackupPaths(t *testing.T) {
 	assertFile(t, filepath.Join(root, "hello.txt"), "merged-by-someone-else\n")
 }
 
+// TestRollbackAllowsHostSnapshotOfCapturedSource reproduces the false-positive
+// that parked txn-20260913T111106-6127f80c0211 in rollback_failed. Prepare
+// captured an operator-dirty file, then the integration path preserved those
+// exact bytes in its host snapshot commit before a later step failed. The path
+// therefore appeared in Git's baseline..HEAD diff even though restoring its
+// transaction backup was a byte-for-byte no-op.
+func TestRollbackAllowsHostSnapshotOfCapturedSource(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "operator state\n", 0o644)
+
+	manager := New(root)
+	tx, err := manager.Prepare("ses-snapshot", "plan-snapshot", []string{
+		"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-operator state\n+candidate\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+
+	// MergeBranchOnHost performs this preservation commit after Prepare. Its
+	// content is the transaction's captured pre-change state, not a concurrent
+	// edit that rollback must protect.
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "Wharnex host snapshot before integration")
+
+	if err := tx.Rollback(context.Background()); err != nil {
+		t.Fatalf("a host snapshot containing the captured bytes must be rollback-safe, got %v", err)
+	}
+	assertFile(t, filepath.Join(root, "hello.txt"), "operator state\n")
+}
+
 // TestRollbackProceedsWhenUnrelatedGitCommitsDoNotOverlapBackupPaths confirms
 // the safety check above is narrow: unrelated commits that land on OTHER
 // paths must not block a legitimate rollback of this transaction's own

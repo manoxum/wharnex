@@ -146,6 +146,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const [projectFiles, setProjectFiles] = useState<string[]>(initialFileDraft.projectFiles)
   const [fileQuery, setFileQuery] = useState<{ start: number; end: number; query: string }>()
   const [copiedMessageId, setCopiedMessageId] = useState('')
+  const [contextIdentityCopied, setContextIdentityCopied] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [contentView, setContentView] = useState<'conversation' | 'files'>('conversation')
   const [commentBusy, setCommentBusy] = useState(false)
@@ -314,20 +315,36 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     window.setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
-  async function copyMessage(item: ChatItem) {
+  async function writeClipboard(text: string) {
     try {
-      await navigator.clipboard.writeText(item.text)
+      await navigator.clipboard.writeText(text)
     } catch {
       const textarea = document.createElement('textarea')
-      textarea.value = item.text; textarea.style.position = 'fixed'; textarea.style.opacity = '0'
+      textarea.value = text; textarea.style.position = 'fixed'; textarea.style.opacity = '0'
       document.body.appendChild(textarea); textarea.select(); document.execCommand('copy'); textarea.remove()
     }
-    setCopiedMessageId(item.id)
+  }
+
+  function resetCopyFeedback(reset: () => void) {
     if (copiedResetTimerRef.current !== null) window.clearTimeout(copiedResetTimerRef.current)
     copiedResetTimerRef.current = window.setTimeout(() => {
-      setCopiedMessageId((current) => current === item.id ? '' : current)
+      reset()
       copiedResetTimerRef.current = null
     }, 1400)
+  }
+
+  async function copyMessage(item: ChatItem) {
+    await writeClipboard(item.text)
+    setCopiedMessageId(item.id)
+    resetCopyFeedback(() => setCopiedMessageId((current) => current === item.id ? '' : current))
+  }
+
+  async function copyContextIdentity() {
+    const hash = session.context.manifest.sha256
+    const chatId = activeChatId || session.chat_id || '—'
+    await writeClipboard(`Hash: ${hash}\nChat ID: ${chatId}`)
+    setContextIdentityCopied(true)
+    resetCopyFeedback(() => setContextIdentityCopied(false))
   }
 
   const latestFailureNoticeId = [...items].reverse().find(isFailureNotice)?.id
@@ -345,7 +362,8 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     {!composerOnly && <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
       <div className="chat-header-context" aria-label="Contexto isolado">
         <span className="chat-header-context-icon"><Icon name="shield" size={13}/></span>
-        <span><strong>Contexto isolado</strong><small>{session.context.manifest.files.length} ficheiros · {session.context.manifest.sha256.slice(0, 12)}</small></span>
+        <span className="chat-header-context-copy"><strong>Contexto isolado</strong><small><span title={session.context.manifest.sha256}>Hash {session.context.manifest.sha256.slice(0, 12)}</span><i aria-hidden="true">·</i><span title={activeChatId || session.chat_id || '—'}>Chat {activeChatId || session.chat_id || '—'}</span></small></span>
+        <button type="button" className="chat-header-context-copy-button" onClick={() => void copyContextIdentity()} aria-label="Copiar hash e ID do chat" title={contextIdentityCopied ? 'Hash e ID copiados' : 'Copiar hash completo e ID do chat'}><Icon name={contextIdentityCopied ? 'check' : 'copy'} size={12}/></button>
       </div>
       <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages} />
       <div className="chat-header-actions">

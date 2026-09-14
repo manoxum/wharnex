@@ -926,7 +926,13 @@ func (tx Transaction) Rollback(ctx context.Context) error {
 				return fmt.Errorf("%w: unable to verify host history since baseline %s: backup=%v diff=%v", ErrRollbackUnsafe, tx.PreTransactionSHA, backupErr, diffErr)
 			}
 			if overlap := overlappingPaths(backups, changed); len(overlap) > 0 {
-				return fmt.Errorf("%w: host advanced from %s to %s with unrelated changes to %s", ErrRollbackUnsafe, tx.PreTransactionSHA, currentSHA, strings.Join(overlap, ", "))
+				diverged, compareErr := tx.divergedBackupPaths(overlap, backups)
+				if compareErr != nil {
+					return fmt.Errorf("%w: unable to compare overlapping host paths with the captured baseline: %v", ErrRollbackUnsafe, compareErr)
+				}
+				if len(diverged) > 0 {
+					return fmt.Errorf("%w: host advanced from %s to %s with unrelated changes to %s", ErrRollbackUnsafe, tx.PreTransactionSHA, currentSHA, strings.Join(diverged, ", "))
+				}
 			}
 		}
 	}
@@ -936,6 +942,69 @@ func (tx Transaction) Rollback(ctx context.Context) error {
 		return fmt.Errorf("rollback failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+// divergedBackupPaths separates a real concurrent write from Git merely
+// committing the exact dirty-tree bytes Prepare already captured. The latter
+// is MergeBranchOnHost's preservation snapshot and restoring the backup is a
+// no-op; treating the path name alone as evidence of divergence permanently
+// parked otherwise recoverable transactions in rollback_failed.
+func (tx Transaction) divergedBackupPaths(paths []string, backups []sourceBackup) ([]string, error) {
+	byPath := make(map[string]sourceBackup, len(backups))
+	for _, backup := range backups {
+		byPath[backup.Path] = backup
+	}
+	diverged := make([]string, 0, len(paths))
+	for _, path := range paths {
+		backup, ok := byPath[path]
+		if !ok {
+			return nil, fmt.Errorf("missing source backup metadata for %s", path)
+		}
+		matches, err := tx.sourceMatchesBackup(backup)
+		if err != nil {
+			return nil, fmt.Errorf("compare %s: %w", path, err)
+		}
+		if !matches {
+			diverged = append(diverged, path)
+		}
+	}
+	return diverged, nil
+}
+
+func (tx Transaction) sourceMatchesBackup(backup sourceBackup) (bool, error) {
+	currentPath, err := containedPath(tx.Root, backup.Path)
+	if err != nil {
+		return false, err
+	}
+	currentInfo, err := os.Lstat(currentPath)
+	if !backup.Existed {
+		if errors.Is(err, os.ErrNotExist) {
+			return true, nil
+		}
+		return false, err
+	}
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !currentInfo.Mode().IsRegular() || uint32(currentInfo.Mode().Perm()) != backup.Mode {
+		return false, nil
+	}
+	backupPath, err := containedPath(tx.Dir, backup.Backup)
+	if err != nil {
+		return false, err
+	}
+	current, err := os.ReadFile(currentPath)
+	if err != nil {
+		return false, err
+	}
+	captured, err := os.ReadFile(backupPath)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(current, captured), nil
 }
 
 func overlappingPaths(backups []sourceBackup, changed []string) []string {

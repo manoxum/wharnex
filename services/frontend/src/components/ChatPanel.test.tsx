@@ -57,13 +57,18 @@ describe('ChatPanel', () => {
   })
 
 
-  it('keeps isolated-context metadata in the header instead of repeating it in the transcript', () => {
+  it('keeps copyable context hash and chat identity in the header instead of repeating them in the transcript', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     const view = render(
-      <ChatPanel session={{ ...session, context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'README.md', size: 12, sha256: 'abc' }] } } }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel session={{ ...session, context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'README.md', size: 12, sha256: 'abc' }] } } }} items={[]} chats={[]} activeChatId="chat-1" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     const context = view.container.querySelector('.chat-header-context')
     expect(context?.textContent).toContain('Contexto isolado')
-    expect(context?.textContent).toContain('1 ficheiros · abcdef123456')
+    expect(context?.textContent).toContain('Hash abcdef123456')
+    expect(context?.textContent).toContain('Chat chat-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar hash e ID do chat' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('Hash: abcdef1234567890\nChat ID: chat-1'))
     expect(view.container.querySelector('.chat-stream .system-note')).toBeNull()
   })
 
