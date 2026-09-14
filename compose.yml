@@ -82,6 +82,7 @@ services:
       - "${WHARNESS_DOCKER_GID}"
     environment:
       HOME: "${WHARNESS_HOME}"
+      SHELL: "/bin/bash"
       TMPDIR: "${WHARNESS_BRIDGE_DIR}/tmp"
       HARNESS_ADDR: ":8080"
       HARNESS_FRONTEND_ORIGIN: "http://127.0.0.1:${WHARNESS_WEB_PORT:-5173}"
