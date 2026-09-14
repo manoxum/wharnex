@@ -86,6 +86,14 @@ const (
 	// installation state, so this must stop automatic GPT repair/retry loops.
 	FailureKindHostDependencyState = "host_dependency_state"
 
+	// FailureKindHostBuildDependencyNetwork marks a host build that failed
+	// while fetching dependencies over the network — a DNS answer that never
+	// came, a refused or reset connection, a registry timeout. The candidate
+	// is not implicated: the same build succeeds unchanged once the network
+	// answers, so a planner round spent rewriting source is spent on the one
+	// thing that cannot be the cause. Retrying the Apply is the recovery.
+	FailureKindHostBuildDependencyNetwork = "host_build_dependency_network"
+
 	// FailureKindSelfEvolutionBusy marks a local coordination block: another
 	// self-evolution transaction currently owns the activation lock. The
 	// verified candidate is retained and can be applied after that transaction

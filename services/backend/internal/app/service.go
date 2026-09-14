@@ -1512,7 +1512,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": false, "sandbox_only": true, "transport": transport})
 			return result
 		}
-		applied, applyErr := s.ApplyToHost(ctx, sessionID)
+		applied, applyErr := s.applyToHostWithLocalRetry(ctx, sessionID)
 		if applyErr != nil {
 			result.AutoError = applyErr.Error()
 			result.Session = executed

@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/changeset"
@@ -52,6 +54,43 @@ func publishReconciliationEvidence(bus *audit.Bus, sessionID string, reconciliat
 		"subline_resolved_hunks": resolvedHunks,
 		"planner_rounds_needed":  0,
 	})
+}
+
+// hostApplyNetworkRetries bounds the local Apply retries spent on a transient
+// dependency-fetch fault. Two is enough to ride out a DNS answer that did not
+// come; more would be waiting on an outage rather than a blip.
+const hostApplyNetworkRetries = 2
+
+// hostApplyNetworkBackoff is the pause between those retries.
+var hostApplyNetworkBackoff = 15 * time.Second
+
+// applyToHostWithLocalRetry retries a host Apply that failed only because a
+// package manager could not reach the network.
+//
+// Such a failure says nothing about the candidate: the same bytes build
+// successfully once the network answers. Routing it to a planner round asks
+// for a source rewrite that cannot be the fix, and stopping for a human asks
+// them to press a button whose only effect is to try again. So the engine
+// tries again itself, a bounded number of times, and only then lets the
+// failure take its normal path.
+func (s *Service) applyToHostWithLocalRetry(ctx context.Context, sessionID string) (domain.Session, error) {
+	item, err := s.ApplyToHost(ctx, sessionID)
+	for attempt := 1; attempt <= hostApplyNetworkRetries; attempt++ {
+		if err == nil || !isDependencyNetworkDiagnostic(err.Error()) {
+			return item, err
+		}
+		s.bus.Publish(sessionID, "integration.network_retry", map[string]any{
+			"attempt": attempt, "max_attempts": hostApplyNetworkRetries,
+			"error": truncateRepairText(err.Error(), 512),
+		})
+		select {
+		case <-ctx.Done():
+			return item, err
+		case <-time.After(hostApplyNetworkBackoff):
+		}
+		item, err = s.ApplyToHost(ctx, sessionID)
+	}
+	return item, err
 }
 
 // integrationEscalation is the decision about who resolves an integration
