@@ -1484,12 +1484,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 /* Linked projects keep their path-derived accent visible in dark mode. */
 :root[data-theme='dark'] .project-quick-switch button.active {
-  border-color: hsl(var(--project-hue) 70% 58% / .62);
+  border-color: hsl(var(--project-hue) 70% 58% / .50);
   background: color-mix(in srgb, #2f2f2f 88%, hsl(var(--project-hue) 64% 46%));
   color: #f2f2f2;
-  box-shadow: 0 0 0 1px hsl(var(--project-hue) 70% 58% / .12), 0 3px 14px hsl(var(--project-hue) 70% 48% / .24);
+  box-shadow: 0 0 0 1px hsl(var(--project-hue) 70% 58% / .08), 0 2px 8px hsl(var(--project-hue) 70% 48% / .14);
 }
 :root[data-theme='dark'] .project-color-mark { background: hsl(var(--project-hue) 66% 57%); }
 :root[data-theme='dark'] .project-quick-switch button.active .project-color-mark {
-  box-shadow: 0 0 0 3px hsl(var(--project-hue) 70% 56% / .16), 0 0 12px hsl(var(--project-hue) 76% 54% / .5);
+  box-shadow: 0 0 0 2px hsl(var(--project-hue) 70% 56% / .10), 0 0 7px hsl(var(--project-hue) 76% 54% / .24);
 }
