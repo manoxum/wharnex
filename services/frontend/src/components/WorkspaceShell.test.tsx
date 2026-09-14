@@ -106,7 +106,7 @@ describe('WorkspaceShell project actions', () => {
       windows: { projects: vi.fn().mockResolvedValue({ currentWindowId: 'window-a', items: [] }) },
     } as unknown as WharnessDesktopBridge
 
-    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /alpha/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Desvincular gamma desta janela' }))
 
