@@ -90,6 +90,10 @@ An explicit operator pin overrides the partition. The pin already names one cano
 by role as well would leave the task reachable by nobody — pinned away from its own pool and barred from
 the other. Agent ids are therefore canonical in two namespaces, `worker-N` and `supervisor-N`.
 
+Enqueue is also a local wake signal for both role-partitioned claim loops. Their idle delay remains a
+bounded fallback for backend/external arrivals, but a task created by this Desktop is claimable
+immediately; its availability is not hidden behind the next polling tick.
+
 ### 5. What each pool may not do
 
 A Supervisor never renames, organizes, archives or deletes a chat, never deletes a library bundle, never

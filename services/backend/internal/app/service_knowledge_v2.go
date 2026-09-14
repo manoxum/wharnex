@@ -172,6 +172,7 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 			}
 		}
 	}
+	summary = canonicalKnowledgeSummary(summary, catalogChanged)
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastMainRequestSummary = summary
 		current.PendingKnowledgeRootRequestID = ""
@@ -198,6 +199,37 @@ func (s *Service) commitPendingKnowledge(sessionID, terminalRequestID string) (d
 		})
 	}
 	return updated, err
+}
+
+func canonicalKnowledgeSummary(summary string, catalogChanged bool) string {
+	const heading = "## Conhecimento adquirido"
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(summary), "\r\n", "\n"), "\n")
+	kept := make([]string, 0, len(lines))
+	skipping := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.EqualFold(trimmed, heading) {
+			skipping = true
+			continue
+		}
+		if skipping {
+			if strings.HasPrefix(trimmed, "## ") {
+				skipping = false
+			} else {
+				continue
+			}
+		}
+		kept = append(kept, line)
+	}
+	base := strings.TrimSpace(strings.Join(kept, "\n"))
+	if base == "" {
+		base = "Resumo final da Main Request."
+	}
+	outcome := "Não. Esta Main Request não gerou novo conhecimento durável para persistir."
+	if catalogChanged {
+		outcome = "Sim. O catálogo de conhecimento durável do projeto foi atualizado nesta Main Request."
+	}
+	return base + "\n\n" + heading + "\n\n" + outcome
 }
 
 func attemptLedgerHasRepairEvidence(item domain.Session, rootID string) bool {

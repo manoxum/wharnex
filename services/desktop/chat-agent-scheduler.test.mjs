@@ -99,6 +99,26 @@ test('enqueue preserves typed durable task fields', async () => {
   assert.equal(body.dedupe_key, 'await:req-1')
 })
 
+test('enqueue wakes idle claim loops immediately instead of waiting for the polling delay', async () => {
+  let claimCount = 0
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 10_000, taskCooldownMs: 0,
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) claimCount += 1
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 50 && claimCount < 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 2))
+  assert.equal(claimCount, 1)
+
+  await scheduler.enqueue({ type: 'DELETE_BUNDLE', chat_id: 'chat-1' })
+  for (let attempt = 0; attempt < 50 && claimCount < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 2))
+  await scheduler.stop()
+  assert.ok(claimCount >= 2, `expected an immediate second claim, got ${claimCount}`)
+})
+
 
 test('runtime worker scaling is bounded without restarting the scheduler client', () => {
   const states = []

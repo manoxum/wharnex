@@ -408,7 +408,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     </div>}
 
     {!composerOnly && (contentView === 'conversation' ? <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
-      {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar anteriores</button></div>}
+      {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar mensagens anteriores</button></div>}
       {visibleItems.map((item) => {
         const previousNotices = whxNoticeRuns.previousByLatestId.get(item.id) || []
         if (whxNoticeRuns.hiddenIds.has(item.id)) return null

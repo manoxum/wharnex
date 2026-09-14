@@ -8,14 +8,27 @@ type Runtime = DesktopAgentRuntimeState
 
 type Snapshot = { agentId: string; dataUrl: string; capturedAt: string }
 
+type OperationalState = 'idle' | 'writing' | 'listening' | 'waiting' | 'chat-empty' | 'working' | 'loading' | 'error' | 'stopped' | 'draining'
+
+const writingTaskTypes = new Set(['BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
+
+function agentOperationalState(agent: DesktopAgentRuntimeAgent): { key: OperationalState; label: string } {
+  if (agent.draining) return { key: 'draining', label: 'A terminar' }
+  if (agent.status === 'error') return { key: 'error', label: 'Com erro' }
+  if (agent.status === 'loading' || agent.browser.loading) return { key: 'loading', label: 'A carregar' }
+  if (agent.status === 'stopped' || agent.loop_active === false) return { key: 'stopped', label: 'Parado' }
+
+  const task = engagedTask(agent)
+  if (task?.type === 'AWAIT_RESPONSE' || agent.binding_hold === 'expected-bundle' || agent.binding_hold === 'bundle-delivery') return { key: 'listening', label: 'A escutar' }
+  if (task && writingTaskTypes.has(task.type)) return { key: 'writing', label: 'A escrever' }
+  if (task?.status === 'WAITING' || (agent.occupied && !agent.task)) return { key: 'waiting', label: 'A aguardar' }
+  if (task || agent.occupied || agent.status === 'running' || agent.status === 'claimed') return { key: 'working', label: 'Em tarefa' }
+  if (agent.chat_id) return { key: 'chat-empty', label: 'Chat sem jobs' }
+  return { key: 'idle', label: 'Ocioso' }
+}
+
 function statusLabel(agent: DesktopAgentRuntimeAgent) {
-  if (agent.draining) return 'A terminar'
-  let label = 'Disponível'
-  if (agent.status === 'running') label = 'Em execução'
-  else if (agent.status === 'claimed') label = 'Ocupado'
-  else if (agent.status === 'error') label = 'Com erro'
-  else if (agent.status === 'loading') label = 'A carregar'
-  else if (agent.status === 'stopped') label = 'Parado'
+  const label = agentOperationalState(agent).label
   return agent.interacting ? `Interação · ${label}` : label
 }
 
@@ -154,7 +167,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
   }, [bridge, refresh])
 
   const selected = useMemo(() => runtime?.agents.find((agent) => agent.id === selectedId) || runtime?.agents[0], [runtime, selectedId])
-  const running = runtime?.agents.filter((agent) => agent.status === 'running' || agent.status === 'claimed').length || 0
+  const running = runtime?.agents.filter((agent) => ['writing', 'listening', 'waiting', 'working', 'draining'].includes(agentOperationalState(agent).key)).length || 0
   const elsewhere = runtime?.agents.filter((agent) => foreignProject(agent, projectPath)).length || 0
   const selectedForeign = selected ? foreignProject(selected, projectPath) : ''
   const chatIndex = useMemo(() => new Map(chats.map((chat) => [chat.id, chat])), [chats])
@@ -390,12 +403,15 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       </div>
       </div>}
       {activeTab === 'agents' && <div className="agent-runtime-tab-panel agents" role="tabpanel">
+      <div className="agent-runtime-state-legend" aria-label="Legenda dos estados dos agentes">
+        {([['idle', 'Ocioso'], ['writing', 'A escrever'], ['listening', 'A escutar'], ['waiting', 'A aguardar'], ['chat-empty', 'Chat sem jobs']] as const).map(([key, label]) => <span key={key}><i className={`agent-runtime-dot state-${key}`} aria-hidden="true"/>{label}</span>)}
+      </div>
       <div className="agent-runtime-body">
-        <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active' : ''}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>
-          <span className={`agent-runtime-dot ${agent.status}`} aria-hidden="true"/><span><strong>{agent.label}</strong><small>{agent.role === 'supervisor' ? 'Supervisor' : 'Worker'} · {statusLabel(agent)}{agent.keep_flowing_active ? ' · Keep flowing' : ''}</small>{foreign ? <em className="agent-runtime-foreign" title={`Ocupado com uma tarefa do projeto ${foreign}`}>Outro projeto · {projectLabel(foreign)}</em> : null}</span><span className="agent-runtime-agent-stats">{engagedTask(agent) && <code>{engagedTask(agent)?.type}</code>}<code className="agent-runtime-memory-pill">{memoryLabel(agent.memory?.rss_bytes, agent.memory?.available)}</code></span>
+        <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); const operational = agentOperationalState(agent); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active ' : ''}state-${operational.key}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>
+          <span className={`agent-runtime-dot state-${operational.key}`} aria-hidden="true"/><span><strong>{agent.label}</strong><small>{agent.role === 'supervisor' ? 'Supervisor' : 'Worker'} · {statusLabel(agent)}{agent.keep_flowing_active ? ' · Keep flowing' : ''}</small>{foreign ? <em className="agent-runtime-foreign" title={`Ocupado com uma tarefa do projeto ${foreign}`}>Outro projeto · {projectLabel(foreign)}</em> : null}</span><span className="agent-runtime-agent-stats">{engagedTask(agent) && <code>{engagedTask(agent)?.type}</code>}<code className="agent-runtime-memory-pill">{memoryLabel(agent.memory?.rss_bytes, agent.memory?.available)}</code></span>
         </button> })}</div>
         {selected && <div className="agent-runtime-detail">
-          <div className="agent-runtime-detail-heading"><div><span className={`agent-runtime-dot ${selected.status}`} aria-hidden="true"/><strong>{selected.label}</strong></div><span className="agent-runtime-status-pill">{statusLabel(selected)}</span></div>
+          <div className={`agent-runtime-detail-heading state-${agentOperationalState(selected).key}`}><div><span className={`agent-runtime-dot state-${agentOperationalState(selected).key}`} aria-hidden="true"/><strong>{selected.label}</strong></div><span className="agent-runtime-status-pill">{statusLabel(selected)}</span></div>
           {/* Naming the owning project explains the occupancy; nothing else
               about that project's task crosses this boundary. */}
           {selectedForeign ? <p className="agent-runtime-foreign-note" role="status">Ocupado com uma tarefa do projeto <b title={selectedForeign}>{projectLabel(selectedForeign)}</b>. Fica disponível para este projeto quando terminar.</p> : null}

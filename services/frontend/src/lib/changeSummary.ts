@@ -43,15 +43,24 @@ export function appliedChangePresentationItems(session: Session): ChatItem[] {
 }
 
 export function mergeAppliedChangePresentationItems(current: ChatItem[], projected: ChatItem[]) {
-  const next = [...current]
-  for (const candidate of projected) {
-    const exists = next.some((item) => item.id === candidate.id || (
-      candidate.presentation === 'change'
-        ? item.presentation === 'change' && item.change?.planId === candidate.change?.planId && item.change?.appliedAt === candidate.change?.appliedAt
-        : item.meta === candidate.meta && item.text.trim() === candidate.text.trim()
-    ))
-    if (!exists) next.push(candidate)
-  }
+  if (!projected.length) return current
+  const summary = projected.find((item) => item.presentation === 'message')
+  const change = projected.find((item) => item.presentation === 'change')
+  const planId = change?.change?.planId
+  const appliedAt = change?.change?.appliedAt
+  const lastUserIndex = current.reduce((latest, item, index) => item.role === 'user' ? index : latest, -1)
+  // Recompose the terminal result as one package. Older versions appended the
+  // turn message, diff and cumulative summary independently, so a reload could
+  // preserve both GPT messages and strand the diff before the summary.
+  const next = current.filter((item, index) => {
+    if (projected.some((candidate) => candidate.id === item.id)) return false
+    if (item.presentation === 'change' && planId && item.change?.planId === planId && item.change?.appliedAt === appliedAt) return false
+    if (summary && item.meta === summary.meta && item.text.trim() === summary.text.trim()) return false
+    if (summary && planId && index > lastUserIndex && item.source === 'chatgpt' && item.meta?.includes('Host aplicado')) return false
+    return true
+  })
+  if (summary) next.push(summary)
+  if (change) next.push(change)
   return next
 }
 
