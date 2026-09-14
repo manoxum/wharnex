@@ -13,7 +13,7 @@ import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConf
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS } from './chatgpt-behavior-probe.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
-import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
@@ -402,7 +402,7 @@ function supervisorKeyForSlot(slotID) {
 function chatSupervisorLeaseKeys() {
   const keys = new Set()
   for (const runtime of chatSupervisorStates.values()) {
-    const key = sanitizeChatCacheKey(runtime?.task?.chat_id || '')
+    const key = sanitizeOptionalChatCacheKey(runtime?.task?.chat_id)
     if (key) keys.add(key)
   }
   return keys
@@ -681,8 +681,15 @@ async function cancelChatGPTRequestState(cacheKey, requestId) {
   if (chatAgentScheduler) {
     const lineage = await chatAgentScheduler.cancelLineage(id)
     cancelledTasks = Math.max(0, Number(lineage?.cancelled || 0))
-    await refreshChatAgentRuntimeState()
-    publishChatAgentRuntimeState()
+    // Cancellation and bundle acknowledgement are durable lifecycle work. A
+    // diagnostic projection must never turn their successful result into an
+    // IPC failure after the state has already been cleared.
+    try {
+      await refreshChatAgentRuntimeState()
+      publishChatAgentRuntimeState()
+    } catch (error) {
+      console.warn(`[chat-agent] runtime refresh after request cancellation failed request=${id}: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   return { ok: true, cacheKey: key, requestId: id, cleared, cancelledTasks }
 }
@@ -2483,7 +2490,7 @@ function chatAgentRuntimeState() {
     // loops and the renderer bindings are both capped at SUPERVISOR_SLOTS but are
     // assigned independently, so pairing them by index would attribute one slot's
     // task to another slot's chat.
-    const own = key && sanitizeChatCacheKey(runtime.task?.chat_id || '') === key ? runtime : {}
+    const own = key && sanitizeOptionalChatCacheKey(runtime.task?.chat_id) === key ? runtime : {}
     const hold = key ? supervisorBindingHold(key, entry) : ''
     return {
       id, label: `Supervisor ${slot}`, role: 'supervisor',
@@ -4730,7 +4737,7 @@ function noteChatSupervisorLane(index, task) {
   chatSupervisorStates.set(index, {
     ...runtime,
     lane: chatAgentLane(task) || runtime.lane || '',
-    key: sanitizeChatCacheKey(task?.chat_id || '') || runtime.key || '',
+    key: sanitizeOptionalChatCacheKey(task?.chat_id) || runtime.key || '',
   })
 }
 
@@ -4741,7 +4748,7 @@ function chatSupervisorLanesHeldByOthers(index) {
   for (const [slot, runtime] of chatSupervisorStates) {
     if (slot === index) continue
     const lane = String(runtime?.lane || '')
-    const key = sanitizeChatCacheKey(runtime?.key || '')
+    const key = sanitizeOptionalChatCacheKey(runtime?.key)
     if (!lane) continue
     if (runtime?.task || (key && supervisorBindingHeld(key, chatgptViews.get(key)))) lanes.add(lane)
   }
@@ -6347,7 +6354,7 @@ app.whenReady().then(async () => {
       if (!chatSupervisorHostWindow()) return { skip: true }
       const runtime = chatSupervisorStates.get(index) || {}
       const lane = String(runtime.lane || '')
-      const key = sanitizeChatCacheKey(runtime.key || '')
+      const key = sanitizeOptionalChatCacheKey(runtime.key)
       const entry = key ? chatgptViews.get(key) : undefined
       const scope = { project_scoped: true, open_projects: projectWindowRegistry.openProjects() }
       // A Supervisor mid-request serves only its own chat. Letting it claim

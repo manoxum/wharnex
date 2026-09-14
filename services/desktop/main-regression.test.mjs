@@ -687,6 +687,7 @@ test('request cancellation clears only matching Desktop supervision state and a 
   assert.match(cancel, /comment\?\.requestId/)
   assert.match(cancel, /clearChatGPTHumanAction/)
   assert.match(cancel, /chatAgentScheduler\.cancelLineage\(id\)/)
+  assert.match(cancel, /try\s*\{[\s\S]*await refreshChatAgentRuntimeState\(\)[\s\S]*\}\s*catch/)
   assert.match(source, /wharness:chatgpt:cancel-request/)
   const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
   const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
@@ -1458,6 +1459,15 @@ test('runtime queue diagnostics separate deferred work from claimable backlog', 
   // list stops being true once settled history fills that window.
   assert.match(refresh, /chatAgentScheduler\.queueSummary\(\)/)
   assert.doesNotMatch(refresh, /chatAgentScheduler\.list\(\{ limit: 500 \}\)/)
+})
+
+test('idle Supervisor state never validates an absent task as a cache key', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function chatAgentRuntimeState()')
+  const runtime = source.slice(start, source.indexOf('\nfunction publishChatAgentRuntimeState', start))
+
+  assert.match(runtime, /sanitizeOptionalChatCacheKey\(runtime\.task\?\.chat_id\)/)
+  assert.doesNotMatch(runtime, /sanitizeChatCacheKey\(runtime\.task\?\.chat_id/)
 })
 
 test('a hidden Worker gets a layout viewport even while it owns the Supervisor selected chat', async () => {
