@@ -8,10 +8,9 @@ import { WorkspaceSideRail, type Drawer } from './WorkspaceSideRail'
 import { collectAttentionItems, type AttentionItem, type AttentionTarget } from '../lib/attentionCenter'
 import { executionQueueActiveCount, type ExecutionFIFOItem } from '../lib/executionQueueView'
 
-// Monaco has no usable DOM/worker environment under jsdom; every other test
-// in this file never mounts an editor, so the real CodeEditor is not exercised
-// here — only the read-only preview modal's own wiring is under test.
-vi.mock('./CodeEditor', () => ({ CodeEditor: ({ path }: { path: string }) => <div data-testid="code-editor-stub">{path}</div> }))
+// Monaco has no usable DOM/worker environment under jsdom, so the stub exposes
+// the edit/save contract that the Agent file modal wires into the real editor.
+vi.mock('./CodeEditor', () => ({ CodeEditor: ({ path, value, onChange, onSave }: { path: string; value: string; onChange: (value: string) => void; onSave: () => void }) => <div data-testid="code-editor-stub"><textarea aria-label={`Editor de ${path}`} value={value} onChange={(event) => onChange(event.target.value)}/><button type="button" onClick={onSave}>Guardar no editor</button></div> }))
 
 function session(): Session {
   return {
@@ -598,24 +597,30 @@ describe('AgentWorkspace', () => {
     expect(view.onRestore).toHaveBeenCalledWith('arch-1')
   })
 
-  it('opens a JetBrains-style project tree from the second activity icon', async () => {
+  it('opens project files as editable documents without leaving Agent mode', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [
       { path: 'README.md', name: 'README.md', kind: 'file', size: 100 },
       { path: 'services', name: 'services', kind: 'directory', size: 0 },
       { path: 'services/frontend', name: 'frontend', kind: 'directory', size: 0 },
     ] })
     vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'README.md', content: '# Wharnex', sha256: 'abc', size: 100 })
+    const writeFile = vi.spyOn(api, 'writeFile').mockResolvedValue({ path: 'README.md', content: '# Wharnex editado', sha256: 'def', size: 108 })
     const view = props()
     render(view.element)
     fireEvent.click(screen.getByRole('button', { name: 'Explorador do projeto' }))
-    const readme = await screen.findByRole('button', { name: 'Abrir README.md no Editor' })
-    fireEvent.click(readme)
-    // Browsing a file from the agentic-mode explorer must preview it in place,
-    // never redirect out of agent mode into the standalone editor surface.
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir README.md' }))
+
     expect(view.onOpenFile).not.toHaveBeenCalled()
     expect(await screen.findByRole('dialog', { name: 'Pré-visualização de README.md' })).toBeTruthy()
+    const editor = screen.getByRole('textbox', { name: 'Editor de README.md' })
+    fireEvent.change(editor, { target: { value: '# Wharnex editado' } })
+    expect(screen.getByText('Alterado')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(writeFile).toHaveBeenCalledWith('ses-agent', { path: 'README.md', content: '# Wharnex editado', sha256: 'abc' }))
+    await waitFor(() => expect(screen.queryByText('Alterado')).toBeNull())
+
     fireEvent.click(screen.getByRole('button', { name: 'Abrir no Editor' }))
-    expect(view.onOpenFile).toHaveBeenCalledWith('README.md')
+    await waitFor(() => expect(view.onOpenFile).toHaveBeenCalledWith('README.md'))
   })
   it('keeps chat navigation available while the active chat is processing', () => {
     const view = props(session(), {}, true)

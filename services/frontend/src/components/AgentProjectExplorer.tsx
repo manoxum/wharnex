@@ -53,7 +53,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
     <div className="agent-project-tree">
       {loading && !entries.length ? <div className="agent-drawer-empty">A carregar ficheiros…</div> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} onToggle={toggle} onOpen={onOpen}/>) : <div className="agent-drawer-empty">Nenhum caminho corresponde à pesquisa.</div>}
     </div>
-    <footer className="agent-project-footer"><span>{entries.filter((entry) => entry.kind === 'file').length} ficheiros</span><span>somente exploração</span></footer>
+    <footer className="agent-project-footer"><span>{entries.filter((entry) => entry.kind === 'file').length} ficheiros</span><span>edição no Agent</span></footer>
   </section>
 }
 
@@ -71,7 +71,7 @@ function TreeItem({ node, depth, expanded, onToggle, onOpen }: {
     </button>
     {open && node.children.map((child) => <TreeItem key={child.path} node={child} depth={depth + 1} expanded={expanded} onToggle={onToggle} onOpen={onOpen}/>) }
   </div>
-  return <button type="button" className="agent-tree-row file" style={{ paddingLeft: 23 + depth * 13 }} onClick={() => onOpen(node.path)} title={`Abrir ${node.path} no Editor`} aria-label={`Abrir ${node.path} no Editor`}><Icon name="file" size={12}/><span>{node.name}</span></button>
+  return <button type="button" className="agent-tree-row file" style={{ paddingLeft: 23 + depth * 13 }} onClick={() => onOpen(node.path)} title={`Abrir ${node.path}`} aria-label={`Abrir ${node.path}`}><Icon name="file" size={12}/><span>{node.name}</span></button>
 }
 
 function buildTree(entries: FileEntry[]): TreeNode[] {
