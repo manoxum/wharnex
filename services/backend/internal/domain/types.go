@@ -716,10 +716,41 @@ type ChangeSet struct {
 	CreatedAt     time.Time          `json:"created_at"`
 }
 
+// ConflictComplexity says what kind of work an unresolved conflict still
+// needs, so escalation is chosen on evidence rather than on the mere fact that
+// the merge did not come out clean.
+//
+// The distinction matters because the three classes have different correct
+// destinations: a structural collision has no textual reconciliation at all, a
+// semantic one needs the intent behind each side and is exactly what a planner
+// round buys, and a mechanical one must never leave the machine.
+type ConflictComplexity string
+
+const (
+	// ConflictComplexityMechanical is a collision the local ladder reconciled,
+	// or could reconcile on a retry. It never escalates.
+	ConflictComplexityMechanical ConflictComplexity = "mechanical"
+	// ConflictComplexitySemantic is a bounded textual collision where both
+	// sides rewrote the same region. A planner that sees both intents can
+	// resolve it.
+	ConflictComplexitySemantic ConflictComplexity = "semantic"
+	// ConflictComplexityStructural is create/delete, binary content or file
+	// mode: there is no text to reconcile and a patch cannot express the
+	// answer.
+	ConflictComplexityStructural ConflictComplexity = "structural"
+)
+
 type IntegrationConflictDetail struct {
 	ChangeSetID string `json:"change_set_id"`
 	Path        string `json:"path"`
 	Reason      string `json:"reason"`
+	// Complexity and the counters below are the integrator's own assessment of
+	// what it tried. They travel with the conflict so the escalation decision,
+	// the conflict capsule and the operator all read the same evidence.
+	Complexity    ConflictComplexity `json:"complexity,omitempty"`
+	Hunks         int                `json:"hunks,omitempty"`
+	ResolvedHunks int                `json:"resolved_hunks,omitempty"`
+	ConflictLines int                `json:"conflict_lines,omitempty"`
 }
 
 type ConflictResolution struct {

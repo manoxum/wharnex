@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -32,6 +31,23 @@ type Prepared struct {
 	Conflicts     []domain.IntegrationConflictDetail
 	SemanticFiles []string
 	BarrierFiles  []string
+	// Reconciliations records every path whose host value had moved and that
+	// the integrator merged anyway, with the tier that did it. A candidate
+	// that integrated only because the token tier caught a granularity
+	// artefact is not the same event as one that never collided, and the
+	// difference has to be visible in the evidence for the Apply.
+	Reconciliations []Reconciliation
+}
+
+// Reconciliation is one merged path and how far down the local ladder its
+// merge had to go.
+type Reconciliation struct {
+	ChangeSetID string
+	Path        string
+	Tier        MergeTier
+	Hunks       int
+	// TokenResolved counts hunks that only line granularity called a conflict.
+	TokenResolved int
 }
 
 type Journal struct {
@@ -172,6 +188,7 @@ func Prepare(root string, sets []domain.ChangeSet) (Prepared, error) {
 	order := make([]string, 0)
 	seen := make(map[string]bool)
 	conflicts := make([]domain.IntegrationConflictDetail, 0)
+	reconciliations := make([]Reconciliation, 0)
 
 	for _, set := range sets {
 		for _, mutation := range set.Mutations {
@@ -189,13 +206,25 @@ func Prepare(root string, sets []domain.ChangeSet) (Prepared, error) {
 			}
 			base := mutationBase(mutation)
 			result := mutationResult(mutation)
-			merged, reason, err := mergeValues(current, base, result)
+			merged, assessment, err := mergeValues(current, base, result)
 			if err != nil {
 				return Prepared{}, fmt.Errorf("merge %s: %w", path, err)
 			}
-			if reason != "" {
-				conflicts = append(conflicts, domain.IntegrationConflictDetail{ChangeSetID: set.ID, Path: path, Reason: reason})
+			if assessment.reason != "" {
+				conflicts = append(conflicts, domain.IntegrationConflictDetail{
+					ChangeSetID: set.ID, Path: path, Reason: assessment.reason,
+					Complexity:    assessment.complexity,
+					Hunks:         assessment.report.Hunks,
+					ResolvedHunks: assessment.report.TokenResolved,
+					ConflictLines: assessment.report.ConflictLines,
+				})
 				continue
+			}
+			if assessment.report.Tier == MergeTierLine || assessment.report.Tier == MergeTierToken {
+				reconciliations = append(reconciliations, Reconciliation{
+					ChangeSetID: set.ID, Path: path, Tier: assessment.report.Tier,
+					Hunks: assessment.report.Hunks, TokenResolved: assessment.report.TokenResolved,
+				})
 			}
 			virtual[path] = merged
 			if !seen[path] {
@@ -205,10 +234,10 @@ func Prepare(root string, sets []domain.ChangeSet) (Prepared, error) {
 		}
 	}
 	if len(conflicts) > 0 {
-		return Prepared{Outcome: domain.IntegrationConflict, Conflicts: conflicts}, nil
+		return Prepared{Outcome: domain.IntegrationConflict, Conflicts: conflicts, Reconciliations: reconciliations}, nil
 	}
 	sort.Strings(order)
-	prepared := Prepared{Outcome: domain.IntegrationReady}
+	prepared := Prepared{Outcome: domain.IntegrationReady, Reconciliations: reconciliations}
 	for _, set := range sets {
 		for path, expectedHash := range set.ReadHashes {
 			current, err := virtualValue(root, virtual, path)
@@ -321,58 +350,48 @@ func rollback(root string, journal Journal, cause error) (Journal, error) {
 	return journal, cause
 }
 
-func mergeValues(current, base, result fileValue) (fileValue, string, error) {
+// mergeAssessment is mergeValues' verdict: an empty reason means merged, and
+// any other value carries the classification behind the conflict.
+type mergeAssessment struct {
+	reason     string
+	complexity domain.ConflictComplexity
+	report     TextMergeReport
+}
+
+func mergeValues(current, base, result fileValue) (fileValue, mergeAssessment, error) {
 	if sameFile(current, base) {
-		return result, "", nil
+		return result, mergeAssessment{report: TextMergeReport{Tier: MergeTierIdentical}}, nil
 	}
 	if sameFile(result, base) || sameFile(current, result) {
-		return current, "", nil
+		return current, mergeAssessment{report: TextMergeReport{Tier: MergeTierIdentical}}, nil
 	}
 	if !base.exists || !current.exists || !result.exists {
-		return fileValue{}, "create/delete conflict", nil
+		// A planner patch can express a create or a delete, so both intents
+		// are still on the table and this stays a semantic decision.
+		return fileValue{}, conflictOf("create/delete conflict", domain.ConflictComplexitySemantic), nil
 	}
 	if bytes.IndexByte(base.data, 0) >= 0 || bytes.IndexByte(current.data, 0) >= 0 || bytes.IndexByte(result.data, 0) >= 0 {
-		return fileValue{}, "binary content conflict", nil
+		return fileValue{}, conflictOf("binary content conflict", domain.ConflictComplexityStructural), nil
 	}
-	merged, clean, err := mergeText(current.data, base.data, result.data)
+	merged, clean, report, err := mergeTextLadder(current.data, base.data, result.data)
 	if err != nil {
-		return fileValue{}, "", err
+		return fileValue{}, mergeAssessment{}, err
 	}
 	if !clean {
-		return fileValue{}, "overlapping text edits", nil
+		return fileValue{}, mergeAssessment{reason: "overlapping text edits", complexity: domain.ConflictComplexitySemantic, report: report}, nil
 	}
 	if current.mode.Perm() != base.mode.Perm() && result.mode.Perm() != base.mode.Perm() && current.mode.Perm() != result.mode.Perm() {
-		return fileValue{}, "file mode conflict", nil
+		return fileValue{}, conflictOf("file mode conflict", domain.ConflictComplexityStructural), nil
 	}
 	mode := current.mode
 	if result.mode.Perm() != base.mode.Perm() {
 		mode = result.mode
 	}
-	return fileValue{exists: true, data: merged, mode: mode}, "", nil
+	return fileValue{exists: true, data: merged, mode: mode}, mergeAssessment{report: report}, nil
 }
 
-func mergeText(current, base, result []byte) ([]byte, bool, error) {
-	dir, err := os.MkdirTemp("", "wharness-merge-*")
-	if err != nil {
-		return nil, false, err
-	}
-	defer os.RemoveAll(dir)
-	paths := []string{filepath.Join(dir, "current"), filepath.Join(dir, "base"), filepath.Join(dir, "result")}
-	for index, data := range [][]byte{current, base, result} {
-		if err := os.WriteFile(paths[index], data, 0o600); err != nil {
-			return nil, false, err
-		}
-	}
-	cmd := exec.Command("git", "merge-file", "-p", paths[0], paths[1], paths[2])
-	output, runErr := cmd.Output()
-	if runErr == nil {
-		return output, true, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) && exitErr.ExitCode() == 1 {
-		return nil, false, nil
-	}
-	return nil, false, runErr
+func conflictOf(reason string, complexity domain.ConflictComplexity) mergeAssessment {
+	return mergeAssessment{reason: reason, complexity: complexity, report: TextMergeReport{Tier: MergeTierUnresolved}}
 }
 
 func mutationBase(m domain.FileMutation) fileValue {

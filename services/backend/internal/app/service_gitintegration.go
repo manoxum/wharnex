@@ -509,7 +509,9 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	if err != nil {
 		return item, err
 	}
-	message := buildConflictResolutionMessage(capsuleJSON, paths)
+	// A host Git merge conflict carries no ChangeSet-integrator assessment:
+	// Git reported it directly, so there is no local ladder evidence to quote.
+	message := buildConflictResolutionMessage(capsuleJSON, paths, "")
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
 	if err != nil {
 		return item, err

@@ -103,6 +103,20 @@ For a pre-v1.3 pending request whose immutable archive does not exist, Wharness 
 
 Host Apply is serialized only for the short integration phase per canonical project root. Wharness refreshes the host, three-way merges each ordered ChangeSet as BASE/CURRENT/RESULT, stages the complete merged tree in an isolated sandbox, and reruns verification. Clean disjoint-file and disjoint-hunk changes integrate without a new model turn. Changed read/barrier dependencies force semantic or broad re-verification, not automatic replanning.
 
+### Local reconciliation ladder (v1.3.6)
+
+Line granularity is a property of the merge tool, not of the change. Two writers editing different arguments of one long call — the ordinary shape of a JSX prop list or a function signature — do not overlap, yet collide at line granularity. Wharnex MUST therefore exhaust a local ladder before any collision is called a conflict:
+
+1. an unmoved side needs no merge;
+2. Git's line-granular three-way merge;
+3. for each hunk the line tier conflicted on, and for that hunk alone, the same three-way merge re-run with one token per line, so the tool's line granularity becomes token granularity.
+
+The token tier MUST NOT reach outside a conflicting hunk: everything else comes from the line merge verbatim. Its tokenization MUST be lossless, so a clean merge round-trips to exact bytes and can neither invent nor drop content. Where content could be mistaken for the merge tool's own conflict markers, the marker width is raised above anything the inputs contain; when that is impossible the file stays a conflict rather than being merged from a misread. The merged candidate is still staged and re-verified before any host write, so the ladder never bypasses verification.
+
+`git merge-file` exits with the **number of conflicts**, not a success flag. Reading any status other than 1 as a tool failure turns every file with two or more conflicting hunks into a hard Apply failure, which is a defect and not a conflict outcome.
+
+Each unresolved conflict MUST carry the integrator's own assessment — `mechanical`, `semantic` or `structural`, with the hunk counts behind it — and that assessment travels into the conflict capsule, so a planner round is never asked to re-propose the mechanical union the engine already attempted and refused. Applies that reconciled anything locally publish `integration.reconciled_locally`, naming which paths needed the token tier.
+
 Every host write performs per-path compare-and-swap against the value observed during staging and uses replace semantics. A race triggers at most three restage attempts; Wharness never overwrites an unexpected external value. The integration journal rolls back only values still owned by Wharness. Protocol, policy, transport, verification, race, and merge-conflict outcomes remain distinct.
 
 ## Engine-owned VERSION at Apply (v1.3.5)

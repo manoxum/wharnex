@@ -14,6 +14,16 @@ Backend lifecycle events MUST be persisted before they are exposed as history, s
 
 When, and only when, a session is canonically marked `self_evolution=true`, the Agent surface exposes the structured project evidence recorded since the latest successfully reconciled WHX self-evolution. It MAY prepare a `plan_first` AI review from that evidence. The review is a new correlated request with a fresh immutable context base and remains subject to the normal protocol, Policy, Protected sandbox, explicit plan approval and transactional self-evolution gates. Merely opening or naming another project “WHX” MUST NOT expose this capability.
 
+## Integration reconciliation and escalation evidence (v1.3.6)
+
+An Apply that reconciled a moved host path MUST publish `integration.reconciled_locally`, separating the paths the line-granular merge handled from those that needed the token tier and counting the hunks that tier resolved. Without this, a candidate that integrated only because sub-line granularity caught a false collision is indistinguishable afterwards from one that never collided at all, and the ladder's real effect cannot be measured.
+
+Staging a merged candidate is the last step before the first host write. A failure there MUST publish `integration.staging_failed` with the underlying cause, because it retains a verified candidate that no host mutation has touched.
+
+Every escalation decision MUST publish `integration.escalation_decided` with `automatic`, `complexity`, the affected paths, and the reason — in both directions. A decision *not* to spend a planner round is as much an operational fact as a decision to spend one: the failure this replaced was a request that silently waited, and silence is what made it invisible.
+
+Field names carrying merge evidence avoid the substring `token`, which the audit redactor treats as a credential name. The key that says `subline_resolved_hunks` would otherwise publish `[REDACTED]` in place of the evidence it exists to carry.
+
 ## Self-evolution observability (v1.2.22)
 
 Self-evolution publishes dedicated `self_evolution.*` events for transaction start, host build, rollback and restart scheduling. The detached supervisor persists its last lifecycle phase in `.harness/self-evolution/status` and appends restart/recovery output to `.harness/logs/self-evolution.log`. `make status` surfaces the latest self-evolution phase and plan id even across a process restart.
