@@ -113,7 +113,8 @@ fingerprint() {
 output_ready() {
   case "$1" in
     backend)
-      [ -x "$ROOT/dist/bin/wharness-backend" ]
+      [ -x "$ROOT/dist/bin/wharness-backend" ] &&
+        [ -x "$ROOT/dist/bin/wharnex-host-pty" ]
       ;;
     frontend)
       [ -s "$ROOT/services/frontend/dist/index.html" ] &&

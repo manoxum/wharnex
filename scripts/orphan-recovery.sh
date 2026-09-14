@@ -38,6 +38,13 @@ verified_process() {
         *) return 1 ;;
       esac
       ;;
+    hostpty)
+      environment_matches_root "$pid" || return 1
+      case "$executable" in
+        "$ROOT/dist/bin/wharnex-host-pty"|"$ROOT/dist/bin/wharnex-host-pty (deleted)") true ;;
+        *) return 1 ;;
+      esac
+      ;;
     electron) [ "$cwd" = "$ROOT/services/desktop" ] && tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline" | grep -Fq 'electron' ;;
     *) return 1 ;;
   esac
@@ -102,5 +109,6 @@ if [ "${WHARNESS_SERVICES_MODE:-local}" != stack ]; then
   recover_port backend 8888
   recover_port frontend 5173
 fi
+recover_pid_file hostpty
 recover_pid_file electron
 recover_electron_groups

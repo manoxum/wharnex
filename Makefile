@@ -6,6 +6,7 @@ BUILD_JOBS ?= 2
 RUNNER_IMAGE ?= kernl-runner:local
 DIST_DIR ?= $(ROOT_DIR)/dist
 BACKEND_BIN := $(DIST_DIR)/bin/wharness-backend
+HOST_PTY_BIN := $(DIST_DIR)/bin/wharnex-host-pty
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
@@ -99,7 +100,7 @@ build-backend:
 	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \
 		WHARNESS_BUILD_BASELINE_STAMP="$(BUILD_BASELINE_STAMP)" WHARNESS_BUILD_FORCE="$(WHARNESS_BUILD_FORCE)" \
 		"$(ROOT_DIR)/scripts/build-cache.sh" run backend sh -c \
-		'cd "$(ROOT_DIR)/services/backend" && CGO_ENABLED=0 go build -o "$(BACKEND_BIN)" ./cmd/harness'
+		'cd "$(ROOT_DIR)/services/backend" && CGO_ENABLED=0 go build -o "$(BACKEND_BIN)" ./cmd/harness && CGO_ENABLED=0 go build -o "$(HOST_PTY_BIN)" ./cmd/hostpty'
 
 build-frontend:
 	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \

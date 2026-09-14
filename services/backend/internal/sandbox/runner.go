@@ -33,6 +33,29 @@ type StreamingRunner interface {
 	RunStreaming(ctx context.Context, workspace Workspace, command domain.CommandSpec, onOutput StreamCallback) (domain.CommandResult, error)
 }
 
+// TerminalOptions describes a human-owned interactive terminal. Unlike model
+// execution, its input is an opaque PTY byte stream rather than command argv.
+type TerminalOptions struct {
+	ID      string
+	Cwd     string
+	Network bool
+	Cols    uint16
+	Rows    uint16
+}
+
+type InteractiveTerminal interface {
+	Write(data []byte) error
+	Resize(cols, rows uint16) error
+	Close() error
+}
+
+// InteractiveTerminalRunner is deliberately separate from Runner: planners
+// can receive only Runner, while the HTTP/application terminal path may opt in
+// to the human-only PTY capability.
+type InteractiveTerminalRunner interface {
+	StartInteractive(workspace Workspace, options TerminalOptions, onOutput func([]byte), onExit func(int, error)) (InteractiveTerminal, error)
+}
+
 // ReversePatchRunner is an optional host capability used by explicit regression
 // rollback. It must validate the reverse patch before mutating the workspace.
 type ReversePatchRunner interface {

@@ -98,9 +98,12 @@ var denied = map[string]bool{
 	"ssh": true, "scp": true, "rsync": true, "dd": true, "mkfs": true, "fdisk": true,
 	"rm": true, "chmod": true, "chown": true, "kill": true, "pkill": true,
 	"python": true, "python3": true, "perl": true, "ruby": true, "php": true,
+	"pip": true, "pip3": true, "composer": true,
+	"sqlite3": true, "psql": true, "redis-cli": true,
+	"fzf": true, "tmux": true,
 }
 
-var elevated = map[string]bool{"make": true, "npm": true, "node": true, "npx": true}
+var elevated = map[string]bool{"make": true, "cmake": true, "ninja": true, "npm": true, "node": true, "npx": true}
 var readOnlyGit = map[string]bool{"status": true, "diff": true, "grep": true, "ls-files": true, "rev-parse": true, "show": true, "log": true}
 var mutableGit = map[string]bool{"add": true, "commit": true, "branch": true, "checkout": true, "switch": true, "merge": true, "rebase": true, "revert": true, "restore": true, "tag": true, "stash": true, "fetch": true, "pull": true, "push": true}
 
