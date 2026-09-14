@@ -256,6 +256,7 @@ func (s *Service) stageHostIntegration(ctx context.Context, sessionID string, it
 		_ = s.runner.Cleanup(workspace)
 		return stagedHostIntegration{}, err
 	}
+	publishReconciliationEvidence(s.bus, sessionID, prepared.Reconciliations)
 	if prepared.Outcome == domain.IntegrationConflict {
 		_ = s.runner.Cleanup(workspace)
 		return stagedHostIntegration{prepared: prepared}, nil
@@ -518,6 +519,16 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 	}
 	paths = resolvable
 
+	// The escalation decision is recorded before the prompt is built so the
+	// operator can see why a round was or was not spent, whichever way it
+	// went. Only an exhausted effort budget or a collision no patch can
+	// express stops the engine here; everything else is dispatched by Wharnex
+	// itself without waiting for a confirmation.
+	escalation := classifyIntegrationEscalation(item, conflicts)
+	s.bus.Publish(sessionID, "integration.escalation_decided", map[string]any{
+		"conflict_id": conflictID, "automatic": escalation.Automatic,
+		"reason": escalation.Reason, "complexity": string(escalation.Complexity), "paths": paths,
+	})
 	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
@@ -547,7 +558,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 	if err != nil {
 		return item, err
 	}
-	message := buildConflictResolutionMessage(capsuleJSON, paths)
+	message := buildConflictResolutionMessage(capsuleJSON, paths, conflictComplexitySummary(conflicts))
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
 	if err != nil {
 		return item, err
@@ -609,7 +620,11 @@ func (s *Service) exhaustConflictResolution(sessionID string, item domain.Sessio
 	return updated, err
 }
 
-func buildConflictResolutionMessage(capsule []byte, paths []string) string {
+func buildConflictResolutionMessage(capsule []byte, paths []string, localAttempts string) string {
+	if strings.TrimSpace(localAttempts) != "" {
+		localAttempts = "\n\n" + strings.TrimSpace(localAttempts) +
+			"\nThese collisions already survived Wharnex's own line-granular and token-granular three-way merge, so a purely mechanical union of both sides is not the answer being asked for."
+	}
 	return fmt.Sprintf(`WHARNEX CONFLICT RESOLUTION PROTOCOL — harness.conflict/v1
 
 This is a focused support turn for a real integration conflict. Preserve the original task intent while reconciling CURRENT with RESULT using BASE as the common ancestor.
@@ -617,10 +632,10 @@ This is a focused support turn for a real integration conflict. Preserve the ori
 Return one normal canonical Wharnex change bundle for this request. The plan base_context_sha256 must equal CURRENT REVISION. Its patches may modify ONLY these conflict paths:
 - %s
 
-Do not repeat unrelated project work, do not modify non-conflict paths, and do not return a workflow. Resolve every listed conflict in one deliberate bundle. The dedicated conflict surface is independent from the main planning conversation.
+Do not repeat unrelated project work, do not modify non-conflict paths, and do not return a workflow. Resolve every listed conflict in one deliberate bundle. The dedicated conflict surface is independent from the main planning conversation.%s
 
 CONFLICT CAPSULE:
-%s`, strings.Join(paths, "\n- "), string(capsule))
+%s`, strings.Join(paths, "\n- "), localAttempts, string(capsule))
 }
 
 func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPlan) error {

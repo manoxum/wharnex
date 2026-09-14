@@ -2726,7 +2726,14 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	if useChangeSets {
 		stagedIntegration, err = s.stageHostIntegration(ctx, sessionID, item, pending)
 		if err != nil {
-			return item, fmt.Errorf("stage ChangeSet integration: %w", err)
+			// Staging never touched the host, so the candidate is intact and
+			// the failure describes a concrete divergence between it and the
+			// project. Marking it repairable is what lets the automatic path
+			// dispatch a correction instead of leaving a verified bundle
+			// parked on an error nobody owns.
+			failure := plannerRepairableApplyFailure(fmt.Errorf("%w: %v", ErrIntegrationStaging, err))
+			s.bus.Publish(sessionID, "integration.staging_failed", map[string]any{"error": err.Error(), "plan_count": len(pending)})
+			return item, fmt.Errorf("stage ChangeSet integration: %w", failure)
 		}
 		if stagedIntegration.prepared.Outcome == domain.IntegrationConflict {
 			updated, prepareErr := s.prepareConflictResolution(ctx, sessionID, item, pending, stagedIntegration.prepared.Conflicts)
