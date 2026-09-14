@@ -85,7 +85,7 @@ describe('WorkspaceShell project actions', () => {
     } as unknown as WharnessDesktopBridge
     const onActivate = vi.fn()
 
-    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
     const alpha = screen.getByRole('button', { name: /alpha/ })
     const gamma = screen.getByRole('button', { name: /gamma/ })
     expect(alpha.style.getPropertyValue('--project-hue')).not.toBe('')
