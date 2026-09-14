@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatPanel } from './ChatPanel'
 import type { Session } from '../types'
 import { clearEphemeralComposerDrafts } from '../lib/workspaceMemory'
+import { api } from '../lib/api'
 
 const session = {
   id: 'ses-test',
@@ -631,13 +632,32 @@ describe('ChatPanel', () => {
 
   // Nothing bound is not a failed search: the operator has made no mistake, and
   // saying so points at the action that fixes it.
-  it('explains an empty @ref menu when no other project is bound', () => {
+  it('explains an empty @ref menu when Wharnex knows no other project', () => {
     const view = render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="ref-empty" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
     fireEvent.change(composer, { target: { value: 'Compara com @ref:', selectionStart: 17 } })
-    expect(view.container.textContent).toContain('Nenhum outro projeto vinculado a esta janela')
+    expect(view.container.textContent).toContain('Nenhum outro projeto conhecido por este Wharnex')
+    view.unmount()
+  })
+
+  // A project Wharnex has worked on before is nameable from @ref whether or
+  // not it is currently attached to this session — the composer's known-
+  // projects menu has to consult the same candidate set the engine actually
+  // resolves a reference against, not only the session's already-attached
+  // related projects.
+  it('offers a project Wharnex has worked on before, even when it is not attached', async () => {
+    const spy = vi.spyOn(api, 'knownProjects').mockResolvedValue({ projects: [{ name: 'flowcore', project_path: '/home/op/flowcore', open: true }] })
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="ref-known" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(session.id))
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    await waitFor(() => {
+      fireEvent.change(composer, { target: { value: 'Compara com @ref:flow', selectionStart: 21 } })
+      expect(screen.getByRole('option', { name: /flowcore/ })).toBeTruthy()
+    })
     view.unmount()
   })
 

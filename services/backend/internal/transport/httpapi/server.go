@@ -154,6 +154,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/attachment/inspection", a.attachmentInspection)
+	mux.HandleFunc("GET /api/sessions/{id}/known-projects", a.knownProjects)
 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
 	mux.HandleFunc("PUT /api/sessions/{id}/related-projects", a.relatedProjects)
 	mux.HandleFunc("GET /api/sessions/{id}/project-config", a.projectConfig)
@@ -1648,6 +1649,26 @@ func (a *API) attachmentInspection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, inspection)
+}
+
+// knownProjects answers the composer's `@ref` menu with exactly the candidate
+// set the engine will resolve a reference against at submit time — every
+// project Wharnex has worked on before, open or closed, this session's own
+// project excluded. See Service.KnownProjects.
+func (a *API) knownProjects(w http.ResponseWriter, r *http.Request) {
+	known, err := a.service.KnownProjects(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, 404, "session_not_found", "session not found")
+			return
+		}
+		writeError(w, 500, "known_projects_failed", err.Error())
+		return
+	}
+	if known == nil {
+		known = []domain.KnownProjectRef{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": known})
 }
 
 func (a *API) contextFile(w http.ResponseWriter, r *http.Request) {

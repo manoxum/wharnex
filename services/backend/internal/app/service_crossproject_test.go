@@ -186,3 +186,40 @@ func TestClosedGrantedProjectRefusalNamesTheRemedy(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+// KnownProjects is the read side of the same resolution crossProjectGrantForRequest
+// performs at submit time. A composer menu built from anything else — such as
+// only the session's already attached related projects — can suggest a name the
+// engine will not actually resolve, or fail to suggest one it would.
+func TestKnownProjectsMatchesWhatAReferenceWouldResolveAgainst(t *testing.T) {
+	service := newCrossProjectService(t)
+	if err := service.store.Put(domain.Session{ID: "ses_primary", ProjectPath: "/home/op/primary", State: "ready", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.Put(domain.Session{ID: "ses_flowcore", ProjectPath: "/home/op/flowcore", State: "ready", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	known, err := service.KnownProjects("ses_primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(known) != 1 || known[0].ProjectPath != "/home/op/flowcore" || !known[0].Open {
+		t.Fatalf("known=%#v", known)
+	}
+
+	// The querying session's own project is never offered back as a reference:
+	// naming the project you are already in is not a cross-project reference.
+	for _, project := range known {
+		if project.ProjectPath == "/home/op/primary" {
+			t.Fatalf("a session's own project must not appear in its own known-projects list: %#v", known)
+		}
+	}
+}
+
+func TestKnownProjectsRejectsAnUnknownSession(t *testing.T) {
+	service := newCrossProjectService(t)
+	if _, err := service.KnownProjects("ses_missing"); err == nil {
+		t.Fatal("an unknown session must be refused, not answered with an empty list")
+	}
+}

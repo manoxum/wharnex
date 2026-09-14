@@ -178,6 +178,17 @@ export type AttachmentInspection = {
   entries: ContextInventoryEntry[]
 }
 
+/**
+ * A project Wharnex has worked on before, nameable from `@ref` whether or not
+ * it is open right now. `open` is a live session holding it — the thing a
+ * *change* additionally requires, on top of being merely nameable.
+ */
+export type KnownProjectRef = {
+  name: string
+  project_path: string
+  open: boolean
+}
+
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'

@@ -109,3 +109,51 @@ func TestParseIsBounded(t *testing.T) {
 		t.Fatalf("parsed %d want %d", len(parsed), MaxDirectives)
 	}
 }
+
+// Aliases exist so an operator does not have to remember one exact word to
+// mean "another project" or "something outside the project". They are typed
+// spellings only: whichever one is used, the marker Wharnex writes back is
+// always the canonical keyword.
+func TestParseAcceptsRefAndAttachAliases(t *testing.T) {
+	for _, alias := range []string{"ref", "reference", "references", "project"} {
+		parsed := Parse("@" + alias + ":flowcore")
+		if len(parsed) != 1 || parsed[0].Kind != KindRef || parsed[0].Project != "flowcore" {
+			t.Fatalf("alias %q: parsed=%#v", alias, parsed)
+		}
+	}
+	for _, alias := range []string{"attach", "att", "attch", "attche", "attaches", "attahes", "dir"} {
+		parsed := Parse("@" + alias + ":/srv/contracts")
+		if len(parsed) != 1 || parsed[0].Kind != KindAttach || parsed[0].Path != "/srv/contracts" {
+			t.Fatalf("alias %q: parsed=%#v", alias, parsed)
+		}
+	}
+}
+
+// Whatever alias was typed, the canonical form always uses the primary
+// keyword — there is exactly one spelling the model and a re-parsed
+// continuation ever have to expect.
+func TestCanonicalizeNormalizesAliasesToThePrimaryKeyword(t *testing.T) {
+	got := Canonicalize("olha @project:flowcore e @dir:/srv/sdk")
+	want := "olha @{[ref]flowcore} e @{[attach]/srv/sdk}"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+// Keywords is the single source of truth the regex is built from; a test that
+// walks it end to end catches a keyword added to the table but never wired
+// into parsing.
+func TestEveryKeywordAndAliasParses(t *testing.T) {
+	for _, spec := range Keywords() {
+		for _, word := range append([]string{spec.Keyword}, spec.Aliases...) {
+			value := "flowcore"
+			if spec.Kind == KindAttach {
+				value = "/srv/x"
+			}
+			parsed := Parse("@" + word + ":" + value)
+			if len(parsed) != 1 || parsed[0].Kind != spec.Kind {
+				t.Fatalf("keyword %q (kind %s): parsed=%#v", word, spec.Kind, parsed)
+			}
+		}
+	}
+}

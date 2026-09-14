@@ -1,11 +1,12 @@
 // Package directives owns the composer directive language: the small syntax an
 // operator writes inside a prompt to point at something Wharnex should resolve.
 //
-// There are two kinds and one grammar. `@file` points at a file in the project
-// the request belongs to; `@ref` points at another project, optionally at one
-// file inside it, and is also what grants that project's writability for the
-// request (see internal/crossproject). Both are parsed here so the two can
-// never drift into two dialects of the same idea.
+// There are three kinds and one grammar. `@file` points at a file in the
+// project the request belongs to. `@ref` points at another project, optionally
+// at one file inside it, and is also what grants that project's writability for
+// the request (see internal/crossproject). `@attach` points at a file or
+// directory outside every project. All three are parsed here so they can never
+// drift into separate dialects of the same idea.
 //
 // # Position is meaning
 //
@@ -16,20 +17,25 @@
 // says something a trailing list of two paths does not, and the difference is
 // exactly the part a reader needs.
 //
-// # Two spellings, one canonical
+// # Several spellings, one canonical
 //
-// What the operator types is `@file:path` or `@ref:project/path`, optionally
-// wrapped in `<<…>>` when the value contains spaces. What travels to the model
-// is the canonical `@{[file]path}` / `@{[ref]project/path}` — a form that is
-// unambiguous to scan, cannot run into the following word, and reads as a
-// marker rather than as prose. Both are accepted on input, because a prompt can
-// be re-submitted after a round trip and must mean the same thing twice.
+// What the operator types is `@file:path`, `@ref:project/path` or
+// `@attach:/abs/path`, optionally wrapped in `<<…>>` when the value contains
+// spaces. `@ref` and `@attach` also accept alternate keywords — see Keywords —
+// because an operator reaching for "the other project" or "something outside
+// the project" should not have to remember one exact word to mean it. What
+// travels to the model is always the canonical `@{[file]path}` /
+// `@{[ref]project/path}` / `@{[attach]path}` — a form that is unambiguous to
+// scan, cannot run into the following word, and reads as a marker rather than
+// as prose. Every typed spelling is accepted on input, because a prompt can be
+// re-submitted after a round trip and must mean the same thing twice.
 package directives
 
 import (
 	"fmt"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -61,18 +67,72 @@ const (
 	MaxAttachPathLength = 4096
 )
 
-// pattern matches both spellings in one pass, so a prompt mixing them — which
-// happens the moment a canonicalized prompt is edited by hand — parses the same
-// way throughout.
+// KeywordSpec pairs one directive kind's canonical keyword with the alternate
+// spellings accepted when typing (never when reading the canonical form).
+type KeywordSpec struct {
+	Kind    Kind
+	Keyword string
+	Aliases []string
+}
+
+// keywords is the single source of truth for the typed vocabulary. The regex
+// alternation and the alias lookup are both built from it, so a keyword can
+// never be accepted by one and rejected by the other.
+var keywords = []KeywordSpec{
+	{Kind: KindFile, Keyword: "file"},
+	{Kind: KindRef, Keyword: "ref", Aliases: []string{"reference", "references", "project"}},
+	{Kind: KindAttach, Keyword: "attach", Aliases: []string{"att", "attch", "attche", "attaches", "attahes", "dir"}},
+}
+
+// Keywords returns the directive vocabulary, so a menu — or a test — can
+// enumerate it without hardcoding a second copy.
+func Keywords() []KeywordSpec { return append([]KeywordSpec(nil), keywords...) }
+
+var kindAliases = func() map[string]Kind {
+	table := make(map[string]Kind)
+	for _, spec := range keywords {
+		table[spec.Keyword] = spec.Kind
+		for _, alias := range spec.Aliases {
+			table[alias] = spec.Kind
+		}
+	}
+	return table
+}()
+
+// typedKeywordAlternation renders every accepted typed spelling as one regex
+// alternation, longest first. Go's regexp engine finds the leftmost overall
+// match regardless of alternative order — a short alias followed by letters
+// that do not form a `:` simply fails to complete the pattern — but ordering
+// longest-first keeps the source readable as the vocabulary grows.
+func typedKeywordAlternation() string {
+	all := make([]string, 0, len(kindAliases))
+	for keyword := range kindAliases {
+		all = append(all, keyword)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if len(all[i]) != len(all[j]) {
+			return len(all[i]) > len(all[j])
+		}
+		return all[i] < all[j]
+	})
+	return strings.Join(all, "|")
+}
+
+// pattern matches every spelling in one pass, so a prompt mixing them — which
+// happens the moment a canonicalized prompt is edited by hand, or an operator
+// simply prefers a different alias — parses the same way throughout.
 //
 // The canonical form is matched first because `@{[file]…}` would otherwise also
-// satisfy nothing in the typed alternatives and be left as prose.
+// satisfy nothing in the typed alternatives and be left as prose. It accepts
+// only real kind names, never an alias: nothing writes an alias into the
+// canonical form, so the reader never needs to expect one there.
+//
 // The unbracketed alternative stops at the punctuation that ends a clause as
 // well as at whitespace, because a directive normally sits inside a sentence:
 // "change @ref:core, then stop" refers to `core`, not to `core,`. A value that
 // genuinely contains one of those characters needs the bracketed form, which is
 // what it is for.
-var pattern = regexp.MustCompile(`@\{\[(file|ref|attach)\]([^{}\n]*)\}|@(file|ref|attach):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
+var pattern = regexp.MustCompile(`@\{\[(file|ref|attach)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
 
 // Directive is one parsed reference, with the byte range it occupied.
 type Directive struct {
@@ -123,7 +183,8 @@ func Parse(text string) []Directive {
 	return parsed
 }
 
-// matchValue reads whichever alternative of the pattern actually matched.
+// matchValue reads whichever alternative of the pattern actually matched, and
+// normalizes a typed alias to its canonical Kind.
 func matchValue(text string, match []int) (Kind, string) {
 	group := func(index int) (string, bool) {
 		start, end := match[2*index], match[2*index+1]
@@ -136,12 +197,16 @@ func matchValue(text string, match []int) (Kind, string) {
 		value, _ := group(2)
 		return Kind(kind), value
 	}
-	if kind, ok := group(3); ok {
+	if keyword, ok := group(3); ok {
+		kind, known := kindAliases[keyword]
+		if !known {
+			return "", ""
+		}
 		if value, has := group(4); has {
-			return Kind(kind), value
+			return kind, value
 		}
 		value, _ := group(5)
-		return Kind(kind), value
+		return kind, value
 	}
 	return "", ""
 }

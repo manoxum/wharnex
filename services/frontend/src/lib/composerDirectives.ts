@@ -1,21 +1,49 @@
 // The composer directive language, mirroring backend/internal/directives.
 //
-// Two kinds, one grammar. `@file` points at a file in this project; `@ref`
-// points at another bound project and, optionally, one file inside it. Both are
-// written inline and stay where they were written: a prompt reading "make the
-// handler in @file:a.ts match @ref:core/b.ts" says which file plays which role,
-// and the trailing list this replaced did not.
+// Three kinds, one grammar. `@file` points at a file in this project; `@ref`
+// points at a project Wharnex has worked on before and, optionally, one file
+// inside it; `@attach` points at a file or directory outside every project.
+// All three are written inline and stay where they were written: a prompt
+// reading "make the handler in @file:a.ts match @ref:core/b.ts" says which
+// file plays which role, and the trailing list this replaced did not.
 //
-// What the operator types is `@file:path` / `@ref:project/path`, bracketed as
-// `<<…>>` when the value contains spaces. What is sent is the canonical
-// `@{[file]path}` / `@{[ref]project/path}` — unambiguous to scan and impossible
-// to run into the following word. Both parse, because a prompt can come back
-// from a round trip and must mean the same thing twice.
+// What the operator types is `@file:path` / `@ref:project/path` /
+// `@attach:/abs/path`, bracketed as `<<…>>` when the value contains spaces.
+// `@ref` and `@attach` also accept the alternate keywords in KEYWORDS, because
+// an operator reaching for "the other project" should not have to remember one
+// exact word for it. What is sent is always the canonical `@{[file]path}` /
+// `@{[ref]project/path}` / `@{[attach]path}` — unambiguous to scan and
+// impossible to run into the following word. Every typed spelling parses,
+// because a prompt can come back from a round trip and must mean the same
+// thing twice.
 //
 // Keep this in step with the Go parser: it is the same language, and the half
 // that renders chips must agree with the half that resolves them.
 
 export type DirectiveKind = 'file' | 'ref' | 'attach'
+
+/**
+ * The typed vocabulary: one canonical keyword per kind, plus the alternate
+ * spellings accepted on input. Mirrors backend/internal/directives.Keywords —
+ * keep the two lists in step, or a phrase the engine accepts silently stops
+ * autocompleting, or the reverse.
+ */
+export const KEYWORDS: { kind: DirectiveKind; keyword: string; label: string; aliases: string[] }[] = [
+  { kind: 'file', keyword: 'file', label: 'Ficheiro do projeto', aliases: [] },
+  { kind: 'ref', keyword: 'ref', label: 'Outro projeto', aliases: ['reference', 'references', 'project'] },
+  { kind: 'attach', keyword: 'attach', label: 'Caminho externo', aliases: ['att', 'attch', 'attche', 'attaches', 'attahes', 'dir'] },
+]
+
+const KIND_ALIASES: Record<string, DirectiveKind> = Object.fromEntries(
+  KEYWORDS.flatMap((entry) => [entry.keyword, ...entry.aliases].map((word) => [word, entry.kind])),
+)
+
+function typedKeywordAlternation() {
+  // Longest first for readability. Correctness does not depend on order: a
+  // short alias whose following letters do not complete a `:` simply fails to
+  // match the surrounding pattern, whichever alternative is tried.
+  return Object.keys(KIND_ALIASES).sort((a, b) => b.length - a.length).join('|')
+}
 
 /**
  * What an `@attach` directive says should travel when it points at a directory.
@@ -51,8 +79,11 @@ const PROJECT_NAME = /^[A-Za-z0-9._-]+$/
 
 // The unbracketed alternative stops at the punctuation that ends a clause as
 // well as at whitespace: a directive normally sits inside a sentence, and
-// "change @ref:core, then stop" refers to `core`, not to `core,`.
-const DIRECTIVE = /@\{\[(file|ref|attach)\]([^{}\n]*)\}|@(file|ref|attach):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'`]*))/g
+// "change @ref:core, then stop" refers to `core`, not to `core,`. Its keyword
+// group accepts every alias; the bracketed canonical form accepts only the
+// three real kind names, since nothing ever writes an alias into it.
+const VALUE_CHARS = '[^\\s<>{}(),;:!?"\'`]*'
+const DIRECTIVE = new RegExp(`@\\{\\[(file|ref|attach)\\]([^{}\\n]*)\\}|@(${typedKeywordAlternation()}):(?:<<([^<>\\n]*)>>|(${VALUE_CHARS}))`, 'g')
 
 export function validProjectName(name: string) {
   const trimmed = name.trim()
@@ -143,7 +174,10 @@ export function parseDirectives(text: string): ComposerDirective[] {
   let match: RegExpExecArray | null
   while ((match = DIRECTIVE.exec(text)) !== null) {
     if (parsed.length >= MAX_DIRECTIVES) break
-    const kind = (match[1] || match[3]) as DirectiveKind | undefined
+    // The bracketed form's keyword (group 1) is always a real kind. The typed
+    // form's keyword (group 3) may be an alias and is normalized here, so
+    // downstream code only ever sees the canonical kind.
+    const kind = match[1] !== undefined ? (match[1] as DirectiveKind) : KIND_ALIASES[match[3]]
     if (!kind) continue
     const raw = match[1] !== undefined ? match[2] : (match[4] !== undefined ? match[4] : match[5])
     const directive = build(kind, raw ?? '')
@@ -176,20 +210,58 @@ export function canonicalizeDirectives(text: string) {
   return out + text.slice(cursor)
 }
 
-export type DirectiveQuery = { kind: DirectiveKind; start: number; end: number; query: string }
+export type DirectiveQuery = { kind: DirectiveKind; keyword: string; start: number; end: number; query: string }
+
+const VALUE_QUERY = new RegExp(`@(${typedKeywordAlternation()}):(?:<<)?([^<>\\n{}(),;:!?"'\`]*)$`)
 
 /**
  * The directive being typed at the caret, if any.
  *
  * It deliberately matches the *incomplete* prefix too — `@ref:` with nothing
  * after it is someone who has just decided to reference a project and wants to
- * be shown the list.
+ * be shown the list. Any accepted alias works here exactly as the canonical
+ * keyword does; `keyword` keeps the exact word typed so a re-render can leave
+ * it alone until the operator picks something or finishes the value.
  */
 export function directiveQuery(value: string, caret: number): DirectiveQuery | undefined {
   const before = value.slice(0, Math.max(0, caret))
-  const match = /@(file|ref|attach):(?:<<)?([^<>\n{}(),;:!?"'`]*)$/.exec(before)
+  const match = VALUE_QUERY.exec(before)
   if (!match) return undefined
-  return { kind: match[1] as DirectiveKind, start: match.index, end: caret, query: match[2].trim() }
+  const kind = KIND_ALIASES[match[1]]
+  if (!kind) return undefined
+  return { kind, keyword: match[1], start: match.index, end: caret, query: match[2].trim() }
+}
+
+/**
+ * The directive *kind* being chosen, before any keyword is complete — a bare
+ * `@`, or a partial word with no `:` yet. This is what lets typing `@` alone
+ * open a menu of the available directives instead of requiring the operator to
+ * already know and spell one out.
+ *
+ * It only fires when directiveQuery does not: the two are distinguished by
+ * whether a `:` has been typed, so a caret can never be in both states.
+ */
+export function directiveKindQuery(value: string, caret: number): { start: number; end: number; query: string } | undefined {
+  const before = value.slice(0, Math.max(0, caret))
+  const match = /@([A-Za-z]*)$/.exec(before)
+  if (!match) return undefined
+  return { start: match.index, end: caret, query: match[1].toLowerCase() }
+}
+
+export type DirectiveKindSuggestion = { keyword: string; kind: DirectiveKind; label: string; aliases: string[] }
+
+/** The directive kinds whose keyword or any alias starts with what was typed. */
+export function directiveKindSuggestions(query: string): DirectiveKindSuggestion[] {
+  const needle = query.toLowerCase()
+  return KEYWORDS.filter((entry) => !needle || [entry.keyword, ...entry.aliases].some((word) => word.startsWith(needle)))
+    .map((entry) => ({ keyword: entry.keyword, kind: entry.kind, label: entry.label, aliases: entry.aliases }))
+}
+
+/** Inserts `@<keyword>:` at the kind query's range and leaves the caret ready
+ * for the value query that opens immediately after. */
+export function applyDirectiveKindSuggestion(text: string, query: { start: number; end: number }, suggestion: DirectiveKindSuggestion) {
+  const typed = `@${suggestion.keyword}:`
+  return { text: text.slice(0, query.start) + typed + text.slice(query.end), caret: query.start + typed.length }
 }
 
 /**
@@ -220,7 +292,18 @@ export function matchingProjectFiles(paths: string[], query: string) {
   return rank(paths, query)
 }
 
-export type ReferenceableProject = { name: string; projectPath: string; files: string[] }
+export type ReferenceableProject = {
+  name: string
+  projectPath: string
+  files: string[]
+  /**
+   * Whether this project's context is already part of the current request.
+   * An unattached project is still nameable — Wharnex has worked on it before
+   * — but its file list is empty until it is brought in, which happens
+   * automatically once the reference resolves at submit time.
+   */
+  attached: boolean
+}
 
 export type DirectiveSuggestion = {
   /** The value to insert, i.e. what goes after `@file:` or `@ref:`. */
@@ -230,6 +313,8 @@ export type DirectiveSuggestion = {
   detail?: string
   /** A project row that only narrows the query rather than completing it. */
   continues?: boolean
+  /** For a `ref` project row: whether its context is already attached. */
+  attached?: boolean
 }
 
 /**
@@ -256,7 +341,7 @@ export function directiveSuggestions(
   if (path === undefined) {
     return rank(projects.map((item) => item.name), project).map((name) => {
       const match = projects.find((item) => item.name === name)
-      return { value: `${name}/`, label: name, detail: match?.projectPath, continues: true }
+      return { value: `${name}/`, label: name, detail: match?.projectPath, continues: true, attached: match?.attached }
     })
   }
   const target = projects.find((item) => item.name.toLowerCase() === project.toLowerCase())
@@ -316,6 +401,24 @@ export function directiveSegments(text: string): DirectiveSegment[] {
   }
   if (cursor < text.length) segments.push({ text: text.slice(cursor) })
   return segments
+}
+
+/** The human label for a directive kind, for an Info popover or a picker row. */
+export function directiveKindLabel(kind: DirectiveKind) {
+  return KEYWORDS.find((entry) => entry.kind === kind)?.label || kind
+}
+
+/**
+ * Removes one directive from the text, collapsing the whitespace it leaves
+ * behind so deleting a chip never leaves a double space or a trailing blank.
+ */
+export function removeDirective(text: string, directive: Pick<ComposerDirective, 'start' | 'end'>) {
+  const before = text.slice(0, directive.start)
+  const after = text.slice(directive.end)
+  const trimmedBefore = before.replace(/[ \t]+$/, '')
+  const trimmedAfter = after.replace(/^[ \t]+/, '')
+  const needsSpace = Boolean(trimmedBefore) && Boolean(trimmedAfter) && !trimmedBefore.endsWith('\n') && !trimmedAfter.startsWith('\n')
+  return trimmedBefore + (needsSpace ? ' ' : '') + trimmedAfter
 }
 
 /** A short label for a chip: the basename is what identifies it at a glance. */

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert'
+type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info'
 
 export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
   const paths: Record<Name, ReactNode> = {
@@ -51,6 +51,8 @@ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
     list: <><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></>,
     link: <><path d="M9 12h6"/><path d="M8 7H6a4 4 0 0 0 0 8h2"/><path d="M16 7h2a4 4 0 0 1 0 8h-2"/></>,
     alert: <><path d="M12 2 1 21h22L12 2Z"/><path d="M12 9v5"/><path d="M12 17h.01"/></>,
+    edit: <><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></>,
+    info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7h.01"/></>,
   }
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }

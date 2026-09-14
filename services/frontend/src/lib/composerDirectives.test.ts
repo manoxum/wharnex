@@ -1,17 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyDirectiveKindSuggestion,
   applyDirectiveSuggestion,
   canonicalizeDirectives,
   directiveChipLabel,
+  directiveKindQuery,
+  directiveKindSuggestions,
   directiveQuery,
   directiveSegments,
   directiveSuggestions,
+  KEYWORDS,
   parseDirectives,
+  removeDirective,
 } from './composerDirectives'
 
 const projects = [
-  { name: 'flowcore', projectPath: '/home/op/flowcore', files: ['services/be/auth.go', 'README.md'] },
-  { name: 'siage', projectPath: '/home/op/siage', files: ['src/lib/auth.ts'] },
+  { name: 'flowcore', projectPath: '/home/op/flowcore', files: ['services/be/auth.go', 'README.md'], attached: true },
+  { name: 'siage', projectPath: '/home/op/siage', files: ['src/lib/auth.ts'], attached: true },
 ]
 
 describe('composer directives', () => {
@@ -144,5 +149,94 @@ describe('attach directives', () => {
     expect(directiveChipLabel(plain)).toBe('contracts')
     const [scoped] = parseDirectives('@{[attach]/srv/contracts|+a/**|-b/**}')
     expect(directiveChipLabel(scoped)).toBe('contracts · 2 regra(s)')
+  })
+})
+
+describe('aliases', () => {
+  // An operator reaching for "the other project" or "something outside the
+  // project" should not have to remember one exact word for it.
+  it('parses every ref and attach alias to the canonical kind', () => {
+    for (const alias of ['ref', 'reference', 'references', 'project']) {
+      const [directive] = parseDirectives(`@${alias}:flowcore`)
+      expect(directive.kind).toBe('ref')
+      expect(directive.project).toBe('flowcore')
+    }
+    for (const alias of ['attach', 'att', 'attch', 'attche', 'attaches', 'attahes', 'dir']) {
+      const [directive] = parseDirectives(`@${alias}:/srv/x`)
+      expect(directive.kind).toBe('attach')
+      expect(directive.path).toBe('/srv/x')
+    }
+  })
+
+  // Whichever alias was typed, what is sent is always the one canonical
+  // keyword — there is exactly one spelling a continuation ever re-parses.
+  it('canonicalizes every alias to the primary keyword', () => {
+    expect(canonicalizeDirectives('olha @project:flowcore e @dir:/srv/sdk')).toBe('olha @{[ref]flowcore} e @{[attach]/srv/sdk}')
+  })
+
+  // A menu built from anything other than KEYWORDS would silently drift from
+  // what the parser actually accepts.
+  it('walks the whole KEYWORDS table end to end', () => {
+    for (const entry of KEYWORDS) {
+      for (const word of [entry.keyword, ...entry.aliases]) {
+        const value = entry.kind === 'attach' ? '/srv/x' : 'flowcore'
+        const [directive] = parseDirectives(`@${word}:${value}`)
+        expect(directive?.kind).toBe(entry.kind)
+      }
+    }
+  })
+})
+
+describe('bare @ kind picker', () => {
+  // Typing "@" alone, with no keyword yet, must not be mistaken for a value
+  // query — the two are distinguished by whether a ":" was typed.
+  it('opens only before a keyword is typed', () => {
+    expect(directiveKindQuery('olha @', 6)).toMatchObject({ query: '' })
+    expect(directiveKindQuery('olha @re', 8)).toMatchObject({ query: 're' })
+    expect(directiveKindQuery('olha @ref:flow', 14)).toBeUndefined()
+  })
+
+  it('filters by keyword or any alias', () => {
+    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach'])
+    expect(directiveKindSuggestions('proj').map((s) => s.kind)).toEqual(['ref'])
+    expect(directiveKindSuggestions('dir').map((s) => s.kind)).toEqual(['attach'])
+  })
+
+  // Picking a kind inserts its canonical keyword and colon, leaving the caret
+  // exactly where the value query picks up — so the two menus chain into one
+  // continuous flow instead of requiring the operator to retype anything.
+  it('inserts the canonical keyword and hands off to the value query', () => {
+    const text = 'olha @re'
+    const query = directiveKindQuery(text, 8)!
+    const applied = applyDirectiveKindSuggestion(text, query, { keyword: 'ref', kind: 'ref', label: 'Outro projeto', aliases: [] })
+    expect(applied.text).toBe('olha @ref:')
+    expect(applied.caret).toBe(applied.text.length)
+    expect(directiveQuery(applied.text, applied.caret)).toMatchObject({ kind: 'ref', query: '' })
+  })
+})
+
+describe('unattached known projects', () => {
+  const known = [
+    { name: 'flowcore', projectPath: '/home/op/flowcore', files: ['services/be/auth.go'], attached: true },
+    { name: 'legacy', projectPath: '/home/op/legacy', files: [], attached: false },
+  ]
+
+  // A project Wharnex has worked on before is nameable whether or not its
+  // context is currently attached to this request.
+  it('offers a project that is known but not attached', () => {
+    const rows = directiveSuggestions(directiveQuery('junta @ref:leg', 14)!, [], known)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ value: 'legacy/', attached: false })
+  })
+})
+
+describe('removeDirective', () => {
+  it('deletes a directive and collapses the whitespace it leaves behind', () => {
+    expect(removeDirective('veja @{[file]a.ts} agora', parseDirectives('veja @{[file]a.ts} agora')[0])).toBe('veja agora')
+  })
+
+  it('never leaves a double space at the start or end of the text', () => {
+    expect(removeDirective('@{[file]a.ts} agora', parseDirectives('@{[file]a.ts} agora')[0])).toBe('agora')
+    expect(removeDirective('veja @{[file]a.ts}', parseDirectives('veja @{[file]a.ts}')[0])).toBe('veja')
   })
 })

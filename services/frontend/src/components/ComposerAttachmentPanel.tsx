@@ -5,6 +5,7 @@ import {
   attachRulesAreDefault,
   canonicalDirective,
   parseDirectives,
+  removeDirective,
   renderAttachValue,
   type AttachRules,
   type ComposerDirective,
@@ -21,22 +22,42 @@ import { Icon } from './Icon'
  * tree is worth sending — and an operator should not have to learn a second
  * answer for it.
  *
+ * It is a real modal, detached from the composer, rather than a panel squeezed
+ * into the composer's own limited height: choosing what an attached folder
+ * sends is its own decision, with an inventory that can run to hundreds of
+ * rows, and it deserves the screen a modal gets rather than a 300px scroll box
+ * wedged above the textarea.
+ *
  * The selection lives in the marker in the prompt, not beside it. Editing here
  * rewrites that marker, so what this panel shows and what the request sends are
  * one string rather than two representations that can drift apart.
  */
-export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose }: {
+export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose, initialPath }: {
   sessionId: string
   message: string
   onMessage: (next: string) => void
   onClose: () => void
+  /** Which attachment's tab to open first — set when Edit was clicked on a specific chip. */
+  initialPath?: string
 }) {
   const attachments = useMemo(
     () => parseDirectives(message).filter((directive): directive is ComposerDirective & { rules: AttachRules } => directive.kind === 'attach' && Boolean(directive.rules)),
     [message],
   )
-  const [selectedPath, setSelectedPath] = useState(attachments[0]?.path || '')
+  const [selectedPath, setSelectedPath] = useState(initialPath || attachments[0]?.path || '')
   const selected = attachments.find((item) => item.path === selectedPath) || attachments[0]
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  // Edit on a different chip while the modal is already open must jump to that
+  // chip's own tab, not silently keep showing whichever one was open before.
+  useEffect(() => {
+    if (initialPath) setSelectedPath(initialPath)
+  }, [initialPath])
   const [inspection, setInspection] = useState<AttachmentInspection>()
   const [inspectionError, setInspectionError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -89,79 +110,80 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
   }
 
   function removeAttachment(directive: ComposerDirective) {
-    const before = message.slice(0, directive.start)
-    const after = message.slice(directive.end)
-    onMessage((before.replace(/\s+$/, '') + ' ' + after.replace(/^\s+/, '')).trim())
+    onMessage(removeDirective(message, directive))
+    if (attachments.length <= 1) onClose()
   }
 
-  return <section className="composer-attachment-panel" aria-label="Conteúdo dos caminhos anexados" data-chatgpt-overlay-blocker="true">
-    <header className="composer-attachment-heading">
-      <div><span className="panel-kicker">Caminhos anexados</span><strong>Conteúdo enviado</strong></div>
-      <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar painel de anexos"><Icon name="close" size={13}/></button>
-    </header>
+  return <div className="composer-attachment-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="composer-attachment-panel" role="dialog" aria-modal="true" aria-label="Conteúdo dos caminhos anexados">
+      <header className="composer-attachment-heading">
+        <div><span className="panel-kicker">Caminhos anexados</span><strong>Conteúdo enviado</strong></div>
+        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar painel de anexos"><Icon name="close" size={13}/></button>
+      </header>
 
-    {!attachments.length
-      ? <p className="composer-attachment-empty">Escreva <code>@attach:</code> no prompt e escolha um ficheiro ou pasta para o anexar. Aqui pode depois decidir o que dele é enviado.</p>
-      : <>
-        <div className="composer-attachment-tabs" role="tablist" aria-label="Caminhos anexados a este prompt">
-          {attachments.map((directive) => <button
-            key={`${directive.start}:${directive.value}`}
-            type="button" role="tab"
-            aria-selected={directive.path === selected?.path}
-            className={directive.path === selected?.path ? 'active' : ''}
-            onClick={() => setSelectedPath(directive.path)}
-          >
-            <Icon name="folder" size={12}/><span>{directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
-          </button>)}
-        </div>
-
-        {selected && <div className="composer-attachment-body">
-          <div className="composer-attachment-root">
-            <code title={selected.path}>{selected.path}</code>
-            <button type="button" onClick={() => removeAttachment(selected)} aria-label={`Remover o anexo ${selected.path}`}><Icon name="trash" size={12}/> Remover</button>
+      {!attachments.length
+        ? <p className="composer-attachment-empty">Escreva <code>@attach:</code> no prompt e escolha um ficheiro ou pasta para o anexar. Aqui pode depois decidir o que dele é enviado.</p>
+        : <>
+          <div className="composer-attachment-tabs" role="tablist" aria-label="Caminhos anexados a este prompt">
+            {attachments.map((directive) => <button
+              key={`${directive.start}:${directive.value}`}
+              type="button" role="tab"
+              aria-selected={directive.path === selected?.path}
+              className={directive.path === selected?.path ? 'active' : ''}
+              onClick={() => setSelectedPath(directive.path)}
+            >
+              <Icon name="folder" size={12}/><span>{directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
+            </button>)}
           </div>
 
-          {inspectionError
-            ? <p className="composer-attachment-error" role="alert">{inspectionError}</p>
-            : <p className="composer-attachment-summary" role="status">
-              {loading ? 'A ler o caminho…' : inspection
-                ? <>{inspection.included_files} ficheiro(s) · {formatBytes(inspection.included_bytes)} · {inspection.excluded_items} item(ns) fora{inspection.truncated ? ' · LIMITE ATINGIDO: o anexo está incompleto' : ''}</>
-                : '—'}
-            </p>}
-
-          {/* A file has nothing to select inside it, so the selection controls
-              appear only for a directory — showing empty pattern boxes for a
-              single file would invite configuring something that has no parts. */}
-          {inspection?.kind === 'directory' && <>
-            <label className="settings-toggle">
-              <input type="checkbox" checked={selected.rules.autoExclude} onChange={(event) => writeRules(selected, { ...selected.rules, autoExclude: event.target.checked })}/>
-              <span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários e metadados sem valor para a IA — a mesma regra do contexto do projeto.</small></span>
-            </label>
-            <div className="composer-attachment-patterns">
-              <label><span>Incluir apenas <small>opcional</small></span><textarea value={includeText} onChange={(event) => setIncludeText(event.target.value)} onBlur={applyPatternText} placeholder={'openapi/**\ndocs/**'}/><small>Se vazio, tudo o que for elegível é considerado.</small></label>
-              <label><span>Excluir do anexo</span><textarea value={excludeText} onChange={(event) => setExcludeText(event.target.value)} onBlur={applyPatternText} placeholder={'**/*.bak\nfixtures/**'}/><small>Um padrão por linha. Suporta <code>*</code>, <code>?</code> e <code>**</code>.</small></label>
+          {selected && <div className="composer-attachment-body">
+            <div className="composer-attachment-root">
+              <code title={selected.path}>{selected.path}</code>
+              <button type="button" onClick={() => removeAttachment(selected)} aria-label={`Remover o anexo ${selected.path}`}><Icon name="trash" size={12}/> Remover</button>
             </div>
-            {!attachRulesAreDefault(selected.rules) && <p className="composer-attachment-note">Esta seleção viaja dentro do próprio marcador no prompt, por isso acompanha o pedido e fica visível no histórico.</p>}
-          </>}
 
-          {inspection?.entries.length ? <div className="composer-attachment-inventory" role="table" aria-label={`Conteúdo de ${selected.path}`}>
-            {inspection.entries.slice(0, 200).map((entry) => {
-              const excluded = entry.status === 'excluded'
-              const action = excluded ? 'include' : 'exclude'
-              return <div className="composer-attachment-row" role="row" key={`${entry.status}:${entry.path}`}>
-                <Icon name={entry.kind === 'directory' ? 'folder' : 'file'} size={12}/>
-                <span className="composer-attachment-path" title={entry.path}>{entry.path}</span>
-                <span className={`context-status ${entry.status}`}>{excluded ? 'FORA' : 'INCLUÍDO'}</span>
-                <small title={entry.reason}>{entry.reason || formatBytes(entry.size || 0)}</small>
-                {entry.configurable === false
-                  ? <span className="context-locked" title="Esta decisão é protegida e não pode ser alterada"><Icon name="shield" size={12}/></span>
-                  : <button type="button" className={`context-selection-button ${action}`} onClick={() => applyEntrySelection(entry, action)} title={`${action === 'include' ? 'Incluir' : 'Excluir'} ${entry.path}`}><Icon name={action === 'include' ? 'plus' : 'close'} size={11}/></button>}
+            {inspectionError
+              ? <p className="composer-attachment-error" role="alert">{inspectionError}</p>
+              : <p className="composer-attachment-summary" role="status">
+                {loading ? 'A ler o caminho…' : inspection
+                  ? <>{inspection.included_files} ficheiro(s) · {formatBytes(inspection.included_bytes)} · {inspection.excluded_items} item(ns) fora{inspection.truncated ? ' · LIMITE ATINGIDO: o anexo está incompleto' : ''}</>
+                  : '—'}
+              </p>}
+
+            {/* A file has nothing to select inside it, so the selection controls
+                appear only for a directory — showing empty pattern boxes for a
+                single file would invite configuring something that has no parts. */}
+            {inspection?.kind === 'directory' && <>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={selected.rules.autoExclude} onChange={(event) => writeRules(selected, { ...selected.rules, autoExclude: event.target.checked })}/>
+                <span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários e metadados sem valor para a IA — a mesma regra do contexto do projeto.</small></span>
+              </label>
+              <div className="composer-attachment-patterns">
+                <label><span>Incluir apenas <small>opcional</small></span><textarea value={includeText} onChange={(event) => setIncludeText(event.target.value)} onBlur={applyPatternText} placeholder={'openapi/**\ndocs/**'}/><small>Se vazio, tudo o que for elegível é considerado.</small></label>
+                <label><span>Excluir do anexo</span><textarea value={excludeText} onChange={(event) => setExcludeText(event.target.value)} onBlur={applyPatternText} placeholder={'**/*.bak\nfixtures/**'}/><small>Um padrão por linha. Suporta <code>*</code>, <code>?</code> e <code>**</code>.</small></label>
               </div>
-            })}
-          </div> : null}
-        </div>}
-      </>}
-  </section>
+              {!attachRulesAreDefault(selected.rules) && <p className="composer-attachment-note">Esta seleção viaja dentro do próprio marcador no prompt, por isso acompanha o pedido e fica visível no histórico.</p>}
+            </>}
+
+            {inspection?.entries.length ? <div className="composer-attachment-inventory" role="table" aria-label={`Conteúdo de ${selected.path}`}>
+              {inspection.entries.slice(0, 200).map((entry) => {
+                const excluded = entry.status === 'excluded'
+                const action = excluded ? 'include' : 'exclude'
+                return <div className="composer-attachment-row" role="row" key={`${entry.status}:${entry.path}`}>
+                  <Icon name={entry.kind === 'directory' ? 'folder' : 'file'} size={12}/>
+                  <span className="composer-attachment-path" title={entry.path}>{entry.path}</span>
+                  <span className={`context-status ${entry.status}`}>{excluded ? 'FORA' : 'INCLUÍDO'}</span>
+                  <small title={entry.reason}>{entry.reason || formatBytes(entry.size || 0)}</small>
+                  {entry.configurable === false
+                    ? <span className="context-locked" title="Esta decisão é protegida e não pode ser alterada"><Icon name="shield" size={12}/></span>
+                    : <button type="button" className={`context-selection-button ${action}`} onClick={() => applyEntrySelection(entry, action)} title={`${action === 'include' ? 'Incluir' : 'Excluir'} ${entry.path}`}><Icon name={action === 'include' ? 'plus' : 'close'} size={11}/></button>}
+                </div>
+              })}
+            </div> : null}
+          </div>}
+        </>}
+    </section>
+  </div>
 }
 
 function patternLines(value: string) {

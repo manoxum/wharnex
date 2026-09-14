@@ -71,6 +71,22 @@ func (s *Service) knownProjectRefs(exclude string) []domain.KnownProjectRef {
 	return refs
 }
 
+// KnownProjects is the read-side counterpart of crossProjectGrantForRequest: it
+// tells a caller — the composer's `@ref` menu, above all — exactly what a
+// reference typed right now would resolve against, so the suggestion list and
+// the authorization the engine actually applies can never disagree.
+//
+// This is the fix for a menu that used to consult only the session's already
+// attached related projects: a project the operator worked in last week, but
+// has not reopened today, resolves here exactly as it resolves at submit time.
+func (s *Service) KnownProjects(sessionID string) ([]domain.KnownProjectRef, error) {
+	item, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.knownProjectRefs(item.ProjectPath), nil
+}
+
 // messageWithCrossProjectGrant states the authority in the prompt itself.
 //
 // The related-projects block already tells the planner those contexts are
