@@ -99,6 +99,22 @@ describe('WorkspaceShell project actions', () => {
     expect(onActivate).not.toHaveBeenCalledWith('/tmp/beta')
   })
 
+  it('can unlink any project bound to the current window from the project switcher', async () => {
+    const onActivate = vi.fn()
+    const onUnbind = vi.fn()
+    window.wharnessDesktop = {
+      windows: { projects: vi.fn().mockResolvedValue({ currentWindowId: 'window-a', items: [] }) },
+    } as unknown as WharnessDesktopBridge
+
+    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /alpha/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Desvincular gamma desta janela' }))
+
+    expect(onUnbind).toHaveBeenCalledWith('/tmp/gamma')
+    expect(onActivate).not.toHaveBeenCalledWith('/tmp/gamma')
+    expect(screen.queryByText('Projetos abertos')).toBeNull()
+  })
+
   it('answers a loaded project readiness handshake with its current activation state', async () => {
     vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
     saveBoundProjects(['/tmp/active-project'])
