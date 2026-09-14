@@ -60,7 +60,7 @@ func (b *Builder) Build(projectRoot string) (domain.ContextBundle, error) {
 		_ = os.RemoveAll(tmpDir)
 		return domain.ContextBundle{}, err
 	}
-	return domain.ContextBundle{ID: id, ZipPath: zipPath, TextPath: textPath, Manifest: manifest}, nil
+	return domain.ContextBundle{ID: id, ZipPath: zipPath, TextPath: textPath, Manifest: manifest, WorkspaceSHA256: manifest.SHA256}, nil
 }
 
 func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg projectconfig.Config) (domain.ContextManifest, error) {

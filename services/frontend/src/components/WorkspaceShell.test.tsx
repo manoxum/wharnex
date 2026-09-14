@@ -26,14 +26,23 @@ describe('WorkspaceShell project actions', () => {
   })
 
   it('uses Signal Core alone as the primary toolbar brand mark', () => {
-    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
     expect(screen.getByRole('img', { name: 'Signal Core' })).toBeTruthy()
     expect(screen.queryByText('WHX')).toBeNull()
     expect(screen.queryByText('Wharnex')).toBeNull()
   })
 
+  it('binds an additional project from its complete local path', () => {
+    const onBindPath = vi.fn()
+    render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ações de projeto' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Caminho completo do projeto' }), { target: { value: '/work/related' } })
+    fireEvent.click(screen.getByRole('menuitem', { name: /Vincular por caminho/i }))
+    expect(onBindPath).toHaveBeenCalledWith('/work/related')
+  })
+
   it('places the instance identifier before the Editor and Agent selector', () => {
-    render(<ShellChrome instanceID="legacy" version="v1.2.46.13" projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome instanceID="legacy" version="v1.2.46.13" projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
     const badge = screen.getByLabelText('Instância: legacy · versão v1.2.46.13')
     expect(badge.textContent).toBe('legacy · v1.2.46.13')
     const editor = screen.getByRole('button', { name: 'Editor' })
@@ -109,8 +118,13 @@ describe('WorkspaceShell project actions', () => {
     }))
 
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(
-      { type: 'wharness:project-active', active: true },
+      { type: 'wharness:project-active', active: true, projects: ['/tmp/active-project'] },
       window.location.origin,
     ))
+  })
+
+  it('shows when bound projects share analysis context', () => {
+    render(<ShellChrome projects={['/work/current', '/work/related']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    expect(screen.getByText('2 projetos no contexto')).toBeTruthy()
   })
 })

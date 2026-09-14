@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isChatGPTAuthURL, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeAttachmentFilename, sanitizeChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, externalAuthProvider, isChatGPTAuthURL, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, resolveLinuxOzonePlatform, sanitizeAttachmentFilename, sanitizeChatCacheKey, sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 
 test('session ids are strictly allowlisted', () => {
   assert.equal(sanitizeSessionId('ses_20260902_abc-123'), 'ses_20260902_abc-123')
@@ -112,6 +112,10 @@ test('ChatGPT DOM cache keys are local identifiers only', () => {
   assert.equal(sanitizeChatCacheKey('c6c0810a-1234-4abc-a123-1234567890ab'), 'c6c0810a-1234-4abc-a123-1234567890ab')
   assert.throws(() => sanitizeChatCacheKey('../escape'))
   assert.throws(() => sanitizeChatCacheKey(''))
+  assert.equal(sanitizeOptionalChatCacheKey(undefined), '')
+  assert.equal(sanitizeOptionalChatCacheKey('  '), '')
+  assert.equal(sanitizeOptionalChatCacheKey('chat-1'), 'chat-1')
+  assert.throws(() => sanitizeOptionalChatCacheKey('../escape'))
 })
 
 test('user attachment filenames and payloads cannot escape the temp directory', () => {

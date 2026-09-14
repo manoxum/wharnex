@@ -128,6 +128,8 @@ export const api = {
   createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'auto', chatId?: string, effortLevel: EffortLevel = 'medium') =>
     request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode, automation_mode: automationMode, effort_level: effortLevel, chat_id: chatId }) }),
   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
+  setRelatedProjects: (id: string, projectPaths: string[]) =>
+    request<Session>(`/api/sessions/${id}/related-projects`, { method: 'PUT', body: JSON.stringify({ project_paths: projectPaths }) }),
   workspaceChats: (projectPath: string) => request<{ chats: DurableWorkspaceChatRecord[] }>(`/api/workspace-chats?project_path=${encodeURIComponent(projectPath)}`),
   saveWorkspaceChat: (chat: DurableWorkspaceChatRecord) => request<DurableWorkspaceChatRecord>(`/api/workspace-chats/${encodeURIComponent(chat.id)}`, { method: 'PUT', body: JSON.stringify(chat) }),
   workspaceChatItems: (chatId: string) => request<{ items: Array<{ id: string; chat_id: string; created_at: string; payload: ChatItem }> }>(`/api/workspace-chats/${encodeURIComponent(chatId)}/items`),

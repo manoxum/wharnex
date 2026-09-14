@@ -171,6 +171,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const ingestingBundleKeysRef = useRef(new Set<string>())
   const dismissedRestartKeysRef = useRef(new Set<string>())
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
+  const [boundProjects, setBoundProjects] = useState<string[]>(() => embeddedProject ? [embeddedProject] : [])
+  const relatedProjectsSyncRef = useRef('')
 
   const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
   const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
@@ -416,7 +418,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!embeddedProject) return
     const handler = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
-      if (event.data?.type === 'wharness:project-active') setShellActive(Boolean(event.data.active))
+      if (event.data?.type === 'wharness:project-active') {
+        setShellActive(Boolean(event.data.active))
+        if (Array.isArray(event.data.projects)) setBoundProjects(event.data.projects.map(String).filter(Boolean))
+      }
       if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent' || event.data.mode === 'orchestrator')) setMode(event.data.mode)
       if (event.data?.type === 'wharness:open-project-settings') setProjectSettingsOpen(true)
     }
@@ -424,6 +429,20 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     window.parent.postMessage({ type: 'wharness:project-ready', projectPath: embeddedProject }, window.location.origin)
     return () => window.removeEventListener('message', handler)
   }, [embeddedProject])
+
+  useEffect(() => {
+    if (!embeddedProject || !shellActive || !session) return
+    const related = [...new Set(boundProjects.filter((projectPath) => projectPath && projectPath !== session.project_path))]
+    const key = `${session.id}:${related.join('\n')}`
+    if (relatedProjectsSyncRef.current === key) return
+    relatedProjectsSyncRef.current = key
+    void api.setRelatedProjects(session.id, related).then((updated) => {
+      setSession((current) => current?.id === updated.id ? updated : current)
+    }).catch((reason) => {
+      relatedProjectsSyncRef.current = ''
+      setError(messageOf(reason))
+    })
+  }, [boundProjects, embeddedProject, session?.id, session?.project_path, shellActive])
 
   useEffect(() => {
     if (!embeddedProject) return
@@ -954,7 +973,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!session || !activeChatId || kind === 'prompt') return
     const active = chats.find((chat) => chat.id === activeChatId)
     if (!active) return
-    const contextRequired = !active.lastContextSha256 || active.lastContextSha256 !== session.context.manifest.sha256 || Boolean(active.chatgptUrl && active.lastContextChatgptUrl && !sameChatGPTConversation(active.chatgptUrl, active.lastContextChatgptUrl))
+    const contextRequired = !active.lastContextSha256 || active.lastContextSha256 !== sessionContextSHA(session) || Boolean(active.chatgptUrl && active.lastContextChatgptUrl && !sameChatGPTConversation(active.chatgptUrl, active.lastContextChatgptUrl))
     const errorRequired = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
     if ((kind === 'context' && contextRequired) || (kind === 'error' && errorRequired)) return
     const current = Boolean(active.artifactSelection?.[kind])
@@ -1364,7 +1383,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: automationMode === 'auto',
             expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
-            contextSha256: response.session.context.manifest.sha256, lastContextSha256: targetChat.lastContextSha256,
+            contextSha256: sessionContextSHA(response.session), lastContextSha256: targetChat.lastContextSha256,
             lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0, preferCurrentConversation: true,
             firstRequest, chatTitle: generatedChatTitle, projectName: chatGPTProjectName(projectPath),
             // The owning project of every task this request enqueues. The
@@ -1382,7 +1401,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForChat(targetChat.id, response.session.project_path, prepared.conversationUrl) : true
           if (prepared.includedContext && bindingAccepted) {
             updateWorkspaceChat(targetChat.id, response.session.project_path, {
-              lastContextSha256: response.session.context.manifest.sha256,
+              lastContextSha256: sessionContextSHA(response.session),
               lastContextChatgptUrl: prepared.conversationUrl || targetChat.chatgptUrl,
             })
           }
@@ -1984,14 +2003,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
       expectedFilename: expectedResponseBundleName(text, continuationRequestId),
       projectFiles: [],
-	  contextSha256: promptSession.context.manifest.sha256, lastContextSha256: dedicatedConflict ? undefined : targetChat.lastContextSha256,
+	  contextSha256: sessionContextSHA(promptSession), lastContextSha256: dedicatedConflict ? undefined : targetChat.lastContextSha256,
 	  lastContextChatgptUrl: dedicatedConflict ? undefined : targetChat.lastContextChatgptUrl, includeContext: dedicatedConflict || continuationArtifacts.context, preferCurrentConversation: false,
       projectPath: promptSession.project_path,
     })
 	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(cacheKey, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}
 	if (!dedicatedConflict && !prepared.queued && prepared.includedContext && bindingAccepted) {
-      patch.lastContextSha256 = promptSession.context.manifest.sha256
+      patch.lastContextSha256 = sessionContextSHA(promptSession)
       patch.lastContextChatgptUrl = prepared.conversationUrl || targetChat.chatgptUrl
     }
     if (Object.keys(patch).length) updateWorkspaceChat(targetChat.id, promptSession.project_path, patch)
@@ -2735,7 +2754,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		url: activeConflictSurface?.url,
 		conflictId: activeConflict.id,
 	} : undefined
-  const contextArtifactRequired = Boolean(activeChat && (!activeChat.lastContextSha256 || activeChat.lastContextSha256 !== session.context.manifest.sha256 || activeChat.artifactSelection?.context || (activeChat.chatgptUrl && activeChat.lastContextChatgptUrl && !sameChatGPTConversation(activeChat.chatgptUrl, activeChat.lastContextChatgptUrl))))
+  const contextArtifactRequired = Boolean(activeChat && (!activeChat.lastContextSha256 || activeChat.lastContextSha256 !== sessionContextSHA(session) || activeChat.artifactSelection?.context || (activeChat.chatgptUrl && activeChat.lastContextChatgptUrl && !sameChatGPTConversation(activeChat.chatgptUrl, activeChat.lastContextChatgptUrl))))
   const errorArtifactRequired = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
   const composerArtifacts: ChatArtifactSelection = {
     context: contextArtifactRequired,
@@ -2980,6 +2999,10 @@ function contextArtifact(session: Session) {
   const files = manifest.files.slice(0, 240).map((file) => `- ${file.path} · ${file.size} B · ${file.sha256.slice(0, 12)}`).join('\n')
   const omitted = manifest.files.length > 240 ? `\n- ... ${manifest.files.length - 240} ficheiro(s) adicionais` : ''
   return `# Wharnex context snapshot\n\n- id: ${manifest.id}\n- project: ${manifest.project_root}\n- sha256: ${manifest.sha256}\n- files: ${manifest.files.length}\n- text truncated: ${manifest.text_truncated}\n\n## Included files\n\n${files}${omitted}\n`
+}
+
+function sessionContextSHA(session: Session) {
+  return session.context.workspace_sha256 || session.context.manifest.sha256
 }
 
 function requestChainActive(session: Session) {

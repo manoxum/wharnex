@@ -12,6 +12,14 @@ export function sanitizeChatCacheKey(value) {
   return key
 }
 
+// Runtime projections legitimately have empty slots between scheduler claims.
+// Preserve that absence while applying the strict cache-key boundary to every
+// non-empty value; callers must not weaken sanitizeChatCacheKey itself.
+export function sanitizeOptionalChatCacheKey(value) {
+  const key = String(value || '').trim()
+  return key ? sanitizeChatCacheKey(key) : ''
+}
+
 export function sanitizeAttachmentFilename(value) {
   const name = String(value || '').normalize('NFC').trim()
   if (!name || name === '.' || name === '..' || name.length > 180) throw new Error('Invalid attachment filename')

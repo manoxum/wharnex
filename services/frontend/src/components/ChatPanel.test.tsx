@@ -72,6 +72,15 @@ describe('ChatPanel', () => {
     expect(view.container.querySelector('.chat-stream .system-note')).toBeNull()
   })
 
+  it('identifies a namespaced multi-project context in the header', () => {
+    const related = { project_path: '/work/related', name: 'related', prefix: 'RELATED_PROJECTS/01-related/', manifest: session.context.manifest }
+    const view = render(
+      <ChatPanel session={{ ...session, context: { ...session.context, workspace_sha256: 'fedcba654321', related_projects: [related] } }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(view.container.querySelector('.chat-header-context')?.textContent).toContain('Contexto de 2 projetos')
+    expect(view.container.querySelector('.chat-header-context')?.textContent).toContain('fedcba654321')
+  })
+
   it('removes redundant chat labels from the header while keeping the title in the switcher', () => {
     const now = new Date().toISOString()
     const chat = { id: 'chat-1', title: 'Nome de chat', sessionId: session.id, createdAt: now, updatedAt: now }

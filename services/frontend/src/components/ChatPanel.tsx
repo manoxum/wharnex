@@ -65,6 +65,13 @@ function prioritizedChangeFiles(files: ChatChangeFile[]) {
     .map(({ file }) => file)
 }
 
+// A identidade que o operador copia tem de nomear o contexto realmente
+// transportado. Um workspace com projetos relacionados gera um hash proprio,
+// por isso o hash do manifesto primario deixaria de identificar o que o planner leu.
+function contextIdentityHash(session: Session) {
+  return session.context.workspace_sha256 || session.context.manifest.sha256
+}
+
 export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
   session: Session
   items: ChatItem[]
@@ -340,7 +347,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   }
 
   async function copyContextIdentity() {
-    const hash = session.context.manifest.sha256
+    const hash = contextIdentityHash(session)
     const chatId = activeChatId || session.chat_id || '—'
     await writeClipboard(`Hash: ${hash}\nChat ID: ${chatId}`)
     setContextIdentityCopied(true)
@@ -362,7 +369,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     {!composerOnly && <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
       <div className="chat-header-context" aria-label="Contexto isolado">
         <span className="chat-header-context-icon"><Icon name="shield" size={13}/></span>
-        <span className="chat-header-context-copy"><strong>Contexto isolado</strong><small><span title={session.context.manifest.sha256}>Hash {session.context.manifest.sha256.slice(0, 12)}</span><i aria-hidden="true">·</i><span title={activeChatId || session.chat_id || '—'}>Chat {activeChatId || session.chat_id || '—'}</span></small></span>
+        <span className="chat-header-context-copy"><strong>{session.context.related_projects?.length ? `Contexto de ${session.context.related_projects.length + 1} projetos` : 'Contexto isolado'}</strong><small><span title={contextIdentityHash(session)}>Hash {contextIdentityHash(session).slice(0, 12)}</span><i aria-hidden="true">·</i><span title={activeChatId || session.chat_id || '—'}>Chat {activeChatId || session.chat_id || '—'}</span></small></span>
         <button type="button" className="chat-header-context-copy-button" onClick={() => void copyContextIdentity()} aria-label="Copiar hash e ID do chat" title={contextIdentityCopied ? 'Hash e ID copiados' : 'Copiar hash completo e ID do chat'}><Icon name={contextIdentityCopied ? 'check' : 'copy'} size={12}/></button>
       </div>
       <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages} />

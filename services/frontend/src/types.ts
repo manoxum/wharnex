@@ -197,6 +197,7 @@ export type ProjectKnowledge = {
 export type Session = {
   id: string
   project_path: string
+  related_project_paths?: string[]
   /** The frontend chat id this session is scoped to, propagated at session
    *  creation. Empty for a session created before chat-id propagation
    *  existed — the frontend MUST backfill it (api.setChatId) once it
@@ -218,7 +219,12 @@ export type Session = {
   self_evolution_activation?: 'restart_pending' | 'restart_scheduled'
   state: string
   created_at: string
-  context: { id: string; manifest: ContextManifest }
+  context: {
+    id: string
+    manifest: ContextManifest
+    workspace_sha256?: string
+    related_projects?: Array<{ project_path: string; name: string; prefix: string; manifest: ContextManifest }>
+  }
   plan?: ExecutionPlan
   policy?: PolicyDecision
   last_execution?: ExecutionResult

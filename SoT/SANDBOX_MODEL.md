@@ -100,6 +100,13 @@ affected submodule branch to its recorded base commit. The superproject's explic
 confirmation authorizes this bounded repository tree as one transaction; it
 does not authorize remote pushes or unrelated nested Git repositories.
 
+A path-scoped read-only Git verification whose complete path set belongs to
+one initialized submodule MUST run with that submodule as its working root and
+with the submodule-relative pathspecs. Running `git grep` or `git diff --check`
+from the superproject otherwise sees only the gitlink, not the changed files;
+that false negative must never be accepted as a baseline failure in Protected
+verification and later turn into a post-merge rollback.
+
 `submodule_write` remains the stable failure for a path inside a registered
 submodule that cannot participate in that transaction, including an
 uninitialized checkout. It is no longer emitted merely because an initialized
