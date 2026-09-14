@@ -3361,22 +3361,33 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 }
 
 /* Persistent multi-terminal workbench + editor execution tools */
-.terminal-workspace { flex: 0 0 auto; min-height: 185px; max-height: 68vh; display: grid; grid-template-rows: 30px minmax(0, 1fr); overflow: hidden; border-top: 1px solid #3a3e35; background: #121411; }
+.terminal-workspace { flex: 0 0 auto; min-height: 185px; max-height: 68vh; display: grid; grid-template-rows: 30px minmax(0, 1fr); overflow: hidden; border-top: 1px solid #34382f; background: #121411; }
 .terminal-workspace-hidden { display: none; }
-.terminal-tabbar { min-width: 0; display: flex; align-items: stretch; justify-content: space-between; border-bottom: 1px solid #292c27; background: #181a17; }
-.terminal-tabs { min-width: 0; display: flex; align-items: stretch; overflow-x: auto; scrollbar-width: thin; }
-.terminal-tabs > button { min-width: 104px; max-width: 190px; height: 30px; padding: 0 7px 0 9px; display: flex; align-items: center; gap: 6px; border: 0; border-right: 1px solid #292c27; background: transparent; color: #747c70; font: 9px var(--mono-font-family); cursor: pointer; }
-.terminal-tabs > button.active { background: #20231e; color: #d3d9cc; box-shadow: inset 0 -2px #8db94b; }
-.terminal-tabs > button > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.terminal-tabs > button > i { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 4px; color: #666f62; font: 14px/1 sans-serif; font-style: normal; }
-.terminal-tabs > button > i:hover { background: #363b33; color: #e4e9df; }
-.terminal-add-tab { width: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 0; border-left: 1px solid #292c27; background: transparent; color: #8a9383; cursor: pointer; }
-.terminal-add-tab:hover { background: #272b25; color: #dce2d5; }
+.terminal-tabbar { min-width: 0; display: flex; align-items: stretch; justify-content: space-between; border-bottom: 1px solid #292d26; background: #171916; }
+.terminal-tabs { min-width: 0; padding: 3px 4px 0; display: flex; align-items: end; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+.terminal-tabs::-webkit-scrollbar { display: none; }
+.terminal-tab-shell { min-width: 112px; max-width: 210px; height: 27px; display: flex; align-items: center; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: #778072; transition: background .12s ease, border-color .12s ease, color .12s ease; }
+.terminal-tab-shell:hover { background: #20231e; color: #b7c0b1; }
+.terminal-tab-shell.active { border-color: #343a30; background: #232720; color: #d9dfd3; box-shadow: inset 0 -2px #8db94b; }
+.terminal-tab-select { min-width: 0; height: 100%; padding: 0 3px 0 8px; flex: 1; display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: 9px var(--mono-font-family); cursor: pointer; }
+.terminal-tab-select > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.terminal-tab-action { width: 19px; height: 19px; margin-right: 2px; flex: 0 0 19px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #687063; opacity: 0; cursor: pointer; transition: opacity .12s ease, background .12s ease, color .12s ease; }
+.terminal-tab-shell:hover .terminal-tab-action, .terminal-tab-shell.active .terminal-tab-action, .terminal-tab-action:focus-visible { opacity: 1; }
+.terminal-tab-action:hover { background: #373c34; color: #eef2ea; }
+.terminal-tab-close { font: 13px/1 sans-serif; }
+.terminal-tab-edit { min-width: 0; padding-left: 7px; flex: 1; display: flex; align-items: center; gap: 5px; }
+.terminal-tab-edit input { min-width: 0; width: 100%; height: 20px; padding: 1px 5px; border: 1px solid #66765a; border-radius: 4px; outline: none; background: #151814; color: #edf1e8; font: 9px var(--mono-font-family); box-shadow: 0 0 0 1px rgba(141,185,75,.12); }
+.terminal-add-tab { width: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 0; border-left: 1px solid #292d26; background: transparent; color: #899382; cursor: pointer; }
+.terminal-add-tab:hover { background: #252922; color: #e1e6dc; }
 .terminal-instances, .terminal-instance { min-height: 0; min-width: 0; overflow: hidden; }
 .terminal-instance { display: none; height: 100%; }
 .terminal-instance.active { display: block; }
 .terminal-instance .ide-terminal { height: 100% !important; min-height: 0; max-height: none; border-top: 0; }
 .terminal-instance .ide-terminal > header { height: 33px; flex-basis: 33px; }
+.terminal-xterm .xterm-viewport { scrollbar-width: thin; scrollbar-color: #444a3e transparent; }
+.terminal-xterm .xterm-viewport::-webkit-scrollbar { width: 8px; }
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #444a3e; background-clip: padding-box; }
 
 .editor-run-menu { position: relative; }
 .editor-run-menu > summary { height: 22px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #30362d; border-radius: 4px; background: #20231e; color: #7f8a77; cursor: pointer; list-style: none; }
@@ -3390,6 +3401,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .editor-git-diff-empty { flex: 1; min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 7px; color: #788173; text-align: center; }
 .editor-git-diff-empty strong { color: #c4cdc0; font-size: calc(11px * var(--ui-font-scale)); }
 .editor-git-diff-empty span { max-width: 480px; font-size: calc(9px * var(--ui-font-scale)); line-height: 1.5; }
+.editor-run-glyph { position: relative; cursor: pointer; }
+.editor-run-glyph::before { content: '▶'; position: absolute; inset: 0; display: grid; place-items: center; color: #78b841; font: 9px/1 sans-serif; filter: drop-shadow(0 0 3px rgba(120,184,65,.16)); }
+.editor-run-glyph:hover::before { color: #a4d66d; }
 .embedded-code-scope { border-bottom: 1px dotted rgba(148, 185, 106, .38); background: rgba(122, 159, 83, .055); }
 .embedded-code-sql { background: rgba(86, 133, 174, .07); border-bottom-color: rgba(111, 166, 214, .42); }
 .embedded-code-css { background: rgba(169, 112, 184, .06); border-bottom-color: rgba(185, 130, 199, .4); }

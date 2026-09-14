@@ -3,6 +3,7 @@ import { api, APIError } from '../lib/api'
 import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
 import { confirmDialog } from '../lib/appDialog'
+import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../lib/editorExecution'
 import type { FileEntry, GitFileDiff, Session, TerminalRunInput, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
@@ -12,7 +13,6 @@ import { ChangeDiffEditor } from './ChangeDiffEditor'
 
 type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
-type RunOption = { label: string; command: string; cwd: string }
 
 export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0 }: {
   session: Session
@@ -32,9 +32,12 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set())
   const [gitDiff, setGitDiff] = useState<GitFileDiff>()
   const [gitDiffLoading, setGitDiffLoading] = useState(false)
+  const [recentRuns, setRecentRuns] = useState(() => loadEditorRunHistory(session.project_path))
   const selected = documents.find((item) => item.path === activePath)
   const dirtyCount = documents.filter((item) => item.draft !== item.content).length
-  const runOptions = selected ? executableOptions(selected, files) : []
+  const runOptions = selected ? editorExecutableOptions(selected.path, selected.draft, files) : []
+  const recentRunOptions = recentEditorRunOptions(runOptions.filter((option) => option.line !== undefined), recentRuns)
+  const directRunOption = runOptions.length === 1 && runOptions[0].line === undefined ? runOptions[0] : undefined
 
   documentsRef.current = documents
 
@@ -52,10 +55,11 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     setCursor({ line: 1, column: 1 })
     setPreviewPaths(new Set())
     setGitDiff(undefined)
+    setRecentRuns(loadEditorRunHistory(session.project_path))
     return () => {
       for (const document of documentsRef.current) disposeEditorModel(document.path)
     }
-  }, [session.id])
+  }, [session.id, session.project_path])
   useEffect(() => {
     if (!dirtyCount) return
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault() }
@@ -108,7 +112,17 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
 
   function runSelection(text: string) {
     if (!selected || !text.trim()) return
-    onRunInTerminal({ command: selectionCommand(selected.path, text.trim()), cwd: parentDirectory(selected.path), label: `Seleção · ${selected.path}` })
+    runInTerminal({ command: selectionCommand(selected.path, text.trim()), cwd: parentDirectory(selected.path), label: `Seleção · ${selected.path}` })
+  }
+
+  function runInTerminal(input: TerminalRunInput) {
+    setRecentRuns(rememberEditorRun(session.project_path, input))
+    onRunInTerminal(input)
+  }
+
+  function runAction(id: string) {
+    const option = runOptions.find((item) => item.id === id)
+    if (option) runInTerminal(option)
   }
 
   async function createWorkspacePath(path: string, kind: 'file' | 'directory') {
@@ -183,12 +197,13 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
             <div className="editor-shortcuts">
               <button title="Localizar este ficheiro no Explorer" onClick={() => setRevealNonce((value) => value + 1)}><Icon name="locate" size={12}/> Explorer</button>
               <button title="Comparar o ficheiro guardado com o Git" disabled={gitDiffLoading || isBinaryPreview(selected.path)} onClick={() => void showGitDiff()}><Icon name="git" size={12}/>{gitDiffLoading ? 'A comparar…' : 'Git diff'}</button>
-              {runOptions.length > 0 && <details className="editor-run-menu"><summary><Icon name="play" size={11}/> Executar</summary><div>{runOptions.map((option) => <button type="button" key={`${option.cwd}:${option.command}`} onClick={(event) => { onRunInTerminal(option); (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open') }}><span>{option.label}</span><code>{option.command}</code></button>)}</div></details>}
+              {directRunOption && <button title={directRunOption.label} onClick={() => runAction(directRunOption.id)}><Icon name="play" size={11}/> Executar</button>}
+              {recentRunOptions.length > 0 && <details className="editor-run-menu"><summary><Icon name="play" size={11}/> Recentes</summary><div>{recentRunOptions.map((option) => <button type="button" key={`${option.cwd}:${option.command}`} onClick={(event) => { runAction(option.id); (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open') }}><span>{option.label}</span><code>{option.command}</code></button>)}</div></details>}
               {isRichPreview(selected.path) && !isBinaryPreview(selected.path) && <button title="Alternar editor e pré-visualização" onClick={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}><Icon name={previewPaths.has(selected.path) ? 'code' : 'external'} size={12}/>{previewPaths.has(selected.path) ? 'Editar' : 'Pré-visualizar'}</button>}
               {!previewPaths.has(selected.path) && <><span>Ctrl+Shift+Enter executar seleção</span><span>F1 comandos</span><span>Alt+Z wrap</span></>}
             </div>
           </div>
-          {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} />}
+          {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} />}
           <div className="editor-statusbar">
             <span>{selected.path}</span>
             <div><span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
@@ -222,68 +237,6 @@ function EditorTabs({ documents, activePath, savingPath, onSelect, onClose, onSa
   </div>
 }
 
-function executableOptions(document: EditorDocument, files: FileEntry[]): RunOption[] {
-  const cwd = parentDirectory(document.path)
-  const base = document.path.split('/').pop() || document.path
-  if (base === 'package.json') {
-    try {
-      const packageJSON = JSON.parse(document.draft) as { scripts?: Record<string, unknown>; packageManager?: string }
-      const scripts = packageJSON.scripts && typeof packageJSON.scripts === 'object' ? Object.keys(packageJSON.scripts) : []
-      const manager = packageManagerFor(cwd, packageJSON.packageManager, files)
-      return scripts.map((script) => ({ label: `Script · ${script}`, command: packageScriptCommand(manager, script), cwd }))
-    } catch { return [] }
-  }
-  const command = executableFileCommand(base)
-  return command ? [{ label: `Executar ${base}`, command, cwd }] : []
-}
-
-function packageManagerFor(cwd: string, declared: string | undefined, files: FileEntry[]) {
-  const prefix = declared?.split('@')[0]
-  if (prefix && ['npm', 'pnpm', 'yarn', 'bun'].includes(prefix)) return prefix
-  const sibling = (name: string) => files.some((entry) => entry.kind === 'file' && entry.path === (cwd === '.' ? name : `${cwd}/${name}`))
-  if (sibling('pnpm-lock.yaml')) return 'pnpm'
-  if (sibling('yarn.lock')) return 'yarn'
-  if (sibling('bun.lock') || sibling('bun.lockb')) return 'bun'
-  return 'npm'
-}
-
-function packageScriptCommand(manager: string, script: string) {
-  const name = shellQuote(script)
-  if (manager === 'yarn') return `yarn ${name}`
-  if (manager === 'bun') return `bun run ${name}`
-  if (manager === 'pnpm') return `pnpm run ${name}`
-  return `npm run ${name}`
-}
-
-function executableFileCommand(base: string) {
-  const file = shellQuote(base)
-  if (/\.(mjs|cjs|js)$/i.test(base)) return `node ${file}`
-  if (/\.(mts|cts|tsx?|jsx)$/i.test(base)) return `npx --no-install tsx ${file}`
-  if (/\.py$/i.test(base)) return `python3 ${file}`
-  if (/\.php$/i.test(base)) return `php ${file}`
-  if (/\.rb$/i.test(base)) return `ruby ${file}`
-  if (/\.(sh|bash)$/i.test(base)) return `bash ${file}`
-  if (/\.zsh$/i.test(base)) return `zsh ${file}`
-  if (/\.go$/i.test(base)) return `go run ${file}`
-  return ''
-}
-
-function selectionCommand(path: string, text: string) {
-  const code = shellQuote(text)
-  if (/\.(mjs|cjs|js|jsx)$/i.test(path)) return `node -e ${code}`
-  if (/\.(mts|cts|ts|tsx)$/i.test(path)) return `npx --no-install tsx -e ${code}`
-  if (/\.py$/i.test(path)) return `python3 -c ${code}`
-  if (/\.php$/i.test(path)) return `php -r ${code}`
-  if (/\.rb$/i.test(path)) return `ruby -e ${code}`
-  return text
-}
-
-function parentDirectory(path: string) {
-  const index = path.lastIndexOf('/')
-  return index < 0 ? '.' : path.slice(0, index) || '.'
-}
-
-function shellQuote(value: string) { return `'${value.replace(/'/g, `'"'"'`)}'` }
 function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
 function isRichPreview(path: string) { return /\.(md|mdx|markdown|html?|pdf|png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|mp4|webm|ogv|mov|m4v|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(path) }
 function isBinaryPreview(path: string) { return /\.(pdf|png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|mp4|webm|ogv|mov|m4v|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(path) }

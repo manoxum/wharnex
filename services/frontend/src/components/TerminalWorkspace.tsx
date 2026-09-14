@@ -16,12 +16,16 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   const nextID = useRef(2)
   const [tabs, setTabs] = useState<TerminalTab[]>([{ id: 1, label: 'Terminal 1' }])
   const [activeID, setActiveID] = useState(1)
+  const [editingID, setEditingID] = useState<number>()
+  const [editingLabel, setEditingLabel] = useState('')
   const runTargetRef = useRef<{ requestID: number; tabID: number } | undefined>(undefined)
   if (runRequest && runTargetRef.current?.requestID !== runRequest.id) runTargetRef.current = { requestID: runRequest.id, tabID: activeID }
 
   useEffect(() => {
     setTabs([{ id: 1, label: 'Terminal 1' }])
     setActiveID(1)
+    setEditingID(undefined)
+    setEditingLabel('')
     nextID.current = 2
   }, [session.id])
 
@@ -35,6 +39,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     const index = tabs.findIndex((item) => item.id === id)
     if (index < 0) return
     const remaining = tabs.filter((item) => item.id !== id)
+    if (editingID === id) setEditingID(undefined)
     if (!remaining.length) {
       const replacementID = nextID.current++
       setTabs([{ id: replacementID, label: `Terminal ${replacementID}` }])
@@ -45,13 +50,50 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     if (activeID === id) setActiveID(remaining[Math.min(index, remaining.length - 1)].id)
   }
 
+  function beginRename(tab: TerminalTab) {
+    setActiveID(tab.id)
+    setEditingID(tab.id)
+    setEditingLabel(tab.label)
+  }
+
+  function finishRename(id: number) {
+    const label = editingLabel.trim()
+    if (label) setTabs((items) => items.map((item) => item.id === id ? { ...item, label } : item))
+    setEditingID(undefined)
+    setEditingLabel('')
+  }
+
   return <section className={`terminal-workspace ${visible ? '' : 'terminal-workspace-hidden'}`} style={{ height }} aria-hidden={!visible}>
     <div className="terminal-tabbar">
       <div className="terminal-tabs" role="tablist" aria-label="Instâncias do terminal">
-        {tabs.map((tab) => <button type="button" role="tab" aria-selected={tab.id === activeID} className={tab.id === activeID ? 'active' : ''} key={tab.id} onClick={() => setActiveID(tab.id)}>
-          <Icon name="terminal" size={11}/><span>{tab.label}</span>
-          <i title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={(event) => { event.stopPropagation(); closeTerminal(tab.id) }}>×</i>
-        </button>)}
+        {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} key={tab.id}>
+          {editingID === tab.id ? <div className="terminal-tab-edit">
+            <Icon name="terminal" size={11}/>
+            <input
+              autoFocus
+              aria-label={`Renomear ${tab.label}`}
+              value={editingLabel}
+              onChange={(event) => setEditingLabel(event.target.value)}
+              onBlur={() => finishRename(tab.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') { event.preventDefault(); finishRename(tab.id) }
+                if (event.key === 'Escape') { event.preventDefault(); setEditingID(undefined); setEditingLabel('') }
+              }}
+            />
+          </div> : <button
+            type="button"
+            role="tab"
+            aria-selected={tab.id === activeID}
+            className="terminal-tab-select"
+            onClick={() => setActiveID(tab.id)}
+            onDoubleClick={() => beginRename(tab)}
+            title={`${tab.label} · duplo clique para renomear`}
+          >
+            <Icon name="terminal" size={11}/><span>{tab.label}</span>
+          </button>}
+          {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={10}/></button>}
+          <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}>×</button>
+        </div>)}
       </div>
       <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={12}/></button>
     </div>
