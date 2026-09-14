@@ -131,6 +131,7 @@ build-stage:
 build: build-stage
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" ensure
 	@$(MAKE) --no-print-directory storage-prune
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/source-fingerprint.sh" write
 	@printf '\nWharness build complete; backend/frontend reconciled and durable tunnel/database preserved.\n'
 
 storage-prune:

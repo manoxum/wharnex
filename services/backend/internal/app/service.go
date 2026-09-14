@@ -744,7 +744,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" && planningMode != "correct_plan" {
 		return planner.Result{}, domain.Session{}, fmt.Errorf("unsupported planning mode %q", planningMode)
 	}
-	item, err := s.refreshContext(sessionID)
+	// Attachments are resolved before the context is built, because they are
+	// part of it: an `@attach` marker that arrives after the snapshot points at
+	// material the model was never sent.
+	attachments, refusedAttachments := s.resolveMessageAttachments(sessionID, message)
+	item, err := s.refreshContextWithAttachments(sessionID, attachments)
 	if err != nil {
 		return planner.Result{}, domain.Session{}, err
 	}
@@ -760,10 +764,18 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// planner is asked — so what comes back is checked against what the operator
 	// actually wrote, never the other way round. It is resolved from the
 	// operator's own text, before Wharnex appends any scope metadata of its own.
-	crossGrant, unresolvedRefs := crossProjectGrantForRequest(item, message, requestID, parentRequestID)
+	crossGrant, unresolvedRefs := s.crossProjectGrantForRequest(item, message, requestID, parentRequestID)
+	// A reference may name a project Wharnex knows but this session has not
+	// attached. Bringing its context in is what makes the reference mean
+	// anything: without it the prompt names a project the model cannot see.
+	if attached, changed := s.attachGrantedProjectContexts(ctx, sessionID, item, crossGrant); changed {
+		item = attached
+		legend = directiveLegend(message, item.Context.Manifest)
+	}
 	message += legend
 	message = messageWithRelatedProjects(message, item.ProjectPath, item.Context.RelatedProjects, crossproject.GrantedPaths(crossGrant))
-	message = messageWithCrossProjectGrant(message, crossGrant, unresolvedRefs)
+	message = messageWithCrossProjectGrant(message, crossGrant, unresolvedRefs, s.openGrantedProjects(crossGrant))
+	message = messageWithAttachments(message, item.Context.Attachments, refusedAttachments)
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
 	if parentRequestID == "" {
@@ -3810,11 +3822,21 @@ func (s *Service) RefreshContext(sessionID string) (domain.Session, error) {
 }
 
 func (s *Service) refreshContext(sessionID string) (domain.Session, error) {
+	return s.refreshContextWithAttachments(sessionID, nil)
+}
+
+// refreshContextWithAttachments rebuilds the snapshot, optionally placing
+// external attached paths beside the related projects.
+//
+// Attachments are per-request rather than per-session: they come from one
+// prompt's own markers, so they are passed in here rather than stored, and a
+// later request without them simply rebuilds without them.
+func (s *Service) refreshContextWithAttachments(sessionID string, attachments []contextbundle.Attachment) (domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.Session{}, err
 	}
-	bundle, err := s.context.BuildWorkspace(item.ProjectPath, item.RelatedProjectPaths)
+	bundle, err := s.context.BuildWorkspaceWithAttachments(item.ProjectPath, item.RelatedProjectPaths, attachments)
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("refresh project context: %w", err)
 	}

@@ -207,7 +207,7 @@ With the supported provider, every request returns a structured `harness.turn/v1
 2. Send the request to the Harness. It prepares the agent-turn prompt and project context.
 3. Open the **ChatGPT** tab. The actual ChatGPT site is displayed inside Wharness Desktop.
 4. In the composer transport menu, enable the request ZIP, live verification tunnels, or both. The global default can be overridden per chat.
-5. Send the request. With ZIP enabled, Wharness uploads exactly one `wharness-input-<request_id>.zip` containing the prompt, refreshed context, `@file` selections and attachments. With tunnels enabled, it also publishes every configured tunnel in priority order.
+5. Send the request. With ZIP enabled, Wharness uploads exactly one `wharness-input-<request_id>.zip` containing the prompt (with its inline `@file`/`@ref` markers), refreshed context, referenced files and attachments. With tunnels enabled, it also publishes every configured tunnel in priority order.
 6. Wait for ChatGPT to return `wharness-bundle-<request_id>.zip`, then initiate its download in the ChatGPT surface.
 7. Wharness imports the bundle automatically after the download starts. Answers appear in chat; only completed `change` bundles expose and execute a plan.
 

@@ -70,20 +70,66 @@ func ParseReferences(message string) []Reference {
 // ValidName reports whether a string can name a project in this protocol.
 func ValidName(name string) bool { return directives.ValidProjectName(name) }
 
+// Candidate is a project a reference may resolve to.
+//
+// It deliberately covers more than the projects currently attached to the
+// session: an operator naming a repository they worked in last week is naming
+// something real, and making them reopen it first only to write one sentence
+// about it is asking them to restage their workspace to ask a question.
+type Candidate struct {
+	Name        string
+	ProjectPath string
+	// Attached is true when this project's context is already part of the
+	// session's snapshot. A resolved candidate that is not attached tells the
+	// caller it has to bring that context in before the reference means
+	// anything.
+	Attached bool
+}
+
+// CandidatesFrom builds the resolution set from the contexts already attached
+// to the session plus every project Wharnex has worked on before.
+//
+// Attached contexts come first so they win the name, which matters when a
+// workspace has two projects whose directories share a basename: the one the
+// operator already has in front of them is the one they mean.
+func CandidatesFrom(related []domain.RelatedProjectContext, known []domain.KnownProjectRef) []Candidate {
+	candidates := make([]Candidate, 0, len(related)+len(known))
+	for _, project := range related {
+		candidates = append(candidates, Candidate{Name: project.Name, ProjectPath: project.ProjectPath, Attached: true})
+	}
+	for _, project := range known {
+		candidates = append(candidates, Candidate{Name: project.Name, ProjectPath: project.ProjectPath})
+	}
+	return candidates
+}
+
 // Resolve turns parsed references into the grant a request carries.
 //
-// A reference resolves only against the session's own related projects, folding
-// case and comparing both the namespace name the context bundle assigned and
-// the project directory's own basename — the two spellings an operator would
-// reasonably use. Anything else is returned as an unresolved name so the caller
-// can tell the operator which reference did not land, rather than quietly
-// dropping the authority they thought they had given.
-func Resolve(references []Reference, rootRequestID string, related []domain.RelatedProjectContext) (domain.CrossProjectGrant, []string) {
+// A reference resolves against the candidates it is given, folding case and
+// comparing both the name the candidate carries and the project directory's own
+// basename — the two spellings an operator would reasonably use. Anything else
+// is returned as an unresolved name so the caller can tell the operator which
+// reference did not land, rather than quietly dropping the authority they
+// thought they had given.
+//
+// Resolving is not the same as being writable. It makes a name mean a project
+// and its context transportable; whether a change may actually land there is
+// decided later, against that project's own live session.
+func Resolve(references []Reference, rootRequestID string, candidates []Candidate) (domain.CrossProjectGrant, []string) {
 	grant := domain.CrossProjectGrant{RootRequestID: strings.TrimSpace(rootRequestID)}
-	index := make(map[string]domain.RelatedProjectContext, len(related)*2)
-	for _, project := range related {
-		index[fold(project.Name)] = project
-		index[fold(path.Base(project.ProjectPath))] = project
+	index := make(map[string]Candidate, len(candidates)*2)
+	for _, project := range candidates {
+		for _, spelling := range []string{fold(project.Name), fold(path.Base(project.ProjectPath))} {
+			if spelling == "" {
+				continue
+			}
+			// First writer wins: attached contexts are listed first precisely so
+			// that a shared basename resolves to the project already in front of
+			// the operator.
+			if _, taken := index[spelling]; !taken {
+				index[spelling] = project
+			}
+		}
 	}
 	byPath := map[string]int{}
 	var unresolved []string
@@ -100,7 +146,7 @@ func Resolve(references []Reference, rootRequestID string, related []domain.Rela
 				continue
 			}
 			grant.Projects = append(grant.Projects, domain.CrossProjectGrantee{
-				Name: reference.Name, ProjectPath: project.ProjectPath,
+				Name: reference.Name, ProjectPath: project.ProjectPath, Attached: project.Attached,
 			})
 			position = len(grant.Projects) - 1
 			byPath[project.ProjectPath] = position

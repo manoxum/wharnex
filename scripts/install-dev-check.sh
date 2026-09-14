@@ -36,7 +36,7 @@ else
 fi
 grep -Fqx 'StartupWMClass=wharness-desktop' "$desktop"
 grep -Fqx "export WHARNESS_DESKTOP_USER_DATA_DIR='$fixture_home/.config/wharnex-snap-test'" "$launcher"
-grep -Fqx 'exec make start' "$launcher"
+grep -Fqx "exec '$fixture_root/scripts/launcher.sh'" "$launcher"
 test -x "$desktop"
 
 mkdir -p "$fixture_home/.config/wharness-desktop"

@@ -8,7 +8,10 @@ import { stateLabel } from '../lib/risk'
 import { addChatAttachments, uniquifyPastedChatFiles } from '../lib/chatAttachments'
 import { MessageAttachmentCard, ComposerAttachmentChip } from './ChatAttachmentCard'
 import { MarkdownContent } from './MarkdownContent'
-import { fileReferenceQuery, matchingProjectFiles } from '../lib/projectFileReferences'
+import { applyDirectiveSuggestion, canonicalDirective, directiveQuery, directiveSuggestions, parseDirectives, type DirectiveQuery, type ReferenceableProject } from '../lib/composerDirectives'
+import { ComposerDirectiveOverlay } from './ComposerDirectiveOverlay'
+import { ComposerAttachmentPanel } from './ComposerAttachmentPanel'
+import { desktopBridge } from '../lib/desktop'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
 import { useProgressiveChatHistory, type ChatViewportStore } from './useProgressiveChatHistory'
@@ -151,7 +154,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const [attachments, setAttachments] = useState<File[]>(initialFileDraft.attachments)
   const [attachmentError, setAttachmentError] = useState('')
   const [projectFiles, setProjectFiles] = useState<string[]>(initialFileDraft.projectFiles)
-  const [fileQuery, setFileQuery] = useState<{ start: number; end: number; query: string }>()
+  const [fileQuery, setFileQuery] = useState<DirectiveQuery>()
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [contextIdentityCopied, setContextIdentityCopied] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -162,6 +165,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const [editingQueueText, setEditingQueueText] = useState('')
   const [todoOpen, setTodoOpen] = useState(false)
   const [contextChannelOpen, setContextChannelOpen] = useState(false)
+  const [attachmentsPanelOpen, setAttachmentsPanelOpen] = useState(false)
   const [expandedWhxNoticeRunId, setExpandedWhxNoticeRunId] = useState('')
   const [inspectedArtifact, setInspectedArtifact] = useState<ChatArtifactKind | ''>('')
   const [inspectedChangeFile, setInspectedChangeFile] = useState<ChatChangeFile>()
@@ -181,12 +185,27 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const { endRef, hasOlder, hiddenItemCount, loadOlder, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
   const whxNoticeRuns = useMemo(() => indexWhxNoticeRuns(visibleItems), [visibleItems])
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
-  const fileSuggestions = useMemo(() => fileQuery ? matchingProjectFiles(eligibleProjectFiles, fileQuery.query, projectFiles) : [], [eligibleProjectFiles, fileQuery, projectFiles])
+  // `@ref` can only name a project this workspace already has bound, which is
+  // also the ceiling on what a request may be granted authority over. Offering
+  // anything else would invite the operator to write a reference the engine is
+  // bound to refuse.
+  const referenceableProjects = useMemo<ReferenceableProject[]>(() => (session.context.related_projects || []).map((project) => ({
+    name: project.name, projectPath: project.project_path,
+    files: project.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'),
+  })), [session.context.related_projects])
+  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects) : [], [eligibleProjectFiles, fileQuery, referenceableProjects])
+  const attachedPaths = useMemo(() => parseDirectives(message).filter((directive) => directive.kind === 'attach'), [message])
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
     const draft = loadComposerDraft(session.project_path, activeChatId)
     const fileDraft = loadComposerFileDraft(session.project_path, activeChatId)
-    setMessage(draft.message); setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles(fileDraft.projectFiles); setAttachmentError(''); setContentView('conversation'); setExpandedWhxNoticeRunId('')
+    // References used to live in a list beside the composer. A draft saved under
+    // that model is folded into inline markers once, so an operator who left a
+    // draft open across the change does not silently lose the files they had
+    // already chosen.
+    const migrated = fileDraft.projectFiles.map((path) => canonicalDirective({ kind: 'file', value: path })).join(' ')
+    setMessage(migrated ? [draft.message.trim(), migrated].filter(Boolean).join(' ') : draft.message)
+    setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setContentView('conversation'); setExpandedWhxNoticeRunId('')
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
   useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
@@ -219,11 +238,6 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   function persistAttachments(nextAttachments: File[]) {
     saveComposerFileDraft(session.project_path, activeChatId, { attachments: nextAttachments, projectFiles })
     setAttachments(nextAttachments)
-  }
-
-  function persistProjectFiles(nextProjectFiles: string[]) {
-    saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles: nextProjectFiles })
-    setProjectFiles(nextProjectFiles)
   }
 
   function clearComposer() {
@@ -278,7 +292,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
 
   function updateMessage(value: string, caret: number) {
     setMessage(value)
-    setFileQuery(fileReferenceQuery(value, caret))
+    setFileQuery(directiveQuery(value, caret))
   }
 
   function startComposerResize(event: ReactPointerEvent<HTMLDivElement>) {
@@ -314,12 +328,31 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     setComposerHeight((current) => clampComposerHeight(current + (event.key === 'ArrowUp' ? 24 : -24)))
   }
 
-  function selectProjectFile(path: string) {
+  // The directive is written where it was being typed, already canonical, so
+  // the chip the operator sees and the marker the model receives are the same
+  // string. A project row narrows the query instead of ending it, because
+  // naming a project and naming a file inside it are one intent at two levels.
+  // There is nothing to autocomplete for a path outside every project, so the
+  // operator picks it. The native picker is also the only affordance that can
+  // confirm the path exists before it reaches the prompt.
+  async function pickAttachment() {
+    const picked = await desktopBridge()?.projects.pickDirectory({ title: 'Anexar pasta ao contexto' })
+    if (!picked || picked.cancelled || !picked.path) return
+    selectDirective({ value: picked.path, label: picked.path })
+    setAttachmentsPanelOpen(true)
+  }
+
+  function selectDirective(suggestion: { value: string; label: string; continues?: boolean }) {
     if (!fileQuery) return
-    setMessage((current) => `${current.slice(0, fileQuery.start)}${current.slice(fileQuery.end)}`)
-    persistProjectFiles([...new Set([...projectFiles, path])])
-    setFileQuery(undefined)
-    window.setTimeout(() => textareaRef.current?.focus(), 0)
+    const applied = applyDirectiveSuggestion(message, fileQuery, suggestion)
+    setMessage(applied.text)
+    setFileQuery(suggestion.continues ? directiveQuery(applied.text, applied.caret) : undefined)
+    window.setTimeout(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(applied.caret, applied.caret)
+    }, 0)
   }
 
   async function writeClipboard(text: string) {
@@ -455,16 +488,17 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       />
       <div className="composer-scroll-area">
       {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
-      {projectFiles.length ? <div className="composer-file-references" aria-label="Ficheiros do projeto referenciados">{projectFiles.map((path) => <span className="composer-file-reference-chip" key={path}><Icon name="file" size={11}/><b>{path}</b><button type="button" onClick={() => persistProjectFiles(projectFiles.filter((item) => item !== path))} aria-label={`Remover referência ${path}`}><Icon name="close" size={9}/></button></span>)}</div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
-      <div className="composer-editor-shell"><textarea ref={textareaRef} lang="pt-PT" spellCheck autoCorrect="on" autoCapitalize="sentences" disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => updateMessage(event.target.value, event.target.selectionStart)} onClick={(event) => setFileQuery(fileReferenceQuery(event.currentTarget.value, event.currentTarget.selectionStart))} onPaste={pasteFiles} onKeyDown={(event) => {
+      {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={setMessage} onClose={() => setAttachmentsPanelOpen(false)}/>}
+      <div className="composer-editor-shell"><ComposerDirectiveOverlay text={message} scrollRef={textareaRef}/><textarea ref={textareaRef} className="composer-directive-input" lang="pt-PT" spellCheck autoCorrect="on" autoCapitalize="sentences" disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => updateMessage(event.target.value, event.target.selectionStart)} onClick={(event) => setFileQuery(directiveQuery(event.currentTarget.value, event.currentTarget.selectionStart))} onKeyUp={(event) => setFileQuery(directiveQuery(event.currentTarget.value, event.currentTarget.selectionStart))} onPaste={pasteFiles} onKeyDown={(event) => {
         if (fileSuggestions.length && event.key === 'Escape') { event.preventDefault(); setFileQuery(undefined); return }
-        if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); selectProjectFile(fileSuggestions[0]); return }
+        if (fileQuery?.kind === 'attach' && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); void pickAttachment(); return }
+        if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); selectDirective(fileSuggestions[0]); return }
         if (event.key !== 'Enter' || event.shiftKey) return
         event.preventDefault()
         if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
         else event.currentTarget.form?.requestSubmit()
-      }} placeholder={composerPlaceholder || "Pergunte, analise, diagnostique ou descreva uma alteração…"} rows={3}/>{fileQuery && <div className="file-reference-menu" role="listbox" aria-label="Localizar ficheiro do projeto" data-chatgpt-overlay-blocker="true"><header><span>@file</span><small>{fileSuggestions.length ? 'Escolha um ficheiro do contexto' : 'Nenhum ficheiro elegível encontrado'}</small></header>{fileSuggestions.map((path, index) => <button type="button" role="option" aria-selected={index === 0} key={path} onMouseDown={(event) => event.preventDefault()} onClick={() => selectProjectFile(path)}><Icon name="file" size={12}/><span>{path}</span>{index === 0 && <kbd>Enter</kbd>}</button>)}</div>}</div>
+      }} placeholder={composerPlaceholder || "Pergunte, analise, diagnostique ou descreva uma alteração…"} rows={3}/>{fileQuery && fileQuery.kind === 'attach' && <div className="file-reference-menu attach" role="listbox" aria-label="Anexar caminho externo" data-chatgpt-overlay-blocker="true"><header><span>@attach</span><small>Escolha um ficheiro ou pasta fora do projeto</small></header><button type="button" role="option" aria-selected onMouseDown={(event) => event.preventDefault()} onClick={() => void pickAttachment()}><Icon name="folder" size={12}/><span>Escolher pasta…</span><kbd>Enter</kbd></button>{fileQuery.query.startsWith('/') && <button type="button" role="option" aria-selected={false} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective({ value: fileQuery.query, label: fileQuery.query })}><Icon name="file" size={12}/><span>Usar {fileQuery.query}</span></button>}</div>}{fileQuery && fileQuery.kind !== 'attach' && <div className={`file-reference-menu ${fileQuery.kind}`} role="listbox" aria-label={fileQuery.kind === 'ref' ? 'Referenciar outro projeto' : 'Localizar ficheiro do projeto'} data-chatgpt-overlay-blocker="true"><header><span>@{fileQuery.kind}</span><small>{directiveMenuHint(fileQuery, fileSuggestions.length, referenceableProjects.length)}</small></header>{fileSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === 0} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective(suggestion)}><Icon name={suggestion.continues ? 'workspace' : 'file'} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{index === 0 && <kbd>Enter</kbd>}</button>)}</div>}</div>
       </div>
       <div className="composer-footer">
         <div className="composer-toolbar-row"><div className="composer-action-row" aria-label="Opções da próxima iteração">
@@ -474,6 +508,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <ArtifactToggle kind="error" label="Erro" selected={selectedArtifacts.error} required={artifactRequired?.error} disabled={!session.last_repair_error && session.last_execution?.success !== false && !artifactRequired?.error} onToggle={onToggleArtifact} onInspect={setInspectedArtifact} inspectable={Boolean(artifactContent?.error)} />
           <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(Array.from(event.target.files || []))}/>
           <button type="button" className={attachments.length ? 'composer-round-action selected' : 'composer-round-action'} disabled={!attachmentsEnabled || Boolean(preparedAttachmentCount)} onClick={() => fileInputRef.current?.click()} title={attachmentsEnabled ? `Ficheiros do utilizador${attachments.length ? ` · ${attachments.length} selecionado(s)` : ''}` : 'Anexos diretos requerem o Desktop com planner manual'} aria-label="Anexar ficheiros"><Icon name="file" size={12}/>{attachments.length > 0 && <b>{attachments.length}</b>}</button>
+          {attachedPaths.length > 0 && <button type="button" className={attachmentsPanelOpen ? 'composer-round-action selected' : 'composer-round-action'} aria-pressed={attachmentsPanelOpen} onClick={() => setAttachmentsPanelOpen((open) => !open)} title="Escolher o que é enviado de cada caminho anexado" aria-label="Conteúdo dos caminhos anexados"><Icon name="folder" size={12}/><b>{attachedPaths.length}</b></button>}
           <span className="composer-action-divider" />
           <span className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
@@ -720,4 +755,16 @@ function formatMessageTime(value?: string) {
   const date = value ? new Date(value) : new Date()
   if (Number.isNaN(date.getTime())) return '—'
   return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+// What the directive menu says when it has nothing to offer.
+//
+// "Nothing found" is the wrong answer to "@ref: in a workspace with one bound
+// project": the operator has not made a mistake, there is simply nothing else
+// bound yet, and saying so points at the action that fixes it.
+function directiveMenuHint(query: DirectiveQuery, results: number, boundProjects: number) {
+  if (results) return query.kind === 'ref' ? 'Escolha um projeto vinculado ou um ficheiro dele' : 'Escolha um ficheiro do contexto'
+  if (query.kind === 'file') return 'Nenhum ficheiro elegível encontrado'
+  if (!boundProjects) return 'Nenhum outro projeto vinculado a esta janela'
+  return 'Nenhum projeto ou ficheiro corresponde'
 }

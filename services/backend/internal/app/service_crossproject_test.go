@@ -50,20 +50,6 @@ func TestAuthorizeCrossProjectUnitsRefusesAnUngrantedProject(t *testing.T) {
 	}
 }
 
-// A granted project that is no longer open cannot receive a change: the session
-// carries the modes that decide how a change reaches that host, and there is no
-// safe default to invent in its absence.
-func TestAuthorizeCrossProjectUnitsRefusesAProjectThatIsNotOpen(t *testing.T) {
-	service := newCrossProjectService(t)
-	current := crossProjectSession(grantedTo("flowcore", "/home/op/flowcore"))
-	plan := &domain.ExecutionPlan{CrossProject: []domain.CrossProjectUnit{crossProjectUnit("flowcore")}}
-
-	_, err := service.authorizeCrossProjectUnits(current, plan)
-	if err == nil || !strings.Contains(err.Error(), "no longer open") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
 // Installing a derived plan over a project's own pending work would discard it.
 // The refusal names the state so the operator knows what to finish first.
 func TestAuthorizeCrossProjectUnitsRefusesABusyProject(t *testing.T) {
@@ -105,16 +91,17 @@ func TestAuthorizeCrossProjectUnitsResolvesAnOpenGrantedProject(t *testing.T) {
 // operator gave at the start and cannot acquire more by naming a new project in
 // a later round.
 func TestCrossProjectGrantIsInheritedByContinuationsAndReplacedByNewRequests(t *testing.T) {
+	service := newCrossProjectService(t)
 	existing := grantedTo("flowcore", "/home/op/flowcore")
 	item := crossProjectSession(existing)
 	item.Context.RelatedProjects = []domain.RelatedProjectContext{{Name: "siage", ProjectPath: "/home/op/siage"}}
 
-	inherited, _ := crossProjectGrantForRequest(item, "now also change @ref:siage", "req_2", "req_1")
+	inherited, _ := service.crossProjectGrantForRequest(item, "now also change @ref:siage", "req_2", "req_1")
 	if inherited != existing {
 		t.Fatalf("a continuation must inherit the original grant unchanged, got %#v", inherited)
 	}
 
-	fresh, unresolved := crossProjectGrantForRequest(item, "now change @ref:siage", "req_3", "")
+	fresh, unresolved := service.crossProjectGrantForRequest(item, "now change @ref:siage", "req_3", "")
 	if fresh == nil || len(fresh.Projects) != 1 || fresh.Projects[0].ProjectPath != "/home/op/siage" {
 		t.Fatalf("a new Main Request must re-derive the grant from its own prompt, got %#v", fresh)
 	}
@@ -124,7 +111,7 @@ func TestCrossProjectGrantIsInheritedByContinuationsAndReplacedByNewRequests(t *
 
 	// A Main Request with no directive grants nothing, replacing whatever the
 	// previous one carried.
-	cleared, _ := crossProjectGrantForRequest(item, "just a question", "req_4", "")
+	cleared, _ := service.crossProjectGrantForRequest(item, "just a question", "req_4", "")
 	if cleared != nil {
 		t.Fatalf("a prompt with no @ref: must grant nothing, got %#v", cleared)
 	}
@@ -144,7 +131,7 @@ func TestPromptStatesTheGrantWithoutContradictingIt(t *testing.T) {
 	if strings.Contains(granted, "may mutate only the primary project") {
 		t.Fatalf("with a grant the contradicting rule must be gone: %q", granted)
 	}
-	full := messageWithCrossProjectGrant(granted, grantedTo("flowcore", "/home/op/flowcore"), []string{"siage"})
+	full := messageWithCrossProjectGrant(granted, grantedTo("flowcore", "/home/op/flowcore"), []string{"siage"}, map[string]bool{"/home/op/flowcore": true})
 	if !strings.Contains(full, "cross_project") || !strings.Contains(full, "flowcore") {
 		t.Fatalf("the grant must name the field and the project: %q", full)
 	}
@@ -152,5 +139,50 @@ func TestPromptStatesTheGrantWithoutContradictingIt(t *testing.T) {
 	// @ref: and got silence would reasonably think it worked.
 	if !strings.Contains(full, "siage") {
 		t.Fatalf("an unresolved reference must be reported to the planner: %q", full)
+	}
+}
+
+// Referring to a project and changing it are different authorities. A name
+// resolves from what Wharnex has worked on before; a change needs the live
+// session that carries the modes the operator chose for that project.
+func TestGrantResolvesAKnownProjectThatIsNotAttached(t *testing.T) {
+	service := newCrossProjectService(t)
+	if err := service.store.Put(domain.Session{ID: "ses_known", ProjectPath: "/home/op/flowcore", State: "ready", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	item := crossProjectSession(nil)
+
+	grant, unresolved := service.crossProjectGrantForRequest(item, "alinha com @ref:flowcore", "req_1", "")
+	if grant == nil || len(grant.Projects) != 1 || grant.Projects[0].ProjectPath != "/home/op/flowcore" {
+		t.Fatalf("a project Wharnex has worked on before must resolve: %#v (unresolved=%#v)", grant, unresolved)
+	}
+	if grant.Projects[0].Attached {
+		t.Fatal("a project that is not in the session snapshot must be reported as unattached so its context is brought in")
+	}
+}
+
+// A project the planner cannot change is named as such in the prompt, so the
+// effort goes where it can land instead of coming back as a refused entry.
+func TestGrantPromptNamesTheProjectsAChangeCannotReach(t *testing.T) {
+	granted := messageWithCrossProjectGrant("do it", grantedTo("flowcore", "/home/op/flowcore"), nil, map[string]bool{})
+	if !strings.Contains(granted, "not currently open") || !strings.Contains(granted, "flowcore") {
+		t.Fatalf("prompt=%q", granted)
+	}
+	reachable := messageWithCrossProjectGrant("do it", grantedTo("flowcore", "/home/op/flowcore"), nil, map[string]bool{"/home/op/flowcore": true})
+	if strings.Contains(reachable, "not currently open") {
+		t.Fatalf("an open project must not be reported as unreachable: %q", reachable)
+	}
+}
+
+// The refusal says what is different about this case: the project is readable,
+// the change is not, and the remedy is opening it.
+func TestClosedGrantedProjectRefusalNamesTheRemedy(t *testing.T) {
+	service := newCrossProjectService(t)
+	current := crossProjectSession(grantedTo("flowcore", "/home/op/flowcore"))
+	plan := &domain.ExecutionPlan{CrossProject: []domain.CrossProjectUnit{crossProjectUnit("flowcore")}}
+
+	_, err := service.authorizeCrossProjectUnits(current, plan)
+	if err == nil || !strings.Contains(err.Error(), "not open") || !strings.Contains(err.Error(), "/home/op/flowcore") {
+		t.Fatalf("err=%v", err)
 	}
 }

@@ -7,6 +7,7 @@ LOG_DIR="$ROOT/.harness/logs"
 PID_FILE="$RUN_DIR/coordinator.pid"
 LOG_FILE="$LOG_DIR/desktop.log"
 BUILD_STAMP="$ROOT/.harness/build-success"
+SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
 # Optional per-checkout overrides (Electron profile dir, etc). Gitignored.
 [ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
 
@@ -31,28 +32,8 @@ WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recover
 build_required=''
 if [ ! -f "$BUILD_STAMP" ]; then
   build_required='no successful build is recorded'
-elif find \
-  "$ROOT/Makefile" \
-  "$ROOT/compose.yml" \
-  "$ROOT/scripts" \
-  "$ROOT/services/backend" \
-  "$ROOT/services/tunnel" \
-  "$ROOT/services/frontend/src" \
-  "$ROOT/services/frontend/index.html" \
-  "$ROOT/services/frontend/package.json" \
-  "$ROOT/services/frontend/package-lock.json" \
-  "$ROOT/services/frontend/vite.config.ts" \
-  "$ROOT/services/frontend/tsconfig.json" \
-  "$ROOT/services/frontend/tsconfig.app.json" \
-  "$ROOT/services/frontend/tsconfig.node.json" \
-  "$ROOT/services/desktop" \
-  -type f -newer "$BUILD_STAMP" \
-  ! -path '*/node_modules/*' \
-  ! -path '*/dist/*' \
-  ! -name '*.log' \
-  ! -name '*.tsbuildinfo' \
-  -print -quit 2>/dev/null | grep -q .; then
-  build_required='source/configuration files changed'
+elif ! WHARNESS_ROOT="$ROOT" "$SOURCE_FINGERPRINT" matches; then
+  build_required='source fingerprint changed'
 fi
 
 if [ -n "$build_required" ]; then

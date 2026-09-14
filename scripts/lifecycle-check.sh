@@ -4,6 +4,10 @@ set -eu
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 MAKEFILE="$ROOT/Makefile"
 START="$ROOT/scripts/start.sh"
+LAUNCHER="$ROOT/scripts/launcher.sh"
+SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
+SOURCE_FINGERPRINT_CHECK="$ROOT/scripts/source-fingerprint-check.sh"
+LAUNCHER_CHECK="$ROOT/scripts/launcher-check.sh"
 INSTALL_DEV="$ROOT/scripts/install-dev.sh"
 INSTALL_DEV_CHECK="$ROOT/scripts/install-dev-check.sh"
 STOP="$ROOT/scripts/stop.sh"
@@ -84,6 +88,20 @@ if [ ! -x "$INSTALL_DEV_CHECK" ]; then
   echo 'lifecycle regression: install-dev needs its Snap/XDG launcher regression check' >&2
   exit 1
 fi
+if [ ! -x "$LAUNCHER" ] || [ ! -x "$SOURCE_FINGERPRINT" ]; then
+  echo 'lifecycle regression: desktop launcher needs splash and source-fingerprint helpers' >&2
+  exit 1
+fi
+if [ ! -x "$SOURCE_FINGERPRINT_CHECK" ] || [ ! -x "$LAUNCHER_CHECK" ]; then
+  echo 'lifecycle regression: launcher fingerprint/splash requires behavioral regression checks' >&2
+  exit 1
+fi
+WHARNESS_ROOT="$ROOT" "$SOURCE_FINGERPRINT_CHECK"
+WHARNESS_ROOT="$ROOT" "$LAUNCHER_CHECK"
+if ! grep -Fq 'launcher-splash.mjs' "$LAUNCHER" || ! grep -Fq 'SPLASH_READY_FILE' "$LAUNCHER" || ! grep -Fq 'make stop && make build && make start' "$LAUNCHER"; then
+  echo 'lifecycle regression: launcher must splash before a source-change build/restart' >&2
+  exit 1
+fi
 WHARNESS_ROOT="$ROOT" "$INSTALL_DEV_CHECK"
 if ! grep -Fq 'sudo systemctl start docker.service' "$ROOT/scripts/docker-daemon-guard.sh"; then
   echo 'lifecycle regression: Docker lifecycle guard must start an inactive Docker service' >&2
@@ -93,7 +111,7 @@ if grep -Eq 'database\.sh.*stop|stack\.sh.*(stop|down)' "$STOP" || printf '%s\n'
   echo 'lifecycle regression: make stop must never stop the persistent Compose stack' >&2
   exit 1
 fi
-if ! grep -Fq "Wharnex build is required" "$START" || ! grep -Fq '(cd "$ROOT" && make build)' "$START"; then
+if ! grep -Fq "Wharnex build is required" "$START" || ! grep -Fq '(cd "$ROOT" && make build)' "$START" || ! grep -Fq 'source fingerprint changed' "$START"; then
   echo 'lifecycle regression: make start must rebuild a missing or stale application before startup' >&2
   exit 1
 fi

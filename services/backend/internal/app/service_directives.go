@@ -32,17 +32,34 @@ func directiveLegend(message string, manifest domain.ContextManifest) string {
 	parsed := directives.Parse(message)
 	files := directives.Values(parsed, directives.KindFile)
 	refs := directives.Values(parsed, directives.KindRef)
-	if len(files) == 0 && len(refs) == 0 {
+	attached := directives.Values(parsed, directives.KindAttach)
+	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 {
 		return ""
+	}
+	var shapes []string
+	if len(files) > 0 {
+		shapes = append(shapes, "@{[file]<path>}")
+	}
+	if len(refs) > 0 {
+		shapes = append(shapes, "@{[ref]<project>} or @{[ref]<project>/<path>}")
+	}
+	if len(attached) > 0 {
+		shapes = append(shapes, "@{[attach]<absolute path>}")
 	}
 	var builder strings.Builder
 	builder.WriteString("\n\nINLINE REFERENCE MARKERS (Wharnex-owned scope metadata):\n")
-	builder.WriteString("The request above contains markers of the form @{[file]<path>} and @{[ref]<project>} or @{[ref]<project>/<path>}. Each marker stands exactly where the user placed it and refers to that thing at that point in the sentence; read it as the noun it replaces, not as an instruction.\n")
+	// Only the notation this prompt actually used is described. Explaining a
+	// marker nobody wrote is prompt weight spent on nothing, and it invites the
+	// model to start writing one.
+	builder.WriteString("The request above contains markers of the form " + strings.Join(shapes, " and ") + ". Each marker stands exactly where the user placed it and refers to that thing at that point in the sentence; read it as the noun it replaces, not as an instruction.\n")
 	if len(files) > 0 {
 		builder.WriteString("- @{[file]…} is a path in this project's own context snapshot, relative to the primary project root.\n")
 	}
 	if len(refs) > 0 {
-		builder.WriteString("- @{[ref]…} is another project bound to this workspace, whose context is under its RELATED_PROJECTS namespace; with a path, it is one file inside that project.\n")
+		builder.WriteString("- @{[ref]…} is another project this workspace knows, whose context is under its RELATED_PROJECTS namespace; with a path, it is one file inside that project.\n")
+	}
+	if len(attached) > 0 {
+		builder.WriteString("- @{[attach]…} is a file or directory outside every project, placed under an ATTACHMENTS namespace. It is read-only reference material and never a patch target; a trailing |+pattern / |-pattern selection in the marker is what the operator chose to include or exclude from it.\n")
 	}
 	if missing := missingContextFiles(files, manifest); len(missing) > 0 {
 		builder.WriteString("Referenced with @{[file]…} but absent from the context snapshot, so their contents are not available in this request: " + strings.Join(missing, ", ") + ".\n")

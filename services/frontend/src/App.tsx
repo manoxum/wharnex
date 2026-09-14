@@ -69,7 +69,10 @@ import { appliedChangePresentationItems, buildChangeSummary, mergeAppliedChangeP
 import { confirmDialog } from './lib/appDialog'
 import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable, promptGPTRepairDetail } from './lib/plannerRecovery'
 import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
-import { projectFileReferenceSuffix } from './lib/projectFileReferences'
+// References are written inline now, so they travel inside the sentence the
+// operator wrote rather than as a list appended after it. Canonicalizing here
+// means the transcript shows exactly the markers the engine will re-parse.
+import { canonicalizeDirectives, projectFileReferenceSuffix } from './lib/composerDirectives'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
 import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest } from './lib/pendingRequest'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
@@ -1420,7 +1423,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       naming: { state: 'provisional', attempts: targetChat.naming?.attempts || 0 },
     })
     try {
-      const response = await api.message(targetSession.id, message + attachmentPromptSuffix(attachments) + projectFileReferenceSuffix(projectFiles), requestMode)
+      const response = await api.message(targetSession.id, canonicalizeDirectives(message) + attachmentPromptSuffix(attachments) + projectFileReferenceSuffix(projectFiles), requestMode)
       const prompt = response.manual_prompt || response.session.last_manual_prompt || ''
       const turn = response.session.last_turn || response.turn
       const requestId = response.session.last_request_id || turn?.request_id || ''
@@ -1583,7 +1586,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: [queued, ...(current[activeChatId] || [])] }))
       return
     }
-    try { await commentOnActiveTask(queued.message + projectFileReferenceSuffix(queued.projectFiles), queued.attachments) }
+    try { await commentOnActiveTask(canonicalizeDirectives(queued.message) + projectFileReferenceSuffix(queued.projectFiles), queued.attachments) }
     catch (error) {
       setQueuedRequestsByChat((current) => ({ ...current, [activeChatId]: [queued, ...(current[activeChatId] || [])] }))
       setError(messageOf(error))

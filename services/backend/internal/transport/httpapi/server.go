@@ -18,6 +18,7 @@ import (
 	"kernl.local/harness/backend/internal/app"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/config"
+	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/documentpreview"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/projectconfig"
@@ -152,6 +153,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entry", a.artifactEntry)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
+	mux.HandleFunc("POST /api/sessions/{id}/attachment/inspection", a.attachmentInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
 	mux.HandleFunc("PUT /api/sessions/{id}/related-projects", a.relatedProjects)
 	mux.HandleFunc("GET /api/sessions/{id}/project-config", a.projectConfig)
@@ -1621,6 +1623,28 @@ func (a *API) contextInspection(w http.ResponseWriter, r *http.Request) {
 	inspection, err := a.service.ContextInspection(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "context_inspection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
+}
+
+// attachmentInspection previews one `@attach` marker exactly as a request would
+// resolve it, so the panel that configures a selection and the request that
+// sends it can never disagree about what it means.
+func (a *API) attachmentInspection(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Marker string `json:"marker"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	inspection, err := a.service.InspectAttachment(r.PathValue("id"), body.Marker)
+	if err != nil {
+		if errors.Is(err, contextbundle.ErrAttachmentDenied) {
+			writeError(w, http.StatusForbidden, "attachment_denied", err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, "attachment_inspection_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, inspection)

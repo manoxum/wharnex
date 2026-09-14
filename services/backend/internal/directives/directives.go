@@ -33,12 +33,17 @@ import (
 	"strings"
 )
 
-// Kind is which of the two directives this is.
+// Kind is which directive this is.
 type Kind string
 
 const (
 	KindFile Kind = "file"
 	KindRef  Kind = "ref"
+	// KindAttach names a file or directory outside the project. It is the one
+	// directive whose value is an absolute host path, because that is the whole
+	// point of it: the operator is pointing at something the project does not
+	// contain. It grants reading, never writing.
+	KindAttach Kind = "attach"
 )
 
 const (
@@ -48,6 +53,12 @@ const (
 	// MaxDirectives bounds how many one prompt may carry, so a pathological
 	// paste cannot turn into unbounded work downstream.
 	MaxDirectives = 128
+	// MaxAttachRules bounds the include/exclude patterns one attachment may
+	// carry. They travel inside the marker, so an unbounded list would be an
+	// unbounded prompt.
+	MaxAttachRules = 32
+	// MaxAttachPathLength bounds an attachment's absolute path.
+	MaxAttachPathLength = 4096
 )
 
 // pattern matches both spellings in one pass, so a prompt mixing them — which
@@ -56,7 +67,12 @@ const (
 //
 // The canonical form is matched first because `@{[file]…}` would otherwise also
 // satisfy nothing in the typed alternatives and be left as prose.
-var pattern = regexp.MustCompile(`@\{\[(file|ref)\]([^{}\n]*)\}|@(file|ref):(?:<<([^<>\n]*)>>|([^\s<>{}]*))`)
+// The unbracketed alternative stops at the punctuation that ends a clause as
+// well as at whitespace, because a directive normally sits inside a sentence:
+// "change @ref:core, then stop" refers to `core`, not to `core,`. A value that
+// genuinely contains one of those characters needs the bracketed form, which is
+// what it is for.
+var pattern = regexp.MustCompile(`@\{\[(file|ref|attach)\]([^{}\n]*)\}|@(file|ref|attach):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
 
 // Directive is one parsed reference, with the byte range it occupied.
 type Directive struct {
@@ -64,10 +80,15 @@ type Directive struct {
 	// Value is the whole payload: a project-relative path for KindFile, and
 	// `project` or `project/path` for KindRef.
 	Value string
-	// Project and Path split Value for KindRef. For KindFile, Path is Value and
-	// Project is empty.
+	// Project and Path split Value for KindRef. For KindFile and KindAttach,
+	// Path is the path half of Value and Project is empty.
 	Project string
 	Path    string
+	// Rules is the include/exclude selection for a KindAttach directive that
+	// points at a directory. It is deliberately the same shape the project's own
+	// context configuration uses, so attaching a folder is configured with the
+	// same vocabulary — and by the same engine — as the project context itself.
+	Rules AttachRules
 	// Start and End are the byte offsets this directive occupied in the text it
 	// was parsed from, so a renderer can draw it in place.
 	Start int
@@ -126,11 +147,25 @@ func matchValue(text string, match []int) (Kind, string) {
 }
 
 func build(kind Kind, raw string) (Directive, bool) {
+	// An attachment payload carries its own rule tokens and an absolute path, so
+	// it is read by its own parser before the project-relative trimming below
+	// could mangle it.
+	if kind == KindAttach {
+		target, rules, ok := parseAttachValue(strings.TrimSpace(raw))
+		if !ok {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindAttach, Value: renderAttachValue(target, rules), Path: target, Rules: rules}, true
+	}
 	// Only a trailing separator is cosmetic (`@ref:core/` is the project). A
 	// leading one is an absolute path, and trimming it here would quietly repair
 	// `@file:/etc/passwd` into a relative reference — exactly the invented
 	// meaning this parser refuses to supply.
-	value := strings.TrimRight(strings.TrimSpace(raw), "/")
+	// A trailing separator or full stop is sentence punctuation, never part of
+	// what was being named. A leading separator is an absolute path, and
+	// trimming that would quietly repair `@file:/etc/passwd` into a relative
+	// reference — exactly the invented meaning this parser refuses to supply.
+	value := strings.TrimRight(strings.TrimSpace(raw), "/.")
 	if value == "" || len(value) > MaxValueLength {
 		return Directive{}, false
 	}
