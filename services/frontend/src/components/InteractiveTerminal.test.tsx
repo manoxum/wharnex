@@ -4,7 +4,12 @@ import type { Session } from '../types'
 import { api } from '../lib/api'
 import { InteractiveTerminal } from './InteractiveTerminal'
 
-const terminalMock = vi.hoisted(() => ({ onData: undefined as undefined | ((data: string) => void), onResize: undefined as undefined | ((size: { cols: number; rows: number }) => void) }))
+const terminalMock = vi.hoisted(() => ({
+  onData: undefined as undefined | ((data: string) => void),
+  onResize: undefined as undefined | ((size: { cols: number; rows: number }) => void),
+  selection: '',
+  paste: vi.fn(),
+}))
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class Terminal {
@@ -16,6 +21,9 @@ vi.mock('@xterm/xterm', () => ({
     writeln() {}
     focus() {}
     dispose() {}
+    hasSelection() { return Boolean(terminalMock.selection) }
+    getSelection() { return terminalMock.selection }
+    paste(data: string) { terminalMock.paste(data) }
     onData(callback: (data: string) => void) { terminalMock.onData = callback; return { dispose() {} } }
     onResize(callback: (size: { cols: number; rows: number }) => void) { terminalMock.onResize = callback; return { dispose() {} } }
   },
@@ -37,6 +45,8 @@ class FakeEventSource {
   close = vi.fn()
 }
 
+const clipboard = { readText: vi.fn(), writeText: vi.fn() }
+
 const session: Session = {
   id: 'ses-terminal', project_path: '/tmp/demo', state: 'ready', execution_mode: 'protected', automation_mode: 'manual', created_at: new Date().toISOString(),
   context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/tmp/demo', sha256: 'abc', files: [], excluded: [], text_truncated: false } },
@@ -45,8 +55,11 @@ const session: Session = {
 describe('InteractiveTerminal PTY', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    terminalMock.onData = undefined; terminalMock.onResize = undefined
+    terminalMock.onData = undefined; terminalMock.onResize = undefined; terminalMock.selection = ''
     vi.stubGlobal('EventSource', FakeEventSource)
+    Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { clipboard } })
+    clipboard.readText.mockResolvedValue('printf "copiado"\n')
+    clipboard.writeText.mockResolvedValue({ ok: true })
     vi.mocked(api.openTerminal).mockResolvedValue({ terminal_id: 'pty-1', target: 'sandbox' })
     vi.mocked(api.terminalInput).mockResolvedValue(undefined)
     vi.mocked(api.resizeTerminal).mockResolvedValue(undefined)
@@ -72,8 +85,20 @@ describe('InteractiveTerminal PTY', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir shell no HOST' }))
     await waitFor(() => expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ network: false }), 'host', true))
     expect(screen.getByText('HOST DIRECTO')).toBeTruthy()
+    expect(screen.getByText(/Sessão real do utilizador do sistema/)).toBeTruthy()
     terminalMock.onData?.('vim src/App.tsx\r')
     await waitFor(() => expect(api.terminalInput).toHaveBeenCalledWith('ses-terminal', 'pty-host', 'vim src/App.tsx\r'))
+  })
+
+  it('copies selections and pastes clipboard text through desktop shortcuts', async () => {
+    render(<InteractiveTerminal session={session} height={245} onHeight={() => undefined} onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalled())
+    const root = screen.getByLabelText('Terminal interactivo')
+    terminalMock.selection = './bin/promote republish prod'
+    fireEvent.keyDown(root, { key: 'C', ctrlKey: true, shiftKey: true })
+    await waitFor(() => expect(clipboard.writeText).toHaveBeenCalledWith('./bin/promote republish prod'))
+    fireEvent.keyDown(root, { key: 'V', ctrlKey: true, shiftKey: true })
+    await waitFor(() => expect(terminalMock.paste).toHaveBeenCalledWith('printf "copiado"\n'))
   })
 
   it('forwards terminal dimensions to the live PTY', async () => {

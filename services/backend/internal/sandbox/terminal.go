@@ -117,6 +117,9 @@ func interactiveShellArgs(shell string) []string {
 }
 
 func (r *HostRunner) StartInteractive(workspace Workspace, options TerminalOptions, onOutput func([]byte), onExit func(int, error)) (InteractiveTerminal, error) {
+	if socketPath := strings.TrimSpace(os.Getenv("HARNESS_HOST_PTY_SOCKET")); socketPath != "" {
+		return startBridgedHostTerminal(socketPath, workspace, options, onOutput, onExit)
+	}
 	cmd, err := localTerminalCommand(workspace, options)
 	if err != nil {
 		return nil, err
