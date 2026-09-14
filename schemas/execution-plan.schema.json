@@ -121,6 +121,51 @@
       "items": {
         "$ref": "#/$defs/command"
       }
+    },
+    "cross_project": {
+      "type": "array",
+      "maxItems": 8,
+      "description": "Changes for projects other than the one this request belongs to. Admissible only for a project this request's own main prompt granted with @ref:<project>; an entry naming anything else is refused at ingestion, before Policy and before any sandbox. One self-contained entry per project: each is executed as a derived request on that project, with that project's own Protected sandbox, verification and Git-native host integration. See adr/ADR-0053.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "project",
+          "commit_message",
+          "operations"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "description": "The granted reference name exactly as the prompt's @ref: directive wrote it — a project name, never a filesystem path. Wharnex resolves it against the grant it recorded before the request was planned."
+          },
+          "commit_message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "This change's own Git message for that project, under the same Conventional Commits contract as the primary plan's commit_message. It becomes that project's permanent history."
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 600,
+            "description": "Optional short description of this project's part of the change. Falls back to the commit message subject."
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/operation"
+            }
+          },
+          "verification": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/command"
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

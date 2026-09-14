@@ -555,7 +555,10 @@ describe('ChatPanel', () => {
     expect(view.container.textContent).toContain('troca-imediata.txt')
   })
 
-  it('finds eligible project files from @file and turns the selection into a chip', () => {
+  // A reference stays in the sentence that needed it. Moving it to a list at the
+  // end throws away the only thing its placement was carrying — which file the
+  // sentence is about.
+  it('completes @file inline and leaves the marker where it was typed', () => {
     const referencedSession = {
       ...session,
       context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
@@ -564,10 +567,77 @@ describe('ChatPanel', () => {
       <ChatPanel session={referencedSession} items={[]} chats={[]} activeChatId="file-ref-test" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
-    fireEvent.change(composer, { target: { value: 'Revê @file:App', selectionStart: 15 } })
+    fireEvent.change(composer, { target: { value: 'Revê @file:App e depois pára', selectionStart: 14 } })
     fireEvent.click(screen.getByRole('option', { name: /src\/App\.tsx/ }))
-    expect(view.container.querySelector('.composer-file-reference-chip')?.textContent).toContain('src/App.tsx')
-    expect(composer.value).toBe('Revê ')
+    expect(composer.value).toBe('Revê @{[file]src/App.tsx} e depois pára')
+    // The chip is painted by the mirror layer behind the textarea, in place.
+    expect(view.container.querySelector('.composer-directive-chip.file')?.textContent).toBe('@{[file]src/App.tsx}')
+    view.unmount()
+  })
+
+  // `@ref` names another bound project, and picking one keeps the menu open so a
+  // file inside it can follow: the two are one intent at two levels of detail.
+  it('completes @ref from the bound projects and then their files', () => {
+    const referencedSession = {
+      ...session,
+      context: {
+        ...session.context,
+        related_projects: [{
+          project_path: '/home/op/flowcore', name: 'flowcore', prefix: 'RELATED_PROJECTS/01-flowcore/',
+          manifest: { ...session.context.manifest, files: [{ path: 'services/be/auth.go', size: 10, sha256: 'abc' }] },
+        }],
+      },
+    }
+    const view = render(
+      <ChatPanel session={referencedSession} items={[]} chats={[]} activeChatId="ref-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'Alinha com @ref:flow', selectionStart: 20 } })
+    fireEvent.click(screen.getByRole('option', { name: /flowcore/ }))
+    expect(composer.value).toBe('Alinha com @ref:flowcore/')
+
+    fireEvent.change(composer, { target: { value: 'Alinha com @ref:flowcore/auth', selectionStart: 29 } })
+    fireEvent.click(screen.getByRole('option', { name: /services\/be\/auth\.go/ }))
+    expect(composer.value).toBe('Alinha com @{[ref]flowcore/services/be/auth.go}')
+    expect(view.container.querySelector('.composer-directive-chip.ref')).toBeTruthy()
+    view.unmount()
+  })
+
+  // There is nothing to autocomplete for a path outside every project, so the
+  // menu offers the picker instead of guesses.
+  it('offers a picker for @attach instead of completions', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="attach-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'junta @attach:', selectionStart: 14 } })
+    expect(screen.getByRole('option', { name: /Escolher pasta/ })).toBeTruthy()
+    view.unmount()
+  })
+
+  // An attachment written by hand is still configurable: the toolbar control
+  // opens the same selection panel the picker does.
+  it('exposes the attachment selection panel once a path is attached', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="attach-panel" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'junta @{[attach]/srv/contracts} agora', selectionStart: 36 } })
+    expect(view.container.querySelector('.composer-directive-chip.attach')?.textContent).toBe('@{[attach]/srv/contracts}')
+    fireEvent.click(screen.getByLabelText('Conteúdo dos caminhos anexados'))
+    expect(view.container.querySelector('.composer-attachment-panel')).toBeTruthy()
+    view.unmount()
+  })
+
+  // Nothing bound is not a failed search: the operator has made no mistake, and
+  // saying so points at the action that fixes it.
+  it('explains an empty @ref menu when no other project is bound', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="ref-empty" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'Compara com @ref:', selectionStart: 17 } })
+    expect(view.container.textContent).toContain('Nenhum outro projeto vinculado a esta janela')
     view.unmount()
   })
 

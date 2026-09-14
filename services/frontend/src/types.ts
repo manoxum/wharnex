@@ -155,6 +155,29 @@ export type ContextInspection = {
   rules: ContextRule[]
 }
 
+/**
+ * One `@attach` marker previewed exactly as a request would resolve it.
+ *
+ * Deliberately the same shape as ContextInspection: an attachment answers the
+ * same question about a different root, so the panel that configures it is the
+ * one the operator already knows from project settings.
+ */
+export type AttachmentInspection = {
+  root: string
+  kind: 'file' | 'directory' | string
+  auto_exclude: boolean
+  include: string[]
+  exclude: string[]
+  included_files: number
+  included_bytes: number
+  excluded_items: number
+  truncated: boolean
+  max_file_bytes: number
+  max_total_bytes: number
+  max_files: number
+  entries: ContextInventoryEntry[]
+}
+
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'

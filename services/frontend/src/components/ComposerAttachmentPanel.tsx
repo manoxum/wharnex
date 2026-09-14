@@ -1,0 +1,179 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { api } from '../lib/api'
+import type { AttachmentInspection, ContextInventoryEntry } from '../types'
+import {
+  attachRulesAreDefault,
+  canonicalDirective,
+  parseDirectives,
+  renderAttachValue,
+  type AttachRules,
+  type ComposerDirective,
+} from '../lib/composerDirectives'
+import { Icon } from './Icon'
+
+/**
+ * Configures what an attached folder actually contributes.
+ *
+ * It is deliberately the project settings context panel, aimed at a different
+ * root: the same automatic-pruning toggle, the same include/exclude pattern
+ * lists, and the same inventory with a per-entry Include/Exclude control. An
+ * attachment asks the same question the project already asks — what of this
+ * tree is worth sending — and an operator should not have to learn a second
+ * answer for it.
+ *
+ * The selection lives in the marker in the prompt, not beside it. Editing here
+ * rewrites that marker, so what this panel shows and what the request sends are
+ * one string rather than two representations that can drift apart.
+ */
+export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose }: {
+  sessionId: string
+  message: string
+  onMessage: (next: string) => void
+  onClose: () => void
+}) {
+  const attachments = useMemo(
+    () => parseDirectives(message).filter((directive): directive is ComposerDirective & { rules: AttachRules } => directive.kind === 'attach' && Boolean(directive.rules)),
+    [message],
+  )
+  const [selectedPath, setSelectedPath] = useState(attachments[0]?.path || '')
+  const selected = attachments.find((item) => item.path === selectedPath) || attachments[0]
+  const [inspection, setInspection] = useState<AttachmentInspection>()
+  const [inspectionError, setInspectionError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [includeText, setIncludeText] = useState('')
+  const [excludeText, setExcludeText] = useState('')
+
+  useEffect(() => {
+    if (!selected) return
+    setIncludeText(selected.rules.include.join('\n'))
+    setExcludeText(selected.rules.exclude.join('\n'))
+  }, [selected?.value])
+
+  const inspect = useCallback(async (marker: string) => {
+    setLoading(true); setInspectionError('')
+    try {
+      setInspection(await api.attachmentInspection(sessionId, marker))
+    } catch (error) {
+      setInspection(undefined)
+      setInspectionError(error instanceof Error ? error.message : 'Não foi possível ler este caminho')
+    } finally { setLoading(false) }
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!selected) { setInspection(undefined); return }
+    void inspect(canonicalDirective(selected))
+  }, [inspect, selected?.value])
+
+  // Rewriting by exact range rather than by search: two attachments can share a
+  // path with different rules, and replacing the first match would edit the
+  // wrong one.
+  function writeRules(directive: ComposerDirective & { rules: AttachRules }, rules: AttachRules) {
+    const marker = canonicalDirective({ kind: 'attach', value: renderAttachValue(directive.path, rules) })
+    onMessage(message.slice(0, directive.start) + marker + message.slice(directive.end))
+  }
+
+  function applyPatternText() {
+    if (!selected) return
+    writeRules(selected, { ...selected.rules, include: patternLines(includeText), exclude: patternLines(excludeText) })
+  }
+
+  function applyEntrySelection(entry: ContextInventoryEntry, action: 'include' | 'exclude') {
+    if (!selected) return
+    const pattern = entry.kind === 'directory' ? `${entry.path.replace(/\/$/, '')}/**` : entry.path
+    const rules = action === 'exclude'
+      ? { ...selected.rules, exclude: unique([...selected.rules.exclude, pattern]) }
+      // Re-including something the operator previously excluded is removing the
+      // rule that removed it, not adding a competing one.
+      : { ...selected.rules, exclude: selected.rules.exclude.filter((value) => value !== pattern) }
+    writeRules(selected, rules)
+  }
+
+  function removeAttachment(directive: ComposerDirective) {
+    const before = message.slice(0, directive.start)
+    const after = message.slice(directive.end)
+    onMessage((before.replace(/\s+$/, '') + ' ' + after.replace(/^\s+/, '')).trim())
+  }
+
+  return <section className="composer-attachment-panel" aria-label="Conteúdo dos caminhos anexados" data-chatgpt-overlay-blocker="true">
+    <header className="composer-attachment-heading">
+      <div><span className="panel-kicker">Caminhos anexados</span><strong>Conteúdo enviado</strong></div>
+      <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar painel de anexos"><Icon name="close" size={13}/></button>
+    </header>
+
+    {!attachments.length
+      ? <p className="composer-attachment-empty">Escreva <code>@attach:</code> no prompt e escolha um ficheiro ou pasta para o anexar. Aqui pode depois decidir o que dele é enviado.</p>
+      : <>
+        <div className="composer-attachment-tabs" role="tablist" aria-label="Caminhos anexados a este prompt">
+          {attachments.map((directive) => <button
+            key={`${directive.start}:${directive.value}`}
+            type="button" role="tab"
+            aria-selected={directive.path === selected?.path}
+            className={directive.path === selected?.path ? 'active' : ''}
+            onClick={() => setSelectedPath(directive.path)}
+          >
+            <Icon name="folder" size={12}/><span>{directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
+          </button>)}
+        </div>
+
+        {selected && <div className="composer-attachment-body">
+          <div className="composer-attachment-root">
+            <code title={selected.path}>{selected.path}</code>
+            <button type="button" onClick={() => removeAttachment(selected)} aria-label={`Remover o anexo ${selected.path}`}><Icon name="trash" size={12}/> Remover</button>
+          </div>
+
+          {inspectionError
+            ? <p className="composer-attachment-error" role="alert">{inspectionError}</p>
+            : <p className="composer-attachment-summary" role="status">
+              {loading ? 'A ler o caminho…' : inspection
+                ? <>{inspection.included_files} ficheiro(s) · {formatBytes(inspection.included_bytes)} · {inspection.excluded_items} item(ns) fora{inspection.truncated ? ' · LIMITE ATINGIDO: o anexo está incompleto' : ''}</>
+                : '—'}
+            </p>}
+
+          {/* A file has nothing to select inside it, so the selection controls
+              appear only for a directory — showing empty pattern boxes for a
+              single file would invite configuring something that has no parts. */}
+          {inspection?.kind === 'directory' && <>
+            <label className="settings-toggle">
+              <input type="checkbox" checked={selected.rules.autoExclude} onChange={(event) => writeRules(selected, { ...selected.rules, autoExclude: event.target.checked })}/>
+              <span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários e metadados sem valor para a IA — a mesma regra do contexto do projeto.</small></span>
+            </label>
+            <div className="composer-attachment-patterns">
+              <label><span>Incluir apenas <small>opcional</small></span><textarea value={includeText} onChange={(event) => setIncludeText(event.target.value)} onBlur={applyPatternText} placeholder={'openapi/**\ndocs/**'}/><small>Se vazio, tudo o que for elegível é considerado.</small></label>
+              <label><span>Excluir do anexo</span><textarea value={excludeText} onChange={(event) => setExcludeText(event.target.value)} onBlur={applyPatternText} placeholder={'**/*.bak\nfixtures/**'}/><small>Um padrão por linha. Suporta <code>*</code>, <code>?</code> e <code>**</code>.</small></label>
+            </div>
+            {!attachRulesAreDefault(selected.rules) && <p className="composer-attachment-note">Esta seleção viaja dentro do próprio marcador no prompt, por isso acompanha o pedido e fica visível no histórico.</p>}
+          </>}
+
+          {inspection?.entries.length ? <div className="composer-attachment-inventory" role="table" aria-label={`Conteúdo de ${selected.path}`}>
+            {inspection.entries.slice(0, 200).map((entry) => {
+              const excluded = entry.status === 'excluded'
+              const action = excluded ? 'include' : 'exclude'
+              return <div className="composer-attachment-row" role="row" key={`${entry.status}:${entry.path}`}>
+                <Icon name={entry.kind === 'directory' ? 'folder' : 'file'} size={12}/>
+                <span className="composer-attachment-path" title={entry.path}>{entry.path}</span>
+                <span className={`context-status ${entry.status}`}>{excluded ? 'FORA' : 'INCLUÍDO'}</span>
+                <small title={entry.reason}>{entry.reason || formatBytes(entry.size || 0)}</small>
+                {entry.configurable === false
+                  ? <span className="context-locked" title="Esta decisão é protegida e não pode ser alterada"><Icon name="shield" size={12}/></span>
+                  : <button type="button" className={`context-selection-button ${action}`} onClick={() => applyEntrySelection(entry, action)} title={`${action === 'include' ? 'Incluir' : 'Excluir'} ${entry.path}`}><Icon name={action === 'include' ? 'plus' : 'close'} size={11}/></button>}
+              </div>
+            })}
+          </div> : null}
+        </div>}
+      </>}
+  </section>
+}
+
+function patternLines(value: string) {
+  return unique(value.split('\n').map((line) => line.trim()).filter(Boolean))
+}
+
+function unique(values: string[]) {
+  return [...new Set(values)]
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  const kib = bytes / 1024
+  return kib < 1024 ? `${kib.toFixed(1)} KiB` : `${(kib / 1024).toFixed(1)} MiB`
+}

@@ -353,6 +353,18 @@ type CrossProjectGrantee struct {
 	Name        string   `json:"name"`
 	ProjectPath string   `json:"project_path"`
 	Files       []string `json:"files,omitempty"`
+	// Attached reports whether this project's context was already part of the
+	// session snapshot when the reference resolved. A granted project that was
+	// not attached had its context brought in for this request.
+	Attached bool `json:"attached,omitempty"`
+}
+
+// KnownProjectRef is a project Wharnex has worked on before, named so a
+// reference can resolve to it whether or not it happens to be open.
+type KnownProjectRef struct {
+	Name        string `json:"name"`
+	ProjectPath string `json:"project_path"`
+	Open        bool   `json:"open"`
 }
 
 type PolicyDecision struct {
@@ -910,11 +922,30 @@ type ContextBundle struct {
 	Manifest        ContextManifest         `json:"manifest"`
 	WorkspaceSHA256 string                  `json:"workspace_sha256,omitempty"`
 	RelatedProjects []RelatedProjectContext `json:"related_projects,omitempty"`
+	Attachments     []AttachedPathContext   `json:"attachments,omitempty"`
 }
 
 // RelatedProjectContext describes a user-bound companion repository included
 // as namespaced, read-only evidence in the planner context. The primary
 // manifest remains the only execution baseline for this Session.
+// AttachedPathContext describes one external file or directory an `@attach`
+// directive brought into this context.
+//
+// It is read-only material from outside every project: never a patch target,
+// never a path in a plan. The counters exist so the operator can see what their
+// selection actually admitted, and Truncated so an attachment that hit a bound
+// says so instead of quietly arriving incomplete.
+type AttachedPathContext struct {
+	Root          string `json:"root"`
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	Prefix        string `json:"prefix"`
+	Files         int    `json:"files"`
+	Bytes         int64  `json:"bytes"`
+	ExcludedItems int    `json:"excluded_items,omitempty"`
+	Truncated     bool   `json:"truncated,omitempty"`
+}
+
 type RelatedProjectContext struct {
 	ProjectPath string          `json:"project_path"`
 	Name        string          `json:"name"`

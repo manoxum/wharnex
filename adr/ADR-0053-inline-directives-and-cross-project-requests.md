@@ -1,0 +1,55 @@
+# ADR-0053 — Inline composer directives, cross-project requests and external attachments
+
+Status: Accepted
+
+## Context
+
+Wharnex had one way to point at something from the composer: `@file:<path>`. It worked by deleting the token from the sentence, adding the path to a list beside the composer, and appending a paragraph of paths after the prompt. Two things were wrong with that.
+
+The first is that it threw away the placement. "Make the handler in @file:a.ts match the contract in @file:b.ts" says which file plays which role; two paths in a trailing list do not, and the model has to guess which is which. The operator had already expressed the relation and the transport discarded it.
+
+The second is that a window frequently binds several projects, and there was no way to point at one. Related-project contexts were already transported — namespaced under `RELATED_PROJECTS/` — but they were reference material by construction, and the prompt told the model in as many words that its plan "may mutate only the primary project". A real workspace has contracts that span repositories: a backend route and the client that calls it, a shared type and its two consumers. Every such change meant opening the other project, re-explaining the same change in a second chat, and hoping the two halves agreed.
+
+Both problems are about the same missing thing: a way for the operator to name something in the sentence and have Wharnex resolve it.
+
+## Decision
+
+**One directive grammar, written inline, for three kinds of reference.** `@file:<path>` names a file in this request's project. `@ref:<project>` names another project Wharnex has worked on before, and `@ref:<project>/<path>` names one file inside it. `@attach:<absolute path>` names a file or directory outside every project. What the operator types is canonicalized to `@{[file]…}` / `@{[ref]…}` and stays exactly where it was written. The grammar is implemented once, in `backend/internal/directives`, and mirrored by `frontend/src/lib/composerDirectives.ts` — the half that paints a chip has to agree with the half that resolves it.
+
+Wharnex adds a bounded legend describing the notation the prompt actually used, naming any `@file` path absent from the context snapshot, and restating that referenced content is untrusted data. It does not move the markers. A malformed near-miss — `@file:/etc/passwd`, `@ref:../etc` — is left as prose, because supplying a meaning for one is precisely how a traversal turns into a resolved path.
+
+The composer renders each directive as a chip **in place**, using a mirror layer behind the textarea rather than a contenteditable rewrite. The textarea keeps the caret, selection, undo history, IME and spellcheck the browser already gets right; the mirror only paints a background behind the directive's own characters. Autocomplete is unified: `@file` offers this project's context files, `@ref` offers the bound projects and then, after the slash, that project's files — because naming a project and naming a file inside it are one intent at two levels of detail.
+
+**`@ref:` in a main prompt is also the grant.** It is the only way a request acquires authority to change another project, and it is recorded durably against the root request before the planner is asked. Continuations inherit it unchanged; nothing a response returns can widen it.
+
+Referring and changing turned out to be separate authorities, and conflating them was a mistake worth naming. The first version resolved a name only against the projects currently attached to the session, which made "is it open?" the answer to "can I point at it?". But an operator who spent last week in a repository still thinks of it by name today, and requiring them to reopen it just to write one sentence about it is asking them to restage their workspace to ask a question. So a name now resolves against **every project Wharnex has worked on before**, and a resolved project whose context is not attached has it brought in — a reference the model cannot see is not a reference at all.
+
+What still requires the project to be open is *changing* it, and for a reason that does not weaken: the live session is what carries the Protected/Unprotected and Auto/manual modes that decide how a change reaches that host. A closed project has chosen nothing, and the Protected+Auto a fresh session would receive is a default, not the operator's decision to inherit on their behalf. The prompt names which granted projects a change cannot currently reach, so the planner spends its effort where it can land.
+
+**A response changes a granted project through `cross_project`** in `plan.json`: one self-contained entry per project, each with the granted reference name, its own mandatory `commit_message`, its own `operations` and its own `verification`. A list of whole changes rather than a `project` tag on each operation, because a change to another project needs a commit message — it becomes that project's history — and verification that runs in that project's sandbox against that project's tree. Tagging operations leaves both of those with nowhere to live.
+
+Authorization is fail-closed at ingestion, alongside the commit-message and impact-file contracts and for the same reason: a refusal there costs one re-request, while the same refusal after verification discards a verified candidate over something knowable before anything ran.
+
+**Each entry executes as a derived request on its own project** — that project's Protected sandbox, its verification, its Git-native host integration, rooted on a request base captured in that project when the prompt was submitted. No new integration path was invented for the dangerous part; the existing per-project one is reused, because writing to a project is that project's authority and does not change because the patch arrived through a different chat. The target project's own Protected/Auto modes decide what happens next, exactly as they would for a request made there directly.
+
+**External attachments are a fourth thing, and deliberately not a project.** `@attach` exists because a workspace is not the whole world: a contract lives in a sibling checkout, a vendor SDK sits outside every repository, a schema was exported to a folder somewhere. Those are things a request needs to *see*, and nothing more.
+
+So an attachment is read-only by construction. It sits under its own `ATTACHMENTS/` namespace rather than inside the primary tree, and it may not appear in an operation, an `impact_files` entry or a `cross_project` entry — it has no root a patch could be applied against at all. That is not a restriction bolted on afterwards; it is what makes an arbitrary host path safe to admit.
+
+The admission check is the part that earns its keep. Everywhere else in Wharnex, a path is inside a project the operator opened; here it is whatever they typed. Most of the time "they typed it, so they meant it" is a good enough reason — but not for credential stores, kernel pseudo-filesystems, or the bare home and filesystem roots whose whole subtree is everything. One typo in a composer must not be able to put an SSH key into a prompt, so those are refused outright.
+
+Past that boundary, the selection question — what of this tree is worth sending — is the question the project's own context configuration already answers, so it is answered by the same engine and configured with the same vocabulary: automatic pruning, an include whitelist, an exclude list, the secret scan, the binary detector. The composer panel is the settings panel's context section aimed at another root, down to the per-entry Include/Exclude control. A second predicate would have been a second thing to keep in agreement with the first.
+
+The selection travels **inside the marker** (`|+include`, `|-exclude`, `|!auto`) rather than beside it, for the same reason the markers stay inline: the prompt text is the whole state. A selection stored elsewhere is a selection that can disagree with the text it belongs to, and it would not survive a continuation or show up in a transcript.
+
+## Consequences
+
+- A cross-repository change is one request. The operator writes the relation once, in one sentence, and each project still gets its own sandbox, verification and integration.
+- The blast radius of a granted response is bounded by something the operator typed, is visible in their own prompt, and is checked before any sandbox runs.
+- A cross-project set can land partially: separate hosts mean separate integrations. Entries therefore run in order and stop at the first failure, and every outcome is reported — including the entries that were never attempted — rather than leaving the operator to infer what happened.
+- A referenced project must be open. That is a real constraint and a deliberate one: the session is what carries the modes that decide how a change reaches that host, and there is no safe default to invent in its absence.
+- A target holding its own unfinished work refuses rather than queues. Installing a derived plan over a pending candidate would discard the operator's own work; naming the state tells them what to finish.
+- The `@file` chip list beside the composer is gone. Drafts saved under the old model are folded into inline markers once, so nothing an operator had already chosen is lost.
+- Naming a project no longer requires opening it, but changing one still does. That asymmetry is visible to the operator — the prompt says which granted projects are out of reach — rather than being discovered when a bundle comes back refused.
+- Resolving a reference to an unattached project rebuilds the session's context to include it. That is real work on the submit path, and it is the cost of the reference meaning anything.
+- An attachment can be large, unreadable, or partly excluded by its own rules. Every one of those is reported: bounds surface as truncation, refusals are named as absent, and the panel states what the selection actually admitted. An attachment that silently arrives incomplete is worse than one that never arrived.

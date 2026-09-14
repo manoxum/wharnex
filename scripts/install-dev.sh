@@ -55,12 +55,11 @@ cat >"$tmp_launcher" <<EOF
 #!/usr/bin/env sh
 set -eu
 cd '$escaped_root'
-# The start target rebuilds only if the recorded artifacts are absent or stale.
-# A normal shortcut activation therefore reaches Electron without a redundant
-# Docker image build.
+# The dedicated launcher presents a splash, then uses a durable source
+# fingerprint to decide whether the running Desktop needs a build/restart.
 export WHARNESS_INSTANCE_ID='$escaped_instance'
 export WHARNESS_DESKTOP_USER_DATA_DIR='$escaped_profile'
-exec make start
+exec '$escaped_root/scripts/launcher.sh'
 EOF
 chmod 0755 "$tmp_launcher"
 mv -f "$tmp_launcher" "$launcher"

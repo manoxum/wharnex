@@ -7,12 +7,23 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 )
 
-func related(entries ...[2]string) []domain.RelatedProjectContext {
+func related(entries ...[2]string) []Candidate {
 	contexts := make([]domain.RelatedProjectContext, 0, len(entries))
 	for _, entry := range entries {
 		contexts = append(contexts, domain.RelatedProjectContext{Name: entry[0], ProjectPath: entry[1]})
 	}
-	return contexts
+	return CandidatesFrom(contexts, nil)
+}
+
+// A project Wharnex worked on before is nameable even though it is not attached
+// to this session, because resolving a name and being allowed to change what it
+// names are different questions.
+func known(entries ...[2]string) []Candidate {
+	refs := make([]domain.KnownProjectRef, 0, len(entries))
+	for _, entry := range entries {
+		refs = append(refs, domain.KnownProjectRef{Name: entry[0], ProjectPath: entry[1]})
+	}
+	return CandidatesFrom(nil, refs)
 }
 
 // One syntax carries both "the whole project" and "this file in it", because
@@ -156,5 +167,31 @@ func TestAuthorizeIsANoOpWithoutUnits(t *testing.T) {
 	targets, err := Authorize(nil, nil)
 	if err != nil || targets != nil {
 		t.Fatalf("targets=%#v err=%v", targets, err)
+	}
+}
+
+func TestResolveReachesAProjectThatIsMerelyKnown(t *testing.T) {
+	grant, unresolved := Resolve(ParseReferences("@ref:flowcore"), "req_1", known([2]string{"flowcore", "/home/op/flowcore"}))
+	if len(grant.Projects) != 1 || len(unresolved) != 0 {
+		t.Fatalf("grant=%#v unresolved=%#v", grant, unresolved)
+	}
+	if grant.Projects[0].Attached {
+		t.Fatal("a project that is not in the session snapshot must be reported as unattached")
+	}
+}
+
+// Two projects can share a directory basename. The one already in front of the
+// operator is the one they mean.
+func TestResolvePrefersAnAttachedProjectOverAMerelyKnownOne(t *testing.T) {
+	candidates := CandidatesFrom(
+		[]domain.RelatedProjectContext{{Name: "app", ProjectPath: "/home/op/current/app"}},
+		[]domain.KnownProjectRef{{Name: "app", ProjectPath: "/home/op/archive/app"}},
+	)
+	grant, _ := Resolve(ParseReferences("@ref:app"), "req_1", candidates)
+	if len(grant.Projects) != 1 || grant.Projects[0].ProjectPath != "/home/op/current/app" {
+		t.Fatalf("grant=%#v", grant)
+	}
+	if !grant.Projects[0].Attached {
+		t.Fatal("the attached candidate must win the name")
 	}
 }
