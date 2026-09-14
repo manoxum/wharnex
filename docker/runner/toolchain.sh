@@ -48,9 +48,15 @@ emit npx npx --version
 emit yarn yarn --version
 emit pnpm pnpm --version
 emit make make --version
+emit cmake cmake --version
+emit ninja ninja --version
 emit cc cc --version
 emit g++ g++ --version
 emit pkg-config pkg-config --version
+emit python3 python3 --version
+emit pip3 pip3 --version
+emit php php --version
+emit composer composer --version
 
 # Source control and patching.
 emit git git --version
@@ -63,6 +69,7 @@ emit diff diff --version
 emit jq jq --version
 emit yq yq --version
 emit rg rg --version
+emit shellcheck shellcheck --version
 emit grep grep --version
 emit sed sed --version
 emit awk awk --version
@@ -77,5 +84,10 @@ emit file file --version
 emit find find --version
 emit sha256sum sha256sum --version
 emit tree tree --version
+emit sqlite3 sqlite3 --version
+emit psql psql --version
+emit redis-cli redis-cli --version
+emit fzf fzf --version
+emit tmux tmux -V
 
 printf ']}\n'

@@ -156,7 +156,7 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
       </div>
     </header>
     {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Shell com acesso total do utilizador ao projeto e ao sistema.</span></div>}
-    <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa comandos, caminhos e ferramentas do projeto; use ↑/↓ para o histórico e Ctrl+C para interromper." />
+    <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa comandos e caminhos; Ctrl+R pesquisa o histórico, ↑/↓ navega pelas entradas anteriores e Ctrl+C interrompe o processo atual." />
   </section>
 }
 

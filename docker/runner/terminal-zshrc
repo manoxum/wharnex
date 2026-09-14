@@ -1,0 +1,38 @@
+# Wharnex human PTY defaults for an explicitly started zsh.
+# This file is image-owned; project files never control the shell bootstrap.
+autoload -Uz compinit
+mkdir -p "${HOME:-/tmp/kernl-home}" /workspace/.kernl 2>/dev/null || true
+compinit -d "${HOME:-/tmp/kernl-home}/.zcompdump"
+
+HISTFILE=/workspace/.kernl/terminal-zsh-history
+HISTSIZE=20000
+SAVEHIST=40000
+setopt APPEND_HISTORY
+setopt INC_APPEND_HISTORY
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_REDUCE_BLANKS
+setopt AUTO_LIST
+setopt COMPLETE_IN_WORD
+setopt INTERACTIVE_COMMENTS
+
+export PATH="/workspace/node_modules/.bin:${HOME:-/tmp/kernl-home}/.local/bin:/tmp/pnpm:${PATH}"
+export EDITOR="${EDITOR:-nano}"
+export VISUAL="${VISUAL:-$EDITOR}"
+export PAGER="${PAGER:-less}"
+export PIP_CACHE_DIR="${PIP_CACHE_DIR:-/tmp/pip}"
+export COMPOSER_HOME="${COMPOSER_HOME:-/tmp/composer}"
+export PNPM_HOME="${PNPM_HOME:-/tmp/pnpm}"
+
+bindkey -e
+bindkey '^R' history-incremental-search-backward
+alias ll='ls -alF --color=auto'
+alias la='ls -A --color=auto'
+alias l='ls -CF --color=auto'
+alias grep='grep --color=auto'
+
+if [[ -r /usr/share/doc/fzf/examples/key-bindings.zsh ]]; then
+  source /usr/share/doc/fzf/examples/key-bindings.zsh
+fi
+if [[ -r /usr/share/doc/fzf/examples/completion.zsh ]]; then
+  source /usr/share/doc/fzf/examples/completion.zsh
+fi
