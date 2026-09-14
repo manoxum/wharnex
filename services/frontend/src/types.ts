@@ -160,6 +160,8 @@ export type ChatTransportMode = 'scraper' | 'manual'
 export type TerminalTarget = 'sandbox' | 'host'
 export type TerminalSessionDescriptor = { terminal_id: string; target: TerminalTarget }
 export type TerminalFrame = { type: 'ready' | 'output' | 'exit' | 'error'; data?: string; code?: number; message?: string }
+export type TerminalRunInput = { command: string; cwd: string; label?: string }
+export type TerminalRunRequest = TerminalRunInput & { id: number }
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
@@ -658,6 +660,8 @@ export type GitConflictContext = {
   theirs_sha: string
   target_branch?: string
 }
+
+export type GitFileDiff = { path: string; diff: string; truncated?: boolean }
 
 export type GitOverview = {
   project_path: string

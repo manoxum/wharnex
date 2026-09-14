@@ -61,7 +61,6 @@ func (s *Service) StartInteractiveTerminal(ctx context.Context, sessionID string
 		cwd = "."
 	}
 	cols, rows = clampTerminalSize(cols, rows)
-	s.closeInteractiveTerminals(sessionID)
 
 	runner := s.runner
 	var workspace sandbox.Workspace

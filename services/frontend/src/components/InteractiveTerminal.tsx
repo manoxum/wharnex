@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { api, APIError } from '../lib/api'
 import { confirmDialog } from '../lib/appDialog'
 import { desktopBridge } from '../lib/desktop'
-import type { Session, TerminalFrame, TerminalTarget } from '../types'
+import type { Session, TerminalFrame, TerminalRunRequest, TerminalTarget } from '../types'
 import { Icon } from './Icon'
 
 const terminalTheme = {
@@ -18,7 +18,7 @@ const terminalTheme = {
 
 type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
 
-export function InteractiveTerminal({ session, height, onHeight, onError }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void }) {
+export function InteractiveTerminal({ session, height, onHeight, onError, visible = true, runRequest }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest }) {
   const [target, setTarget] = useState<TerminalTarget>('sandbox')
   const [hostConfirmed, setHostConfirmed] = useState(false)
   const [network, setNetwork] = useState(false)
@@ -27,6 +27,7 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
   const terminalRootRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const terminalIDRef = useRef('')
+  const deliveredRunRef = useRef(0)
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
 
@@ -137,7 +138,13 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
     }
   }, [session.id, target, hostConfirmed, network, generation])
 
-  useEffect(() => { try { fitRef.current?.fit() } catch { /* panel may still be resizing */ } }, [height])
+  useEffect(() => { if (!visible) return; try { fitRef.current?.fit() } catch { /* panel may still be resizing */ } }, [height, visible])
+
+  useEffect(() => {
+    if (!runRequest || status !== 'connected' || !terminalIDRef.current || deliveredRunRef.current === runRequest.id) return
+    deliveredRunRef.current = runRequest.id
+    void api.terminalInput(session.id, terminalIDRef.current, `${runRequest.command}\r`).catch((error) => onErrorRef.current(messageOf(error)))
+  }, [runRequest, session.id, status])
 
   async function selectTarget(next: TerminalTarget) {
     if (next === target) return
