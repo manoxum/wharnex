@@ -1650,7 +1650,7 @@ test('a worker that takes a task yields its place in the rotation', async () => 
 })
 
 
-test('markdown translation worker imports only an exact bounded UTF-8 artifact, never assistant prose', async () => {
+test('translation worker is transport only: it uploads the engine’s bundle and returns bytes it never reads', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const executeStart = source.indexOf('async function executeChatAgentMarkdownTranslation(')
   const executeEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', executeStart)
@@ -1661,12 +1661,29 @@ test('markdown translation worker imports only an exact bounded UTF-8 artifact, 
   assert.doesNotMatch(worker, /textContent|innerText|chatGPTVisibleActivityScript/)
   assert.match(worker, /expectedChatGPTTranslations\.set\(filename, expected\)/)
 
+  // Everything the provider is asked for was authored by the backend engine and
+  // sealed into the request archive. The worker uploads it and submits the
+  // bounded bootstrap; it composes no instruction of its own, because an
+  // instruction built here could not be validated by the side that reads the
+  // answer.
+  assert.match(worker, /wharness\.translation-input\/v1/)
+  assert.match(worker, /payload\.archive_base64/)
+  assert.match(worker, /chatGPTFillComposerScript\(bootstrap\)/)
+  assert.doesNotMatch(worker, /Translate the attached/)
+  assert.doesNotMatch(worker, /markdownTranslationLanguageName/)
+
+  // It returns the downloaded bytes unopened: parsing here would put the
+  // protocol in two places, and only one of them wrote the request.
+  assert.match(worker, /bundle_base64: outcome\.value\.toString\('base64'\)/)
+  assert.doesNotMatch(worker, /markdown: outcome\.value/)
+
   const downloadStart = source.indexOf('function registerChatGPTMarkdownTranslationDownload(')
   const downloadEnd = source.indexOf('\nfunction registerChatGPTPlanDownloads', downloadStart)
   const download = source.slice(downloadStart, downloadEnd)
   assert.match(download, /MAX_MARKDOWN_TRANSLATION_RESULT_BYTES/)
-  assert.match(download, /new TextDecoder\('utf-8', \{ fatal: true \}\)/)
-  assert.match(download, /\^whx_translation_cat_/)
+  assert.match(download, /expected\.resolve\(bytes\)/)
+  assert.doesNotMatch(download, /new TextDecoder/)
+  assert.match(download, /\^whx_translation_res_cat_\[a-f0-9\]\{20\}\\\.zip\$/)
 })
 
 test('orchestrator planning survives as an exact artifact-only Worker delivery', async () => {
@@ -2095,4 +2112,87 @@ test('retrying a prepared ChatGPT prompt recognizes an already-delivered respons
   assert.notEqual(retryableGetIndex, -1)
   assert.ok(deliveredCheckIndex < retryableGetIndex, 'the delivered-bundle check must precede reading the retryable draft')
   assert.match(fn, /alreadyDelivered: true/)
+})
+
+test('scaling the Supervisor pool reaches the Supervisor scheduler, not the Worker one', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function setChatAgentSupervisorTarget(')
+  const fn = source.slice(start, source.indexOf('\nfunction chatAgentAvailableSupervisors', start))
+
+  // Each pool owns one claim loop per slot, and the count has to reach the
+  // scheduler that runs those loops. Sending the Supervisor count to
+  // chatAgentScheduler left the Supervisor pool frozen at its construction
+  // count — neither the operator's stepper nor Auto scale could add one — while
+  // silently resizing the Worker pool to the Supervisor number.
+  assert.match(fn, /chatSupervisorScheduler\?\.setSupervisorCount\(normalized\)/)
+  assert.doesNotMatch(fn, /chatAgentScheduler\?\.setSupervisorCount/)
+
+  const workerStart = source.indexOf('function setChatAgentWorkerTarget(')
+  const workerFn = source.slice(workerStart, source.indexOf('\nasync function reconcileChatAgentAutoScale', workerStart))
+  assert.match(workerFn, /chatAgentScheduler\?\.setWorkerCount\(normalized\)/)
+})
+
+test('auto scale sizes each pool from its own half of the backlog', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function reconcileChatAgentAutoScale(')
+  const fn = source.slice(start, source.indexOf('\nfunction reconcileChatGPTWorkerPool', start))
+
+  // The two pools own disjoint task types, so the shared `due` total describes
+  // neither: it would grow the Supervisors because a library cleanup is queued
+  // and grow the Workers because a conversation is being supervised.
+  assert.match(fn, /reconcileChatAgentSupervisorAutoScale\(queue\)/)
+  assert.match(fn, /autoScaleTarget\(\{\s*enabled: true, due: queue\.due_worker/)
+  assert.doesNotMatch(fn, /due: queue\.due,/)
+
+  const supervisorStart = source.indexOf('function reconcileChatAgentSupervisorAutoScale(')
+  const supervisor = source.slice(supervisorStart, source.indexOf('\nfunction reconcileChatGPTWorkerPool', supervisorStart))
+  assert.match(supervisor, /dueLanes: queue\.due_supervisor_lanes/)
+  assert.match(supervisor, /maxSupervisors: chatAgentPolicies\.auto_scale_max_supervisors/)
+  assert.match(supervisor, /setChatAgentSupervisorTarget\(grow\)/)
+})
+
+test('a settling bundle delivery stands the supervision back at the observation cadence', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function superviseChatAgentResponse(')
+  const fn = source.slice(start, source.indexOf('\nasync function executeChatSupervisorTask', start))
+
+  // DOM_DOWNLOAD_POLL_MS paces reading a live page for a file card. Driving the
+  // durable queue with it re-claimed this supervision every two seconds for the
+  // whole length of an apply — a claim, a start and a settle per cycle, each
+  // republishing the runtime state, which is what made the owning Supervisor's
+  // card flicker continuously while a bundle was being applied.
+  const pendingIndex = fn.indexOf('pendingChatGPTBundleDeliveries.has(expected.requestId)')
+  assert.notEqual(pendingIndex, -1)
+  const branch = fn.slice(pendingIndex, fn.indexOf('}', pendingIndex) + 1)
+  assert.match(branch, /delayMs: CHAT_AGENT_AWAIT_PROBE_MS/)
+  assert.doesNotMatch(fn, /DOM_DOWNLOAD_POLL_MS/)
+})
+
+test('a Worker that finds a Supervisor already supervising stands back at the observation cadence', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  for (const [open, close] of [
+    ['async function probeChatAgentResponse(', '\nasync function executeChatAgentTask'],
+    ['async function executeChatAgentTask(', '\nfunction chatAgentTaskPayload'],
+  ]) {
+    const start = source.indexOf(open)
+    assert.notEqual(start, -1, open)
+    const fn = source.slice(start, source.indexOf(close, start))
+    const owned = fn.indexOf('chatGPTSupervisorOwnsExpectedResponse(')
+    if (owned === -1) continue
+    const branch = fn.slice(owned, fn.indexOf('}', owned) + 1)
+    assert.match(branch, /delayMs: CHAT_AGENT_AWAIT_PROBE_MS/, open)
+  }
+})
+
+test('a held Supervisor reports as occupied rather than as available between observations', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function chatAgentRuntimeState()')
+  const fn = source.slice(start, source.indexOf('\nfunction publishChatAgentRuntimeState', start))
+
+  // Supervision spends almost all of its life between observations with the
+  // lease handed back. Deriving the status from the lease alone painted a slot
+  // that is demonstrably mid-request as free on every cycle.
+  assert.match(fn, /: hold \? 'claimed'\s*\n\s*: entry \? 'idle' : 'stopped'/)
+  assert.match(fn, /occupied: Boolean\(own\.task \|\| hold\)/)
+  assert.match(fn, /project_id: chatAgentAgentProject\(own\.task, own\.lastTask, Boolean\(hold\)\)/)
 })

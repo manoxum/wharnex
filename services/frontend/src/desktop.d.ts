@@ -29,6 +29,15 @@ type DesktopAgentRuntimeAgent = {
   id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'claimed' | 'running' | 'stopped' | 'error' | string
   draining: boolean; loop_active?: boolean; interacting?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
   keep_flowing?: boolean; keep_flowing_active?: boolean; error: string; browser: DesktopAgentRuntimeBrowser; memory?: { available: boolean; rss_bytes: number; os_process_id: number; shared_process: boolean }; residency?: DesktopAgentRuntimeResidency
+  // Whether the slot is engaged right now, independently of whether it happens
+  // to hold the lease at this instant. Supervision hands the lease back between
+  // observations, so rendering the lease alone made a busy slot alternate
+  // between occupied and free for the whole length of a request.
+  occupied?: boolean
+  // Canonical host path of the project this slot is working for, carried at
+  // agent level for the same reason: a Supervisor between observations has no
+  // lease to read it from.
+  project_id?: string
   // Why a Supervisor may not release its chat yet (empty when it is free to be
   // rebound): 'expected-bundle' | 'bundle-delivery' | 'queued-comment' |
   // 'transport' | 'account-operation' | 'human-action' | 'external-auth' |
@@ -38,7 +47,7 @@ type DesktopAgentRuntimeAgent = {
 type DesktopAgentRuntimeState = {
   instance_id: string; desired_supervisors: number; configured_supervisors: number; desired_workers: number; configured_workers: number; policies: { auto_scale: boolean; auto_scale_max_supervisors: number; auto_scale_max_workers: number; keep_flowing_global: boolean; keep_flowing_workers: string[]; auto_scaled_supervisors: number; auto_scaled_workers: number }; limits: { min_supervisors: number; max_supervisors: number; min_workers: number; max_workers: number }
   scheduler: { running: boolean; backend_reachable: boolean; last_refresh_at: string; last_error: string }
-  queue: { queued: number; counts: Record<string, number>; due: number; scheduled: number; guarded?: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
+  queue: { queued: number; counts: Record<string, number>; due: number; due_supervisor_lanes?: number; due_worker?: number; scheduled: number; guarded?: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
   provider: { provider: string; paused: boolean; paused_until: string; reason: string; updated_at: string; rate_limit_level?: number; last_rate_limit_at?: string; last_rate_limit_source?: string; last_valid_bundle_at?: string; average_processing_ms?: number; valid_sample_count?: number; initial_wait_ms?: number }
   memory?: { available: boolean; total_workers_bytes: number; total_supervisors_bytes: number; total_agents_bytes: number; desktop_bytes: number; total_bytes: number }
   agents: DesktopAgentRuntimeAgent[]

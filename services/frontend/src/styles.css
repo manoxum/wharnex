@@ -3036,6 +3036,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-detail dl > div:hover { border-color:var(--theme-border-soft); }
 .agent-runtime-detail dt { color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
 .agent-runtime-detail dd { margin:0; overflow:hidden; color:var(--theme-text-soft); font:500 calc(8.8px * var(--ui-font-scale))/1.45 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+/* A value the operator can act on: the name stays the value and the affordance
+   sits beside it, so the row reads as a fact rather than as a control. */
+.agent-runtime-detail dd.agent-runtime-link-value { display:flex; align-items:center; gap:6px; }
+.agent-runtime-detail dd.agent-runtime-link-value > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-inline-link { flex:none; width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--theme-border-soft); border-radius:6px; background:var(--theme-bg); color:var(--theme-text-muted); cursor:pointer; }
+.agent-runtime-inline-link:hover:not(:disabled) { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
+.agent-runtime-inline-link:disabled { opacity:.4; cursor:default; }
 .agent-runtime-worker-actions { margin-top:11px; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .agent-runtime-worker-actions .agent-runtime-interact { margin-top:0; }
 .agent-runtime-follow,.agent-runtime-interact,.agent-runtime-capture { width:100%; min-height:38px; margin-top:11px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-elevated); color:var(--theme-text); font-size:calc(9.4px * var(--ui-font-scale)); cursor:pointer; }

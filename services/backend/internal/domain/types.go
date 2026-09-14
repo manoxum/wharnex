@@ -298,6 +298,61 @@ type ExecutionPlan struct {
 	RequiresApproval bool          `json:"requires_approval"`
 	Operations       []Operation   `json:"operations"`
 	Verification     []CommandSpec `json:"verification"`
+	// CrossProject carries work for projects other than the one this request
+	// belongs to, one self-contained unit per project.
+	//
+	// It is a list of units rather than a `project` tag on each operation
+	// because a change to another project is a whole change to that project:
+	// it needs its own commit message, because it becomes that project's Git
+	// history, and its own verification, because it is verified in that
+	// project's sandbox against that project's tree. Tagging operations would
+	// have left both of those with nowhere to live.
+	//
+	// A unit is admissible only when the request's own prompt granted that
+	// project by name (see internal/crossproject and adr/ADR-0053). The primary
+	// plan above is unchanged and unaware of this field.
+	CrossProject []CrossProjectUnit `json:"cross_project,omitempty"`
+}
+
+// CrossProjectUnit is a complete change for one granted referenced project.
+//
+// It is deliberately shaped like the executable half of a plan: the same
+// operations, the same verification commands, and the same mandatory commit
+// message a change owes the history it will become. It is executed as a derived
+// request on that project — its own Protected sandbox, its own verification,
+// its own Git-native host integration — because that is the only authority that
+// may write to a project, and it does not change when the patch arrived through
+// another project's chat.
+type CrossProjectUnit struct {
+	// Project is the reference name from the request's own `@ref:` grant, never
+	// a filesystem path. A path chosen by the model is a containment problem;
+	// a name is resolved by Wharnex against what the operator already granted.
+	Project       string        `json:"project"`
+	CommitMessage string        `json:"commit_message"`
+	Summary       string        `json:"summary,omitempty"`
+	Operations    []Operation   `json:"operations"`
+	Verification  []CommandSpec `json:"verification,omitempty"`
+}
+
+// CrossProjectGrant records which projects one request was allowed to change.
+//
+// The grant is derived from the `@ref:` directives in the request's own main
+// prompt and recorded durably at submit time, so a later continuation inherits
+// exactly the authority the operator gave and can never widen it by naming a
+// new project in a bundle. It is keyed by the root request id because a
+// continuation is the same Main Request, not a new grant.
+type CrossProjectGrant struct {
+	RootRequestID string                `json:"root_request_id"`
+	Projects      []CrossProjectGrantee `json:"projects"`
+	GrantedAt     time.Time             `json:"granted_at"`
+}
+
+// CrossProjectGrantee is one granted project: the name the prompt used, the
+// canonical host path it resolved to, and any files the operator singled out.
+type CrossProjectGrantee struct {
+	Name        string   `json:"name"`
+	ProjectPath string   `json:"project_path"`
+	Files       []string `json:"files,omitempty"`
 }
 
 type PolicyDecision struct {
@@ -868,10 +923,19 @@ type RelatedProjectContext struct {
 }
 
 type Session struct {
-	ID                      string               `json:"id"`
-	ChatID                  string               `json:"chat_id,omitempty"`
-	ProjectPath             string               `json:"project_path"`
-	RelatedProjectPaths     []string             `json:"related_project_paths,omitempty"`
+	ID                  string   `json:"id"`
+	ChatID              string   `json:"chat_id,omitempty"`
+	ProjectPath         string   `json:"project_path"`
+	RelatedProjectPaths []string `json:"related_project_paths,omitempty"`
+	// CrossProjectGrant is the authority the current Main Request carries to
+	// change projects other than this one, derived from its own `@ref:`
+	// directives. It is replaced when a new Main Request is submitted and
+	// inherited unchanged by that request's continuations.
+	CrossProjectGrant *CrossProjectGrant `json:"cross_project_grant,omitempty"`
+	// CrossProjectRanPlanID is the last plan whose cross-project units were
+	// dispatched, so an Apply path reached twice for one candidate cannot
+	// install the same change in another project twice.
+	CrossProjectRanPlanID   string               `json:"cross_project_ran_plan_id,omitempty"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
 	EffortLevel             EffortLevel          `json:"effort_level"`

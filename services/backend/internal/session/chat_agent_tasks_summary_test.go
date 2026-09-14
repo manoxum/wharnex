@@ -200,6 +200,60 @@ func TestPruneChatAgentTasksIgnoresZeroCutoff(t *testing.T) {
 	}
 }
 
+// Neither pool can be sized from the shared `due` total: the two own disjoint
+// task types, so a queue full of library cleanups would otherwise grow the
+// Supervisor pool, and a queue full of supervision would grow the Workers.
+func TestChatAgentQueueSummarySplitsDueWorkByPoolRole(t *testing.T) {
+	store := NewStore()
+	for _, task := range []ChatAgentTask{
+		testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1"),
+		testChatAgentTask("AWAIT_RESPONSE", "chat-b", "conv-b", "await:req-2"),
+		testChatAgentTask("DELETE_BUNDLE", "chat-c", "", "delete-bundle:c.zip"),
+	} {
+		if _, err := store.EnqueueChatAgentTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	summary, err := store.ChatAgentQueueSummary("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Due != 3 {
+		t.Fatalf("due=%d want 3", summary.Due)
+	}
+	if summary.DueSupervisorLanes != 2 {
+		t.Fatalf("due_supervisor_lanes=%d want 2", summary.DueSupervisorLanes)
+	}
+	if summary.DueWorker != 1 {
+		t.Fatalf("due_worker=%d want 1", summary.DueWorker)
+	}
+}
+
+// A Supervisor is bound to one chat for the life of its request, so ten due
+// tasks in one conversation still need exactly one slot. Counting tasks instead
+// of lanes would grow the pool against work a single slot already serves.
+func TestChatAgentQueueSummaryCountsOneSupervisorLanePerConversation(t *testing.T) {
+	store := NewStore()
+	for _, task := range []ChatAgentTask{
+		testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1"),
+		testChatAgentTask("BOT_WRITE", "chat-a", "conv-a", "write:req-2"),
+		testChatAgentTask("RECOVERY_WRITE", "chat-a", "conv-a", "recovery:req-3"),
+	} {
+		if _, err := store.EnqueueChatAgentTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	summary, err := store.ChatAgentQueueSummary("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.DueSupervisorLanes != 1 {
+		t.Fatalf("due_supervisor_lanes=%d want 1 for one conversation", summary.DueSupervisorLanes)
+	}
+}
+
 // A settled task has left the queue. Counting it reported past throughput as
 // if it were depth, which says nothing about what is waiting to run now.
 func TestChatAgentQueueSummaryExcludesSettledTasks(t *testing.T) {

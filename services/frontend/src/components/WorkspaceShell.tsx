@@ -76,6 +76,16 @@ export function WorkspaceShell() {
         const projectPath = String(event.data.projectPath || '')
         if (projectPath) void unbindProject(projectPath)
       }
+      // Bring a project to the front from inside one of the bound frames.
+      //
+      // The three cases are genuinely different and only the shell can tell
+      // them apart: already bound here is a local activation, open in another
+      // window has to raise that window, and anything else has to be bound
+      // first or the request resolves to nothing at all.
+      if (event.data?.type === 'wharness:focus-project') {
+        const projectPath = String(event.data.projectPath || '')
+        if (projectPath) void focusProject(projectPath)
+      }
       if (event.data?.type === 'wharness:workspace-mode') {
         const projectPath = String(event.data.projectPath || '')
         const mode = event.data.mode === 'editor' ? 'editor' : event.data.mode === 'agent' ? 'agent' : event.data.mode === 'orchestrator' ? 'orchestrator' : undefined
@@ -133,6 +143,18 @@ export function WorkspaceShell() {
       setProjects(next)
       if (activeProject === projectPath) setActiveProject(next[0] || '')
     } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
+  }
+
+  async function focusProject(projectPath: string) {
+    const target = projectPath.trim()
+    if (!target) return
+    if (projects.includes(target)) { setActiveProject(target); return }
+    try {
+      const snapshot = await desktopBridge()?.windows.projects() as ProjectWindowSnapshot | undefined
+      const elsewhere = snapshot?.items.find((item) => item.projectPath === target && item.windowId !== snapshot.currentWindowId)
+      if (elsewhere) { await desktopBridge()?.windows.focusProject(target); return }
+    } catch { /* fall through to binding it here */ }
+    await bindProject(target)
   }
 
   useEffect(() => {

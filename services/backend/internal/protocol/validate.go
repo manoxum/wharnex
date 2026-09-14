@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"kernl.local/harness/backend/internal/crossproject"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/projectknowledge"
 )
@@ -71,7 +72,65 @@ func Validate(plan domain.ExecutionPlan) error {
 			return fmt.Errorf("barrier_files %d: %w", i, err)
 		}
 	}
-	for i, op := range plan.Operations {
+	if err := validateOperations(plan.Operations); err != nil {
+		return err
+	}
+	for i, command := range plan.Verification {
+		if err := ValidateCommand(command); err != nil {
+			return fmt.Errorf("verification %d: %w", i, err)
+		}
+	}
+	return validateCrossProjectUnits(plan.CrossProject)
+}
+
+// validateCrossProjectUnits checks the structure of work aimed at other
+// projects. It is deliberately the same validation the primary plan gets: a
+// change to another project is a whole change, and there is no reason it should
+// be held to a weaker standard because it arrived inside somebody else's plan.
+//
+// What it does not do is decide authority. Whether a named project may be
+// written at all is answered from the request's own grant at ingestion, with
+// the session in hand; this function only sees the plan.
+func validateCrossProjectUnits(units []domain.CrossProjectUnit) error {
+	if len(units) > MaxCrossProjectUnits {
+		return fmt.Errorf("cross_project exceeds %d projects", MaxCrossProjectUnits)
+	}
+	for i, unit := range units {
+		if !crossproject.ValidName(unit.Project) {
+			return fmt.Errorf("cross_project %d: project must be a reference name from the request's @ref: grant, got %q", i, unit.Project)
+		}
+		// A unit with nothing to do is a declaration of authority over another
+		// project with no change behind it. It is refused rather than ignored,
+		// because silently dropping it would leave the response claiming a
+		// change that never happened.
+		if len(unit.Operations) == 0 {
+			return fmt.Errorf("cross_project %d: project %q declares no operations", i, unit.Project)
+		}
+		if len(unit.Operations) > MaxOperations {
+			return fmt.Errorf("cross_project %d: too many operations", i)
+		}
+		if len(unit.Verification) > MaxVerificationCommands {
+			return fmt.Errorf("cross_project %d: too many verification commands", i)
+		}
+		// The message becomes that project's own permanent Git history, under
+		// the same contract as any other commit Wharnex makes there.
+		if err := ValidateCommitMessage(unit.CommitMessage); err != nil {
+			return fmt.Errorf("cross_project %d: %w", i, err)
+		}
+		if err := validateOperations(unit.Operations); err != nil {
+			return fmt.Errorf("cross_project %d: %w", i, err)
+		}
+		for j, command := range unit.Verification {
+			if err := ValidateCommand(command); err != nil {
+				return fmt.Errorf("cross_project %d: verification %d: %w", i, j, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateOperations(operations []domain.Operation) error {
+	for i, op := range operations {
 		switch op.Type {
 		case "apply_patch":
 			if len(op.Command.Argv) != 0 {
@@ -92,11 +151,6 @@ func Validate(plan domain.ExecutionPlan) error {
 			}
 		default:
 			return fmt.Errorf("operation %d has unsupported type %q", i, op.Type)
-		}
-	}
-	for i, command := range plan.Verification {
-		if err := ValidateCommand(command); err != nil {
-			return fmt.Errorf("verification %d: %w", i, err)
 		}
 	}
 	return nil
