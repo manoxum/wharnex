@@ -94,6 +94,72 @@ func TestRootIntegrationPathsStagesGitlinkForNestedFiles(t *testing.T) {
 	}
 }
 
+func TestUpgradeLegacyRepositoryIntegrationsCapturesSafeCheckoutIdentity(t *testing.T) {
+	requireGitForApp(t)
+	root := newAppRepoWithSubmodule(t, "services/app")
+	appRoot := filepath.Join(root, "services", "app")
+	base := gitIn(t, appRoot, "rev-parse", "HEAD")
+	pending := []domain.PendingHostChange{{
+		IntegrationBranch: "whx/req_legacy",
+		SubmoduleIntegrations: []domain.RepositoryIntegration{{
+			Path: "services/app", Branch: "whx/req_legacy", Commit: base,
+		}},
+	}}
+
+	upgraded, changed, err := upgradeLegacyRepositoryIntegrations(context.Background(), root, pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || len(upgraded[0].SubmoduleIntegrations) != 1 {
+		t.Fatalf("legacy repository identity was not upgraded: %+v", upgraded)
+	}
+	integration := upgraded[0].SubmoduleIntegrations[0]
+	if integration.TargetBranch != "main" || integration.BaseCommit != base {
+		t.Fatalf("recovered checkout identity = %+v, want main at %s", integration, base)
+	}
+	if pending[0].SubmoduleIntegrations[0].BaseCommit != "" {
+		t.Fatal("upgrade mutated the store-owned input slice before persistence")
+	}
+}
+
+func TestUpgradeLegacyRepositoryIntegrationsReconstructsDiscardedUnits(t *testing.T) {
+	requireGitForApp(t)
+	root := newAppRepoWithSubmodule(t, "services/app")
+	appRoot := filepath.Join(root, "services", "app")
+	base := gitIn(t, appRoot, "rev-parse", "HEAD")
+	branch := "whx/req_discarded_units"
+	runGitForApp(t, appRoot, "switch", "-c", branch)
+	if err := os.WriteFile(filepath.Join(appRoot, "lib.txt"), []byte("content\ncandidate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, appRoot, "add", "lib.txt")
+	runGitForApp(t, appRoot, "commit", "-qm", "candidate")
+	candidate := gitIn(t, appRoot, "rev-parse", "HEAD")
+	runGitForApp(t, root, "switch", "-c", branch)
+	runGitForApp(t, root, "add", "services/app")
+	runGitForApp(t, root, "commit", "-qm", "record candidate gitlink")
+	runGitForApp(t, root, "switch", "main")
+	runGitForApp(t, appRoot, "switch", "main")
+
+	pending := []domain.PendingHostChange{
+		{IntegrationBranch: branch, Plan: *planPatching("services/app/lib.txt")},
+	}
+	upgraded, changed, err := upgradeLegacyRepositoryIntegrations(context.Background(), root, pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || len(upgraded[0].SubmoduleIntegrations) != 1 {
+		t.Fatalf("discarded repository units were not reconstructed: %+v", upgraded)
+	}
+	integration := upgraded[0].SubmoduleIntegrations[0]
+	if integration.Path != "services/app" || integration.Branch != branch || integration.Commit != candidate {
+		t.Fatalf("reconstructed candidate does not match its exact local refs: %+v", integration)
+	}
+	if integration.TargetBranch != "main" || integration.BaseCommit != base {
+		t.Fatalf("reconstructed checkout identity = %+v, want main at %s", integration, base)
+	}
+}
+
 func TestRejectSubmoduleWritesAllowsSuperprojectPaths(t *testing.T) {
 	requireGitForApp(t)
 	root := newAppRepoWithSubmodule(t, "mod/app")

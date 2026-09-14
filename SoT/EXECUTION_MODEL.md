@@ -229,7 +229,31 @@ repositories the same candidate owns. The superproject branch records each
 submodule at the commit verification produced, so a dry-run merge of the
 superproject alone would otherwise report a pointer conflict whenever that
 submodule moved on either side — the very case the mechanism exists to handle,
-and one the real Apply resolves by advancing that submodule first.
+and one the real repository-tree transaction resolves locally.
+If Git still reports that exact owned gitlink during the authoritative merge,
+the Engine selects the descendant of the validated base and candidate commits
+and commits that resolution locally. No other path is admitted to this rule,
+and a mixed ordinary conflict still routes only its ordinary paths through the
+bounded conflict protocol.
+
+Repository-tree metadata is durable protocol state. A candidate persisted by
+the retired repository-unit implementation under `integration_units` MUST be
+adapted losslessly to `submodule_integrations`; silently falling back to a
+root-only merge would forget ownership of its gitlinks and recreate a false
+managed-state conflict after restart. If an incompatible intermediate version
+already rewrote the snapshot without that legacy field, recovery MAY rebuild a
+nested record only when three local facts agree: a plan path is owned by the
+registered unit, the parent candidate branch records its exact gitlink, and the
+same named local branch in that unit points at that commit. Ambiguous or absent
+evidence fails closed.
+
+Older unit records did not retain the operator checkout identity, so recovery
+measures its branch/detached state and HEAD without mutation and persists that
+identity. Apply then proves either that the verified nested commit can
+fast-forward from that point or that an earlier partial attempt already
+integrated it into the current HEAD. The latter is an idempotent success and
+MUST NOT rewind the operator branch. A failed proof retains the candidate and
+fails closed as host drift; it never guesses or requests a source-repair turn.
 
 The operator's explicit Apply confirmation authorizes this bounded repository
 tree as one transaction. It does not authorize remote pushes and does not extend

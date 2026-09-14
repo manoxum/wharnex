@@ -66,7 +66,8 @@ import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversati
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
 import { buildChangeSummary } from './lib/changeSummary'
-import { confirmDialog, promptDialog } from './lib/appDialog'
+import { confirmDialog } from './lib/appDialog'
+import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable, promptGPTRepairDetail } from './lib/plannerRecovery'
 import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 import { projectFileReferenceSuffix } from './lib/projectFileReferences'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
@@ -2781,11 +2782,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       case 'retry-dependency-network': await retryDependencyNetwork(); return
       case 'repair-host-dependency': await retryHostDependencyRepair(); return
       case 'repair-with-gpt': {
-        const detail = await promptDialog({ title: 'Corrigir erro com GPT', message: 'Pode acrescentar um detalhe para orientar a correção ou deixar em branco.', inputLabel: 'Detalhe opcional', placeholder: 'Ex.: verifique também o comportamento no Windows', confirmLabel: 'Enviar para correção', tone: 'warning' })
+        const detail = await promptGPTRepairDetail(plannerDeclaredNonRetryable(session))
         if (detail !== undefined) await repairFailureWithGPT(detail)
         return
       }
-      case 'retry-transport': await retryTransportFailure(item.requestId || ''); return
+      // A bare resume of a planner-declared non-retryable failure can only come
+      // back as the planner's own refusal, so this surface collects the required
+      // guidance and repairs instead of resending the same blocked request.
+      case 'retry-transport': {
+        if (!plannerDeclaredNonRetryable(session)) { await retryTransportFailure(item.requestId || ''); return }
+        const detail = await promptGPTRepairDetail(true)
+        if (detail !== undefined) await repairFailureWithGPT(detail)
+        return
+      }
       case 'retry-host-apply':
       case 'apply-host': await apply(); return
     }
@@ -2903,7 +2912,7 @@ function canRetryDependencyNetwork(session: Session) {
 }
 
 function canRepairFailureWithGPT(session: Session) {
-  if (session.failure_kind || (session.plan && session.policy && !session.policy.allowed)) return false
+  if ((session.failure_kind && session.failure_kind !== PLANNER_GUIDANCE_REQUIRED) || (session.plan && session.policy && !session.policy.allowed)) return false
   if (session.state === 'repair_pending') return Boolean(session.last_manual_prompt)
   return session.state === 'failed' && Boolean(session.last_repair_error || (session.last_execution?.success === false && session.last_execution.error))
 }

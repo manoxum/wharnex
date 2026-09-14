@@ -176,8 +176,8 @@ func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*Merg
 // made; the host records wherever its own copy is. A dry-run merge of the
 // superproject alone therefore reports a gitlink conflict whenever a submodule
 // moved on either side — which is exactly the case this whole mechanism exists
-// to handle, and which the real integration resolves by merging that submodule
-// first and then recording where it landed. Counting it as an ordinary
+// to handle, and which the real repository-tree transaction reconciles by
+// selecting the proven descendant gitlink locally. Counting it as an ordinary
 // conflict would abort a legitimate integration and hand a planner a commit id
 // to patch (adr/ADR-0039).
 func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch string, integratingUnits []string) (*MergeConflictError, error) {

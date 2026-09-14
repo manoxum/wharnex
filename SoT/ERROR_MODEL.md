@@ -75,7 +75,7 @@ misread as incomplete.
 
 ## Session failure classification (`FailureKind`)
 
-A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set classification (`domain.FailureKind*`), always derived by Wharness itself from a local/sandbox error or a planner turn's reason code — never copied verbatim from planner-supplied text. Frontend recovery affordances MUST key off this field, never off error-message substrings.
+A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set classification (`domain.FailureKind*`), always derived by Wharness itself from a local/sandbox error or a structured planner outcome — never copied verbatim from planner-supplied text. Frontend recovery affordances MUST key off this field, never off error-message substrings.
 
 | `failure_kind` | Meaning | Recovery |
 | --- | --- | --- |
@@ -91,8 +91,9 @@ A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set c
 | `sandbox_resource_exhausted` | A Protected command failed because the machine ran out of disk, memory or file descriptors mid-run (for example a linker reporting `no space left on device` during a race-enabled build). Derived from real command output, never from planner text. | Free host resources or narrow the verification set, then retry the retained candidate. The generated source is not implicated and rewriting it cannot help. |
 | `artifact_storage_full` | The local artifact object store refused a write for lack of space (`XMinioStorageFull` or equivalent). | Free object-store space or lower artifact retention. The affected request is **not** failed by this: archival is bookkeeping and the verified result still executes. |
 | `host_working_state_blocked` | Wharnex refused to integrate because the host working tree is in a state where committing on top of it would damage the operator's own uncommitted work: an unfinished merge/rebase/cherry-pick/am, unresolved conflict paths, a locked repository index (another Git process, or a crashed one's leftover `index.lock`), or a change that moves the recorded commit of a submodule holding uncommitted content (see `adr/ADR-0039`). | The operator's own action, named in the failure text and its `host.apply_blocked` event: finish or abort the operation, resolve the paths, commit/stash the work inside the submodule, or clear the named lock. Wharnex never deletes a lock itself: a lock a live process still holds is corrupted by removal, and only the operator can tell live contention from a crash leftover, so the refusal reports the lock's age and names the file. The verified candidate is retained; Apply then succeeds unchanged. |
+| `planner_guidance_required` | The current planner outcome explicitly set `retryable=false` and does not map to a dedicated local/infrastructure recovery. Sending identical evidence would deterministically repeat the same blocker; `missing_primary_build_failure` is one example. | Collect non-empty bounded evidence or guidance from the operator, preserving multi-line diagnostics, then create a fresh correlated GPT request carrying the original failure plus that new information. |
 
-None of these classifications ever consume an automatic ChatGPT source-repair round: each represents an infrastructure, lifecycle, host, or transport condition for which a new source patch is not the defined recovery.
+None of these classifications consume an automatic ChatGPT source-repair round. `planner_guidance_required` may start a manual GPT round only after the operator supplies new evidence; the remaining kinds use their dedicated infrastructure, lifecycle, host, or transport recovery.
 
 ## Auxiliary-payload failures MUST NOT invalidate an executable payload
 
@@ -107,4 +108,4 @@ This rule exists because both failures were observed discarding a complete, veri
 
 A missing executable (exit 127 for a binary absent from the runner image) is repairable — the planner can pick another tool — but only when the repair request says so. The repair prompt MUST identify the missing executable explicitly instead of handing over raw output, which invites re-reading project source that was never at fault. The environment manifest (`SoT/SANDBOX_MODEL.md`) publishes the installed inventory so this condition should not arise at all.
 
-Failures without one of these infrastructure classifications are repairable planner failures. Wharness attempts their bounded GPT repair automatically and retains a manual GPT repair fallback with optional operator guidance after automatic preparation, transport, or attempt exhaustion fails.
+Failures without one of these classifications are repairable planner failures. Wharness attempts their bounded GPT repair automatically and retains a manual GPT repair fallback with optional operator guidance after automatic preparation, transport, or attempt exhaustion fails.

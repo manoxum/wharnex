@@ -2,6 +2,8 @@ package domain
 
 import (
 	"encoding/json"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -56,7 +58,7 @@ const (
 
 // FailureKind is Wharnex's own closed-set classification of a terminal
 // session failure. It is always derived by Wharnex itself — from a sandbox
-// error via errors.Is, or from a planner turn outcome's reason code — and
+// error via errors.Is, or from a planner turn's structured outcome — and
 // never copied verbatim from planner-supplied text. Consumers (including the
 // frontend) MUST key recovery affordances on this field, never on error
 // message substrings: message text is free-form prose that can be rephrased
@@ -151,6 +153,12 @@ const (
 	// round. The candidate is retained and Apply succeeds unchanged once the
 	// operator clears the condition the failure names.
 	FailureKindHostWorkingStateBlocked = "host_working_state_blocked"
+
+	// FailureKindPlannerGuidanceRequired marks a planner outcome that explicitly
+	// declared retryable=false without mapping to a dedicated local recovery.
+	// Repeating the same request would loop, but an operator may provide new
+	// evidence or guidance and deliberately start a materially different round.
+	FailureKindPlannerGuidanceRequired = "planner_guidance_required"
 )
 
 type ExecutionMode string
@@ -604,6 +612,56 @@ type PendingHostChange struct {
 	// below the open superproject. Apply merges IntegrationBranch, then advances
 	// each nested repository on the branch captured during verification.
 	SubmoduleIntegrations []RepositoryIntegration `json:"submodule_integrations,omitempty"`
+}
+
+// UnmarshalJSON keeps verified candidates written by the first
+// submodule-native engine recoverable. That engine persisted integration_units
+// (including one root record); the repository-tree engine stores only the
+// nested records as submodule_integrations. Silently dropping the old field
+// makes the preflight forget which gitlinks it owns and recreates an
+// unresolvable managed-state conflict after restart.
+func (p *PendingHostChange) UnmarshalJSON(data []byte) error {
+	type plain PendingHostChange
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*p = PendingHostChange(decoded)
+	if len(p.SubmoduleIntegrations) > 0 {
+		return nil
+	}
+	var legacy struct {
+		IntegrationUnits []struct {
+			Path         string `json:"path"`
+			Branch       string `json:"branch"`
+			Commit       string `json:"commit"`
+			TargetBranch string `json:"target_branch,omitempty"`
+			BaseCommit   string `json:"base_commit,omitempty"`
+		} `json:"integration_units"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	for _, unit := range legacy.IntegrationUnits {
+		path := strings.TrimSpace(unit.Path)
+		if path == "" || path == "." {
+			if p.IntegrationBranch == "" {
+				p.IntegrationBranch = unit.Branch
+			}
+			if p.IntegrationCommit == "" {
+				p.IntegrationCommit = unit.Commit
+			}
+			continue
+		}
+		p.SubmoduleIntegrations = append(p.SubmoduleIntegrations, RepositoryIntegration{
+			Path: path, Branch: unit.Branch, Commit: unit.Commit,
+			TargetBranch: unit.TargetBranch, BaseCommit: unit.BaseCommit,
+		})
+	}
+	sort.SliceStable(p.SubmoduleIntegrations, func(i, j int) bool {
+		return strings.Count(p.SubmoduleIntegrations[i].Path, "/") < strings.Count(p.SubmoduleIntegrations[j].Path, "/")
+	})
+	return nil
 }
 
 // RepositoryIntegration identifies one nested repository candidate. Branch is

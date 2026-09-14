@@ -14,6 +14,7 @@ export type PromptDialogOptions = DialogBaseOptions & {
   initialValue?: string
   placeholder?: string
   inputLabel?: string
+  multiline?: boolean
   validate?: (value: string) => string | undefined
 }
 
@@ -102,7 +103,7 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
 
     const body = document.createElement('div')
     body.className = 'app-dialog-body'
-    let input: HTMLInputElement | undefined
+    let input: HTMLInputElement | HTMLTextAreaElement | undefined
     let error: HTMLSpanElement | undefined
 
     if (options.kind === 'prompt') {
@@ -110,8 +111,9 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
       field.className = 'app-dialog-field'
       const label = document.createElement('span')
       label.textContent = options.inputLabel || 'Valor'
-      input = document.createElement('input')
-      input.type = 'text'
+      input = options.multiline ? document.createElement('textarea') : document.createElement('input')
+      if (input instanceof HTMLInputElement) input.type = 'text'
+      if (input instanceof HTMLTextAreaElement) input.rows = 5
       input.value = options.initialValue || ''
       input.placeholder = options.placeholder || ''
       input.autocomplete = 'off'
@@ -181,12 +183,13 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
         return
       }
       if (event.key === 'Enter' && options.kind === 'prompt' && event.target === input) {
+        if (input instanceof HTMLTextAreaElement && !event.ctrlKey && !event.metaKey) return
         event.preventDefault()
         confirm()
         return
       }
       if (event.key !== 'Tab') return
-      const focusable = [...card.querySelectorAll<HTMLElement>('button,input,[tabindex]:not([tabindex="-1"])')]
+      const focusable = [...card.querySelectorAll<HTMLElement>('button,input,textarea,[tabindex]:not([tabindex="-1"])')]
         .filter((element) => !element.hasAttribute('disabled'))
       if (!focusable.length) return
       const first = focusable[0]

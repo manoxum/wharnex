@@ -85,5 +85,14 @@ id, not content, so a patch targeting one is rejected on arrival.
   accept a patch, and that it writes ordinary project-relative paths regardless.
 - An ordinary single-repository project sees no change at all: no section is
   published and no behavior differs.
-- `hostrepo.InspectUnits` exists solely as the measurement behind this manifest.
-  It performs no mutation and is not part of the integration path.
+- `hostrepo.InspectUnits` is the read-only measurement behind this manifest and
+  the bounded compatibility adapter for durable `integration_units` candidates
+  written before the duplicate engine was removed. It performs no mutation and
+  is not part of the steady-state integration path.
+- Removing the duplicate engine does not remove its persisted protocol state.
+  Legacy nested unit records are mapped into the canonical repository-tree
+  candidate, and missing checkout identity is measured and then validated
+  before Apply; it is never silently discarded into a root-only merge. A
+  snapshot already rewritten without the old field is recoverable only when
+  plan ownership, parent gitlink and the exact same-named nested branch all
+  agree locally.

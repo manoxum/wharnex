@@ -1438,7 +1438,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   font-size: calc(9px * var(--ui-font-scale));
   font-weight: 650;
 }
-.app-dialog-field input {
+.app-dialog-field input,
+.app-dialog-field textarea {
   width: 100%;
   min-height: 40px;
   padding: 0 12px;
@@ -1448,7 +1449,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   color: #20241d;
   box-shadow: inset 0 1px 2px rgba(17,22,14,.04);
 }
-.app-dialog-field input:focus {
+.app-dialog-field textarea {
+  min-height: 112px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+.app-dialog-field input:focus,
+.app-dialog-field textarea:focus {
   border-color: #769b4a;
   outline: 2px solid rgba(118,155,74,.16);
   outline-offset: 1px;

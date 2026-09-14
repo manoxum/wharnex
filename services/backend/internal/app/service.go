@@ -943,17 +943,14 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
 		s.closeRemoteInputChannel(sessionID, "request.failed")
 		s.bus.Publish(sessionID, "turn.failed", map[string]any{"request_id": parsed.Turn.RequestID, "outcome": outcome.Status, "reason_code": outcome.ReasonCode, "retryable": outcome.Retryable, "transport": "zip_bundle", "failure_kind": failureKind})
-		// A locally-diagnosed infrastructure fault (e.g. offline_go_module_cache)
-		// is not a planner defect. The failed plan, policy decision and
-		// execution result remain the exact inputs of the human dependency-
-		// network recovery, so automatic fresh-request recovery — which would
-		// fail identically against a missing host module cache — must not
-		// fire, and a repair attempt must not be spent diagnosing it.
-		infrastructure := failureKind != ""
+		// A classified infrastructure fault uses its dedicated local recovery;
+		// a planner_guidance_required outcome needs new operator evidence. Both
+		// make an automatic fresh request invalid, so neither spends an attempt.
+		blocksAutomaticRepair := failureKind != ""
 		if failureKind == domain.FailureKindOfflineGoModuleCache {
 			s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": parsed.Turn.RequestID, "error": detail, "scope": "go_dependency_commands"})
 		}
-		if !infrastructure && outcome.Retryable && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
+		if !blocksAutomaticRepair && outcome.Retryable && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
 			if recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true); retryErr == nil {
 				s.bus.Publish(sessionID, "turn.auto_recovery_prepared", map[string]any{"request_id": recovered.LastRequestID, "replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode})
 				return BundleSubmission{Session: recovered, AutoError: detail, RemoteRecoveryPrepared: true}, nil
@@ -1219,14 +1216,14 @@ func plannerOutcomeFailureDetail(outcome *domain.TurnOutcome) string {
 // and its execution result are preserved rather than wiped: they are exactly
 // the inputs the human dependency-network recovery needs, and the spent
 // repair attempt is refunded since it diagnosed a host problem, not a code
-// defect. Every other outcome keeps the existing behavior of clearing the
-// plan. Returns the classified FailureKind (possibly empty).
+// defect. A planner-guidance block is classified for the UI but still clears
+// stale executable state like an ordinary terminal planner failure.
 func applyPlannerFailure(item *domain.Session, outcome *domain.TurnOutcome) string {
 	kind := classifyPlannerOutcomeFailure(outcome)
 	item.State = "failed"
 	item.FailureKind = kind
 	item.LastRepairError = plannerOutcomeFailureDetail(outcome)
-	if kind == "" {
+	if kind == "" || kind == domain.FailureKindPlannerGuidanceRequired {
 		item.Plan = nil
 		item.Policy = nil
 		item.LastExecution = nil
@@ -1291,7 +1288,7 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	if current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "" {
 		return domain.Session{}, errors.New("no terminal failed request is available to retry")
 	}
-	if kind := sessionFailureKind(current); kind != "" && kind != domain.FailureKindRemoteInputTransport {
+	if kind := sessionFailureKind(current); kind != "" && kind != domain.FailureKindRemoteInputTransport && kind != domain.FailureKindPlannerGuidanceRequired {
 		return current, fmt.Errorf("failure %s is terminal for fresh GPT retry and requires its dedicated recovery action", kind)
 	}
 	// The planner's own outcome is authoritative about whether another identical
@@ -1301,9 +1298,9 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	// had declared unsolvable was sent straight back to it and answered
 	// identically every round. That is a real observed loop — three chained
 	// requests reporting stale_pending_candidate_requires_operator_rebase against
-	// a candidate whose patch no longer applied to the host — and it stayed
-	// invisible because an unrecognized reason_code classifies as no kind at all,
-	// so the gate above never engages.
+	// a candidate whose patch no longer applied to the host. The dedicated
+	// planner_guidance_required kind makes that state visible without admitting
+	// arbitrary reason codes into the infrastructure allowlist.
 	//
 	// Operator guidance is the deliberate escape: supplying it is the operator
 	// stating that something outside the planner's view has changed.
@@ -2169,16 +2166,17 @@ func (s *Service) TriggerApplyFailureRepair(ctx context.Context, sessionID strin
 }
 
 // RequestFailureRepair is the explicit operator fallback for a repairable
-// execution failure. It can resend an already prepared repair after Desktop
-// transport failed, or start a fresh manual repair cycle after the bounded
-// automatic attempts were exhausted. Infrastructure failures stay on their
-// dedicated local recovery paths and never become source-patch requests.
+// execution or planner failure. It can resend an already prepared repair after
+// Desktop transport failed, or start a fresh manual repair cycle after the
+// bounded automatic attempts were exhausted. A planner guidance block requires
+// new evidence; infrastructure failures stay on their dedicated local recovery
+// paths and never become source-patch requests.
 func (s *Service) RequestFailureRepair(ctx context.Context, sessionID, guidance string) (domain.Session, error) {
 	current, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.Session{}, err
 	}
-	if kind := sessionFailureKind(current); kind != "" {
+	if kind := sessionFailureKind(current); kind != "" && kind != domain.FailureKindPlannerGuidanceRequired {
 		return current, fmt.Errorf("failure %s requires its dedicated local recovery action", kind)
 	}
 	cleanGuidance := truncateRepairText(guidance, 4000)
@@ -2510,6 +2508,23 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 	}
 	if pendingHostResolutionBlocked(item) {
 		return item, errors.New("finish the active planner/repair turn before applying pending host changes")
+	}
+	pending, legacyRepositoriesUpgraded, err := upgradeLegacyRepositoryIntegrations(ctx, item.ProjectPath, pending)
+	if err != nil {
+		return item, fmt.Errorf("recover legacy submodule candidate: %w", err)
+	}
+	if legacyRepositoriesUpgraded {
+		updated, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
+			for index := range pending {
+				current.PendingHostChanges = upsertPendingHostChange(current.PendingHostChanges, pending[index])
+			}
+			return nil
+		})
+		if persistErr != nil {
+			return item, fmt.Errorf("persist recovered legacy submodule candidate: %w", persistErr)
+		}
+		item = updated
+		s.bus.Publish(sessionID, "integration.legacy_units_upgraded", map[string]any{"plan_count": len(pending)})
 	}
 	expectedBaselines := make([]string, len(pending))
 	for index := range pending {
@@ -2907,6 +2922,7 @@ func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Ses
 		current.LastVersionBefore = versionChange.Before
 		current.LastVersionAfter = versionChange.After
 		current.PendingHostChanges = nil
+		current.LastManualPrompt = ""
 		clearSessionFailure(current)
 		if selfEvolution && current.LastTurn != nil && len(current.LastTurn.ResolvedEvidenceIDs) > 0 {
 			if current.ResolvedEvidenceIDs == nil {

@@ -44,6 +44,24 @@ func TestReclaimObsoleteStorageRemovesOnlyUnreferencedManagedData(t *testing.T) 
 	activeWorkspace := makeDir(tempRoot, "kernl-workspace-active", old)
 	orphanContext := makeDir(tempRoot, "wharness-context-orphan", old)
 	orphanWorkspace := makeDir(tempRoot, "kernl-workspace-orphan", old)
+	readOnlyCache := filepath.Join(orphanWorkspace, ".kernl", "go-mod", "example.org", "module@v1")
+	if err := os.MkdirAll(readOnlyCache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(readOnlyCache, "module.go"), []byte("package module\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := filepath.WalkDir(filepath.Join(orphanWorkspace, ".kernl"), func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || !entry.IsDir() {
+			return walkErr
+		}
+		return os.Chmod(path, 0o555)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(orphanWorkspace, old, old); err != nil {
+		t.Fatal(err)
+	}
 	recentContext := makeDir(tempRoot, "wharness-context-recent", time.Now())
 	foreign := makeDir(tempRoot, "unrelated-cache", old)
 

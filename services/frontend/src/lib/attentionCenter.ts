@@ -1,6 +1,7 @@
 import type { Session } from '../types'
 import type { WorkspaceChat } from './workspaceMemory'
 import { executionNeedsAttention, sessionCanExecutePlan } from './executionRecovery'
+import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable } from './plannerRecovery'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
@@ -205,10 +206,12 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   // A live Desktop human-action block already names the real transport or
   // authentication problem. A second GPT-repair card would describe the same
   // stopped request as a source defect and offer a competing recovery.
-  const repairableFailure = !humanAction?.active && !session.failure_kind && session.state === 'failed' && Boolean(session.last_repair_error || (session.last_execution?.success === false && session.last_execution.error))
-  const preparedRepair = !humanAction?.active && !session.failure_kind && session.state === 'repair_pending' && Boolean(session.last_manual_prompt)
+  const guidanceRequired = plannerDeclaredNonRetryable(session)
+  const repairKind = !session.failure_kind || session.failure_kind === PLANNER_GUIDANCE_REQUIRED
+  const repairableFailure = !humanAction?.active && repairKind && session.state === 'failed' && Boolean(session.last_repair_error || (session.last_execution?.success === false && session.last_execution.error))
+  const preparedRepair = !humanAction?.active && repairKind && session.state === 'repair_pending' && Boolean(session.last_manual_prompt)
   if (!failureAlertAdded && (repairableFailure || preparedRepair)) {
-    items.push(item(chat, 'gpt-repair', 'warning', preparedRepair ? 'Correção GPT pronta para enviar' : 'Erro reparável com GPT', preparedRepair ? 'A correção automática foi preparada; pode reenviá-la manualmente e acrescentar um detalhe.' : 'A tentativa automática terminou; pode iniciar uma correção manual e acrescentar um detalhe.', 'chatgpt', 'repair-with-gpt'))
+    items.push(item(chat, 'gpt-repair', 'warning', guidanceRequired ? 'Nova evidência necessária' : preparedRepair ? 'Correção GPT pronta para enviar' : 'Erro reparável com GPT', guidanceRequired ? 'O GPT indicou que repetir sem informação nova não resolverá o bloqueio. Acrescente evidência ou orientação antes de iniciar outra tentativa.' : preparedRepair ? 'A correção automática foi preparada; pode reenviá-la manualmente e acrescentar um detalhe.' : 'A tentativa automática terminou; pode iniciar uma correção manual e acrescentar um detalhe.', 'chatgpt', 'repair-with-gpt'))
     failureAlertAdded = true
   }
 
@@ -225,9 +228,9 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   if (session.self_evolution_activation === 'restart_pending') {
     items.push(item(chat, 'restart-pending', 'warning', 'Reinício do Wharnex pendente', 'As alterações já foram aplicadas e construídas; falta confirmar o reinício.', 'plan'))
   }
-  if (session.last_turn?.kind === 'clarification') {
+  if (session.last_turn?.kind === 'clarification' && session.state === 'awaiting_clarification') {
     items.push(item(chat, 'clarification', 'warning', 'Resposta necessária', session.last_turn.message || 'O pedido aguarda um esclarecimento para continuar.'))
-  } else if (session.last_turn?.kind === 'blocked' && !(session.plan && session.policy && !session.policy.allowed) && !failureAlertAdded) {
+  } else if (session.last_turn?.kind === 'blocked' && (session.state === 'blocked' || session.state === 'failed') && !(session.plan && session.policy && !session.policy.allowed) && !failureAlertAdded) {
     items.push(item(chat, 'turn-blocked', 'danger', 'Pedido bloqueado', session.last_turn.message || 'O pedido não pode continuar sem intervenção.'))
   }
 

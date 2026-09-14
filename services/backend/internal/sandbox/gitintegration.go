@@ -194,10 +194,10 @@ type HostMerge struct {
 // work. Afterwards it realigns the submodule checkouts the merge moved, which
 // Git itself leaves stale.
 func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge, error) {
-	return mergeBranchOnHost(ctx, hostPath, branch, nil)
+	return mergeBranchOnHost(ctx, hostPath, branch, nil, nil)
 }
 
-func mergeBranchOnHost(ctx context.Context, hostPath, branch string, sync func([]hostrepo.Submodule) hostrepo.SyncResult) (HostMerge, error) {
+func mergeBranchOnHost(ctx context.Context, hostPath, branch string, gitlinkResolutions map[string]string, sync func([]hostrepo.Submodule) hostrepo.SyncResult) (HostMerge, error) {
 	topology, err := hostrepo.Inspect(ctx, hostPath)
 	if err != nil {
 		return HostMerge{}, err
@@ -229,9 +229,9 @@ func mergeBranchOnHost(ctx context.Context, hostPath, branch string, sync func([
 		conflicted, conflictErr := runGit(ctx, hostPath, "diff", "--name-only", "--diff-filter=U")
 		if conflictErr == nil && strings.TrimSpace(conflicted) != "" {
 			paths := strings.Fields(conflicted)
-			managed, ordinary := partitionManagedMergePaths(paths)
-			if len(managed) > 0 && len(ordinary) == 0 {
-				if preserveErr := preserveManagedMergeConflicts(ctx, hostPath, topology, result.PreMergeSHA, managed); preserveErr == nil {
+			local, ordinary := partitionLocallyResolvedMergePaths(paths, gitlinkResolutions)
+			if len(local) > 0 && len(ordinary) == 0 {
+				if preserveErr := resolveLocalMergeConflicts(ctx, hostPath, topology, result.PreMergeSHA, local, gitlinkResolutions); preserveErr == nil {
 					result.SubmoduleSync = runSubmoduleSync(ctx, hostPath, preMerge.Submodules, sync)
 					return result, nil
 				} else {

@@ -226,8 +226,8 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 		// each submodule at the commit verification produced, so a dry-run merge
 		// of the superproject alone reports a pointer conflict whenever that
 		// submodule moved on either side — which is precisely the case this
-		// mechanism exists to handle, and which the real Apply resolves by
-		// advancing that submodule first. Counting it as an ordinary conflict
+		// mechanism exists to handle, and which the repository-tree transaction
+		// reconciles locally. Counting it as an ordinary conflict
 		// would abort a legitimate integration and hand a planner a commit id to
 		// patch, which the validator rejects on arrival every round.
 		conflict, preflightErr := sandbox.PreflightMergeIntoHostExcept(ctx, projectPath, branch, submoduleIntegrationPaths(pending[index].SubmoduleIntegrations))

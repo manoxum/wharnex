@@ -106,11 +106,11 @@ func isArtifactStorageFullDiagnostic(text string) bool {
 }
 
 // classifyPlannerOutcomeFailure derives a domain.FailureKind from a planner
-// turn outcome. The reason_code lookup is the primary signal; the message
-// substring fallback catches a planner that echoes Wharnex's own error text
-// under a reason code Wharnex does not yet recognize. It is deliberately a
-// fallback and not the primary key: reason_code is a stable, closed-vocabulary
-// field the planner is instructed to set, while message is free prose.
+// turn outcome. The reason_code lookup is the primary infrastructure signal;
+// the message substring fallback catches a planner that echoes Wharnex's own
+// error text under a reason code Wharnex does not yet recognize. Finally, the
+// required retryable flag classifies an otherwise unknown terminal blocker as
+// needing operator guidance without trusting its free-form prose.
 func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {
 	if outcome == nil || outcome.Status == domain.TurnOutcomeCompleted {
 		return ""
@@ -144,6 +144,9 @@ func classifyPlannerOutcomeFailure(outcome *domain.TurnOutcome) string {
 	if strings.Contains(message, strings.ToLower(ErrHostIntegrationRace.Error())) {
 		return domain.FailureKindHostIntegrationRace
 	}
+	if !outcome.Retryable {
+		return domain.FailureKindPlannerGuidanceRequired
+	}
 	return ""
 }
 
@@ -175,10 +178,10 @@ func plannerDeclaredNonRetryable(item domain.Session) (string, bool) {
 
 // sessionFailureKind is the read path every consumer of a session's failure
 // classification MUST go through, instead of reading item.FailureKind
-// directly. It derives the legacy case for sessions persisted before
-// FailureKind existed, whose LastRepairError still carries only prose. The
-// prose fallback is a compatibility shim for already-persisted sessions and
-// can be deleted once FailureKind has been populated for a full release.
+// directly. It derives legacy cases for sessions persisted before FailureKind
+// existed from bounded prose and from the structured planner outcome. These
+// fallbacks can be deleted once FailureKind has been populated for a full
+// release.
 func sessionFailureKind(item domain.Session) string {
 	// v1.3.3 initially reported submodule write refusals through the generic
 	// remote-input bucket. Preserve a narrow compatibility migration so those
@@ -238,6 +241,9 @@ func sessionFailureKind(item domain.Session) string {
 		if sandbox.IsResourceExhaustionDiagnostic(legacyDetail) {
 			return domain.FailureKindSandboxResourceExhausted
 		}
+	}
+	if _, blocked := plannerDeclaredNonRetryable(item); blocked {
+		return domain.FailureKindPlannerGuidanceRequired
 	}
 	return ""
 }

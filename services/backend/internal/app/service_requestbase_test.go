@@ -146,6 +146,61 @@ func TestIntegrationCommitDescendsFromTheRequestBase(t *testing.T) {
 	}
 }
 
+// Production regression for context snapshot 7310ea4afc10. The submodule had
+// already advanced locally while the superproject still recorded its older
+// gitlink. Request-base capture correctly included that working-tree pointer,
+// but a superproject-only preflight later mislabeled services/app as managed
+// conflict state instead of letting the repository-tree integration own it.
+func TestApplySubmoduleCandidateCapturedFromMovedGitlinkNeedsNoConflictTurn(t *testing.T) {
+	requireGitForApp(t)
+	root := newAppRepoWithSubmodule(t, "services/app")
+	appRoot := filepath.Join(root, "services", "app")
+	if err := os.WriteFile(filepath.Join(appRoot, "lib.txt"), []byte("content\npeer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, appRoot, "add", "lib.txt")
+	runGitForApp(t, appRoot, "commit", "-qm", "peer app change")
+	if status := gitIn(t, root, "status", "--porcelain"); !strings.Contains(status, "services/app") {
+		t.Fatalf("fixture must begin with the locally moved gitlink, got %q", status)
+	}
+
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "plan_submodule_preflight", RequestID: "placeholder", Status: "ready",
+		Summary: "update app", CommitMessage: "fix(app): update app", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/services/app/lib.txt\n+++ b/services/app/lib.txt\n@@ -1,2 +1,3 @@\n content\n peer\n+candidate\n"}},
+	}
+	service := baseRootService(plan)
+	created, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.SubmitMessage(context.Background(), created.ID, "change app"); err != nil {
+		t.Fatal(err)
+	}
+	if result, _, err := service.Execute(context.Background(), created.ID, false); err != nil || !result.Success {
+		t.Fatalf("submodule execution failed: result=%+v err=%v", result, err)
+	}
+	blockedTurn := domain.AgentTurn{Protocol: domain.TurnProtocolV1, Kind: domain.TurnKindBlocked, Message: "remove stale index lock"}
+	if _, err := service.store.Update(created.ID, func(item *domain.Session) error {
+		item.LastTurn = &blockedTurn
+		item.LastManualPrompt = "stale operator retry prompt"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := service.ApplyToHost(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("owned services/app gitlink must reconcile locally without a planner turn: %v", err)
+	}
+	if applied.LastManualPrompt != "" || applied.LastTurn == nil {
+		t.Fatalf("Apply must clear operational prompt while retaining durable turn history: prompt=%q turn=%+v", applied.LastManualPrompt, applied.LastTurn)
+	}
+	got, err := os.ReadFile(filepath.Join(appRoot, "lib.txt"))
+	if err != nil || string(got) != "content\npeer\ncandidate\n" {
+		t.Fatalf("submodule candidate was not applied: content=%q err=%v", got, err)
+	}
+}
+
 func TestRequestBaseIsCapturedWithoutDisturbingTheHost(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("start\n"), 0o600); err != nil {

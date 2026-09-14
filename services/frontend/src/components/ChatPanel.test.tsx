@@ -34,7 +34,12 @@ const chatActions = {
 }
 
 describe('ChatPanel', () => {
-  afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
+  // Dialogs mount straight onto document.body, so React's cleanup never removes
+  // them, and a test that ends with one still open — a blocked submission keeps
+  // it open by design — leaves it for the next test to match. Cancelling rather
+  // than dropping the node also settles its promise, which is what releases the
+  // serialized dialog queue so the following test's dialog can still open.
+  afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
   it('positions the initial transcript at the latest messages without smooth scrolling', () => {
     const scrollIntoView = vi.fn(() => Promise.resolve())
@@ -310,6 +315,89 @@ describe('ChatPanel', () => {
     fireEvent.change(detail, { target: { value: 'Considere o fixture Windows.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Enviar para correção' }))
     await waitFor(() => expect(onRepairWithGPT).toHaveBeenCalledWith('Considere o fixture Windows.'))
+  })
+
+  it('requires new operator evidence before retrying a planner-declared non-retryable failure', async () => {
+    const onRepairWithGPT = vi.fn(async () => undefined)
+    const missingEvidence = {
+      ...session,
+      state: 'failed',
+      last_request_id: 'req-missing-evidence',
+      last_repair_error: 'Planner reported failed: missing_primary_build_failure',
+      last_turn: {
+        protocol: 'harness.turn/v1' as const,
+        request_id: 'req-missing-evidence',
+        kind: 'blocked' as const,
+        message: 'The primary build failure is missing.',
+        outcome: { status: 'failed' as const, reason_code: 'missing_primary_build_failure', retryable: false },
+      },
+    }
+    render(
+      <ChatPanel session={missingEvidence} items={[{ id: 'failure-missing-evidence', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Falta o erro primário do build.', meta: 'Pedido bloqueado', iteration: { id: 'iteration-missing-evidence', requestId: 'req-missing-evidence', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} canRepairWithGPT onRepairWithGPT={onRepairWithGPT} {...chatActions} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Corrigir com GPT' }))
+    const evidence = await screen.findByRole('textbox', { name: 'Evidência ou orientação necessária' })
+    expect(evidence.tagName).toBe('TEXTAREA')
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar nova evidência' }))
+
+    expect(await screen.findByText('Acrescente a evidência ou orientação que mudou desde a última tentativa.')).toBeTruthy()
+    expect(onRepairWithGPT).not.toHaveBeenCalled()
+
+    fireEvent.change(evidence, { target: { value: 'ERROR: npm run build falhou em packages/admin.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar nova evidência' }))
+    await waitFor(() => expect(onRepairWithGPT).toHaveBeenCalledWith('ERROR: npm run build falhou em packages/admin.'))
+  })
+
+  // The notice a non-retryable planner failure actually produces carries the
+  // "Pedido não concluído" meta, which also matches the transport-failure
+  // recovery. Offering its bare resume here sends a retry with no guidance,
+  // which the planner's own retryable=false forces the backend to refuse every
+  // time, so the operator only ever gets the refusal back.
+  it('withdraws the bare resume from a planner-declared non-retryable failure and keeps the guided repair', () => {
+    const onRetryTransportFailure = vi.fn(async () => undefined)
+    const missingEvidence = {
+      ...session,
+      state: 'failed',
+      last_request_id: 'req-missing-evidence',
+      last_repair_error: 'Planner reported failed: missing_primary_build_failure',
+      last_turn: {
+        protocol: 'harness.turn/v1' as const,
+        request_id: 'req-missing-evidence',
+        kind: 'blocked' as const,
+        message: 'The primary build failure is missing.',
+        outcome: { status: 'failed' as const, reason_code: 'missing_primary_build_failure', retryable: false },
+      },
+    }
+    render(
+      <ChatPanel session={missingEvidence} items={[{ id: 'failure-missing-evidence', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Falta o erro primário do build.', meta: 'Pedido não concluído · requer intervenção', iteration: { id: 'iteration-missing-evidence', requestId: 'req-missing-evidence', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} canRepairWithGPT onRepairWithGPT={async () => undefined} onRetryTransportFailure={onRetryTransportFailure} {...chatActions} />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Retomar pedido' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Corrigir com GPT' })).toBeTruthy()
+  })
+
+  it('keeps the bare resume when the planner reported the same failure as retryable', () => {
+    const onRetryTransportFailure = vi.fn(async () => undefined)
+    const retryable = {
+      ...session,
+      state: 'failed',
+      last_request_id: 'req-retryable',
+      last_repair_error: 'Planner reported failed: transient_provider_error',
+      last_turn: {
+        protocol: 'harness.turn/v1' as const,
+        request_id: 'req-retryable',
+        kind: 'blocked' as const,
+        message: 'Transient provider error.',
+        outcome: { status: 'failed' as const, reason_code: 'transient_provider_error', retryable: true },
+      },
+    }
+    render(
+      <ChatPanel session={retryable} items={[{ id: 'failure-retryable', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Falha transitória.', meta: 'Pedido não concluído · pode ser repetido', iteration: { id: 'iteration-retryable', requestId: 'req-retryable', phase: 'failed', artifacts: ['error'] } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onRetryTransportFailure={onRetryTransportFailure} {...chatActions} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar pedido' }))
+    expect(onRetryTransportFailure).toHaveBeenCalledWith('req-retryable')
   })
 
   it('puts the restricted dependency recovery beside its expanded failure', async () => {

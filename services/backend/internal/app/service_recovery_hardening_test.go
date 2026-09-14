@@ -415,10 +415,10 @@ func TestCanceledCommandExitMinusOneIsNotTreatedAsSourceRegression(t *testing.T)
 
 // Observed in production: the planner reported a blocker that needs an operator
 // rebase, with retryable=false. Its reason_code is not in the hand-reviewed
-// allowlist, so the failure classifies as no kind at all and the kind-based gate
-// never engages. The manual retry then sent the same request back three times
-// and got the identical answer every round. The planner's own retryable flag is
-// the signal that does not need a vocabulary to stay in step.
+// infrastructure allowlist. The manual retry then sent the same request back
+// three times and got the identical answer every round. The planner's own
+// retryable flag is the signal that does not need a reason-code vocabulary to
+// stay in step, and Wharnex projects it as an operator-guidance recovery kind.
 func TestManualRetryHonoursPlannerNonRetryableOutcome(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
@@ -437,10 +437,8 @@ func TestManualRetryHonoursPlannerNonRetryableOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The vocabulary gap is real and this test does not paper over it: the point
-	// is that the retry is blocked even with no classification at all.
-	if result.Session.FailureKind != "" {
-		t.Fatalf("unexpected classification %q; this test must cover the unclassified path", result.Session.FailureKind)
+	if result.Session.FailureKind != domain.FailureKindPlannerGuidanceRequired {
+		t.Fatalf("non-retryable planner outcome classified as %q", result.Session.FailureKind)
 	}
 	if result.RemoteRecoveryPrepared {
 		t.Fatalf("a non-retryable outcome must not start automatic recovery: %#v", result)
@@ -480,5 +478,28 @@ func TestManualRetryStillAllowedWhenPlannerReportsRetryable(t *testing.T) {
 	}
 	if _, err := service.RetryFailedRequest(context.Background(), started.ID); err != nil {
 		t.Fatalf("a retryable planner outcome must still be retryable without guidance: %v", err)
+	}
+}
+
+func TestLegacyNonRetryablePlannerOutcomeDerivesGuidanceFailureKind(t *testing.T) {
+	turn := domain.AgentTurn{
+		Protocol:  domain.TurnProtocolV1,
+		RequestID: "req-missing-evidence",
+		Kind:      domain.TurnKindBlocked,
+		Outcome: &domain.TurnOutcome{
+			Status:     domain.TurnOutcomeFailed,
+			ReasonCode: "missing_primary_build_failure",
+			Retryable:  false,
+		},
+	}
+	legacy := domain.Session{
+		State:           "failed",
+		LastRequestID:   turn.RequestID,
+		LastTurn:        &turn,
+		LastRepairError: "Planner reported failed: missing_primary_build_failure",
+	}
+
+	if got := sessionFailureKind(legacy); got != domain.FailureKindPlannerGuidanceRequired {
+		t.Fatalf("legacy non-retryable outcome classified as %q", got)
 	}
 }

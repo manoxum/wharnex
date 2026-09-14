@@ -170,10 +170,32 @@ cannot be executed safely, such as an uninitialized checkout. Dirty nested
 work and concurrent divergence remain host-state blocks with the candidate
 retained. No path is staged by the wrong repository and no remote is pushed.
 
-Compatibility: persisted candidates without nested-repository metadata keep
-their existing root-only behavior. The new metadata is additive. Existing
-initialized projects require no migration; uninitialized submodules keep the
-same fail-closed outcome and gain a narrower remedy.
+Compatibility has two distinct cases. Persisted candidates genuinely lacking
+nested-repository metadata keep their existing root-only behavior. Candidates
+written by the retired repository-unit implementation are not in that class:
+their durable `integration_units` records are decoded into the canonical
+`submodule_integrations` shape, with the root unit retained in the existing
+root branch/commit fields. A snapshot already rewritten by the incompatible
+decoder can reconstruct the discarded records only from matching local
+evidence: plan ownership, the exact gitlink in the parent candidate, and a
+same-named nested branch at that commit. No one of those facts is sufficient by
+itself.
+
+Because the early unit records did not store the operator checkout branch and
+base commit, Apply measures that identity without mutation, persists it, then
+refuses if the branch/detached state or HEAD moves to an unrelated commit. The
+verified commit must either fast-forward from the measured HEAD or already be
+its ancestor, which makes recovery idempotent after an older engine advanced
+the nested repository but failed before integrating the superproject. The
+latter case never rewinds the operator branch. When the authoritative
+superproject merge reports the corresponding gitlink as conflicted, Wharnex
+selects that proven descendant commit directly in the index and completes the
+merge locally; only exact owned gitlinks receive that treatment. This migration
+adapter prevents a restart from erasing gitlink ownership while preserving the
+same host-drift safety as a newly verified candidate.
+
+Existing initialized projects require no manual migration; uninitialized
+submodules keep the same fail-closed outcome and gain a narrower remedy.
 
 ### Containment fix found on the way
 

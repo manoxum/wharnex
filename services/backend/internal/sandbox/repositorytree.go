@@ -117,21 +117,22 @@ func ValidateRepositoryIntegrations(ctx context.Context, hostRoot string, integr
 		if !HasCommit(ctx, repository, integration.Commit) {
 			return fmt.Errorf("verified commit %s is missing from nested repository %s", integration.Commit, integration.Path)
 		}
-		if integration.TargetBranch != "" {
-			if topology.Branch != integration.TargetBranch {
-				return fmt.Errorf("nested repository %s moved from branch %s to %s", integration.Path, integration.TargetBranch, topology.Branch)
-			}
-			head, headErr := CurrentHeadSHA(ctx, repository)
-			if headErr != nil {
-				return fmt.Errorf("resolve nested repository %s HEAD: %w", integration.Path, headErr)
-			}
-			if integration.BaseCommit != "" && head != integration.BaseCommit {
-				return fmt.Errorf("nested repository %s branch %s moved from %s to %s", integration.Path, integration.TargetBranch, integration.BaseCommit, head)
-			}
-			if integration.BaseCommit != "" {
-				if _, ancestorErr := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.BaseCommit, integration.Commit); ancestorErr != nil {
-					return fmt.Errorf("verified commit %s cannot fast-forward nested repository %s branch %s", integration.Commit, integration.Path, integration.TargetBranch)
-				}
+		if integration.BaseCommit == "" {
+			return fmt.Errorf("nested repository %s candidate has no recorded base commit", integration.Path)
+		}
+		if topology.Branch != integration.TargetBranch {
+			return fmt.Errorf("nested repository %s checkout moved from branch %q to %q", integration.Path, integration.TargetBranch, topology.Branch)
+		}
+		head, headErr := CurrentHeadSHA(ctx, repository)
+		if headErr != nil {
+			return fmt.Errorf("resolve nested repository %s HEAD: %w", integration.Path, headErr)
+		}
+		if head != integration.BaseCommit {
+			return fmt.Errorf("nested repository %s checkout moved from %s to %s", integration.Path, integration.BaseCommit, head)
+		}
+		if _, forwardErr := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.BaseCommit, integration.Commit); forwardErr != nil {
+			if _, integratedErr := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.Commit, integration.BaseCommit); integratedErr != nil {
+				return fmt.Errorf("verified commit %s is unrelated to nested repository %s base %s", integration.Commit, integration.Path, integration.BaseCommit)
 			}
 		}
 	}
@@ -143,9 +144,34 @@ func ValidateRepositoryIntegrations(ctx context.Context, hostRoot string, integr
 // Git's ordinary submodule update checks out a detached HEAD; this branch-aware
 // path keeps repositories such as devup, main and master selected.
 func MergeRepositoryTreeOnHost(ctx context.Context, hostRoot, branch string, integrations []domain.RepositoryIntegration) (HostMerge, error) {
-	return mergeBranchOnHost(ctx, hostRoot, branch, func(before []hostrepo.Submodule) hostrepo.SyncResult {
+	gitlinks, err := repositoryGitlinkResolutions(ctx, hostRoot, integrations)
+	if err != nil {
+		return HostMerge{}, err
+	}
+	return mergeBranchOnHost(ctx, hostRoot, branch, gitlinks, func(before []hostrepo.Submodule) hostrepo.SyncResult {
 		return syncRepositoryIntegrations(ctx, hostRoot, before, integrations, false)
 	})
+}
+
+// repositoryGitlinkResolutions selects the descendant side of every validated
+// nested candidate. Usually that is the candidate commit; after a partial old
+// Apply it is the current base, which already contains the candidate and must
+// never be rewound.
+func repositoryGitlinkResolutions(ctx context.Context, hostRoot string, integrations []domain.RepositoryIntegration) (map[string]string, error) {
+	resolutions := make(map[string]string, len(integrations))
+	for _, integration := range integrations {
+		repository := filepath.Join(hostRoot, filepath.FromSlash(integration.Path))
+		if _, err := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.BaseCommit, integration.Commit); err == nil {
+			resolutions[integration.Path] = integration.Commit
+			continue
+		}
+		if _, err := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.Commit, integration.BaseCommit); err == nil {
+			resolutions[integration.Path] = integration.BaseCommit
+			continue
+		}
+		return nil, fmt.Errorf("nested repository %s candidate %s is unrelated to base %s", integration.Path, integration.Commit, integration.BaseCommit)
+	}
+	return resolutions, nil
 }
 
 // RevertRepositoryTreeMerge restores both the superproject and the branches
@@ -184,6 +210,12 @@ func syncRepositoryIntegrations(ctx context.Context, hostRoot string, before []h
 			result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: err.Error()})
 			continue
 		}
+		if !rollback && head != destination {
+			if _, integratedErr := runGit(ctx, repository, "merge-base", "--is-ancestor", destination, head); integratedErr == nil {
+				result.Updated = append(result.Updated, integration.Path)
+				continue
+			}
+		}
 		if integration.TargetBranch == "" {
 			if output, checkoutErr := runGit(ctx, repository, "checkout", "--detach", destination); checkoutErr != nil {
 				result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: strings.TrimSpace(output)})
@@ -217,12 +249,21 @@ func syncRepositoryIntegrations(ctx context.Context, hostRoot string, before []h
 	// at the desired gitlink. Omitting them would make the generic pass treat
 	// them as newly discovered and detach them with `submodule update`.
 	filtered := append([]hostrepo.Submodule(nil), before...)
+	recordedAfter := map[string]string{}
+	if after, err := hostrepo.Inspect(ctx, hostRoot); err == nil {
+		for _, submodule := range after.Submodules {
+			recordedAfter[submodule.Path] = submodule.CommitSHA
+		}
+	}
 	for _, submodule := range before {
 		for index := range integrations {
 			if integrations[index].Path == submodule.Path {
 				destination := integrations[index].Commit
 				if rollback {
 					destination = integrations[index].BaseCommit
+				}
+				if recorded := recordedAfter[submodule.Path]; recorded != "" {
+					destination = recorded
 				}
 				for filteredIndex := range filtered {
 					if filtered[filteredIndex].Path == submodule.Path {

@@ -79,12 +79,12 @@ func attentionRecordFor(item domain.Session) AttentionRecord {
 		FailureKind:             item.FailureKind,
 		LastRequestID:           item.LastRequestID,
 		LastRepairError:         truncateRepairText(item.LastRepairError, 2048),
-		LastTurn:                item.LastTurn,
+		LastTurn:                currentAttentionTurn(item),
 		Policy:                  item.Policy,
 		PendingCount:            len(item.PendingHostChanges),
 		PendingManualCount:      len(item.PendingManualRequestIDs),
 		PlannerInFlight:         item.PlannerInFlight,
-		HasManualPrompt:         item.LastManualPrompt != "",
+		HasManualPrompt:         currentAttentionPrompt(item),
 		SelfEvolutionActivation: item.SelfEvolutionActivation,
 	}
 	if item.Plan != nil {
@@ -101,4 +101,32 @@ func attentionRecordFor(item domain.Session) AttentionRecord {
 		record.Interrupted = &AttentionInterrupted{PlanID: item.InterruptedExecution.PlanID, Status: item.InterruptedExecution.Status}
 	}
 	return record
+}
+
+// LastTurn is durable conversation history, not necessarily current work. Only
+// the states created by a clarification/blocked turn make those two turn kinds
+// actionable; a later successful Apply must not resurrect their old remedy in
+// the attention center.
+func currentAttentionTurn(item domain.Session) *domain.AgentTurn {
+	if item.LastTurn == nil {
+		return nil
+	}
+	switch item.LastTurn.Kind {
+	case domain.TurnKindClarification:
+		if item.State != "awaiting_clarification" {
+			return nil
+		}
+	case domain.TurnKindBlocked:
+		if item.State != "blocked" && item.State != "failed" {
+			return nil
+		}
+	}
+	return item.LastTurn
+}
+
+func currentAttentionPrompt(item domain.Session) bool {
+	if item.LastManualPrompt == "" {
+		return false
+	}
+	return item.State != "applied" && item.State != "reverted"
 }

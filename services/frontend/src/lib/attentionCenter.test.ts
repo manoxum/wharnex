@@ -167,6 +167,34 @@ describe('attention center', () => {
     expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Pedido bloqueado' })]))
   })
 
+  it('does not surface a historical blocked turn after its candidate was applied', () => {
+    const applied = session('ses-chat-1')
+    applied.state = 'applied'
+    applied.last_manual_prompt = 'remove .git/index.lock and retry'
+    applied.last_turn = {
+      protocol: 'harness.turn/v1', request_id: 'req-applied', kind: 'blocked',
+      message: 'The host .git/index.lock must be removed before Apply.',
+    }
+
+    expect(collectAttentionItems([chat('chat-1', 'Aplicado')], { 'chat-1': applied })).toEqual([])
+  })
+
+  it('asks for new evidence instead of advertising a blind retry for a non-retryable planner outcome', () => {
+    const blocked = session('ses-chat-1')
+    blocked.state = 'failed'
+    blocked.failure_kind = 'planner_guidance_required'
+    blocked.last_request_id = 'req-missing-evidence'
+    blocked.last_repair_error = 'Planner reported failed: missing_primary_build_failure'
+    blocked.last_turn = {
+      protocol: 'harness.turn/v1', request_id: 'req-missing-evidence', kind: 'blocked', message: 'The primary build failure is missing.',
+      outcome: { status: 'failed', reason_code: 'missing_primary_build_failure', retryable: false },
+    }
+
+    expect(collectAttentionItems([chat('chat-1', 'Build')], { 'chat-1': blocked })).toEqual([
+      expect.objectContaining({ title: 'Nova evidência necessária', action: 'repair-with-gpt' }),
+    ])
+  })
+
   it('turns persisted self-evolution metadata blocks into one retry action', () => {
     const current = session('ses-chat-1')
     current.state = 'failed'

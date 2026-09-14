@@ -57,6 +57,19 @@ describe('appDialog', () => {
     await expect(result).resolves.toBe('file.ts')
   })
 
+  it('preserves multiline evidence and submits it only from the explicit action', async () => {
+    const result = promptDialog({ title: 'Evidência', inputLabel: 'Log', multiline: true })
+    const input = document.querySelector<HTMLTextAreaElement>('.app-dialog-field textarea')!
+    expect(input).toBeTruthy()
+    input.value = 'ERROR first line\nfailed to solve'
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(document.querySelector('.app-dialog-backdrop')).toBeTruthy()
+
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Confirmar')!
+    confirm.click()
+    await expect(result).resolves.toBe('ERROR first line\nfailed to solve')
+  })
+
   it('renders informational notices with a single acknowledgement action', async () => {
     const result = noticeDialog({ title: 'Sessão exportada', message: 'Guarde o ficheiro como segredo.', tone: 'success' })
     expect(document.querySelectorAll('.app-dialog-button')).toHaveLength(1)
