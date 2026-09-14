@@ -155,7 +155,7 @@ export function InteractiveTerminal({ session, height, onHeight, onError }: { se
         <button className="terminal-size-button" title="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button>
       </div>
     </header>
-    {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Shell com acesso total do utilizador ao projeto e ao sistema.</span></div>}
+    {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Ficheiros reais e Docker do sistema; as ferramentas disponíveis vêm do ambiente Host do Wharnex.</span></div>}
     <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa comandos e caminhos; Ctrl+R pesquisa o histórico, ↑/↓ navega pelas entradas anteriores e Ctrl+C interrompe o processo atual." />
   </section>
 }
