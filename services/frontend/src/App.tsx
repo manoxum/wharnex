@@ -579,6 +579,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
+  // Bring another project to the front.
+  //
+  // Only the shell knows the window's project bindings and which window owns a
+  // project, so this is a request to the shell rather than a decision taken
+  // here. A non-embedded renderer has no shell to ask and no second project to
+  // switch to, so it reports that rather than silently doing nothing.
+  function focusProject(projectPath: string) {
+    const target = String(projectPath || '').trim()
+    if (!target || target === session?.project_path) return
+    if (!embeddedProject) {
+      setError('Trazer outro projeto para foco requer a janela do Wharnex Desktop.')
+      return
+    }
+    window.parent.postMessage({ type: 'wharness:focus-project', projectPath: target }, window.location.origin)
+  }
+
   function closeWorkspace() {
     if (embeddedProject) {
       window.parent.postMessage({ type: 'wharness:unbind-project', projectPath: session?.project_path || embeddedProject }, window.location.origin)
@@ -2889,6 +2905,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
         onGoToOrchestrator={goToOrchestratorFromTask}
         onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
+        onFocusProject={focusProject}
         archivedChats={archivedChats}
         activeChatId={activeChatId}
         activeEvents={events}
@@ -2948,7 +2965,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       </div>
         {terminalOpen && <>
           <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(245)} />
-          <InteractiveTerminal session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={setError} />
+          <InteractiveTerminal key={session.id} session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={setError} />
         </>}
       </div>
     </div>

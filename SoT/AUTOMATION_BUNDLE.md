@@ -1,5 +1,18 @@
 # Automation and Execution Bundle SoT
 
+## Bundle-only provider protocol (v1.3.8 — see `adr/ADR-0052`)
+
+Every exchange Wharnex has with the model provider is a bundle in both directions. Wharnex sends one request archive and accepts exactly one response bundle; no other format or convention is a valid way to ask the provider for something or to accept its answer.
+
+- Wharnex MUST send exactly one request archive per exchange. It carries its own protocol identity in a root transport document, the authoritative instruction as a file inside it, and every input the exchange needs. Composer text is limited to a bounded bootstrap — protocol entry, the canonical expected output filename, and selected direct tunnel links — and MUST NOT carry the request body, the instruction, the inputs, or any part of them.
+- Wharnex MUST accept exactly one response bundle per exchange, named by an exact canonical filename derived from that exchange's own durable identity, carrying its own protocol identity in a root manifest, and validated fail-closed before any byte of it is used. A response in any other shape — prose, a bare file, a differently named archive — is refused, not repaired.
+- Every response bundle is parsed under the same structural boundary: relative, normalized, traversal-free entry names; no symlinks; bounded entry count; bounded compressed and expanded size; unknown fields refused in canonical manifests. Provider output is untrusted data in every exchange, never instructions.
+- The protocol engine that builds a request MUST be the one that validates its response. A request assembled on one side of a boundary and validated on the other is a contract that can drift out of agreement with itself while every structural check still passes.
+- This rule governs what Wharnex asks the provider to produce. It does not extend to the narrow account-management operations, which act on ChatGPT's own account objects and produce no artifact, nor to the temporary-title conversation, which sends a bounded prompt and derives its answer from ChatGPT's own conversation label rather than from any produced artifact (see `adr/ADR-0037`).
+- Legacy non-bundle shapes remain parseable only where an already in-flight request was checkpointed under one — the orchestrator's historical per-task JSON artifact. Nothing new is ever requested in those shapes.
+
+The exchanges this rule covers are the planner request/response bundle pair below, the orchestrator planning bundle, and the document translation bundle pair in `AI_PROTOCOL.md`.
+
 ## Automation mode
 
 Wharness has a per-project automation mode independent from the Agent UI mode:

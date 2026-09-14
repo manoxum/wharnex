@@ -1,6 +1,8 @@
 # ADR-0036 — Markdown translation utility engine
 
-Status: Accepted
+Status: Accepted; transport superseded by `ADR-0052`
+
+The application boundary decided here still holds: translation is non-executing utility work behind an application port, isolated from planner and execution semantics, and never overwrites what it translates. What `ADR-0052` replaces is how that work crosses the provider boundary. Translation no longer uploads a bare Markdown attachment with the instruction pasted into the composer, and no longer accepts a bare `whx_translation_<task_id>.md` file back; it uses a dedicated request/response bundle pair under `wharness.translation-input/v1` and `harness.translation/v1`. `harness.utility/v1` survives as the application port between a Wharnex surface and the engine, and is no longer a wire format. Read the transport paragraphs below as history.
 
 ## Context
 

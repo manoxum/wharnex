@@ -74,6 +74,13 @@ var chatAgentPriorities = map[string]int{
 	"DELETE_BUNDLE": 4, "DELETE_TEMP_CHAT": 4,
 }
 
+// NewChatAgentTaskID mints an id before the task is enqueued.
+//
+// A protocol whose artifact filenames are derived from the task id has to know
+// that id before it can build the request, and enqueue-then-patch would leave a
+// claimable task in the queue with no request in it.
+func NewChatAgentTaskID() string { return newChatAgentTaskID() }
+
 func newChatAgentTaskID() string {
 	var raw [10]byte
 	if _, err := rand.Read(raw[:]); err == nil {

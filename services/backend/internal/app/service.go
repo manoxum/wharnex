@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/changeset"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
+	"kernl.local/harness/backend/internal/crossproject"
+	"kernl.local/harness/backend/internal/directives"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
 	"kernl.local/harness/backend/internal/gitsettings"
@@ -33,6 +36,7 @@ import (
 	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/translation"
 	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
@@ -55,9 +59,12 @@ var (
 )
 
 type BundleSubmission struct {
-	Session                domain.Session          `json:"session"`
-	AutoExecuted           bool                    `json:"auto_executed"`
-	AutoApplied            bool                    `json:"auto_applied"`
+	Session      domain.Session `json:"session"`
+	AutoExecuted bool           `json:"auto_executed"`
+	AutoApplied  bool           `json:"auto_applied"`
+	// CrossProject reports what happened to each project this response was
+	// granted authority over, including the units that were never attempted.
+	CrossProject           []CrossProjectOutcome   `json:"cross_project,omitempty"`
 	AutoError              string                  `json:"auto_error,omitempty"`
 	Execution              *domain.ExecutionResult `json:"execution,omitempty"`
 	PolicyBlocked          bool                    `json:"policy_blocked,omitempty"`
@@ -105,6 +112,8 @@ type Service struct {
 	remoteChannels          map[string]*remoteInputChannelState
 	devMu                   sync.Mutex
 	devspaces               map[string]sandbox.Workspace
+	terminalMu              sync.Mutex
+	terminals               map[string]*terminalSessionState
 	applyMu                 sync.Mutex
 	projectApplyLocks       map[string]*sync.Mutex
 	executionQueue          *projectExecutionQueue
@@ -123,6 +132,33 @@ type Service struct {
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
 
+// translationWorkerPayload is what the Desktop worker is handed.
+//
+// It carries the request bundle itself, already built and already sealed by the
+// engine that will validate the answer. The worker's job is reduced to
+// transport: upload this archive, ask for exactly this filename back, and
+// return the bytes. It composes no instruction and reads no prose, so there is
+// nothing left for it to get subtly wrong.
+type translationWorkerPayload struct {
+	Protocol        string `json:"protocol"`
+	Task            string `json:"task"`
+	TaskID          string `json:"task_id"`
+	TargetLanguage  string `json:"target_language"`
+	RequestFilename string `json:"request_filename"`
+	ResultFilename  string `json:"result_filename"`
+	Bootstrap       string `json:"bootstrap"`
+	ArchiveBase64   string `json:"archive_base64"`
+}
+
+// translationWorkerResult is what the worker returns on completion: the exact
+// bytes it downloaded, unread and uninterpreted.
+type translationWorkerResult struct {
+	Protocol     string `json:"protocol"`
+	TaskID       string `json:"task_id"`
+	Filename     string `json:"filename"`
+	BundleBase64 string `json:"bundle_base64"`
+}
+
 func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, target utility.LanguageCode, markdown string) (utility.Result, error) {
 	if _, err := s.GetSession(sessionID); err != nil {
 		return utility.Result{}, err
@@ -134,16 +170,29 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 	if markdown == "" {
 		return utility.Result{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target}, nil
 	}
-	payload, err := json.Marshal(request)
+	// The id is minted here because the protocol's filenames are derived from
+	// it: the request bundle cannot be built without knowing what the answer
+	// will be called.
+	taskID := session.NewChatAgentTaskID()
+	manifest, archive, err := translation.BuildRequest(taskID, string(target), markdown)
 	if err != nil {
-		return utility.Result{}, fmt.Errorf("encode markdown translation task: %w", err)
+		return utility.Result{}, err
+	}
+	payload, err := json.Marshal(translationWorkerPayload{
+		Protocol: translation.RequestProtocolV1, Task: translation.TaskTranslateDocument, TaskID: taskID,
+		TargetLanguage: manifest.TargetLanguage, RequestFilename: manifest.RequestFilename,
+		ResultFilename: manifest.ResultFilename, Bootstrap: translation.RequestBootstrap(manifest),
+		ArchiveBase64: base64.StdEncoding.EncodeToString(archive),
+	})
+	if err != nil {
+		return utility.Result{}, fmt.Errorf("encode translation task: %w", err)
 	}
 	task, err := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
-		Type: "TRANSLATE_MARKDOWN", ChatID: sessionID, SessionID: sessionID,
+		Type: "TRANSLATE_MARKDOWN", TaskID: taskID, ChatID: sessionID, SessionID: sessionID,
 		Payload: payload, MaxAttempts: 2,
 	})
 	if err != nil {
-		return utility.Result{}, fmt.Errorf("enqueue markdown translation worker: %w", err)
+		return utility.Result{}, fmt.Errorf("enqueue translation worker: %w", err)
 	}
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -152,25 +201,15 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 	for {
 		current, getErr := s.store.GetChatAgentTask(task.TaskID)
 		if getErr != nil {
-			return utility.Result{}, fmt.Errorf("read markdown translation worker: %w", getErr)
+			return utility.Result{}, fmt.Errorf("read translation worker: %w", getErr)
 		}
 		switch current.Status {
 		case session.ChatAgentTaskDone:
-			var result utility.Result
-			if err := json.Unmarshal(current.Payload, &result); err != nil {
-				return utility.Result{}, fmt.Errorf("decode markdown translation worker result: %w", err)
-			}
-			if result.Protocol != utility.ProtocolV1 || result.Task != utility.TaskTranslateMarkdown || result.TargetLanguage != target {
-				return utility.Result{}, errors.New("markdown translation worker returned mismatched protocol metadata")
-			}
-			if len(result.Markdown) > utility.MaxMarkdownBytes*2 {
-				return utility.Result{}, errors.New("markdown translation worker result exceeds size limit")
-			}
-			return result, nil
+			return s.finishTranslation(current.Payload, manifest, target)
 		case session.ChatAgentTaskFailed, session.ChatAgentTaskAttention, session.ChatAgentTaskCancelled:
 			detail := strings.TrimSpace(current.LastError)
 			if detail == "" {
-				detail = "markdown translation worker did not complete"
+				detail = "translation worker did not complete"
 			}
 			return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, detail)
 		}
@@ -178,10 +217,32 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 		case <-ctx.Done():
 			return utility.Result{}, ctx.Err()
 		case <-timeout.C:
-			return utility.Result{}, fmt.Errorf("%w: markdown translation worker timed out", utility.ErrUnavailable)
+			return utility.Result{}, fmt.Errorf("%w: translation worker timed out", utility.ErrUnavailable)
 		case <-ticker.C:
 		}
 	}
+}
+
+// finishTranslation validates the downloaded bundle against the request it
+// answers. Validation lives here, not in the worker, so the side that authored
+// the contract is the side that enforces it.
+func (s *Service) finishTranslation(raw json.RawMessage, manifest translation.TransportManifest, target utility.LanguageCode) (utility.Result, error) {
+	var delivered translationWorkerResult
+	if err := json.Unmarshal(raw, &delivered); err != nil {
+		return utility.Result{}, fmt.Errorf("decode translation worker result: %w", err)
+	}
+	bundle, err := base64.StdEncoding.DecodeString(delivered.BundleBase64)
+	if err != nil {
+		return utility.Result{}, fmt.Errorf("decode translation bundle bytes: %w", err)
+	}
+	parsed, err := translation.ParseResult(delivered.Filename, bundle, manifest)
+	if err != nil {
+		return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, err.Error())
+	}
+	return utility.Result{
+		Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown,
+		TargetLanguage: target, Markdown: parsed.Markdown,
+	}, nil
 }
 
 func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {
@@ -211,7 +272,7 @@ func (s *Service) TunnelProviders() []TunnelProviderDescriptor {
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
 	manager := selfevolution.New(selfevolution.DiscoverRoot())
-	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), terminals: make(map[string]*terminalSessionState), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
@@ -687,9 +748,23 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if err != nil {
 		return planner.Result{}, domain.Session{}, err
 	}
-	message = messageWithRelatedProjects(message, item.ProjectPath, item.Context.RelatedProjects)
-	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestID := ids.New("req")
+	// Normalize the operator's own directives first, so every later reader —
+	// the grant resolver, the legend, the model, and this prompt re-parsed on a
+	// continuation — sees one spelling. The markers stay where they were
+	// written; only how they are spelled changes.
+	message = directives.Canonicalize(message)
+	legend := directiveLegend(message, item.Context.Manifest)
+	// The `@ref:` directives in this prompt are the only place a request can
+	// acquire authority over another project, and it is resolved before the
+	// planner is asked — so what comes back is checked against what the operator
+	// actually wrote, never the other way round. It is resolved from the
+	// operator's own text, before Wharnex appends any scope metadata of its own.
+	crossGrant, unresolvedRefs := crossProjectGrantForRequest(item, message, requestID, parentRequestID)
+	message += legend
+	message = messageWithRelatedProjects(message, item.ProjectPath, item.Context.RelatedProjects, crossproject.GrantedPaths(crossGrant))
+	message = messageWithCrossProjectGrant(message, crossGrant, unresolvedRefs)
+	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
 	if parentRequestID == "" {
 		if refreshed, clearErr := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -723,6 +798,10 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// that patch to the tree it was written for however far the host advances
 	// before the plan comes back.
 	baseCommit := s.captureRequestBase(ctx, sessionID, item.ProjectPath, requestID)
+	// A granted project needs the same immutable base, for the same reason: the
+	// patch this request comes back with was authored against the tree it is
+	// being shown now.
+	s.captureCrossProjectBases(ctx, sessionID, requestID, crossGrant)
 	// A plan-approval continuation stays inside the same Main Request, so it is
 	// entitled to the same divergence report every other continuation gets. A
 	// brand-new Main Request has no earlier snapshot to diverge from and the
@@ -734,6 +813,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
 		current.PlannerInFlight = true
+		// A continuation inherits the grant unchanged; a new Main Request
+		// replaces it, including replacing it with nothing.
+		if strings.TrimSpace(parentRequestID) == "" {
+			current.CrossProjectGrant = crossGrant
+		}
 		current.RemoteRecoveryAttempt = 0
 		recordRequestLineage(current, requestID, parentRequestID, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
@@ -879,7 +963,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	return result, updated, nil
 }
 
-func messageWithRelatedProjects(message, primary string, related []domain.RelatedProjectContext) string {
+func messageWithRelatedProjects(message, primary string, related []domain.RelatedProjectContext, granted []string) string {
 	if len(related) == 0 {
 		return message
 	}
@@ -892,7 +976,16 @@ func messageWithRelatedProjects(message, primary string, related []domain.Relate
 	for _, project := range related {
 		fmt.Fprintf(&builder, "- %s (%s): %s\n", project.Name, project.ProjectPath, project.Prefix)
 	}
-	builder.WriteString("Analyze cross-project contracts and dependencies as needed. This response's executable plan may mutate only the primary project. When a related project also needs changes, name that project and the required follow-up clearly; Wharnex will execute it through that project's own session, Policy check, Protected sandbox, verification, and explicit Apply.")
+	builder.WriteString("Analyze cross-project contracts and dependencies as needed.")
+	// Which of these contexts may be changed is decided by the request's own
+	// `@ref:` grant, stated immediately below. Repeating the old blanket "only
+	// the primary project" rule here would contradict that grant in the same
+	// prompt, so this block stops at describing the contexts.
+	if len(granted) == 0 {
+		builder.WriteString(" This response's executable plan may mutate only the primary project. When a related project also needs changes, name that project and the required follow-up clearly; Wharnex will execute it through that project's own session, Policy check, Protected sandbox, verification, and explicit Apply.")
+	} else {
+		builder.WriteString(" Which of these projects this response may change is stated in the cross-project write grant below; every project not listed there is reference material only.")
+	}
 	return builder.String()
 }
 
@@ -1256,6 +1349,13 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			return BundleSubmission{}, err
 		}
 	}
+	// Work aimed at another project is authorized against this request's own
+	// `@ref:` grant, at the same seam and for the same reason as the contracts
+	// above: before Policy, before any sandbox, so a response that reaches past
+	// its authority costs one re-request rather than a discarded candidate.
+	if _, err := s.authorizeCrossProjectUnits(current, parsed.Plan); err != nil {
+		return BundleSubmission{}, err
+	}
 	if err := validateConflictResolutionPlan(current, parsed.Plan); err != nil {
 		return BundleSubmission{}, fmt.Errorf("conflict resolution protocol: %w", err)
 	}
@@ -1510,6 +1610,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		if len(hostApplicablePendingChanges(pendingHostChanges(executed))) == 0 {
 			result.Session = executed
 			s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": false, "sandbox_only": true, "transport": transport})
+			result.CrossProject = s.maybeRunCrossProjectUnits(ctx, sessionID, transport)
 			return result
 		}
 		applied, applyErr := s.applyToHostWithLocalRetry(ctx, sessionID)
@@ -1539,6 +1640,12 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		result.RestartScheduled = false
 		result.Session = applied
 		s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport, "restart_required": result.RestartRequired})
+		// The primary project has the change. Only now do the granted projects
+		// get theirs: a cross-project set whose own project failed verification
+		// is a set the operator has not yet seen fail, and writing further
+		// hosts on top of that is the one ordering that cannot be undone by
+		// looking at it afterwards.
+		result.CrossProject = s.maybeRunCrossProjectUnits(ctx, sessionID, transport)
 		if !result.RestartRequired && shouldContinueImprovement(applied) {
 			improved, improveErr := s.prepareImprovementRequest(ctx, sessionID, applied, planID)
 			if improveErr != nil {
@@ -2662,7 +2769,28 @@ func protectedGitCommand(command domain.CommandSpec) domain.CommandSpec {
 	return clone
 }
 
+// ApplyToHost integrates this session's verified candidate into its host, and
+// then — only on success — dispatches whatever the same response was granted to
+// change in other projects.
+//
+// The dispatch happens outside the apply lock deliberately. That lock
+// serializes one project's host integration, and a cross-project run is a full
+// pipeline in another project: holding the primary project's lock across it
+// would stall every other request on this project for the duration of work that
+// does not touch it.
 func (s *Service) ApplyToHost(ctx context.Context, sessionID string) (domain.Session, error) {
+	applied, err := s.applyToHostLocked(ctx, sessionID)
+	if err != nil {
+		return applied, err
+	}
+	s.maybeRunCrossProjectUnits(ctx, sessionID, "apply")
+	if refreshed, getErr := s.store.Get(sessionID); getErr == nil {
+		return refreshed, nil
+	}
+	return applied, nil
+}
+
+func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return item, err
@@ -3766,6 +3894,7 @@ func (s *Service) devspace(sessionID string) (sandbox.Workspace, bool) {
 }
 
 func (s *Service) resetDevspace(sessionID string) {
+	s.closeInteractiveTerminals(sessionID)
 	s.devMu.Lock()
 	workspace, ok := s.devspaces[sessionID]
 	if ok {

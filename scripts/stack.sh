@@ -408,6 +408,15 @@ activate_application() {
   desired_backend=$(docker image inspect -f '{{.Id}}' "$BACKEND_IMAGE")
   desired_frontend=$(docker image inspect -f '{{.Id}}' "$FRONTEND_IMAGE")
 
+  # Starting the Desktop should be quick when the persistent application
+  # services are already healthy and run the requested images. `make build`
+  # still reaches this function after new images are produced, and image-ID
+  # mismatch below keeps its normal force-recreate rollout intact.
+  if [ "$old_backend" = "$desired_backend" ] && [ "$old_frontend" = "$desired_frontend" ] \
+    && service_ready backend 1 && service_ready frontend 1; then
+    return 0
+  fi
+
   if compose up -d --force-recreate --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
     backend_container=$(compose ps -q backend 2>/dev/null || true)
     frontend_container=$(compose ps -q frontend 2>/dev/null || true)

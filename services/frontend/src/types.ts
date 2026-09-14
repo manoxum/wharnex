@@ -124,6 +124,9 @@ export type ContextInventoryEntry = {
   size?: number
   reason?: string
   rule?: string
+  created_at?: string
+  modified_at?: string
+  configurable?: boolean
 }
 
 export type ContextRootEntry = {
@@ -135,6 +138,9 @@ export type ContextRootEntry = {
   excluded_items: number
   included_bytes: number
   reason?: string
+  created_at?: string
+  modified_at?: string
+  configurable?: boolean
 }
 
 export type ContextInspection = {
@@ -158,6 +164,8 @@ export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ul
  *  upload. Independent of AutomationMode; Auto + Manual is valid. */
 export type ChatTransportMode = 'scraper' | 'manual'
 export type TerminalTarget = 'sandbox' | 'host'
+export type TerminalSessionDescriptor = { terminal_id: string; target: TerminalTarget }
+export type TerminalFrame = { type: 'ready' | 'output' | 'exit' | 'error'; data?: string; code?: number; message?: string }
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
@@ -462,6 +470,7 @@ export type ProjectConfig = {
     auto_exclude: boolean
     max_file_bytes: number
     include: string[]
+    include_overrides?: string[]
     exclude: string[]
   }
 }

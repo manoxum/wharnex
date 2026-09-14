@@ -51,6 +51,19 @@ type planWire struct {
 	RequiresApproval  bool                     `json:"requires_approval"`
 	Operations        []operationWire          `json:"operations"`
 	Verification      []domain.CommandSpec     `json:"verification"`
+	CrossProject      []crossProjectUnitWire   `json:"cross_project,omitempty"`
+}
+
+// crossProjectUnitWire is one complete change for a granted referenced project.
+// Its operations resolve `patch_file` from the same `patches/` directory as the
+// primary plan's, so a cross-project patch is an ordinary bundle entry rather
+// than a second transport.
+type crossProjectUnitWire struct {
+	Project       string               `json:"project"`
+	CommitMessage string               `json:"commit_message"`
+	Summary       string               `json:"summary,omitempty"`
+	Operations    []operationWire      `json:"operations"`
+	Verification  []domain.CommandSpec `json:"verification,omitempty"`
 }
 
 type Parsed struct {
@@ -182,32 +195,52 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		if resolvedPlan.Verification == nil {
 			resolvedPlan.Verification = make([]domain.CommandSpec, 0)
 		}
-		for index, op := range wire.Operations {
-			resolved := domain.Operation{Type: op.Type, Patch: op.Patch, Command: op.Command}
-			if op.Type == "apply_patch" && op.PatchFile != "" {
-				if strings.TrimSpace(op.Patch) != "" {
-					return Parsed{}, fmt.Errorf("operation %d cannot contain both patch and patch_file", index)
-				}
-				patchName, patchErr := normalizedPatchName(op.PatchFile)
-				if patchErr != nil {
-					return Parsed{}, fmt.Errorf("operation %d: %w", index, patchErr)
-				}
-				patchBytes, exists := files[patchName]
-				if !exists {
-					legacyName := path.Base(patchName)
-					patchBytes, exists = files[legacyName]
-					if exists {
-						files[patchName] = patchBytes
-						delete(files, legacyName)
+		resolveOperations := func(label string, wired []operationWire) ([]domain.Operation, error) {
+			operations := make([]domain.Operation, 0, len(wired))
+			for index, op := range wired {
+				resolved := domain.Operation{Type: op.Type, Patch: op.Patch, Command: op.Command}
+				if op.Type == "apply_patch" && op.PatchFile != "" {
+					if strings.TrimSpace(op.Patch) != "" {
+						return nil, fmt.Errorf("%soperation %d cannot contain both patch and patch_file", label, index)
 					}
+					patchName, patchErr := normalizedPatchName(op.PatchFile)
+					if patchErr != nil {
+						return nil, fmt.Errorf("%soperation %d: %w", label, index, patchErr)
+					}
+					patchBytes, exists := files[patchName]
+					if !exists {
+						legacyName := path.Base(patchName)
+						patchBytes, exists = files[legacyName]
+						if exists {
+							files[patchName] = patchBytes
+							delete(files, legacyName)
+						}
+					}
+					if !exists {
+						return nil, fmt.Errorf("%soperation %d references missing %s", label, index, patchName)
+					}
+					resolved.Patch = string(patchBytes)
+					patches = append(patches, patchName)
 				}
-				if !exists {
-					return Parsed{}, fmt.Errorf("operation %d references missing %s", index, patchName)
-				}
-				resolved.Patch = string(patchBytes)
-				patches = append(patches, patchName)
+				operations = append(operations, resolved)
 			}
-			resolvedPlan.Operations = append(resolvedPlan.Operations, resolved)
+			return operations, nil
+		}
+		primaryOperations, err := resolveOperations("", wire.Operations)
+		if err != nil {
+			return Parsed{}, err
+		}
+		resolvedPlan.Operations = primaryOperations
+		for unitIndex, unit := range wire.CrossProject {
+			label := fmt.Sprintf("cross_project %d: ", unitIndex)
+			unitOperations, unitErr := resolveOperations(label, unit.Operations)
+			if unitErr != nil {
+				return Parsed{}, unitErr
+			}
+			resolvedPlan.CrossProject = append(resolvedPlan.CrossProject, domain.CrossProjectUnit{
+				Project: unit.Project, CommitMessage: unit.CommitMessage, Summary: unit.Summary,
+				Operations: unitOperations, Verification: unit.Verification,
+			})
 		}
 		plan = &resolvedPlan
 		if !hasTurn {

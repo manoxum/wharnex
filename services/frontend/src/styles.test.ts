@@ -6,13 +6,13 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 
 function lastRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const matches = [...css.matchAll(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 'g'))]
+  const matches = [...css.matchAll(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'gm'))]
   return matches.at(-1)?.[1] || ''
 }
 
 function firstRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))
+  const match = css.match(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm'))
   return match?.[1] || ''
 }
 
@@ -77,11 +77,11 @@ describe('agent runtime drawer CSS', () => {
     expect(summary).toContain('grid-template-columns:repeat(4,minmax(0,1fr))')
     expect(memorySummary).toContain('grid-template-columns:repeat(5,minmax(0,1fr))')
     expect(diagnostics).toContain('grid-template-columns:repeat(3,minmax(0,1fr))')
-    expect(diagnosticRow).toContain('border-radius:8px')
+    expect(diagnosticRow).toContain('border-radius:10px')
     expect(scale).toContain('grid-template-columns:repeat(2,minmax(0,1fr))')
-    expect(body).toContain('gap:8px')
+    expect(body).toContain('gap:9px')
     expect(activeAgent).toContain('box-shadow:inset 2px 0 0 var(--theme-accent)')
-    expect(detail).toContain('border-radius:9px')
+    expect(detail).toContain('border-radius:10px')
   })
 })
 

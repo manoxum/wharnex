@@ -28,12 +28,10 @@ fi
 
 WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
 
+build_required=''
 if [ ! -f "$BUILD_STAMP" ]; then
-  echo 'No successful Wharnex build is recorded. Run: make build' >&2
-  exit 1
-fi
-
-if find \
+  build_required='no successful build is recorded'
+elif find \
   "$ROOT/Makefile" \
   "$ROOT/compose.yml" \
   "$ROOT/scripts" \
@@ -54,8 +52,12 @@ if find \
   ! -name '*.log' \
   ! -name '*.tsbuildinfo' \
   -print -quit 2>/dev/null | grep -q .; then
-  echo 'Wharnex build is stale because source/configuration files changed. Run: make build' >&2
-  exit 1
+  build_required='source/configuration files changed'
+fi
+
+if [ -n "$build_required" ]; then
+  printf 'Wharnex build is required (%s); rebuilding before startup...\n' "$build_required"
+  (cd "$ROOT" && make build)
 fi
 
 if [ ! -x "$ROOT/services/desktop/node_modules/.bin/electron" ]; then
@@ -95,6 +97,7 @@ WEB_PORT=$(sed -n 's/^WHARNESS_WEB_PORT=//p' "$ROOT/.harness/state/stack.env" 2>
     WHARNESS_API_URL="http://127.0.0.1:$HTTP_PORT" \
     WHARNESS_FRONTEND_URL="http://127.0.0.1:$WEB_PORT" \
     WHARNESS_DESKTOP_USER_DATA_DIR="${WHARNESS_DESKTOP_USER_DATA_DIR:-}" \
+    WHARNESS_INSTANCE_ID="${WHARNESS_INSTANCE_ID:-}" \
     WHARNESS_RUNNER_IMAGE="${WHARNESS_RUNNER_IMAGE:-kernl-runner:local}" \
     WHARNESS_OZONE_PLATFORM="${WHARNESS_OZONE_PLATFORM:-auto}" \
     WHARNESS_LINUX_SANDBOX_MODE="${WHARNESS_LINUX_SANDBOX_MODE:-}" \

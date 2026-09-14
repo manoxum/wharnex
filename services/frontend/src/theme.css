@@ -333,6 +333,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .context-settings-dialog .settings-grid textarea,
 :root[data-theme='light'] .context-settings-dialog .settings-size input { border-color: var(--theme-border); background: #fff; color: var(--theme-text); }
 :root[data-theme='light'] .context-settings-dialog .settings-security-note { border-color: #6f963c; background: #e4eed9; color: #526448; }
+:root[data-theme='light'] .context-config-badges > span { border-color: #bfd1ae; background: #e7f0de; color: #4d7428; }
+:root[data-theme='light'] .context-config-badges > code { color: var(--theme-text-muted); }
 :root[data-theme='light'] .context-explorer-section { background: #f7f8f4; }
 :root[data-theme='light'] .context-summary-grid { border-color: var(--theme-border); background: #eef1ea; }
 :root[data-theme='light'] .context-summary { border-color: var(--theme-border); background: #fafbf8; }
@@ -342,6 +344,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .context-summary.ok strong { color: #4f7929; }
 :root[data-theme='light'] .context-inspector-bar,
 :root[data-theme='light'] .context-final-toolbar { border-color: var(--theme-border); background: #f3f5f0; }
+:root[data-theme='light'] .context-table-head { border-color: var(--theme-border); background: #e9ede6; color: #6f796c; }
 :root[data-theme='light'] .context-view-switch,
 :root[data-theme='light'] .context-filter-switch { border-color: var(--theme-border); background: #e5e9e1; }
 :root[data-theme='light'] .context-view-switch button,
@@ -352,6 +355,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .context-filter-switch button.active.excluded { color: #9f4c42; }
 :root[data-theme='light'] .context-search { border-color: var(--theme-border); background: #fff; color: var(--theme-text-muted); }
 :root[data-theme='light'] .context-search input { color: var(--theme-text); }
+:root[data-theme='light'] .context-sort-controls label { border-color: var(--theme-border); background: #fff; }
+:root[data-theme='light'] .context-sort-controls label > span { color: var(--theme-text-muted); }
+:root[data-theme='light'] .context-sort-controls select { background: #fff; color: var(--theme-text); }
 :root[data-theme='light'] .context-search button,
 :root[data-theme='light'] .context-inventory-row > svg,
 :root[data-theme='light'] .context-root-row > svg { color: #687365; }
@@ -361,6 +367,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .context-root-row:hover { background: #eef1ea; }
 :root[data-theme='light'] .context-inventory-main code,
 :root[data-theme='light'] .context-root-row code { color: #394237; }
+:root[data-theme='light'] .context-kind,
+:root[data-theme='light'] .context-date { color: #6f796c; }
 :root[data-theme='light'] .context-inventory-main small,
 :root[data-theme='light'] .context-root-row small,
 :root[data-theme='light'] .context-size,
@@ -370,6 +378,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .context-status.included { background: #e0edd4; color: #4c7427; }
 :root[data-theme='light'] .context-status.excluded { background: #f1dfdc; color: #9d4d43; }
 :root[data-theme='light'] .context-status.partial { background: #efe6d3; color: #805e24; }
+:root[data-theme='light'] .context-selection-button { border-color: var(--theme-border); background: #eef1ea; color: #566151; }
+:root[data-theme='light'] .context-selection-button:hover:not(:disabled) { border-color: #aeb8a8; background: #fff; color: #273024; }
+:root[data-theme='light'] .context-selection-button.include { border-color: #bfd1ae; background: #e7f0de; color: #4d7428; }
+:root[data-theme='light'] .context-locked { color: #90998d; }
 :root[data-theme='light'] .context-list-footer { border-color: var(--theme-border); }
 :root[data-theme='light'] .context-list-footer button { color: #557d28; }
 :root[data-theme='light'] .context-section-intro { border-color: var(--theme-border); background: #eef1ea; }

@@ -30,6 +30,12 @@ const (
 	MaxReadFiles            = 256
 	MaxBarrierFiles         = 64
 	MaxPatchBytes           = 2 * 1024 * 1024
+
+	// MaxCrossProjectUnits bounds how many other projects one response may
+	// change. Each unit becomes a derived request with its own sandbox,
+	// verification and host integration, so the real cost of raising this is
+	// measured in project clones, not in JSON.
+	MaxCrossProjectUnits = 8
 )
 
 // NormalizeCommandBudgets repairs the one transport mistake that is both

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     pickDirectory: (request = {}) => invoke('wharness:projects:pick-directory', request),
     acquire: (projectPath) => invoke('wharness:projects:acquire', { projectPath: String(projectPath || '') }),
     release: (projectPath) => invoke('wharness:projects:release', { projectPath: String(projectPath || '') }),
+    activate: (projectPath) => invoke('wharness:projects:activate', { projectPath: String(projectPath || '') }),
     bindings: () => invoke('wharness:projects:bindings'),
   }),
   windows: Object.freeze({

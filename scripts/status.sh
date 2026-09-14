@@ -22,6 +22,7 @@ pid_status() {
 printf 'Wharnex status\n'
 pid_status coordinator "$RUN_DIR/coordinator.pid"
 pid_status electron "$RUN_DIR/electron.pid"
+pid_status host-pty "$RUN_DIR/hostpty.pid"
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   printf 'Compose stack\n'

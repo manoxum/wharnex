@@ -27,10 +27,11 @@ type ProjectConfig struct {
 }
 
 type ContextConfig struct {
-	AutoExclude  bool     `json:"auto_exclude"`
-	MaxFileBytes int64    `json:"max_file_bytes"`
-	Include      []string `json:"include"`
-	Exclude      []string `json:"exclude"`
+	AutoExclude     bool     `json:"auto_exclude"`
+	MaxFileBytes    int64    `json:"max_file_bytes"`
+	Include         []string `json:"include"`
+	IncludeOverride []string `json:"include_overrides"`
+	Exclude         []string `json:"exclude"`
 }
 
 func Default(root string) Config {
@@ -38,10 +39,11 @@ func Default(root string) Config {
 		Version: CurrentVersion,
 		Project: ProjectConfig{Name: filepath.Base(filepath.Clean(root))},
 		Context: ContextConfig{
-			AutoExclude:  true,
-			MaxFileBytes: DefaultMaxFileSize,
-			Include:      []string{},
-			Exclude:      []string{},
+			AutoExclude:     true,
+			MaxFileBytes:    DefaultMaxFileSize,
+			Include:         []string{},
+			IncludeOverride: []string{},
+			Exclude:         []string{},
 		},
 	}
 }
@@ -88,6 +90,8 @@ func Load(root string) (Config, error) {
 			}
 			if listKey == "include" {
 				cfg.Context.Include = append(cfg.Context.Include, value)
+			} else if listKey == "include_overrides" {
+				cfg.Context.IncludeOverride = append(cfg.Context.IncludeOverride, value)
 			} else {
 				cfg.Context.Exclude = append(cfg.Context.Exclude, value)
 			}
@@ -143,12 +147,14 @@ func Load(root string) (Config, error) {
 			}
 			cfg.Context.MaxFileBytes = parsed
 			listKey = ""
-		case "include", "exclude":
+		case "include", "include_overrides", "exclude":
 			if value != "" && value != "[]" {
 				return Config{}, fmt.Errorf("%s:%d: %s must be a YAML list", FileName, lineNo, key)
 			}
 			if key == "include" {
 				cfg.Context.Include = []string{}
+			} else if key == "include_overrides" {
+				cfg.Context.IncludeOverride = []string{}
 			} else {
 				cfg.Context.Exclude = []string{}
 			}

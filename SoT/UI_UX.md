@@ -86,11 +86,11 @@ An opened workspace exposes project settings from the top bar. The settings surf
 
 ## Context transparency explorer (v1.2.17.4)
 
-`Contexto do Wharness` is an inspection surface as well as a configuration dialog. It presents summary counts/bytes, every top-level project folder and root file with its final status, an exact searchable/filterable list of files included in the current ZIP, excluded paths with rule/reason, and the complete effective exclusion/inclusion rule catalogue. The user can rebuild the context from this surface and immediately inspect the new snapshot.
+`Contexto do Wharness` is an inspection surface as well as a configuration dialog. It presents summary counts/bytes, file and folder views, every top-level project folder and root file with its final status, an exact searchable/filterable list of files included in the current ZIP, excluded paths with rule/reason, available size/creation/modification metadata, size-impact highlighting, and the complete effective exclusion/inclusion rule catalogue. The inventory can be ordered by name, type, size, creation date or last modification. Eligible files and folders can be explicitly included/excluded from this surface and the context is rebuilt immediately; mandatory security decisions remain visibly locked.
 
 The final-context list defaults to included files because that is the payload the planner receives. Included, excluded and all-item filters remain available, with bounded incremental rendering for large repositories. Security rules are visually distinguished from optional project/heuristic rules.
 
-The Editor Host terminal MUST expose an explicit submit affordance in addition to Enter. After Host confirmation, ordinary argv commands such as `ls`, `pwd`, `cat`, `git`, `go`, `npm` and `make` must visibly submit and return stdout/stderr. The UI must preserve the argv-only security boundary and surface policy/runtime errors in the terminal history rather than silently ignoring input.
+The terminal is a full `xterm` PTY surface rather than a command form. Typing, paste, cursor movement, history, completion, `Ctrl+C`, interactive prompts and terminal editors flow to the PTY; ANSI output and resize events flow back continuously. Sandbox/Host selection, sandbox network selection, reconnect, sandbox reset, connection status and the persistent Host warning remain visible outside the terminal viewport. Selecting Host requires the dedicated confirmation before any Host PTY is created.
 
 ## Harness message affordances (v1.2.18)
 

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/translation-bundle.schema.json",
+  "title": "Wharnex document translation bundles",
+  "description": "The two root manifests of the translation request/response bundle pair. transport.json identifies the archive Wharnex uploads as whx_translation_req_<task_id>.zip; translation.json identifies the bundle ChatGPT returns as whx_translation_res_<task_id>.zip. source_sha256 binds the answer to the exact document that was sent: it is echoed verbatim from the request, and a mismatch is refused before any byte of the translation is used.",
+  "oneOf": [{"$ref": "#/$defs/transport"}, {"$ref": "#/$defs/result"}],
+  "$defs": {
+    "taskId": {"type": "string", "pattern": "^cat_[a-f0-9]{20}$"},
+    "language": {"enum": ["pt", "en", "fr"]},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "transport": {
+      "title": "transport.json",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol", "task", "task_id", "target_language", "request_filename",
+        "source_path", "source_sha256", "source_bytes", "result_path", "result_filename"
+      ],
+      "properties": {
+        "protocol": {"const": "wharness.translation-input/v1"},
+        "task": {"const": "translate_document"},
+        "task_id": {"$ref": "#/$defs/taskId"},
+        "target_language": {"$ref": "#/$defs/language"},
+        "request_filename": {"type": "string", "pattern": "^whx_translation_req_cat_[a-f0-9]{20}\\.zip$"},
+        "source_path": {"const": "source/document.md"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "source_bytes": {"type": "integer", "minimum": 1, "maximum": 4194304},
+        "result_path": {"const": "translation/document.md"},
+        "result_filename": {"type": "string", "pattern": "^whx_translation_res_cat_[a-f0-9]{20}\\.zip$"}
+      }
+    },
+    "result": {
+      "title": "translation.json",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "task", "task_id", "target_language", "source_sha256", "result_path"],
+      "properties": {
+        "protocol": {"const": "harness.translation/v1"},
+        "task": {"const": "translate_document"},
+        "task_id": {"$ref": "#/$defs/taskId"},
+        "target_language": {"$ref": "#/$defs/language"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "result_path": {"const": "translation/document.md"}
+      }
+    }
+  }
+}

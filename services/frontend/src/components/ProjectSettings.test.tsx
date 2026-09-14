@@ -100,4 +100,24 @@ describe('ProjectSettings loading', () => {
     expect(screen.getByText(/gera apenas alerta, sem bloquear novos pedidos/i)).toBeTruthy()
   })
 
+  it('excludes an inventory file directly and rebuilds the context', async () => {
+    const config = {
+      version: 1,
+      project: { name: 'demo' },
+      context: { auto_exclude: true, max_file_bytes: 2097152, include: [], include_overrides: [], exclude: [] },
+    }
+    vi.mocked(api.projectConfig).mockResolvedValue(config)
+    vi.mocked(api.contextInspection).mockResolvedValue({
+      snapshot_id: 'ctx', sha256: 'abc', project_root: '/tmp/demo', included_files: 1, excluded_items: 0, included_bytes: 512,
+      roots: [], entries: [{ path: 'src/large.ts', kind: 'file', status: 'included', size: 512, configurable: true }], rules: [],
+    })
+    vi.mocked(api.updateProjectConfig).mockImplementation(async (_id, next) => ({ config: next, session }))
+    render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
+
+    fireEvent.click(await screen.findByTitle('Excluir src/large.ts'))
+    await waitFor(() => expect(api.updateProjectConfig).toHaveBeenCalledWith('ses-config', expect.objectContaining({
+      context: expect.objectContaining({ exclude: ['src/large.ts'], include_overrides: [] }),
+    })))
+  })
+
 })

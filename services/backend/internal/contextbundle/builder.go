@@ -143,7 +143,7 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 			addExcluded(&manifest, rel, "file", "secret-like content", "secret-content")
 			return nil
 		}
-		if cfg.Context.AutoExclude && !matchAny(rel, cfg.Context.Include) && !looksText(data) {
+		if cfg.Context.AutoExclude && !looksText(data) {
 			addExcluded(&manifest, rel, "file", "binary content", "binary-content")
 			return nil
 		}
