@@ -90,6 +90,9 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 	if err := refuseDockerSocketActivation(); err != nil {
 		return domain.CommandResult{}, err
 	}
+	if err := ensureLocalRunnerImage(ctx, r.image); err != nil {
+		return domain.CommandResult{}, err
+	}
 	timeout := time.Duration(command.TimeoutSeconds) * time.Second
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

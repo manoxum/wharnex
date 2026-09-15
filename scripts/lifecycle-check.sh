@@ -103,8 +103,8 @@ if ! grep -Fq 'launcher-splash.mjs' "$LAUNCHER" || ! grep -Fq 'SPLASH_READY_FILE
   exit 1
 fi
 WHARNESS_ROOT="$ROOT" "$INSTALL_DEV_CHECK"
-if ! grep -Fq 'sudo systemctl start docker.service' "$ROOT/scripts/docker-daemon-guard.sh"; then
-  echo 'lifecycle regression: Docker lifecycle guard must start an inactive Docker service' >&2
+if grep -Fq 'sudo systemctl start docker.service' "$ROOT/scripts/docker-daemon-guard.sh" || ! grep -Fq 'Start docker.service explicitly' "$ROOT/scripts/docker-daemon-guard.sh"; then
+  echo 'lifecycle regression: Docker lifecycle guard must require explicit daemon startup' >&2
   exit 1
 fi
 if grep -Eq 'database\.sh.*stop|stack\.sh.*(stop|down)' "$STOP" || printf '%s\n' "$stop_block" | grep -Eq 'stack-(stop|down)'; then
