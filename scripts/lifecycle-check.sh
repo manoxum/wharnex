@@ -4,6 +4,12 @@ set -eu
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 MAKEFILE="$ROOT/Makefile"
 START="$ROOT/scripts/start.sh"
+LAUNCHER="$ROOT/scripts/launcher.sh"
+SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
+SOURCE_FINGERPRINT_CHECK="$ROOT/scripts/source-fingerprint-check.sh"
+LAUNCHER_CHECK="$ROOT/scripts/launcher-check.sh"
+INSTALL_DEV="$ROOT/scripts/install-dev.sh"
+INSTALL_DEV_CHECK="$ROOT/scripts/install-dev-check.sh"
 STOP="$ROOT/scripts/stop.sh"
 STACK="$ROOT/scripts/stack.sh"
 LOGS="$ROOT/scripts/logs.sh"
@@ -29,6 +35,13 @@ build_block=$(section build)
 build_stage_block=$(section build-stage)
 deps_block=$(section deps)
 stop_block=$(section stop)
+
+runner_probe_image='kernl-runner:lifecycle-check'
+build_dry_run=$(make --no-print-directory -n -f "$MAKEFILE" build RUNNER_IMAGE="$runner_probe_image")
+if ! printf '%s\n' "$build_dry_run" | grep -Fq "docker build -t \"$runner_probe_image\""; then
+  echo 'lifecycle regression: make build must materialize the configured Protected runner image' >&2
+  exit 1
+fi
 
 if ! printf '%s\n' "$build_block" | grep -Fq 'stack.sh" ensure'; then
   echo 'lifecycle regression: make build must reconcile the Compose application stack' >&2
@@ -71,11 +84,42 @@ if printf '%s\n' "$deps_block" | grep -Eq 'command -v docker|docker[[:space:]]';
   exit 1
 fi
 if ! grep -Fq 'build-runner: runner-deps' "$MAKEFILE"; then
-  echo 'lifecycle regression: Protected runner construction must remain explicit' >&2
+  echo 'lifecycle regression: the direct Protected runner recovery target must remain available' >&2
+  exit 1
+fi
+if ! grep -Fq 'install-dev:' "$MAKEFILE" || ! grep -Fq 'scripts/install-dev.sh' "$MAKEFILE" || [ ! -x "$INSTALL_DEV" ]; then
+  echo 'lifecycle regression: make install-dev must install the per-instance desktop launcher' >&2
+  exit 1
+fi
+if [ ! -x "$INSTALL_DEV_CHECK" ]; then
+  echo 'lifecycle regression: install-dev needs its Snap/XDG launcher regression check' >&2
+  exit 1
+fi
+if [ ! -x "$LAUNCHER" ] || [ ! -x "$SOURCE_FINGERPRINT" ]; then
+  echo 'lifecycle regression: desktop launcher needs splash and source-fingerprint helpers' >&2
+  exit 1
+fi
+if [ ! -x "$SOURCE_FINGERPRINT_CHECK" ] || [ ! -x "$LAUNCHER_CHECK" ]; then
+  echo 'lifecycle regression: launcher fingerprint/splash requires behavioral regression checks' >&2
+  exit 1
+fi
+WHARNESS_ROOT="$ROOT" "$SOURCE_FINGERPRINT_CHECK"
+WHARNESS_ROOT="$ROOT" "$LAUNCHER_CHECK"
+if ! grep -Fq 'launcher-splash.mjs' "$LAUNCHER" || ! grep -Fq 'SPLASH_READY_FILE' "$LAUNCHER" || ! grep -Fq 'make stop && make build && make start' "$LAUNCHER"; then
+  echo 'lifecycle regression: launcher must splash before a source-change build/restart' >&2
+  exit 1
+fi
+WHARNESS_ROOT="$ROOT" "$INSTALL_DEV_CHECK"
+if grep -Fq 'sudo systemctl start docker.service' "$ROOT/scripts/docker-daemon-guard.sh" || ! grep -Fq 'Start docker.service explicitly' "$ROOT/scripts/docker-daemon-guard.sh"; then
+  echo 'lifecycle regression: Docker lifecycle guard must require explicit daemon startup' >&2
   exit 1
 fi
 if grep -Eq 'database\.sh.*stop|stack\.sh.*(stop|down)' "$STOP" || printf '%s\n' "$stop_block" | grep -Eq 'stack-(stop|down)'; then
   echo 'lifecycle regression: make stop must never stop the persistent Compose stack' >&2
+  exit 1
+fi
+if ! grep -Fq "Wharnex build is required" "$START" || ! grep -Fq '(cd "$ROOT" && make build)' "$START" || ! grep -Fq 'source fingerprint changed' "$START"; then
+  echo 'lifecycle regression: make start must rebuild a missing or stale application before startup' >&2
   exit 1
 fi
 if ! grep -Fq -- '--no-recreate database minio tunnel' "$STACK"; then
@@ -100,6 +144,10 @@ if ! grep -Fq -- '--force-recreate' "$STACK"; then
 fi
 if ! grep -Fq 'desired_frontend=$(docker image inspect' "$STACK" || ! grep -Fq 'running_frontend=$(docker inspect' "$STACK"; then
   echo 'lifecycle regression: application activation must verify the running frontend image id' >&2
+  exit 1
+fi
+if ! grep -Fq 'service_ready backend 1 && service_ready frontend 1' "$STACK"; then
+  echo 'lifecycle regression: a healthy stack on requested images must skip an unnecessary application rollout' >&2
   exit 1
 fi
 if ! grep -Fq 'Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always' "$FRONTEND_NGINX"; then
@@ -165,6 +213,14 @@ if ! grep -Fq 'resolveElectronBinary' "$DESKTOP_DEV" || ! grep -Fq 'electron-run
 fi
 if ! grep -Fq 'coordinatorKeepAlive' "$DESKTOP_DEV"; then
   echo 'lifecycle regression: detached Electron must retain a tracked coordinator owner' >&2
+  exit 1
+fi
+if ! grep -Fq 'wharnex-host-pty' "$MAKEFILE" || ! grep -Fq "run('hostpty'" "$DESKTOP_DEV"; then
+  echo 'lifecycle regression: stack Host PTY must be built and launched natively by the Desktop coordinator' >&2
+  exit 1
+fi
+if ! grep -Fq 'HARNESS_HOST_PTY_SOCKET:' "$COMPOSE"; then
+  echo 'lifecycle regression: Compose backend must proxy Host PTY sessions through the checkout bridge socket' >&2
   exit 1
 fi
 printf 'Lifecycle immutable Electron runtime checks passed.\n'

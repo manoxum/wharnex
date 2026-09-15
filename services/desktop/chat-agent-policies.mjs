@@ -58,3 +58,30 @@ export function autoScaleDrainTarget({ enabled, due = 0, configured, current, ke
   if (enabled !== true || Number(due || 0) > 0) return live
   return Math.min(live, Math.max(base, Math.floor(Number(keepFlowingFloor) || 0)))
 }
+
+// Supervisors scale on lanes, not on tasks.
+//
+// A Supervisor is bound to one Harness chat for the life of its request, so the
+// demand is the number of distinct conversations holding claimable
+// Supervisor-owned work that no current slot can serve. Sizing the pool from the
+// shared `due` total would grow it because a library cleanup is queued, and
+// sizing it from supervisor *tasks* would grow it against three tasks one
+// resident slot already serves.
+export function autoScaleSupervisorTarget({ enabled, dueLanes = 0, available = 0, current, maxSupervisors = HARD_MAX_SUPERVISOR_SLOTS } = {}) {
+  const currentSupervisors = Math.max(1, Math.floor(Number(current) || 1))
+  const hardMax = Math.max(currentSupervisors, Math.floor(Number(maxSupervisors) || HARD_MAX_SUPERVISOR_SLOTS))
+  if (enabled !== true || Number(dueLanes || 0) <= 0 || Number(available || 0) > 0 || currentSupervisors >= hardMax) return currentSupervisors
+  return Math.min(hardMax, currentSupervisors + 1)
+}
+
+// Retiring an auto-scaled Supervisor is not free: the slot above the configured
+// base may still hold a conversation, and dropping the cap under the number of
+// bound renderers is what makes the next chat switch a reload. So the floor is
+// the larger of the operator's base and what is actually bound right now, and
+// the drain happens only while no Supervisor lane is waiting for a slot.
+export function autoScaleSupervisorDrainTarget({ enabled, dueLanes = 0, configured, current, boundSupervisors = 0 } = {}) {
+  const base = Math.max(1, Math.floor(Number(configured) || 1))
+  const live = Math.max(base, Math.floor(Number(current) || base))
+  if (enabled !== true || Number(dueLanes || 0) > 0) return live
+  return Math.min(live, Math.max(base, Math.floor(Number(boundSupervisors) || 0)))
+}

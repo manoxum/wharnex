@@ -73,8 +73,11 @@ var hostApplyNetworkBackoff = 15 * time.Second
 // them to press a button whose only effect is to try again. So the engine
 // tries again itself, a bounded number of times, and only then lets the
 // failure take its normal path.
+// It applies under the lock only. The cross-project dispatch belongs to the
+// caller that knows the whole automatic round has settled, not to a retry loop
+// that may still be about to try again.
 func (s *Service) applyToHostWithLocalRetry(ctx context.Context, sessionID string) (domain.Session, error) {
-	item, err := s.ApplyToHost(ctx, sessionID)
+	item, err := s.applyToHostLocked(ctx, sessionID)
 	for attempt := 1; attempt <= hostApplyNetworkRetries; attempt++ {
 		if err == nil || !isDependencyNetworkDiagnostic(err.Error()) {
 			return item, err
@@ -88,7 +91,7 @@ func (s *Service) applyToHostWithLocalRetry(ctx context.Context, sessionID strin
 			return item, err
 		case <-time.After(hostApplyNetworkBackoff):
 		}
-		item, err = s.ApplyToHost(ctx, sessionID)
+		item, err = s.applyToHostLocked(ctx, sessionID)
 	}
 	return item, err
 }

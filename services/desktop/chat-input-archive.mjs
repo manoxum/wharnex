@@ -253,10 +253,24 @@ export function localChatInputBootstrap(requestId, archiveName, expectedFilename
 const CONTINUATION_PATHS = new Set([
   'attempts/state.json',
   'attempts/ledger.md',
+  'attempts/events.json',
   'context-delta/delta.json',
   'context-delta/delta.patch',
+  'conflict/capsule.json',
+  'responses/index.json',
 ])
 const MAX_CONTINUATION_BYTES = 1 << 20
+const MAX_CONFLICT_CAPSULE_BYTES = 4 << 20
+const MAX_EXECUTION_HISTORY_BYTES = 16 << 20
+const MAX_RESPONSE_HISTORY_BUNDLE_BYTES = 128 << 20
+
+function continuationArtifactLimit(name) {
+  if (name === 'conflict/capsule.json') return MAX_CONFLICT_CAPSULE_BYTES
+  if (name === 'attempts/events.json') return MAX_EXECUTION_HISTORY_BYTES
+  if (/^responses\/\d{3}-req_[A-Za-z0-9_-]{4,180}\.zip$/.test(name)) return MAX_RESPONSE_HISTORY_BUNDLE_BYTES
+  if (CONTINUATION_PATHS.has(name)) return MAX_CONTINUATION_BYTES
+  return 0
+}
 
 function normalizeContinuationFiles(values) {
   const list = Array.isArray(values) ? values : []
@@ -264,11 +278,12 @@ function normalizeContinuationFiles(values) {
   const out = []
   for (const item of list) {
     const name = String(item?.path || '').trim()
-    if (!CONTINUATION_PATHS.has(name)) throw new Error(`Unsupported continuation artifact: ${name}`)
+    const maxBytes = continuationArtifactLimit(name)
+    if (!maxBytes) throw new Error(`Unsupported continuation artifact: ${name}`)
     if (seen.has(name)) throw new Error(`Duplicate continuation artifact: ${name}`)
     seen.add(name)
     const bytes = Buffer.from(String(item?.content_base64 || ''), 'base64')
-    if (!bytes.byteLength || bytes.byteLength > MAX_CONTINUATION_BYTES) throw new Error(`Invalid continuation artifact size: ${name}`)
+    if (!bytes.byteLength || bytes.byteLength > maxBytes) throw new Error(`Invalid continuation artifact size: ${name}`)
     out.push({ name, bytes })
   }
   return out

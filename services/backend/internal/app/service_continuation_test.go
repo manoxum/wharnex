@@ -4,19 +4,85 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/audit"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
 	manualplanner "kernl.local/harness/backend/internal/planner/manual"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/sandbox"
 	"kernl.local/harness/backend/internal/session"
 )
+
+func TestConflictCapsuleTravelsAsAFileWithoutExpandingThePrompt(t *testing.T) {
+	paths := make([]string, 19)
+	for index := range paths {
+		paths[index] = fmt.Sprintf("src/conflict-%02d.ts", index)
+	}
+	message := buildConflictResolutionMessage(paths, "")
+	if len(message) >= 1<<20 {
+		t.Fatalf("focused conflict message crossed Desktop's 1 MiB bound: %d", len(message))
+	}
+	if !strings.Contains(message, conflictCapsuleArtifactPath) {
+		t.Fatalf("focused conflict message does not name its authoritative file: %q", message)
+	}
+
+	raw := bytes.Repeat([]byte("x"), 2<<20)
+	item := domain.Session{LastRequestID: "req_conflict"}
+	recordRequestSupportArtifact(&item, "req_conflict", conflictCapsuleArtifactPath, raw)
+	artifacts := continuationArtifacts(item, "req_conflict")
+	if len(artifacts) != 1 || artifacts[0].Name != conflictCapsuleArtifactPath || !bytes.Equal(artifacts[0].Raw, raw) {
+		t.Fatalf("conflict capsule was not preserved as a request artifact: %#v", artifacts)
+	}
+}
+
+func TestGitConflictRetryReusesItsPersistedCapsule(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/retry\n\ngo 1.25\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRequestID := "req_conflict_old"
+	capsule := []byte(`{"protocol":"harness.conflict/v1","conflict_id":"conflict_retry","files":[]}`)
+	seeded, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.IntegrationConflict = &domain.ConflictResolution{ID: "conflict_retry", RequestID: oldRequestID, Paths: []string{"api.go"}}
+		item.Plan = &domain.ExecutionPlan{PlanID: "failed-resolution", RequestID: oldRequestID}
+		recordRequestSupportArtifact(item, oldRequestID, conflictCapsuleArtifactPath, capsule)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retried, err := service.prepareConflictResolutionRetry(context.Background(), started.ID, seeded, errors.New("undefined: CandidateType"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.IntegrationConflict == nil || retried.IntegrationConflict.RequestID == oldRequestID || retried.State != "conflict_resolution_pending" {
+		t.Fatalf("Git-native conflict was not continued: %#v", retried.IntegrationConflict)
+	}
+	artifacts := continuationArtifacts(retried, retried.IntegrationConflict.RequestID)
+	found := false
+	for _, artifact := range artifacts {
+		if artifact.Name == conflictCapsuleArtifactPath && bytes.Equal(artifact.Raw, capsule) {
+			found = true
+		}
+	}
+	if !found || !strings.Contains(retried.LastManualPrompt, "undefined: CandidateType") {
+		t.Fatalf("retry lost capsule or failure evidence: artifacts=%#v prompt=%q", artifacts, retried.LastManualPrompt)
+	}
+}
 
 // The repair prompt is the whole payload of a correction wave. Before this it
 // carried only the latest failure, so round three re-proposed what round two had
@@ -229,6 +295,49 @@ func TestContinuationTransportCarriesBothAttemptArtifacts(t *testing.T) {
 		if !containsString(names, want) {
 			t.Fatalf("continuation transport is missing %q, got %v", want, names)
 		}
+	}
+}
+
+func TestContinuationTransportCarriesCumulativeExecutionEvidenceAndResponses(t *testing.T) {
+	store := session.NewStore()
+	bus := audit.NewBus()
+	service := NewService(store, bus, contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	objects := &memoryArtifactStore{objects: map[string][]byte{}}
+	service.SetArtifactStore(objects, 30)
+	item := domain.Session{
+		ID: "sess-history", ProjectPath: t.TempDir(), LastRequestID: "req_repair", CreatedAt: time.Now().UTC(),
+		RequestLineages: map[string]domain.RequestLineage{
+			"req_root":   {RequestID: "req_root", RootRequestID: "req_root", Kind: requestKindStandard},
+			"req_repair": {RequestID: "req_repair", RootRequestID: "req_root", ParentRequestID: "req_root", Kind: requestKindRepair},
+		},
+	}
+	resetAttemptLedger(&item, "req_root")
+	recordRequestContextDelta(&item, "req_repair", domain.ContextDelta{Protocol: domain.ContextDeltaProtocolV1, BaseRequestID: "req_root", CurrentRequestID: "req_repair", Source: domain.ContextDeltaSourceGit, Unchanged: true})
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	bus.Publish(item.ID, "execution.started", map[string]any{"request_id": "req_root", "plan_id": "plan_root"})
+	bus.Publish(item.ID, "command.completed", map[string]any{"run_id": "run_1", "argv": []string{"go", "test", "./..."}, "exit_code": 1, "stdout": "FAIL TestRegression", "stderr": ""})
+	response := testArtifactZIP(t, map[string]string{"turn.json": `{"request_id":"req_root"}`})
+	if _, err := service.PersistArtifact(context.Background(), item.ID, "req_root", "output", "bundle", "response.zip", "application/zip", response); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts := service.RequestContinuationArtifactsWithHistory(context.Background(), item.ID, "req_repair")
+	byName := map[string][]byte{}
+	for _, artifact := range artifacts {
+		byName[artifact.Name] = artifact.Raw
+	}
+	if !strings.Contains(string(byName["attempts/events.json"]), "FAIL TestRegression") {
+		t.Fatalf("cumulative command output is missing: %s", byName["attempts/events.json"])
+	}
+	for _, want := range []string{`"waves"`, `"request_id": "req_root"`, `"request_id": "req_repair"`} {
+		if !strings.Contains(string(byName["attempts/events.json"]), want) {
+			t.Fatalf("execution evidence is not explicitly grouped by correction wave %q: %s", want, byName["attempts/events.json"])
+		}
+	}
+	if len(byName["responses/001-req_root.zip"]) == 0 || len(byName["responses/index.json"]) == 0 {
+		t.Fatalf("prior response bundle history is missing from %d continuation artifacts", len(byName))
 	}
 }
 

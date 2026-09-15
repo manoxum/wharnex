@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
 import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
-import { ContextInspector } from './ContextInspector'
+import { ContextInspector, type ContextSelection } from './ContextInspector'
 import { Icon } from './Icon'
 import { desktopBridge, formatBytes } from '../lib/desktop'
 import { loadUIPreferences, saveUIPreferences, subscribeUIPreferences, type UIPreferences } from '../lib/uiPreferences'
@@ -28,6 +28,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   const [maxMiB, setMaxMiB] = useState(2)
   const [saving, setSaving] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [configuring, setConfiguring] = useState(false)
   const [loadingError, setLoadingError] = useState('')
   const [inspectionError, setInspectionError] = useState('')
   const [reloadNonce, setReloadNonce] = useState(0)
@@ -71,13 +72,42 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
     if (!config || saving) return
     setSaving(true)
     try {
-      const next: ProjectConfig = { ...config, context: { ...config.context, max_file_bytes: miBToBytes(maxMiB), include: parsePatternLines(include), exclude: parsePatternLines(exclude) } }
+      const next: ProjectConfig = { ...config, context: { ...config.context, max_file_bytes: miBToBytes(maxMiB), include: parsePatternLines(include), include_overrides: config.context.include_overrides || [], exclude: parsePatternLines(exclude) } }
       const result = await api.updateProjectConfig(session.id, next)
       setConfig(result.config); onSession(result.session)
       const nextInspection = await api.contextInspection(session.id)
       setInspection(nextInspection)
     } catch (error) { onError(messageOf(error, 'Não foi possível guardar a configuração do projeto')) }
     finally { setSaving(false) }
+  }
+
+  async function applyContextSelection(selection: ContextSelection) {
+    if (!config || configuring) return
+    if (selection.action === 'include' && selection.kind === 'directory' && !(await confirmDialog({
+      title: 'Incluir pasta no contexto?',
+      message: `${selection.path} e os seus ficheiros elegíveis passarão a ocupar o contexto. Pastas de SDK/cache podem ser muito grandes; confirme apenas se este conteúdo for realmente útil ao planner.`,
+      tone: 'warning',
+      confirmLabel: 'Incluir pasta',
+    }))) return
+    const pattern = selection.kind === 'directory' ? `${selection.path.replace(/\/$/, '')}/**` : selection.path
+    const overrides = config.context.include_overrides || []
+    const nextOverrides = selection.action === 'include'
+      ? uniquePatterns([...overrides, pattern])
+      : overrides.filter((value) => !patternContains(pattern, value) && !patternContains(value, pattern))
+    const nextExcludes = selection.action === 'exclude'
+      ? uniquePatterns([...config.context.exclude, pattern])
+      : config.context.exclude
+    const next: ProjectConfig = { ...config, context: { ...config.context, include_overrides: nextOverrides, exclude: nextExcludes } }
+    setConfiguring(true)
+    try {
+      const result = await api.updateProjectConfig(session.id, next)
+      setConfig(result.config)
+      setInclude(formatPatternLines(result.config.context.include || []))
+      setExclude(formatPatternLines(result.config.context.exclude || []))
+      onSession(result.session)
+      setInspection(await api.contextInspection(session.id))
+    } catch (error) { onError(messageOf(error, `Não foi possível ${selection.action === 'include' ? 'incluir' : 'excluir'} ${selection.path}`)) }
+    finally { setConfiguring(false) }
   }
 
   async function refresh() {
@@ -195,7 +225,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
         {activeSection === 'context' ? (!config ? (loadingError
           ? <div className="settings-load-error"><Icon name="shield" size={22}/><div><strong>Não foi possível carregar a configuração</strong><p>{loadingError}</p><span>O backend tenta recriar automaticamente <code>whaness.yml</code> quando ele não existe. Pode tentar novamente sem fechar o projeto.</span><button className="secondary-button" onClick={() => setReloadNonce((value) => value + 1)}><Icon name="refresh" size={14}/> Tentar novamente</button></div></div>
           : <div className="settings-loading"><span className="settings-spinner"/>A carregar configuração…</div>) : <><section className="context-config-section">
-          <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><code>{session.context.manifest.sha256.slice(0, 12)}</code></div>
+          <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><div className="context-config-badges"><span>{config.context.include_overrides?.length || 0} inclusões explícitas</span><code>{session.context.manifest.sha256.slice(0, 12)}</code></div></div>
           <label className="settings-toggle"><input type="checkbox" checked={config.context.auto_exclude} onChange={(event) => setConfig({ ...config, context: { ...config.context, auto_exclude: event.target.checked } })}/><span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários, logs, IDE metadata e outros artefactos sem valor para a IA.</small></span></label>
           <div className="settings-grid">
             <label><span>Incluir apenas <small>opcional</small></span><textarea value={include} onChange={(event) => setInclude(event.target.value)} placeholder={'src/**\ndocs/**\ngo.mod'}/><small>Se vazio, todos os ficheiros elegíveis são considerados.</small></label>
@@ -206,7 +236,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
           <div className="context-config-actions"><button className="primary-button" disabled={saving} onClick={() => void save()}><Icon name="save" size={15}/>{saving ? 'A guardar…' : 'Guardar e reconstruir contexto'}</button></div>
         </section>
         <section className="context-explorer-section">
-          {inspection ? <ContextInspector inspection={inspection} refreshing={refreshing} onRefresh={() => void refresh()} /> : inspectionError ? <div className="context-inspection-error"><Icon name="shield" size={16}/><span>{inspectionError}</span><button onClick={() => setReloadNonce((value) => value + 1)}>Tentar novamente</button></div> : <div className="settings-loading compact"><span className="settings-spinner"/>A inspecionar o snapshot final…</div>}
+          {inspection ? <ContextInspector inspection={inspection} refreshing={refreshing} configuring={configuring} onRefresh={() => void refresh()} onSelection={(selection) => void applyContextSelection(selection)} /> : inspectionError ? <div className="context-inspection-error"><Icon name="shield" size={16}/><span>{inspectionError}</span><button onClick={() => setReloadNonce((value) => value + 1)}>Tentar novamente</button></div> : <div className="settings-loading compact"><span className="settings-spinner"/>A inspecionar o snapshot final…</div>}
         </section></>) : null}
         {activeSection === 'tunnel-provider' ? <TunnelProviderSettings onError={onError} onSaved={onTunnelConfigSaved}/> : null}
         {activeSection === 'remote-storage' ? <RemoteStorageSettings onError={onError}/> : null}
@@ -265,3 +295,5 @@ function footerHint(section: SettingsSection) {
 }
 
 function messageOf(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback }
+function uniquePatterns(values: string[]) { return Array.from(new Set(values)) }
+function patternContains(parent: string, candidate: string) { const prefix = parent.endsWith('/**') ? parent.slice(0, -3) : ''; return candidate === parent || Boolean(prefix && (candidate === prefix || candidate.startsWith(`${prefix}/`))) }

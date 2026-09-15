@@ -61,6 +61,21 @@ export function loadMonaco(): Promise<typeof Monaco> {
 export function configureMonaco() {
   if (configured) return
   configured = true
+  monaco.typescript.typescriptDefaults.setEagerModelSync(true)
+  monaco.typescript.javascriptDefaults.setEagerModelSync(true)
+  for (const language of ['javascript', 'typescript']) {
+    monaco.languages.registerCompletionItemProvider(language, {
+      triggerCharacters: ['<', ' ', '.', '('],
+      provideCompletionItems(model, position) {
+        const prefix = model.getValueInRange(new monaco.Range(1, 1, position.lineNumber, position.column)).slice(-12_000)
+        const match = prefix.match(/\b(html|sql|css|graphql)\s*`[^`]*$/i)
+        if (!match) return { suggestions: [] }
+        const word = model.getWordUntilPosition(position)
+        const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
+        return { suggestions: embeddedSuggestions(match[1].toLowerCase(), range) }
+      },
+    })
+  }
   monaco.editor.defineTheme('wharness-dark', {
     base: 'vs-dark',
     inherit: true,
@@ -117,4 +132,40 @@ export function editorModelURI(path: string) {
 
 export function disposeEditorModel(path: string) {
   monaco.editor.getModel(editorModelURI(path))?.dispose()
+}
+
+
+function embeddedSuggestions(tag: string, range: Monaco.IRange): Monaco.languages.CompletionItem[] {
+  const snippet = (label: string, insertText: string, detail: string): Monaco.languages.CompletionItem => ({
+    label,
+    kind: monaco.languages.CompletionItemKind.Snippet,
+    insertText,
+    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+    range,
+    detail,
+  })
+  if (tag === 'html') return [
+    snippet('div', '<div class="${1:class}">\n\t${0}\n</div>', 'HTML incorporado'),
+    snippet('section', '<section>\n\t${0}\n</section>', 'HTML incorporado'),
+    snippet('button', '<button type="${1:button}">${0}</button>', 'HTML incorporado'),
+    snippet('input', '<input type="${1:text}" name="${2:name}" />', 'HTML incorporado'),
+    snippet('a', '<a href="${1:#}">${0}</a>', 'HTML incorporado'),
+  ]
+  if (tag === 'sql') return [
+    snippet('SELECT', 'SELECT ${1:*}\nFROM ${2:table}\nWHERE ${0:condition};', 'SQL incorporado'),
+    snippet('JOIN', 'JOIN ${1:table} ON ${2:left_id} = ${3:right_id}', 'SQL incorporado'),
+    snippet('INSERT', 'INSERT INTO ${1:table} (${2:columns})\nVALUES (${0:values});', 'SQL incorporado'),
+    snippet('UPDATE', 'UPDATE ${1:table}\nSET ${2:column} = ${3:value}\nWHERE ${0:condition};', 'SQL incorporado'),
+  ]
+  if (tag === 'css') return [
+    snippet('display flex', 'display: flex;\n${0}', 'CSS incorporado'),
+    snippet('display grid', 'display: grid;\ngrid-template-columns: ${1:repeat(2, 1fr)};\n${0}', 'CSS incorporado'),
+    snippet('media', '@media (${1:max-width: 768px}) {\n\t${0}\n}', 'CSS incorporado'),
+  ]
+  if (tag === 'graphql') return [
+    snippet('query', 'query ${1:Name}(${2:$id: ID!}) {\n\t${3:node}(id: $id) {\n\t\t${0:id}\n\t}\n}', 'GraphQL incorporado'),
+    snippet('mutation', 'mutation ${1:Name} {\n\t${0}\n}', 'GraphQL incorporado'),
+    snippet('fragment', 'fragment ${1:Name} on ${2:Type} {\n\t${0}\n}', 'GraphQL incorporado'),
+  ]
+  return []
 }

@@ -132,7 +132,9 @@ need to construct an undisclosed sibling URL.
 In a live channel, attachments and explicit `@file` contents are individual
 file-map entries. Explicit `@file` context entries are marked `selected`; the
 complete eligible project snapshot is represented by the context entries in the
-current map.
+current map. An inline `@{[see]<name>}` marker names one of the attachment
+entries already in the map by file name; it MUST NOT produce a second entry for
+the same content.
 
 The remote file map is transport-only and does not alter the execution protocol
 or trust order. ChatGPT MUST read the planner prompt and current file map before
@@ -211,9 +213,9 @@ Known secret paths are skipped. Text files containing private-key markers or obv
 
 ## Per-project context configuration (v1.2.17)
 
-Every project owns `whaness.yml`. Wharness creates it before the first context capture when it is absent. The current schema stores a project name and context controls: automatic pruning, maximum file size, optional include patterns, and explicit exclude patterns.
+Every project owns `whaness.yml`. Wharness creates it before the first context capture when it is absent. The current schema stores a project name and context controls: automatic pruning, maximum file size, optional include patterns, explicit include overrides, and explicit exclude patterns.
 
-Context selection order is conservative: mandatory secret/path exclusions and legacy `.harnessignore` remain authoritative; project excludes are then applied; a non-empty include list narrows the eligible files and may explicitly retain a path that would otherwise be removed only by heuristic auto-pruning; automatic pruning removes common dependency/cache/build/test/IDE/temporary/binary/archive/media artifacts from the remaining candidates; size and bundle limits are enforced last. Include patterns never override mandatory secret, VCS, symlink, dependency-root, or protected-path exclusions.
+Context selection order is conservative: mandatory secret/path exclusions and legacy `.harnessignore` remain authoritative; explicit include overrides selected in Settings may then restore a project-configured or heuristically pruned path without turning the ordinary include list into an allowlist; project excludes are then applied; a non-empty include list narrows the eligible files and may explicitly retain a path that would otherwise be removed only by heuristic auto-pruning; automatic pruning removes common dependency/cache/build/test/IDE/temporary/binary/archive/media artifacts — including mobile SDKs, native intermediates and framework compiler/deployment caches — from the remaining candidates; size and bundle limits are enforced last. Include patterns and overrides never override mandatory secret, VCS, symlink, dependency-root, `.harnessignore`, protected-path, content-safety, or size-limit exclusions.
 
 Automatic pruning is context-only. It does not delete project files and does not grant the editor, terminal, planner, or executor additional filesystem access. The manifest records excluded paths together with the reason so the user can tune `whaness.yml` without guessing.
 
@@ -221,7 +223,7 @@ Automatic pruning is context-only. It does not delete project files and does not
 
 The context settings surface MUST be able to explain the final ZIP, not only the requested configuration. Every rebuilt manifest records structured exclusion details (`path`, `kind`, `reason`, `rule`) alongside the legacy human-readable exclusion strings for compatibility.
 
-The backend exposes a read-only context inspection derived from the current manifest plus the effective project rules. It reports every top-level project directory/file, exact final included files, excluded paths/subtrees, byte/count summaries, and the complete active rule catalogue: mandatory Wharness exclusions, `.harnessignore`, `whaness.yml` include/exclude, automatic pruning, per-file size, bundle cap, content-secret/binary checks and symlink denial.
+The backend exposes a read-only context inspection derived from the current manifest plus the effective project rules. It reports every top-level project directory/file, exact final included files, excluded paths/subtrees, available size/creation/modification metadata, whether each decision can be changed through project configuration, byte/count summaries, and the complete active rule catalogue: mandatory Wharness exclusions, `.harnessignore`, `whaness.yml` include/override/exclude, automatic pruning, per-file size, bundle cap, content-secret/binary checks and symlink denial.
 
 The final-context explorer MUST treat `manifest.files` as the authoritative included-file list. It may search/filter/paginate that list for usability, but MUST NOT infer that a file is included merely because a parent directory is eligible. Excluded directories may represent an entire skipped subtree and therefore do not require enumerating every child that was never walked.
 
@@ -249,9 +251,9 @@ Each session keeps a bounded observed revision journal containing parent/current
 
 Persisted context paths point to disposable local artifacts, not durable truth. If a session's current ZIP or text artifact is missing after a backend/Desktop restart, the download endpoint MUST rebuild both artifacts from the authoritative project, atomically update the session context, and preserve the active workflow/request state. A stale temporary pathname MUST NOT strand ChatGPT prompt preparation in an HTTP 404 loop.
 
-## Continuation divergence instead of repeated baselines (v1.3.5 — see `adr/ADR-0041`)
+## Refreshed continuation context plus root-relative divergence (v1.3.9 — see `adr/ADR-0041`, `adr/ADR-0055`)
 
-A Main Request delivers one complete project snapshot. Every later request in that Main Request is a correction on top of it and MUST describe how the local project diverged from that snapshot rather than merely shipping another complete baseline with a new fingerprint.
+A Main Request delivers one complete project snapshot. Every later request in that Main Request is a correction on top of it and MUST deliver both the refreshed complete snapshot and an explicit report of how the local project diverged from the Main Request snapshot. The complete snapshot is the authoritative current tree; the delta prevents a new fingerprint from hiding what actually moved.
 
 - The comparison is anchored on the **root** request's own base commit (`refs/wharnex/base/<root_request_id>`), never the previous round's, so one lost or unread report does not break the chain.
 - Every continuation MUST capture its own request base immediately alongside the context snapshot it describes. Capturing only for the Main Request left correction rounds with no anchored base, silently disabling base-rooted integration on exactly the rounds that need it.

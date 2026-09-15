@@ -1,8 +1,33 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ChatPanel } from './ChatPanel'
+import { createRef, type RefObject } from 'react'
+import QuillDelta from 'quill-delta'
+import { ChatPanel, type ChatPanelHandle } from './ChatPanel'
 import type { Session } from '../types'
 import { clearEphemeralComposerDrafts } from '../lib/workspaceMemory'
+import { api } from '../lib/api'
+import { deltaToCanonicalText, directivesToDelta, textOffsetToQuillIndex } from '../lib/composerRichText'
+
+// jsdom cannot faithfully simulate real keystrokes into a contenteditable
+// Quill instance (no real Selection/Range layout), so these tests drive the
+// composer directly through the same Quill API ChatPanel's own directive
+// handlers use internally (see ChatPanel.editDirective / selectDirective),
+// via the escape hatch ChatPanelHandle exposes for exactly this reason.
+function panelRef() { return createRef<ChatPanelHandle>() }
+
+function typeInComposer(ref: RefObject<ChatPanelHandle | null>, text: string, caret: number) {
+  const editor = ref.current?.getComposerEditor()
+  if (!editor) throw new Error('composer editor not mounted')
+  act(() => {
+    editor.setContents(new QuillDelta(directivesToDelta(text).ops) as never, 'user')
+    editor.setSelection(textOffsetToQuillIndex(text, caret), 0, 'user')
+  })
+}
+
+function composerText(ref: RefObject<ChatPanelHandle | null>) {
+  const editor = ref.current?.getComposerEditor()
+  return editor ? deltaToCanonicalText(editor.getContents() as never) : ''
+}
 
 const session = {
   id: 'ses-test',
@@ -56,6 +81,34 @@ describe('ChatPanel', () => {
     expect(() => view.unmount()).not.toThrow()
   })
 
+
+  it('previews the next composer bundle without clearing or sending the draft', async () => {
+    const ref = panelRef()
+    const preview = {
+      id: 'artifact-preview', request_id: 'req_preview', direction: 'input' as const, kind: 'bundle-preview',
+      name: 'whx_bundle_req_chat-1_req_preview.zip', content_type: 'application/zip', size: 2048,
+      sha256: 'a'.repeat(64), created_at: '2026-09-15T16:20:00Z', expires_at: '2026-10-15T16:20:00Z', bundle: true, entry_count: 1,
+    }
+    const onPreviewBundle = vi.fn().mockResolvedValue(preview)
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(api, 'artifactEntries').mockResolvedValue({ entries: [{ path: 'prompt/wharness-planner-prompt.md', size: 128, dir: false }] })
+    const deletePreview = vi.spyOn(api, 'deleteManagedArtifact').mockResolvedValue({ deleted: true })
+    render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} onSend={onSend} onPreviewBundle={onPreviewBundle} {...chatActions} />,
+    )
+
+    typeInComposer(ref, 'implemente a mudança', 'implemente a mudança'.length)
+    fireEvent.click(screen.getByRole('button', { name: 'Pré-visualizar próximo bundle' }))
+
+    await waitFor(() => expect(onPreviewBundle).toHaveBeenCalledTimes(1))
+    expect(onSend).not.toHaveBeenCalled()
+    expect(composerText(ref)).toBe('implemente a mudança')
+    expect((await screen.findAllByText('Pré-visualização · próximo bundle')).length).toBeGreaterThan(0)
+    fireEvent.click(await screen.findByText('prompt')); expect(await screen.findByText('wharness-planner-prompt.md')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar explorador' }))
+    await waitFor(() => expect(deletePreview).toHaveBeenCalledWith(session.id, preview.id))
+  })
 
   it('keeps copyable context hash and chat identity in the header instead of repeating them in the transcript', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
@@ -504,13 +557,14 @@ describe('ChatPanel', () => {
 
   it('selects files and submits them with the message', async () => {
     const onSend = vi.fn(async () => undefined)
+    const ref = panelRef()
     const view = render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} attachmentsEnabled onSend={onSend} {...chatActions} />,
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="" busy={false} attachmentsEnabled onSend={onSend} {...chatActions} />,
     )
     const input = view.container.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File(['spec'], 'spec.txt', { type: 'text/plain' })
     fireEvent.change(input, { target: { files: [file] } })
-    fireEvent.change(screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…'), { target: { value: 'implementar' } })
+    typeInComposer(ref, 'implementar', 'implementar'.length)
     fireEvent.submit(view.container.querySelector('form')!)
     expect(onSend).toHaveBeenCalledWith('implementar', [file], [], { context: false, prompt: true, result: false, error: false }, 'direct')
   })
@@ -555,31 +609,282 @@ describe('ChatPanel', () => {
     expect(view.container.textContent).toContain('troca-imediata.txt')
   })
 
-  it('finds eligible project files from @file and turns the selection into a chip', () => {
+  // A reference stays in the sentence that needed it. Moving it to a list at the
+  // end throws away the only thing its placement was carrying — which file the
+  // sentence is about.
+  it('completes @file inline and leaves the marker where it was typed', () => {
     const referencedSession = {
       ...session,
       context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
     }
+    const ref = panelRef()
     const view = render(
-      <ChatPanel session={referencedSession} items={[]} chats={[]} activeChatId="file-ref-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel ref={ref} session={referencedSession} items={[]} chats={[]} activeChatId="file-ref-test" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
-    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
-    fireEvent.change(composer, { target: { value: 'Revê @file:App', selectionStart: 15 } })
+    typeInComposer(ref, 'Revê @file:App e depois pára', 14)
     fireEvent.click(screen.getByRole('option', { name: /src\/App\.tsx/ }))
-    expect(view.container.querySelector('.composer-file-reference-chip')?.textContent).toContain('src/App.tsx')
-    expect(composer.value).toBe('Revê ')
+    expect(composerText(ref)).toBe('Revê @{[file]src/App.tsx} e depois pára')
+    // The chip is a real embedded node, not the marker's own tinted text — its
+    // title still carries the exact canonical marker it stands for.
+    expect(view.container.querySelector('.composer-directive-chip.file')?.getAttribute('title')).toBe('@{[file]src/App.tsx}')
+    view.unmount()
+  })
+
+  it('does not replay the chip insertion caret after every following keystroke', async () => {
+    const referencedSession = {
+      ...session,
+      context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
+    }
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={referencedSession} items={[]} chats={[]} activeChatId="stable-chip-caret" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'Revê @file:App', 14)
+    fireEvent.click(screen.getByRole('option', { name: /src\/App\.tsx/ }))
+
+    const editor = ref.current?.getComposerEditor()
+    if (!editor) throw new Error('composer editor not mounted')
+    const insertionIndex = editor.getSelection()?.index
+    expect(insertionIndex).toBeTypeOf('number')
+
+    act(() => {
+      editor.insertText(insertionIndex!, ' agora', 'user')
+      editor.setSelection(insertionIndex! + ' agora'.length, 0, 'user')
+    })
+
+    await waitFor(() => expect(editor.getSelection()?.index).toBe(insertionIndex! + ' agora'.length))
+    expect(composerText(ref)).toBe('Revê @{[file]src/App.tsx} agora')
+    view.unmount()
+  })
+
+  // `@ref` names another bound project, and picking one keeps the menu open so a
+  // file inside it can follow: the two are one intent at two levels of detail.
+  it('completes @ref from the bound projects and then their files', () => {
+    const referencedSession = {
+      ...session,
+      context: {
+        ...session.context,
+        related_projects: [{
+          project_path: '/home/op/flowcore', name: 'flowcore', prefix: 'RELATED_PROJECTS/01-flowcore/',
+          manifest: { ...session.context.manifest, files: [{ path: 'services/be/auth.go', size: 10, sha256: 'abc' }] },
+        }],
+      },
+    }
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={referencedSession} items={[]} chats={[]} activeChatId="ref-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'Alinha com @ref:flow', 20)
+    fireEvent.click(screen.getByRole('option', { name: /flowcore/ }))
+    expect(composerText(ref)).toBe('Alinha com @ref:flowcore/')
+
+    typeInComposer(ref, 'Alinha com @ref:flowcore/auth', 29)
+    fireEvent.click(screen.getByRole('option', { name: /services\/be\/auth\.go/ }))
+    expect(composerText(ref)).toBe('Alinha com @{[ref]flowcore/services/be/auth.go}')
+    expect(view.container.querySelector('.composer-directive-chip.ref')).toBeTruthy()
+    view.unmount()
+  })
+
+  // There is nothing to autocomplete for a path outside every project, so the
+  // menu offers the picker instead of guesses.
+  it('offers a picker for @attach instead of completions', () => {
+    const ref = panelRef()
+    render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="attach-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'junta @attach:', 14)
+    expect(screen.getByRole('option', { name: /Escolher pasta/ })).toBeTruthy()
+  })
+
+  it('renders directive autocomplete outside the scrollable composer content', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="directive-layer" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    typeInComposer(ref, '@', 1)
+
+    const menu = screen.getByRole('listbox', { name: 'Escolher tipo de referência' })
+    expect(view.container.querySelector('.composer-scroll-area')?.contains(menu)).toBe(false)
+    expect(menu.parentElement).toBe(document.body)
+    view.unmount()
+  })
+
+  // An attachment written by hand is still configurable: the toolbar control
+  // opens the same selection panel the picker does.
+  it('exposes the attachment selection panel once a path is attached', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="attach-panel" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'junta @{[attach]/srv/contracts} agora', 36)
+    expect(view.container.querySelector('.composer-directive-chip.attach')?.getAttribute('title')).toBe('@{[attach]/srv/contracts}')
+    fireEvent.click(screen.getByLabelText('Conteúdo dos caminhos anexados'))
+    expect(view.container.querySelector('.composer-attachment-panel')).toBeTruthy()
+    view.unmount()
+  })
+
+  // The canonical marker is represented only where it occurs in the prompt;
+  // there is no second summary row competing with the editing surface.
+  it('renders a completed directive only as the rich chip in the text', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="summary-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'Revê @{[file]src/App.tsx} agora', 30)
+    const chip = view.container.querySelector('.composer-directive-chip.file')
+    expect(chip).toBeTruthy()
+    expect(chip?.textContent).not.toContain('@{[file]')
+    expect(view.container.querySelector('.composer-directive-summary')).toBeNull()
+    view.unmount()
+  })
+
+  // The dedicated settings icon opens the full selection modal directly.
+  it('opens the context selection modal from an attach chip settings action', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="popover-summary-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'junta @{[attach]/srv/contracts} agora', 36)
+    const settings = screen.getByLabelText('Configurar referência')
+    expect(settings.textContent).not.toContain('Aa')
+    expect(settings.querySelector('svg')).toBeTruthy()
+    fireEvent.click(settings)
+    expect(view.container.querySelector('.composer-attachment-panel')).toBeTruthy()
+    expect(view.container.querySelector('.composer-directive-popover')).toBeNull()
+    view.unmount()
+  })
+
+  it('opens the context selection modal directly from a ref chip settings action', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="ref-settings-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'consulta @{[ref]flowcore} agora', 30)
+
+    fireEvent.click(screen.getByLabelText('Configurar referência'))
+
+    expect(view.container.querySelector('.composer-attachment-panel')).toBeTruthy()
+    expect(view.container.querySelector('.composer-directive-popover')).toBeNull()
+    view.unmount()
+  })
+
+  it('opens the configuration popover when a chip in the text itself is clicked', () => {
+    const referencedSession = {
+      ...session,
+      context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
+    }
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={referencedSession} items={[]} chats={[]} activeChatId="popover-inline-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'Revê @{[file]src/App.tsx} agora', 30)
+    fireEvent.click(view.container.querySelector('.composer-directive-chip.file')!)
+    const popover = view.container.querySelector('.composer-directive-popover')
+    expect(popover).toBeTruthy()
+    expect(popover?.textContent).toContain('Ficheiro do projeto')
+    view.unmount()
+  })
+
+  // @see/@look points at a file already attached directly to this message —
+  // it renders and configures exactly like the other three kinds.
+  it('renders an @see chip and configures it like the other directive kinds', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="see-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'compara @{[see]diagram.png} com o mockup', 41)
+    expect(view.container.querySelector('.composer-directive-chip.see')?.getAttribute('title')).toBe('@{[see]diagram.png}')
+    fireEvent.click(screen.getByLabelText('Configurar referência'))
+    const popover = view.container.querySelector('.composer-directive-popover')
+    expect(popover?.textContent).toContain('Anexo enviado')
+    expect(popover?.textContent).toContain('Não encontrado entre os anexos atuais')
+    view.unmount()
+  })
+
+  it('selects an @see source before showing files inside that source', () => {
+    const sourceSession = {
+      ...session,
+      context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
+    }
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={sourceSession} items={[]} chats={[]} activeChatId="see-source-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'destaca @see:', 14)
+    expect(screen.getByRole('option', { name: /Projeto atual/ })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: /src\/App\.tsx/ })).toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: /Projeto atual/ }))
+    expect(screen.getByRole('option', { name: /src\/App\.tsx/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('option', { name: /src\/App\.tsx/ }))
+    expect(composerText(ref)).toBe('destaca @{[see]project|src/App.tsx}')
+    view.unmount()
+  })
+
+  it('moves the directive suggestion selection with ArrowUp and ArrowDown', () => {
+    const sourceSession = {
+      ...session,
+      context: {
+        ...session.context,
+        manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] },
+        related_projects: [{ project_path: '/work/flowcore', name: 'flowcore', prefix: 'RELATED_PROJECTS/01-flowcore/', manifest: { ...session.context.manifest, files: [{ path: 'api/auth.go', size: 10, sha256: 'def' }] } }],
+      },
+    }
+    const ref = panelRef()
+    const view = render(<ChatPanel ref={ref} session={sourceSession} items={[]} chats={[]} activeChatId="directive-arrows" busy={false} onSend={async () => undefined} {...chatActions} />)
+    typeInComposer(ref, 'destaca @see:', 14)
+    const editor = ref.current?.getComposerEditor()
+    fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
+    expect(screen.getByRole('option', { name: /Projeto atual/ }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(editor!.root, { key: 'ArrowUp' })
+    expect(screen.getByRole('option', { name: /@ref flowcore/ }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
+    fireEvent.keyDown(editor!.root, { key: 'Enter' })
+    expect(composerText(ref)).toBe('destaca @see:project|')
+    view.unmount()
+  })
+
+  // Nothing bound is not a failed search: the operator has made no mistake, and
+  // saying so points at the action that fixes it.
+  it('explains an empty @ref menu when Wharnex knows no other project', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="ref-empty" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'Compara com @ref:', 17)
+    expect(screen.getByRole('listbox', { name: 'Referenciar outro projeto' }).textContent).toContain('Nenhum outro projeto conhecido por este Wharnex')
+    view.unmount()
+  })
+
+  // A project Wharnex has worked on before is nameable from @ref whether or
+  // not it is currently attached to this session — the composer's known-
+  // projects menu has to consult the same candidate set the engine actually
+  // resolves a reference against, not only the session's already-attached
+  // related projects.
+  it('offers a project Wharnex has worked on before, even when it is not attached', async () => {
+    const spy = vi.spyOn(api, 'knownProjects').mockResolvedValue({ projects: [{ name: 'flowcore', project_path: '/home/op/flowcore', open: true }] })
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="ref-known" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(session.id))
+    await waitFor(() => {
+      typeInComposer(ref, 'Compara com @ref:flow', 21)
+      expect(screen.getByRole('option', { name: /flowcore/ })).toBeTruthy()
+    })
     view.unmount()
   })
 
   it('adds files pasted from the operating-system clipboard', () => {
+    const ref = panelRef()
     const view = render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
     )
     const file = new File(['image'], 'captura.png', { type: 'image/png' })
-    const composer = view.container.querySelector('textarea') as HTMLTextAreaElement
+    const composer = view.container.querySelector('.composer-rich-editor')!
     fireEvent.paste(composer, { clipboardData: { files: [file], items: [] } })
     expect(view.container.textContent).toContain('captura.png')
-    expect((composer as HTMLTextAreaElement).value).toBe('')
+    expect(composerText(ref)).toBe('')
     expect(view.container.querySelector('[role="alert"]')).toBeNull()
   })
 
@@ -619,10 +924,10 @@ describe('ChatPanel', () => {
   })
 
   it('keeps system artifact selectors inside the Wharnex composer and marks automatic payloads', () => {
-    render(
+    const view = render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} artifactSelection={{ context: true, prompt: true, result: false, error: false }} artifactRequired={{ context: true }} onSend={async () => undefined} {...chatActions} />,
     )
-    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…').closest('form')!
+    const composer = view.container.querySelector('form')!
     expect(composer.querySelector('.composer-action-row')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Contexto ZIP' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Prompt' }).getAttribute('aria-pressed')).toBe('true')
@@ -631,10 +936,10 @@ describe('ChatPanel', () => {
   it('moves execution and automation choices into compact composer icons', () => {
     const onExecutionMode = vi.fn()
     const onAutomationMode = vi.fn()
-    render(
+    const view = render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} executionMode="protected" automationMode="manual" onExecutionMode={onExecutionMode} onAutomationMode={onAutomationMode} onSend={async () => undefined} {...chatActions} />,
     )
-    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…').closest('form')!
+    const composer = view.container.querySelector('form')!
     expect(composer.querySelector('[aria-label="Proteção de execução"]')).toBeTruthy()
     expect(composer.querySelector('[aria-label="Automação de execução"]')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Protected' }).getAttribute('aria-pressed')).toBe('true')
@@ -737,20 +1042,19 @@ describe('ChatPanel', () => {
   })
 
   it('grows the composer as multiline content expands, bounded by the configured maximum', async () => {
+    const ref = panelRef()
     const view = render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-growth" busy={false} onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="chat-growth" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     const composer = view.container.querySelector('.composer') as HTMLFormElement
     const scrollArea = composer.querySelector('.composer-scroll-area') as HTMLElement
     const footer = composer.querySelector('.composer-footer') as HTMLElement
-    const textarea = view.container.querySelector('textarea') as HTMLTextAreaElement
-    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 260 })
     Object.defineProperty(scrollArea, 'scrollHeight', { configurable: true, value: 500 })
     Object.defineProperty(footer, 'offsetHeight', { configurable: true, value: 52 })
     Object.defineProperty(composer, 'offsetHeight', { configurable: true, value: 156 })
     Object.defineProperty(composer, 'clientHeight', { configurable: true, value: 154 })
 
-    fireEvent.change(textarea, { target: { value: 'linha 1\nlinha 2\nlinha 3\nlinha 4' } })
+    typeInComposer(ref, 'linha 1\nlinha 2\nlinha 3\nlinha 4', 'linha 1\nlinha 2\nlinha 3\nlinha 4'.length)
 
     await waitFor(() => expect(composer.style.height).toBe('420px'))
   })
@@ -788,21 +1092,22 @@ it('queues Enter and reserves Ctrl+Enter for an immediate comment while a task i
   const onRequestMode = vi.fn()
   const onComment = vi.fn(async () => undefined)
   const onSend = vi.fn(async () => undefined)
+  const ref = panelRef()
   const view = render(
-    <ChatPanel session={{ ...session, pending_manual_request_ids: ['req-active'], last_manual_prompt: 'prompt' }} items={[]} chats={[]} activeChatId="chat-1" busy={false} requestMode="plan_first" taskInFlight onRequestMode={onRequestMode} onComment={onComment} onSend={onSend} {...chatActions} />,
+    <ChatPanel ref={ref} session={{ ...session, pending_manual_request_ids: ['req-active'], last_manual_prompt: 'prompt' }} items={[]} chats={[]} activeChatId="chat-1" busy={false} requestMode="plan_first" taskInFlight onRequestMode={onRequestMode} onComment={onComment} onSend={onSend} {...chatActions} />,
   )
-  const textarea = view.container.querySelector('textarea') as HTMLTextAreaElement
+  const editor = view.container.querySelector('.composer-rich-editor')!
   expect(screen.getByText(/Ctrl\+Enter comenta/)).toBeTruthy()
 
-  fireEvent.change(textarea, { target: { value: 'fica para a próxima request principal' } })
-  fireEvent.keyDown(textarea, { key: 'Enter' })
+  typeInComposer(ref, 'fica para a próxima request principal', 'fica para a próxima request principal'.length)
+  fireEvent.keyDown(editor, { key: 'Enter' })
   expect(onSend).toHaveBeenCalledWith('fica para a próxima request principal', [], [], { context: false, prompt: true, result: false, error: false }, 'plan_first')
-  expect(textarea.value).toBe('')
+  expect(composerText(ref)).toBe('')
 
-  fireEvent.change(textarea, { target: { value: 'mantenha também o teste de regressão' } })
-  fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
+  typeInComposer(ref, 'mantenha também o teste de regressão', 'mantenha também o teste de regressão'.length)
+  fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true })
   expect(onComment).toHaveBeenCalledWith('mantenha também o teste de regressão', [])
-  expect(textarea.value).toBe('')
+  expect(composerText(ref)).toBe('')
 })
 
 it('renders and operates the waiting queue without placing it in the message stream', () => {

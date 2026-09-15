@@ -90,6 +90,9 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 	if err := refuseDockerSocketActivation(); err != nil {
 		return domain.CommandResult{}, err
 	}
+	if err := ensureLocalRunnerImage(ctx, r.image); err != nil {
+		return domain.CommandResult{}, err
+	}
 	timeout := time.Duration(command.TimeoutSeconds) * time.Second
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -136,7 +139,7 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 	cmd.Stderr = stderr
 	err := cmd.Run()
 	exitCode := exitCode(err)
-	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: exitCode, Stdout: limit(stdout.String()), Stderr: limit(stderr.String()), DurationMS: time.Since(started).Milliseconds()}
+	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: exitCode, Stdout: limit(stdout.String()), Stderr: processStderr(stderr.String(), err), DurationMS: time.Since(started).Milliseconds()}
 	result.Success = containsInt(command.ExpectedExitCodes, exitCode) && runCtx.Err() == nil
 	if result.Success {
 		if markerErr := markNetworkGoDependenciesReady(workspace, command); markerErr != nil {
@@ -160,7 +163,22 @@ func exitCode(err error) int {
 	if errors.As(err, &exitErr) {
 		return exitErr.ExitCode()
 	}
+	var execErr *exec.Error
+	if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
+		return 127
+	}
 	return -1
+}
+
+// processStderr preserves failures that happen before a child process exists.
+// exec.Cmd cannot write those errors to the child's stderr stream, so without
+// this normalization callers see only exit -1 with an empty diagnostic and
+// cannot distinguish a missing host tool from a source regression.
+func processStderr(captured string, runErr error) string {
+	if strings.TrimSpace(captured) != "" || runErr == nil {
+		return limit(captured)
+	}
+	return limit(runErr.Error())
 }
 func containsInt(values []int, target int) bool {
 	for _, value := range values {

@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
+const changeSummarySource = readFileSync(resolve(process.cwd(), 'src/lib/changeSummary.ts'), 'utf8')
 
 describe('App knowledge-review dispatch', () => {
   it('dispatches the post-apply knowledge review prompt keyed on its own field, never on session.state', () => {
@@ -41,10 +42,13 @@ describe('App knowledge-review dispatch', () => {
     expect(source).toContain('const knowledgeReviewResult = targetSession.pending_knowledge_review_request_id === requestId')
     expect(source).toContain('const waitingForKnowledgeReview = submission.auto_applied && Boolean(updated.pending_knowledge_review_request_id)')
     expect(source).toContain('await transportPlannerContinuation(updated, targetChat)')
-    const reviewIndex = source.indexOf('if (knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview))')
+    const reviewIndex = source.indexOf('const appliedTerminalPackage = knowledgeReviewResult || (submission.auto_applied && !waitingForKnowledgeReview)')
     expect(reviewIndex).toBeGreaterThan(-1)
-    expect(source.slice(reviewIndex, reviewIndex + 600)).toContain('buildAppliedChangeSummary(updated)')
-    expect(source).toContain('Alterações e comandos aplicados ao host.')
+    const terminalPackage = source.slice(reviewIndex, reviewIndex + 1_500)
+    expect(terminalPackage).toContain('else if (appliedTerminalPackage)')
+    expect(terminalPackage).toContain('presentAppliedSession(targetChat, updated)')
+    expect(terminalPackage).not.toContain('appendChatItem(targetChat, updated.project_path, bundleItem)')
+    expect(changeSummarySource).toContain('Alterações e comandos aplicados ao host.')
     expect(source).toContain('restartModalOpen && restartPresentationKey && <RestartConfirmation')
     expect(source).toContain('change={buildAppliedChangeSummary(session)}')
   })

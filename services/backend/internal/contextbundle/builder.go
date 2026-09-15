@@ -34,6 +34,16 @@ func NewBuilder(maxContextBytes, maxBundleBytes int64) *Builder {
 }
 
 func (b *Builder) Build(projectRoot string) (domain.ContextBundle, error) {
+	return b.build(projectRoot, nil)
+}
+
+// BuildWithContextConfig builds one project with a request-local selection.
+// It never writes that selection to the project's whaness.yml.
+func (b *Builder) BuildWithContextConfig(projectRoot string, selection projectconfig.ContextConfig) (domain.ContextBundle, error) {
+	return b.build(projectRoot, &selection)
+}
+
+func (b *Builder) build(projectRoot string, selection *projectconfig.ContextConfig) (domain.ContextBundle, error) {
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return domain.ContextBundle{}, fmt.Errorf("resolve project path: %w", err)
@@ -54,6 +64,12 @@ func (b *Builder) Build(projectRoot string) (domain.ContextBundle, error) {
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return domain.ContextBundle{}, fmt.Errorf("prepare %s: %w", projectconfig.FileName, err)
+	}
+	if selection != nil {
+		cfg.Context = *selection
+		if cfg.Context.MaxFileBytes <= 0 {
+			cfg.Context.MaxFileBytes = projectconfig.DefaultMaxFileSize
+		}
 	}
 	manifest, err := b.writeArtifacts(root, id, zipPath, textPath, cfg)
 	if err != nil {
@@ -143,7 +159,7 @@ func (b *Builder) writeArtifacts(root, id, zipPath, textPath string, cfg project
 			addExcluded(&manifest, rel, "file", "secret-like content", "secret-content")
 			return nil
 		}
-		if cfg.Context.AutoExclude && !matchAny(rel, cfg.Context.Include) && !looksText(data) {
+		if cfg.Context.AutoExclude && !looksText(data) {
 			addExcluded(&manifest, rel, "file", "binary content", "binary-content")
 			return nil
 		}

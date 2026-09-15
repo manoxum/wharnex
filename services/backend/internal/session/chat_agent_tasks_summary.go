@@ -35,6 +35,18 @@ type ChatAgentQueueSummary struct {
 	// run until a provider, account or conversation exclusivity guard clears.
 	// It is not Worker backlog: adding Workers cannot make it claimable.
 	Guarded int `json:"guarded"`
+	// DueSupervisorLanes counts the distinct chats holding claimable
+	// Supervisor-owned work, and DueWorker the claimable Worker-owned tasks.
+	//
+	// Total `Due` cannot size either pool, because the two pools own disjoint
+	// task types and a Supervisor is bound to one chat for the life of its
+	// request. Ten due tasks in one conversation still need exactly one
+	// Supervisor; two conversations need two. Counting tasks rather than lanes
+	// would grow the pool against work a single slot already serves, and
+	// counting the shared total would grow the Supervisor pool because a
+	// library cleanup is queued.
+	DueSupervisorLanes int `json:"due_supervisor_lanes"`
+	DueWorker          int `json:"due_worker"`
 	// Blocked counts tasks that are past their attempt budget and can never be
 	// claimed again. They are backlog that will never drain, which is a
 	// different operational fact from work that is merely waiting.
@@ -88,6 +100,7 @@ func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, 
 	defer s.mu.RUnlock()
 	now := time.Now().UTC()
 	summary := ChatAgentQueueSummary{Counts: make(map[string]int)}
+	supervisorLanes := make(map[string]struct{})
 	providerGuarded := s.chatAgentProvider.Paused &&
 		(s.chatAgentProvider.PausedUntil == nil || s.chatAgentProvider.PausedUntil.After(now))
 	for _, task := range s.chatAgentTasks {
@@ -113,10 +126,27 @@ func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, 
 			summary.Guarded++
 		default:
 			summary.Due++
+			if chatAgentTaskSupervisor(task.Type) {
+				supervisorLanes[chatAgentTaskLaneKey(task)] = struct{}{}
+			} else {
+				summary.DueWorker++
+			}
 			summary.OldestDueCreatedAt = earliest(summary.OldestDueCreatedAt, task.CreatedAt)
 		}
 	}
+	summary.DueSupervisorLanes = len(supervisorLanes)
 	return summary, nil
+}
+
+// chatAgentTaskLaneKey names the conversation a Supervisor would have to hold to
+// serve this task. A chat with no conversation yet is still its own lane: the
+// first write is what creates the conversation, and two chats in that state
+// genuinely need two slots.
+func chatAgentTaskLaneKey(task ChatAgentTask) string {
+	if id := strings.TrimSpace(task.ConversationID); id != "" {
+		return "conversation:" + id
+	}
+	return "chat:" + strings.TrimSpace(task.ChatID)
 }
 
 // PruneChatAgentTasks deletes terminal task rows settled before the cutoff.
@@ -209,7 +239,48 @@ func (s *Store) postgresChatAgentQueueSummary(projectID string) (ChatAgentQueueS
 			summary.NextNotBefore = earliest(summary.NextNotBefore, nextNotBefore.Time)
 		}
 	}
-	return summary, rows.Err()
+	if err := rows.Err(); err != nil {
+		return ChatAgentQueueSummary{}, err
+	}
+	lanes, dueWorker, err := s.postgresChatAgentDueByRole(projectID)
+	if err != nil {
+		return ChatAgentQueueSummary{}, err
+	}
+	summary.DueSupervisorLanes = lanes
+	summary.DueWorker = dueWorker
+	return summary, nil
+}
+
+// postgresChatAgentDueByRole splits the claimable backlog the way the two pools
+// are partitioned, because neither pool can be sized from the shared total.
+//
+// It is a second statement rather than another column on the summary query
+// because that query groups by status: a chat holding one due PENDING and one
+// due WAITING task is one lane, and summing a per-status DISTINCT would report
+// it as two and grow the pool against a conversation one slot already serves.
+func (s *Store) postgresChatAgentDueByRole(projectID string) (int, int, error) {
+	row := s.db.QueryRow(`WITH due AS (
+		SELECT t.type,t.chat_id,t.conversation_id
+		FROM harness_chat_agent_tasks t
+		WHERE t.status IN ('PENDING','WAITING')
+		  AND ($1='' OR t.project_id=$1)
+		  AND t.not_before<=now() AND t.attempt<t.max_attempts
+		  AND NOT (EXISTS (
+			SELECT 1 FROM harness_chat_agent_provider_state p
+			WHERE p.provider='chatgpt' AND p.paused=true
+			  AND (p.paused_until IS NULL OR p.paused_until>now())
+		  ) OR `+chatAgentBlockedByActiveTaskSQL("t")+`)
+	)
+		SELECT
+			count(DISTINCT CASE WHEN `+chatAgentTaskSupervisorSQL("type")+`
+				THEN CASE WHEN coalesce(conversation_id,'')<>'' THEN 'conversation:'||conversation_id ELSE 'chat:'||coalesce(chat_id,'') END END),
+			count(*) FILTER (WHERE NOT `+chatAgentTaskSupervisorSQL("type")+`)
+		FROM due`, projectID)
+	var lanes, dueWorker int
+	if err := row.Scan(&lanes, &dueWorker); err != nil {
+		return 0, 0, fmt.Errorf("summarize chat agent due work by role: %w", err)
+	}
+	return lanes, dueWorker, nil
 }
 
 func (s *Store) postgresPruneChatAgentTasks(before time.Time) (int, error) {

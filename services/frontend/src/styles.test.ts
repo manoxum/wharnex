@@ -6,13 +6,13 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 
 function lastRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const matches = [...css.matchAll(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 'g'))]
+  const matches = [...css.matchAll(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'gm'))]
   return matches.at(-1)?.[1] || ''
 }
 
 function firstRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))
+  const match = css.match(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm'))
   return match?.[1] || ''
 }
 
@@ -60,6 +60,20 @@ describe('execution queue CSS', () => {
   })
 })
 
+describe('archived chats drawer CSS', () => {
+  it('keeps sparse chat cards compact and aligned to the top', () => {
+    const list = lastRule('.agent-archive-list')
+    const card = lastRule('.agent-archive-item')
+    const empty = lastRule('.agent-archive-empty')
+
+    expect(list).toContain('align-content: start')
+    expect(list).toContain('grid-auto-rows: max-content')
+    expect(card).toContain('border: 1px solid var(--theme-border-soft)')
+    expect(card).toContain('background: var(--theme-surface)')
+    expect(empty).toContain('border: 1px dashed var(--theme-border)')
+  })
+})
+
 describe('agent runtime drawer CSS', () => {
   it('groups health, capacity and instance details into a calm card hierarchy', () => {
     const summary = lastRule('.agent-runtime-summary')
@@ -77,15 +91,36 @@ describe('agent runtime drawer CSS', () => {
     expect(summary).toContain('grid-template-columns:repeat(4,minmax(0,1fr))')
     expect(memorySummary).toContain('grid-template-columns:repeat(5,minmax(0,1fr))')
     expect(diagnostics).toContain('grid-template-columns:repeat(3,minmax(0,1fr))')
-    expect(diagnosticRow).toContain('border-radius:8px')
+    expect(diagnosticRow).toContain('border-radius:10px')
     expect(scale).toContain('grid-template-columns:repeat(2,minmax(0,1fr))')
-    expect(body).toContain('gap:8px')
-    expect(activeAgent).toContain('box-shadow:inset 2px 0 0 var(--theme-accent)')
-    expect(detail).toContain('border-radius:9px')
+    expect(body).toContain('gap:9px')
+    expect(activeAgent).toContain('box-shadow:inset 4px 0 0 var(--agent-state)')
+    expect(lastRule('.agent-runtime-list > button.state-writing')).toContain('--agent-state:#9b6cff')
+    expect(lastRule('.agent-runtime-list > button.state-listening')).toContain('--agent-state:#16a6c9')
+    expect(lastRule('.agent-runtime-list > button.state-chat-empty')).toContain('--agent-state:#3f86d9')
+    expect(detail).toContain('border-radius:10px')
   })
 })
 
 describe('composer layout CSS', () => {
+  it('keeps rich directive chips as one compact horizontal token', () => {
+    const chip = lastRule('.composer-rich-editor .ql-editor .composer-directive-chip')
+    const label = lastRule('.composer-directive-chip-label')
+    const configure = lastRule('.composer-directive-chip-configure')
+
+    expect(chip).toContain('display: inline-flex !important')
+    expect(chip).toContain('flex-flow: row nowrap !important')
+    expect(chip).toContain('white-space: nowrap !important')
+    expect(chip).toContain('height: 30px')
+    expect(chip).toContain('gap: 8px')
+    expect(chip).toContain('padding: 5px 5px 5px 6px')
+    expect(label).toContain('max-width: 28ch')
+    expect(label).toContain('align-items: center')
+    expect(label).toContain('margin-inline-start: 2px')
+    expect(label).toContain('text-overflow: ellipsis')
+    expect(configure).toContain('width: 19px !important')
+  })
+
   it('uses the whole top composer edge as the vertical resize handle', () => {
     const composer = lastRule('.composer')
     const handle = lastRule('.composer-resize-handle')
@@ -232,5 +267,22 @@ describe('split Agent layout CSS', () => {
     expect(splitLayout).toContain('cursor: col-resize')
     expect(splitLayout).toContain('.agent-drawer { grid-column: 2; grid-row: 3; position: relative')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')
+  })
+})
+
+describe('terminal and editor execution CSS', () => {
+  it('keeps terminal tabs compact without exposing the horizontal scrollbar', () => {
+    const tabs = lastRule('.terminal-tabs')
+    const activeTab = lastRule('.terminal-tab-shell.active')
+    expect(tabs).toContain('overflow-x: auto')
+    expect(tabs).toContain('scrollbar-width: none')
+    expect(css).toContain('.terminal-tabs::-webkit-scrollbar { display: none; }')
+    expect(activeTab).toContain('box-shadow: inset 0 -2px #8db94b')
+  })
+
+  it('renders package script actions as a green play affordance in the Monaco gutter', () => {
+    const glyph = lastRule('.editor-run-glyph::before')
+    expect(glyph).toContain("content: '▶'")
+    expect(glyph).toContain('color: #78b841')
   })
 })

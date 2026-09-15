@@ -20,6 +20,7 @@ func TestEnsureCreatesWhanessConfigAndRoundTrips(t *testing.T) {
 		t.Fatalf("%s not created: %v", FileName, err)
 	}
 	cfg.Context.Include = []string{"src/**", "go.mod"}
+	cfg.Context.IncludeOverride = []string{"generated/important.ts"}
 	cfg.Context.Exclude = []string{"fixtures/**", "*.generated.ts"}
 	cfg.Context.MaxFileBytes = 4 * 1024 * 1024
 	if err := Save(root, cfg); err != nil {

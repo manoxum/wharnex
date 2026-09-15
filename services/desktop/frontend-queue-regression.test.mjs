@@ -9,7 +9,7 @@ async function source(path) { return readFile(new URL(path, frontend), 'utf8') }
 test('composer separates queued main requests from Ctrl+Enter task comments and clears immediately', async () => {
   const panel = await source('components/ChatPanel.tsx')
   assert.match(panel, /if \(\(event\.ctrlKey \|\| event\.metaKey\) && taskInFlight\) void submitComment\(\)/)
-  assert.match(panel, /else event\.currentTarget\.form\?\.requestSubmit\(\)/)
+  assert.match(panel, /else void submitMain\(\)/)
   assert.match(panel, /clearComposer\(\)\n    try \{ await onSend/)
   assert.match(panel, /Enter adiciona à fila · Ctrl\+Enter envia comentário/)
 })

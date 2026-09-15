@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AttentionRecord, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
+import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8888'
@@ -28,6 +28,20 @@ export type ChatExportRequest = {
   chatgpt_url?: string
   chat_items: ChatItem[]
   frontend_events: HarnessEvent[]
+}
+
+export type ComposerBundlePreviewFile = {
+  name: string
+  mime?: string
+  contentBase64: string
+}
+
+export type ComposerBundlePreviewInput = {
+  message: string
+  planningMode: ChatRequestMode
+  attachments: ComposerBundlePreviewFile[]
+  artifacts: ComposerBundlePreviewFile[]
+  projectFiles: string[]
 }
 
 async function requestDownload(path: string, body: unknown): Promise<{ blob: Blob; filename: string }> {
@@ -110,6 +124,11 @@ export const api = {
   connectRemoteStorage: (instanceID: string, provider: RemoteStorageProviderID, fields: Record<string, string>) => request<RemoteStorageConnection>('/api/remote-storage/connections', { method: 'POST', body: JSON.stringify({ instance_id: instanceID, provider, fields }) }),
   checkRemoteStorage: (remote: string) => request<{ connected: boolean }>('/api/remote-storage/connections/check', { method: 'POST', body: JSON.stringify({ remote }) }),
   artifactSettings: () => request<ArtifactSettings>('/api/artifact-settings'),
+  managedArtifacts: (query = '', bundlesOnly = true) => request<{ artifacts: ManagedArtifact[] }>(`/api/artifacts?q=${encodeURIComponent(query)}${bundlesOnly ? '&bundles=1' : ''}`),
+  deleteManagedArtifact: (sessionId: string, artifactId: string) => request<{ deleted: boolean }>(`/api/artifacts/${encodeURIComponent(sessionId)}/${encodeURIComponent(artifactId)}`, { method: 'DELETE' }),
+  testPostgres: (connection: PostgresConnectionInput) => request<{ connected: boolean }>('/api/database/postgres/test', { method: 'POST', body: JSON.stringify({ connection }) }),
+  postgresCatalog: (connection: PostgresConnectionInput) => request<PostgresCatalog>('/api/database/postgres/catalog', { method: 'POST', body: JSON.stringify({ connection }) }),
+  queryPostgres: (connection: PostgresConnectionInput, sql: string, readOnly: boolean) => request<PostgresQueryResult>('/api/database/postgres/query', { method: 'POST', body: JSON.stringify({ connection, sql, read_only: readOnly }) }),
   languageSettings: () => request<LanguageSettings>('/api/language-settings'),
   updateLanguageSettings: (settings: LanguageSettings) => request<LanguageSettings>('/api/language-settings', { method: 'PUT', body: JSON.stringify(settings) }),
   updateArtifactSettings: (retentionDays: number, bundleWindowLimit: number) => request<ArtifactSettings>('/api/artifact-settings', { method: 'PUT', body: JSON.stringify({ retention_days: retentionDays, bundle_window_limit: bundleWindowLimit }) }),
@@ -170,6 +189,14 @@ export const api = {
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
       method: 'POST', body: JSON.stringify({ message, planning_mode: planningMode }),
     }),
+  previewComposerBundle: (id: string, input: ComposerBundlePreviewInput) =>
+    request<ArtifactRecord>(`/api/sessions/${id}/composer-bundle-preview`, {
+      method: 'POST', body: JSON.stringify({
+        message: input.message, planning_mode: input.planningMode, project_files: input.projectFiles,
+        attachments: input.attachments.map((file) => ({ name: file.name, mime: file.mime, content_base64: file.contentBase64 })),
+        artifacts: input.artifacts.map((file) => ({ name: file.name, mime: file.mime, content_base64: file.contentBase64 })),
+      }),
+    }),
   approvePlan: (id: string, requestId: string) =>
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/approve`, { method: 'POST', body: '{}' }),
   correctPlan: (id: string, requestId: string, guidance: string) =>
@@ -217,8 +244,14 @@ export const api = {
       body: JSON.stringify({ path: file.path, content: file.content, expected_sha256: file.sha256 }),
     }),
   terminal: (id: string, command: CommandSpec, target: TerminalTarget = 'sandbox', confirmHost = false) => request<CommandResult>(`/api/sessions/${id}/terminal?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(command) }),
+  openTerminal: (id: string, input: { cwd: string; network: boolean; cols: number; rows: number }, target: TerminalTarget = 'sandbox', confirmHost = false) => request<TerminalSessionDescriptor>(`/api/sessions/${id}/terminal/sessions?target=${encodeURIComponent(target)}${target === 'host' && confirmHost ? '&confirm_host=true' : ''}`, { method: 'POST', body: JSON.stringify(input) }),
+  terminalInput: (id: string, terminalId: string, data: string) => request<void>(`/api/sessions/${id}/terminal/sessions/${encodeURIComponent(terminalId)}/input`, { method: 'POST', body: JSON.stringify({ data }) }),
+  resizeTerminal: (id: string, terminalId: string, cols: number, rows: number) => request<void>(`/api/sessions/${id}/terminal/sessions/${encodeURIComponent(terminalId)}/resize`, { method: 'POST', body: JSON.stringify({ cols, rows }) }),
+  closeTerminal: (id: string, terminalId: string) => request<void>(`/api/sessions/${id}/terminal/sessions/${encodeURIComponent(terminalId)}`, { method: 'DELETE' }),
+  terminalEventsURL: (id: string, terminalId: string) => `${API_URL}/api/sessions/${id}/terminal/sessions/${encodeURIComponent(terminalId)}/events`,
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
   gitOverview: (id: string) => request<GitOverview>(`/api/sessions/${id}/git/overview`).then(normalizeGitOverview),
+  gitFileDiff: (id: string, path: string) => request<GitFileDiff>(`/api/sessions/${id}/git/diff?path=${encodeURIComponent(path)}`),
   setGitCommitMode: (id: string, mode: GitCommitMode) => request<{ commit_mode: GitCommitMode }>(`/api/sessions/${id}/git/commit-mode`, { method: 'PUT', body: JSON.stringify({ commit_mode: mode }) }),
   gitPendingCommit: (id: string, pendingID: string) => request<GitPendingCommit>(`/api/sessions/${id}/git/pending/${encodeURIComponent(pendingID)}`),
   commitGitPending: (id: string, pendingIDs: string[]) => request<GitCommitResult>(`/api/sessions/${id}/git/pending/commit`, { method: 'POST', body: JSON.stringify({ pending_ids: pendingIDs }) }),
@@ -238,6 +271,15 @@ export const api = {
   startOrchestratorTask: (id: string, taskId: string) => request<OrchestratorRunResult>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/start`, { method: 'POST', body: '{}' }),
   orchestratorTaskRuns: (id: string, taskId: string) => request<{ runs: OrchestratorTaskRun[] }>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/runs`),
   contextInspection: (id: string) => request<ContextInspection>(`/api/sessions/${id}/context/inspection`),
+  // Previews one @attach marker exactly as a request would resolve it, so the
+  // panel that configures a selection and the request that sends it cannot
+  // disagree about what it means.
+  attachmentInspection: (id: string, marker: string) => request<AttachmentInspection>(`/api/sessions/${id}/attachment/inspection`, { method: 'POST', body: JSON.stringify({ marker }) }),
+  referenceInspection: (id: string, marker: string) => request<AttachmentInspection>(`/api/sessions/${id}/reference/inspection`, { method: 'POST', body: JSON.stringify({ marker }) }),
+  // Every project Wharnex has worked on before, open or closed, this session's
+  // own project excluded — exactly the candidate set an `@ref` would resolve
+  // against at submit time. See internal/app/service_crossproject.go.
+  knownProjects: (id: string) => request<{ projects: KnownProjectRef[] }>(`/api/sessions/${id}/known-projects`),
   refreshContext: (id: string) => request<Session>(`/api/sessions/${id}/context/refresh`, { method: 'POST', body: '{}' }),
   projectConfig: (id: string) => request<ProjectConfig>(`/api/sessions/${id}/project-config`),
   updateProjectConfig: (id: string, config: ProjectConfig) => request<{ config: ProjectConfig; session: Session }>(`/api/sessions/${id}/project-config`, { method: 'PUT', body: JSON.stringify(config) }),

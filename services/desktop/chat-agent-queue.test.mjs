@@ -61,14 +61,15 @@ test('not_before keeps bounded probes out of contention', async () => {
   await pending
 })
 
-test('non-write work dedupes but bot writes never do', async () => {
+test('active bot writes dedupe by semantic key just like other durable work', async () => {
   const queue = new ChatAgentQueue()
   const first = queue.enqueueTask({ type: 'AWAIT_RESPONSE', chatId: 'a', dedupeKey: 'await:req' })
   const again = queue.enqueueTask({ type: 'AWAIT_RESPONSE', chatId: 'a', dedupeKey: 'await:req' })
   assert.equal(first, again)
   const write1 = queue.enqueueTask({ type: 'BOT_WRITE', chatId: 'a', dedupeKey: 'write:req' })
   const write2 = queue.enqueueTask({ type: 'BOT_WRITE', chatId: 'a', dedupeKey: 'write:req' })
-  assert.equal(queue.depth, 3)
+  assert.equal(write1, write2)
+  assert.equal(queue.depth, 2)
   queue.cancelAll()
   await Promise.allSettled([first, write1, write2])
 })

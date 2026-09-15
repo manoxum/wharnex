@@ -115,11 +115,21 @@ func TestPushConflictRequestsResolutionAndLeavesTheRepositoryUsable(t *testing.T
 	if item.State != "conflict_resolution_pending" {
 		t.Fatalf("expected the session awaiting a resolution, got %q", item.State)
 	}
-	// The prompt must carry the capsule, including which reconciliation it is.
-	if !strings.Contains(item.LastManualPrompt, `"origin": "push"`) {
+	// Large BASE/CURRENT/RESULT bodies travel as a request file, never inline in
+	// the prompt that Desktop bounds at 1 MiB.
+	if !strings.Contains(item.LastManualPrompt, conflictCapsuleArtifactPath) {
+		t.Fatal("the prompt must direct the resolver to the attached capsule")
+	}
+	var capsuleRaw []byte
+	for _, artifact := range service.RequestContinuationArtifacts(sessionID, item.LastRequestID) {
+		if artifact.Name == conflictCapsuleArtifactPath {
+			capsuleRaw = artifact.Raw
+		}
+	}
+	if !strings.Contains(string(capsuleRaw), `"origin": "push"`) {
 		t.Fatal("the capsule must tell the resolver this is a push integration")
 	}
-	if !strings.Contains(item.LastManualPrompt, "peer rewrites the shared line") {
+	if !strings.Contains(string(capsuleRaw), "peer rewrites the shared line") {
 		t.Fatal("the incoming side's own purpose must travel with the conflict")
 	}
 }

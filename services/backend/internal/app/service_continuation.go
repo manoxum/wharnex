@@ -3,10 +3,17 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/planner"
+)
+
+const (
+	conflictCapsuleArtifactPath = "conflict/capsule.json"
+	maxRequestSupportArtifacts  = 24
 )
 
 func marshalIndented(value any) ([]byte, error) { return json.MarshalIndent(value, "", "  ") }
@@ -121,6 +128,214 @@ func (s *Service) RequestContinuationArtifacts(sessionID, requestID string) []Co
 	return out
 }
 
+// RequestContinuationArtifactsWithHistory expands the compact attempt ledger
+// with the durable evidence it summarizes: every execution/recovery event and
+// every prior response bundle in this Main Request. The files are engine-owned
+// and read-only. Failure to recover one historical object is recorded in the
+// index and never blocks the current request.
+func (s *Service) RequestContinuationArtifactsWithHistory(ctx context.Context, sessionID, requestID string) []ContinuationArtifact {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return nil
+	}
+	out := s.RequestContinuationArtifacts(sessionID, requestID)
+	rootID := requestRootFor(item, requestID)
+	requestIDs := requestIDsForRoot(item, rootID)
+
+	if raw := s.executionHistoryJSON(sessionID, item, rootID, requestIDs); len(raw) > 0 {
+		out = append(out, ContinuationArtifact{Name: "attempts/events.json", Raw: raw})
+	}
+	responses, index := s.responseHistory(ctx, item, requestIDs)
+	out = append(out, responses...)
+	if len(index) > 0 {
+		out = append(out, ContinuationArtifact{Name: "responses/index.json", Raw: index})
+	}
+	return out
+}
+
+func requestRootFor(item domain.Session, requestID string) string {
+	requestID = strings.TrimSpace(requestID)
+	if lineage, ok := item.RequestLineages[requestID]; ok && strings.TrimSpace(lineage.RootRequestID) != "" {
+		return strings.TrimSpace(lineage.RootRequestID)
+	}
+	return requestID
+}
+
+func requestIDsForRoot(item domain.Session, rootID string) map[string]bool {
+	ids := map[string]bool{}
+	if rootID != "" {
+		ids[rootID] = true
+	}
+	for id, lineage := range item.RequestLineages {
+		if strings.TrimSpace(lineage.RootRequestID) == rootID {
+			ids[id] = true
+		}
+	}
+	return ids
+}
+
+func eventReferencesRequest(event domain.Event, requestIDs map[string]bool) bool {
+	for _, key := range []string{"request_id", "root_request_id", "replaces_request_id", "parent_request_id"} {
+		if value, ok := event.Data[key].(string); ok && requestIDs[strings.TrimSpace(value)] {
+			return true
+		}
+	}
+	return false
+}
+
+func eventRequestID(event domain.Event, requestIDs map[string]bool) string {
+	for _, key := range []string{"request_id", "root_request_id", "replaces_request_id", "parent_request_id"} {
+		if value, ok := event.Data[key].(string); ok {
+			value = strings.TrimSpace(value)
+			if requestIDs[value] {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func executionHistoryEvent(eventType string) bool {
+	for _, prefix := range []string{"execution.", "command.", "patch.", "verification.", "integration.", "host.", "automation.", "repair.", "workflow.", "bundle.", "turn.", "request.", "baseline.", "changeset."} {
+		if strings.HasPrefix(eventType, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) executionHistoryJSON(sessionID string, item domain.Session, rootID string, requestIDs map[string]bool) []byte {
+	if s.bus == nil {
+		return nil
+	}
+	history := s.bus.History(sessionID)
+	start := -1
+	for index, event := range history {
+		if eventReferencesRequest(event, requestIDs) {
+			start = index
+			break
+		}
+	}
+	if start < 0 {
+		return nil
+	}
+	type executionWave struct {
+		RequestID string         `json:"request_id"`
+		Kind      string         `json:"kind"`
+		Events    []domain.Event `json:"events"`
+	}
+	lineages := make([]domain.RequestLineage, 0, len(requestIDs))
+	for requestID := range requestIDs {
+		lineage, ok := item.RequestLineages[requestID]
+		if !ok {
+			lineage = domain.RequestLineage{RequestID: requestID, RootRequestID: rootID, Kind: requestKindStandard}
+		}
+		if strings.TrimSpace(lineage.Kind) == "" {
+			lineage.Kind = requestKindStandard
+		}
+		lineages = append(lineages, lineage)
+	}
+	sort.SliceStable(lineages, func(i, j int) bool {
+		if lineages[i].RequestID == rootID {
+			return true
+		}
+		if lineages[j].RequestID == rootID {
+			return false
+		}
+		if lineages[i].CreatedAt.Equal(lineages[j].CreatedAt) {
+			return lineages[i].RequestID < lineages[j].RequestID
+		}
+		return lineages[i].CreatedAt.Before(lineages[j].CreatedAt)
+	})
+	waves := make([]executionWave, 0, len(lineages))
+	waveByRequest := make(map[string]int, len(lineages))
+	for _, lineage := range lineages {
+		waveByRequest[lineage.RequestID] = len(waves)
+		waves = append(waves, executionWave{RequestID: lineage.RequestID, Kind: lineage.Kind, Events: []domain.Event{}})
+	}
+	activeRequestID := rootID
+	for _, event := range history[start:] {
+		if !executionHistoryEvent(event.Type) {
+			continue
+		}
+		if explicit := eventRequestID(event, requestIDs); explicit != "" {
+			activeRequestID = explicit
+		}
+		if index, ok := waveByRequest[activeRequestID]; ok {
+			waves[index].Events = append(waves[index].Events, event)
+		}
+	}
+	raw, err := marshalIndented(map[string]any{
+		"protocol": "harness.execution-history/v1", "root_request_id": rootID, "waves": waves,
+	})
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func safeResponseRequestID(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = fallback
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return fallback
+	}
+	return value
+}
+
+func (s *Service) responseHistory(ctx context.Context, item domain.Session, requestIDs map[string]bool) ([]ContinuationArtifact, []byte) {
+	type responseIndexEntry struct {
+		Path      string `json:"path,omitempty"`
+		RequestID string `json:"request_id"`
+		Name      string `json:"original_name"`
+		SHA256    string `json:"sha256"`
+		Bytes     int64  `json:"bytes"`
+		ReadError string `json:"read_error,omitempty"`
+	}
+	records := make([]domain.ArtifactRecord, 0)
+	for _, record := range item.Artifacts {
+		if record.Direction == "output" && record.Kind == "bundle" && requestIDs[record.RequestID] {
+			records = append(records, record)
+		}
+	}
+	sort.Slice(records, func(i, j int) bool { return records[i].CreatedAt.Before(records[j].CreatedAt) })
+	if len(records) == 0 {
+		return nil, nil
+	}
+	files := make([]ContinuationArtifact, 0, len(records))
+	index := make([]responseIndexEntry, 0, len(records))
+	for position, record := range records {
+		entry := responseIndexEntry{RequestID: record.RequestID, Name: record.Name, SHA256: record.SHA256, Bytes: record.Size}
+		if s.artifactStore == nil || record.ObjectKey == "" {
+			entry.ReadError = "artifact storage unavailable"
+			index = append(index, entry)
+			continue
+		}
+		raw, _, readErr := s.artifactStore.Get(ctx, record.ObjectKey)
+		if readErr != nil {
+			entry.ReadError = truncateRepairText(readErr.Error(), 300)
+			index = append(index, entry)
+			continue
+		}
+		entry.Path = fmt.Sprintf("responses/%03d-%s.zip", position+1, safeResponseRequestID(record.RequestID, record.ID))
+		entry.Bytes = int64(len(raw))
+		files = append(files, ContinuationArtifact{Name: entry.Path, Raw: raw})
+		index = append(index, entry)
+	}
+	raw, err := marshalIndented(map[string]any{
+		"protocol": "harness.response-history/v1", "responses": index,
+	})
+	if err != nil {
+		return files, nil
+	}
+	return files, raw
+}
+
 func continuationArtifacts(item domain.Session, requestID string) []continuationArtifact {
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
@@ -151,5 +366,39 @@ func continuationArtifacts(item domain.Session, requestID string) []continuation
 			out = append(out, continuationArtifact{Name: "context-delta/delta.patch", Raw: []byte(delta.Patch)})
 		}
 	}
+	for _, artifact := range item.RequestSupportArtifacts[requestID] {
+		if artifact.Path == conflictCapsuleArtifactPath && len(artifact.Content) > 0 {
+			out = append(out, continuationArtifact{Name: artifact.Path, Raw: append([]byte(nil), artifact.Content...)})
+		}
+	}
 	return out
+}
+
+// recordRequestSupportArtifact persists a fixed-path, engine-authored request
+// file. The oldest inactive request records are bounded with the same 24-round
+// horizon used by immutable request contexts.
+func recordRequestSupportArtifact(item *domain.Session, requestID, path string, raw []byte) {
+	if item == nil || strings.TrimSpace(requestID) == "" || path != conflictCapsuleArtifactPath || len(raw) == 0 {
+		return
+	}
+	if item.RequestSupportArtifacts == nil {
+		item.RequestSupportArtifacts = make(map[string][]domain.RequestSupportArtifact)
+	}
+	item.RequestSupportArtifacts[requestID] = []domain.RequestSupportArtifact{{Path: path, Content: append([]byte(nil), raw...)}}
+	if len(item.RequestSupportArtifacts) <= maxRequestSupportArtifacts {
+		return
+	}
+	ids := make([]string, 0, len(item.RequestSupportArtifacts))
+	for id := range item.RequestSupportArtifacts {
+		if id != item.LastRequestID && id != requestID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		delete(item.RequestSupportArtifacts, id)
+		if len(item.RequestSupportArtifacts) <= maxRequestSupportArtifacts {
+			break
+		}
+	}
 }

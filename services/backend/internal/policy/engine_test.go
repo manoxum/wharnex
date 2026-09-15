@@ -81,6 +81,28 @@ func TestProjectDefinedCommandsRaiseRiskWithoutForcingApproval(t *testing.T) {
 	}
 }
 
+func TestHumanPTYOnlyDeveloperToolsRemainDeniedToModelPlans(t *testing.T) {
+	for _, executable := range []string{"pip3", "composer", "sqlite3", "psql", "redis-cli", "fzf", "tmux"} {
+		plan := basePlan()
+		plan.Operations = []domain.Operation{{Type: "command", Command: cmd(executable, "--version")}}
+		decision := NewEngine().Evaluate(plan)
+		if decision.Allowed {
+			t.Fatalf("human PTY tool %q must remain unavailable to model plans", executable)
+		}
+	}
+}
+
+func TestAdditionalBuildDriversRaiseRiskWithoutForcingApproval(t *testing.T) {
+	for _, argv := range [][]string{{"cmake", "--build", "."}, {"ninja", "test"}} {
+		plan := basePlan()
+		plan.Verification = []domain.CommandSpec{cmd(argv...)}
+		decision := NewEngine().Evaluate(plan)
+		if !decision.Allowed || decision.RequiresApproval || decision.Risk != "medium" {
+			t.Fatalf("build driver %v should stay auto-eligible but medium risk in Protected mode: %#v", argv, decision)
+		}
+	}
+}
+
 func TestPackageMutationStillRequiresApproval(t *testing.T) {
 	plan := basePlan()
 	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("npm", "install")}}

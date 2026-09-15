@@ -74,6 +74,13 @@ var chatAgentPriorities = map[string]int{
 	"DELETE_BUNDLE": 4, "DELETE_TEMP_CHAT": 4,
 }
 
+// NewChatAgentTaskID mints an id before the task is enqueued.
+//
+// A protocol whose artifact filenames are derived from the task id has to know
+// that id before it can build the request, and enqueue-then-patch would leave a
+// claimable task in the queue with no request in it.
+func NewChatAgentTaskID() string { return newChatAgentTaskID() }
+
 func newChatAgentTaskID() string {
 	var raw [10]byte
 	if _, err := rand.Read(raw[:]); err == nil {
@@ -136,15 +143,6 @@ func normalizeChatAgentTask(task ChatAgentTask, now time.Time) (ChatAgentTask, e
 func chatAgentTaskActive(status string) bool {
 	switch status {
 	case ChatAgentTaskPending, ChatAgentTaskLeased, ChatAgentTaskRunning, ChatAgentTaskWaiting:
-		return true
-	default:
-		return false
-	}
-}
-
-func chatAgentTaskNeverDedupe(taskType string) bool {
-	switch taskType {
-	case "BOT_WRITE", "RECOVERY_WRITE":
 		return true
 	default:
 		return false
@@ -295,7 +293,7 @@ func (s *Store) enqueueChatAgentTask(task ChatAgentTask) (ChatAgentTask, error) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if task.DedupeKey != "" && !chatAgentTaskNeverDedupe(task.Type) {
+	if task.DedupeKey != "" {
 		for _, existing := range s.chatAgentFallback() {
 			if existing.DedupeKey == task.DedupeKey && chatAgentTaskActive(existing.Status) {
 				return existing, nil

@@ -41,13 +41,14 @@ Canonical operator build command: `make build`. It must:
 - resolve/install development dependencies needed by quality gates/Desktop;
 - build the compatibility Go/frontend artifacts and validate the Electron desktop runtime;
 - build backend, frontend and tunnel Compose images;
+- build the configured local Protected runner image;
 - reconcile backend/frontend containers while preserving existing PostgreSQL/tunnel containers.
 - after the replacement backend is healthy, reclaim only ownership-proven obsolete
   temporary workspaces, context directories and unreachable project dependency
   caches; persisted sessions, request history, current context bases, artifacts
   and live sandboxes MUST remain untouched.
 
-`make build-stage` performs the same artifact/image staging but MUST NOT replace running services and is the only build target used by transactional self-evolution. The Protected Docker runner is deliberately excluded from both targets; `make build-runner` remains explicit.
+`make build-stage` performs application artifact/image staging but MUST NOT replace running services or rebuild the Protected runner, and it is the only build target used by transactional self-evolution. The operator-facing `make build` MUST invoke the runner build with the configured `RUNNER_IMAGE`; `make build-runner` remains available as a direct recovery target.
 
 The checkout-scoped lifecycle lock used by build, activation, rollback and teardown MUST remain bounded and MUST work in both the host util-linux environment and the Alpine/BusyBox backend container that executes self-evolution staging. Portable non-blocking acquisition with a bounded retry loop is required; util-linux-only `flock` flags are forbidden on this path.
 

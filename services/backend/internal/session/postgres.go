@@ -155,10 +155,20 @@ CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_request_idx
 CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_terminal_idx
     ON harness_chat_agent_tasks (updated_at)
     WHERE status IN ('DONE','FAILED','CANCELLED');
-CREATE UNIQUE INDEX IF NOT EXISTS harness_chat_agent_tasks_dedupe_active_idx
+DROP INDEX IF EXISTS harness_chat_agent_tasks_dedupe_active_idx;
+WITH ranked_active_tasks AS (
+    SELECT task_id, row_number() OVER (PARTITION BY dedupe_key ORDER BY created_at, task_id) AS duplicate_rank
+    FROM harness_chat_agent_tasks
+    WHERE dedupe_key <> '' AND status IN ('PENDING','LEASED','RUNNING','WAITING')
+)
+UPDATE harness_chat_agent_tasks AS task
+SET status='CANCELLED', lease_owner='', lease_expires_at=NULL,
+    last_error='superseded duplicate active task during semantic-dedupe migration', updated_at=now()
+FROM ranked_active_tasks AS ranked
+WHERE task.task_id=ranked.task_id AND ranked.duplicate_rank > 1;
+CREATE UNIQUE INDEX IF NOT EXISTS harness_chat_agent_tasks_dedupe_active_v2_idx
     ON harness_chat_agent_tasks (dedupe_key)
     WHERE dedupe_key <> ''
-      AND type NOT IN ('BOT_WRITE','RECOVERY_WRITE')
       AND status IN ('PENDING','LEASED','RUNNING','WAITING');
 INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, version, updated_at, updated_by_request_id)
 SELECT legacy.project_path, 'legacy-project-knowledge', legacy.content, GREATEST(legacy.version, 1), legacy.updated_at, legacy.updated_by_request_id

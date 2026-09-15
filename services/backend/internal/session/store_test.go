@@ -65,6 +65,38 @@ func TestRequestContextArchivesPersistButAreNotPublicSessionJSON(t *testing.T) {
 	}
 }
 
+func TestRestoreExternalizesLegacyConflictCapsule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	store, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capsule := `{"protocol":"harness.conflict/v1","conflict_id":"conflict_1","files":[{"current":"` + strings.Repeat("x", 2<<20) + `"}]}`
+	item := domain.Session{
+		ID: "ses_conflict", ProjectPath: t.TempDir(), LastRequestID: "req_conflict",
+		LastManualPrompt:    "instructions\n\nCONFLICT CAPSULE:\n" + capsule + "\ntrailing protocol",
+		IntegrationConflict: &domain.ConflictResolution{ID: "conflict_1", RequestID: "req_conflict"},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := NewPersistentStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reloaded.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.LastManualPrompt) >= 1<<20 || strings.Contains(got.LastManualPrompt, strings.Repeat("x", 1024)) {
+		t.Fatalf("legacy capsule remained inline: prompt bytes=%d", len(got.LastManualPrompt))
+	}
+	artifacts := got.RequestSupportArtifacts["req_conflict"]
+	if len(artifacts) != 1 || artifacts[0].Path != "conflict/capsule.json" || string(artifacts[0].Content) != capsule {
+		t.Fatalf("legacy capsule was not externalized: %#v", artifacts)
+	}
+}
+
 func TestPersistentStoreRestoresPlanAndPendingRequest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	store, err := NewPersistentStore(path)

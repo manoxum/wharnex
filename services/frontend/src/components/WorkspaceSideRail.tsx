@@ -68,6 +68,10 @@ export type WorkspaceSideRailProps = {
   onGoToChat?: (chatId?: string, sessionId?: string) => void
   onGoToOrchestrator?: () => void
   onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
+  // Bring another project to the front. The agent pool is shared across
+  // projects, so a slot the operator is reading about here is frequently
+  // working for a project that is not the one in front of them.
+  onFocusProject?: (projectPath: string) => void
 }
 
 /**
@@ -146,7 +150,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError} onClose={close}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
       {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError}/> : null}
-      {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} onClose={close} onError={onError}/> : null}
+      {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
       {drawer === 'tasks' ? <ChatAgentTasksDrawer projectPath={session.project_path} onClose={close} onError={onError} chats={props.chats} onGoToChat={props.onGoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onFollowInstance={props.onFollowInstance}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}
       {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
@@ -279,17 +283,28 @@ function ArchiveDrawer({ projectPath, chats, busy, onRestore, onDelete, onRename
 }) {
   const [query, setQuery] = useState('')
   const [preview, setPreview] = useState<string>()
-  const visible = chats.filter((chat) => chat.title.toLowerCase().includes(query.toLowerCase()))
+  const normalizedQuery = query.trim().toLowerCase()
+  const visible = chats.filter((chat) => chat.title.toLowerCase().includes(normalizedQuery))
   const previewChat = chats.find((chat) => chat.id === preview)
   const previewItems = previewChat ? loadChat(projectPath, previewChat.id) : []
+  const visibleLabel = normalizedQuery ? `${visible.length} de ${chats.length}` : `${chats.length} ${chats.length === 1 ? 'chat' : 'chats'}`
+  const emptyTitle = chats.length ? 'Nenhum resultado' : 'Ainda não há chats arquivados'
+  const emptyDetail = chats.length ? 'Tente pesquisar por outro título.' : 'Os chats fechados ficam organizados aqui sem perder o histórico.'
+
   return <section className="agent-archive-drawer" aria-label="Chats arquivados">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Chats</span><strong>Arquivados</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
-    <label className="archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar chats arquivados"/></label>
+    <header className="agent-drawer-heading agent-archive-heading"><div><span className="panel-kicker">Gestão de chats</span><div className="agent-archive-heading-row"><strong>Arquivados</strong><span className="agent-archive-count">{chats.length}</span></div></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
+    <div className="agent-archive-toolbar"><label className="archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar chats arquivados"/></label><span className="agent-archive-filter-count" aria-live="polite">{visibleLabel}</span></div>
     <div className="agent-archive-list">
-      {visible.length ? visible.map((chat) => <article className="agent-archive-item" key={chat.id} onClick={() => setPreview(chat.id)}>
-        <div><strong>{chat.title}</strong><span>Início {new Date(chat.createdAt).toLocaleString()}</span><span>Encerramento {new Date(chat.archivedAt || chat.updatedAt).toLocaleString()}</span></div>
-        <div><button type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); void promptDialog({ title: 'Renomear chat', inputLabel: 'Novo nome', initialValue: chat.title, confirmLabel: 'Renomear' }).then((title) => { if (title) return onRename?.(chat.id, title) }) }} aria-label={`Renomear ${chat.title}`} title="Renomear"><Icon name="rename" size={13}/></button><button type="button" disabled={busy || !chat.chatgptUrl} onClick={(event) => { event.stopPropagation(); void onGenerate?.(chat.id) }} aria-label={`Gerar nome para ${chat.title}`} title="Usar o título contextual gerado pelo ChatGPT"><Icon name="agent" size={13}/></button><button type="button" className="danger" disabled={busy} onClick={(event) => { event.stopPropagation(); void onDelete(chat.id) }} aria-label={`Eliminar definitivamente ${chat.title}`} title="Eliminar definitivamente"><Icon name="trash" size={13}/></button></div>
-      </article>) : <div className="agent-drawer-empty">Nenhum chat arquivado corresponde à pesquisa.</div>}
+      {visible.length ? visible.map((chat) => {
+        const archivedAt = chat.archivedAt || chat.updatedAt
+        return <article className="agent-archive-item" key={chat.id} onClick={() => setPreview(chat.id)}>
+          <div className="agent-archive-copy">
+            <div className="agent-archive-card-title"><strong>{chat.title}</strong><span className={chat.chatgptUrl ? 'agent-archive-link linked' : 'agent-archive-link local'}>{chat.chatgptUrl ? 'ChatGPT' : 'Local'}</span></div>
+            <div className="agent-archive-meta"><span><small>Início</small><time dateTime={chat.createdAt}>{new Date(chat.createdAt).toLocaleString()}</time></span><span><small>Encerramento</small><time dateTime={archivedAt}>{new Date(archivedAt).toLocaleString()}</time></span></div>
+          </div>
+          <div className="agent-archive-actions"><button type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); void promptDialog({ title: 'Renomear chat', inputLabel: 'Novo nome', initialValue: chat.title, confirmLabel: 'Renomear' }).then((title) => { if (title) return onRename?.(chat.id, title) }) }} aria-label={`Renomear ${chat.title}`} title="Renomear"><Icon name="rename" size={13}/></button><button type="button" disabled={busy || !chat.chatgptUrl} onClick={(event) => { event.stopPropagation(); void onGenerate?.(chat.id) }} aria-label={`Gerar nome para ${chat.title}`} title="Usar o título contextual gerado pelo ChatGPT"><Icon name="agent" size={13}/></button><button type="button" className="danger" disabled={busy} onClick={(event) => { event.stopPropagation(); void onDelete(chat.id) }} aria-label={`Eliminar definitivamente ${chat.title}`} title="Eliminar definitivamente"><Icon name="trash" size={13}/></button></div>
+        </article>
+      }) : <div className="agent-archive-empty"><span className="agent-archive-empty-icon"><Icon name="folder" size={18}/></span><strong>{emptyTitle}</strong><p>{emptyDetail}</p></div>}
     </div>
     {previewChat && <div className="archived-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(undefined) }}><section className="archived-preview" role="dialog" aria-modal="true" aria-label={`Pré-visualização de ${previewChat.title}`}><header><div><span className="panel-kicker">Somente leitura</span><h2>{previewChat.title}</h2><p>{new Date(previewChat.createdAt).toLocaleString()} — {new Date(previewChat.archivedAt || previewChat.updatedAt).toLocaleString()}</p></div><button className="icon-button light" onClick={() => setPreview(undefined)} aria-label="Fechar pré-visualização"><Icon name="close" size={14}/></button></header><div className="archived-preview-stream">{previewItems.map((item) => <article key={item.id} className={`archived-preview-message ${item.source || item.role}`}><small>{item.source === 'chatgpt' ? 'ChatGPT' : item.source === 'wharness' ? 'WHX' : 'Você'} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small><MarkdownContent markdown={item.text}/></article>)}</div><footer><span>Envio e processamento permanecem bloqueados até restaurar.</span><button className="apply-button" disabled={busy} onClick={() => void onRestore(previewChat.id)}><Icon name="refresh" size={13}/> Restaurar chat</button></footer></section></div>}
   </section>

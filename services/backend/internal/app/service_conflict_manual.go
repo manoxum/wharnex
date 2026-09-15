@@ -197,7 +197,7 @@ func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, r
 	if err != nil {
 		return item, err
 	}
-	message := buildHybridConflictResolutionMessage(capsuleJSON, remaining, manualPaths)
+	message := buildHybridConflictResolutionMessage(remaining, manualPaths)
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
 	if err != nil {
 		return item, err
@@ -210,6 +210,7 @@ func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, r
 		ExpectedBundleFilename: expectedResponseBundleFilename(item, item.IntegrationConflict.RequestID),
 	}, knowledgeSnapshot, item.ProjectPath))
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		recordRequestSupportArtifact(current, item.IntegrationConflict.RequestID, conflictCapsuleArtifactPath, capsuleJSON)
 		if current.IntegrationConflict == nil || current.IntegrationConflict.ID != workbench.ID {
 			return errors.New("conflict changed while manual resolution was open")
 		}

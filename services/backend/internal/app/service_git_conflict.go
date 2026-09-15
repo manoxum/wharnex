@@ -88,7 +88,7 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 	if err != nil {
 		return item, "", err
 	}
-	message := buildGitConflictResolutionMessage(capsuleJSON, request, resolvable)
+	message := buildGitConflictResolutionMessage(request, resolvable)
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
 	if err != nil {
 		return item, "", err
@@ -113,6 +113,7 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 	}
 	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		recordRequestSupportArtifact(current, requestID, conflictCapsuleArtifactPath, capsuleJSON)
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		if current.IntegrationConflict == nil {
@@ -172,7 +173,7 @@ func firstNonEmpty(values ...string) string {
 // being reconciled, not a Wharnex candidate, and that the patch must be
 // authored against CURRENT — which is exactly the content the working tree
 // will hold when the resolution is replayed.
-func buildGitConflictResolutionMessage(capsuleJSON []byte, request gitConflictRequest, paths []string) string {
+func buildGitConflictResolutionMessage(request gitConflictRequest, paths []string) string {
 	what := fmt.Sprintf("merging %s into %s", request.ref, firstNonEmpty(request.targetBranch, "the current branch"))
 	if request.origin == domain.GitConflictOriginPush {
 		what = fmt.Sprintf("integrating %s before pushing %s", request.ref, request.remoteBranch)
@@ -187,6 +188,6 @@ func buildGitConflictResolutionMessage(capsuleJSON []byte, request gitConflictRe
 		"Each patch MUST be authored against CURRENT, which is the content those files will hold when the resolution is applied.",
 		"Do not include verification commands: this is a Git reconciliation, not a code change to build.",
 		"",
-		string(capsuleJSON),
+		"The complete BASE/CURRENT/RESULT capsule is attached at conflict/capsule.json inside the single request ZIP. Read that authoritative file before authoring the resolution.",
 	}, "\n")
 }

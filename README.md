@@ -97,7 +97,7 @@ make build-status    # show backend/frontend/desktop artifact-cache state
 make build-refresh   # force recompilation, preserving dependency caches
 ```
 
-`make build` performs the complete desktop/application build path, builds the Compose service images, and reconciles backend/frontend while preserving the running tunnel/database containers. `make build-stage` performs the same staging without activating replacement containers. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
+`make build` performs the complete desktop/application build path, builds the Compose service images and the configured local Protected runner image, and reconciles backend/frontend while preserving the running tunnel/database containers. `make build-stage` performs only application staging without activating replacement containers or changing the runner used for transactional self-evolution. Dependency hydration is fingerprinted: unchanged Go/Node dependency metadata is a cache hit and does not invoke `go mod download` or npm at all. On a real Node dependency change, Wharness uses deterministic `npm ci --prefer-offline --no-audit --no-fund` with `~/.cache/wharness-npm`, so cached tarballs are reused and audit/funding network work is excluded from the build path.
 
 Compiled artifacts are fingerprinted independently as well. If a component's source/configuration/runtime fingerprint is unchanged and its expected output is present, `make build` skips that component's compilation. Backend-only or no-change rebuilds therefore leave the frontend untouched. When a real frontend change does require Vite, the official versioned precompiled Monaco runtime is copied into the production output instead of making Rollup transform and minify Monaco's full source module graph again.
 
@@ -108,15 +108,20 @@ Compiled artifacts are fingerprinted independently as well. If a component's sou
 - builds the React frontend into `services/frontend/dist` only when frontend inputs change;
 - validates the Electron main/preload/dev code and installed Electron binary only when desktop inputs change.
 
-The Protected runner image remains decoupled from application/service-image builds. Docker must already be explicitly running; normal lifecycle commands refuse unsafe socket activation. Build the runner only when required:
+The canonical build now materializes the local-only Protected runner image as well as the application images. Docker must already be explicitly running; lifecycle commands refuse unsafe socket activation:
 
 ```bash
-# Docker must already be running; Wharness will not auto-start it.
-make build-runner
+# Complete machine build, including kernl-runner:local by default.
+make build
 
-# Explicit equivalent of the old all-in-one build behavior:
-make build-all
+# Direct recovery/rebuild of the default configured tag:
+make build-runner RUNNER_IMAGE="kernl-runner:local"
 ```
+
+Wharnex never pulls the Protected runner from a registry. If it is absent,
+Protected execution and the copied-sandbox terminal stop before `docker run`
+and name the exact direct recovery command. A normal `make build` prevents that
+state on a freshly compiled machine by building the configured image locally.
 
 On Linux/systemd, database startup, runner construction and Protected execution refuse to invoke Docker when `docker.socket` is active but `docker.service` is stopped. Start Docker explicitly before `make start`.
 
@@ -207,7 +212,7 @@ With the supported provider, every request returns a structured `harness.turn/v1
 2. Send the request to the Harness. It prepares the agent-turn prompt and project context.
 3. Open the **ChatGPT** tab. The actual ChatGPT site is displayed inside Wharness Desktop.
 4. In the composer transport menu, enable the request ZIP, live verification tunnels, or both. The global default can be overridden per chat.
-5. Send the request. With ZIP enabled, Wharness uploads exactly one `wharness-input-<request_id>.zip` containing the prompt, refreshed context, `@file` selections and attachments. With tunnels enabled, it also publishes every configured tunnel in priority order.
+5. Send the request. With ZIP enabled, Wharness uploads exactly one `wharness-input-<request_id>.zip` containing the prompt (with its inline `@file`/`@ref` markers), refreshed context, referenced files and attachments. With tunnels enabled, it also publishes every configured tunnel in priority order.
 6. Wait for ChatGPT to return `wharness-bundle-<request_id>.zip`, then initiate its download in the ChatGPT surface.
 7. Wharness imports the bundle automatically after the download starts. Answers appear in chat; only completed `change` bundles expose and execute a plan.
 

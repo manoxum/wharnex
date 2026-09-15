@@ -511,7 +511,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	}
 	// A host Git merge conflict carries no ChangeSet-integrator assessment:
 	// Git reported it directly, so there is no local ladder evidence to quote.
-	message := buildConflictResolutionMessage(capsuleJSON, paths, "")
+	message := buildConflictResolutionMessage(paths, "")
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
 	if err != nil {
 		return item, err
@@ -530,6 +530,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, AttemptHistory: history, CreatedAt: time.Now().UTC()}
 	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		recordRequestSupportArtifact(current, requestID, conflictCapsuleArtifactPath, capsuleJSON)
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		if current.IntegrationConflict == nil {

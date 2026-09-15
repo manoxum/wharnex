@@ -10,13 +10,14 @@ context:
   auto_exclude: true
   max_file_bytes: 2097152
   include: []
+  include_overrides: []
   exclude:
     - "fixtures/**"
     - "legacy/**"
     - "*.generated.ts"
 ```
 
-`auto_exclude` removes common dependencies, caches, build/test output, IDE metadata, temporary artifacts, archives, binaries/media, and generated Wharness context snapshots. `include` is an optional allowlist: when non-empty, only matching eligible files enter the AI context, and an explicitly selected eligible path may bypass heuristic auto-pruning. `exclude` removes additional project-specific paths. `max_file_bytes` sets a per-file context ceiling from 1 MiB through 64 MiB in the UI.
+`auto_exclude` removes common dependencies, caches, build/test output, IDE metadata, mobile SDK/toolchain output, temporary artifacts, archives, binaries/media, and generated Wharness context snapshots. `include` is an optional allowlist: when non-empty, only matching eligible files enter the AI context. `include_overrides` stores paths explicitly restored from the Settings inventory without narrowing the rest of the project. `exclude` removes additional project-specific paths. `max_file_bytes` sets a per-file context ceiling from 1 MiB through 64 MiB in the UI.
 
 Patterns are project-relative and support path segments with `*`, `?`, and recursive `**`. Parent traversal and absolute patterns are rejected.
 

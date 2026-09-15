@@ -90,6 +90,29 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(5))
   })
 
+  it('makes idle, writing, listening, waiting and chat-without-jobs states distinct at a glance', async () => {
+    const state = runtime()
+    state.agents = [
+      { ...state.agents[1], id: 'worker-idle', label: 'Worker idle', role: 'worker', status: 'idle', chat_id: '', task: undefined },
+      { ...state.agents[0], id: 'supervisor-empty', label: 'Supervisor empty', status: 'idle', chat_id: 'chat-human', task: undefined },
+      { ...state.agents[0], id: 'supervisor-writing', label: 'Supervisor writing', status: 'running', chat_id: 'chat-human', task: { ...state.agents[3].task!, type: 'BOT_WRITE', status: 'RUNNING' } },
+      { ...state.agents[3], id: 'worker-listening', label: 'Worker listening', status: 'running', task: { ...state.agents[3].task!, type: 'AWAIT_RESPONSE', status: 'RUNNING' } },
+      { ...state.agents[3], id: 'worker-waiting', label: 'Worker waiting', status: 'claimed', task: { ...state.agents[3].task!, type: 'DELETE_BUNDLE', status: 'WAITING' } },
+    ]
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+
+    expect(await screen.findByText('Worker · Ocioso')).toBeTruthy()
+    expect(screen.getByText('Supervisor · Chat sem jobs')).toBeTruthy()
+    expect(screen.getByText('Supervisor · A escrever')).toBeTruthy()
+    expect(screen.getByText('Worker · A escutar')).toBeTruthy()
+    expect(screen.getByText('Worker · A aguardar')).toBeTruthy()
+    for (const stateName of ['idle', 'chat-empty', 'writing', 'listening', 'waiting']) {
+      expect(container.querySelector(`.agent-runtime-list > button.state-${stateName}`)).toBeTruthy()
+    }
+  })
+
   it('toggles Auto scale and global Keep flowing policies', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
@@ -171,7 +194,7 @@ describe('AgentRuntimeDrawer', () => {
     expect(rows.join(' ')).not.toMatch(/DONE|FAILED|CANCELLED|ATTENTION/)
   })
 
-  it('shows a durable leased task as occupied instead of available', async () => {
+  it('shows a durable leased response observation as listening instead of idle', async () => {
     const state = runtime()
     const worker = state.agents.find((agent) => agent.id === 'worker-1')!
     worker.status = 'claimed'
@@ -179,7 +202,7 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    expect(await screen.findByText('Worker · Ocupado')).toBeTruthy()
+    expect(await screen.findByText('Worker · A escutar')).toBeTruthy()
   })
 
   it('opens and closes live interaction for a Worker browser', async () => {
@@ -297,5 +320,50 @@ describe('AgentRuntimeDrawer', () => {
     expect(screen.queryByText(/Outro projeto ·/)).toBeNull()
     const elsewhere = screen.getByText('noutro projeto').previousSibling
     expect(elsewhere?.textContent).toBe('0')
+  })
+
+  // The operator reading this panel is looking for the conversation, not for
+  // the opaque string that addresses it — and having found it, wants to be in
+  // it rather than to go hunting for it in the chat list.
+  it('names the chat a slot is bound to and opens it', async () => {
+    const onGoToChat = vi.fn()
+    window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" chats={[{ id: 'chat-human', title: 'Refatorar o parser', sessionId: 'sess-1' }]} onGoToChat={onGoToChat} onClose={() => undefined} />)
+
+    // supervisor-1 is the panel's default selection, so its detail is already open.
+    expect(await screen.findByText('Refatorar o parser')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Abrir o chat Refatorar o parser'))
+    expect(onGoToChat).toHaveBeenCalledWith('chat-human', 'sess-1')
+  })
+
+  // A slot occupied by another project stays described by that project alone:
+  // the shared pool may expose which project is busy, never its conversation.
+  it('keeps a foreign slot’s conversation unnamed and offers its project instead', async () => {
+    const onFocusProject = vi.fn()
+    window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/beta" chats={[{ id: 'chat-1', title: 'Não deve aparecer', sessionId: 'sess-x' }]} onFocusProject={onFocusProject} onClose={() => undefined} />)
+
+    fireEvent.click(await screen.findByText('Worker 1'))
+    expect(screen.queryByText('Não deve aparecer')).toBeNull()
+    expect(screen.getByText('Conversa do projeto alpha')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Trazer o projeto alpha para foco'))
+    expect(onFocusProject).toHaveBeenCalledWith('/home/op/alpha')
+  })
+
+  // A Supervisor mid-request hands its lease back between observations. Reading
+  // the lease alone painted it as available on every cycle, which is what made
+  // its card flicker for the whole length of an apply.
+  it('reports a held Supervisor as occupied with its task between observations', async () => {
+    const state = runtime()
+    const task = { task_id: 'task-9', type: 'AWAIT_RESPONSE', chat_id: 'chat-human', project_id: '/home/op/alpha', request_id: 'req-9', root_request_id: 'req-9', conversation_id: 'conv-9', status: 'LEASED', attempt: 1, max_attempts: 30, assigned_worker: '', keep_flowing: false, lease_expires_at: '', not_before: '', last_error: '', created_at: '2026-09-11T09:55:00Z', updated_at: '2026-09-11T10:00:00Z' }
+    state.agents[0] = { ...state.agents[0], status: 'claimed', occupied: true, project_id: '/home/op/alpha', binding_hold: 'bundle-delivery', last_task: task }
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+
+    expect((await screen.findByText(/AWAIT_RESPONSE · task-9/)).textContent).not.toMatch(/última/)
+    expect(screen.getByText('Retido · bundle-delivery')).toBeTruthy()
   })
 })

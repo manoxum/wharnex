@@ -124,6 +124,9 @@ export type ContextInventoryEntry = {
   size?: number
   reason?: string
   rule?: string
+  created_at?: string
+  modified_at?: string
+  configurable?: boolean
 }
 
 export type ContextRootEntry = {
@@ -135,6 +138,9 @@ export type ContextRootEntry = {
   excluded_items: number
   included_bytes: number
   reason?: string
+  created_at?: string
+  modified_at?: string
+  configurable?: boolean
 }
 
 export type ContextInspection = {
@@ -149,6 +155,41 @@ export type ContextInspection = {
   rules: ContextRule[]
 }
 
+/**
+ * One `@attach` marker previewed exactly as a request would resolve it.
+ *
+ * Deliberately the same shape as ContextInspection: an attachment answers the
+ * same question about a different root, so the panel that configures it is the
+ * one the operator already knows from project settings.
+ */
+export type AttachmentInspection = {
+  root: string
+  kind: 'file' | 'directory' | string
+  auto_exclude: boolean
+  include: string[]
+  include_overrides: string[]
+  exclude: string[]
+  included_files: number
+  included_bytes: number
+  excluded_items: number
+  truncated: boolean
+  max_file_bytes: number
+  max_total_bytes: number
+  max_files: number
+  entries: ContextInventoryEntry[]
+}
+
+/**
+ * A project Wharnex has worked on before, nameable from `@ref` whether or not
+ * it is open right now. `open` is a live session holding it — the thing a
+ * *change* additionally requires, on top of being merely nameable.
+ */
+export type KnownProjectRef = {
+  name: string
+  project_path: string
+  open: boolean
+}
+
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'
@@ -158,6 +199,10 @@ export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ul
  *  upload. Independent of AutomationMode; Auto + Manual is valid. */
 export type ChatTransportMode = 'scraper' | 'manual'
 export type TerminalTarget = 'sandbox' | 'host'
+export type TerminalSessionDescriptor = { terminal_id: string; target: TerminalTarget }
+export type TerminalFrame = { type: 'ready' | 'output' | 'exit' | 'error'; data?: string; code?: number; message?: string }
+export type TerminalRunInput = { command: string; cwd: string; label?: string }
+export type TerminalRunRequest = TerminalRunInput & { id: number }
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
@@ -224,6 +269,7 @@ export type Session = {
     manifest: ContextManifest
     workspace_sha256?: string
     related_projects?: Array<{ project_path: string; name: string; prefix: string; manifest: ContextManifest }>
+    attachments?: Array<{ root: string; name: string; kind: string; prefix: string; files: number; bytes: number; included_paths?: string[] }>
   }
   plan?: ExecutionPlan
   policy?: PolicyDecision
@@ -291,6 +337,19 @@ export type ArtifactRecord = {
 }
 
 export type ArtifactEntry = { path: string; size: number; dir: boolean }
+export type ManagedArtifact = {
+  session_id: string
+  project_path: string
+  chat_id?: string
+  artifact: ArtifactRecord
+}
+
+export type PostgresConnectionInput = { host: string; port: number; database: string; user: string; password: string; sslmode: 'disable' | 'allow' | 'prefer' | 'require' | 'verify-ca' | 'verify-full' }
+export type PostgresColumn = { name: string; data_type: string; nullable: boolean }
+export type PostgresTable = { schema: string; name: string; type: string; columns: PostgresColumn[] }
+export type PostgresCatalog = { database: string; version: string; tables: PostgresTable[] }
+export type PostgresQueryResult = { columns: string[]; rows: unknown[][]; row_count: number; truncated: boolean; duration_ms: number }
+
 export type ArtifactPresentationItem = { path: string; preview_path?: string; label?: string; description?: string; alt?: string; size: number; content_type: string; kind: 'image' | 'audio' | 'video' | 'pdf' | 'html' | 'office' | 'markdown' | 'text' | 'binary' }
 export type ArtifactPresentationGallery = { id: string; title?: string; description?: string; layout: 'auto' | 'grid' | 'masonry' | 'strip'; sizing: 'uniform' | 'adaptive'; items: ArtifactPresentationItem[] }
 export type ArtifactPresentation = { protocol: 'harness.artifact-presentation/v1'; fallback: boolean; warning?: string; galleries: ArtifactPresentationGallery[] }
@@ -462,6 +521,7 @@ export type ProjectConfig = {
     auto_exclude: boolean
     max_file_bytes: number
     include: string[]
+    include_overrides?: string[]
     exclude: string[]
   }
 }
@@ -656,6 +716,8 @@ export type GitConflictContext = {
   theirs_sha: string
   target_branch?: string
 }
+
+export type GitFileDiff = { path: string; diff: string; truncated?: boolean }
 
 export type GitOverview = {
   project_path: string

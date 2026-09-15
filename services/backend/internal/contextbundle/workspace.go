@@ -11,9 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/projectconfig"
 )
 
 const relatedProjectsIndex = "RELATED_PROJECTS.json"
@@ -23,13 +25,37 @@ var unsafeProjectName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 // BuildWorkspace preserves the primary project's manifest and root-relative
 // paths while adding each related repository below a distinct namespace.
 func (b *Builder) BuildWorkspace(projectRoot string, relatedRoots []string) (domain.ContextBundle, error) {
+	return b.BuildWorkspaceWithAttachments(projectRoot, relatedRoots, nil)
+}
+
+// BuildWorkspaceWithAttachments additionally places each external attachment
+// below its own `ATTACHMENTS/` namespace.
+//
+// Attachments sit beside the related projects rather than inside the primary
+// tree for the same reason those do: a path in the context has to say which
+// root it belongs to. An attachment's root is outside every project, so
+// flattening it in would produce paths that look project-relative and are not —
+// and a patch written against one of them would have nowhere to land.
+func (b *Builder) BuildWorkspaceWithAttachments(projectRoot string, relatedRoots []string, attachments []Attachment) (domain.ContextBundle, error) {
+	return b.BuildWorkspaceWithSelections(projectRoot, relatedRoots, nil, attachments)
+}
+
+// BuildWorkspaceWithSelections applies request-local context rules to named
+// related projects without mutating their persisted project configuration.
+func (b *Builder) BuildWorkspaceWithSelections(projectRoot string, relatedRoots []string, selections map[string]projectconfig.ContextConfig, attachments []Attachment) (domain.ContextBundle, error) {
 	primary, err := b.Build(projectRoot)
-	if err != nil || len(relatedRoots) == 0 {
+	if err != nil || (len(relatedRoots) == 0 && len(attachments) == 0) {
 		return primary, err
 	}
 	bundles := make([]domain.ContextBundle, 0, len(relatedRoots))
 	for _, root := range relatedRoots {
-		bundle, buildErr := b.Build(root)
+		var bundle domain.ContextBundle
+		var buildErr error
+		if selection, ok := selections[root]; ok {
+			bundle, buildErr = b.BuildWithContextConfig(root, selection)
+		} else {
+			bundle, buildErr = b.Build(root)
+		}
 		if buildErr != nil {
 			removeBundleArtifacts(primary)
 			for _, built := range bundles {
@@ -39,7 +65,7 @@ func (b *Builder) BuildWorkspace(projectRoot string, relatedRoots []string) (dom
 		}
 		bundles = append(bundles, bundle)
 	}
-	combined, err := b.combineWorkspace(primary, bundles)
+	combined, err := b.combineWorkspace(primary, bundles, attachments)
 	removeBundleArtifacts(primary)
 	for _, bundle := range bundles {
 		removeBundleArtifacts(bundle)
@@ -47,7 +73,7 @@ func (b *Builder) BuildWorkspace(projectRoot string, relatedRoots []string) (dom
 	return combined, err
 }
 
-func (b *Builder) combineWorkspace(primary domain.ContextBundle, related []domain.ContextBundle) (domain.ContextBundle, error) {
+func (b *Builder) combineWorkspace(primary domain.ContextBundle, related []domain.ContextBundle, attachments []Attachment) (domain.ContextBundle, error) {
 	directory, err := os.MkdirTemp("", "wharness-context-*")
 	if err != nil {
 		return domain.ContextBundle{}, err
@@ -78,18 +104,34 @@ func (b *Builder) combineWorkspace(primary domain.ContextBundle, related []domai
 		})
 		_, _ = io.WriteString(workspaceHash, bundle.Manifest.ProjectRoot+":"+bundle.Manifest.SHA256+"\n")
 	}
+	for index, attachment := range attachments {
+		entry := domain.AttachedPathContext{
+			Root: attachment.Root, Kind: attachment.Kind,
+			Name:          safeProjectName(attachment.Root),
+			Files:         attachment.IncludedFiles,
+			Bytes:         attachment.IncludedBytes,
+			ExcludedItems: attachment.ExcludedItems,
+			Truncated:     attachment.Truncated,
+		}
+		for _, file := range attachment.Files {
+			entry.IncludedPaths = append(entry.IncludedPaths, file.Path)
+		}
+		entry.Prefix = fmt.Sprintf("ATTACHMENTS/%02d-%s/", index+1, entry.Name)
+		result.Attachments = append(result.Attachments, entry)
+		_, _ = io.WriteString(workspaceHash, "attachment:"+attachment.Root+":"+strconv.FormatInt(attachment.IncludedBytes, 10)+"\n")
+	}
 	result.WorkspaceSHA256 = hex.EncodeToString(workspaceHash.Sum(nil))
-	if err := b.writeWorkspaceZip(result.ZipPath, primary, related, result.RelatedProjects); err != nil {
+	if err := b.writeWorkspaceZip(result.ZipPath, primary, related, result.RelatedProjects, attachments, result.Attachments); err != nil {
 		return domain.ContextBundle{}, err
 	}
-	if err := b.writeWorkspaceText(result.TextPath, primary.TextPath, related, result.RelatedProjects); err != nil {
+	if err := b.writeWorkspaceText(result.TextPath, primary.TextPath, related, result.RelatedProjects, attachments, result.Attachments); err != nil {
 		return domain.ContextBundle{}, err
 	}
 	failed = false
 	return result, nil
 }
 
-func (b *Builder) writeWorkspaceZip(target string, primary domain.ContextBundle, related []domain.ContextBundle, metadata []domain.RelatedProjectContext) error {
+func (b *Builder) writeWorkspaceZip(target string, primary domain.ContextBundle, related []domain.ContextBundle, metadata []domain.RelatedProjectContext, attachments []Attachment, attachmentMeta []domain.AttachedPathContext) error {
 	file, err := os.Create(target)
 	if err != nil {
 		return err
@@ -142,14 +184,37 @@ func (b *Builder) writeWorkspaceZip(target string, primary domain.ContextBundle,
 			return err
 		}
 	}
+	for index, attachment := range attachments {
+		prefix := attachmentMeta[index].Prefix
+		for _, attached := range attachment.Files {
+			expanded += int64(len(attached.Data))
+			if expanded > b.maxBundleBytes {
+				_ = writer.Close()
+				_ = file.Close()
+				return fmt.Errorf("attached paths exceed the %d-byte bundle limit", b.maxBundleBytes)
+			}
+			out, createErr := writer.Create(prefix + attached.Path)
+			if createErr != nil {
+				_ = writer.Close()
+				_ = file.Close()
+				return createErr
+			}
+			if _, writeErr := out.Write(attached.Data); writeErr != nil {
+				_ = writer.Close()
+				_ = file.Close()
+				return writeErr
+			}
+		}
+	}
 	indexBytes, _ := json.MarshalIndent(struct {
-		Protocol string                         `json:"protocol"`
-		Primary  string                         `json:"primary_project"`
-		Projects []domain.RelatedProjectContext `json:"related_projects"`
-		Rule     string                         `json:"execution_rule"`
+		Protocol    string                         `json:"protocol"`
+		Primary     string                         `json:"primary_project"`
+		Projects    []domain.RelatedProjectContext `json:"related_projects"`
+		Attachments []domain.AttachedPathContext   `json:"attached_paths,omitempty"`
+		Rule        string                         `json:"execution_rule"`
 	}{
-		Protocol: "harness.related-projects/v1", Primary: primary.Manifest.ProjectRoot, Projects: metadata,
-		Rule: "Paths under RELATED_PROJECTS are reference context. A plan in this response targets only the primary project; make changes to another project through that project's own Wharnex session and Protected Apply.",
+		Protocol: "harness.related-projects/v1", Primary: primary.Manifest.ProjectRoot, Projects: metadata, Attachments: attachmentMeta,
+		Rule: "Paths under RELATED_PROJECTS are reference context; whether this response may change one of them is stated by the request's own cross-project write grant. Paths under ATTACHMENTS are read-only material from outside every project: they are never a patch target and never appear in a plan.",
 	}, "", "  ")
 	expanded += int64(len(indexBytes))
 	if expanded > b.maxBundleBytes {
@@ -170,7 +235,7 @@ func (b *Builder) writeWorkspaceZip(target string, primary domain.ContextBundle,
 	return err
 }
 
-func (b *Builder) writeWorkspaceText(target, primaryPath string, related []domain.ContextBundle, metadata []domain.RelatedProjectContext) error {
+func (b *Builder) writeWorkspaceText(target, primaryPath string, related []domain.ContextBundle, metadata []domain.RelatedProjectContext, attachments []Attachment, attachmentMeta []domain.AttachedPathContext) error {
 	file, err := os.Create(target)
 	if err != nil {
 		return err
@@ -221,6 +286,31 @@ func (b *Builder) writeWorkspaceText(target, primaryPath string, related []domai
 		heading := fmt.Sprintf("\n\n===== RELATED PROJECT %d: %s =====\nROOT: %s\nNAMESPACE: %s\n", index+1, metadata[index].Name, metadata[index].ProjectPath, metadata[index].Prefix)
 		if err := appendFile(bundle.TextPath, heading, relatedBudget); err != nil {
 			return err
+		}
+	}
+	for index, attachment := range attachments {
+		meta := attachmentMeta[index]
+		heading := fmt.Sprintf("\n\n===== ATTACHED %s %d: %s =====\nROOT: %s\nNAMESPACE: %s\nREAD-ONLY: attached material is never a patch target\n",
+			strings.ToUpper(attachment.Kind), index+1, meta.Name, meta.Root, meta.Prefix)
+		if _, err := io.WriteString(file, heading); err != nil {
+			return err
+		}
+		written += int64(len(heading))
+		for _, attached := range attachment.Files {
+			remaining := b.maxContextBytes - written
+			if remaining <= 0 {
+				return nil
+			}
+			block := fmt.Sprintf("\n----- %s%s -----\n", meta.Prefix, attached.Path)
+			body := attached.Data
+			if int64(len(block)+len(body)) > remaining {
+				body = body[:max(0, int(remaining)-len(block))]
+			}
+			n, err := io.WriteString(file, block+string(body))
+			written += int64(n)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil

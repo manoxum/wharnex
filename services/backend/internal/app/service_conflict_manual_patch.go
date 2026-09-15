@@ -175,7 +175,7 @@ func augmentConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPl
 	return nil
 }
 
-func buildHybridConflictResolutionMessage(capsule []byte, remaining, manual []string) string {
+func buildHybridConflictResolutionMessage(remaining, manual []string) string {
 	return fmt.Sprintf(`WHARNEX HYBRID CONFLICT RESOLUTION — harness.conflict/v1
 
 The operator already resolved these paths manually and they are LOCKED:
@@ -188,6 +188,5 @@ Remaining conflict paths:
 
 Return one canonical change bundle. Every remaining path must be resolved against CURRENT. Do not modify unrelated files and do not return a workflow.
 
-CONFLICT CAPSULE:
-%s`, strings.Join(manual, "\n- "), strings.Join(remaining, "\n- "), string(capsule))
+The complete BASE/CURRENT/RESULT capsule is attached at conflict/capsule.json inside the single request ZIP. Read that authoritative file before authoring the resolution.`, strings.Join(manual, "\n- "), strings.Join(remaining, "\n- "))
 }

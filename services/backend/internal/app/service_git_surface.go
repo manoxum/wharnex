@@ -12,6 +12,7 @@ import (
 	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/pendingcommit"
+	"kernl.local/harness/backend/internal/workspacefs"
 )
 
 // SetGitSurface wires the Git surface's own persistence: where per-project
@@ -165,10 +166,34 @@ type GitOverview struct {
 }
 
 // GitOverview reads the project's whole Git situation.
-//
-// It is read-only and degrades rather than failing: a project whose repository
-// cannot be inspected returns Available=false with the reason, so the surface
-// can explain itself instead of rendering an empty panel that looks broken.
+type GitFileDiff struct {
+	Path      string `json:"path"`
+	Diff      string `json:"diff"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// GitFileDiff returns a bounded, read-only worktree diff for one editor file.
+// workspacefs.Read deliberately performs the same containment, ignore, symlink
+// and text-file checks as the editor before the path is handed to Git.
+func (s *Service) GitFileDiff(ctx context.Context, sessionID, path string) (GitFileDiff, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitFileDiff{}, err
+	}
+	file, err := workspacefs.Read(item.ProjectPath, path)
+	if err != nil {
+		return GitFileDiff{}, err
+	}
+	diff, truncated, err := hostrepo.WorktreeDiff(ctx, item.ProjectPath, []string{file.Path}, 512<<10)
+	if err != nil {
+		return GitFileDiff{}, err
+	}
+	return GitFileDiff{Path: file.Path, Diff: diff, Truncated: truncated}, nil
+}
+
+// GitOverview is read-only and degrades rather than failing: a project whose
+// repository cannot be inspected returns Available=false with the reason, so
+// the surface can explain itself instead of rendering an empty panel.
 func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOverview, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {

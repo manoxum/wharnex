@@ -33,6 +33,7 @@ ARG WHARNESS_GID=1000
 # toolchain here wide enough that the gates actually run.
 RUN apk add --no-cache \
       ca-certificates curl git make nodejs npm zip \
+      bash bash-completion \
       build-base \
       docker-cli docker-cli-compose docker-cli-buildx \
  && addgroup -g "${WHARNESS_GID}" wharness \

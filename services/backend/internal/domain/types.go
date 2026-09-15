@@ -298,6 +298,73 @@ type ExecutionPlan struct {
 	RequiresApproval bool          `json:"requires_approval"`
 	Operations       []Operation   `json:"operations"`
 	Verification     []CommandSpec `json:"verification"`
+	// CrossProject carries work for projects other than the one this request
+	// belongs to, one self-contained unit per project.
+	//
+	// It is a list of units rather than a `project` tag on each operation
+	// because a change to another project is a whole change to that project:
+	// it needs its own commit message, because it becomes that project's Git
+	// history, and its own verification, because it is verified in that
+	// project's sandbox against that project's tree. Tagging operations would
+	// have left both of those with nowhere to live.
+	//
+	// A unit is admissible only when the request's own prompt granted that
+	// project by name (see internal/crossproject and adr/ADR-0053). The primary
+	// plan above is unchanged and unaware of this field.
+	CrossProject []CrossProjectUnit `json:"cross_project,omitempty"`
+}
+
+// CrossProjectUnit is a complete change for one granted referenced project.
+//
+// It is deliberately shaped like the executable half of a plan: the same
+// operations, the same verification commands, and the same mandatory commit
+// message a change owes the history it will become. It is executed as a derived
+// request on that project — its own Protected sandbox, its own verification,
+// its own Git-native host integration — because that is the only authority that
+// may write to a project, and it does not change when the patch arrived through
+// another project's chat.
+type CrossProjectUnit struct {
+	// Project is the reference name from the request's own `@ref:` grant, never
+	// a filesystem path. A path chosen by the model is a containment problem;
+	// a name is resolved by Wharnex against what the operator already granted.
+	Project       string        `json:"project"`
+	CommitMessage string        `json:"commit_message"`
+	Summary       string        `json:"summary,omitempty"`
+	Operations    []Operation   `json:"operations"`
+	Verification  []CommandSpec `json:"verification,omitempty"`
+}
+
+// CrossProjectGrant records which projects one request was allowed to change.
+//
+// The grant is derived from the `@ref:` directives in the request's own main
+// prompt and recorded durably at submit time, so a later continuation inherits
+// exactly the authority the operator gave and can never widen it by naming a
+// new project in a bundle. It is keyed by the root request id because a
+// continuation is the same Main Request, not a new grant.
+type CrossProjectGrant struct {
+	RootRequestID string                `json:"root_request_id"`
+	Projects      []CrossProjectGrantee `json:"projects"`
+	GrantedAt     time.Time             `json:"granted_at"`
+}
+
+// CrossProjectGrantee is one granted project: the name the prompt used, the
+// canonical host path it resolved to, and any files the operator singled out.
+type CrossProjectGrantee struct {
+	Name        string   `json:"name"`
+	ProjectPath string   `json:"project_path"`
+	Files       []string `json:"files,omitempty"`
+	// Attached reports whether this project's context was already part of the
+	// session snapshot when the reference resolved. A granted project that was
+	// not attached had its context brought in for this request.
+	Attached bool `json:"attached,omitempty"`
+}
+
+// KnownProjectRef is a project Wharnex has worked on before, named so a
+// reference can resolve to it whether or not it happens to be open.
+type KnownProjectRef struct {
+	Name        string `json:"name"`
+	ProjectPath string `json:"project_path"`
+	Open        bool   `json:"open"`
 }
 
 type PolicyDecision struct {
@@ -855,11 +922,31 @@ type ContextBundle struct {
 	Manifest        ContextManifest         `json:"manifest"`
 	WorkspaceSHA256 string                  `json:"workspace_sha256,omitempty"`
 	RelatedProjects []RelatedProjectContext `json:"related_projects,omitempty"`
+	Attachments     []AttachedPathContext   `json:"attachments,omitempty"`
 }
 
 // RelatedProjectContext describes a user-bound companion repository included
 // as namespaced, read-only evidence in the planner context. The primary
 // manifest remains the only execution baseline for this Session.
+// AttachedPathContext describes one external file or directory an `@attach`
+// directive brought into this context.
+//
+// It is read-only material from outside every project: never a patch target,
+// never a path in a plan. The counters exist so the operator can see what their
+// selection actually admitted, and Truncated so an attachment that hit a bound
+// says so instead of quietly arriving incomplete.
+type AttachedPathContext struct {
+	Root          string   `json:"root"`
+	Name          string   `json:"name"`
+	Kind          string   `json:"kind"`
+	Prefix        string   `json:"prefix"`
+	Files         int      `json:"files"`
+	Bytes         int64    `json:"bytes"`
+	ExcludedItems int      `json:"excluded_items,omitempty"`
+	Truncated     bool     `json:"truncated,omitempty"`
+	IncludedPaths []string `json:"included_paths,omitempty"`
+}
+
 type RelatedProjectContext struct {
 	ProjectPath string          `json:"project_path"`
 	Name        string          `json:"name"`
@@ -868,10 +955,19 @@ type RelatedProjectContext struct {
 }
 
 type Session struct {
-	ID                      string               `json:"id"`
-	ChatID                  string               `json:"chat_id,omitempty"`
-	ProjectPath             string               `json:"project_path"`
-	RelatedProjectPaths     []string             `json:"related_project_paths,omitempty"`
+	ID                  string   `json:"id"`
+	ChatID              string   `json:"chat_id,omitempty"`
+	ProjectPath         string   `json:"project_path"`
+	RelatedProjectPaths []string `json:"related_project_paths,omitempty"`
+	// CrossProjectGrant is the authority the current Main Request carries to
+	// change projects other than this one, derived from its own `@ref:`
+	// directives. It is replaced when a new Main Request is submitted and
+	// inherited unchanged by that request's continuations.
+	CrossProjectGrant *CrossProjectGrant `json:"cross_project_grant,omitempty"`
+	// CrossProjectRanPlanID is the last plan whose cross-project units were
+	// dispatched, so an Apply path reached twice for one candidate cannot
+	// install the same change in another project twice.
+	CrossProjectRanPlanID   string               `json:"cross_project_ran_plan_id,omitempty"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
 	EffortLevel             EffortLevel          `json:"effort_level"`
@@ -954,17 +1050,23 @@ type Session struct {
 	// branch here makes the patch apply by construction no matter how far the
 	// host has advanced since, and turns real divergence into an ordinary
 	// three-way merge instead of a dead-end apply failure.
-	RequestBaseCommits     map[string]string                   `json:"request_base_commits,omitempty"`
-	RequestContextArchives map[string]string                   `json:"-"`
-	RequestKnowledge       map[string]RequestKnowledgeSnapshot `json:"-"`
-	BaselineFileSnapshots  map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`
-	BaselineNotices        []BaselineNotice                    `json:"baseline_notices,omitempty"`
-	ProjectRevisions       []ProjectRevision                   `json:"project_revisions,omitempty"`
-	IntegrationConflict    *ConflictResolution                 `json:"integration_conflict,omitempty"`
-	Artifacts              []ArtifactRecord                    `json:"artifacts,omitempty"`
-	InterruptedExecution   *InterruptedExecution               `json:"interrupted_execution,omitempty"`
-	RemoteRecoveryAttempt  int                                 `json:"remote_recovery_attempt,omitempty"`
-	RequestLineages        map[string]RequestLineage           `json:"request_lineages,omitempty"`
+	RequestBaseCommits     map[string]string `json:"request_base_commits,omitempty"`
+	RequestContextArchives map[string]string `json:"-"`
+	// RequestSupportArtifacts are bounded, engine-authored files that must
+	// accompany one derived request but must never be expanded into its prompt.
+	// Keeping them server-only prevents large conflict capsules from crossing
+	// the Desktop's 1 MiB prompt boundary while the normal request ZIP remains
+	// the single authoritative transport.
+	RequestSupportArtifacts map[string][]RequestSupportArtifact `json:"-"`
+	RequestKnowledge        map[string]RequestKnowledgeSnapshot `json:"-"`
+	BaselineFileSnapshots   map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`
+	BaselineNotices         []BaselineNotice                    `json:"baseline_notices,omitempty"`
+	ProjectRevisions        []ProjectRevision                   `json:"project_revisions,omitempty"`
+	IntegrationConflict     *ConflictResolution                 `json:"integration_conflict,omitempty"`
+	Artifacts               []ArtifactRecord                    `json:"artifacts,omitempty"`
+	InterruptedExecution    *InterruptedExecution               `json:"interrupted_execution,omitempty"`
+	RemoteRecoveryAttempt   int                                 `json:"remote_recovery_attempt,omitempty"`
+	RequestLineages         map[string]RequestLineage           `json:"request_lineages,omitempty"`
 	// ArchivedAt/CompactedAt/ArchivePackage implement the passive chat-archive
 	// lifecycle (see ADR-0031). Pointers, not bare time.Time: encoding/json's
 	// omitempty is a no-op on a zero struct value, and callers need a clean
@@ -972,6 +1074,11 @@ type Session struct {
 	ArchivedAt     *time.Time            `json:"archived_at,omitempty"`
 	CompactedAt    *time.Time            `json:"compacted_at,omitempty"`
 	ArchivePackage *ArchivePackageRecord `json:"archive_package,omitempty"`
+}
+
+type RequestSupportArtifact struct {
+	Path    string `json:"path"`
+	Content []byte `json:"content"`
 }
 
 // InterruptedExecution is a durable execution intent. Its presence means the

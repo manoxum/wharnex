@@ -18,6 +18,7 @@ import (
 	"kernl.local/harness/backend/internal/app"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/config"
+	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/documentpreview"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/projectconfig"
@@ -52,6 +53,11 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/remote-storage/connections/check", a.checkRemoteStorage)
 	mux.HandleFunc("GET /api/artifact-settings", a.artifactSettings)
 	mux.HandleFunc("PUT /api/artifact-settings", a.updateArtifactSettings)
+	mux.HandleFunc("GET /api/artifacts", a.managedArtifacts)
+	mux.HandleFunc("DELETE /api/artifacts/{session_id}/{artifact_id}", a.deleteManagedArtifact)
+	mux.HandleFunc("POST /api/database/postgres/test", a.postgresTest)
+	mux.HandleFunc("POST /api/database/postgres/catalog", a.postgresCatalog)
+	mux.HandleFunc("POST /api/database/postgres/query", a.postgresQuery)
 	mux.HandleFunc("GET /api/language-settings", a.languageSettings)
 	mux.HandleFunc("PUT /api/language-settings", a.updateLanguageSettings)
 	mux.HandleFunc("GET /api/bundle-quota", a.bundleQuota)
@@ -104,6 +110,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/archive", a.archiveChat)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
+	mux.HandleFunc("POST /api/sessions/{id}/composer-bundle-preview", a.composerBundlePreview)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/approve", a.approvePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/correct", a.correctPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
@@ -152,6 +159,9 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entry", a.artifactEntry)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
+	mux.HandleFunc("POST /api/sessions/{id}/attachment/inspection", a.attachmentInspection)
+	mux.HandleFunc("POST /api/sessions/{id}/reference/inspection", a.referenceInspection)
+	mux.HandleFunc("GET /api/sessions/{id}/known-projects", a.knownProjects)
 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
 	mux.HandleFunc("PUT /api/sessions/{id}/related-projects", a.relatedProjects)
 	mux.HandleFunc("GET /api/sessions/{id}/project-config", a.projectConfig)
@@ -165,6 +175,11 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
 	mux.HandleFunc("POST /api/sessions/{id}/translate-markdown", a.translateMarkdown)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", a.terminal)
+	mux.HandleFunc("POST /api/sessions/{id}/terminal/sessions", a.openInteractiveTerminal)
+	mux.HandleFunc("GET /api/sessions/{id}/terminal/sessions/{terminal_id}/events", a.interactiveTerminalEvents)
+	mux.HandleFunc("POST /api/sessions/{id}/terminal/sessions/{terminal_id}/input", a.interactiveTerminalInput)
+	mux.HandleFunc("POST /api/sessions/{id}/terminal/sessions/{terminal_id}/resize", a.interactiveTerminalResize)
+	mux.HandleFunc("DELETE /api/sessions/{id}/terminal/sessions/{terminal_id}", a.closeInteractiveTerminal)
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/overview", a.orchestratorOverview)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/propose", a.orchestratorProposePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/import", a.orchestratorImportPlan)
@@ -1031,6 +1046,25 @@ func (a *API) message(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
 }
 
+func (a *API) composerBundlePreview(w http.ResponseWriter, r *http.Request) {
+	var body app.ComposerBundlePreviewRequest
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 150<<20))
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_bundle_preview", err.Error())
+		return
+	}
+	record, err := a.service.PreviewComposerBundle(r.Context(), r.PathValue("id"), body)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, session.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, "bundle_preview_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, record)
+}
+
 func (a *API) remoteInput(w http.ResponseWriter, r *http.Request) {
 	if !a.service.RemoteInputStatus().Enabled {
 		writeError(w, http.StatusConflict, "remote_storage_disabled", "remote storage is not configured")
@@ -1619,6 +1653,63 @@ func (a *API) contextInspection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, inspection)
+}
+
+// attachmentInspection previews one `@attach` marker exactly as a request would
+// resolve it, so the panel that configures a selection and the request that
+// sends it can never disagree about what it means.
+func (a *API) attachmentInspection(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Marker string `json:"marker"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	inspection, err := a.service.InspectAttachment(r.PathValue("id"), body.Marker)
+	if err != nil {
+		if errors.Is(err, contextbundle.ErrAttachmentDenied) {
+			writeError(w, http.StatusForbidden, "attachment_denied", err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, "attachment_inspection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
+}
+
+func (a *API) referenceInspection(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Marker string `json:"marker"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	inspection, err := a.service.InspectReference(r.PathValue("id"), body.Marker)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "reference_inspection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
+}
+
+// knownProjects answers the composer's `@ref` menu with exactly the candidate
+// set the engine will resolve a reference against at submit time — every
+// project Wharnex has worked on before, open or closed, this session's own
+// project excluded. See Service.KnownProjects.
+func (a *API) knownProjects(w http.ResponseWriter, r *http.Request) {
+	known, err := a.service.KnownProjects(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, 404, "session_not_found", "session not found")
+			return
+		}
+		writeError(w, 500, "known_projects_failed", err.Error())
+		return
+	}
+	if known == nil {
+		known = []domain.KnownProjectRef{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": known})
 }
 
 func (a *API) contextFile(w http.ResponseWriter, r *http.Request) {

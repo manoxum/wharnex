@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"kernl.local/harness/backend/internal/hostrepo"
@@ -404,12 +405,31 @@ func DeleteHostBranch(ctx context.Context, hostPath, branch string) error {
 // A root commit (no parent) is diffed against the empty tree, so a repository
 // whose only commit is the candidate still replays correctly.
 func CommitDiff(ctx context.Context, repoPath, commitSHA string) (string, error) {
+	return CommitDiffPaths(ctx, repoPath, commitSHA, nil)
+}
+
+// CommitDiffPaths is CommitDiff restricted to an exact allowlist of project
+// paths. It is used when a focused conflict bundle supersedes only the
+// colliding portion of an earlier Git-native candidate: all other verified
+// files remain part of the cumulative candidate, but the conflicting files
+// must not be replayed a second time underneath their replacement.
+func CommitDiffPaths(ctx context.Context, repoPath, commitSHA string, paths []string) (string, error) {
 	commitSHA = strings.TrimSpace(commitSHA)
 	if commitSHA == "" {
 		return "", errors.New("commit sha is required")
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath,
-		"show", "--format=", "--no-color", "--patch", "--first-parent", commitSHA)
+	args := []string{"-C", repoPath, "show", "--format=", "--no-color", "--patch", "--first-parent", commitSHA}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		for _, path := range paths {
+			clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+			if clean == "." || clean != strings.TrimSpace(path) || filepath.IsAbs(path) || strings.HasPrefix(clean, "../") || strings.Contains(path, "\\") {
+				return "", fmt.Errorf("invalid commit diff path %q", path)
+			}
+			args = append(args, clean)
+		}
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	output, err := cmd.Output()
 	if err != nil {
