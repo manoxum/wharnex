@@ -30,6 +30,20 @@ export type ChatExportRequest = {
   frontend_events: HarnessEvent[]
 }
 
+export type ComposerBundlePreviewFile = {
+  name: string
+  mime?: string
+  contentBase64: string
+}
+
+export type ComposerBundlePreviewInput = {
+  message: string
+  planningMode: ChatRequestMode
+  attachments: ComposerBundlePreviewFile[]
+  artifacts: ComposerBundlePreviewFile[]
+  projectFiles: string[]
+}
+
 async function requestDownload(path: string, body: unknown): Promise<{ blob: Blob; filename: string }> {
   const response = await fetch(`${API_URL}${path}`, {
     method: 'POST',
@@ -175,7 +189,7 @@ export const api = {
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
       method: 'POST', body: JSON.stringify({ message, planning_mode: planningMode }),
     }),
-  previewComposerBundle: (id: string, input: { message: string; planningMode: ChatRequestMode; attachments: Array<{ name: string; mime?: string; contentBase64: string }>; artifacts: Array<{ name: string; mime?: string; contentBase64: string }>; projectFiles: string[] }) =>
+  previewComposerBundle: (id: string, input: ComposerBundlePreviewInput) =>
     request<ArtifactRecord>(`/api/sessions/${id}/composer-bundle-preview`, {
       method: 'POST', body: JSON.stringify({
         message: input.message, planning_mode: input.planningMode, project_files: input.projectFiles,
