@@ -149,15 +149,6 @@ func chatAgentTaskActive(status string) bool {
 	}
 }
 
-func chatAgentTaskNeverDedupe(taskType string) bool {
-	switch taskType {
-	case "BOT_WRITE", "RECOVERY_WRITE":
-		return true
-	default:
-		return false
-	}
-}
-
 var chatAgentWriterTypes = []string{
 	"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
 }
@@ -302,7 +293,7 @@ func (s *Store) enqueueChatAgentTask(task ChatAgentTask) (ChatAgentTask, error) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if task.DedupeKey != "" && !chatAgentTaskNeverDedupe(task.Type) {
+	if task.DedupeKey != "" {
 		for _, existing := range s.chatAgentFallback() {
 			if existing.DedupeKey == task.DedupeKey && chatAgentTaskActive(existing.Status) {
 				return existing, nil

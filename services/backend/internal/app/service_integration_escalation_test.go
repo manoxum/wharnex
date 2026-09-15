@@ -104,11 +104,11 @@ func TestConflictPromptCarriesLocalReconciliationEvidence(t *testing.T) {
 	if !strings.Contains(summary, "shell.tsx") || !strings.Contains(summary, "merged 2 of 3") {
 		t.Fatalf("summary=%q", summary)
 	}
-	message := buildConflictResolutionMessage([]byte("{}"), []string{"shell.tsx"}, summary)
+	message := buildConflictResolutionMessage([]string{"shell.tsx"}, summary)
 	if !strings.Contains(message, "token-granular three-way merge") {
 		t.Fatalf("conflict prompt omitted the local attempt evidence:\n%s", message)
 	}
-	if empty := buildConflictResolutionMessage([]byte("{}"), []string{"shell.tsx"}, ""); strings.Contains(empty, "LOCAL RECONCILIATION") {
+	if empty := buildConflictResolutionMessage([]string{"shell.tsx"}, ""); strings.Contains(empty, "LOCAL RECONCILIATION") {
 		t.Fatalf("conflict prompt invented evidence that does not exist:\n%s", empty)
 	}
 }

@@ -1049,17 +1049,23 @@ type Session struct {
 	// branch here makes the patch apply by construction no matter how far the
 	// host has advanced since, and turns real divergence into an ordinary
 	// three-way merge instead of a dead-end apply failure.
-	RequestBaseCommits     map[string]string                   `json:"request_base_commits,omitempty"`
-	RequestContextArchives map[string]string                   `json:"-"`
-	RequestKnowledge       map[string]RequestKnowledgeSnapshot `json:"-"`
-	BaselineFileSnapshots  map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`
-	BaselineNotices        []BaselineNotice                    `json:"baseline_notices,omitempty"`
-	ProjectRevisions       []ProjectRevision                   `json:"project_revisions,omitempty"`
-	IntegrationConflict    *ConflictResolution                 `json:"integration_conflict,omitempty"`
-	Artifacts              []ArtifactRecord                    `json:"artifacts,omitempty"`
-	InterruptedExecution   *InterruptedExecution               `json:"interrupted_execution,omitempty"`
-	RemoteRecoveryAttempt  int                                 `json:"remote_recovery_attempt,omitempty"`
-	RequestLineages        map[string]RequestLineage           `json:"request_lineages,omitempty"`
+	RequestBaseCommits     map[string]string `json:"request_base_commits,omitempty"`
+	RequestContextArchives map[string]string `json:"-"`
+	// RequestSupportArtifacts are bounded, engine-authored files that must
+	// accompany one derived request but must never be expanded into its prompt.
+	// Keeping them server-only prevents large conflict capsules from crossing
+	// the Desktop's 1 MiB prompt boundary while the normal request ZIP remains
+	// the single authoritative transport.
+	RequestSupportArtifacts map[string][]RequestSupportArtifact `json:"-"`
+	RequestKnowledge        map[string]RequestKnowledgeSnapshot `json:"-"`
+	BaselineFileSnapshots   map[string]map[string]string        `json:"baseline_file_snapshots,omitempty"`
+	BaselineNotices         []BaselineNotice                    `json:"baseline_notices,omitempty"`
+	ProjectRevisions        []ProjectRevision                   `json:"project_revisions,omitempty"`
+	IntegrationConflict     *ConflictResolution                 `json:"integration_conflict,omitempty"`
+	Artifacts               []ArtifactRecord                    `json:"artifacts,omitempty"`
+	InterruptedExecution    *InterruptedExecution               `json:"interrupted_execution,omitempty"`
+	RemoteRecoveryAttempt   int                                 `json:"remote_recovery_attempt,omitempty"`
+	RequestLineages         map[string]RequestLineage           `json:"request_lineages,omitempty"`
 	// ArchivedAt/CompactedAt/ArchivePackage implement the passive chat-archive
 	// lifecycle (see ADR-0031). Pointers, not bare time.Time: encoding/json's
 	// omitempty is a no-op on a zero struct value, and callers need a clean
@@ -1067,6 +1073,11 @@ type Session struct {
 	ArchivedAt     *time.Time            `json:"archived_at,omitempty"`
 	CompactedAt    *time.Time            `json:"compacted_at,omitempty"`
 	ArchivePackage *ArchivePackageRecord `json:"archive_package,omitempty"`
+}
+
+type RequestSupportArtifact struct {
+	Path    string `json:"path"`
+	Content []byte `json:"content"`
 }
 
 // InterruptedExecution is a durable execution intent. Its presence means the

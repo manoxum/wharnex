@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -27,6 +28,7 @@ type persistenceEnvelope struct {
 type persistedSession struct {
 	domain.Session
 	RequestContextArchives             map[string]string                          `json:"_request_context_archives,omitempty"`
+	RequestSupportArtifacts            map[string][]domain.RequestSupportArtifact `json:"_request_support_artifacts,omitempty"`
 	RequestKnowledge                   map[string]domain.RequestKnowledgeSnapshot `json:"_request_knowledge,omitempty"`
 	PendingKnowledgeRootRequestID      string                                     `json:"_pending_knowledge_root_request_id,omitempty"`
 	PendingKnowledgeCandidateRequestID string                                     `json:"_pending_knowledge_candidate_request_id,omitempty"`
@@ -44,7 +46,7 @@ func persistSession(item domain.Session) persistedSession {
 		}
 	}
 	stored := persistedSession{
-		Session: item, RequestContextArchives: item.RequestContextArchives, RequestKnowledge: item.RequestKnowledge,
+		Session: item, RequestContextArchives: item.RequestContextArchives, RequestSupportArtifacts: item.RequestSupportArtifacts, RequestKnowledge: item.RequestKnowledge,
 		PendingKnowledgeRootRequestID: item.PendingKnowledgeRootRequestID, PendingKnowledgeCandidateRequestID: item.PendingKnowledgeCandidateRequestID,
 		PendingKnowledgeCandidate: item.PendingKnowledgeCandidate, PendingKnowledgeSummary: item.PendingKnowledgeSummary,
 		ArtifactObjectKeys: keys,
@@ -58,6 +60,7 @@ func persistSession(item domain.Session) persistedSession {
 func restoreSession(item persistedSession) domain.Session {
 	result := item.Session
 	result.RequestContextArchives = item.RequestContextArchives
+	result.RequestSupportArtifacts = item.RequestSupportArtifacts
 	result.RequestKnowledge = item.RequestKnowledge
 	result.PendingKnowledgeRootRequestID = item.PendingKnowledgeRootRequestID
 	result.PendingKnowledgeCandidateRequestID = item.PendingKnowledgeCandidateRequestID
@@ -69,7 +72,46 @@ func restoreSession(item persistedSession) domain.Session {
 	if result.ArchivePackage != nil {
 		result.ArchivePackage.ObjectKey = item.ArchivePackageObjectKey
 	}
+	externalizeLegacyConflictCapsule(&result)
 	return result
+}
+
+// externalizeLegacyConflictCapsule upgrades conflict requests persisted by the
+// pre-file-first implementation. Those sessions can survive an engine update
+// with a multi-megabyte capsule still embedded in LastManualPrompt, causing
+// Desktop to repeat "Prepared prompt exceeds 1 MiB" forever. The migration is
+// deliberately narrow: it accepts only a valid harness.conflict/v1 object for
+// the active conflict and moves exactly that JSON object to the fixed request
+// artifact path.
+func externalizeLegacyConflictCapsule(item *domain.Session) {
+	if item == nil || item.IntegrationConflict == nil || item.IntegrationConflict.RequestID == "" {
+		return
+	}
+	const marker = "\n\nCONFLICT CAPSULE:\n"
+	start := strings.Index(item.LastManualPrompt, marker)
+	if start < 0 {
+		return
+	}
+	jsonStart := start + len(marker)
+	decoder := json.NewDecoder(strings.NewReader(item.LastManualPrompt[jsonStart:]))
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil || len(raw) == 0 {
+		return
+	}
+	var identity struct {
+		Protocol   string `json:"protocol"`
+		ConflictID string `json:"conflict_id"`
+	}
+	if json.Unmarshal(raw, &identity) != nil || identity.Protocol != "harness.conflict/v1" || identity.ConflictID != item.IntegrationConflict.ID {
+		return
+	}
+	requestID := item.IntegrationConflict.RequestID
+	if item.RequestSupportArtifacts == nil {
+		item.RequestSupportArtifacts = make(map[string][]domain.RequestSupportArtifact)
+	}
+	item.RequestSupportArtifacts[requestID] = []domain.RequestSupportArtifact{{Path: "conflict/capsule.json", Content: append([]byte(nil), raw...)}}
+	jsonEnd := jsonStart + int(decoder.InputOffset())
+	item.LastManualPrompt = item.LastManualPrompt[:start] + "\n\nThe complete conflict capsule is attached at conflict/capsule.json inside the single request ZIP. Read that authoritative file before authoring the resolution." + item.LastManualPrompt[jsonEnd:]
 }
 
 type Store struct {

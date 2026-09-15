@@ -160,12 +160,16 @@ path MUST NOT be presented as a concurrency failure or trigger baseline
 ping-pong. It receives a focused policy repair flow. Transport retry resends the
 same request identity; it does not create a new baseline generation.
 
-A conflict discovered while replaying an earlier retained ChangeSet into a
-new execution sandbox is an integration conflict, even though it occurs before
-the new plan's operations begin. The application preserves the integrator's
-structured conflict details and opens the same focused BASE/CURRENT/RESULT
-resolution path. Flattening that outcome into a generic execution error would
-make every replacement plan replay the same blocker and is therefore forbidden.
+A conflict discovered while replaying an earlier retained ChangeSet or
+Git-native candidate into a new execution sandbox is an integration conflict,
+even though it occurs before the new plan's operations begin. The application
+preserves the immutable capsule and opens the same focused BASE/CURRENT/RESULT
+resolution path. A resolution replaces only the named conflict paths: all
+other files of the earlier verified candidate remain in the cumulative sandbox
+and host candidate. Flattening that outcome into a generic execution error,
+rebuilding a Git conflict from absent ChangeSet details, or dropping the
+predecessor wholesale would make every replacement plan replay the same blocker
+or silently lose accepted work and is therefore forbidden.
 
 ## Module seam
 

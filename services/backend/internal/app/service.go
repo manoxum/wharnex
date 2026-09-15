@@ -1961,11 +1961,15 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		}
 	}
 	pendingForExecution := item.PendingHostChanges
+	var retiredConflictBranches []string
 	if item.IntegrationConflict != nil && item.IntegrationConflict.RequestID == item.Plan.RequestID {
 		// Preserve the original conflicted mutations durably until the focused
 		// replacement has itself passed sandbox verification. Only the private
 		// execution candidate omits those superseded paths.
-		pendingForExecution = retireConflictingMutations(pendingForExecution, item.IntegrationConflict)
+		pendingForExecution, retiredConflictBranches, err = retireConflictingMutations(ctx, item.ProjectPath, item.Plan.BaseContextSHA256, pendingForExecution, item.IntegrationConflict)
+		if err != nil {
+			return s.failExecution(ctx, sessionID, result, fmt.Errorf("compose focused conflict candidate: %w", err))
+		}
 	}
 	if !unprotected {
 		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, !reconcileFromArchive, &result); replayErr != nil {
@@ -2126,7 +2130,10 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		} else {
 			pendingBase := current.PendingHostChanges
 			if current.IntegrationConflict != nil && current.IntegrationConflict.RequestID == item.Plan.RequestID {
-				pendingBase = retireConflictingMutations(pendingBase, current.IntegrationConflict)
+				// Persist the exact cumulative candidate that passed verification;
+				// recomputing the retirement here used to discard every Git-native
+				// predecessor because those records have no legacy ChangeSet.
+				pendingBase = append([]domain.PendingHostChange(nil), pendingForExecution...)
 				current.IntegrationConflict = nil
 			}
 			if planRequiresHostApply(item.Plan) {
@@ -2145,6 +2152,9 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	})
 	if err != nil {
 		return result, item, err
+	}
+	if len(retiredConflictBranches) > 0 {
+		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, retiredConflictBranches)
 	}
 	for _, requestID := range retiredRequestIDs {
 		s.releaseRemoteInputLease(sessionID, requestID)
@@ -2359,8 +2369,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 
 	if updated.IntegrationConflict != nil && updated.Plan != nil && updated.IntegrationConflict.RequestID == updated.Plan.RequestID {
 		if effortAttemptAvailable(updated) {
-			conflict := updated.IntegrationConflict
-			if retried, retryErr := s.prepareConflictResolution(ctx, sessionID, updated, updated.PendingHostChanges, conflict.Details); retryErr == nil {
+			if retried, retryErr := s.prepareConflictResolutionRetry(ctx, sessionID, updated, cause); retryErr == nil {
 				updated = retried
 				updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 					current.RepairAttempt++

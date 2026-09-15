@@ -255,8 +255,10 @@ const CONTINUATION_PATHS = new Set([
   'attempts/ledger.md',
   'context-delta/delta.json',
   'context-delta/delta.patch',
+  'conflict/capsule.json',
 ])
 const MAX_CONTINUATION_BYTES = 1 << 20
+const MAX_CONFLICT_CAPSULE_BYTES = 4 << 20
 
 function normalizeContinuationFiles(values) {
   const list = Array.isArray(values) ? values : []
@@ -268,7 +270,8 @@ function normalizeContinuationFiles(values) {
     if (seen.has(name)) throw new Error(`Duplicate continuation artifact: ${name}`)
     seen.add(name)
     const bytes = Buffer.from(String(item?.content_base64 || ''), 'base64')
-    if (!bytes.byteLength || bytes.byteLength > MAX_CONTINUATION_BYTES) throw new Error(`Invalid continuation artifact size: ${name}`)
+    const maxBytes = name === 'conflict/capsule.json' ? MAX_CONFLICT_CAPSULE_BYTES : MAX_CONTINUATION_BYTES
+    if (!bytes.byteLength || bytes.byteLength > maxBytes) throw new Error(`Invalid continuation artifact size: ${name}`)
     out.push({ name, bytes })
   }
   return out

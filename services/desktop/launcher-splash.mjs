@@ -1,5 +1,31 @@
-import { app, BrowserWindow } from 'electron'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { app, BrowserWindow, nativeImage } from 'electron'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { desktopIconSVG } from './desktop-identity.mjs'
+
+// install-dev.sh installs a raster icon per instance slug at this exact path
+// (and the scalable SVG source next to it). Reusing that installed asset,
+// rather than rasterizing our own SVG data URL, is what actually renders on
+// Linux window switchers/taskbars: `nativeImage` SVG-from-data-URL support is
+// unreliable there, and the app's WM class (unset here on purpose, so it
+// stays the `wharness-desktop` package default) is what desktop environments
+// match against the installed `.desktop` entry's `Icon=` for the real icon.
+function resolveSplashIcon() {
+  const slug = String(process.env.WHARNESS_INSTANCE_ID || 'wharnex').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'wharnex'
+  const dataHome = process.env.XDG_DATA_HOME || `${homedir()}/.local/share`
+  for (const path of [
+    `${dataHome}/icons/hicolor/256x256/apps/wharnex-${slug}.png`,
+    `${dataHome}/icons/hicolor/scalable/apps/wharnex-${slug}.svg`,
+  ]) {
+    if (existsSync(path)) {
+      const image = nativeImage.createFromPath(path)
+      if (!image.isEmpty()) return image
+    }
+  }
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(desktopIconSVG(process.env.WHARNESS_INSTANCE_ID)).toString('base64')}`)
+}
+
+const SPLASH_ICON = resolveSplashIcon()
 
 const statusFile = process.env.WHARNESS_SPLASH_STATUS_FILE || ''
 const readyFile = process.env.WHARNESS_SPLASH_READY_FILE || ''
@@ -13,7 +39,7 @@ function readStatus() {
 const page = `<!doctype html><html lang="pt"><meta charset="utf-8"><style>
   *{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111310;color:#f5f7ef}
   body{font-family:Manrope,"Segoe UI Variable",sans-serif;display:grid;place-items:center}
-  main{width:100%;height:100%;position:relative;overflow:hidden;padding:30px 34px;background:radial-gradient(circle at 89% 12%,#28311b 0,transparent 32%),radial-gradient(circle at 6% 108%,#1e2518 0,transparent 38%),#111310}
+  main{width:100%;height:100%;position:relative;overflow:hidden;padding:30px 34px;background:radial-gradient(circle at 89% 12%,#28311b 0,transparent 32%),radial-gradient(circle at 6% 108%,#1e2518 0,transparent 38%),#111310;-webkit-app-region:drag}
   .grain{position:absolute;inset:0;opacity:.22;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");pointer-events:none}
   header{position:relative;z-index:1;display:flex;align-items:center;gap:10px;font:600 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.16em;text-transform:uppercase;color:#dce4cd}
   .mark{width:30px;height:30px;position:relative;border:1px solid #4a5540;border-radius:9px;background:#171a15;box-shadow:inset 0 1px rgba(255,255,255,.08)}
@@ -25,6 +51,7 @@ app.whenReady().then(async () => {
   splash = new BrowserWindow({
     width: 570, height: 350, show: false, frame: false, resizable: false,
     transparent: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#111310',
+    icon: SPLASH_ICON,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   splash.setMenuBarVisibility(false)

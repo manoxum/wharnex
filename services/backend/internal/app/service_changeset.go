@@ -558,7 +558,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 	if err != nil {
 		return item, err
 	}
-	message := buildConflictResolutionMessage(capsuleJSON, paths, conflictComplexitySummary(conflicts))
+	message := buildConflictResolutionMessage(paths, conflictComplexitySummary(conflicts))
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
 	if err != nil {
 		return item, err
@@ -574,6 +574,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: planIDs, Paths: paths, Details: append([]domain.IntegrationConflictDetail(nil), conflicts...), CreatedAt: time.Now().UTC()}
 	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		recordRequestSupportArtifact(current, requestID, conflictCapsuleArtifactPath, capsuleJSON)
 		recordRequestLineage(current, requestID, item.LastRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		if current.IntegrationConflict == nil {
@@ -620,7 +621,7 @@ func (s *Service) exhaustConflictResolution(sessionID string, item domain.Sessio
 	return updated, err
 }
 
-func buildConflictResolutionMessage(capsule []byte, paths []string, localAttempts string) string {
+func buildConflictResolutionMessage(paths []string, localAttempts string) string {
 	if strings.TrimSpace(localAttempts) != "" {
 		localAttempts = "\n\n" + strings.TrimSpace(localAttempts) +
 			"\nThese collisions already survived Wharnex's own line-granular and token-granular three-way merge, so a purely mechanical union of both sides is not the answer being asked for."
@@ -634,8 +635,80 @@ Return one normal canonical Wharnex change bundle for this request. The plan bas
 
 Do not repeat unrelated project work, do not modify non-conflict paths, and do not return a workflow. Resolve every listed conflict in one deliberate bundle. The dedicated conflict surface is independent from the main planning conversation.%s
 
-CONFLICT CAPSULE:
-%s`, strings.Join(paths, "\n- "), localAttempts, string(capsule))
+The complete BASE/CURRENT/RESULT capsule is attached at conflict/capsule.json inside the single request ZIP. Read that file before authoring the resolution. It is authoritative and deliberately is not duplicated in this prompt.`, strings.Join(paths, "\n- "), localAttempts)
+}
+
+// prepareConflictResolutionRetry keeps a failed focused resolution inside the
+// same conflict lineage without trying to reconstruct ChangeSet details that a
+// Git-native conflict never had. The exact capsule is immutable request
+// evidence, so retries copy that artifact to the new request and add only the
+// newly observed failure to the prompt/attempt history.
+func (s *Service) prepareConflictResolutionRetry(ctx context.Context, sessionID string, item domain.Session, cause error) (domain.Session, error) {
+	conflict := item.IntegrationConflict
+	if conflict == nil || strings.TrimSpace(conflict.RequestID) == "" {
+		return item, errors.New("active integration conflict is unavailable")
+	}
+	if conflictResolutionExhausted(item) {
+		return s.exhaustConflictResolution(sessionID, item, conflict.ID, conflict.Paths)
+	}
+	var capsule []byte
+	for _, artifact := range item.RequestSupportArtifacts[conflict.RequestID] {
+		if artifact.Path == conflictCapsuleArtifactPath {
+			capsule = append([]byte(nil), artifact.Content...)
+			break
+		}
+	}
+	if len(capsule) == 0 {
+		return item, errors.New("active conflict capsule artifact is unavailable")
+	}
+
+	requestID := ids.New("req")
+	parentRequestID := conflict.RequestID
+	message := buildConflictResolutionMessage(conflict.Paths, "")
+	if cause != nil {
+		message += "\n\nThe preceding focused resolution failed local verification. Correct that attempt without dropping any original candidate content.\n\nLOCAL FAILURE:\n" + truncateRepairText(cause.Error(), 16000)
+	}
+	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
+	if err != nil {
+		return item, err
+	}
+	s.prepareContinuation(ctx, item, requestID, parentRequestID)
+	prompt := planner.BuildManualPrompt(s.plannerRequest(ctx, planner.Request{
+		SessionID: sessionID, RequestID: requestID, ParentRequestID: parentRequestID, Message: message,
+		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
+		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
+		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
+		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, parentRequestID),
+	}, knowledgeSnapshot, item.ProjectPath))
+	resolution := *conflict
+	resolution.RequestID = requestID
+	resolution.AttemptHistory = appendConflictAttempt(intentHistory(item), conflictAttemptRecord(item, conflict.Paths))
+	var prunedContexts []string
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		recordRequestSupportArtifact(current, requestID, conflictCapsuleArtifactPath, capsule)
+		recordRequestLineage(current, requestID, parentRequestID, requestKindConflict)
+		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
+		current.ConflictAttempt++
+		if current.AutomationMode == domain.AutomationModeAuto {
+			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
+		}
+		current.IntegrationConflict = &resolution
+		current.LastRequestID = requestID
+		current.LastManualPrompt = prompt
+		current.PendingManualRequestIDs = appendUnique(current.PendingManualRequestIDs, requestID)
+		current.State = "conflict_resolution_pending"
+		if cause != nil {
+			current.LastRepairError = cause.Error()
+		}
+		recordRequestBaseline(current, requestID, item.Context.Manifest.SHA256)
+		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
+		return nil
+	})
+	if err == nil {
+		s.cleanupPrunedRequestContexts(prunedContexts)
+		s.bus.Publish(sessionID, "conflict.retry_prompt_ready", map[string]any{"conflict_id": conflict.ID, "request_id": requestID, "parent_request_id": parentRequestID, "paths": conflict.Paths, "surface_key": conflictSurfaceKey(sessionID, conflict.ID)})
+	}
+	return updated, err
 }
 
 func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPlan) error {
@@ -677,31 +750,76 @@ func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionP
 	return nil
 }
 
-func retireConflictingMutations(changes []domain.PendingHostChange, conflict *domain.ConflictResolution) []domain.PendingHostChange {
+func retireConflictingMutations(ctx context.Context, projectPath, replacementBase string, changes []domain.PendingHostChange, conflict *domain.ConflictResolution) ([]domain.PendingHostChange, []string, error) {
 	if conflict == nil {
-		return changes
+		return changes, nil, nil
 	}
 	blocked := make(map[string]bool, len(conflict.Paths))
 	for _, path := range conflict.Paths {
 		blocked[path] = true
 	}
+	targets := make(map[string]bool, len(conflict.OriginalPlanIDs))
+	for _, planID := range conflict.OriginalPlanIDs {
+		targets[planID] = true
+	}
 	result := make([]domain.PendingHostChange, 0, len(changes))
+	retiredBranches := make([]string, 0, 1)
 	for _, change := range changes {
-		if change.ChangeSet == nil {
+		if len(targets) > 0 && !targets[change.Plan.PlanID] {
+			result = append(result, change)
 			continue
 		}
-		mutations := change.ChangeSet.Mutations[:0]
-		for _, mutation := range change.ChangeSet.Mutations {
-			if !blocked[mutation.Path] {
-				mutations = append(mutations, mutation)
+		if change.ChangeSet != nil {
+			clone := *change.ChangeSet
+			clone.Mutations = make([]domain.FileMutation, 0, len(change.ChangeSet.Mutations))
+			for _, mutation := range change.ChangeSet.Mutations {
+				if !blocked[mutation.Path] {
+					clone.Mutations = append(clone.Mutations, mutation)
+				}
+			}
+			change.ChangeSet = &clone
+			if len(clone.Mutations) > 0 {
+				result = append(result, change)
+			}
+			continue
+		}
+		if change.IntegrationBranch == "" || change.IntegrationCommit == "" {
+			return nil, nil, fmt.Errorf("cannot partially supersede legacy candidate %s without a canonical ChangeSet or Git commit", change.Plan.PlanID)
+		}
+		if len(change.SubmoduleIntegrations) > 0 {
+			return nil, nil, fmt.Errorf("cannot partially supersede candidate %s with nested repository integrations", change.Plan.PlanID)
+		}
+		keptPaths := make([]string, 0)
+		for _, path := range actualPatchFiles(&change.Plan) {
+			if !blocked[path] {
+				keptPaths = append(keptPaths, path)
 			}
 		}
-		change.ChangeSet.Mutations = mutations
-		if len(mutations) > 0 {
-			result = append(result, change)
+		retiredBranches = append(retiredBranches, change.IntegrationBranch)
+		if len(keptPaths) == 0 {
+			continue
 		}
+		patch, err := sandbox.CommitDiffPaths(ctx, projectPath, change.IntegrationCommit, keptPaths)
+		if err != nil {
+			return nil, nil, fmt.Errorf("materialize non-conflicting part of candidate %s: %w", change.Plan.PlanID, err)
+		}
+		if strings.TrimSpace(patch) == "" {
+			return nil, nil, fmt.Errorf("candidate %s records non-conflicting paths but its integration commit has no matching diff", change.Plan.PlanID)
+		}
+		operations := []domain.Operation{{Type: "apply_patch", Patch: patch}}
+		for _, operation := range change.Plan.Operations {
+			if operation.Type == "command" {
+				operations = append(operations, operation)
+			}
+		}
+		change.Plan.Operations = operations
+		change.Plan.ImpactFiles = normalizedPaths(keptPaths)
+		change.Plan.BaseContextSHA256 = strings.TrimSpace(replacementBase)
+		change.IntegrationBranch = ""
+		change.IntegrationCommit = ""
+		result = append(result, change)
 	}
-	return result
+	return result, normalizedStrings(retiredBranches), nil
 }
 
 func mutationForConflict(pending []domain.PendingHostChange, changeSetID, path string) (domain.FileMutation, bool) {

@@ -238,3 +238,23 @@ test('an unexpected continuation path is refused rather than sanitized', async (
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('a multi-file conflict capsule travels in the ZIP beyond the prompt limit', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-input-'))
+  try {
+    const requestId = 'req_20260914T192304_conflict'
+    const target = path.join(root, chatInputArchiveFilename('chat-1', requestId))
+    const capsule = Buffer.alloc(2 << 20, 0x78)
+    await writeChatInputArchive(target, {
+      requestId,
+      prompt: '# Conflict\n\nRead conflict/capsule.json.',
+      knowledge: { state: 'none' },
+      continuation: [{ path: 'conflict/capsule.json', content_base64: capsule.toString('base64') }],
+    })
+    const entries = storedEntries(await readFile(target))
+    assert.equal(entries.get('conflict/capsule.json').byteLength, capsule.byteLength)
+    assert.equal(entries.get('prompt/wharness-planner-prompt.md').byteLength < (1 << 20), true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

@@ -1837,6 +1837,11 @@ test('auxiliary conflict surfaces never overwrite the primary durable chat affin
   const write = source.slice(source.indexOf('async function executeChatAgentWrite('), source.indexOf('\nasync function enqueueOrganizeFromTitle', source.indexOf('async function executeChatAgentWrite(')))
   assert.match(write, /durableWorkspaceChatID\(key, payload\.workspace_chat_id\)/)
   assert.match(write, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort/)
+
+  const resume = source.slice(source.indexOf("ipcMain.handle('wharness:chatgpt:resume-expected-bundle'"), source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'"))
+  assert.match(resume, /durableWorkspaceChatID\(key, request\?\.workspaceChatId\)/)
+  assert.match(resume, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort\(workspaceChatId/)
+  assert.match(resume, /sessionId: request\?\.sessionId, workspaceChatId/)
 })
 
 test('a slot between two observations of a live response keeps its conversation', async () => {
