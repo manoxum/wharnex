@@ -1,5 +1,5 @@
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import type { AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
+import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
 import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ChatItemBoundary } from './ChatItemBoundary'
@@ -30,7 +30,7 @@ import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
 import { desktopBridge } from '../lib/desktop'
 import { api } from '../lib/api'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
-import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
+import { BundleExchangeBar, ChatArtifactLibrary, ComposerBundlePreviewExplorer, ReturnedArtifactGallery } from './BundleExplorer'
 import { useProgressiveChatHistory, type ChatViewportStore } from './useProgressiveChatHistory'
 import { promptDialog } from '../lib/appDialog'
 import { plannerDeclaredNonRetryable, promptGPTRepairDetail } from '../lib/plannerRecovery'
@@ -142,6 +142,7 @@ export type ChatPanelProps = {
   onRequestMode?: (mode: ChatRequestMode) => void
   onChatTransport?: (transport?: TransportOptions) => void
   onSend: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<void>
+  onPreviewBundle?: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<ArtifactRecord>
   onComment?: (message: string, attachments: File[]) => Promise<void>
   onQueueEdit?: (id: string, message: string) => void
   onQueueMove?: (id: string, direction: -1 | 1) => void
@@ -175,13 +176,17 @@ export type ChatPanelProps = {
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }
 
-export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
   const initialFileDraft = loadComposerFileDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)
   const [composerHeight, setComposerHeight] = useState(initialDraft.height)
   const [attachments, setAttachments] = useState<File[]>(initialFileDraft.attachments)
   const [attachmentError, setAttachmentError] = useState('')
+  const [bundlePreview, setBundlePreview] = useState<ArtifactRecord>()
+  const bundlePreviewRef = useRef<ArtifactRecord | undefined>(undefined)
+  const [bundlePreviewBusy, setBundlePreviewBusy] = useState(false)
+  const [bundlePreviewError, setBundlePreviewError] = useState('')
   const [projectFiles, setProjectFiles] = useState<string[]>(initialFileDraft.projectFiles)
   const [fileQuery, setFileQuery] = useState<DirectiveQuery>()
   const [copiedMessageId, setCopiedMessageId] = useState('')
@@ -294,6 +299,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
   useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
+  useEffect(() => { bundlePreviewRef.current = bundlePreview }, [bundlePreview])
+  useEffect(() => () => {
+    const record = bundlePreviewRef.current
+    if (record) void api.deleteManagedArtifact(session.id, record.id).catch(() => undefined)
+  }, [session.id])
   useEffect(() => () => {
     if (copiedResetTimerRef.current !== null) window.clearTimeout(copiedResetTimerRef.current)
   }, [])
@@ -341,6 +351,28 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     const selectedProjectFiles = projectFiles
     clearComposer()
     try { await onSend(text, selected, selectedProjectFiles, selectedArtifacts, requestMode) } catch { /* parent reports the actionable error */ }
+  }
+
+  async function previewMainBundle() {
+    const text = message.trim() || (attachments.length ? 'Analise os ficheiros anexados.' : '')
+    if (!text || !onPreviewBundle || preparedAttachmentCount || commentBusy || bundlePreviewBusy) return
+    setBundlePreviewBusy(true)
+    setBundlePreviewError('')
+    try {
+      const record = await onPreviewBundle(text, attachments, projectFiles, selectedArtifacts, requestMode)
+      if (bundlePreview) void api.deleteManagedArtifact(session.id, bundlePreview.id).catch(() => undefined)
+      setBundlePreview(record)
+    } catch (reason) {
+      setBundlePreviewError(reason instanceof Error ? reason.message : 'Não foi possível montar a pré-visualização do bundle.')
+    } finally {
+      setBundlePreviewBusy(false)
+    }
+  }
+
+  function closeBundlePreview() {
+    const record = bundlePreview
+    setBundlePreview(undefined)
+    if (record) void api.deleteManagedArtifact(session.id, record.id).catch(() => undefined)
   }
 
   async function submitComment() {
@@ -643,6 +675,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       <div className="composer-scroll-area">
       {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
+      {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
       {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={setMessage} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>} 
       <div ref={editorShellRef} className="composer-editor-shell">
         <ComposerRichEditor
@@ -716,6 +749,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>
           </span>
           <span className="composer-action-divider" />
+          <button type="button" className={`composer-round-action ${bundlePreview ? 'selected' : ''}`} disabled={!onPreviewBundle || bundlePreviewBusy || commentBusy || Boolean(preparedAttachmentCount) || (!message.trim() && !attachments.length)} aria-label="Pré-visualizar próximo bundle" title="Montar e explorar o próximo bundle sem enviar a request" onClick={() => void previewMainBundle()}><Icon name={bundlePreviewBusy ? 'refresh' : 'package'} size={12}/></button>
           <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharnex pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>
           <button type="button" className={`composer-round-action ${queueOpen ? 'selected' : ''}`} aria-label="Fila de espera" title="Fila de requests principais" onClick={() => setQueueOpen((current) => !current)}><Icon name="clipboard" size={12}/>{queuedRequests.length > 0 && <b>{queuedRequests.length}</b>}</button>
           <button type="button" className={`composer-round-action ${todoOpen ? 'selected' : ''}`} aria-label="Tarefas TODO" title="Tarefas da iteração" disabled={!todos.length} onClick={() => setTodoOpen((current) => !current)}><Icon name="check" size={12}/>{todos.length > 0 && <b>{todos.filter((todo) => !todo.done).length}</b>}</button>
@@ -725,6 +759,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       </div>
     </form>
 
+    {bundlePreview && <ComposerBundlePreviewExplorer sessionId={session.id} bundle={bundlePreview} onClose={closeBundlePreview} />}
     {inspectedArtifact && <ArtifactInspector kind={inspectedArtifact} content={artifactContent?.[inspectedArtifact] || 'Conteúdo ainda não disponível para esta iteração.'} onClose={() => setInspectedArtifact('')} />}
     {inspectedChangeFile && <DiffInspector sessionId={session.id} file={inspectedChangeFile} onOpenFile={onOpenFile} onClose={() => setInspectedChangeFile(undefined)} />}
   </section>

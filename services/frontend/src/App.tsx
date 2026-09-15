@@ -1359,6 +1359,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     updateChat({ lastContextSha256: sha256, lastContextChatgptUrl: conversationUrl || chats.find((chat) => chat.id === activeChatId)?.chatgptUrl })
   }
 
+  async function previewComposerBundle(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode = 'direct') {
+    if (!session) throw new Error('Sessão ativa não encontrada.')
+    const encoded = attachments.length ? await encodeChatAttachments(attachments) : []
+    const systemArtifacts = await encodeSystemArtifacts(session, artifacts)
+    return api.previewComposerBundle(session.id, {
+      message: canonicalizeDirectives(message) + attachmentPromptSuffix(attachments) + projectFileReferenceSuffix(projectFiles),
+      planningMode: requestMode, attachments: encoded, artifacts: systemArtifacts, projectFiles,
+    })
+  }
+
   async function send(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode = 'direct') {
     if (!session) return
     if (attachments.length && (!isDesktop() || config?.planner !== 'manual')) {
@@ -2891,7 +2901,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
     onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onEffortLevel: changeEffortLevel, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
     onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
-    onSend: enqueueMainRequest, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
+    onSend: enqueueMainRequest, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
     onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
     onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
