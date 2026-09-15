@@ -141,25 +141,11 @@ export async function selectChatGPTUploadFile(webContents, filePath) {
     }
     if (!nodeId) throw new Error('ChatGPT upload file input was not found')
     await client.sendCommand('DOM.setFileInputFiles', { nodeId, files: [resolvedPath] })
-    // CDP sets the native FileList, but Chromium does not promise that the
-    // page's framework receives the same input/change sequence as a human file
-    // chooser. ChatGPT currently starts its upload from those listeners. Keep
-    // the script constant and scoped to the already validated upload element;
-    // capture the structural identity before listeners are allowed to clear or
-    // replace the input.
-    const resolved = await client.sendCommand('DOM.resolveNode', { nodeId })
-    const objectId = String(resolved?.object?.objectId || '')
-    if (!objectId) throw new Error('ChatGPT upload file input could not be resolved')
-    const dispatched = await client.sendCommand('Runtime.callFunctionOn', {
-      objectId,
-      functionDeclaration: 'function () { const fileCount = this.files?.length || 0; const firstName = this.files?.[0]?.name || ""; this.dispatchEvent(new Event("input", { bubbles: true, composed: true })); this.dispatchEvent(new Event("change", { bubbles: true })); return { fileCount, firstName }; }',
-      returnByValue: true,
-    })
-    const selected = dispatched?.result?.value || {}
-    const fileCount = Number(selected.fileCount || 0)
-    if (fileCount > 0 && (fileCount !== 1 || String(selected.firstName || '') !== path.basename(resolvedPath))) {
-      throw new Error('ChatGPT upload file input did not retain the selected file')
-    }
+    // DOM.setFileInputFiles performs Chromium's native file-selection
+    // lifecycle. Replaying input/change manually makes frameworks that listen
+    // to both paths process the same File twice; ChatGPT rejects that second
+    // pass with "already uploaded this file" before another network request is
+    // visible to the upload coordinator.
     return { selected: true, name: path.basename(resolvedPath) }
   } finally {
     if (attachedHere && client.isAttached()) client.detach()

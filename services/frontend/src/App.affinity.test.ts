@@ -18,7 +18,7 @@ describe('App ChatGPT affinity ownership', () => {
   })
 
   it('reconciles missed background candidates for every chat after a chat switch', () => {
-	expect(source).toMatch(/const keys = chats\.flatMap/)
+	expect(source).toMatch(/const keys = chats\.map\(\(chat\) => chat\.id\)/)
 	expect(source).toMatch(/Promise\.all\(keys\.map\(\(key\) => bridge\.chatgpt\.state\(key\)/)
     expect(source).toMatch(/const candidate = chatgptConversationURL\(state\?\.bindingCandidate/)
 	expect(source).toMatch(/bindChatGPTURLForOwnedKey\(ownerKey, session\.project_path, candidate\)/)
@@ -30,7 +30,8 @@ describe('App ChatGPT affinity ownership', () => {
     expect(source).toMatch(/api\.getSession\(chat\.sessionId\)/)
     expect(source).toMatch(/pendingBundleRequestIDs\(candidate\)/)
     expect(source).toMatch(/bridge\.chatgpt\.resumeExpectedBundle\(\{/)
-    expect(source).toMatch(/resumeExpectedBundle\(\{ cacheKey, sessionId: candidate\.id, requestId, url/)
+    expect(source).toMatch(/cacheKey, sessionId: candidate\.id, requestId, url, recoveryBootstrap/)
+    expect(source).toMatch(/chatTitle: chat\.title, chatHash: sessionContextSHA\(candidate\)/)
   })
 
   it('owns bundle imports at workspace level so inactive chats continue automatically', () => {
@@ -44,7 +45,7 @@ describe('App ChatGPT affinity ownership', () => {
   })
 
   it('keeps remote account lifecycle operations on the durable worker queue', () => {
-    expect(source).toMatch(/firstRequest, chatTitle: generatedChatTitle, projectName: chatGPTProjectName\(projectPath\)/)
+    expect(source).toMatch(/firstRequest, chatTitle: generatedChatTitle, requestedAt: userItem\.createdAt, projectName: chatGPTProjectName\(projectPath\)/)
     expect(source).toMatch(/bridge\.chatgpt\.queueArchive\(\{ cacheKey: chatId/)
     expect(source).toMatch(/chatgpt\.queueRename\(\{ cacheKey: target\.id/)
     expect(source).toMatch(/chatgpt\.queueDelete\(\{ cacheKey: chatId/)

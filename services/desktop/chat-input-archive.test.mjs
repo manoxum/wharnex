@@ -35,6 +35,12 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const knowledgeSha256 = 'a9d213eb8d86ef6c392563787faead1dcfae23d588dbb6bf01070a4d1b0476c1'
     const result = await writeChatInputArchive(target, {
       requestId,
+      requestMetadata: {
+        chat_title: 'Temporary title',
+        chat_id: 'chat-1',
+        chat_hash: 'a'.repeat(64),
+        requested_at: '2026-09-15T23:04:43.000Z',
+      },
       prompt: `# Planner\n\nPROJECT KNOWLEDGE\nKnowledge identity: version=3 sha256=${knowledgeSha256}\n${knowledgeContent}\nReturn the bundle.`,
       knowledge: { state: 'present', content: knowledgeContent, version: 3, sha256: knowledgeSha256, updated_by_request_id: 'req_earlier12345678' },
       context: { bytes: Buffer.from('UEsDBBQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAbWFuaWZlc3QuanNvbquuBQBQSwMEFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAABzcmMvQXBwLnRzeEutKMgvKlFIzs8rLlGoULBVMOQCAFBLAQIUAxQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAAAAAAAAAAACAAQAAAABtYW5pZmVzdC5qc29uUEsBAhQDFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAAAAAAAAAAAAAIABLwAAAHNyYy9BcHAudHN4UEsFBgAAAAACAAIAdAAAAG0AAAAAAA==', 'base64') },
@@ -50,6 +56,7 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const entries = storedEntries(raw)
     assert.equal(raw.byteLength, result.bytes)
     assert.equal(result.fileCount, 8)
+    assert.equal(result.requestMetadata.protocol, 'harness.request-metadata/v1')
     assert.deepEqual([...entries.keys()], [
       'transport.json',
       'prompt/wharness-planner-prompt.md',
@@ -62,10 +69,23 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     ])
     const transport = JSON.parse(entries.get('transport.json').toString('utf8'))
     assert.equal(transport.protocol, 'wharness.chat-input/v1')
+    assert.deepEqual(transport.request_metadata, {
+      protocol: 'harness.request-metadata/v1',
+      chat_title: 'Temporary title',
+      chat_id: 'chat-1',
+      chat_hash: 'a'.repeat(64),
+      requested_at: '2026-09-15T23:04:43.000Z',
+    })
     assert.deepEqual(transport.live_tunnels.map((item) => item.instance_id), ['tunnel-1', 'tunnel-2'])
     assert.deepEqual(transport.knowledge, { protocol: 'legacy', state: 'present', sharing_enabled: true, revision: 0, path: 'knowledge/project.md', version: 3, sha256: knowledgeSha256, updated_by_request_id: 'req_earlier12345678', entries: [] })
     assert.equal(entries.get('knowledge/project.md').toString('utf8'), knowledgeContent)
-    assert.match(entries.get('prompt/wharness-planner-prompt.md').toString('utf8'), new RegExp(`Knowledge identity: version=3 sha256=${knowledgeSha256}`))
+    const prompt = entries.get('prompt/wharness-planner-prompt.md').toString('utf8')
+    assert.match(prompt, /WHARNEX REQUEST METADATA/)
+    assert.match(prompt, /ChatTitle: Temporary title/)
+    assert.match(prompt, /ChatId: chat-1/)
+    assert.match(prompt, new RegExp(`ChatHash: ${'a'.repeat(64)}`))
+    assert.match(prompt, /RequestedAt: 2026-09-15T23:04:43.000Z/)
+    assert.match(prompt, new RegExp(`Knowledge identity: version=3 sha256=${knowledgeSha256}`))
     assert.equal(entries.get('context/src/App.tsx').toString('utf8'), 'export const x = 1\n')
     assert.equal(entries.get('attachments/notes.txt').toString('utf8'), 'notes')
   } finally {
@@ -147,6 +167,19 @@ test('local bootstrap exposes selected tunnel links directly without duplicating
   assert.match(bootstrap, /https:\/\/example\.test\/status/)
   assert.match(bootstrap, /https:\/\/example\.test\/token\/manifest\.json/)
   assert.doesNotMatch(bootstrap, /Return the bundle|PROJECT MANIFEST/)
+})
+
+test('local bootstrap exposes the same engine-owned request metadata as the archive', () => {
+  const requestId = 'req_20260905T083123_example123'
+  const archive = chatInputArchiveFilename('chat-1', requestId)
+  const bootstrap = localChatInputBootstrap(requestId, archive, `whx_bundle_res_chat-1_${requestId}.zip`, [], {
+    chat_title: 'Temporary title', chat_id: 'chat-1', chat_hash: 'b'.repeat(64), requested_at: '2026-09-15T23:04:43Z',
+  })
+  assert.match(bootstrap, /WHARNEX REQUEST METADATA/)
+  assert.match(bootstrap, /ChatTitle: Temporary title/)
+  assert.match(bootstrap, /ChatId: chat-1/)
+  assert.match(bootstrap, new RegExp(`ChatHash: ${'b'.repeat(64)}`))
+  assert.match(bootstrap, /RequestedAt: 2026-09-15T23:04:43.000Z/)
 })
 
 test('input archive filename rejects non-canonical request ids', () => {

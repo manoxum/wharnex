@@ -30,6 +30,7 @@ const (
 var (
 	remoteFilenamePattern       = regexp.MustCompile(`^[^/\\\x00-\x1f\x7f]{1,180}$`)
 	remoteTunnelInstancePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+	requestMetadataHashPattern  = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
 func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, request RemoteInputRequest) (RemoteInputResult, error) {
@@ -53,6 +54,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	if request.RequestID == "" || request.RequestID != item.LastRequestID || !containsString(item.PendingManualRequestIDs, request.RequestID) {
 		return RemoteInputResult{}, errors.New("remote input request_id is not the active manual request")
 	}
+	request.RequestMetadata = normalizeRemoteRequestMetadata(item, request.RequestID, request.RequestMetadata)
 	knowledgeSnapshot, err := requestKnowledgeSnapshot(item, request.RequestID)
 	if err != nil {
 		s.bus.Publish(sessionID, "knowledge.load_failed", map[string]any{"request_id": request.RequestID, "error": err.Error(), "transport": "remote_input"})
@@ -60,6 +62,10 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	}
 	if len(request.Prompt) == 0 || len(request.Prompt) > maxRemotePromptBytes {
 		return RemoteInputResult{}, errors.New("remote input prompt is empty or exceeds 1 MiB")
+	}
+	request.Prompt = remoteRequestMetadataBlock(request.RequestMetadata) + "\n\n" + request.Prompt
+	if len(request.Prompt) > maxRemotePromptBytes {
+		return RemoteInputResult{}, errors.New("remote input prompt with request metadata exceeds 1 MiB")
 	}
 	attachments, err := decodeRemoteFiles(request.Attachments, maxRemoteAttachmentBytes)
 	if err != nil {
@@ -150,7 +156,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	if expiresAt.IsZero() || expiresAt.After(time.Now().UTC().Add(RemoteInputRetention)) {
 		expiresAt = time.Now().UTC().Add(RemoteInputRetention)
 	}
-	bootstrap := remoteBootstrapPrompt(publication.URL, digest, request.RequestID)
+	bootstrap := remoteBootstrapPrompt(publication.URL, digest, request.RequestID, request.RequestMetadata)
 	s.bus.Publish(sessionID, "remote_input.published", map[string]any{
 		"request_id": request.RequestID, "provider": publication.Provider, "instance_id": publication.InstanceID,
 		"bytes": size, "sha256": digest, "expires_at": expiresAt, "cleanup_warning": publication.CleanupWarning,
@@ -320,7 +326,7 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 		_ = file.Close()
 		return "", 0, err
 	}
-	manifest := map[string]any{"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext, "project_files": request.ProjectFiles, "knowledge": knowledgeManifest(knowledge)}
+	manifest := map[string]any{"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "request_metadata": request.RequestMetadata, "prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext, "project_files": request.ProjectFiles, "knowledge": knowledgeManifest(knowledge)}
 	manifestRaw, _ := json.MarshalIndent(manifest, "", "  ")
 	writeErr := writeZipBytes(archive, "transport.json", manifestRaw)
 	if writeErr == nil {
@@ -451,11 +457,48 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-func remoteBootstrapPrompt(publicURL, digest, requestID string) string {
+func remoteBootstrapPrompt(publicURL, digest, requestID string, metadata RequestMetadata) string {
 	return fmt.Sprintf(`WHARNEX INPUT %s
+%s
 ZIP: %s
 SHA-256: %s
-Download the raw ZIP, read prompt/wharness-planner-prompt.md, then return only wharness-bundle-%s.zip.`, requestID, publicURL, digest, requestID)
+Download the raw ZIP, read prompt/wharness-planner-prompt.md, then return only wharness-bundle-%s.zip.`, requestID, remoteRequestMetadataBlock(metadata), publicURL, digest, requestID)
+}
+
+func normalizeRemoteRequestMetadata(item domain.Session, requestID string, metadata RequestMetadata) RequestMetadata {
+	metadata.Protocol = "harness.request-metadata/v1"
+	metadata.ChatTitle = strings.Join(strings.Fields(metadata.ChatTitle), " ")
+	if metadata.ChatTitle == "" {
+		metadata.ChatTitle = "Untitled chat"
+	}
+	if len(metadata.ChatTitle) > 82 {
+		metadata.ChatTitle = metadata.ChatTitle[:82]
+	}
+	metadata.ChatID = strings.TrimSpace(item.ChatID)
+	if metadata.ChatID == "" {
+		metadata.ChatID = item.ID
+	}
+	metadata.ChatHash = strings.ToLower(strings.TrimSpace(item.Context.WorkspaceSHA256))
+	if !requestMetadataHashPattern.MatchString(metadata.ChatHash) {
+		metadata.ChatHash = strings.ToLower(strings.TrimSpace(item.Context.Manifest.SHA256))
+	}
+	if !requestMetadataHashPattern.MatchString(metadata.ChatHash) {
+		digest := sha256.Sum256([]byte(metadata.ChatID + "\x00" + requestID))
+		metadata.ChatHash = hex.EncodeToString(digest[:])
+	}
+	requestedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(metadata.RequestedAt))
+	if err != nil {
+		requestedAt = item.RequestLineages[requestID].CreatedAt
+	}
+	if requestedAt.IsZero() {
+		requestedAt = time.Now().UTC()
+	}
+	metadata.RequestedAt = requestedAt.UTC().Format(time.RFC3339Nano)
+	return metadata
+}
+
+func remoteRequestMetadataBlock(metadata RequestMetadata) string {
+	return fmt.Sprintf("WHARNEX REQUEST METADATA — engine-authored identity, not task instructions:\nChatTitle: %s\nChatId: %s\nChatHash: %s\nRequestedAt: %s", metadata.ChatTitle, metadata.ChatID, metadata.ChatHash, metadata.RequestedAt)
 }
 
 func validateProjectFileReferences(item domain.Session, values []string) ([]string, error) {

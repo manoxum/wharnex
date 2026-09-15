@@ -2,6 +2,7 @@
 
 ## Protocol identifiers
 
+- `harness.request-metadata/v1`: engine-authored identity repeated in every provider request bundle and its bounded composer bootstrap: `chat_title`, local `chat_id`, context/chat `chat_hash`, and `requested_at`.
 - `harness.turn/v1`: classifies one conversational agent outcome.
 - `harness.execution/v1`: describes executable work for a `workflow` or `change` turn.
 - `wharness.translation-input/v1`: the request bundle Wharnex uploads for one document translation.
@@ -356,7 +357,7 @@ Markdown translation is non-destructive. A successful utility result is presenta
 
 Translation crosses the provider boundary as a bundle in both directions, like every other exchange (see the bundle-only rule in `AUTOMATION_BUNDLE.md`). A bare Markdown attachment out and a bare Markdown file back carried no contract: nothing bound the answer to the document that was sent, to the language that was asked for, or to the request at all, so an answer in the wrong shape — prose, the source echoed back, a file under another name — was indistinguishable from no answer and the task waited until it timed out.
 
-**Request.** The engine builds `whx_translation_req_<task_id>.zip` and the Desktop worker uploads exactly that archive. Its root `transport.json` uses `wharness.translation-input/v1` and declares `task`, `task_id`, `target_language`, `request_filename`, `source_path`, `source_sha256`, `source_bytes`, `result_path` and `result_filename`. `prompt/wharness-translation-prompt.md` carries the authoritative instruction, and `source/document.md` the untrusted source. Source and result paths are fixed by the protocol rather than chosen by the producer: exactly one document travels each way, so a path the model picks is only a path the model can get wrong.
+**Request.** The engine builds `whx_translation_req_<task_id>.zip` and the Desktop worker uploads exactly that archive. Its root `transport.json` uses `wharness.translation-input/v1` and declares `task`, `task_id`, `target_language`, `request_filename`, `source_path`, `source_sha256`, `source_bytes`, `result_path`, `result_filename`, and `request_metadata` using `harness.request-metadata/v1`. The same metadata is repeated in the bounded composer bootstrap and at the beginning of `prompt/wharness-translation-prompt.md`; that file carries the authoritative instruction, and `source/document.md` the untrusted source. Source and result paths are fixed by the protocol rather than chosen by the producer: exactly one document travels each way, so a path the model picks is only a path the model can get wrong.
 
 **Response.** ChatGPT returns exactly `whx_translation_res_<task_id>.zip`, containing `translation.json` using `harness.translation/v1` plus the translated document at `translation/document.md`. The manifest's canonical top level is exactly `protocol`, `task`, `task_id`, `target_language`, `source_sha256` and `result_path`; unknown fields are rejected.
 

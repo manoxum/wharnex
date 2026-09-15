@@ -12,7 +12,7 @@ const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
 const AGENT_FOLLOW_EVENT = 'wharnex:agent-follow'
 
-export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, recoveryBootstrap, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
+export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, chatHash, requestedAt, recoveryBootstrap, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
   suspended?: boolean
   busy: boolean
   chatId: string
@@ -20,6 +20,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   chatgptUrl?: string
   pendingRequestId?: string
   sessionId?: string
+  chatHash?: string
+  requestedAt?: string
   recoveryBootstrap?: string
   onChatGPTURL: (url: string) => boolean
   onPlanFile: (json: string, requestId: string) => Promise<string>
@@ -306,6 +308,9 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
           url: conversation,
           recoveryBootstrap: recoveryBootstrap || '',
           expectedFilename: expectedResponseBundleName(recoveryBootstrap || '', pendingRequestId),
+          chatTitle,
+          chatHash,
+          requestedAt,
         })
         result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
       }
