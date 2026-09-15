@@ -50,6 +50,15 @@ const (
 	// point of it: the operator is pointing at something the project does not
 	// contain. It grants reading, never writing.
 	KindAttach Kind = "attach"
+	// KindSee names a file the operator already selected as a direct chat
+	// attachment (pasted or picked in the composer), by its exact file name.
+	// Unlike the other three kinds, its value is never resolved against a
+	// filesystem here: direct attachments travel to the model through a
+	// separate transport (the Desktop clipboard bridge or the request bundle),
+	// never through this package. Parsing and canonicalizing it keeps the
+	// marker stable and in place, the same reason every other kind is parsed
+	// here instead of being left as prose.
+	KindSee Kind = "see"
 )
 
 const (
@@ -82,6 +91,7 @@ var keywords = []KeywordSpec{
 	{Kind: KindFile, Keyword: "file"},
 	{Kind: KindRef, Keyword: "ref", Aliases: []string{"reference", "references", "project"}},
 	{Kind: KindAttach, Keyword: "attach", Aliases: []string{"att", "attch", "attche", "attaches", "attahes", "dir"}},
+	{Kind: KindSee, Keyword: "see", Aliases: []string{"look"}},
 }
 
 // Keywords returns the directive vocabulary, so a menu — or a test — can
@@ -132,7 +142,7 @@ func typedKeywordAlternation() string {
 // "change @ref:core, then stop" refers to `core`, not to `core,`. A value that
 // genuinely contains one of those characters needs the bracketed form, which is
 // what it is for.
-var pattern = regexp.MustCompile(`@\{\[(file|ref|attach)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
+var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
 
 // Directive is one parsed reference, with the byte range it occupied.
 type Directive struct {
@@ -241,6 +251,12 @@ func build(kind Kind, raw string) (Directive, bool) {
 			return Directive{}, false
 		}
 		return Directive{Kind: KindFile, Value: clean, Path: clean}, true
+	case KindSee:
+		name, ok := safeAttachmentName(value)
+		if !ok {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindSee, Value: name, Path: name}, true
 	case KindRef:
 		project, file := value, ""
 		if index := strings.Index(value, "/"); index >= 0 {
@@ -263,6 +279,16 @@ func build(kind Kind, raw string) (Directive, bool) {
 		return Directive{Kind: KindRef, Value: canonical, Project: project, Path: file}, true
 	}
 	return Directive{}, false
+}
+
+// safeAttachmentName accepts only a bare file name: no path separator, since a
+// direct chat attachment is identified by name alone, never by a location —
+// it has none here, having already been persisted through its own transport.
+func safeAttachmentName(value string) (string, bool) {
+	if strings.ContainsAny(value, "{}\x00/\\") {
+		return "", false
+	}
+	return value, true
 }
 
 // safeRelativePath accepts only a normalized project-relative path.

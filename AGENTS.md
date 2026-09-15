@@ -125,6 +125,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 
 - Repository-root `make build`, `make start`, `make stop`, `make status`, and `make logs` are the canonical local lifecycle commands.
 - Build commands MUST resolve Docker/build paths from the repository root, not from the caller's current service directory.
+- `make build` MUST materialize the configured local Protected runner image as part of a complete machine build, so a fresh checkout cannot fall through to Docker registry authentication for a missing local-only image. Transactional self-evolution MUST continue to use `make build-stage`, which MUST NOT rebuild the runner image.
 - Normal rebuilds MUST avoid unconditional package-manager hydration: dependency cache invalidation is keyed by lock/dependency metadata and runtime versions, while explicit refresh remains available for recovery.
 - Successful backend/frontend/desktop build artifacts MAY be reused only through content/runtime fingerprints; a missing expected artifact or changed component input MUST invalidate that component, and an explicit forced rebuild path MUST remain available.
 - The development launcher MUST show a short splash before Desktop startup and compare the current source fingerprint with the last successful build fingerprint. A changed or absent fingerprint MUST stop the owned Desktop, complete `make build`, and only then start the Desktop; a failed build MUST NOT advance that fingerprint.

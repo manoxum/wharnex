@@ -47,6 +47,8 @@ User-selected chat attachments cross a narrow trusted-renderer IPC seam as bound
 
 Orchestrator manual planning has one additional artifact-only exception. A durable `ORCHESTRATOR_PLAN` worker MAY send one backend-authored bounded planning prompt, request exact `whx_orchestrator_plan_<task_id>.json`, and import it only through `harness.orchestrator-plan/v1` validation. It cannot execute commands or patches, MUST NOT read assistant prose, and treats the JSON bytes as untrusted until backend validation succeeds.
 
+For upload retry purposes, absence must be provable. A failure before any provider upload request starts, or an explicit non-success HTTP response, MAY repeat the file selection with bounded backoff. Once a provider upload request has started, a network error or completion timeout is ambiguous: ChatGPT may already retain the file even though Wharnex lost the acknowledgement. This ambiguous case is an exception to the general transient-network retry rule above and MUST fail closed without selecting the same local archive again; submission remains blocked and the operator receives an actionable recovery error instead of a duplicate remote upload.
+
 ## Project bootstrap boundary (v1.2.17)
 
 Native folder selection is exposed only to the trusted local renderer through a sender-checked, capability-specific Electron IPC. The remote ChatGPT `WebContentsView` has no access to this picker.

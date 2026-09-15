@@ -36,6 +36,13 @@ build_stage_block=$(section build-stage)
 deps_block=$(section deps)
 stop_block=$(section stop)
 
+runner_probe_image='kernl-runner:lifecycle-check'
+build_dry_run=$(make --no-print-directory -n -f "$MAKEFILE" build RUNNER_IMAGE="$runner_probe_image")
+if ! printf '%s\n' "$build_dry_run" | grep -Fq "docker build -t \"$runner_probe_image\""; then
+  echo 'lifecycle regression: make build must materialize the configured Protected runner image' >&2
+  exit 1
+fi
+
 if ! printf '%s\n' "$build_block" | grep -Fq 'stack.sh" ensure'; then
   echo 'lifecycle regression: make build must reconcile the Compose application stack' >&2
   exit 1
@@ -77,7 +84,7 @@ if printf '%s\n' "$deps_block" | grep -Eq 'command -v docker|docker[[:space:]]';
   exit 1
 fi
 if ! grep -Fq 'build-runner: runner-deps' "$MAKEFILE"; then
-  echo 'lifecycle regression: Protected runner construction must remain explicit' >&2
+  echo 'lifecycle regression: the direct Protected runner recovery target must remain available' >&2
   exit 1
 fi
 if ! grep -Fq 'install-dev:' "$MAKEFILE" || ! grep -Fq 'scripts/install-dev.sh' "$MAKEFILE" || [ ! -x "$INSTALL_DEV" ]; then

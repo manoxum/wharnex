@@ -24,7 +24,7 @@ A focused resolution is cumulative path replacement. The engine removes only the
 
 An active `IntegrationConflict` is itself an Apply guard, independent of UI/session state labels. If a focused resolution fails, the next bounded conflict request copies the same immutable capsule artifact and appends the observed local failure. Git-native conflicts are never retried through absent ChangeSet details.
 
-Upload discovery is scoped to the currently usable composer and uses a closed selector preference ladder. Confirmation understands both the staged metadata/final-ack sequence and the legacy stream, and all observed request ids are cleaned up together. Active semantic deduplication now covers write tasks in both durable stores and the Desktop projection. Both local launch paths sanitize Electron-as-Node mode before the splash and converge on the same lifecycle identity. Auxiliary `_cf_` surfaces never persist their conversation URL as a durable workspace-chat binding, including during restart recovery.
+Upload discovery is scoped to the currently usable composer and uses a closed selector preference ladder. Confirmation understands both the staged metadata/final-ack sequence and the legacy stream, and all observed request ids are cleaned up together. File-selection retry is permitted only while absence is provable: before an upload request starts or after an explicit provider rejection. Network errors and completion timeouts after a provider upload starts are ambiguous, so they fail closed without selecting the same archive again; otherwise ChatGPT may retain the first upload and reject the replay as an already-loaded file. Active semantic deduplication now covers write tasks in both durable stores and the Desktop projection. Both local launch paths sanitize Electron-as-Node mode before the splash and converge on the same lifecycle identity. Auxiliary `_cf_` surfaces never persist their conversation URL as a durable workspace-chat binding, including during restart recovery.
 
 ## Consequences
 
@@ -33,6 +33,7 @@ Upload discovery is scoped to the currently usable composer and uses a closed se
 - A failed correction cannot expose the stale predecessor to Apply or manufacture a larger second conflict.
 - Existing response bundle schemas remain unchanged. Request archives gain one optional, fixed-path engine-owned entry; persisted sessions gain server-only support artifacts and an automatic compatibility migration.
 - Composer revisions may change selector placement or split upload into stages without turning a successful attachment into a timeout, and restart recovery cannot multiply one accepted write.
+- An ambiguous upload acknowledgement may require operator recovery, but it cannot create a duplicate attachment by replaying the same local file selection.
 - The OS shortcut and `make start` now share the same runtime semantics as well as the same stored identity.
 
 ## Verification

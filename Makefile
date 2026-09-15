@@ -19,15 +19,15 @@ BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 help:
 	@printf '%s\n' \
 		'Wharnex lifecycle:' \
-		'  make build    Build application/stack images and reconcile backend/frontend services' \
+		'  make build    Build application/stack/runner images and reconcile backend/frontend services' \
 		'  make build-stage  Build artifacts/images without replacing running services (self-evolution)' \
 		'  make deps-status   Show dependency fingerprint cache state' \
 		'  make deps-refresh  Force deterministic dependency re-hydration' \
 		'  make build-status  Show compiled-artifact fingerprint cache state' \
 		'  make build-refresh Force recompilation while preserving dependency caches' \
 		'  make storage-prune Remove obsolete temporary workspaces and dependency caches' \
-		'  make build-runner  Explicitly build the Protected Docker runner (starts Docker when required)' \
-		'  make build-all     Build desktop lifecycle + runner explicitly' \
+		'  make build-runner  Directly build the Protected Docker runner (requires running Docker)' \
+		'  make build-all     Compatibility alias for the complete make build lifecycle' \
 		'  make start    Reconcile Compose services and start Desktop on the host' \
 		'  make install-dev Install the per-instance launcher/OS shortcut, then build and start Wharnex' \
 		'  make stop     Stop Desktop only; Compose services and tunnel URLs stay alive' \
@@ -129,6 +129,7 @@ build-stage:
 	@printf '\nWharness build stage complete; running stack services were not replaced.\n'
 
 build: build-stage
+	@$(MAKE) --no-print-directory build-runner
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" ensure
 	@$(MAKE) --no-print-directory storage-prune
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/source-fingerprint.sh" write
@@ -140,11 +141,10 @@ storage-prune:
 
 build-all:
 	@$(MAKE) --no-print-directory build
-	@$(MAKE) --no-print-directory build-runner
-	@printf '\nWharness application + Protected runner build complete.\n'
+	@printf '\nWharness complete build lifecycle finished.\n'
 
 build-plan:
-	@printf '%s\n' deps build-backend build-frontend build-desktop stack-build
+	@printf '%s\n' deps build-backend build-frontend build-desktop stack-build build-runner
 
 stack-build:
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" build

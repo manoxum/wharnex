@@ -35,6 +35,12 @@ function uploadRequestStage(details) {
 
 function isUploadRequest(details) { return uploadRequestStage(details) !== '' }
 
+function ambiguousUploadFailure(message) {
+  const error = new Error(message)
+  error.retryFileSelection = false
+  return error
+}
+
 export function plannerPromptMarkdown(value) {
   const text = String(value || '').trimEnd()
   if (!text) throw new Error('Prepared prompt is empty')
@@ -219,7 +225,7 @@ export class ChatGPTUploadCoordinator {
     state.requestId = String(details.id)
     state.requestIds.add(state.requestId)
     this.pendingByRequest.set(state.requestId, state)
-    state.timer = setTimeout(() => state.finish(new Error('ChatGPT file upload did not complete before timeout')), state.completionTimeoutMs)
+    state.timer = setTimeout(() => state.finish(ambiguousUploadFailure('ChatGPT file upload did not complete before timeout')), state.completionTimeoutMs)
     return true
   }
 
@@ -240,7 +246,7 @@ export class ChatGPTUploadCoordinator {
     if (!isUploadRequest(details)) return false
     const state = this.stateFor(details)
     if (!state) return false
-    state.finish(new Error(`ChatGPT file upload failed: ${details.error || 'network error'}`))
+    state.finish(ambiguousUploadFailure(`ChatGPT file upload failed: ${details.error || 'network error'}`))
     return true
   }
 }
@@ -279,6 +285,9 @@ export async function pasteWithUploadRetry({
       return await upload
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
+      if (lastError.retryFileSelection === false) {
+        throw new Error(`ChatGPT upload state is uncertain after the provider upload started; refusing to select the same file again: ${lastError.message}`)
+      }
       if (attempt === attempts) break
       onRetry({ attempt, nextAttempt: attempt + 1, error: lastError })
       await wait(Math.min(8_000, 500 * (2 ** (attempt - 1))))

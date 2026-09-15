@@ -132,7 +132,7 @@ test('ChatGPT readiness waits for loading to finish and for a stable network win
   assert.ok(now >= 500)
 })
 
-test('failed ChatGPT upload is pasted again and only resolves after confirmed success', async () => {
+test('an explicit ChatGPT upload rejection is pasted again and only resolves after confirmed success', async () => {
   const coordinator = new ChatGPTUploadCoordinator()
   let pasteCount = 0
   const retries = []
@@ -145,7 +145,7 @@ test('failed ChatGPT upload is pasted again and only resolves after confirmed su
       const id = `upload-${pasteCount}`
       coordinator.onBeforeRequest({ id, webContentsId: 42, url: uploadURL })
       queueMicrotask(() => {
-        if (pasteCount === 1) coordinator.onErrorOccurred({ id, webContentsId: 42, url: uploadURL, error: 'net::ERR_NETWORK_CHANGED' })
+        if (pasteCount === 1) coordinator.onCompleted({ id, webContentsId: 42, url: uploadURL, statusCode: 503 })
         else coordinator.onCompleted({ id, webContentsId: 42, url: uploadURL, statusCode: 200 })
       })
     },
@@ -156,6 +156,45 @@ test('failed ChatGPT upload is pasted again and only resolves after confirmed su
   assert.equal(pasteCount, 2)
   assert.equal(retries.length, 1)
   assert.equal(result.observed, true)
+})
+
+test('an ambiguous upload network failure never selects the same file twice', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  let pasteCount = 0
+  const retries = []
+
+  await assert.rejects(() => pasteWithUploadRetry({
+    attempts: 3,
+    beginUpload: () => coordinator.expect(42, { startTimeoutMs: 100, completionTimeoutMs: 100 }),
+    paste: async () => {
+      pasteCount += 1
+      const id = `ambiguous-${pasteCount}`
+      coordinator.onBeforeRequest({ id, webContentsId: 42, url: uploadURL })
+      queueMicrotask(() => coordinator.onErrorOccurred({ id, webContentsId: 42, url: uploadURL, error: 'net::ERR_NETWORK_CHANGED' }))
+    },
+    wait: async () => {},
+    onRetry: (failure) => retries.push(failure),
+  }), /state is uncertain/i)
+
+  assert.equal(pasteCount, 1)
+  assert.equal(retries.length, 0)
+})
+
+test('an upload completion timeout never selects the same file twice', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  let pasteCount = 0
+
+  await assert.rejects(() => pasteWithUploadRetry({
+    attempts: 2,
+    beginUpload: () => coordinator.expect(44, { startTimeoutMs: 20, completionTimeoutMs: 5 }),
+    paste: async () => {
+      pasteCount += 1
+      coordinator.onBeforeRequest({ id: `timeout-${pasteCount}`, webContentsId: 44, url: uploadURL })
+    },
+    wait: async () => {},
+  }), /state is uncertain/i)
+
+  assert.equal(pasteCount, 1)
 })
 
 test('a transient composer preparation failure consumes one retry instead of aborting the upload loop', async () => {
