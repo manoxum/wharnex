@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/request-metadata.schema.json",
+  "title": "Wharnex provider request metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "chat_title", "chat_id", "chat_hash", "requested_at"],
+  "properties": {
+    "protocol": {"const": "harness.request-metadata/v1"},
+    "chat_title": {"type": "string", "minLength": 1, "maxLength": 82},
+    "chat_id": {"type": "string", "minLength": 1, "maxLength": 180},
+    "chat_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "requested_at": {"type": "string", "format": "date-time"}
+  }
+}
