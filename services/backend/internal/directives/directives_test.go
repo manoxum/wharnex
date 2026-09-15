@@ -157,13 +157,33 @@ func TestParseAcceptsSeeAndLookAsTheSameKind(t *testing.T) {
 	}
 }
 
-// A name is a name, not a path: a directory separator would let the marker
-// silently name something other than the exact attachment it appears to.
-func TestSeeRejectsPathSeparators(t *testing.T) {
+func TestSeeRequiresQualifiedContextPaths(t *testing.T) {
 	for _, text := range []string{"@see:../secrets.txt", "@see:dir/file.png", "@see:a\\b"} {
 		if parsed := Parse(text); len(parsed) != 0 {
 			t.Fatalf("%q must not parse as a directive, got %#v", text, parsed)
 		}
+	}
+	for input, wantSource := range map[string]string{
+		"@{[see]project|src/App.tsx}":                   "project",
+		"@{[see]ref|flowcore|services/api/auth.go}":     "ref",
+		"@{[see]attach|/srv/contracts|openapi/api.yml}": "attach",
+		"@{[see]upload|diagram.png}":                    "upload",
+	} {
+		parsed := Parse(input)
+		if len(parsed) != 1 || parsed[0].Source != wantSource {
+			t.Fatalf("%q parsed=%#v", input, parsed)
+		}
+	}
+}
+
+func TestRefCarriesOptionalRequestLocalSelection(t *testing.T) {
+	plain := Parse("@{[ref]flowcore}")[0]
+	if plain.Rules.AutoExclude || len(plain.Rules.Include) != 0 {
+		t.Fatalf("plain ref must inherit project config: %#v", plain)
+	}
+	configured := Parse("@{[ref]flowcore|!auto|+src/**|-dist/**}")[0]
+	if configured.Rules.AutoExclude || !reflect.DeepEqual(configured.Rules.Include, []string{"src/**"}) || !reflect.DeepEqual(configured.Rules.Exclude, []string{"dist/**"}) {
+		t.Fatalf("configured=%#v", configured)
 	}
 }
 

@@ -936,14 +936,15 @@ type ContextBundle struct {
 // selection actually admitted, and Truncated so an attachment that hit a bound
 // says so instead of quietly arriving incomplete.
 type AttachedPathContext struct {
-	Root          string `json:"root"`
-	Name          string `json:"name"`
-	Kind          string `json:"kind"`
-	Prefix        string `json:"prefix"`
-	Files         int    `json:"files"`
-	Bytes         int64  `json:"bytes"`
-	ExcludedItems int    `json:"excluded_items,omitempty"`
-	Truncated     bool   `json:"truncated,omitempty"`
+	Root          string   `json:"root"`
+	Name          string   `json:"name"`
+	Kind          string   `json:"kind"`
+	Prefix        string   `json:"prefix"`
+	Files         int      `json:"files"`
+	Bytes         int64    `json:"bytes"`
+	ExcludedItems int      `json:"excluded_items,omitempty"`
+	Truncated     bool     `json:"truncated,omitempty"`
+	IncludedPaths []string `json:"included_paths,omitempty"`
 }
 
 type RelatedProjectContext struct {

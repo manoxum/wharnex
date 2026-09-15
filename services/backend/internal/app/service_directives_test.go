@@ -64,8 +64,22 @@ func TestDirectiveLegendExplainsSee(t *testing.T) {
 	if !strings.Contains(legend, "@{[see]") {
 		t.Fatalf("legend must describe the @see marker it saw: %q", legend)
 	}
-	if !strings.Contains(legend, "attached directly to this message") {
+	if !strings.Contains(legend, "direct upload \"before.png\"") {
 		t.Fatalf("legend must explain @see points at a direct attachment: %q", legend)
+	}
+}
+
+func TestDirectiveLegendResolvesQualifiedSeeToExactBundlePath(t *testing.T) {
+	context := domain.ContextBundle{
+		Manifest:        manifestWith("src/App.tsx"),
+		RelatedProjects: []domain.RelatedProjectContext{{Name: "core", Prefix: "RELATED_PROJECTS/01-core/", Manifest: manifestWith("api/auth.go")}},
+		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/api.yml"}}},
+	}
+	legend := directiveLegendWithContext("focus @{[see]project|src/App.tsx} @{[see]ref|core|api/auth.go} @{[see]attach|/srv/contracts|openapi/api.yml}", context)
+	for _, path := range []string{"src/App.tsx", "RELATED_PROJECTS/01-core/api/auth.go", "ATTACHMENTS/01-contracts/openapi/api.yml"} {
+		if !strings.Contains(legend, path) {
+			t.Fatalf("legend must resolve %q: %s", path, legend)
+		}
 	}
 }
 

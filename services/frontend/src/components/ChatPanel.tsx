@@ -1,4 +1,4 @@
-import { Fragment, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
 import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
@@ -23,8 +23,10 @@ import {
   type DirectiveQuery,
   type ReferenceableProject,
 } from '../lib/composerDirectives'
-import { ComposerDirectiveConfigPopover, ComposerDirectiveOverlay, type DirectivePopoverAnchor } from './ComposerDirectiveOverlay'
+import { ComposerDirectiveConfigPopover, type DirectivePopoverAnchor } from './ComposerDirectiveConfigPopover'
+import { ComposerRichEditor, type CaretRequest, type ComposerRichEditorHandle } from './ComposerRichEditor'
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel'
+import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
 import { desktopBridge } from '../lib/desktop'
 import { api } from '../lib/api'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
@@ -90,7 +92,17 @@ function contextIdentityHash(session: Session) {
   return session.context.workspace_sha256 || session.context.manifest.sha256
 }
 
-export function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }: {
+/**
+ * An imperative escape hatch onto the composer's rich editor — chiefly for
+ * tests that need to drive it directly (see ChatPanel.test.tsx): jsdom cannot
+ * faithfully simulate real keystrokes into a contenteditable Quill instance,
+ * so tests instead call the underlying Quill API through here, exactly the
+ * same way flowdocs' own editor keeps a `getEditor()` escape hatch for its
+ * own imperative chip operations.
+ */
+export type ChatPanelHandle = { getComposerEditor: () => ReturnType<ComposerRichEditorHandle['getEditor']> }
+
+export type ChatPanelProps = {
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -161,7 +173,9 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   onDeleteArchivedChat: (chatId: string) => Promise<void>
   onRenameChat?: (chatId: string, title: string) => Promise<void>
   onGenerateChatTitle?: (chatId: string) => Promise<void>
-}) {
+}
+
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
   const initialFileDraft = loadComposerFileDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)
@@ -182,12 +196,16 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const [contextChannelOpen, setContextChannelOpen] = useState(false)
   const [attachmentsPanelOpen, setAttachmentsPanelOpen] = useState(false)
   const [attachmentsPanelPath, setAttachmentsPanelPath] = useState<string>()
-  // The directive currently showing its configuration popover, opened by
-  // clicking its chip in the text or its miniature in the summary strip above
-  // the composer — both converge on the same popover, anchored to whichever
-  // element was actually clicked.
+  const [attachmentsPanelKind, setAttachmentsPanelKind] = useState<'attach' | 'ref'>('attach')
+  const [attachedPathFiles, setAttachedPathFiles] = useState<Array<{ root: string; files: string[] }>>([])
+  // The directive currently showing its configuration popover, opened from
+  // the chip embedded directly in the prompt text.
   const [openDirective, setOpenDirective] = useState<{ directive: ComposerDirective; anchor: DirectivePopoverAnchor }>()
-  const directiveMirrorRef = useRef<HTMLDivElement>(null)
+  // Where the rich editor should place its caret next — applied whenever
+  // `token` changes, independent of whether the text itself also changed (see
+  // ComposerRichEditor). Bumped by every programmatic edit: picking a
+  // directive from a menu or reopening one for editing.
+  const [pendingCaret, setPendingCaret] = useState<CaretRequest>()
   // Every project Wharnex has worked on before, open or closed — the same
   // candidate set `@ref` resolves against at submit time (see
   // Service.KnownProjects). Fetched once per session/project rather than kept
@@ -208,7 +226,9 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   const composerRef = useRef<HTMLFormElement>(null)
   const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
   const copiedResetTimerRef = useRef<number | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const richEditorRef = useRef<ComposerRichEditorHandle>(null)
+  const editorShellRef = useRef<HTMLDivElement>(null)
+  useImperativeHandle(forwardedRef, () => ({ getComposerEditor: () => richEditorRef.current?.getEditor() }), [])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const todos = useMemo(() => latestTodoSnapshot(items), [items])
   const { endRef, hasOlder, hiddenItemCount, loadOlder, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
@@ -238,22 +258,28 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     return () => { alive = false }
   }, [session.id])
   const attachmentNames = useMemo(() => attachments.map((file) => file.name), [attachments])
-  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames])
+  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles])
   const kindSuggestions = useMemo(() => kindQuery ? directiveKindSuggestions(kindQuery.query) : [], [kindQuery])
   const parsedDirectives = useMemo(() => parseDirectives(message), [message])
-  // Every kind summarizes as a small chip above the composer, so the whole
-  // selection — files, projects, external paths and direct attachments alike —
-  // reads at a glance without hunting through the text for markers.
-  const summaryDirectives = parsedDirectives
   const attachedPaths = useMemo(() => parsedDirectives.filter((directive) => directive.kind === 'attach'), [parsedDirectives])
+  const attachmentDirectiveKey = useMemo(() => attachedPaths.map(canonicalDirective).join(' '), [attachedPaths])
+  useEffect(() => {
+    let alive = true
+    const directives = parseDirectives(attachmentDirectiveKey)
+    Promise.all(directives.map(async (directive) => {
+      try {
+        const inspection = await api.attachmentInspection(session.id, canonicalDirective(directive))
+        return { root: directive.path, files: inspection.entries.filter((entry) => entry.status === 'included' && entry.kind === 'file').map((entry) => entry.path) }
+      } catch { return { root: directive.path, files: [] } }
+    })).then((values) => { if (alive) setAttachedPathFiles(values) })
+    return () => { alive = false }
+  }, [session.id, attachmentDirectiveKey])
   const isProjectAttached = (name: string) => attachedProjects.some((project) => project.name.toLowerCase() === name.toLowerCase())
   const isAttachmentAvailable = (name: string) => attachmentNames.some((candidate) => candidate.toLowerCase() === name.toLowerCase())
   // The directive the caret currently sits inside, if any — the one that gets
   // the chip toolbar. Recomputed from the same parse the overlay itself draws
   // from, so "which chip is active" can never disagree with "which chips
   // exist".
-  const [caretPosition, setCaretPosition] = useState(0)
-  const activeDirective = useMemo(() => parsedDirectives.find((directive) => caretPosition >= directive.start && caretPosition <= directive.end), [parsedDirectives, caretPosition])
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
     const draft = loadComposerDraft(session.project_path, activeChatId)
@@ -272,12 +298,10 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     if (copiedResetTimerRef.current !== null) window.clearTimeout(copiedResetTimerRef.current)
   }, [])
   useEffect(() => {
-    const textarea = textareaRef.current
     const composer = composerRef.current
-    if (!textarea || !composer) return
-    textarea.style.height = 'auto'
-    textarea.style.height = `${Math.max(76, textarea.scrollHeight)}px`
-
+    if (!composer) return
+    // The rich editor grows with its own content like any block element — no
+    // height to set by hand the way a textarea needed.
     const scrollArea = composer.querySelector<HTMLElement>('.composer-scroll-area')
     const footer = composer.querySelector<HTMLElement>('.composer-footer')
     if (!scrollArea || !footer) return
@@ -334,14 +358,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  function pasteFiles(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const clipboard = event.clipboardData
-    const directFiles = Array.from(clipboard.files || []) as File[]
-    const clipboardItems = Array.from(clipboard.items || []) as DataTransferItem[]
-    const itemFiles = clipboardItems.flatMap((item) => item.kind === 'file' ? [item.getAsFile()] : []).filter((file): file is File => file !== null)
-    const files = directFiles.length ? directFiles : itemFiles
-    if (!files.length) return
-    event.preventDefault()
+  function pasteFiles(files: File[]) {
     if (!attachmentsEnabled) {
       setAttachmentError('Colar ficheiros requer o Wharnex Desktop com o planner manual.')
       return
@@ -354,12 +371,16 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   // that — so the caret is never "in" both states, and exactly one of the two
   // ever opens.
   function syncDirectiveQueries(value: string, caret: number) {
-    setCaretPosition(caret)
     const value_query = directiveQuery(value, caret)
     setFileQuery(value_query)
     setKindQuery(value_query ? undefined : directiveKindQuery(value, caret))
   }
 
+  // Every keystroke in the rich editor arrives here: the canonical text plus
+  // where its caret landed, translated from the Quill document back to a
+  // plain-text offset (see composerRichText.ts) — everything downstream
+  // (drafts, submission and autocomplete) keeps reading and writing that same
+  // plain string exactly as it did before the rich editor.
   function updateMessage(value: string, caret: number) {
     setMessage(value)
     syncDirectiveQueries(value, caret)
@@ -398,17 +419,14 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     setComposerHeight((current) => clampComposerHeight(current + (event.key === 'ArrowUp' ? 24 : -24)))
   }
 
-  // Puts the caret at an exact position after the DOM has caught up with a
-  // programmatic text change — the pattern every insertion below shares, so
-  // the operator's next keystroke always lands where the menu just wrote.
+  // Requests the rich editor place its caret at an exact position — the
+  // pattern every programmatic insertion below shares, so the operator's next
+  // keystroke always lands where the menu just wrote. `token` always bumps, so
+  // a request to a position identical to the last one (jumping to the same
+  // chip twice) still takes effect.
   function focusCaretAt(position: number) {
-    window.setTimeout(() => {
-      const textarea = textareaRef.current
-      if (!textarea) return
-      textarea.focus()
-      textarea.setSelectionRange(position, position)
-      setCaretPosition(position)
-    }, 0)
+    richEditorRef.current?.focus()
+    setPendingCaret((current) => ({ index: position, token: (current?.token ?? 0) + 1 }))
   }
 
   // The directive is written where it was being typed, already canonical, so
@@ -423,6 +441,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     if (!picked || picked.cancelled || !picked.path) return
     selectDirective({ value: picked.path, label: picked.path })
     setAttachmentsPanelPath(picked.path)
+    setAttachmentsPanelKind('attach')
     setAttachmentsPanelOpen(true)
   }
 
@@ -452,8 +471,9 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
   // that created it, positioned to replace exactly this occurrence and no
   // other — two directives can share a value with different surrounding text.
   function editDirective(directive: ComposerDirective) {
-    if (directive.kind === 'attach') {
-      setAttachmentsPanelPath(directive.path)
+    if (directive.kind === 'attach' || directive.kind === 'ref') {
+      setAttachmentsPanelPath(directive.kind === 'ref' ? directive.project : directive.path)
+      setAttachmentsPanelKind(directive.kind)
       setAttachmentsPanelOpen(true)
       return
     }
@@ -474,26 +494,19 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     setOpenDirective((current) => current?.directive.start === directive.start && current.directive.end === directive.end ? undefined : current)
   }
 
-  // Opens the configuration popover for one directive, anchored to whichever
-  // element the operator actually clicked — a chip's own rendered span in the
-  // mirror, or its miniature button in the summary strip. Both converge here
-  // so "click a chip in the text" and "click its miniature" open the exact
-  // same surface.
-  function openDirectivePopover(directive: ComposerDirective, element: HTMLElement) {
-    const rect = element.getBoundingClientRect()
+  // Opens the configuration popover for one directive, anchored to the chip
+  // embed the operator clicked in the rich editor (see ComposerRichEditor).
+  function openDirectivePopover(directive: ComposerDirective, rect: DOMRect) {
     setOpenDirective({ directive, anchor: { left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width } })
   }
 
-  // A click that lands inside a directive's own range opens its popover in
-  // place, from the chip span the mirror rendered at that exact position — the
-  // mirror and the textarea share one parse, so the two can never disagree on
-  // where a directive starts and ends.
-  function openDirectiveAtCaret(value: string, caret: number) {
-    syncDirectiveQueries(value, caret)
-    const directive = parseDirectives(value).find((item) => caret >= item.start && caret <= item.end)
-    if (!directive) return
-    const chip = directiveMirrorRef.current?.querySelector(`[data-directive-start="${directive.start}"][data-directive-end="${directive.end}"]`)
-    if (chip instanceof HTMLElement) openDirectivePopover(directive, chip)
+  function configureDirective(directive: ComposerDirective, rect: DOMRect) {
+    if (directive.kind === 'attach' || directive.kind === 'ref') {
+      editDirective(directive)
+      setOpenDirective(undefined)
+      return
+    }
+    openDirectivePopover(directive, rect)
   }
 
   async function writeClipboard(text: string) {
@@ -629,43 +642,36 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
       />
       <div className="composer-scroll-area">
       {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
-      {/* One small chip per directive in the prompt — file, ref, attach and see
-          alike — so the whole selection reads at a glance without hunting
-          through the text for markers. Clicking it opens the same
-          configuration popover a click on its chip in the text does. */}
-      {summaryDirectives.length > 0 && <div className="composer-directive-summary" aria-label="Referências no prompt">
-        {summaryDirectives.map((directive) => <span key={`${directive.start}:${directive.value}`} className={`composer-directive-summary-chip ${directive.kind}`} title={directive.value}>
-          <button type="button" className="composer-directive-summary-jump" onClick={(event) => { focusCaretAt(directive.start); openDirectivePopover(directive, event.currentTarget) }} aria-label={`Configurar ${directive.value}`}>
-            <Icon name={summaryDirectiveIcon(directive.kind)} size={11}/><span>{directive.kind === 'ref' ? directive.project : (directive.path.split('/').filter(Boolean).pop() || directive.path)}</span>
-          </button>
-          <button type="button" onClick={() => removeDirectiveChip(directive)} aria-label={`Remover ${directive.value}`}><Icon name="close" size={9}/></button>
-        </span>)}
-      </div>}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
-      {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={setMessage} initialPath={attachmentsPanelPath} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>}
-      <div className="composer-editor-shell">
-        <ComposerDirectiveOverlay ref={directiveMirrorRef} text={message} scrollRef={textareaRef} activeDirective={activeDirective}/>
-        <textarea ref={textareaRef} className="composer-directive-input" lang="pt-PT" spellCheck autoCorrect="on" autoCapitalize="sentences" disabled={Boolean(preparedAttachmentCount)} value={message} onChange={(event) => updateMessage(event.target.value, event.target.selectionStart)} onClick={(event) => openDirectiveAtCaret(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyUp={(event) => syncDirectiveQueries(event.currentTarget.value, event.currentTarget.selectionStart)} onPaste={pasteFiles} onKeyDown={(event) => {
-          if ((fileSuggestions.length || kindSuggestions.length) && event.key === 'Escape') { event.preventDefault(); setFileQuery(undefined); setKindQuery(undefined); return }
-          if (kindQuery && kindSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); selectKind(kindSuggestions[0]); return }
-          if (fileQuery?.kind === 'attach' && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); void pickAttachment(); return }
-          if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); selectDirective(fileSuggestions[0]); return }
-          if (event.key !== 'Enter' || event.shiftKey) return
-          event.preventDefault()
-          if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
-          else event.currentTarget.form?.requestSubmit()
-        }} placeholder={composerPlaceholder || "Pergunte, analise, diagnostique ou descreva uma alteração…"} rows={3}/>
+      {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={setMessage} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>} 
+      <div ref={editorShellRef} className="composer-editor-shell">
+        <ComposerRichEditor
+          ref={richEditorRef} value={message} caret={pendingCaret} onChange={updateMessage}
+          onClickDirective={openDirectivePopover} onConfigureDirective={configureDirective} onRemoveDirective={removeDirectiveChip}
+          onPasteFiles={pasteFiles} disabled={Boolean(preparedAttachmentCount)} lang="pt-PT"
+          placeholder={composerPlaceholder || "Pergunte, analise, diagnostique ou descreva uma alteração…"}
+          onKeyDownCapture={(event) => {
+            if ((fileSuggestions.length || kindSuggestions.length) && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setFileQuery(undefined); setKindQuery(undefined); return }
+            if (kindQuery && kindSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectKind(kindSuggestions[0]); return }
+            if (fileQuery?.kind === 'attach' && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); void pickAttachment(); return }
+            if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectDirective(fileSuggestions[0]); return }
+            if (event.key !== 'Enter' || event.shiftKey) return
+            event.preventDefault(); event.stopPropagation()
+            if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
+            else void submitMain()
+          }}
+        />
         {/* Typing "@" alone, before any keyword exists, offers the directive
             kinds themselves — the operator does not have to already know and
             spell out @file/@ref/@attach to start one. */}
-        {kindQuery && <div className="file-reference-menu kind" role="listbox" aria-label="Escolher tipo de referência" data-chatgpt-overlay-blocker="true">
+        {kindQuery && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className="kind" ariaLabel="Escolher tipo de referência">
           <header><span>@</span><small>Escolha o tipo de referência</small></header>
           {kindSuggestions.length ? kindSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === 0} key={suggestion.kind} onMouseDown={(event) => event.preventDefault()} onClick={() => selectKind(suggestion)}>
-            <Icon name={summaryDirectiveIcon(suggestion.kind)} size={12}/><span>@{suggestion.keyword}</span><small>{suggestion.label}{suggestion.aliases.length ? ` · ${suggestion.aliases.map((alias) => `@${alias}`).join(', ')}` : ''}</small>{index === 0 && <kbd>Enter</kbd>}
+            <Icon name={directiveKindIcon(suggestion.kind)} size={12}/><span>@{suggestion.keyword}</span><small>{suggestion.label}{suggestion.aliases.length ? ` · ${suggestion.aliases.map((alias) => `@${alias}`).join(', ')}` : ''}</small>{index === 0 && <kbd>Enter</kbd>}
           </button>) : <p className="composer-attachment-empty">Nenhuma diretiva corresponde.</p>}
-        </div>}
-        {fileQuery && fileQuery.kind === 'attach' && <div className="file-reference-menu attach" role="listbox" aria-label="Anexar caminho externo" data-chatgpt-overlay-blocker="true"><header><span>@attach</span><small>Escolha um ficheiro ou pasta fora do projeto</small></header><button type="button" role="option" aria-selected onMouseDown={(event) => event.preventDefault()} onClick={() => void pickAttachment()}><Icon name="folder" size={12}/><span>Escolher pasta…</span><kbd>Enter</kbd></button>{fileQuery.query.startsWith('/') && <button type="button" role="option" aria-selected={false} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective({ value: fileQuery.query, label: fileQuery.query })}><Icon name="file" size={12}/><span>Usar {fileQuery.query}</span></button>}</div>}
-        {fileQuery && fileQuery.kind !== 'attach' && <div className={`file-reference-menu ${fileQuery.kind}`} role="listbox" aria-label={fileQuery.kind === 'ref' ? 'Referenciar outro projeto' : 'Localizar ficheiro do projeto'} data-chatgpt-overlay-blocker="true"><header><span>@{fileQuery.kind}</span><small>{directiveMenuHint(fileQuery, fileSuggestions.length, referenceableProjects.length)}</small></header>{fileSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === 0} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective(suggestion)}><Icon name={suggestion.continues ? 'workspace' : 'file'} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">ainda não anexado</small>}{index === 0 && <kbd>Enter</kbd>}</button>)}</div>}
+        </ComposerDirectiveMenuLayer>}
+        {fileQuery && fileQuery.kind === 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className="attach" ariaLabel="Anexar caminho externo"><header><span>@attach</span><small>Escolha um ficheiro ou pasta fora do projeto</small></header><button type="button" role="option" aria-selected onMouseDown={(event) => event.preventDefault()} onClick={() => void pickAttachment()}><Icon name="folder" size={12}/><span>Escolher pasta…</span><kbd>Enter</kbd></button>{fileQuery.query.startsWith('/') && <button type="button" role="option" aria-selected={false} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective({ value: fileQuery.query, label: fileQuery.query })}><Icon name="file" size={12}/><span>Usar {fileQuery.query}</span></button>}</ComposerDirectiveMenuLayer>}
+        {fileQuery && fileQuery.kind !== 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className={fileQuery.kind} ariaLabel={fileQuery.kind === 'ref' ? 'Referenciar outro projeto' : 'Localizar ficheiro do projeto'}><header><span>@{fileQuery.kind}</span><small>{directiveMenuHint(fileQuery, fileSuggestions.length, referenceableProjects.length)}</small></header>{fileSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === 0} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective(suggestion)}><Icon name={suggestion.continues ? 'workspace' : 'file'} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">ainda não anexado</small>}{index === 0 && <kbd>Enter</kbd>}</button>)}</ComposerDirectiveMenuLayer>}
       </div>
       {openDirective && <ComposerDirectiveConfigPopover
         directive={openDirective.directive} anchor={openDirective.anchor}
@@ -681,7 +687,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
           <ArtifactToggle kind="error" label="Erro" selected={selectedArtifacts.error} required={artifactRequired?.error} disabled={!session.last_repair_error && session.last_execution?.success !== false && !artifactRequired?.error} onToggle={onToggleArtifact} onInspect={setInspectedArtifact} inspectable={Boolean(artifactContent?.error)} />
           <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(Array.from(event.target.files || []))}/>
           <button type="button" className={attachments.length ? 'composer-round-action selected' : 'composer-round-action'} disabled={!attachmentsEnabled || Boolean(preparedAttachmentCount)} onClick={() => fileInputRef.current?.click()} title={attachmentsEnabled ? `Ficheiros do utilizador${attachments.length ? ` · ${attachments.length} selecionado(s)` : ''}` : 'Anexos diretos requerem o Desktop com planner manual'} aria-label="Anexar ficheiros"><Icon name="file" size={12}/>{attachments.length > 0 && <b>{attachments.length}</b>}</button>
-          {attachedPaths.length > 0 && <button type="button" className={attachmentsPanelOpen ? 'composer-round-action selected' : 'composer-round-action'} aria-pressed={attachmentsPanelOpen} onClick={() => { setAttachmentsPanelPath(undefined); setAttachmentsPanelOpen((open) => !open) }} title="Escolher o que é enviado de cada caminho anexado" aria-label="Conteúdo dos caminhos anexados"><Icon name="folder" size={12}/><b>{attachedPaths.length}</b></button>}
+          {attachedPaths.length > 0 && <button type="button" className={attachmentsPanelOpen ? 'composer-round-action selected' : 'composer-round-action'} aria-pressed={attachmentsPanelOpen} onClick={() => { setAttachmentsPanelPath(undefined); setAttachmentsPanelKind('attach'); setAttachmentsPanelOpen((open) => !open) }} title="Escolher o que é enviado de cada caminho anexado" aria-label="Conteúdo dos caminhos anexados"><Icon name="folder" size={12}/><b>{attachedPaths.length}</b></button>}
           <span className="composer-action-divider" />
           <span className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
@@ -722,7 +728,7 @@ export function ChatPanel({ session, items, chats, archivedChats, activeChatId, 
     {inspectedArtifact && <ArtifactInspector kind={inspectedArtifact} content={artifactContent?.[inspectedArtifact] || 'Conteúdo ainda não disponível para esta iteração.'} onClose={() => setInspectedArtifact('')} />}
     {inspectedChangeFile && <DiffInspector sessionId={session.id} file={inspectedChangeFile} onOpenFile={onOpenFile} onClose={() => setInspectedChangeFile(undefined)} />}
   </section>
-}
+})
 
 function QueuePanel({ requests, editingId, editingText, onEditing, onEditingText, onSave, onCancel, onMove, onRemove, onMerge, onPromote, onClose }: {
   requests: QueuedChatRequest[]; editingId: string; editingText: string; onEditing: (id: string, text: string) => void; onEditingText: (text: string) => void; onSave: () => void; onCancel: () => void; onMove?: (id: string, direction: -1 | 1) => void; onRemove?: (id: string) => void; onMerge?: (id: string) => void; onPromote?: (id: string) => Promise<void>; onClose: () => void
@@ -947,8 +953,8 @@ function directiveMenuHint(query: DirectiveQuery, results: number, knownProjects
   return 'Nenhum projeto ou ficheiro corresponde'
 }
 
-/** Icon for a directive's summary-strip chip, one per kind. */
-function summaryDirectiveIcon(kind: ComposerDirective['kind']) {
+/** Icon used for each directive kind in the insertion menu. */
+function directiveKindIcon(kind: ComposerDirective['kind']) {
   if (kind === 'attach') return 'folder'
   if (kind === 'file') return 'file'
   if (kind === 'see') return 'link'

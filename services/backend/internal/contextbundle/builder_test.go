@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/projectconfig"
 )
 
 func TestBuildExcludesSecrets(t *testing.T) {
@@ -36,6 +37,32 @@ func TestBuildExcludesSecrets(t *testing.T) {
 	}
 	if !names["EXPORTS.md"] || !names["main.go"] || !names["whaness.yml"] || names[".env"] || names["nested/key.txt"] {
 		t.Fatalf("unexpected zip files: %#v", names)
+	}
+}
+
+func TestBuildWithContextConfigIsRequestLocal(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "src", "main.go"), "package main\n")
+	mustWrite(t, filepath.Join(root, "docs", "notes.md"), "notes\n")
+	if _, _, err := projectconfig.Ensure(root); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := NewBuilder(1024*1024, 1024*1024).BuildWithContextConfig(root, projectconfig.ContextConfig{
+		AutoExclude: true, MaxFileBytes: projectconfig.DefaultMaxFileSize, Include: []string{"docs/**"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := zipNames(t, bundle.ZipPath)
+	if !names["docs/notes.md"] || names["src/main.go"] {
+		t.Fatalf("unexpected request-local selection: %#v", names)
+	}
+	persisted, err := projectconfig.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted.Context.Include) != 0 {
+		t.Fatalf("request selection mutated project config: %#v", persisted.Context)
 	}
 }
 

@@ -159,6 +159,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/attachment/inspection", a.attachmentInspection)
+	mux.HandleFunc("POST /api/sessions/{id}/reference/inspection", a.referenceInspection)
 	mux.HandleFunc("GET /api/sessions/{id}/known-projects", a.knownProjects)
 	mux.HandleFunc("POST /api/sessions/{id}/context/refresh", a.refreshContext)
 	mux.HandleFunc("PUT /api/sessions/{id}/related-projects", a.relatedProjects)
@@ -1651,6 +1652,21 @@ func (a *API) attachmentInspection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusBadRequest, "attachment_inspection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
+}
+
+func (a *API) referenceInspection(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Marker string `json:"marker"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	inspection, err := a.service.InspectReference(r.PathValue("id"), body.Marker)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "reference_inspection_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, inspection)

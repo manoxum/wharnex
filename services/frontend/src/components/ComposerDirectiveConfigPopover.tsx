@@ -1,92 +1,16 @@
-import { forwardRef, useEffect, useRef, useState, type RefObject } from 'react'
-import { directiveChipLabel, directiveKindLabel, directiveSegments, type ComposerDirective } from '../lib/composerDirectives'
+import { useEffect, useRef, useState } from 'react'
+import { directiveKindLabel, type ComposerDirective } from '../lib/composerDirectives'
 import { Icon } from './Icon'
-
-/**
- * Paints a chip behind every `@file` / `@ref` / `@attach` / `@see` directive in
- * the composer.
- *
- * A textarea cannot render an element inside its own value, and rewriting the
- * composer as a contenteditable would mean reimplementing the caret, selection,
- * undo history, IME composition and spellcheck that the browser already gets
- * right. So the directive is drawn by a mirror layer sitting exactly behind the
- * textarea, laid out with identical text metrics: the operator sees where each
- * directive begins and ends, and everything about typing stays native.
- *
- * The mirror layer is decorative — every plain run and every chip's own text is
- * `aria-hidden`, because the textarea already exposes the real text to
- * assistive technology and duplicating it would be noise. Nothing in it is
- * interactive: adding a clickable element inside the text flow would give that
- * line extra width the real textarea does not have, desynchronizing the two the
- * moment a chip's line wraps. Opening a chip's configuration is instead driven
- * from the textarea's own click (see `ChatPanel`'s directive click handling),
- * which already knows exactly which directive the caret landed on.
- *
- * Two things have to hold for the chip illusion to survive: the mirror must use
- * the same font, padding, border and wrapping as the textarea (enforced in CSS
- * by sharing one rule), and it must scroll with it — otherwise the chips drift
- * off the visible text the moment the prompt is longer than the box.
- */
-export const ComposerDirectiveOverlay = forwardRef<HTMLDivElement, {
-  text: string
-  scrollRef: RefObject<HTMLTextAreaElement | null>
-  /** The directive the caret currently sits inside, if any — a purely visual highlight. */
-  activeDirective?: Pick<ComposerDirective, 'start' | 'end'>
-}>(function ComposerDirectiveOverlay({ text, scrollRef, activeDirective }, mirrorRef) {
-  const localRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const textarea = scrollRef.current
-    const mirror = localRef.current
-    if (!textarea || !mirror) return
-    const sync = () => {
-      mirror.scrollTop = textarea.scrollTop
-      mirror.scrollLeft = textarea.scrollLeft
-    }
-    sync()
-    textarea.addEventListener('scroll', sync)
-    return () => textarea.removeEventListener('scroll', sync)
-  }, [scrollRef])
-
-  // Re-sync after the text changes too: growing the value can move the scroll
-  // position without emitting a scroll event.
-  useEffect(() => {
-    const textarea = scrollRef.current
-    const mirror = localRef.current
-    if (!textarea || !mirror) return
-    mirror.scrollTop = textarea.scrollTop
-    mirror.scrollLeft = textarea.scrollLeft
-  }, [text, scrollRef])
-
-  const segments = directiveSegments(text)
-  return <div ref={(node) => { localRef.current = node; if (typeof mirrorRef === 'function') mirrorRef(node); else if (mirrorRef) mirrorRef.current = node }} className="composer-directive-mirror">
-    {segments.map((segment, index) => {
-      if (!segment.directive) return <span key={index} aria-hidden="true">{segment.text}</span>
-      const directive = segment.directive
-      const active = Boolean(activeDirective && directive.start === activeDirective.start && directive.end === activeDirective.end)
-      return <span key={index} className="composer-directive-anchor">
-        <span
-          className={`composer-directive-chip ${directive.kind}${active ? ' active' : ''}`}
-          aria-hidden="true" data-label={directiveChipLabel(directive)} title={directive.value}
-          data-directive-start={directive.start} data-directive-end={directive.end}
-        >{segment.text}</span>
-      </span>
-    })}
-    {/* A trailing newline is not laid out by the browser, so without this the
-        mirror is one line shorter than the textarea and every chip below the
-        fold sits slightly too high. */}
-    <span aria-hidden="true">{'\n'}</span>
-  </div>
-})
 
 export type DirectivePopoverAnchor = { left: number; top: number; bottom: number; width: number }
 
 /**
  * The configuration surface for one directive, opened by clicking its chip —
- * in the text or in the summary strip above the composer — or its toolbar.
+ * in the composer's rich text (see `ComposerRichEditor`) or its miniature in
+ * the summary strip above the composer.
  *
  * A small anchored popover rather than a global modal: it is positioned from
- * the exact element that was clicked (`toggle`'s own `getBoundingClientRect()`,
+ * the exact element that was clicked (`anchor`'s own `getBoundingClientRect()`,
  * the same technique `WorkspaceShell`'s project-window popover already uses),
  * flipping above its anchor when there is not enough room below, so it never
  * opens off-screen for a chip near the bottom of a tall composer.

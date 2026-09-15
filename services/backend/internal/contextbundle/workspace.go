@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/projectconfig"
 )
 
 const relatedProjectsIndex = "RELATED_PROJECTS.json"
@@ -36,13 +37,25 @@ func (b *Builder) BuildWorkspace(projectRoot string, relatedRoots []string) (dom
 // flattening it in would produce paths that look project-relative and are not —
 // and a patch written against one of them would have nowhere to land.
 func (b *Builder) BuildWorkspaceWithAttachments(projectRoot string, relatedRoots []string, attachments []Attachment) (domain.ContextBundle, error) {
+	return b.BuildWorkspaceWithSelections(projectRoot, relatedRoots, nil, attachments)
+}
+
+// BuildWorkspaceWithSelections applies request-local context rules to named
+// related projects without mutating their persisted project configuration.
+func (b *Builder) BuildWorkspaceWithSelections(projectRoot string, relatedRoots []string, selections map[string]projectconfig.ContextConfig, attachments []Attachment) (domain.ContextBundle, error) {
 	primary, err := b.Build(projectRoot)
 	if err != nil || (len(relatedRoots) == 0 && len(attachments) == 0) {
 		return primary, err
 	}
 	bundles := make([]domain.ContextBundle, 0, len(relatedRoots))
 	for _, root := range relatedRoots {
-		bundle, buildErr := b.Build(root)
+		var bundle domain.ContextBundle
+		var buildErr error
+		if selection, ok := selections[root]; ok {
+			bundle, buildErr = b.BuildWithContextConfig(root, selection)
+		} else {
+			bundle, buildErr = b.Build(root)
+		}
 		if buildErr != nil {
 			removeBundleArtifacts(primary)
 			for _, built := range bundles {
@@ -99,6 +112,9 @@ func (b *Builder) combineWorkspace(primary domain.ContextBundle, related []domai
 			Bytes:         attachment.IncludedBytes,
 			ExcludedItems: attachment.ExcludedItems,
 			Truncated:     attachment.Truncated,
+		}
+		for _, file := range attachment.Files {
+			entry.IncludedPaths = append(entry.IncludedPaths, file.Path)
 		}
 		entry.Prefix = fmt.Sprintf("ATTACHMENTS/%02d-%s/", index+1, entry.Name)
 		result.Attachments = append(result.Attachments, entry)

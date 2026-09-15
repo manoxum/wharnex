@@ -58,6 +58,14 @@ describe('composer directives', () => {
     expect(fileRows[0]).toMatchObject({ value: 'flowcore/services/be/auth.go', label: 'services/be/auth.go' })
   })
 
+  it('lets a selected project complete as an inline chip when it has no browsable files', () => {
+    const project = { name: 'sgdp-formatter', projectPath: '/work/sgdp-formatter', files: [], attached: false }
+    const query = directiveQuery('@ref:sgdp-formatter/', '@ref:sgdp-formatter/'.length)
+    expect(directiveSuggestions(query!, [], [project], [])).toEqual([{
+      value: 'sgdp-formatter', label: 'Todo o projeto', detail: 'sgdp-formatter', attached: false,
+    }])
+  })
+
   it('offers this project’s files for @file', () => {
     const query = directiveQuery('read @file:auth', 15)
     expect(query).toMatchObject({ kind: 'file', query: 'auth' })
@@ -116,12 +124,18 @@ describe('attach directives', () => {
     const [directive] = parseDirectives('junta @{[attach]/srv/contracts|+openapi/**|-**/*.bak}')
     expect(directive.kind).toBe('attach')
     expect(directive.path).toBe('/srv/contracts')
-    expect(directive.rules).toEqual({ autoExclude: true, include: ['openapi/**'], exclude: ['**/*.bak'] })
+    expect(directive.rules).toEqual({ autoExclude: true, include: ['openapi/**'], includeOverrides: [], exclude: ['**/*.bak'] })
   })
 
   it('defaults to automatic pruning and supports opting out', () => {
-    expect(parseDirectives('@attach:/srv/x')[0].rules).toEqual({ autoExclude: true, include: [], exclude: [] })
+    expect(parseDirectives('@attach:/srv/x')[0].rules).toEqual({ autoExclude: true, include: [], includeOverrides: [], exclude: [] })
     expect(parseDirectives('@{[attach]/srv/x|!auto}')[0].rules?.autoExclude).toBe(false)
+  })
+
+  it('round-trips explicit per-file restores separately from an include allowlist', () => {
+    const [directive] = parseDirectives('@{[attach]/srv/x|^node_modules/pkg/index.d.ts}')
+    expect(directive.rules?.includeOverrides).toEqual(['node_modules/pkg/index.d.ts'])
+    expect(canonicalizeDirectives('@{[attach]/srv/x|^node_modules/pkg/index.d.ts}')).toBe('@{[attach]/srv/x|^node_modules/pkg/index.d.ts}')
   })
 
   // An attachment names something outside the project, so a relative path or a
@@ -155,8 +169,7 @@ describe('attach directives', () => {
 describe('see directives', () => {
   const attachmentNames = ['diagram.png', 'notes.txt']
 
-  // @see names an already-attached file by name only — no filesystem
-  // resolution happens here, unlike the other three kinds.
+  // Bare values remain the legacy direct-upload spelling.
   it('parses @see and its @look alias to the same kind', () => {
     const [seen] = parseDirectives('@see:diagram.png')
     expect(seen).toMatchObject({ kind: 'see', value: 'diagram.png', path: 'diagram.png' })
@@ -169,17 +182,31 @@ describe('see directives', () => {
       .toBe('compara @{[see]before.png} com @{[see]after.png}')
   })
 
-  // A name is a name, not a path — accepting a separator would let the marker
-  // silently point at something other than the exact attachment it names.
-  it('refuses a value containing a path separator', () => {
+  it('refuses unqualified paths and accepts source-qualified context paths', () => {
     for (const text of ['@see:../secrets.txt', '@see:dir/file.png', '@{[see]a/b}']) {
       expect(parseDirectives(text)).toHaveLength(0)
     }
+    expect(parseDirectives('@{[see]project|src/App.tsx}')[0]).toMatchObject({ project: 'project', path: 'src/App.tsx' })
+    expect(parseDirectives('@{[see]ref|flowcore|services/api/auth.go}')[0]).toMatchObject({ project: 'flowcore', path: 'services/api/auth.go' })
+    expect(parseDirectives('@{[see]attach|/srv/contracts|openapi/api.yml}')[0]).toMatchObject({ project: '/srv/contracts', path: 'openapi/api.yml' })
   })
 
   it('offers the currently attached file names as completions', () => {
     const query = directiveQuery('junta @see:dia', 14)!
-    expect(directiveSuggestions(query, [], projects, attachmentNames)).toEqual([{ value: 'diagram.png', label: 'diagram.png' }])
+    expect(directiveSuggestions(query, [], projects, attachmentNames)).toEqual([{ value: 'upload|diagram.png', label: 'diagram.png', detail: 'Upload direto' }])
+  })
+
+  it('offers every file already visible to the request, not only direct uploads', () => {
+    const visibleProjects = [{
+      name: 'flowcore', projectPath: '/work/flowcore', attached: true,
+      files: ['services/api/auth.go'],
+    }]
+    const query = directiveQuery('destaca @see:', 'destaca @see:'.length)!
+    expect(directiveSuggestions(query, ['src/App.tsx'], visibleProjects, ['diagram.png'])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'project|src/App.tsx', label: 'src/App.tsx' }),
+      expect.objectContaining({ value: 'ref|flowcore|services/api/auth.go', label: 'services/api/auth.go' }),
+      expect.objectContaining({ value: 'upload|diagram.png', label: 'diagram.png' }),
+    ]))
   })
 
   it('labels a see chip by the attachment name', () => {

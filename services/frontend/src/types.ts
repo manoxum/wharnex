@@ -167,6 +167,7 @@ export type AttachmentInspection = {
   kind: 'file' | 'directory' | string
   auto_exclude: boolean
   include: string[]
+  include_overrides: string[]
   exclude: string[]
   included_files: number
   included_bytes: number
@@ -268,6 +269,7 @@ export type Session = {
     manifest: ContextManifest
     workspace_sha256?: string
     related_projects?: Array<{ project_path: string; name: string; prefix: string; manifest: ContextManifest }>
+    attachments?: Array<{ root: string; name: string; kind: string; prefix: string; files: number; bytes: number; included_paths?: string[] }>
   }
   plan?: ExecutionPlan
   policy?: PolicyDecision

@@ -22,6 +22,9 @@ type AttachRules struct {
 	AutoExclude bool
 	// Include is a whitelist. Empty means everything eligible.
 	Include []string
+	// IncludeOverrides restores selected paths without turning the selection
+	// into a whitelist.
+	IncludeOverrides []string
 	// Exclude removes paths that would otherwise be eligible.
 	Exclude []string
 }
@@ -32,7 +35,7 @@ func DefaultAttachRules() AttachRules { return AttachRules{AutoExclude: true} }
 // IsDefault reports whether these rules add nothing to the default, which is
 // what lets a plain attachment render as a plain marker.
 func (rules AttachRules) IsDefault() bool {
-	return rules.AutoExclude && len(rules.Include) == 0 && len(rules.Exclude) == 0
+	return rules.AutoExclude && len(rules.Include) == 0 && len(rules.IncludeOverrides) == 0 && len(rules.Exclude) == 0
 }
 
 // parseAttachValue splits an `@attach` payload into its path and its rules.
@@ -77,7 +80,7 @@ func parseAttachValue(raw string) (string, AttachRules, bool) {
 			rules.AutoExclude = false
 			continue
 		}
-		if len(rules.Include)+len(rules.Exclude) >= MaxAttachRules {
+		if len(rules.Include)+len(rules.IncludeOverrides)+len(rules.Exclude) >= MaxAttachRules {
 			return "", AttachRules{}, false
 		}
 		value := strings.TrimSpace(token[1:])
@@ -87,6 +90,8 @@ func parseAttachValue(raw string) (string, AttachRules, bool) {
 		switch token[0] {
 		case '+':
 			rules.Include = append(rules.Include, value)
+		case '^':
+			rules.IncludeOverrides = append(rules.IncludeOverrides, value)
 		case '-':
 			rules.Exclude = append(rules.Exclude, value)
 		default:
@@ -94,6 +99,41 @@ func parseAttachValue(raw string) (string, AttachRules, bool) {
 		}
 	}
 	return clean, rules, true
+}
+
+// parseRuleTokens reads the selection suffix shared by @attach and @ref.
+// The boolean says whether a suffix was present; an unconfigured @ref inherits
+// its project's whaness.yml instead of silently replacing it with defaults.
+func parseRuleTokens(segments []string) (AttachRules, bool, bool) {
+	if len(segments) == 0 {
+		return AttachRules{}, false, true
+	}
+	rules := DefaultAttachRules()
+	for _, segment := range segments {
+		token := strings.TrimSpace(segment)
+		if token == "" {
+			continue
+		}
+		if token == "!auto" {
+			rules.AutoExclude = false
+			continue
+		}
+		if len(rules.Include)+len(rules.IncludeOverrides)+len(rules.Exclude) >= MaxAttachRules || len(token) < 2 || !validAttachPattern(strings.TrimSpace(token[1:])) {
+			return AttachRules{}, true, false
+		}
+		value := strings.TrimSpace(token[1:])
+		switch token[0] {
+		case '+':
+			rules.Include = append(rules.Include, value)
+		case '^':
+			rules.IncludeOverrides = append(rules.IncludeOverrides, value)
+		case '-':
+			rules.Exclude = append(rules.Exclude, value)
+		default:
+			return AttachRules{}, true, false
+		}
+	}
+	return rules, true, true
 }
 
 // validAttachPattern accepts the glob vocabulary the context configuration
@@ -120,6 +160,9 @@ func renderAttachValue(target string, rules AttachRules) string {
 	}
 	for _, pattern := range rules.Include {
 		builder.WriteString("|+" + pattern)
+	}
+	for _, pattern := range rules.IncludeOverrides {
+		builder.WriteString("|^" + pattern)
 	}
 	for _, pattern := range rules.Exclude {
 		builder.WriteString("|-" + pattern)

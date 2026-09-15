@@ -744,11 +744,12 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" && planningMode != "correct_plan" {
 		return planner.Result{}, domain.Session{}, fmt.Errorf("unsupported planning mode %q", planningMode)
 	}
+	message = directives.Canonicalize(message)
 	// Attachments are resolved before the context is built, because they are
 	// part of it: an `@attach` marker that arrives after the snapshot points at
 	// material the model was never sent.
 	attachments, refusedAttachments := s.resolveMessageAttachments(sessionID, message)
-	item, err := s.refreshContextWithAttachments(sessionID, attachments)
+	item, err := s.refreshContextWithDirectiveSelections(sessionID, attachments, message)
 	if err != nil {
 		return planner.Result{}, domain.Session{}, err
 	}
@@ -758,7 +759,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// continuation — sees one spelling. The markers stay where they were
 	// written; only how they are spelled changes.
 	message = directives.Canonicalize(message)
-	legend := directiveLegend(message, item.Context.Manifest)
+	legend := directiveLegendWithContext(message, item.Context)
 	// The `@ref:` directives in this prompt are the only place a request can
 	// acquire authority over another project, and it is resolved before the
 	// planner is asked — so what comes back is checked against what the operator
@@ -770,7 +771,13 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	// anything: without it the prompt names a project the model cannot see.
 	if attached, changed := s.attachGrantedProjectContexts(ctx, sessionID, item, crossGrant); changed {
 		item = attached
-		legend = directiveLegend(message, item.Context.Manifest)
+		// SetRelatedProjects rebuilds with project defaults. Restore this
+		// request's external attachments and per-@ref selections before the
+		// prompt or transport observes the snapshot.
+		if refreshed, refreshErr := s.refreshContextWithDirectiveSelections(sessionID, attachments, message); refreshErr == nil {
+			item = refreshed
+		}
+		legend = directiveLegendWithContext(message, item.Context)
 	}
 	message += legend
 	message = messageWithRelatedProjects(message, item.ProjectPath, item.Context.RelatedProjects, crossproject.GrantedPaths(crossGrant))
@@ -3841,11 +3848,16 @@ func (s *Service) refreshContext(sessionID string) (domain.Session, error) {
 // prompt's own markers, so they are passed in here rather than stored, and a
 // later request without them simply rebuilds without them.
 func (s *Service) refreshContextWithAttachments(sessionID string, attachments []contextbundle.Attachment) (domain.Session, error) {
+	return s.refreshContextWithDirectiveSelections(sessionID, attachments, "")
+}
+
+func (s *Service) refreshContextWithDirectiveSelections(sessionID string, attachments []contextbundle.Attachment, message string) (domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.Session{}, err
 	}
-	bundle, err := s.context.BuildWorkspaceWithAttachments(item.ProjectPath, item.RelatedProjectPaths, attachments)
+	selections := s.referenceSelections(item, message)
+	bundle, err := s.context.BuildWorkspaceWithSelections(item.ProjectPath, item.RelatedProjectPaths, selections, attachments)
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("refresh project context: %w", err)
 	}

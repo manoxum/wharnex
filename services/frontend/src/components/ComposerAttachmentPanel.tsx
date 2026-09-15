@@ -7,6 +7,7 @@ import {
   parseDirectives,
   removeDirective,
   renderAttachValue,
+  renderRefValue,
   type AttachRules,
   type ComposerDirective,
 } from '../lib/composerDirectives'
@@ -32,20 +33,22 @@ import { Icon } from './Icon'
  * rewrites that marker, so what this panel shows and what the request sends are
  * one string rather than two representations that can drift apart.
  */
-export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose, initialPath }: {
+export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose, initialPath, initialKind }: {
   sessionId: string
   message: string
   onMessage: (next: string) => void
   onClose: () => void
   /** Which attachment's tab to open first — set when Edit was clicked on a specific chip. */
   initialPath?: string
+  initialKind?: 'attach' | 'ref'
 }) {
   const attachments = useMemo(
-    () => parseDirectives(message).filter((directive): directive is ComposerDirective & { rules: AttachRules } => directive.kind === 'attach' && Boolean(directive.rules)),
+    () => parseDirectives(message).filter((directive) => directive.kind === 'attach' || directive.kind === 'ref'),
     [message],
   )
-  const [selectedPath, setSelectedPath] = useState(initialPath || attachments[0]?.path || '')
-  const selected = attachments.find((item) => item.path === selectedPath) || attachments[0]
+  const initialKey = initialPath ? `${initialKind || 'attach'}:${initialPath}` : ''
+  const [selectedKey, setSelectedKey] = useState(initialKey || (attachments[0] ? directiveKey(attachments[0]) : ''))
+  const selected = attachments.find((item) => directiveKey(item) === selectedKey) || attachments[0]
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -56,8 +59,8 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
   // Edit on a different chip while the modal is already open must jump to that
   // chip's own tab, not silently keep showing whichever one was open before.
   useEffect(() => {
-    if (initialPath) setSelectedPath(initialPath)
-  }, [initialPath])
+    if (initialPath) setSelectedKey(`${initialKind || 'attach'}:${initialPath}`)
+  }, [initialKind, initialPath])
   const [inspection, setInspection] = useState<AttachmentInspection>()
   const [inspectionError, setInspectionError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -66,14 +69,24 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
 
   useEffect(() => {
     if (!selected) return
-    setIncludeText(selected.rules.include.join('\n'))
-    setExcludeText(selected.rules.exclude.join('\n'))
+    if (selected.rules) {
+      setIncludeText(selected.rules.include.join('\n'))
+      setExcludeText(selected.rules.exclude.join('\n'))
+    }
   }, [selected?.value])
 
   const inspect = useCallback(async (marker: string) => {
     setLoading(true); setInspectionError('')
     try {
-      setInspection(await api.attachmentInspection(sessionId, marker))
+      const directive = parseDirectives(marker)[0]
+      const next = directive?.kind === 'ref'
+        ? await api.referenceInspection(sessionId, marker)
+        : await api.attachmentInspection(sessionId, marker)
+      setInspection(next)
+      if (directive?.kind === 'ref' && !directive.rules) {
+        setIncludeText(next.include.join('\n'))
+        setExcludeText(next.exclude.join('\n'))
+      }
     } catch (error) {
       setInspection(undefined)
       setInspectionError(error instanceof Error ? error.message : 'Não foi possível ler este caminho')
@@ -88,24 +101,25 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
   // Rewriting by exact range rather than by search: two attachments can share a
   // path with different rules, and replacing the first match would edit the
   // wrong one.
-  function writeRules(directive: ComposerDirective & { rules: AttachRules }, rules: AttachRules) {
-    const marker = canonicalDirective({ kind: 'attach', value: renderAttachValue(directive.path, rules) })
+  function writeRules(directive: ComposerDirective, rules: AttachRules) {
+    const target = directive.kind === 'ref' ? (directive.path ? `${directive.project}/${directive.path}` : directive.project) : directive.path
+    const value = directive.kind === 'ref' ? renderRefValue(target, rules) : renderAttachValue(target, rules)
+    const marker = canonicalDirective({ kind: directive.kind, value })
     onMessage(message.slice(0, directive.start) + marker + message.slice(directive.end))
   }
 
   function applyPatternText() {
     if (!selected) return
-    writeRules(selected, { ...selected.rules, include: patternLines(includeText), exclude: patternLines(excludeText) })
+    writeRules(selected, { ...effectiveRules(selected, inspection), include: patternLines(includeText), exclude: patternLines(excludeText) })
   }
 
   function applyEntrySelection(entry: ContextInventoryEntry, action: 'include' | 'exclude') {
     if (!selected) return
     const pattern = entry.kind === 'directory' ? `${entry.path.replace(/\/$/, '')}/**` : entry.path
+    const current = effectiveRules(selected, inspection)
     const rules = action === 'exclude'
-      ? { ...selected.rules, exclude: unique([...selected.rules.exclude, pattern]) }
-      // Re-including something the operator previously excluded is removing the
-      // rule that removed it, not adding a competing one.
-      : { ...selected.rules, exclude: selected.rules.exclude.filter((value) => value !== pattern) }
+      ? { ...current, exclude: unique([...current.exclude, pattern]) }
+      : { ...current, includeOverrides: unique([...current.includeOverrides, pattern]), exclude: current.exclude.filter((value) => value !== pattern) }
     writeRules(selected, rules)
   }
 
@@ -117,7 +131,7 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
   return <div className="composer-attachment-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section className="composer-attachment-panel" role="dialog" aria-modal="true" aria-label="Conteúdo dos caminhos anexados">
       <header className="composer-attachment-heading">
-        <div><span className="panel-kicker">Caminhos anexados</span><strong>Conteúdo enviado</strong></div>
+        <div><span className="panel-kicker">Fontes de contexto</span><strong>Conteúdo enviado neste pedido</strong></div>
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar painel de anexos"><Icon name="close" size={13}/></button>
       </header>
 
@@ -128,17 +142,17 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
             {attachments.map((directive) => <button
               key={`${directive.start}:${directive.value}`}
               type="button" role="tab"
-              aria-selected={directive.path === selected?.path}
-              className={directive.path === selected?.path ? 'active' : ''}
-              onClick={() => setSelectedPath(directive.path)}
+              aria-selected={directiveKey(directive) === (selected ? directiveKey(selected) : '')}
+              className={directiveKey(directive) === (selected ? directiveKey(selected) : '') ? 'active' : ''}
+              onClick={() => setSelectedKey(directiveKey(directive))}
             >
-              <Icon name="folder" size={12}/><span>{directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
+              <Icon name={directive.kind === 'ref' ? 'workspace' : 'folder'} size={12}/><span>{directive.kind === 'ref' ? directive.project : directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
             </button>)}
           </div>
 
           {selected && <div className="composer-attachment-body">
             <div className="composer-attachment-root">
-              <code title={selected.path}>{selected.path}</code>
+              <code title={selected.kind === 'ref' ? selected.project : selected.path}>{selected.kind === 'ref' ? `@ref ${selected.project}` : selected.path}</code>
               <button type="button" onClick={() => removeAttachment(selected)} aria-label={`Remover o anexo ${selected.path}`}><Icon name="trash" size={12}/> Remover</button>
             </div>
 
@@ -155,14 +169,16 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
                 single file would invite configuring something that has no parts. */}
             {inspection?.kind === 'directory' && <>
               <label className="settings-toggle">
-                <input type="checkbox" checked={selected.rules.autoExclude} onChange={(event) => writeRules(selected, { ...selected.rules, autoExclude: event.target.checked })}/>
+                <input type="checkbox" checked={effectiveRules(selected, inspection).autoExclude} onChange={(event) => writeRules(selected, { ...effectiveRules(selected, inspection), autoExclude: event.target.checked })}/>
                 <span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários e metadados sem valor para a IA — a mesma regra do contexto do projeto.</small></span>
               </label>
               <div className="composer-attachment-patterns">
                 <label><span>Incluir apenas <small>opcional</small></span><textarea value={includeText} onChange={(event) => setIncludeText(event.target.value)} onBlur={applyPatternText} placeholder={'openapi/**\ndocs/**'}/><small>Se vazio, tudo o que for elegível é considerado.</small></label>
                 <label><span>Excluir do anexo</span><textarea value={excludeText} onChange={(event) => setExcludeText(event.target.value)} onBlur={applyPatternText} placeholder={'**/*.bak\nfixtures/**'}/><small>Um padrão por linha. Suporta <code>*</code>, <code>?</code> e <code>**</code>.</small></label>
               </div>
-              {!attachRulesAreDefault(selected.rules) && <p className="composer-attachment-note">Esta seleção viaja dentro do próprio marcador no prompt, por isso acompanha o pedido e fica visível no histórico.</p>}
+              {selected.kind === 'ref' && !selected.rules
+                ? <p className="composer-attachment-note">A usar a configuração de contexto guardada neste projeto. Qualquer alteração abaixo cria uma seleção apenas para este pedido.</p>
+                : !attachRulesAreDefault(effectiveRules(selected, inspection)) && <p className="composer-attachment-note">Esta seleção viaja dentro do próprio marcador no prompt, por isso acompanha o pedido e fica visível no histórico.</p>}
             </>}
 
             {inspection?.entries.length ? <div className="composer-attachment-inventory" role="table" aria-label={`Conteúdo de ${selected.path}`}>
@@ -184,6 +200,19 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
         </>}
     </section>
   </div>
+}
+
+function directiveKey(directive: ComposerDirective) {
+  return `${directive.kind}:${directive.kind === 'ref' ? directive.project : directive.path}`
+}
+
+function effectiveRules(directive: ComposerDirective, inspection?: AttachmentInspection): AttachRules {
+  return directive.rules || {
+    autoExclude: inspection?.auto_exclude ?? true,
+    include: inspection?.include || [],
+    includeOverrides: inspection?.include_overrides || [],
+    exclude: inspection?.exclude || [],
+  }
 }
 
 function patternLines(value: string) {

@@ -88,10 +88,13 @@ bytes. Redirects remain HTTPS-only and bounded. This verifies transport shape,
 not archive trust; downloaded model input/output still follows its normal
 validation. Composer `@file` references are structured hints only and may name
 only files already present in the current eligible context manifest. Composer
-`@see` references are structured hints too, narrower still: the value is a bare
-file name with no path separator accepted, so it names nothing on any
-filesystem and carries no traversal surface at all — it can only ever point at
-metadata for a file already transported as a direct message attachment.
+`@see` references are structured hints too. A source-qualified value may point
+only at a normalized relative path already present in the primary manifest, a
+named related-project manifest, or an admitted `@attach` inventory; it may also
+name a direct upload. The backend resolves it to the exact request-bundle path
+and reports an absent target instead of reading the host again. Legacy bare
+values remain direct-upload names. `@see` changes reading priority only and
+MUST NOT grant write authority or introduce another attachment transport.
 
 Every tunnel adapter MUST bind only to loopback and expose a dedicated
 object server, never the main backend listener. Its routes accept only GET/HEAD

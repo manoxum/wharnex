@@ -54,12 +54,12 @@ function typedKeywordAlternation() {
  * folder is the same question the settings panel already answers, and an
  * operator should not have to learn a second model for it.
  */
-export type AttachRules = { autoExclude: boolean; include: string[]; exclude: string[] }
+export type AttachRules = { autoExclude: boolean; include: string[]; includeOverrides: string[]; exclude: string[] }
 
-export const defaultAttachRules = (): AttachRules => ({ autoExclude: true, include: [], exclude: [] })
+export const defaultAttachRules = (): AttachRules => ({ autoExclude: true, include: [], includeOverrides: [], exclude: [] })
 
 export function attachRulesAreDefault(rules: AttachRules) {
-  return rules.autoExclude && !rules.include.length && !rules.exclude.length
+  return rules.autoExclude && !rules.include.length && !rules.includeOverrides.length && !rules.exclude.length
 }
 
 export type ComposerDirective = {
@@ -68,7 +68,7 @@ export type ComposerDirective = {
   value: string
   project: string
   path: string
-  /** The include/exclude selection, for `attach` only. */
+  /** A request-local include/exclude selection. Absent on `ref` means inherit the referenced project's configuration. */
   rules?: AttachRules
   start: number
   end: number
@@ -130,16 +130,40 @@ function buildAttach(raw: string): Omit<ComposerDirective, 'start' | 'end'> | un
     const pattern = token.slice(1).trim()
     if (!pattern || pattern.startsWith('/') || pattern.split('/').includes('..') || /[{}|\0]/.test(pattern)) return undefined
     if (token[0] === '+') rules.include.push(pattern)
+    else if (token[0] === '^') rules.includeOverrides.push(pattern)
     else if (token[0] === '-') rules.exclude.push(pattern)
     else return undefined
   }
   return { kind: 'attach', value: renderAttachValue(clean, rules), project: '', path: clean, rules }
 }
 
+function parseRuleTokens(segments: string[]): AttachRules | undefined {
+  if (!segments.length) return undefined
+  const rules = defaultAttachRules()
+  for (const segment of segments) {
+    const token = segment.trim()
+    if (!token) continue
+    if (token === '!auto') { rules.autoExclude = false; continue }
+    const pattern = token.slice(1).trim()
+    if (!pattern || pattern.startsWith('/') || pattern.split('/').includes('..') || /[{}|\0]/.test(pattern)) return undefined
+    if (token[0] === '+') rules.include.push(pattern)
+    else if (token[0] === '^') rules.includeOverrides.push(pattern)
+    else if (token[0] === '-') rules.exclude.push(pattern)
+    else return undefined
+  }
+  return rules
+}
+
+export function renderRefValue(target: string, rules?: AttachRules) {
+  if (!rules) return target
+  return renderAttachValue(target, rules)
+}
+
 export function renderAttachValue(target: string, rules: AttachRules) {
   let value = target
   if (!rules.autoExclude) value += '|!auto'
   for (const pattern of rules.include) value += `|+${pattern}`
+  for (const pattern of rules.includeOverrides) value += `|^${pattern}`
   for (const pattern of rules.exclude) value += `|-${pattern}`
   return value
 }
@@ -151,16 +175,16 @@ function build(kind: DirectiveKind, raw: string): Omit<ComposerDirective, 'start
   if (kind === 'attach') return buildAttach(raw.trim())
   // A trailing separator or full stop is sentence punctuation, not part of the
   // name. A leading separator is an absolute path and is never trimmed.
-  const value = raw.trim().replace(/[/.]+$/, '')
+  const rawSegments = raw.split('|')
+  const value = rawSegments[0].trim().replace(/[/.]+$/, '')
   if (!value || value.length > MAX_VALUE_LENGTH) return undefined
   if (kind === 'file') {
     const path = safeRelativePath(value)
     return path ? { kind, value: path, project: '', path } : undefined
   }
   if (kind === 'see') {
-    // A name, not a path: a direct attachment has no location here, only a
-    // name, since its bytes travel through a separate transport entirely.
-    return /[{}\0/\\]/.test(value) ? undefined : { kind, value, project: '', path: value }
+    const target = buildSeeValue(raw.trim())
+    return target
   }
   const separator = value.indexOf('/')
   const project = separator >= 0 ? value.slice(0, separator) : value
@@ -170,7 +194,38 @@ function build(kind: DirectiveKind, raw: string): Omit<ComposerDirective, 'start
     path = safeRelativePath(path)
     if (!path) return undefined
   }
-  return { kind, value: path ? `${project}/${path}` : project, project, path }
+  const target = path ? `${project}/${path}` : project
+  const rules = parseRuleTokens(rawSegments.slice(1))
+  if (rawSegments.length > 1 && !rules) return undefined
+  return { kind, value: renderRefValue(target, rules), project, path, rules }
+}
+
+export type SeeSource = 'project' | 'ref' | 'attach' | 'upload'
+
+function buildSeeValue(raw: string): Omit<ComposerDirective, 'start' | 'end'> | undefined {
+  if (!raw || raw.length > MAX_VALUE_LENGTH || /[{}\0]/.test(raw)) return undefined
+  const segments = raw.split('|')
+  // Backward compatibility: the old protocol used a bare upload filename.
+  if (segments.length === 1) {
+    return /[/\\]/.test(raw) ? undefined : { kind: 'see', value: raw, project: 'upload', path: raw }
+  }
+  const source = segments[0] as SeeSource
+  if (source === 'project' && segments.length === 2) {
+    const path = safeRelativePath(segments[1])
+    return path ? { kind: 'see', value: `project|${path}`, project: 'project', path } : undefined
+  }
+  if (source === 'upload' && segments.length === 2 && !/[|/\\]/.test(segments[1])) {
+    return { kind: 'see', value: `upload|${segments[1]}`, project: 'upload', path: segments[1] }
+  }
+  if (source === 'ref' && segments.length === 3 && validProjectName(segments[1])) {
+    const path = safeRelativePath(segments[2])
+    return path ? { kind: 'see', value: `ref|${segments[1]}|${path}`, project: segments[1], path } : undefined
+  }
+  if (source === 'attach' && segments.length === 3 && segments[1].startsWith('/')) {
+    const path = safeRelativePath(segments[2])
+    return path && !/[{}\0|]/.test(segments[1]) ? { kind: 'see', value: `attach|${segments[1]}|${path}`, project: segments[1], path } : undefined
+  }
+  return undefined
 }
 
 /** Every well-formed directive, in order, with the range it occupied. */
@@ -323,6 +378,8 @@ export type DirectiveSuggestion = {
   attached?: boolean
 }
 
+export type SeeSuggestion = DirectiveSuggestion
+
 /**
  * The rows to offer for the directive being typed.
  *
@@ -336,6 +393,7 @@ export function directiveSuggestions(
   projectFiles: string[],
   projects: ReferenceableProject[],
   attachmentNames: string[],
+  attachedPathFiles: Array<{ root: string; files: string[] }> = [],
 ): DirectiveSuggestion[] {
   // An attachment names a path outside every project, so there is nothing for
   // Wharnex to complete from: the operator picks it, and the picker is offered
@@ -345,7 +403,14 @@ export function directiveSuggestions(
     return matchingProjectFiles(projectFiles, query.query).map((path) => ({ value: path, label: path }))
   }
   if (query.kind === 'see') {
-    return rank(attachmentNames, query.query).map((name) => ({ value: name, label: name }))
+    const candidates: DirectiveSuggestion[] = [
+      ...projectFiles.map((path) => ({ value: `project|${path}`, label: path, detail: 'Projeto atual' })),
+      ...projects.filter((project) => project.attached).flatMap((project) => project.files.map((path) => ({ value: `ref|${project.name}|${path}`, label: path, detail: `@ref ${project.name}` }))),
+      ...attachedPathFiles.flatMap((attachment) => attachment.files.map((path) => ({ value: `attach|${attachment.root}|${path}`, label: path, detail: `@attach ${attachment.root.split('/').filter(Boolean).pop() || attachment.root}` }))),
+      ...attachmentNames.map((name) => ({ value: `upload|${name}`, label: name, detail: 'Upload direto' })),
+    ]
+    const rankedLabels = rank(candidates.map((item) => `${item.label}\0${item.detail || ''}`), query.query, 12)
+    return rankedLabels.map((ranked) => candidates.find((item) => `${item.label}\0${item.detail || ''}` === ranked)!)
   }
   const { project, path } = splitRefQuery(query.query)
   if (path === undefined) {
@@ -356,9 +421,15 @@ export function directiveSuggestions(
   }
   const target = projects.find((item) => item.name.toLowerCase() === project.toLowerCase())
   if (!target) return []
-  return matchingProjectFiles(target.files, path).map((file) => ({
+  const files = matchingProjectFiles(target.files, path).map((file) => ({
     value: `${target.name}/${file}`, label: file, detail: target.name,
   }))
+  // A project-only reference is a complete, valid directive too. Keep an
+  // explicit completion after the file rows — and as the only row when an
+  // unattached project has no browsable manifest yet — so `@ref:project/`
+  // never strands the operator in an empty menu with no way to produce the
+  // inline chip they selected the project for.
+  return [...files, { value: target.name, label: 'Todo o projeto', detail: target.name, attached: target.attached }]
 }
 
 /**
@@ -432,14 +503,14 @@ export function removeDirective(text: string, directive: Pick<ComposerDirective,
 }
 
 /** A short label for a chip: the basename is what identifies it at a glance. */
-export function directiveChipLabel(directive: ComposerDirective) {
+export function directiveChipLabel(directive: Pick<ComposerDirective, 'kind' | 'path' | 'project' | 'rules'>) {
   if (directive.kind === 'attach') {
     const base = directive.path.split('/').filter(Boolean).pop() || directive.path
-    const rules = (directive.rules?.include.length || 0) + (directive.rules?.exclude.length || 0)
+    const rules = (directive.rules?.include.length || 0) + (directive.rules?.includeOverrides.length || 0) + (directive.rules?.exclude.length || 0)
     return rules ? `${base} · ${rules} regra(s)` : base
   }
   if (directive.kind === 'file') return directive.path.split('/').pop() || directive.path
-  if (directive.kind === 'see') return directive.path
+  if (directive.kind === 'see') return directive.path.split('/').pop() || directive.path
   if (!directive.path) return directive.project
   return `${directive.project}/${directive.path.split('/').pop()}`
 }

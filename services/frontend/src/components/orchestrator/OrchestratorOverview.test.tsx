@@ -1,10 +1,23 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
+import QuillDelta from 'quill-delta'
 import { api } from '../../lib/api'
 import type { OrchestratorOverview as OverviewData, Session } from '../../types'
 import { ChatPanel } from '../ChatPanel'
+import { directivesToDelta, findComposerEditor } from '../../lib/composerRichText'
 import { OrchestratorOverview } from './OrchestratorOverview'
+
+// jsdom cannot simulate real keystrokes into Quill's contenteditable, so this
+// drives the composer directly through its Quill instance — the same escape
+// hatch ChatPanel.test.tsx uses, reached here via findComposerEditor because
+// this composer is embedded several components deep, with no ref threaded
+// down to it.
+function typeInComposer(container: HTMLElement, text: string) {
+  const editor = findComposerEditor(container)
+  if (!editor) throw new Error('composer editor not mounted')
+  act(() => { editor.setContents(new QuillDelta(directivesToDelta(text).ops) as never, 'user') })
+}
 
 const session = {
   id: 'ses-orchestrator', project_path: '/workspace/demo', state: 'ready', execution_mode: 'protected', automation_mode: 'auto', chat_transport_mode: 'scraper', effort_level: 'high', created_at: '2026-09-12T15:00:00.000Z',
@@ -91,7 +104,7 @@ describe('OrchestratorOverview planning queue', () => {
     const propose = vi.spyOn(api, 'proposeOrchestratorPlan').mockResolvedValue(proposal)
     const onProposal = vi.fn()
 
-    render(<OrchestratorOverview
+    const view = render(<OrchestratorOverview
       session={session}
       overview={overview}
       chatProps={chatProps()}
@@ -109,7 +122,7 @@ describe('OrchestratorOverview planning queue', () => {
     expect(screen.getByRole('button', { name: 'Anexar ficheiros' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Planificar antes de alterar' })).toBeTruthy()
 
-    fireEvent.change(screen.getByPlaceholderText(/migrar o módulo de autenticação/i), { target: { value: 'Reutilizar exatamente o composer do Agent' } })
+    typeInComposer(view.container, 'Reutilizar exatamente o composer do Agent')
     fireEvent.click(screen.getByRole('button', { name: 'Gerar plano' }))
 
     await waitFor(() => expect(propose).toHaveBeenCalledWith(session.id, 'Reutilizar exatamente o composer do Agent', {

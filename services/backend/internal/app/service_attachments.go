@@ -3,11 +3,14 @@ package app
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/directives"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/projectconfig"
 )
 
 // External attachments named with `@attach` in a prompt.
@@ -44,6 +47,7 @@ func (s *Service) resolveMessageAttachments(sessionID, message string) ([]contex
 		}
 		seen[directive.Path] = true
 		rules := contextbundle.AttachmentRules(directive.Rules.AutoExclude, directive.Rules.Include, directive.Rules.Exclude, 0)
+		rules.IncludeOverride = append([]string(nil), directive.Rules.IncludeOverrides...)
 		attachment, err := contextbundle.ResolveAttachment(directive.Path, rules, contextbundle.DefaultAttachmentLimits())
 		if err != nil {
 			detail := err.Error()
@@ -61,6 +65,86 @@ func (s *Service) resolveMessageAttachments(sessionID, message string) ([]contex
 		})
 	}
 	return attachments, refused
+}
+
+// InspectReference previews a referenced project with either its persisted
+// context configuration (the default) or the request-local rules carried by
+// this particular @ref marker.
+func (s *Service) InspectReference(sessionID, marker string) (AttachmentInspection, error) {
+	item, err := s.GetSession(sessionID)
+	if err != nil {
+		return AttachmentInspection{}, err
+	}
+	parsed := directives.Of(directives.Parse(strings.TrimSpace(marker)), directives.KindRef)
+	if len(parsed) != 1 {
+		return AttachmentInspection{}, fmt.Errorf("expected exactly one @ref directive, got %d", len(parsed))
+	}
+	directive := parsed[0]
+	var roots []string
+	for _, related := range item.Context.RelatedProjects {
+		if strings.EqualFold(related.Name, directive.Project) {
+			roots = append(roots, related.ProjectPath)
+		}
+	}
+	for _, known := range s.knownProjectRefs(item.ProjectPath) {
+		if strings.EqualFold(known.Name, directive.Project) && !containsString(roots, known.ProjectPath) {
+			roots = append(roots, known.ProjectPath)
+		}
+	}
+	if len(roots) != 1 {
+		return AttachmentInspection{}, fmt.Errorf("@ref project %q resolved to %d projects", directive.Project, len(roots))
+	}
+	cfg, err := projectconfig.Load(roots[0])
+	if err != nil {
+		return AttachmentInspection{}, err
+	}
+	rules := cfg.Context
+	if directive.RulesExplicit {
+		rules.AutoExclude = directive.Rules.AutoExclude
+		rules.Include = append([]string(nil), directive.Rules.Include...)
+		rules.IncludeOverride = append([]string(nil), directive.Rules.IncludeOverrides...)
+		rules.Exclude = append([]string(nil), directive.Rules.Exclude...)
+	}
+	bundle, err := s.context.BuildWithContextConfig(roots[0], rules)
+	if err != nil {
+		return AttachmentInspection{}, err
+	}
+	defer os.RemoveAll(filepath.Dir(bundle.ZipPath))
+	inspection, err := s.context.Inspect(roots[0], bundle.Manifest)
+	if err != nil {
+		return AttachmentInspection{}, err
+	}
+	return AttachmentInspection{
+		Root: roots[0], Kind: "directory", AutoExclude: rules.AutoExclude,
+		Include: rules.Include, IncludeOverrides: rules.IncludeOverride, Exclude: rules.Exclude,
+		IncludedFiles: inspection.IncludedFiles, IncludedBytes: inspection.IncludedBytes,
+		ExcludedItems: inspection.ExcludedItems, MaxFileBytes: rules.MaxFileBytes,
+		Entries: inspection.Entries,
+	}, nil
+}
+
+func (s *Service) referenceSelections(item domain.Session, message string) map[string]projectconfig.ContextConfig {
+	result := map[string]projectconfig.ContextConfig{}
+	for _, directive := range directives.Of(directives.Parse(message), directives.KindRef) {
+		if !directive.RulesExplicit {
+			continue
+		}
+		for _, related := range item.Context.RelatedProjects {
+			if !strings.EqualFold(related.Name, directive.Project) {
+				continue
+			}
+			cfg, err := projectconfig.Load(related.ProjectPath)
+			if err != nil {
+				continue
+			}
+			cfg.Context.AutoExclude = directive.Rules.AutoExclude
+			cfg.Context.Include = append([]string(nil), directive.Rules.Include...)
+			cfg.Context.IncludeOverride = append([]string(nil), directive.Rules.IncludeOverrides...)
+			cfg.Context.Exclude = append([]string(nil), directive.Rules.Exclude...)
+			result[related.ProjectPath] = cfg.Context
+		}
+	}
+	return result
 }
 
 // messageWithAttachments states what the markers point at and what they do not
@@ -104,19 +188,20 @@ func messageWithAttachments(message string, attachments []domain.AttachedPathCon
 // an attachment is therefore reading the same table they already read in the
 // settings panel.
 type AttachmentInspection struct {
-	Root          string                                `json:"root"`
-	Kind          string                                `json:"kind"`
-	AutoExclude   bool                                  `json:"auto_exclude"`
-	Include       []string                              `json:"include"`
-	Exclude       []string                              `json:"exclude"`
-	IncludedFiles int                                   `json:"included_files"`
-	IncludedBytes int64                                 `json:"included_bytes"`
-	ExcludedItems int                                   `json:"excluded_items"`
-	Truncated     bool                                  `json:"truncated"`
-	MaxFileBytes  int64                                 `json:"max_file_bytes"`
-	MaxTotalBytes int64                                 `json:"max_total_bytes"`
-	MaxFiles      int                                   `json:"max_files"`
-	Entries       []contextbundle.ContextInventoryEntry `json:"entries"`
+	Root             string                                `json:"root"`
+	Kind             string                                `json:"kind"`
+	AutoExclude      bool                                  `json:"auto_exclude"`
+	Include          []string                              `json:"include"`
+	IncludeOverrides []string                              `json:"include_overrides"`
+	Exclude          []string                              `json:"exclude"`
+	IncludedFiles    int                                   `json:"included_files"`
+	IncludedBytes    int64                                 `json:"included_bytes"`
+	ExcludedItems    int                                   `json:"excluded_items"`
+	Truncated        bool                                  `json:"truncated"`
+	MaxFileBytes     int64                                 `json:"max_file_bytes"`
+	MaxTotalBytes    int64                                 `json:"max_total_bytes"`
+	MaxFiles         int                                   `json:"max_files"`
+	Entries          []contextbundle.ContextInventoryEntry `json:"entries"`
 }
 
 // InspectAttachment resolves one attachment marker for the composer panel.
@@ -135,13 +220,14 @@ func (s *Service) InspectAttachment(sessionID, marker string) (AttachmentInspect
 	directive := parsed[0]
 	limits := contextbundle.DefaultAttachmentLimits()
 	rules := contextbundle.AttachmentRules(directive.Rules.AutoExclude, directive.Rules.Include, directive.Rules.Exclude, 0)
+	rules.IncludeOverride = append([]string(nil), directive.Rules.IncludeOverrides...)
 	attachment, err := contextbundle.ResolveAttachment(directive.Path, rules, limits)
 	if err != nil {
 		return AttachmentInspection{}, err
 	}
 	return AttachmentInspection{
 		Root: attachment.Root, Kind: attachment.Kind,
-		AutoExclude: directive.Rules.AutoExclude, Include: directive.Rules.Include, Exclude: directive.Rules.Exclude,
+		AutoExclude: directive.Rules.AutoExclude, Include: directive.Rules.Include, IncludeOverrides: directive.Rules.IncludeOverrides, Exclude: directive.Rules.Exclude,
 		IncludedFiles: attachment.IncludedFiles, IncludedBytes: attachment.IncludedBytes,
 		ExcludedItems: attachment.ExcludedItems, Truncated: attachment.Truncated,
 		MaxFileBytes: rules.MaxFileBytes, MaxTotalBytes: limits.MaxTotalBytes, MaxFiles: limits.MaxFiles,

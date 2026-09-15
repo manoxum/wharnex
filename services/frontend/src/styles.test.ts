@@ -103,6 +103,24 @@ describe('agent runtime drawer CSS', () => {
 })
 
 describe('composer layout CSS', () => {
+  it('keeps rich directive chips as one compact horizontal token', () => {
+    const chip = lastRule('.composer-rich-editor .ql-editor .composer-directive-chip')
+    const label = lastRule('.composer-directive-chip-label')
+    const configure = lastRule('.composer-directive-chip-configure')
+
+    expect(chip).toContain('display: inline-flex !important')
+    expect(chip).toContain('flex-flow: row nowrap !important')
+    expect(chip).toContain('white-space: nowrap !important')
+    expect(chip).toContain('height: 30px')
+    expect(chip).toContain('gap: 8px')
+    expect(chip).toContain('padding: 5px 5px 5px 6px')
+    expect(label).toContain('max-width: 28ch')
+    expect(label).toContain('align-items: center')
+    expect(label).toContain('margin-inline-start: 2px')
+    expect(label).toContain('text-overflow: ellipsis')
+    expect(configure).toContain('width: 19px !important')
+  })
+
   it('uses the whole top composer edge as the vertical resize handle', () => {
     const composer = lastRule('.composer')
     const handle = lastRule('.composer-resize-handle')

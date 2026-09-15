@@ -157,11 +157,15 @@ type Directive struct {
 	// Path is the path half of Value and Project is empty.
 	Project string
 	Path    string
+	// Source qualifies KindSee as project, ref, attach, or upload. Empty is the
+	// legacy bare-upload spelling and is interpreted as upload.
+	Source string
 	// Rules is the include/exclude selection for a KindAttach directive that
 	// points at a directory. It is deliberately the same shape the project's own
 	// context configuration uses, so attaching a folder is configured with the
 	// same vocabulary — and by the same engine — as the project context itself.
-	Rules AttachRules
+	Rules         AttachRules
+	RulesExplicit bool
 	// Start and End are the byte offsets this directive occupied in the text it
 	// was parsed from, so a renderer can draw it in place.
 	Start int
@@ -255,15 +259,13 @@ func build(kind Kind, raw string) (Directive, bool) {
 		}
 		return Directive{Kind: KindFile, Value: clean, Path: clean}, true
 	case KindSee:
-		name, ok := safeAttachmentName(value)
-		if !ok {
-			return Directive{}, false
-		}
-		return Directive{Kind: KindSee, Value: name, Path: name}, true
+		return parseSeeValue(strings.TrimSpace(raw))
 	case KindRef:
-		project, file := value, ""
-		if index := strings.Index(value, "/"); index >= 0 {
-			project, file = value[:index], strings.TrimSpace(value[index+1:])
+		segments := strings.Split(raw, "|")
+		target := strings.TrimRight(strings.TrimSpace(segments[0]), "/.")
+		project, file := target, ""
+		if index := strings.Index(target, "/"); index >= 0 {
+			project, file = target[:index], strings.TrimSpace(target[index+1:])
 		}
 		if !ValidProjectName(project) {
 			return Directive{}, false
@@ -279,9 +281,56 @@ func build(kind Kind, raw string) (Directive, bool) {
 		if file != "" {
 			canonical = project + "/" + file
 		}
-		return Directive{Kind: KindRef, Value: canonical, Project: project, Path: file}, true
+		rules, explicit, ok := parseRuleTokens(segments[1:])
+		if !ok {
+			return Directive{}, false
+		}
+		if explicit {
+			canonical = renderAttachValue(canonical, rules)
+		}
+		return Directive{Kind: KindRef, Value: canonical, Project: project, Path: file, Rules: rules, RulesExplicit: explicit}, true
 	}
 	return Directive{}, false
+}
+
+func parseSeeValue(raw string) (Directive, bool) {
+	if raw == "" || len(raw) > MaxValueLength || strings.ContainsAny(raw, "{}\x00") {
+		return Directive{}, false
+	}
+	parts := strings.Split(raw, "|")
+	if len(parts) == 1 {
+		name, ok := safeAttachmentName(raw)
+		return Directive{Kind: KindSee, Value: name, Source: "upload", Project: "upload", Path: name}, ok
+	}
+	source := parts[0]
+	switch source {
+	case "project":
+		if len(parts) != 2 {
+			return Directive{}, false
+		}
+		file, ok := safeRelativePath(parts[1])
+		return Directive{Kind: KindSee, Value: "project|" + file, Source: source, Project: source, Path: file}, ok
+	case "upload":
+		if len(parts) != 2 {
+			return Directive{}, false
+		}
+		name, ok := safeAttachmentName(parts[1])
+		return Directive{Kind: KindSee, Value: "upload|" + name, Source: source, Project: source, Path: name}, ok
+	case "ref":
+		if len(parts) != 3 || !ValidProjectName(parts[1]) {
+			return Directive{}, false
+		}
+		file, ok := safeRelativePath(parts[2])
+		return Directive{Kind: KindSee, Value: "ref|" + parts[1] + "|" + file, Source: source, Project: parts[1], Path: file}, ok
+	case "attach":
+		if len(parts) != 3 || !strings.HasPrefix(parts[1], "/") || strings.ContainsAny(parts[1], "{}\x00") {
+			return Directive{}, false
+		}
+		file, ok := safeRelativePath(parts[2])
+		return Directive{Kind: KindSee, Value: "attach|" + parts[1] + "|" + file, Source: source, Project: parts[1], Path: file}, ok
+	default:
+		return Directive{}, false
+	}
 }
 
 // safeAttachmentName accepts only a bare file name: no path separator, since a

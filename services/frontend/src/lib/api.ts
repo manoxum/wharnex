@@ -253,6 +253,7 @@ export const api = {
   // panel that configures a selection and the request that sends it cannot
   // disagree about what it means.
   attachmentInspection: (id: string, marker: string) => request<AttachmentInspection>(`/api/sessions/${id}/attachment/inspection`, { method: 'POST', body: JSON.stringify({ marker }) }),
+  referenceInspection: (id: string, marker: string) => request<AttachmentInspection>(`/api/sessions/${id}/reference/inspection`, { method: 'POST', body: JSON.stringify({ marker }) }),
   // Every project Wharnex has worked on before, open or closed, this session's
   // own project excluded — exactly the candidate set an `@ref` would resolve
   // against at submit time. See internal/app/service_crossproject.go.
