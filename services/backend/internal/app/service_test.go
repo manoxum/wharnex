@@ -573,12 +573,11 @@ func TestConflictResolutionStopsAfterBoundedAttempts(t *testing.T) {
 	}
 }
 
-// TestRunAutomaticPlanEscalatesAfterRepeatedApplyConflict reproduces a real
-// repeated host conflict end-to-end through ApplyToHost — the same path
-// TestVerifiedChangeSetCreatesDedicatedConflictResolutionRequest exercises
-// once — but drives it past maxAutoRepairAttempts to confirm the loop
-// actually stops instead of preparing another automatic prompt forever.
-func TestRunAutomaticPlanEscalatesAfterRepeatedApplyConflict(t *testing.T) {
+// TestActiveConflictBlocksRepeatedApply reproduces the incident in which a
+// failed focused round cleared its transient request flags while the durable
+// IntegrationConflict remained. Apply must key off the durable conflict and
+// refuse to merge the stale original candidate again.
+func TestActiveConflictBlocksRepeatedApply(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "file.txt")
 	if err := os.WriteFile(path, []byte("base\n"), 0o600); err != nil {
@@ -609,37 +608,23 @@ func TestRunAutomaticPlanEscalatesAfterRepeatedApplyConflict(t *testing.T) {
 	if conflicted.State != "conflict_resolution_pending" || conflicted.ConflictAttempt != 0 {
 		t.Fatalf("expected the first conflict round to start at ConflictAttempt=0: %#v", conflicted)
 	}
-	conflictID := conflicted.IntegrationConflict.ID
 
-	// Simulate maxAutoRepairAttempts further automatic rounds already having
-	// happened for this exact conflict (each one would otherwise require
-	// building and submitting a full resolved ChatGPT bundle), and put the
-	// session back into the "a resolved candidate just verified successfully"
-	// shape a real next round would reach, so ApplyToHost's own
-	// pendingHostResolutionBlocked guard allows this second call through.
-	seeded, err := service.store.Update(started.ID, func(current *domain.Session) error {
-		current.ConflictAttempt = maxAutoRepairAttempts
+	_, err = service.store.Update(started.ID, func(current *domain.Session) error {
 		current.PlannerInFlight = false
 		current.PendingManualRequestIDs = nil
-		current.State = "verified"
+		current.State = "failed"
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	exhausted, err := service.ApplyToHost(context.Background(), started.ID)
-	if !errors.Is(err, ErrIntegrationConflict) {
-		t.Fatalf("expected ApplyToHost to still report the conflict, got %v", err)
+	blocked, err := service.ApplyToHost(context.Background(), started.ID)
+	if err == nil || !strings.Contains(err.Error(), "finish the active planner/repair turn") {
+		t.Fatalf("expected active conflict to block stale Apply, got %v", err)
 	}
-	if exhausted.State != "conflict_resolution_exhausted" {
-		t.Fatalf("expected the loop to stop after %d attempts instead of preparing another prompt, got state=%q", maxAutoRepairAttempts, exhausted.State)
-	}
-	if exhausted.IntegrationConflict == nil || exhausted.IntegrationConflict.ID != conflictID {
-		t.Fatalf("expected the same conflict ID to persist through exhaustion: before=%s after=%#v", conflictID, exhausted.IntegrationConflict)
-	}
-	if len(exhausted.PendingManualRequestIDs) != len(seeded.PendingManualRequestIDs) {
-		t.Fatalf("exhaustion must not create a new pending request: before=%d after=%d", len(seeded.PendingManualRequestIDs), len(exhausted.PendingManualRequestIDs))
+	if blocked.IntegrationConflict == nil || blocked.State != "failed" {
+		t.Fatalf("blocked Apply mutated the active conflict: %#v", blocked)
 	}
 }
 

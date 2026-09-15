@@ -137,7 +137,7 @@ func pendingPatchCount(changes []domain.PendingHostChange) int {
 }
 
 func pendingHostResolutionBlocked(item domain.Session) bool {
-	if item.PlannerInFlight || len(item.PendingManualRequestIDs) > 0 {
+	if item.PlannerInFlight || len(item.PendingManualRequestIDs) > 0 || item.IntegrationConflict != nil {
 		return true
 	}
 	switch item.State {

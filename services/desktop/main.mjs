@@ -6109,10 +6109,11 @@ function registerIPC() {
     armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename)
     const resumedExpected = expectedChatGPTBundles.get(key)
     if (resumedExpected) resumedExpected.recoveryEligibleAt = Date.now() + chatAgentInitialRequestWaitMs()
-    await persistWorkspaceChatRemoteBestEffort(key, conversation, { remoteState: 'awaiting-response' })
+    const workspaceChatId = durableWorkspaceChatID(key, request?.workspaceChatId)
+    if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversation, { remoteState: 'awaiting-response' })
     const payload = expectedChatAgentPayload(key, requestId, conversation, {
       expectedFilename, recoveryBootstrap: recoveryPrompt, originalPrompt: recoveryPrompt,
-      sessionId: request?.sessionId,
+      sessionId: request?.sessionId, workspaceChatId,
     })
     await enqueueChatAgentTask('AWAIT_RESPONSE', {
       key, requestId, rootRequestId: requestId, conversationURL: conversation,

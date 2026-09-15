@@ -12,6 +12,13 @@ SPLASH_READY_FILE=''
 
 mkdir -p "$LOG_DIR" "$ROOT/.harness/run"
 
+# IDE-integrated terminals and automation hosts may export this Electron-only
+# compatibility switch. If it reaches the native launcher, the splash binary
+# executes launcher-splash.mjs as plain Node and the OS shortcut appears to be
+# a different/broken instance even though `make start` later sanitizes its own
+# Electron child. Both entrypoints must cross the same native runtime boundary.
+unset ELECTRON_RUN_AS_NODE 2>/dev/null || true
+
 close_splash() {
   if [ -n "$SPLASH_PID" ] && kill -0 "$SPLASH_PID" 2>/dev/null; then
     kill "$SPLASH_PID" 2>/dev/null || true

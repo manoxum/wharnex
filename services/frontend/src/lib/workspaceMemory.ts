@@ -137,7 +137,10 @@ export function mergeDurableWorkspaceChats(local: WorkspaceChat[], durable: Dura
 }
 
 export function conflictChatGPTCacheKey(chatId: string, conflictId: string) {
-  const clean = `${chatId}_cf_${conflictId}`.replace(/[^A-Za-z0-9_-]/g, '_')
+  // Conflict resolution is another turn in the chat's one remote
+  // conversation. Keep this helper only as a compatibility seam.
+  void conflictId
+  const clean = chatId.replace(/[^A-Za-z0-9_-]/g, '_')
   return clean.slice(0, 128)
 }
 
@@ -395,15 +398,10 @@ function normalizeWorkspaceChatAffinity(chat: WorkspaceChat): WorkspaceChat {
   if (lastContextChatgptUrl) normalized.lastContextChatgptUrl = lastContextChatgptUrl
   else delete normalized.lastContextChatgptUrl
   if (chat.transport) normalized.transport = normalizeTransportOptions(chat.transport as TransportOptions & { liveTunnels?: boolean })
-	if (chat.conflictSurfaces && typeof chat.conflictSurfaces === 'object') {
-		const surfaces: NonNullable<WorkspaceChat['conflictSurfaces']> = {}
-		for (const [id, surface] of Object.entries(chat.conflictSurfaces)) {
-			if (!id || !surface || typeof surface.cacheKey !== 'string') continue
-			const url = chatgptConversationURL(surface.url || '')
-			surfaces[id] = { cacheKey: conflictChatGPTCacheKey(chat.id, id), ...(url ? { url } : {}), ...(surface.resolvedAt ? { resolvedAt: surface.resolvedAt } : {}) }
-		}
-		normalized.conflictSurfaces = surfaces
-	} else delete normalized.conflictSurfaces
+	// Legacy builds stored one remote conversation per conflict in this opaque
+	// payload. Restoring those entries would violate the immutable 1:1 chat
+	// affinity and navigate away from the primary thread.
+	delete normalized.conflictSurfaces
   return normalized
 }
 

@@ -19,9 +19,11 @@ test('ChatGPT upload uses the native file input so the canonical basename is pre
     detach: () => { calls.push(['detach']); attached = false },
     sendCommand: async (method, params) => {
       calls.push([method, params])
-      if (method === 'DOM.getDocument') return { root: { nodeId: 7 } }
-      if (method === 'DOM.querySelector') return { nodeId: 9 }
+      if (method === 'Runtime.evaluate') return { result: { objectId: 'scoped-upload-input' } }
+      if (method === 'DOM.requestNode') return { nodeId: 9 }
       if (method === 'DOM.setFileInputFiles') return {}
+      if (method === 'DOM.resolveNode') return { object: { objectId: 'upload-object-9' } }
+      if (method === 'Runtime.callFunctionOn') return { result: { value: { fileCount: 1, firstName: 'whx_bundle_req_chat-1_req_20260907T111505_example.zip' } } }
       throw new Error(`unexpected command ${method}`)
     },
   }
@@ -30,9 +32,15 @@ test('ChatGPT upload uses the native file input so the canonical basename is pre
   assert.equal(result.name, 'whx_bundle_req_chat-1_req_20260907T111505_example.zip')
   assert.deepEqual(calls, [
     ['attach', '1.3'],
-    ['DOM.getDocument', { depth: 0, pierce: false }],
-    ['DOM.querySelector', { nodeId: 7, selector: 'input#upload-files, input[type="file"][data-testid*="upload" i], input[type="file"][multiple]' }],
+    ['Runtime.evaluate', { expression: calls[1][1].expression, returnByValue: false }],
+    ['DOM.requestNode', { objectId: 'scoped-upload-input' }],
     ['DOM.setFileInputFiles', { nodeId: 9, files: ['/tmp/whx_bundle_req_chat-1_req_20260907T111505_example.zip'] }],
+    ['DOM.resolveNode', { nodeId: 9 }],
+    ['Runtime.callFunctionOn', {
+      objectId: 'upload-object-9',
+      functionDeclaration: 'function () { const fileCount = this.files?.length || 0; const firstName = this.files?.[0]?.name || ""; this.dispatchEvent(new Event("input", { bubbles: true, composed: true })); this.dispatchEvent(new Event("change", { bubbles: true })); return { fileCount, firstName }; }',
+      returnByValue: true,
+    }],
     ['detach'],
   ])
 })
@@ -43,7 +51,10 @@ test('ChatGPT upload fails closed when the dedicated file input is unavailable',
     isAttached: () => attached,
     attach: () => { attached = true },
     detach: () => { attached = false },
-    sendCommand: async (method) => method === 'DOM.getDocument' ? { root: { nodeId: 1 } } : { nodeId: 0 },
+    sendCommand: async (method) => {
+      if (method === 'Runtime.evaluate') return { result: { value: null } }
+      return method === 'DOM.getDocument' ? { root: { nodeId: 1 } } : { nodeId: 0 }
+    },
   }
   await assert.rejects(() => selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/request.zip'), /file input was not found/)
   assert.equal(attached, false)
@@ -58,11 +69,14 @@ test('ChatGPT upload accepts the bounded general-file fallback when the stable i
     detach: () => { attached = false },
     sendCommand: async (method, params) => {
       calls.push([method, params])
+      if (method === 'Runtime.evaluate') return { result: { value: null } }
       if (method === 'DOM.getDocument') return { root: { nodeId: 1 } }
       if (method === 'DOM.querySelector') {
         return params.selector.includes('input[type="file"][multiple]') ? { nodeId: 12 } : { nodeId: 0 }
       }
       if (method === 'DOM.setFileInputFiles') return {}
+      if (method === 'DOM.resolveNode') return { object: { objectId: 'upload-object-12' } }
+      if (method === 'Runtime.callFunctionOn') return { result: { value: { fileCount: 1, firstName: 'request.zip' } } }
       throw new Error(`unexpected command ${method}`)
     },
   }
@@ -70,6 +84,23 @@ test('ChatGPT upload accepts the bounded general-file fallback when the stable i
   const result = await selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/request.zip')
   assert.equal(result.name, 'request.zip')
   assert.ok(calls.some(([method, params]) => method === 'DOM.querySelector' && params.selector.includes('input[type="file"][multiple]')))
+})
+
+test('a framework may clear the native FileList after selection without making the upload fail', async () => {
+  const debuggerClient = {
+    isAttached: () => true,
+    sendCommand: async (method) => {
+      if (method === 'Runtime.evaluate') return { result: { objectId: 'scoped-upload-input' } }
+      if (method === 'DOM.requestNode') return { nodeId: 2 }
+      if (method === 'DOM.setFileInputFiles') return {}
+      if (method === 'DOM.resolveNode') return { object: { objectId: 'upload-object-2' } }
+      if (method === 'Runtime.callFunctionOn') return { result: { value: { fileCount: 0, firstName: '' } } }
+      throw new Error(`unexpected command ${method}`)
+    },
+  }
+
+  const result = await selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/request.zip')
+  assert.equal(result.name, 'request.zip')
 })
 
 test('new-chat focus targets the centered composer instead of the conversation footer', () => {
@@ -207,6 +238,31 @@ test('ChatGPT upload observation tolerates bounded upload endpoint revisions', a
 
   assert.equal(coordinator.onBeforeRequest(details), true)
   assert.equal(coordinator.onCompleted({ ...details, statusCode: 201 }), true)
+  assert.deepEqual(await upload, { observed: true })
+})
+
+test('staged ChatGPT upload waits for the uploaded acknowledgement, not metadata creation', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  const upload = coordinator.expect(46, { startTimeoutMs: 100, completionTimeoutMs: 100 })
+  const metadata = {
+    id: 'upload-metadata',
+    webContentsId: 46,
+    method: 'POST',
+    url: 'https://chatgpt.com/backend-api/files',
+  }
+
+  assert.equal(coordinator.onBeforeRequest(metadata), true)
+  assert.equal(coordinator.onCompleted({ ...metadata, statusCode: 201 }), true)
+  assert.equal(coordinator.pendingByWebContents.has(46), true)
+
+  const uploaded = {
+    id: 'upload-complete',
+    webContentsId: 46,
+    method: 'POST',
+    url: 'https://chatgpt.com/backend-api/files/file-123/uploaded',
+  }
+  assert.equal(coordinator.onBeforeRequest(uploaded), true)
+  assert.equal(coordinator.onCompleted({ ...uploaded, statusCode: 200 }), true)
   assert.deepEqual(await upload, { observed: true })
 })
 

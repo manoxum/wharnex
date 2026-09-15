@@ -3,10 +3,16 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/planner"
+)
+
+const (
+	conflictCapsuleArtifactPath = "conflict/capsule.json"
+	maxRequestSupportArtifacts  = 24
 )
 
 func marshalIndented(value any) ([]byte, error) { return json.MarshalIndent(value, "", "  ") }
@@ -151,5 +157,39 @@ func continuationArtifacts(item domain.Session, requestID string) []continuation
 			out = append(out, continuationArtifact{Name: "context-delta/delta.patch", Raw: []byte(delta.Patch)})
 		}
 	}
+	for _, artifact := range item.RequestSupportArtifacts[requestID] {
+		if artifact.Path == conflictCapsuleArtifactPath && len(artifact.Content) > 0 {
+			out = append(out, continuationArtifact{Name: artifact.Path, Raw: append([]byte(nil), artifact.Content...)})
+		}
+	}
 	return out
+}
+
+// recordRequestSupportArtifact persists a fixed-path, engine-authored request
+// file. The oldest inactive request records are bounded with the same 24-round
+// horizon used by immutable request contexts.
+func recordRequestSupportArtifact(item *domain.Session, requestID, path string, raw []byte) {
+	if item == nil || strings.TrimSpace(requestID) == "" || path != conflictCapsuleArtifactPath || len(raw) == 0 {
+		return
+	}
+	if item.RequestSupportArtifacts == nil {
+		item.RequestSupportArtifacts = make(map[string][]domain.RequestSupportArtifact)
+	}
+	item.RequestSupportArtifacts[requestID] = []domain.RequestSupportArtifact{{Path: path, Content: append([]byte(nil), raw...)}}
+	if len(item.RequestSupportArtifacts) <= maxRequestSupportArtifacts {
+		return
+	}
+	ids := make([]string, 0, len(item.RequestSupportArtifacts))
+	for id := range item.RequestSupportArtifacts {
+		if id != item.LastRequestID && id != requestID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		delete(item.RequestSupportArtifacts, id)
+		if len(item.RequestSupportArtifacts) <= maxRequestSupportArtifacts {
+			break
+		}
+	}
 }

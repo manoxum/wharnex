@@ -2,7 +2,7 @@
 //
 // PostgreSQL is authoritative. This queue exists only for tests and short-lived
 // local dispatch helpers; it mirrors the same typed bands, not_before ordering,
-// write non-deduplication and aging rules.
+// active semantic deduplication and aging rules.
 
 export const TASK_TYPES = Object.freeze([
   'TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER',
@@ -41,12 +41,6 @@ function legacyType(kind) {
   return 'AWAIT_RESPONSE'
 }
 
-function neverDedupe(type) {
-  // Continuations are intentional repeated writes. Exact artifact utilities
-  // are idempotent by task/request identity and must collapse after restart.
-  return type === 'BOT_WRITE' || type === 'RECOVERY_WRITE'
-}
-
 function effectivePriority(item, now) {
   if (item.priority <= 1) return item.priority
   const aged = Math.floor(Math.max(0, now - item.enqueuedAt) / (15 * 60_000))
@@ -75,7 +69,7 @@ export class ChatAgentQueue {
     const normalized = String(type || '').toUpperCase()
     if (!TASK_TYPES.includes(normalized)) throw new Error(`Unsupported chat-agent task type ${normalized}`)
     if (this.items.length >= this.maxDepth) throw new Error('Chat agent queue is full')
-    if (dedupeKey && !neverDedupe(normalized)) {
+    if (dedupeKey) {
       const existing = this.items.find((item) => item.dedupeKey === dedupeKey)
       if (existing) return existing.promise
     }

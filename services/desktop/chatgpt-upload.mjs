@@ -1,11 +1,20 @@
 import path from 'node:path'
 
-function isUploadRequest(details) {
+const composerUploadInputExpression = `(() => {
+  const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"][data-testid*="composer"], div[contenteditable="true"][role="textbox"], textarea[placeholder]');
+  const root = composer?.closest('[data-composer-surface]') || composer?.closest('form');
+  if (!root) return null;
+  const selectors = ['input#upload-files', 'input[type="file"][data-testid*="upload" i]', 'input[type="file"][multiple]'];
+  for (const selector of selectors) { const input = root.querySelector(selector); if (input) return input; }
+  return null;
+})()`
+
+function uploadRequestStage(details) {
   try {
     const url = new URL(String(details?.url || ''))
     const method = String(details?.method || 'POST').toUpperCase()
-    if (url.protocol !== 'https:' || !(url.hostname === 'chatgpt.com' || url.hostname.endsWith('.chatgpt.com'))) return false
-    if (!['POST', 'PUT', 'PATCH'].includes(method)) return false
+    if (url.protocol !== 'https:' || !(url.hostname === 'chatgpt.com' || url.hostname.endsWith('.chatgpt.com'))) return ''
+    if (!['POST', 'PUT', 'PATCH'].includes(method)) return ''
 
     // ChatGPT has changed the concrete file-upload route over time. Observe a
     // deliberately narrow family rather than one literal endpoint so a route
@@ -13,13 +22,18 @@ function isUploadRequest(details) {
     // Keep the match under /backend-api and require upload semantics so normal
     // file metadata requests do not satisfy the delivery confirmation gate.
     const pathname = url.pathname.toLowerCase()
-    return pathname === '/backend-api/files/process_upload_stream'
+    if (method === 'POST' && pathname === '/backend-api/files') return 'metadata'
+    if (method === 'POST' && /^\/backend-api\/files\/[^/]+\/uploaded\/?$/.test(pathname)) return 'complete'
+    if (pathname === '/backend-api/files/process_upload_stream'
       || /^\/backend-api\/files\/[^/]*(?:upload|process_upload)[^/]*(?:\/|$)/.test(pathname)
-      || /^\/backend-api\/uploads?(?:\/|$)/.test(pathname)
+      || /^\/backend-api\/uploads?(?:\/|$)/.test(pathname)) return 'complete'
+    return ''
   } catch {
-    return false
+    return ''
   }
 }
+
+function isUploadRequest(details) { return uploadRequestStage(details) !== '' }
 
 export function plannerPromptMarkdown(value) {
   const text = String(value || '').trimEnd()
@@ -81,19 +95,65 @@ export async function selectChatGPTUploadFile(webContents, filePath) {
     attachedHere = true
   }
   try {
-    const document = await client.sendCommand('DOM.getDocument', { depth: 0, pierce: false })
-    const rootNodeId = Number(document?.root?.nodeId || 0)
-    if (!rootNodeId) throw new Error('ChatGPT upload DOM root is unavailable')
-    // The stable id has changed in ChatGPT releases. Keep this deliberately
-    // bounded to the composer's general-file inputs: an id/test-id carrying
-    // upload semantics, or the multi-file input used by the attachment menu.
-    // A bare input[type=file] would be too broad (camera/avatar inputs exist on
-    // other account surfaces) and could select the wrong control silently.
-    const selector = 'input#upload-files, input[type="file"][data-testid*="upload" i], input[type="file"][multiple]'
-    const target = await client.sendCommand('DOM.querySelector', { nodeId: rootNodeId, selector })
-    const nodeId = Number(target?.nodeId || 0)
+    // Prefer the upload input owned by the currently usable composer. IDs are
+    // not guaranteed unique across dormant SPA surfaces, so a document-global
+    // query can select a stale input that accepts CDP commands but has no live
+    // upload listener.
+    const scoped = await client.sendCommand('Runtime.evaluate', {
+      expression: composerUploadInputExpression,
+      returnByValue: false,
+    })
+    const scopedObjectId = String(scoped?.result?.objectId || '')
+    let nodeId = 0
+    if (scopedObjectId) {
+      const requested = await client.sendCommand('DOM.requestNode', { objectId: scopedObjectId })
+      nodeId = Number(requested?.nodeId || 0)
+    }
+
+    // A comma-separated selector returns whichever matching element appears
+    // first in document order, not whichever selector is listed first. Once
+    // ChatGPT added another earlier multi-file control, that made Wharnex set
+    // files on the wrong input while reporting a misleading upload timeout.
+    // Query the closed preference ladder one selector at a time: exact stable
+    // id, explicit upload test id, composer-scoped multi-file input, then the
+    // historical bounded multi-file fallback.
+    const selectors = [
+      'input#upload-files',
+      'input[type="file"][data-testid*="upload" i]',
+      'form input[type="file"][multiple]',
+      'input[type="file"][multiple]',
+    ]
+    if (!nodeId) {
+      const document = await client.sendCommand('DOM.getDocument', { depth: 0, pierce: false })
+      const rootNodeId = Number(document?.root?.nodeId || 0)
+      if (!rootNodeId) throw new Error('ChatGPT upload DOM root is unavailable')
+      for (const selector of selectors) {
+        const target = await client.sendCommand('DOM.querySelector', { nodeId: rootNodeId, selector })
+        nodeId = Number(target?.nodeId || 0)
+        if (nodeId) break
+      }
+    }
     if (!nodeId) throw new Error('ChatGPT upload file input was not found')
     await client.sendCommand('DOM.setFileInputFiles', { nodeId, files: [resolvedPath] })
+    // CDP sets the native FileList, but Chromium does not promise that the
+    // page's framework receives the same input/change sequence as a human file
+    // chooser. ChatGPT currently starts its upload from those listeners. Keep
+    // the script constant and scoped to the already validated upload element;
+    // capture the structural identity before listeners are allowed to clear or
+    // replace the input.
+    const resolved = await client.sendCommand('DOM.resolveNode', { nodeId })
+    const objectId = String(resolved?.object?.objectId || '')
+    if (!objectId) throw new Error('ChatGPT upload file input could not be resolved')
+    const dispatched = await client.sendCommand('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: 'function () { const fileCount = this.files?.length || 0; const firstName = this.files?.[0]?.name || ""; this.dispatchEvent(new Event("input", { bubbles: true, composed: true })); this.dispatchEvent(new Event("change", { bubbles: true })); return { fileCount, firstName }; }',
+      returnByValue: true,
+    })
+    const selected = dispatched?.result?.value || {}
+    const fileCount = Number(selected.fileCount || 0)
+    if (fileCount > 0 && (fileCount !== 1 || String(selected.firstName || '') !== path.basename(resolvedPath))) {
+      throw new Error('ChatGPT upload file input did not retain the selected file')
+    }
     return { selected: true, name: path.basename(resolvedPath) }
   } finally {
     if (attachedHere && client.isAttached()) client.detach()
@@ -115,12 +175,13 @@ export class ChatGPTUploadCoordinator {
       const state = {
         webContentsId,
         requestId: '',
+        requestIds: new Set(),
         timer: undefined,
         finish: (error, result = { observed: true }) => {
           if (!this.pendingByWebContents.has(webContentsId)) return
           clearTimeout(state.timer)
           this.pendingByWebContents.delete(webContentsId)
-          if (state.requestId) this.pendingByRequest.delete(state.requestId)
+          for (const requestId of state.requestIds) this.pendingByRequest.delete(requestId)
           if (error) reject(error)
           else resolve(result)
         },
@@ -150,22 +211,28 @@ export class ChatGPTUploadCoordinator {
   }
 
   onBeforeRequest(details) {
-    if (!isUploadRequest(details)) return false
+    const stage = uploadRequestStage(details)
+    if (!stage) return false
     const state = this.stateFor(details)
     if (!state) return false
     clearTimeout(state.timer)
     state.requestId = String(details.id)
+    state.requestIds.add(state.requestId)
     this.pendingByRequest.set(state.requestId, state)
     state.timer = setTimeout(() => state.finish(new Error('ChatGPT file upload did not complete before timeout')), state.completionTimeoutMs)
     return true
   }
 
   onCompleted(details) {
-    if (!isUploadRequest(details)) return false
+    const stage = uploadRequestStage(details)
+    if (!stage) return false
     const state = this.stateFor(details)
     if (!state) return false
-    if (details.statusCode >= 200 && details.statusCode < 300) state.finish()
-    else state.finish(new Error(`ChatGPT file upload HTTP ${details.statusCode}`))
+    if (details.statusCode < 200 || details.statusCode >= 300) {
+      state.finish(new Error(`ChatGPT file upload HTTP ${details.statusCode}`))
+    } else if (stage === 'complete') {
+      state.finish()
+    }
     return true
   }
 

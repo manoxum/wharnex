@@ -16,6 +16,7 @@ printf 'fixture source\n' >"$fixture/Makefile"
 
 cat >"$fake_bin/electron" <<'EOF'
 #!/usr/bin/env sh
+[ -z "${ELECTRON_RUN_AS_NODE:-}" ] || { printf 'splash-node-mode\n' >>"$WHARNESS_LAUNCHER_TRACE"; exit 9; }
 printf 'splash-open\n' >>"$WHARNESS_LAUNCHER_TRACE"
 printf 'ready\n' >"$WHARNESS_SPLASH_READY_FILE"
 while [ -f "$WHARNESS_SPLASH_STATUS_FILE" ]; do sleep 0.01; done
@@ -24,12 +25,17 @@ cat >"$fake_bin/make" <<'EOF'
 #!/usr/bin/env sh
 printf 'make %s\n' "$*" >>"$WHARNESS_LAUNCHER_TRACE"
 EOF
-chmod 0755 "$fake_bin/electron" "$fake_bin/make"
+cat >"$fake_bin/zenity" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+chmod 0755 "$fake_bin/electron" "$fake_bin/make" "$fake_bin/zenity"
 
 PATH="$fake_bin:$PATH" \
 WHARNESS_ROOT="$fixture" \
 WHARNESS_LAUNCHER_TRACE="$trace" \
 WHARNESS_ELECTRON_BINARY="$fake_bin/electron" \
+ELECTRON_RUN_AS_NODE=1 \
 "$fixture/scripts/launcher.sh"
 
 first_splash=$(awk '/^splash-open$/ { print NR; exit }' "$trace")
@@ -41,4 +47,8 @@ first_make=$(awk '/^make / { print NR; exit }' "$trace")
 grep -Fx 'make stop' "$trace"
 grep -Fx 'make build' "$trace"
 grep -Fx 'make start' "$trace"
+if grep -Fq 'splash-node-mode' "$trace"; then
+  echo 'launcher regression: splash inherited ELECTRON_RUN_AS_NODE and started as plain Node' >&2
+  exit 1
+fi
 printf 'launcher splash checks passed.\n'

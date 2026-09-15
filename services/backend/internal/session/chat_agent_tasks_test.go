@@ -28,7 +28,7 @@ func TestPostgresClaimReturningColumnsAreQualified(t *testing.T) {
 	}
 }
 
-func TestChatAgentTaskDedupeAndWriteIdentity(t *testing.T) {
+func TestChatAgentTaskDedupeIncludesActiveWrites(t *testing.T) {
 	store := NewStore()
 	first, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1"))
 	if err != nil {
@@ -49,8 +49,25 @@ func TestChatAgentTaskDedupeAndWriteIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if write1.TaskID == write2.TaskID {
-		t.Fatal("writes must never dedupe")
+	if write1.TaskID != write2.TaskID {
+		t.Fatal("the same active write must dedupe before it can submit twice")
+	}
+	claimed, err := store.ClaimChatAgentTask("dedupe-test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed == nil || claimed.TaskID != write1.TaskID {
+		t.Fatalf("claimed %#v, want active write %q", claimed, write1.TaskID)
+	}
+	if _, err := store.CompleteChatAgentTask(write1.TaskID, "dedupe-test"); err != nil {
+		t.Fatal(err)
+	}
+	write3, err := store.EnqueueChatAgentTask(testChatAgentTask("BOT_WRITE", "chat-a", "conv-a", "same"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if write3.TaskID == write1.TaskID {
+		t.Fatal("a terminal write must not suppress an explicit fresh retry")
 	}
 	organize1, err := store.EnqueueChatAgentTask(testChatAgentTask("ORGANIZE_CHAT", "chat-a", "conv-a", "organize:conv-a"))
 	if err != nil {

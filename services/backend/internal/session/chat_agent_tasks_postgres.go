@@ -40,7 +40,7 @@ func (s *Store) postgresEnqueueChatAgentTask(task ChatAgentTask) (ChatAgentTask,
 		return ChatAgentTask{}, fmt.Errorf("begin chat agent enqueue: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if task.DedupeKey != "" && !chatAgentTaskNeverDedupe(task.Type) {
+	if task.DedupeKey != "" {
 		row := tx.QueryRow(`SELECT `+chatAgentTaskColumns+` FROM harness_chat_agent_tasks
 			WHERE dedupe_key=$1 AND status IN ('PENDING','LEASED','RUNNING','WAITING')
 			ORDER BY created_at, task_id LIMIT 1`, task.DedupeKey)
