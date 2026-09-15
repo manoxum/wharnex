@@ -110,6 +110,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/archive", a.archiveChat)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", a.restoreChat)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", a.message)
+	mux.HandleFunc("POST /api/sessions/{id}/composer-bundle-preview", a.composerBundlePreview)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/approve", a.approvePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/correct", a.correctPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
@@ -1043,6 +1044,25 @@ func (a *API) message(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
+}
+
+func (a *API) composerBundlePreview(w http.ResponseWriter, r *http.Request) {
+	var body app.ComposerBundlePreviewRequest
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 150<<20))
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_bundle_preview", err.Error())
+		return
+	}
+	record, err := a.service.PreviewComposerBundle(r.Context(), r.PathValue("id"), body)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, session.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, "bundle_preview_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, record)
 }
 
 func (a *API) remoteInput(w http.ResponseWriter, r *http.Request) {

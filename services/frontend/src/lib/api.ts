@@ -175,6 +175,14 @@ export const api = {
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/messages`, {
       method: 'POST', body: JSON.stringify({ message, planning_mode: planningMode }),
     }),
+  previewComposerBundle: (id: string, input: { message: string; planningMode: ChatRequestMode; attachments: Array<{ name: string; mime?: string; contentBase64: string }>; artifacts: Array<{ name: string; mime?: string; contentBase64: string }>; projectFiles: string[] }) =>
+    request<ArtifactRecord>(`/api/sessions/${id}/composer-bundle-preview`, {
+      method: 'POST', body: JSON.stringify({
+        message: input.message, planning_mode: input.planningMode, project_files: input.projectFiles,
+        attachments: input.attachments.map((file) => ({ name: file.name, mime: file.mime, content_base64: file.contentBase64 })),
+        artifacts: input.artifacts.map((file) => ({ name: file.name, mime: file.mime, content_base64: file.contentBase64 })),
+      }),
+    }),
   approvePlan: (id: string, requestId: string) =>
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/approve`, { method: 'POST', body: '{}' }),
   correctPlan: (id: string, requestId: string, guidance: string) =>

@@ -82,6 +82,34 @@ describe('ChatPanel', () => {
   })
 
 
+  it('previews the next composer bundle without clearing or sending the draft', async () => {
+    const ref = panelRef()
+    const preview = {
+      id: 'artifact-preview', request_id: 'req_preview', direction: 'input' as const, kind: 'bundle-preview',
+      name: 'whx_bundle_req_chat-1_req_preview.zip', content_type: 'application/zip', size: 2048,
+      sha256: 'a'.repeat(64), created_at: '2026-09-15T16:20:00Z', expires_at: '2026-10-15T16:20:00Z', bundle: true, entry_count: 1,
+    }
+    const onPreviewBundle = vi.fn().mockResolvedValue(preview)
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(api, 'artifactEntries').mockResolvedValue({ entries: [{ path: 'prompt/wharness-planner-prompt.md', size: 128, dir: false }] })
+    const deletePreview = vi.spyOn(api, 'deleteManagedArtifact').mockResolvedValue({ deleted: true })
+    render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} onSend={onSend} onPreviewBundle={onPreviewBundle} {...chatActions} />,
+    )
+
+    typeInComposer(ref, 'implemente a mudança', 'implemente a mudança'.length)
+    fireEvent.click(screen.getByRole('button', { name: 'Pré-visualizar próximo bundle' }))
+
+    await waitFor(() => expect(onPreviewBundle).toHaveBeenCalledTimes(1))
+    expect(onSend).not.toHaveBeenCalled()
+    expect(composerText(ref)).toBe('implemente a mudança')
+    expect((await screen.findAllByText('Pré-visualização · próximo bundle')).length).toBeGreaterThan(0)
+    fireEvent.click(await screen.findByText('prompt')); expect(await screen.findByText('wharness-planner-prompt.md')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar explorador' }))
+    await waitFor(() => expect(deletePreview).toHaveBeenCalledWith(session.id, preview.id))
+  })
+
   it('keeps copyable context hash and chat identity in the header instead of repeating them in the transcript', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
