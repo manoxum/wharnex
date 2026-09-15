@@ -16,6 +16,7 @@ import (
 // than becoming plan operations.
 func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/overview", a.gitOverview)
+	mux.HandleFunc("GET /api/sessions/{id}/git/diff", a.gitFileDiff)
 	mux.HandleFunc("PUT /api/sessions/{id}/git/commit-mode", a.setGitCommitMode)
 	mux.HandleFunc("GET /api/sessions/{id}/git/pending/{pending_id}", a.gitPendingCommit)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/commit", a.commitGitPending)
@@ -31,6 +32,15 @@ func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) gitFileDiff(w http.ResponseWriter, r *http.Request) {
+	diff, err := a.service.GitFileDiff(r.Context(), r.PathValue("id"), r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_diff_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, diff)
 }
 
 func (a *API) setGitCommitMode(w http.ResponseWriter, r *http.Request) {

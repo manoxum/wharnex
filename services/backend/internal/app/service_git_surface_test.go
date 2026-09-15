@@ -73,6 +73,26 @@ func TestCommitModeDefaultsToAutoAndRoundTrips(t *testing.T) {
 	}
 }
 
+func TestGitFileDiffIsBoundedToAnEditorPath(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	sessionID := startGitSession(t, service, root)
+	if err := os.WriteFile(filepath.Join(root, "app.go"), []byte("package main\n// dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := service.GitFileDiff(context.Background(), sessionID, "app.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.Path != "app.go" || !strings.Contains(diff.Diff, "+// dirty") {
+		t.Fatalf("unexpected editor diff: %+v", diff)
+	}
+	if _, err := service.GitFileDiff(context.Background(), sessionID, "../outside.go"); err == nil {
+		t.Fatal("git diff must preserve the editor containment boundary")
+	}
+}
+
 func TestMergeRollbackAnchorKeepsPreservedOperatorWork(t *testing.T) {
 	requireGitForApp(t)
 	service, _ := gitSurfaceService(t)

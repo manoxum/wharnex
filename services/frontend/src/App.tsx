@@ -1,13 +1,13 @@
 import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
-import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, WorkspaceMode } from './types'
+import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
 import { ChatPanel } from './components/ChatPanel'
 import { WorkspaceSideRail, type Drawer } from './components/WorkspaceSideRail'
 import { WorkspaceRightRail, type RightDrawer } from './components/WorkspaceRightRail'
-import { InteractiveTerminal } from './components/InteractiveTerminal'
+import { TerminalWorkspace } from './components/TerminalWorkspace'
 import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem } from './lib/executionQueueView'
 import { collectAttentionItems, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
@@ -145,7 +145,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // permanently taking height from the chat is a cost the operator should opt
   // into rather than inherit.
   const [terminalOpen, setTerminalOpen] = useState(false)
-  const [terminalHeight, setTerminalHeight] = useState(245)
+  const [terminalHeight, setTerminalHeight] = useState(275)
+  const [terminalRunRequest, setTerminalRunRequest] = useState<TerminalRunRequest>()
+  const terminalRunNonceRef = useRef(0)
   const [error, setError] = useState<string>()
   const [errorChatRef, setErrorChatRef] = useState<{ chatId: string; itemId: string; message: string }>()
   const [preparedDrafts, setPreparedDrafts] = useState<Record<string, number>>({})
@@ -185,6 +187,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // history during this window.
   const transcriptReadyRef = useRef(new Set<string>())
   const transcriptMutationQueuesRef = useRef(new Map<string, Promise<void>>())
+  const runInTerminal = useCallback((input: TerminalRunInput) => {
+    terminalRunNonceRef.current += 1
+    setTerminalOpen(true)
+    setTerminalRunRequest({ ...input, id: terminalRunNonceRef.current })
+  }, [])
+
+  useEffect(() => { setTerminalRunRequest(undefined) }, [session?.id])
 
   const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
   const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
@@ -2936,7 +2945,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       />
       <div className="workspace-mode-stack">
       <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
-        <EditorWorkspace session={session} onError={setError} openPath={editorOpenPath} openNonce={editorOpenNonce} />
+        <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
         <OrchestratorWorkspace
@@ -2973,10 +2982,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           }}
         />}
       </div>
-        {terminalOpen && <>
-          <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(245)} />
-          <InteractiveTerminal key={session.id} session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={setError} />
-        </>}
+        {terminalOpen && <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(275)} />}
+        <TerminalWorkspace key={session.id} session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
       </div>
       <WorkspaceRightRail drawer={rightDrawer} onDrawer={setRightDrawer} onError={setError} />
     </div>

@@ -238,6 +238,16 @@ Execution actions belong to the unified Agent tab bar. The available Execute act
 - Account operations prefer a supported official provider capability and otherwise use the typed browser fallback. Private session cookies and undocumented consumer endpoints are not an API transport.
 - The ChatGPT sidebar is collapsed after load and after account work. Local archive requires the owned remote conversation to be stopped when active and remotely archived first; unsupported controls surface an actionable error instead of silently diverging.
 
+## Editor workbench execution and code intelligence (v1.4)
+
+The shell terminal is a tabbed workbench rather than a single disposable panel. The operator may add as many terminal instances as needed, switch between them without unmounting inactive PTYs, close one instance independently, and collapse/reopen the entire workbench without losing running commands or terminal history. The active tab remains the destination for explicit Editor execution actions.
+
+The Editor exposes human-only run affordances for runnable source files and `package.json` scripts. Script discovery respects the package's declared manager and nearby lockfiles; running an action opens the terminal workbench if necessary and sends the command to the active PTY with the file's directory as working context. A selected code range may be sent with `Ctrl/Cmd+Shift+Enter`. This path does not create Agent operations and does not grant model access to the PTY.
+
+For source review, the Editor may request a bounded read-only Git worktree diff for the selected editor-safe file and render it through the existing Monaco diff viewer. The server applies the same project-root, exclusion, symlink and UTF-8 boundary used by Editor reads before invoking Git. Unsaved drafts are identified as such because Git comparison reflects only the saved worktree.
+
+Monaco keeps normal language services and word completion across open models. In JavaScript/TypeScript, tagged template bodies using `html`, `sql`, `css` or `graphql` receive a subtle embedded-code affordance and context-specific snippets while the surrounding document remains JavaScript/TypeScript. This assistance is editor presentation/completion only; it does not reinterpret strings for execution.
+
 ## Orchestrator workspace (v1.4)
 
 Wharnex exposes **Orchestrator** beside Editor and Agent as a first-class workspace mode. It is a supervisory/project-planning surface; Agent remains the conversational worker and Editor remains the direct source surface.
