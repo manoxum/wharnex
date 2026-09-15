@@ -132,7 +132,9 @@ need to construct an undisclosed sibling URL.
 In a live channel, attachments and explicit `@file` contents are individual
 file-map entries. Explicit `@file` context entries are marked `selected`; the
 complete eligible project snapshot is represented by the context entries in the
-current map.
+current map. An inline `@{[see]<name>}` marker names one of the attachment
+entries already in the map by file name; it MUST NOT produce a second entry for
+the same content.
 
 The remote file map is transport-only and does not alter the execution protocol
 or trust order. ChatGPT MUST read the planner prompt and current file map before

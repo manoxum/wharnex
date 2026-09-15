@@ -1,12 +1,15 @@
 // Package directives owns the composer directive language: the small syntax an
 // operator writes inside a prompt to point at something Wharnex should resolve.
 //
-// There are three kinds and one grammar. `@file` points at a file in the
+// There are four kinds and one grammar. `@file` points at a file in the
 // project the request belongs to. `@ref` points at another project, optionally
 // at one file inside it, and is also what grants that project's writability for
 // the request (see internal/crossproject). `@attach` points at a file or
-// directory outside every project. All three are parsed here so they can never
-// drift into separate dialects of the same idea.
+// directory outside every project. `@see` points at a file the operator already
+// attached directly to this message — by name only, since it carries no
+// filesystem location here: unlike the other three, its content never travels
+// through this package, only its position and name do. All four are parsed here
+// so they can never drift into separate dialects of the same idea.
 //
 // # Position is meaning
 //

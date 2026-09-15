@@ -140,6 +140,33 @@ func TestCanonicalizeNormalizesAliasesToThePrimaryKeyword(t *testing.T) {
 	}
 }
 
+// @see names an already-attached file by name only — it carries no location,
+// unlike the other three kinds, since the attachment's bytes travel through a
+// separate transport this package never sees.
+func TestParseAcceptsSeeAndLookAsTheSameKind(t *testing.T) {
+	for _, alias := range []string{"see", "look"} {
+		parsed := Parse("@" + alias + ":diagram.png")
+		if len(parsed) != 1 || parsed[0].Kind != KindSee || parsed[0].Value != "diagram.png" || parsed[0].Path != "diagram.png" {
+			t.Fatalf("alias %q: parsed=%#v", alias, parsed)
+		}
+	}
+	got := Canonicalize("compare @look:before.png with @see:after.png")
+	want := "compare @{[see]before.png} with @{[see]after.png}"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+// A name is a name, not a path: a directory separator would let the marker
+// silently name something other than the exact attachment it appears to.
+func TestSeeRejectsPathSeparators(t *testing.T) {
+	for _, text := range []string{"@see:../secrets.txt", "@see:dir/file.png", "@see:a\\b"} {
+		if parsed := Parse(text); len(parsed) != 0 {
+			t.Fatalf("%q must not parse as a directive, got %#v", text, parsed)
+		}
+	}
+}
+
 // Keywords is the single source of truth the regex is built from; a test that
 // walks it end to end catches a keyword added to the table but never wired
 // into parsing.

@@ -3463,39 +3463,41 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .composer-directive-chip.file { background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface)); }
 .composer-directive-chip.ref { background: color-mix(in srgb, #3f8fb0 20%, var(--theme-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, #3f8fb0 48%, transparent); }
 .composer-directive-chip.attach { background: color-mix(in srgb, #b08e56 22%, var(--theme-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, #b08e56 52%, transparent); }
+.composer-directive-chip.see { background: color-mix(in srgb, #4a8f5c 20%, var(--theme-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, #4a8f5c 48%, transparent); }
+/* The caret is inside this directive right now — a purely visual cue, since
+   opening its popover is driven by the textarea's own click, not by this
+   state (see ChatPanel.openDirectiveAtCaret). */
+.composer-directive-chip.active { box-shadow: inset 0 0 0 1.5px var(--theme-text); }
 
-/* The Edit/Remove/Info toolbar on the directive the caret is currently inside.
-   pointer-events:auto punches back through the mirror's pointer-events:none —
-   a standard override — so these three buttons stay genuinely clickable while
-   everything else in the mirror remains inert and duplicate-free for AT. */
-.composer-directive-toolbar {
-  position: absolute; top: 100%; left: 0; z-index: 6; margin-top: 3px;
-  display: inline-flex; align-items: center; gap: 2px; padding: 2px;
-  border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-elevated);
-  box-shadow: 0 8px 20px var(--theme-shadow); pointer-events: auto; white-space: nowrap;
+/* The anchored configuration popover opened by clicking a chip — in the text
+   or in the summary strip above the composer. Positioned in JS from the exact
+   element that was clicked (ComposerDirectiveConfigPopover), the same
+   technique WorkspaceShell's project-window popover already uses, rather than
+   a global modal keyed by directive id. */
+.composer-directive-popover {
+  position: fixed; z-index: 340; width: max-content; max-width: 280px;
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 9px;
+  border: 1px solid var(--theme-border); border-radius: 9px; background: var(--theme-elevated);
+  box-shadow: 0 12px 30px var(--theme-shadow);
 }
-.composer-directive-toolbar button, .composer-directive-info {
-  width: 21px; height: 21px; display: grid; place-items: center; border: 0; border-radius: 5px;
-  background: transparent; color: var(--theme-text-muted); cursor: pointer;
+.composer-directive-popover header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.composer-directive-popover header strong { font-size: calc(9px * var(--ui-font-scale)); }
+.composer-directive-popover-body { display: flex; flex-direction: column; gap: 2px; color: var(--theme-text-soft); font-size: calc(8.2px * var(--ui-font-scale)); line-height: 1.4; word-break: break-word; }
+.composer-directive-popover-actions { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 2px; border-top: 1px solid var(--theme-border); }
+.composer-directive-popover-actions button {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--theme-border);
+  border-radius: 6px; background: transparent; color: var(--theme-text-soft); cursor: pointer;
+  font-size: calc(8px * var(--ui-font-scale));
 }
-.composer-directive-toolbar button:hover { background: var(--theme-hover); color: var(--theme-text); }
-.composer-directive-info { position: relative; }
-.composer-directive-info-bubble {
-  position: absolute; top: calc(100% + 4px); left: 0; z-index: 7; display: none;
-  width: max-content; max-width: 260px; padding: 7px 9px; flex-direction: column; gap: 2px;
-  border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-elevated);
-  box-shadow: 0 10px 26px var(--theme-shadow); color: var(--theme-text-soft);
-  font-size: calc(8.2px * var(--ui-font-scale)); line-height: 1.4;
-}
-.composer-directive-info-bubble strong { color: var(--theme-text); font-size: calc(8.6px * var(--ui-font-scale)); }
-.composer-directive-info:hover .composer-directive-info-bubble,
-.composer-directive-info:focus-within .composer-directive-info-bubble { display: flex; }
+.composer-directive-popover-actions button:hover { background: var(--theme-hover); color: var(--theme-text); }
+.composer-directive-popover-actions button.danger:hover { background: color-mix(in srgb, #c0392b 18%, transparent); color: #c0392b; }
 
 .file-reference-menu > button { grid-template-columns: auto minmax(0,1fr) auto auto; }
 .file-reference-menu > button em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 15ch; color: #7a8174; font: 500 calc(7.5px * var(--ui-font-scale))/1.3 var(--mono-font-family); font-style: normal; }
 .file-reference-menu > button small.unattached { color: #b08e56; font-style: normal; }
 .file-reference-menu.ref header span { background: #1f3340; color: #a7dcf5; }
 .file-reference-menu.attach header span { background: #3a2c17; color: #f3d9a6; }
+.file-reference-menu.see header span { background: #1f3a26; color: #a9dcb8; }
 .file-reference-menu.kind header span { background: var(--theme-text); color: var(--theme-surface); }
 .file-reference-menu.kind > button small { color: var(--theme-text-muted); font-size: calc(7.3px * var(--ui-font-scale)); }
 
@@ -3511,6 +3513,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 }
 .composer-directive-summary-chip.ref { border-color: color-mix(in srgb, #3f8fb0 50%, var(--theme-border)); }
 .composer-directive-summary-chip.attach { border-color: color-mix(in srgb, #b08e56 50%, var(--theme-border)); }
+.composer-directive-summary-chip.see { border-color: color-mix(in srgb, #4a8f5c 50%, var(--theme-border)); }
 .composer-directive-summary-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(8.3px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
 /* Two sibling buttons, never nested: HTML forbids interactive content inside a
    button, and the browser silently breaks click handling for whichever one

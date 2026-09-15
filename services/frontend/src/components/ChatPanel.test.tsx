@@ -630,6 +630,68 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  // Every kind — not just @ref/@attach — summarizes above the composer, so the
+  // whole selection reads at a glance regardless of which directive it is.
+  it('summarizes every directive kind, including @file, in the strip above the composer', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="summary-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'Revê @{[file]src/App.tsx} agora', selectionStart: 30 } })
+    expect(view.container.querySelector('.composer-directive-summary-chip.file')).toBeTruthy()
+    view.unmount()
+  })
+
+  // Clicking a chip — in the text or its miniature in the summary strip —
+  // opens the same configuration popover with Edit/Remove actions.
+  it('opens the configuration popover when a chip’s miniature is clicked', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="popover-summary-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'junta @{[attach]/srv/contracts} agora', selectionStart: 36 } })
+    fireEvent.click(screen.getByLabelText('Configurar /srv/contracts'))
+    const popover = view.container.querySelector('.composer-directive-popover')
+    expect(popover).toBeTruthy()
+    expect(popover?.textContent).toContain('Caminho externo')
+    expect(screen.getByText('Remover')).toBeTruthy()
+    view.unmount()
+  })
+
+  it('opens the configuration popover when a chip in the text itself is clicked', () => {
+    const referencedSession = {
+      ...session,
+      context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
+    }
+    const view = render(
+      <ChatPanel session={referencedSession} items={[]} chats={[]} activeChatId="popover-inline-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'Revê @{[file]src/App.tsx} agora', selectionStart: 30 } })
+    composer.setSelectionRange(10, 10) // lands inside the @{[file]…} marker
+    fireEvent.click(composer)
+    const popover = view.container.querySelector('.composer-directive-popover')
+    expect(popover).toBeTruthy()
+    expect(popover?.textContent).toContain('Ficheiro do projeto')
+    view.unmount()
+  })
+
+  // @see/@look points at a file already attached directly to this message —
+  // it renders and configures exactly like the other three kinds.
+  it('renders an @see chip and configures it like the other directive kinds', () => {
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="see-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = screen.getByPlaceholderText('Pergunte, analise, diagnostique ou descreva uma alteração…') as HTMLTextAreaElement
+    fireEvent.change(composer, { target: { value: 'compara @{[see]diagram.png} com o mockup', selectionStart: 41 } })
+    expect(view.container.querySelector('.composer-directive-chip.see')?.textContent).toBe('@{[see]diagram.png}')
+    fireEvent.click(screen.getByLabelText('Configurar diagram.png'))
+    const popover = view.container.querySelector('.composer-directive-popover')
+    expect(popover?.textContent).toContain('Anexo enviado')
+    expect(popover?.textContent).toContain('Não encontrado entre os anexos atuais')
+    view.unmount()
+  })
+
   // Nothing bound is not a failed search: the operator has made no mistake, and
   // saying so points at the action that fixes it.
   it('explains an empty @ref menu when Wharnex knows no other project', () => {

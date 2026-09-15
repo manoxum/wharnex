@@ -50,18 +50,18 @@ describe('composer directives', () => {
   it('offers projects for @ref and that project’s files after the slash', () => {
     const projectQuery = directiveQuery('change @ref:flow', 16)
     expect(projectQuery).toMatchObject({ kind: 'ref', query: 'flow' })
-    const projectRows = directiveSuggestions(projectQuery!, [], projects)
+    const projectRows = directiveSuggestions(projectQuery!, [], projects, [])
     expect(projectRows[0]).toMatchObject({ value: 'flowcore/', label: 'flowcore', continues: true })
 
     const fileQuery = directiveQuery('change @ref:flowcore/auth', 25)
-    const fileRows = directiveSuggestions(fileQuery!, [], projects)
+    const fileRows = directiveSuggestions(fileQuery!, [], projects, [])
     expect(fileRows[0]).toMatchObject({ value: 'flowcore/services/be/auth.go', label: 'services/be/auth.go' })
   })
 
   it('offers this project’s files for @file', () => {
     const query = directiveQuery('read @file:auth', 15)
     expect(query).toMatchObject({ kind: 'file', query: 'auth' })
-    expect(directiveSuggestions(query!, ['src/lib/auth.ts', 'README.md'], projects)[0]).toMatchObject({
+    expect(directiveSuggestions(query!, ['src/lib/auth.ts', 'README.md'], projects, [])[0]).toMatchObject({
       value: 'src/lib/auth.ts',
     })
   })
@@ -70,7 +70,7 @@ describe('composer directives', () => {
   // wants the list, not someone who typed nothing.
   it('opens the menu on a bare prefix', () => {
     expect(directiveQuery('now @ref:', 9)).toMatchObject({ kind: 'ref', query: '' })
-    expect(directiveSuggestions(directiveQuery('now @ref:', 9)!, [], projects)).toHaveLength(2)
+    expect(directiveSuggestions(directiveQuery('now @ref:', 9)!, [], projects, [])).toHaveLength(2)
   })
 
   // The directive is inserted where it was being typed, canonical from the
@@ -141,7 +141,7 @@ describe('attach directives', () => {
   // There is nothing to autocomplete for a path outside every project; the
   // picker is the affordance, not a list of guesses.
   it('offers no completions for @attach', () => {
-    expect(directiveSuggestions(directiveQuery('junta @attach:/srv', 17)!, ['a.ts'], projects)).toHaveLength(0)
+    expect(directiveSuggestions(directiveQuery('junta @attach:/srv', 17)!, ['a.ts'], projects, [])).toHaveLength(0)
   })
 
   it('labels an attach chip by its basename and rule count', () => {
@@ -149,6 +149,42 @@ describe('attach directives', () => {
     expect(directiveChipLabel(plain)).toBe('contracts')
     const [scoped] = parseDirectives('@{[attach]/srv/contracts|+a/**|-b/**}')
     expect(directiveChipLabel(scoped)).toBe('contracts · 2 regra(s)')
+  })
+})
+
+describe('see directives', () => {
+  const attachmentNames = ['diagram.png', 'notes.txt']
+
+  // @see names an already-attached file by name only — no filesystem
+  // resolution happens here, unlike the other three kinds.
+  it('parses @see and its @look alias to the same kind', () => {
+    const [seen] = parseDirectives('@see:diagram.png')
+    expect(seen).toMatchObject({ kind: 'see', value: 'diagram.png', path: 'diagram.png' })
+    const [looked] = parseDirectives('@look:diagram.png')
+    expect(looked).toMatchObject({ kind: 'see', value: 'diagram.png', path: 'diagram.png' })
+  })
+
+  it('canonicalizes @see/@look to the same @{[see]…} form', () => {
+    expect(canonicalizeDirectives('compara @look:before.png com @see:after.png'))
+      .toBe('compara @{[see]before.png} com @{[see]after.png}')
+  })
+
+  // A name is a name, not a path — accepting a separator would let the marker
+  // silently point at something other than the exact attachment it names.
+  it('refuses a value containing a path separator', () => {
+    for (const text of ['@see:../secrets.txt', '@see:dir/file.png', '@{[see]a/b}']) {
+      expect(parseDirectives(text)).toHaveLength(0)
+    }
+  })
+
+  it('offers the currently attached file names as completions', () => {
+    const query = directiveQuery('junta @see:dia', 14)!
+    expect(directiveSuggestions(query, [], projects, attachmentNames)).toEqual([{ value: 'diagram.png', label: 'diagram.png' }])
+  })
+
+  it('labels a see chip by the attachment name', () => {
+    const [directive] = parseDirectives('@{[see]diagram.png}')
+    expect(directiveChipLabel(directive)).toBe('diagram.png')
   })
 })
 
@@ -197,7 +233,7 @@ describe('bare @ kind picker', () => {
   })
 
   it('filters by keyword or any alias', () => {
-    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach'])
+    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see'])
     expect(directiveKindSuggestions('proj').map((s) => s.kind)).toEqual(['ref'])
     expect(directiveKindSuggestions('dir').map((s) => s.kind)).toEqual(['attach'])
   })
@@ -224,7 +260,7 @@ describe('unattached known projects', () => {
   // A project Wharnex has worked on before is nameable whether or not its
   // context is currently attached to this request.
   it('offers a project that is known but not attached', () => {
-    const rows = directiveSuggestions(directiveQuery('junta @ref:leg', 14)!, [], known)
+    const rows = directiveSuggestions(directiveQuery('junta @ref:leg', 14)!, [], known, [])
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ value: 'legacy/', attached: false })
   })

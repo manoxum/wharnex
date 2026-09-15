@@ -33,7 +33,8 @@ func directiveLegend(message string, manifest domain.ContextManifest) string {
 	files := directives.Values(parsed, directives.KindFile)
 	refs := directives.Values(parsed, directives.KindRef)
 	attached := directives.Values(parsed, directives.KindAttach)
-	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 {
+	seen := directives.Values(parsed, directives.KindSee)
+	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 && len(seen) == 0 {
 		return ""
 	}
 	var shapes []string
@@ -45,6 +46,9 @@ func directiveLegend(message string, manifest domain.ContextManifest) string {
 	}
 	if len(attached) > 0 {
 		shapes = append(shapes, "@{[attach]<absolute path>}")
+	}
+	if len(seen) > 0 {
+		shapes = append(shapes, "@{[see]<file name>}")
 	}
 	var builder strings.Builder
 	builder.WriteString("\n\nINLINE REFERENCE MARKERS (Wharnex-owned scope metadata):\n")
@@ -60,6 +64,9 @@ func directiveLegend(message string, manifest domain.ContextManifest) string {
 	}
 	if len(attached) > 0 {
 		builder.WriteString("- @{[attach]…} is a file or directory outside every project, placed under an ATTACHMENTS namespace. It is read-only reference material and never a patch target; a trailing |+pattern / |-pattern selection in the marker is what the operator chose to include or exclude from it.\n")
+	}
+	if len(seen) > 0 {
+		builder.WriteString("- @{[see]…} names, by file name only, a file the user attached directly to this message (not part of the project or any external path). Its bytes are not carried by this reference marker; match the name against the attachment metadata listed elsewhere in this message to find the one it means.\n")
 	}
 	if missing := missingContextFiles(files, manifest); len(missing) > 0 {
 		builder.WriteString("Referenced with @{[file]…} but absent from the context snapshot, so their contents are not available in this request: " + strings.Join(missing, ", ") + ".\n")

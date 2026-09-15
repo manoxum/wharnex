@@ -57,6 +57,18 @@ func TestDirectiveLegendReportsFilesMissingFromTheSnapshot(t *testing.T) {
 	}
 }
 
+// @see has no filesystem location to check against, so the legend explains
+// what it means without a manifest-backed "missing" claim it cannot make.
+func TestDirectiveLegendExplainsSee(t *testing.T) {
+	legend := directiveLegend("compare @{[see]before.png} with the spec", manifestWith("a.ts"))
+	if !strings.Contains(legend, "@{[see]") {
+		t.Fatalf("legend must describe the @see marker it saw: %q", legend)
+	}
+	if !strings.Contains(legend, "attached directly to this message") {
+		t.Fatalf("legend must explain @see points at a direct attachment: %q", legend)
+	}
+}
+
 // The marker stays where the operator wrote it: that placement is the whole
 // reason the notation exists.
 func TestCanonicalizationKeepsMarkersInPlace(t *testing.T) {
