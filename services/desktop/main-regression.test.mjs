@@ -1076,7 +1076,8 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   const materializeEnd = source.indexOf('\nasync function fillBundledChatGPTComposer', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, prompt: promptText, knowledge, continuation, attachments: decoded, liveTunnels \}\)/)
+  assert.match(materialize, /const context = await fetchContextZip\(sessionId\)/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels \}\)/)
   // The attempt ledger and divergence report must ride in the same single
   // protocol ZIP; fetching them separately at send time would let a comment
   // reach ChatGPT without the evidence the prompt says is attached.

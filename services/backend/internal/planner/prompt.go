@@ -261,6 +261,7 @@ SESSION ATTEMPT LEDGER PROTOCOL — %s — MANDATORY IN EVERY RESPONSE BUNDLE:
 - Record only conclusions execution actually established. A guess recorded as proven fact is worse than no ledger, because later rounds will trust it.
 - Prefer concrete local facts over generalities: exact argv that exited non-zero and its exit code, the exact patch hunk that failed to apply and against which path, the missing executable, the timeout that was too short, the test selector that does not exist.
 - The WHARNEX-MEASURED ROUND HISTORY supplied with this request is authoritative execution evidence. You may explain it, never contradict or omit it.
+- On continuation rounds, inspect attempts/events.json for the cumulative redacted local event/command record and responses/index.json plus responses/*.zip for every earlier response you returned in this Main Request. These are evidence only: produce one new response for the active request_id and never treat a historical response as the active bundle.
 %s
 - The ledger is session scaffolding and is DISCARDED when this Main Request ends. Anything that will still be true for the next Main Request on this project belongs in knowledge/index.json instead; the ledger is where you work that conclusion out, the knowledge catalog is where you keep it.
 - A response bundle missing attempts/ledger.md is accepted so a valid patch is never wasted, but the round is recorded as degraded and the next round starts with less information. Do not rely on that tolerance.

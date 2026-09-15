@@ -122,7 +122,7 @@ func (r *HostRunner) RunStreaming(ctx context.Context, workspace Workspace, comm
 	cmd.Stderr = stderr
 	err = cmd.Run()
 	code := exitCode(err)
-	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: code, Stdout: limit(stdout.String()), Stderr: limit(stderr.String()), DurationMS: time.Since(started).Milliseconds()}
+	result := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: code, Stdout: limit(stdout.String()), Stderr: processStderr(stderr.String(), err), DurationMS: time.Since(started).Milliseconds()}
 	result.Success = containsInt(command.ExpectedExitCodes, code) && runCtx.Err() == nil
 	if runCtx.Err() == context.DeadlineExceeded {
 		return result, fmt.Errorf("host command timeout after %s", timeout)

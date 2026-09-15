@@ -376,6 +376,8 @@ export type DirectiveSuggestion = {
   continues?: boolean
   /** For a `ref` project row: whether its context is already attached. */
   attached?: boolean
+  /** Visual cue for a source-selection row in the two-stage @see menu. */
+  sourceIcon?: 'workspace' | 'folder' | 'file' | 'link'
 }
 
 export type SeeSuggestion = DirectiveSuggestion
@@ -403,14 +405,7 @@ export function directiveSuggestions(
     return matchingProjectFiles(projectFiles, query.query).map((path) => ({ value: path, label: path }))
   }
   if (query.kind === 'see') {
-    const candidates: DirectiveSuggestion[] = [
-      ...projectFiles.map((path) => ({ value: `project|${path}`, label: path, detail: 'Projeto atual' })),
-      ...projects.filter((project) => project.attached).flatMap((project) => project.files.map((path) => ({ value: `ref|${project.name}|${path}`, label: path, detail: `@ref ${project.name}` }))),
-      ...attachedPathFiles.flatMap((attachment) => attachment.files.map((path) => ({ value: `attach|${attachment.root}|${path}`, label: path, detail: `@attach ${attachment.root.split('/').filter(Boolean).pop() || attachment.root}` }))),
-      ...attachmentNames.map((name) => ({ value: `upload|${name}`, label: name, detail: 'Upload direto' })),
-    ]
-    const rankedLabels = rank(candidates.map((item) => `${item.label}\0${item.detail || ''}`), query.query, 12)
-    return rankedLabels.map((ranked) => candidates.find((item) => `${item.label}\0${item.detail || ''}` === ranked)!)
+    return seeSuggestions(query.query, projectFiles, projects, attachmentNames, attachedPathFiles)
   }
   const { project, path } = splitRefQuery(query.query)
   if (path === undefined) {
@@ -430,6 +425,54 @@ export function directiveSuggestions(
   // never strands the operator in an empty menu with no way to produce the
   // inline chip they selected the project for.
   return [...files, { value: target.name, label: 'Todo o projeto', detail: target.name, attached: target.attached }]
+}
+
+/**
+ * @see is deliberately a two-stage picker. A flat list hides the root a file
+ * came from and makes repeated names ambiguous; selecting a source first makes
+ * the following file list both smaller and semantically obvious.
+ */
+function seeSuggestions(
+  value: string,
+  projectFiles: string[],
+  projects: ReferenceableProject[],
+  attachmentNames: string[],
+  attachedPathFiles: Array<{ root: string; files: string[] }>,
+): DirectiveSuggestion[] {
+  const parts = value.split('|')
+  if (parts.length === 1) {
+    const sources: DirectiveSuggestion[] = [
+      ...(projectFiles.length ? [{ value: 'project|', label: 'Projeto atual', detail: `${projectFiles.length} ficheiro(s) no contexto`, continues: true, sourceIcon: 'workspace' as const }] : []),
+      ...(attachmentNames.length ? [{ value: 'upload|', label: 'Anexos diretos', detail: `${attachmentNames.length} ficheiro(s) anexado(s)`, continues: true, sourceIcon: 'file' as const }] : []),
+      ...projects.filter((project) => project.attached).map((project) => ({ value: `ref|${project.name}|`, label: `@ref ${project.name}`, detail: `${project.files.length} ficheiro(s) no contexto`, continues: true, sourceIcon: 'link' as const })),
+      ...attachedPathFiles.map((attachment) => ({ value: `attach|${attachment.root}|`, label: `@attach ${attachment.root.split('/').filter(Boolean).pop() || attachment.root}`, detail: `${attachment.files.length} ficheiro(s) selecionado(s)`, continues: true, sourceIcon: 'folder' as const })),
+    ]
+    return rankSourceSuggestions(sources, value)
+  }
+
+  const source = parts[0]
+  if (source === 'project' && parts.length === 2) {
+    return matchingProjectFiles(projectFiles, parts[1]).map((path) => ({ value: `project|${path}`, label: path, detail: 'Projeto atual' }))
+  }
+  if (source === 'upload' && parts.length === 2) {
+    return rank(attachmentNames, parts[1]).map((name) => ({ value: `upload|${name}`, label: name, detail: 'Anexo direto' }))
+  }
+  if (source === 'ref' && parts.length === 3) {
+    const project = projects.find((candidate) => candidate.attached && candidate.name.toLowerCase() === parts[1].toLowerCase())
+    return project ? matchingProjectFiles(project.files, parts[2]).map((path) => ({ value: `ref|${project.name}|${path}`, label: path, detail: `@ref ${project.name}` })) : []
+  }
+  if (source === 'attach' && parts.length === 3) {
+    const attachment = attachedPathFiles.find((candidate) => candidate.root === parts[1])
+    return attachment ? matchingProjectFiles(attachment.files, parts[2]).map((path) => ({ value: `attach|${attachment.root}|${path}`, label: path, detail: `@attach ${attachment.root.split('/').filter(Boolean).pop() || attachment.root}` })) : []
+  }
+  return []
+}
+
+function rankSourceSuggestions(sources: DirectiveSuggestion[], query: string) {
+  const needle = query.toLowerCase()
+  return sources
+    .filter((source) => !needle || `${source.label} ${source.detail || ''}`.toLowerCase().includes(needle))
+    .sort((left, right) => left.label.localeCompare(right.label))
 }
 
 /**

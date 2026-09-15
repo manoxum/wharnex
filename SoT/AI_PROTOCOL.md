@@ -297,7 +297,7 @@ One Main Request may need several waves. Each wave MUST begin from the consolida
 
 ## Local project divergence (`harness.context-delta/v1`, v1.3.5 — see `adr/ADR-0041`)
 
-Every continuation request MUST state exactly how the local project moved since the snapshot the planner already holds, instead of shipping another complete baseline and leaving the planner to infer what a new fingerprint means.
+Every continuation request MUST include the refreshed complete project snapshot and state exactly how the local project moved since the Main Request snapshot. The snapshot supplies authoritative current contents; `harness.context-delta/v1` supplies the causal comparison and MUST NOT be replaced by an unexplained new fingerprint.
 
 - Divergence is measured against the **root** request's anchored base, never the previous round's, so a report that was lost or unread does not break the chain.
 - The report leads with a verdict. `UNCHANGED` is load-bearing: it tells the planner a patch that failed to apply did not fail because the tree moved. `UNKNOWN` MUST be stated as such — reporting an empty file list when Wharnex could not measure is a falsehood the planner would act on.
@@ -334,7 +334,7 @@ Because the database is the store, sharing and maintenance are explicit operatio
 
 ## Project knowledge transport identity
 
-Direct ZIP, remote one-shot, live-channel and Desktop archive request transports carry the same immutable knowledge snapshot, plus that request's `harness.attempts/v1` and `harness.context-delta/v1` artifacts. For v2, the authoritative request artifacts are separate `knowledge/<id>.md` files and metadata containing `state`, `sharing_enabled`, `revision`, catalog `sha256`, updater, and per-entry path/version/SHA-256. The planner prompt carries the protocol identity/instructions but MUST NOT duplicate record bodies inline. When sharing is off or there are no entries, the snapshot declares `state: none` and carries no knowledge files.
+Direct ZIP, remote one-shot, live-channel and Desktop archive request transports carry the same immutable knowledge snapshot, plus that request's `harness.attempts/v1` and `harness.context-delta/v1` artifacts. Derived request archives also carry the refreshed full context, `harness.execution-history/v1` as `attempts/events.json`, and `harness.response-history/v1` with every prior response bundle in the Main Request. Historical responses are opaque evidence and MUST never be ingested or executed as the active response. For v2 knowledge, the authoritative request artifacts are separate `knowledge/<id>.md` files and metadata containing `state`, `sharing_enabled`, `revision`, catalog `sha256`, updater, and per-entry path/version/SHA-256. The planner prompt carries the protocol identity/instructions but MUST NOT duplicate record bodies inline. When sharing is off or there are no entries, the snapshot declares `state: none` and carries no knowledge files.
 
 ## Orchestrator planning delivery
 

@@ -189,6 +189,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [bundlePreviewError, setBundlePreviewError] = useState('')
   const [projectFiles, setProjectFiles] = useState<string[]>(initialFileDraft.projectFiles)
   const [fileQuery, setFileQuery] = useState<DirectiveQuery>()
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [contextIdentityCopied, setContextIdentityCopied] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -265,6 +266,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const attachmentNames = useMemo(() => attachments.map((file) => file.name), [attachments])
   const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles])
   const kindSuggestions = useMemo(() => kindQuery ? directiveKindSuggestions(kindQuery.query) : [], [kindQuery])
+  const activeSuggestionCount = kindQuery
+    ? kindSuggestions.length
+    : fileQuery?.kind === 'attach'
+      ? (fileQuery.query.startsWith('/') ? 2 : 1)
+      : fileSuggestions.length
+  const selectedSuggestionIndex = activeSuggestionCount ? Math.min(activeSuggestionIndex, activeSuggestionCount - 1) : 0
+  useEffect(() => { setActiveSuggestionIndex(0) }, [fileQuery?.kind, fileQuery?.start, fileQuery?.end, fileQuery?.query, kindQuery?.start, kindQuery?.end, kindQuery?.query])
   const parsedDirectives = useMemo(() => parseDirectives(message), [message])
   const attachedPaths = useMemo(() => parsedDirectives.filter((directive) => directive.kind === 'attach'), [parsedDirectives])
   const attachmentDirectiveKey = useMemo(() => attachedPaths.map(canonicalDirective).join(' '), [attachedPaths])
@@ -482,6 +490,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     const applied = applyDirectiveSuggestion(message, fileQuery, suggestion)
     setMessage(applied.text)
     setFileQuery(suggestion.continues ? directiveQuery(applied.text, applied.caret) : undefined)
+    setActiveSuggestionIndex(0)
     focusCaretAt(applied.caret)
   }
 
@@ -495,6 +504,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     setMessage(applied.text)
     setKindQuery(undefined)
     setFileQuery(directiveQuery(applied.text, applied.caret))
+    setActiveSuggestionIndex(0)
     focusCaretAt(applied.caret)
   }
 
@@ -684,10 +694,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           onPasteFiles={pasteFiles} disabled={Boolean(preparedAttachmentCount)} lang="pt-PT"
           placeholder={composerPlaceholder || "Pergunte, analise, diagnostique ou descreva uma alteração…"}
           onKeyDownCapture={(event) => {
-            if ((fileSuggestions.length || kindSuggestions.length) && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setFileQuery(undefined); setKindQuery(undefined); return }
-            if (kindQuery && kindSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectKind(kindSuggestions[0]); return }
-            if (fileQuery?.kind === 'attach' && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); void pickAttachment(); return }
-            if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectDirective(fileSuggestions[0]); return }
+            if ((fileSuggestions.length || kindSuggestions.length || fileQuery?.kind === 'attach') && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setFileQuery(undefined); setKindQuery(undefined); return }
+            if (activeSuggestionCount && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'Home' || event.key === 'End')) {
+              event.preventDefault(); event.stopPropagation()
+              setActiveSuggestionIndex((current) => event.key === 'Home' ? 0 : event.key === 'End' ? activeSuggestionCount - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + activeSuggestionCount) % activeSuggestionCount)
+              return
+            }
+            if (kindQuery && kindSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectKind(kindSuggestions[selectedSuggestionIndex]); return }
+            if (fileQuery?.kind === 'attach' && (event.key === 'Enter' || event.key === 'Tab')) {
+              event.preventDefault(); event.stopPropagation()
+              if (selectedSuggestionIndex === 1 && fileQuery.query.startsWith('/')) selectDirective({ value: fileQuery.query, label: fileQuery.query })
+              else void pickAttachment()
+              return
+            }
+            if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectDirective(fileSuggestions[selectedSuggestionIndex]); return }
             if (event.key !== 'Enter' || event.shiftKey) return
             event.preventDefault(); event.stopPropagation()
             if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
@@ -699,12 +719,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             spell out @file/@ref/@attach to start one. */}
         {kindQuery && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className="kind" ariaLabel="Escolher tipo de referência">
           <header><span>@</span><small>Escolha o tipo de referência</small></header>
-          {kindSuggestions.length ? kindSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === 0} key={suggestion.kind} onMouseDown={(event) => event.preventDefault()} onClick={() => selectKind(suggestion)}>
+          {kindSuggestions.length ? kindSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === selectedSuggestionIndex} key={suggestion.kind} onMouseDown={(event) => event.preventDefault()} onClick={() => selectKind(suggestion)}>
             <Icon name={directiveKindIcon(suggestion.kind)} size={12}/><span>@{suggestion.keyword}</span><small>{suggestion.label}{suggestion.aliases.length ? ` · ${suggestion.aliases.map((alias) => `@${alias}`).join(', ')}` : ''}</small>{index === 0 && <kbd>Enter</kbd>}
           </button>) : <p className="composer-attachment-empty">Nenhuma diretiva corresponde.</p>}
         </ComposerDirectiveMenuLayer>}
-        {fileQuery && fileQuery.kind === 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className="attach" ariaLabel="Anexar caminho externo"><header><span>@attach</span><small>Escolha um ficheiro ou pasta fora do projeto</small></header><button type="button" role="option" aria-selected onMouseDown={(event) => event.preventDefault()} onClick={() => void pickAttachment()}><Icon name="folder" size={12}/><span>Escolher pasta…</span><kbd>Enter</kbd></button>{fileQuery.query.startsWith('/') && <button type="button" role="option" aria-selected={false} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective({ value: fileQuery.query, label: fileQuery.query })}><Icon name="file" size={12}/><span>Usar {fileQuery.query}</span></button>}</ComposerDirectiveMenuLayer>}
-        {fileQuery && fileQuery.kind !== 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className={fileQuery.kind} ariaLabel={fileQuery.kind === 'ref' ? 'Referenciar outro projeto' : 'Localizar ficheiro do projeto'}><header><span>@{fileQuery.kind}</span><small>{directiveMenuHint(fileQuery, fileSuggestions.length, referenceableProjects.length)}</small></header>{fileSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === 0} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective(suggestion)}><Icon name={suggestion.continues ? 'workspace' : 'file'} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">ainda não anexado</small>}{index === 0 && <kbd>Enter</kbd>}</button>)}</ComposerDirectiveMenuLayer>}
+        {fileQuery && fileQuery.kind === 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className="attach" ariaLabel="Anexar caminho externo"><header><span>@attach</span><small>Escolha um ficheiro ou pasta fora do projeto</small></header><button type="button" role="option" aria-selected={selectedSuggestionIndex === 0} onMouseDown={(event) => event.preventDefault()} onClick={() => void pickAttachment()}><Icon name="folder" size={12}/><span>Escolher pasta…</span><kbd>Enter</kbd></button>{fileQuery.query.startsWith('/') && <button type="button" role="option" aria-selected={selectedSuggestionIndex === 1} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective({ value: fileQuery.query, label: fileQuery.query })}><Icon name="file" size={12}/><span>Usar {fileQuery.query}</span></button>}</ComposerDirectiveMenuLayer>}
+        {fileQuery && fileQuery.kind !== 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className={fileQuery.kind} ariaLabel={fileQuery.kind === 'ref' ? 'Referenciar outro projeto' : fileQuery.kind === 'see' ? 'Escolher fonte para destacar ficheiro' : 'Localizar ficheiro do projeto'}><header><span>@{fileQuery.kind}</span><small>{directiveMenuHint(fileQuery, fileSuggestions.length, referenceableProjects.length)}</small></header>{fileSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === selectedSuggestionIndex} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective(suggestion)}><Icon name={suggestion.sourceIcon || (suggestion.continues ? 'workspace' : 'file')} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">ainda não anexado</small>}{index === selectedSuggestionIndex && <kbd>Enter</kbd>}</button>)}</ComposerDirectiveMenuLayer>}
       </div>
       {openDirective && <ComposerDirectiveConfigPopover
         directive={openDirective.directive} anchor={openDirective.anchor}
@@ -979,11 +999,11 @@ function formatMessageTime(value?: string) {
 function directiveMenuHint(query: DirectiveQuery, results: number, knownProjects: number) {
   if (results) {
     if (query.kind === 'ref') return 'Escolha um projeto já trabalhado ou um ficheiro dele'
-    if (query.kind === 'see') return 'Escolha um dos anexos já selecionados nesta mensagem'
+    if (query.kind === 'see') return query.query.includes('|') ? 'Escolha o ficheiro dentro desta fonte' : 'Primeiro escolha a fonte do ficheiro'
     return 'Escolha um ficheiro do contexto'
   }
   if (query.kind === 'file') return 'Nenhum ficheiro elegível encontrado'
-  if (query.kind === 'see') return 'Nenhum ficheiro anexado ainda — use o clipe para escolher um'
+  if (query.kind === 'see') return query.query.includes('|') ? 'Nenhum ficheiro desta fonte corresponde' : 'Nenhuma fonte com ficheiros disponível neste pedido'
   if (!knownProjects) return 'Nenhum outro projeto conhecido por este Wharnex'
   return 'Nenhum projeto ou ficheiro corresponde'
 }

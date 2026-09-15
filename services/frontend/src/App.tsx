@@ -3029,7 +3029,7 @@ function effortAttemptLimit(level: EffortLevel): number | undefined {
 
 function continuationArtifactSelection(session: Session): ChatArtifactSelection {
   const failure = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
-  return { context: false, prompt: true, result: Boolean(session.last_execution), error: failure }
+  return { context: true, prompt: true, result: Boolean(session.last_execution), error: failure }
 }
 
 async function encodeSystemArtifacts(session: Session, selection: ChatArtifactSelection): Promise<DesktopUserAttachment[]> {

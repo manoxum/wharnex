@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharnex.local/schemas/execution-history.schema.json",
+  "title": "Wharnex cumulative execution history",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "root_request_id", "waves"],
+  "properties": {
+    "protocol": { "const": "harness.execution-history/v1" },
+    "root_request_id": { "type": "string", "minLength": 1 },
+    "waves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "kind", "events"],
+        "properties": {
+          "request_id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "session_id", "type", "timestamp", "data"],
+              "properties": {
+                "id": { "type": "string" },
+                "session_id": { "type": "string" },
+                "type": { "type": "string" },
+                "timestamp": { "type": "string", "format": "date-time" },
+                "data": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

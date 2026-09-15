@@ -8,9 +8,9 @@ import (
 	"kernl.local/harness/backend/internal/session"
 )
 
-// requestContinuation exposes one request's harness.attempts/v1 and
-// harness.context-delta/v1 artifacts so the Desktop can expand them into the
-// outer ChatGPT archive, the same way it already expands the knowledge records.
+// requestContinuation exposes one request's compact continuation state plus
+// its cumulative execution and response history so the Desktop can expand
+// them into the outer ChatGPT archive alongside the knowledge records.
 //
 // The payload is a fixed set of Wharnex-generated names with base64 content.
 // The renderer never supplies a path and never learns a filesystem location:
@@ -26,7 +26,7 @@ func (a *API) requestContinuation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestID := r.PathValue("request_id")
-	artifacts := a.service.RequestContinuationArtifacts(current.ID, requestID)
+	artifacts := a.service.RequestContinuationArtifactsWithHistory(r.Context(), current.ID, requestID)
 	files := make([]map[string]any, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		files = append(files, map[string]any{

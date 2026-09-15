@@ -191,22 +191,28 @@ describe('see directives', () => {
     expect(parseDirectives('@{[see]attach|/srv/contracts|openapi/api.yml}')[0]).toMatchObject({ project: '/srv/contracts', path: 'openapi/api.yml' })
   })
 
-  it('offers the currently attached file names as completions', () => {
-    const query = directiveQuery('junta @see:dia', 14)!
-    expect(directiveSuggestions(query, [], projects, attachmentNames)).toEqual([{ value: 'upload|diagram.png', label: 'diagram.png', detail: 'Upload direto' }])
+  it('requires a direct-upload source before offering its file names', () => {
+    const query = directiveQuery('junta @see:', 11)!
+    expect(directiveSuggestions(query, [], projects, attachmentNames)).toEqual(expect.arrayContaining([
+      { value: 'upload|', label: 'Anexos diretos', detail: '2 ficheiro(s) anexado(s)', continues: true, sourceIcon: 'file' },
+    ]))
+    const files = directiveSuggestions(directiveQuery('junta @see:upload|dia', 21)!, [], projects, attachmentNames)
+    expect(files).toEqual([{ value: 'upload|diagram.png', label: 'diagram.png', detail: 'Anexo direto' }])
   })
 
-  it('offers every file already visible to the request, not only direct uploads', () => {
+  it('offers context sources first, then files only within the selected source', () => {
     const visibleProjects = [{
       name: 'flowcore', projectPath: '/work/flowcore', attached: true,
       files: ['services/api/auth.go'],
     }]
     const query = directiveQuery('destaca @see:', 'destaca @see:'.length)!
     expect(directiveSuggestions(query, ['src/App.tsx'], visibleProjects, ['diagram.png'])).toEqual(expect.arrayContaining([
-      expect.objectContaining({ value: 'project|src/App.tsx', label: 'src/App.tsx' }),
-      expect.objectContaining({ value: 'ref|flowcore|services/api/auth.go', label: 'services/api/auth.go' }),
-      expect.objectContaining({ value: 'upload|diagram.png', label: 'diagram.png' }),
+      expect.objectContaining({ value: 'project|', label: 'Projeto atual', continues: true }),
+      expect.objectContaining({ value: 'ref|flowcore|', label: '@ref flowcore', continues: true }),
+      expect.objectContaining({ value: 'upload|', label: 'Anexos diretos', continues: true }),
     ]))
+    expect(directiveSuggestions(directiveQuery('destaca @see:ref|flowcore|', 'destaca @see:ref|flowcore|'.length)!, ['src/App.tsx'], visibleProjects, ['diagram.png']))
+      .toEqual([{ value: 'ref|flowcore|services/api/auth.go', label: 'services/api/auth.go', detail: '@ref flowcore' }])
   })
 
   it('labels a see chip by the attachment name', () => {

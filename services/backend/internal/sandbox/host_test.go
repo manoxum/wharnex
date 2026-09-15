@@ -29,6 +29,30 @@ func TestHostRunnerExecutesArgvInsideRealProject(t *testing.T) {
 	}
 }
 
+func TestHostRunnerReportsMissingExecutableAsInfrastructureDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	runner := NewHostRunner()
+	workspace, err := runner.Prepare(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), workspace, domain.CommandSpec{
+		Argv:              []string{"wharnex-test-executable-that-does-not-exist"},
+		Cwd:               ".",
+		TimeoutSeconds:    30,
+		ExpectedExitCodes: []int{0},
+	})
+	if err != nil {
+		t.Fatalf("a command start refusal must be represented by its result so failure classification can inspect it: %v", err)
+	}
+	if result.ExitCode != 127 || result.Success {
+		t.Fatalf("missing executable result = %#v, want exit 127 failure", result)
+	}
+	if !IsMissingExecutableDiagnostic(result.ExitCode, result.Stderr) {
+		t.Fatalf("missing executable diagnostic was lost: %#v", result)
+	}
+}
+
 func TestHostRunnerReversePatchValidatesAndReverts(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "hello.txt")

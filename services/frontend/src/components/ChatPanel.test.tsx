@@ -802,6 +802,48 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  it('selects an @see source before showing files inside that source', () => {
+    const sourceSession = {
+      ...session,
+      context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
+    }
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={sourceSession} items={[]} chats={[]} activeChatId="see-source-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    typeInComposer(ref, 'destaca @see:', 14)
+    expect(screen.getByRole('option', { name: /Projeto atual/ })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: /src\/App\.tsx/ })).toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: /Projeto atual/ }))
+    expect(screen.getByRole('option', { name: /src\/App\.tsx/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('option', { name: /src\/App\.tsx/ }))
+    expect(composerText(ref)).toBe('destaca @{[see]project|src/App.tsx}')
+    view.unmount()
+  })
+
+  it('moves the directive suggestion selection with ArrowUp and ArrowDown', () => {
+    const sourceSession = {
+      ...session,
+      context: {
+        ...session.context,
+        manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] },
+        related_projects: [{ project_path: '/work/flowcore', name: 'flowcore', prefix: 'RELATED_PROJECTS/01-flowcore/', manifest: { ...session.context.manifest, files: [{ path: 'api/auth.go', size: 10, sha256: 'def' }] } }],
+      },
+    }
+    const ref = panelRef()
+    const view = render(<ChatPanel ref={ref} session={sourceSession} items={[]} chats={[]} activeChatId="directive-arrows" busy={false} onSend={async () => undefined} {...chatActions} />)
+    typeInComposer(ref, 'destaca @see:', 14)
+    const editor = ref.current?.getComposerEditor()
+    fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
+    expect(screen.getByRole('option', { name: /Projeto atual/ }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(editor!.root, { key: 'ArrowUp' })
+    expect(screen.getByRole('option', { name: /@ref flowcore/ }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
+    fireEvent.keyDown(editor!.root, { key: 'Enter' })
+    expect(composerText(ref)).toBe('destaca @see:project|')
+    view.unmount()
+  })
+
   // Nothing bound is not a failed search: the operator has made no mistake, and
   // saying so points at the action that fixes it.
   it('explains an empty @ref menu when Wharnex knows no other project', () => {
@@ -810,7 +852,7 @@ describe('ChatPanel', () => {
       <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="ref-empty" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     typeInComposer(ref, 'Compara com @ref:', 17)
-    expect(view.container.textContent).toContain('Nenhum outro projeto conhecido por este Wharnex')
+    expect(screen.getByRole('listbox', { name: 'Referenciar outro projeto' }).textContent).toContain('Nenhum outro projeto conhecido por este Wharnex')
     view.unmount()
   })
 

@@ -3075,9 +3075,12 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', cacheKey)
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const context = includeContext ? await fetchContextZip(sessionId) : undefined
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
   const continuation = await fetchRequestContinuation(sessionId, requestId)
+  // A derived request must be self-contained even when the linked ChatGPT
+  // conversation forgot or truncated an earlier snapshot. The delta remains
+  // useful for focus, while the current full context is authoritative.
+  const context = includeContext || continuation.length ? await fetchContextZip(sessionId) : undefined
   const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
   const archive = await writeChatInputArchive(archivePath, {
@@ -3104,9 +3107,10 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
+  const context = await fetchContextZip(sessionId)
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
   const continuation = await fetchRequestContinuation(sessionId, requestId)
-  const archive = await writeChatInputArchive(archivePath, { requestId, prompt: promptText, knowledge, continuation, attachments: decoded, liveTunnels })
+  const archive = await writeChatInputArchive(archivePath, { requestId, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels })
   return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes }
 }
 

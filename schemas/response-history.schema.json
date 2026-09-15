@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharnex.local/schemas/response-history.schema.json",
+  "title": "Wharnex prior response bundle history",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "responses"],
+  "properties": {
+    "protocol": { "const": "harness.response-history/v1" },
+    "responses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "original_name", "sha256", "bytes"],
+        "properties": {
+          "path": { "type": "string", "pattern": "^responses/[0-9]{3}-req_[A-Za-z0-9_-]{4,180}\\.zip$" },
+          "request_id": { "type": "string" },
+          "original_name": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "read_error": { "type": "string", "maxLength": 300 }
+        }
+      }
+    }
+  }
+}

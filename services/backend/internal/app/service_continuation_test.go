@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/audit"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
@@ -294,6 +295,49 @@ func TestContinuationTransportCarriesBothAttemptArtifacts(t *testing.T) {
 		if !containsString(names, want) {
 			t.Fatalf("continuation transport is missing %q, got %v", want, names)
 		}
+	}
+}
+
+func TestContinuationTransportCarriesCumulativeExecutionEvidenceAndResponses(t *testing.T) {
+	store := session.NewStore()
+	bus := audit.NewBus()
+	service := NewService(store, bus, contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	objects := &memoryArtifactStore{objects: map[string][]byte{}}
+	service.SetArtifactStore(objects, 30)
+	item := domain.Session{
+		ID: "sess-history", ProjectPath: t.TempDir(), LastRequestID: "req_repair", CreatedAt: time.Now().UTC(),
+		RequestLineages: map[string]domain.RequestLineage{
+			"req_root":   {RequestID: "req_root", RootRequestID: "req_root", Kind: requestKindStandard},
+			"req_repair": {RequestID: "req_repair", RootRequestID: "req_root", ParentRequestID: "req_root", Kind: requestKindRepair},
+		},
+	}
+	resetAttemptLedger(&item, "req_root")
+	recordRequestContextDelta(&item, "req_repair", domain.ContextDelta{Protocol: domain.ContextDeltaProtocolV1, BaseRequestID: "req_root", CurrentRequestID: "req_repair", Source: domain.ContextDeltaSourceGit, Unchanged: true})
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	bus.Publish(item.ID, "execution.started", map[string]any{"request_id": "req_root", "plan_id": "plan_root"})
+	bus.Publish(item.ID, "command.completed", map[string]any{"run_id": "run_1", "argv": []string{"go", "test", "./..."}, "exit_code": 1, "stdout": "FAIL TestRegression", "stderr": ""})
+	response := testArtifactZIP(t, map[string]string{"turn.json": `{"request_id":"req_root"}`})
+	if _, err := service.PersistArtifact(context.Background(), item.ID, "req_root", "output", "bundle", "response.zip", "application/zip", response); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts := service.RequestContinuationArtifactsWithHistory(context.Background(), item.ID, "req_repair")
+	byName := map[string][]byte{}
+	for _, artifact := range artifacts {
+		byName[artifact.Name] = artifact.Raw
+	}
+	if !strings.Contains(string(byName["attempts/events.json"]), "FAIL TestRegression") {
+		t.Fatalf("cumulative command output is missing: %s", byName["attempts/events.json"])
+	}
+	for _, want := range []string{`"waves"`, `"request_id": "req_root"`, `"request_id": "req_repair"`} {
+		if !strings.Contains(string(byName["attempts/events.json"]), want) {
+			t.Fatalf("execution evidence is not explicitly grouped by correction wave %q: %s", want, byName["attempts/events.json"])
+		}
+	}
+	if len(byName["responses/001-req_root.zip"]) == 0 || len(byName["responses/index.json"]) == 0 {
+		t.Fatalf("prior response bundle history is missing from %d continuation artifacts", len(byName))
 	}
 }
 

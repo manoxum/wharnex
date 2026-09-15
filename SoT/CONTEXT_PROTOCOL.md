@@ -251,9 +251,9 @@ Each session keeps a bounded observed revision journal containing parent/current
 
 Persisted context paths point to disposable local artifacts, not durable truth. If a session's current ZIP or text artifact is missing after a backend/Desktop restart, the download endpoint MUST rebuild both artifacts from the authoritative project, atomically update the session context, and preserve the active workflow/request state. A stale temporary pathname MUST NOT strand ChatGPT prompt preparation in an HTTP 404 loop.
 
-## Continuation divergence instead of repeated baselines (v1.3.5 — see `adr/ADR-0041`)
+## Refreshed continuation context plus root-relative divergence (v1.3.9 — see `adr/ADR-0041`, `adr/ADR-0055`)
 
-A Main Request delivers one complete project snapshot. Every later request in that Main Request is a correction on top of it and MUST describe how the local project diverged from that snapshot rather than merely shipping another complete baseline with a new fingerprint.
+A Main Request delivers one complete project snapshot. Every later request in that Main Request is a correction on top of it and MUST deliver both the refreshed complete snapshot and an explicit report of how the local project diverged from the Main Request snapshot. The complete snapshot is the authoritative current tree; the delta prevents a new fingerprint from hiding what actually moved.
 
 - The comparison is anchored on the **root** request's own base commit (`refs/wharnex/base/<root_request_id>`), never the previous round's, so one lost or unread report does not break the chain.
 - Every continuation MUST capture its own request base immediately alongside the context snapshot it describes. Capturing only for the Main Request left correction rounds with no anchored base, silently disabling base-rooted integration on exactly the rounds that need it.
