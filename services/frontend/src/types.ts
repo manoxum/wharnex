@@ -333,6 +333,19 @@ export type ArtifactRecord = {
 }
 
 export type ArtifactEntry = { path: string; size: number; dir: boolean }
+export type ManagedArtifact = {
+  session_id: string
+  project_path: string
+  chat_id?: string
+  artifact: ArtifactRecord
+}
+
+export type PostgresConnectionInput = { host: string; port: number; database: string; user: string; password: string; sslmode: 'disable' | 'allow' | 'prefer' | 'require' | 'verify-ca' | 'verify-full' }
+export type PostgresColumn = { name: string; data_type: string; nullable: boolean }
+export type PostgresTable = { schema: string; name: string; type: string; columns: PostgresColumn[] }
+export type PostgresCatalog = { database: string; version: string; tables: PostgresTable[] }
+export type PostgresQueryResult = { columns: string[]; rows: unknown[][]; row_count: number; truncated: boolean; duration_ms: number }
+
 export type ArtifactPresentationItem = { path: string; preview_path?: string; label?: string; description?: string; alt?: string; size: number; content_type: string; kind: 'image' | 'audio' | 'video' | 'pdf' | 'html' | 'office' | 'markdown' | 'text' | 'binary' }
 export type ArtifactPresentationGallery = { id: string; title?: string; description?: string; layout: 'auto' | 'grid' | 'masonry' | 'strip'; sizing: 'uniform' | 'adaptive'; items: ArtifactPresentationItem[] }
 export type ArtifactPresentation = { protocol: 'harness.artifact-presentation/v1'; fallback: boolean; warning?: string; galleries: ArtifactPresentationGallery[] }

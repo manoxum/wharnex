@@ -6,6 +6,7 @@ import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
 import { ChatPanel } from './components/ChatPanel'
 import { WorkspaceSideRail, type Drawer } from './components/WorkspaceSideRail'
+import { WorkspaceRightRail, type RightDrawer } from './components/WorkspaceRightRail'
 import { InteractiveTerminal } from './components/InteractiveTerminal'
 import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem } from './lib/executionQueueView'
 import { collectAttentionItems, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
@@ -137,6 +138,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // The side rail and its drawer live beside every mode surface, so the open
   // panel and its width belong to the shell rather than to one workspace.
   const [sideDrawer, setSideDrawer] = useState<Drawer>('')
+  const [rightDrawer, setRightDrawer] = useState<RightDrawer>('')
   // The interactive terminal is shell-level for the same reason as the rail:
   // it is the project's terminal, not the Editor's. It stays collapsed by
   // default because Agent already divides its width three ways, and a panel
@@ -2976,6 +2978,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           <InteractiveTerminal key={session.id} session={session} height={terminalHeight} onHeight={setTerminalHeight} onError={setError} />
         </>}
       </div>
+      <WorkspaceRightRail drawer={rightDrawer} onDrawer={setRightDrawer} onError={setError} />
     </div>
   </main>
 }
