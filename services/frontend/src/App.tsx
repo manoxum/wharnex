@@ -86,7 +86,6 @@ import { mergeDurableChatItems } from './lib/chatHistory'
 import { executionStartedNotice } from './lib/executionNotice'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
-const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
 
 function requestAlreadyRecorded(projectPath: string, chatId: string, requestId: string, phases?: Parameters<typeof hasRecordedRequest>[2]) {
   return hasRecordedRequest(loadChat(projectPath, chatId), requestId, phases)
@@ -533,11 +532,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [session, activeChatId, chats])
 
   useEffect(() => {
-	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
 	if (session.state === 'repair_pending') void submitRepairPrompt(session, targetChat)
-	else if (session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)
 	else {
 		const dispatchKey = `dispatch:${targetChat.id}:${session.last_request_id || session.id}`
 		if (baselineSeenRef.current.has(dispatchKey)) return
@@ -1253,7 +1251,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		  // may subsequently fail. Reconcile the queue itself, retry an initial
 		  // write at most three times, and never duplicate an accepted submit.
 		  const automaticContinuation = candidate.automation_mode === 'auto' && candidate.last_manual_prompt && (
-			['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)
+			['repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)
 			|| (candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0)
 		  )
 		  const continuationRequestID = candidate.state === 'conflict_resolution_pending' ? candidate.integration_conflict?.request_id : candidate.last_request_id
@@ -1264,8 +1262,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 			const live = writes.some((task) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(task.status))
 			const failedWrites = writes.filter((task) => task.type === 'BOT_WRITE' && task.status === 'FAILED').length
 			if (!accepted && !live && failedWrites < 3) {
-			  if (candidate.state === 'conflict_resolution_pending' && candidate.integration_conflict) await submitConflictPrompt(candidate, chat, true)
-			  else if (candidate.state === 'repair_pending') await submitRepairPrompt(candidate, chat, true)
+			  if (candidate.state === 'repair_pending') await submitRepairPrompt(candidate, chat, true)
 			  else if (candidate.state === 'workflow_pending') await submitWorkflowPrompt(candidate, chat, true)
 			  else {
 				const dispatchKey = `dispatch:${chat.id}:${continuationRequestID}`
@@ -1884,8 +1881,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         }
       } else if (submission.workflow_prepared && updated.state === 'workflow_pending' && updated.last_manual_prompt) {
         workflowSubmitted = await submitWorkflowPrompt(updated, targetChat)
-	  } else if (submission.conflict_prepared && updated.state === 'conflict_resolution_pending' && updated.last_manual_prompt && updated.automation_mode === 'auto') {
-		await submitConflictPrompt(updated, targetChat)
       } else if (updated.state === 'repair_pending' && updated.last_manual_prompt) {
         await submitRepairPrompt(updated, targetChat)
       } else if (updated.state === 'baseline_update_pending' && updated.last_manual_prompt && updated.automation_mode === 'auto') {
@@ -2050,7 +2045,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (tab) setInspectorAttention((current) => ({ tab, nonce: current.nonce + 1 }))
   }
 
-  async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat) {
+  async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat, surface?: { cacheKey?: string; url?: string; preferCurrentConversation?: boolean; forceContext?: boolean; chatTitle?: string }) {
     const text = promptSession.last_manual_prompt || ''
     if (!text) throw new Error('Continuação do planner vazia.')
     if (promptSession.chat_transport_mode === 'manual') throw new Error('Este chat está em modo Manual: copie o prompt e submeta o bundle de resposta manualmente.')
@@ -2059,8 +2054,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const bridge = desktopBridge()
     if (!bridge) throw new Error('Desktop bridge indisponível')
 	const continuationArtifacts = continuationArtifactSelection(promptSession)
-	const cacheKey = targetChat.id
-	const targetURL = targetChat.chatgptUrl
+	const cacheKey = surface?.cacheKey || targetChat.id
+	const isolatedSurface = cacheKey !== targetChat.id
+	const targetURL = surface ? surface.url : targetChat.chatgptUrl
     const transport = targetChat.transport || globalTransport
     const continuationRequestId = activePendingRequestId(promptSession)
 	const prepared = await bridge.chatgpt.preparePrompt({
@@ -2068,14 +2064,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
       expectedFilename: expectedResponseBundleName(text, continuationRequestId),
       projectFiles: [],
-	  contextSha256: sessionContextSHA(promptSession), lastContextSha256: targetChat.lastContextSha256,
-	  lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: continuationArtifacts.context, preferCurrentConversation: true,
-      chatTitle: targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
+	  contextSha256: sessionContextSHA(promptSession), lastContextSha256: isolatedSurface ? '' : targetChat.lastContextSha256,
+	  lastContextChatgptUrl: isolatedSurface ? undefined : targetChat.lastContextChatgptUrl, includeContext: surface?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: surface?.preferCurrentConversation ?? true,
+      chatTitle: surface?.chatTitle || targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
       projectPath: promptSession.project_path,
     })
 	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(cacheKey, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}
-	if (!prepared.queued && prepared.includedContext && bindingAccepted) {
+	if (!isolatedSurface && !prepared.queued && prepared.includedContext && bindingAccepted) {
       patch.lastContextSha256 = sessionContextSHA(promptSession)
       patch.lastContextChatgptUrl = prepared.conversationUrl || targetChat.chatgptUrl
     }
@@ -2092,25 +2088,30 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		repairDispatchRef.current.add(dispatchKey)
 		appendChatItem(targetChat, conflictedSession.project_path, {
 			id: `conflict-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. O Wharnex enviará o capsule harness.conflict/v1 para a mesma conversa ChatGPT vinculada a este chat.`,
-			meta: `Conflito ${conflict.id} · conversa principal`,
+			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. A resolução GPT usa uma conversa automática dedicada, separada da conversa principal.`,
+			meta: `Conflito ${conflict.id} · conversa dedicada`,
 			iteration: iterationRef(conflict.request_id, 'conflict', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), targetChat.chatgptUrl),
 		})
 		try {
-			const prepared = await transportPlannerContinuation(conflictedSession, targetChat)
-			const conversation = chatgptConversationURL(prepared.conversationUrl || '')
-			if (conversation) {
-				void desktopBridge()?.chatgpt.confirmAffinity(targetChat.id, conversation).catch((error) => setError(messageOf(error)))
-			}
+			const existingSurface = targetChat.conflictSurfaces?.[conflict.id]
+			const cacheKey = existingSurface?.cacheKey || conflictChatGPTCacheKey(targetChat.id, conflict.id)
+			const prepared = await transportPlannerContinuation(conflictedSession, targetChat, {
+				cacheKey, url: existingSurface?.url, preferCurrentConversation: Boolean(existingSurface?.url),
+				forceContext: true, chatTitle: `Conflito · ${conflict.paths[0] || conflict.id}`,
+			})
+			const conversation = chatgptConversationURL(prepared.conversationUrl || existingSurface?.url || '')
+			updateWorkspaceChat(targetChat.id, conflictedSession.project_path, {
+				conflictSurfaces: { ...targetChat.conflictSurfaces, [conflict.id]: { cacheKey, url: conversation || prepared.conversationUrl || existingSurface?.url } },
+			})
 			appendChatItem(targetChat, conflictedSession.project_path, {
 				id: `conflict-dispatch-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-				text: prepared.submitted ? 'Capsule de conflito enviado automaticamente na conversa ChatGPT principal.' : 'Capsule preparado na conversa principal; confirme o envio para continuar.',
+				text: prepared.submitted ? 'Capsule de conflito enviado automaticamente numa conversa ChatGPT dedicada.' : 'Capsule preparado na conversa dedicada; confirme o envio para continuar.',
 				meta: prepared.submitted ? 'Resolução de conflito em curso' : 'Resolução aguarda confirmação',
 				iteration: iterationRef(conflict.request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), prepared.conversationUrl || targetChat.chatgptUrl),
 			})
 		} catch (error) {
 			repairDispatchRef.current.delete(dispatchKey)
-			setError(`Falha ao preparar a resolução do conflito na conversa principal: ${messageOf(error)}`)
+			setError(`Falha ao preparar a conversa dedicada para resolver o conflito: ${messageOf(error)}`)
 		}
 	}
 
@@ -2801,10 +2802,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const activeChat = chats.find((chat) => chat.id === activeChatId)
-	// Conflict resolution remains another turn in the primary chat surface.
-	// A distinct native view would create a second ChatGPT conversation and
-	// violate the immutable one-to-one affinity.
-	const chatgptSurface = undefined
+	const integrationConflict = session.integration_conflict
+	const activeConflictSurface = integrationConflict ? activeChat?.conflictSurfaces?.[integrationConflict.id] : undefined
+	const chatgptSurface = integrationConflict && activeConflictSurface ? {
+		cacheKey: activeConflictSurface.cacheKey,
+		title: `Conflito · ${integrationConflict.paths[0] || integrationConflict.id}`,
+		url: activeConflictSurface.url,
+		conflictId: integrationConflict.id,
+	} : undefined
   const contextArtifactRequired = Boolean(activeChat && (!activeChat.lastContextSha256 || activeChat.lastContextSha256 !== sessionContextSHA(session) || activeChat.artifactSelection?.context || (activeChat.chatgptUrl && activeChat.lastContextChatgptUrl && !sameChatGPTConversation(activeChat.chatgptUrl, activeChat.lastContextChatgptUrl))))
   const errorArtifactRequired = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
   const composerArtifacts: ChatArtifactSelection = {
@@ -2914,7 +2919,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   return <main className="workspace-root">
-    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} instanceID={INSTANCE_ID} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} />}
+    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document) => setConfig((current) => reconcileTunnelConfig(current, document))} />}
     {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
@@ -2956,6 +2961,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onOpenFile={openFileFromChat}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onError={setError}
+        onSession={setSession}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />

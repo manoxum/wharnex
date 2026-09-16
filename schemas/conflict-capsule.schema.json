@@ -13,7 +13,7 @@
     "original_plan_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "origin": {
       "description": "What produced the conflict. Absent means `integration`, the historical case.",
-      "enum": ["integration", "push", "branch_merge"]
+      "enum": ["integration", "push", "branch_merge", "pull"]
     },
     "git": {
       "description": "Present for a host Git operation the operator started. The resolution is replayed into this exact merge and committed as its merge commit, never turned into a new verified candidate.",
@@ -36,6 +36,18 @@
       "properties": {
         "our_goal": {"type": "string"},
         "our_commit_message": {"type": "string"},
+        "local_changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["commit", "purpose"],
+            "properties": {
+              "commit": {"type": "string"},
+              "purpose": {"type": "string"}
+            }
+          }
+        },
         "incoming_changes": {
           "type": "array",
           "items": {
@@ -48,6 +60,7 @@
             }
           }
         },
+        "user_guidance": {"type": "string"},
         "attempt": {"type": "integer", "minimum": 0},
         "max_attempts": {"type": "integer", "minimum": 0},
         "previous_attempts": {"type": "array", "items": {"type": "string"}}

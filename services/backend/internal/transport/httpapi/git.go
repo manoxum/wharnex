@@ -17,11 +17,15 @@ import (
 func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/overview", a.gitOverview)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", a.gitFileDiff)
+	mux.HandleFunc("GET /api/sessions/{id}/git/history", a.gitHistory)
 	mux.HandleFunc("PUT /api/sessions/{id}/git/commit-mode", a.setGitCommitMode)
 	mux.HandleFunc("GET /api/sessions/{id}/git/pending/{pending_id}", a.gitPendingCommit)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/commit", a.commitGitPending)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/discard", a.discardGitPending)
 	mux.HandleFunc("POST /api/sessions/{id}/git/push", a.gitPush)
+	mux.HandleFunc("POST /api/sessions/{id}/git/fetch", a.gitFetch)
+	mux.HandleFunc("POST /api/sessions/{id}/git/pull", a.gitPull)
+	mux.HandleFunc("POST /api/sessions/{id}/git/switch", a.gitSwitch)
 	mux.HandleFunc("POST /api/sessions/{id}/git/merge", a.gitMerge)
 }
 
@@ -32,6 +36,16 @@ func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {
+	all := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("all")), "true")
+	commits, err := a.service.GitHistory(r.Context(), r.PathValue("id"), r.URL.Query()["ref"], all)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_history_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, commits)
 }
 
 func (a *API) gitFileDiff(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +139,52 @@ func (a *API) gitPush(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.PushBranch(r.Context(), r.PathValue("id"), body.Remote, body.Branch, body.SetUpstream)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_push_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitFetch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Remote string `json:"remote"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.FetchRemote(r.Context(), r.PathValue("id"), body.Remote)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_fetch_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitPull(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Remote string `json:"remote"`
+		Branch string `json:"branch"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.PullBranch(r.Context(), r.PathValue("id"), body.Remote, body.Branch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_pull_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitSwitch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.SwitchBranch(r.Context(), r.PathValue("id"), body.Branch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_switch_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

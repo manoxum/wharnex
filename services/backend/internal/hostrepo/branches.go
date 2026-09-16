@@ -175,3 +175,17 @@ func CurrentBranch(ctx context.Context, root string) string {
 	}
 	return branch
 }
+
+// SwitchBranch changes the checked-out local branch. The caller is expected to
+// enforce a clean worktree first; this helper only validates the branch token
+// and asks Git to perform the switch.
+func SwitchBranch(ctx context.Context, root, branch string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("a local branch is required")
+	}
+	if output, err := run(ctx, root, "switch", "--", branch); err != nil {
+		return fmt.Errorf("switch branch %s: %s", branch, RedactRemoteURL(output))
+	}
+	return nil
+}

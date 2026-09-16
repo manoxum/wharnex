@@ -709,7 +709,7 @@ export type GitWorkingSummary = {
 }
 
 export type GitConflictContext = {
-  origin: 'integration' | 'push' | 'branch_merge'
+  origin: 'integration' | 'push' | 'branch_merge' | 'pull'
   ref: string
   remote?: string
   remote_branch?: string
@@ -723,6 +723,7 @@ export type GitFileDiff = { path: string; diff: string; truncated?: boolean }
 
 export type GitOverview = {
   project_path: string
+  project_version?: string
   available: boolean
   unavailable?: string
   commit_mode: GitCommitMode
@@ -751,6 +752,7 @@ export type GitPushResult = {
   conflict_id?: string
 }
 export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
+export type GitBranchActionResult = { outcome: string; remote?: string; branch?: string; ref?: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
 
 // One conversation a chat with a lost binding may belong to, with the evidence
 // that ties it to that chat so the operator can judge it instead of guessing.

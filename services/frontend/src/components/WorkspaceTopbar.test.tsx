@@ -5,8 +5,22 @@ import { WorkspaceTopbar } from './WorkspaceTopbar'
 
 const mocks = vi.hoisted(() => ({
   bundleQuota: vi.fn(async () => ({ window_hours: 3, limit: 80, sent: 12, received: 11, total: 23, warning: false, window_start: '2026-09-09T14:00:00Z', window_end: '2026-09-09T17:00:00Z' })),
+  gitOverview: vi.fn(async () => ({
+    project_path: '/workspace/wharness',
+    project_version: 'v1.2.46.13',
+    available: true,
+    commit_mode: 'auto',
+    current_branch: 'main',
+    detached: false,
+    has_identity: true,
+    branches: [{ name: 'main', current: true, commit_sha: 'abc', ahead: 0, behind: 0, has_upstream: false, gone: false }],
+    remotes: [],
+    commits: [],
+    pending: [],
+    working: { clean: true, stageable_count: 0 },
+  })),
 }))
-vi.mock('../lib/api', () => ({ api: { bundleQuota: mocks.bundleQuota } }))
+vi.mock('../lib/api', () => ({ api: { bundleQuota: mocks.bundleQuota, gitOverview: mocks.gitOverview } }))
 
 function session(): Session {
   return {
@@ -104,20 +118,19 @@ describe('WorkspaceTopbar self-evolution', () => {
     expect(screen.getByText('3H ↑80/80 ↓79')).toBeTruthy()
   })
 
-  it('shows the project version beside the instance name', () => {
+  it('shows the current branch and project version instead of instance identity', async () => {
     render(<WorkspaceTopbar
       config={{ planner: 'manual', sandbox: 'docker', model: 'test', version: 'v1.2.46.13', api_configured: false, chatgpt_web_embed: false }}
       session={session()}
       mode="agent"
       executionMode="protected"
       automationMode="auto"
-      instanceID="legacy"
       busy={false}
       onMode={vi.fn()}
       onSettings={vi.fn()}
       onClose={vi.fn()}
     />)
-    expect(screen.getByLabelText('Instância: legacy · versão v1.2.46.13').textContent).toBe('legacy · v1.2.46.13')
+    expect(await screen.findByRole('button', { name: 'Git: main, projeto v1.2.46.13' })).toBeTruthy()
   })
 
   it('exposes Orchestrator as a first-class workspace mode', () => {

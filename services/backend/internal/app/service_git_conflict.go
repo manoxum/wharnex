@@ -150,12 +150,15 @@ func (s *Service) gitConflictIntent(ctx context.Context, item domain.Session, re
 		Attempt:     item.ConflictAttempt + 1,
 		MaxAttempts: policyForEffort(item.EffortLevel).MaxAttempts,
 	}
-	summaries, err := sandbox.CommitsTouching(ctx, item.ProjectPath, request.sides.BaseSHA, request.sides.TheirsSHA, paths)
-	if err != nil {
-		return intent
+	if summaries, err := sandbox.CommitsTouching(ctx, item.ProjectPath, request.sides.BaseSHA, request.sides.OursSHA, paths); err == nil {
+		for _, summary := range summaries {
+			intent.LocalChanges = append(intent.LocalChanges, conflictCapsuleChange{Commit: summary.SHA, Purpose: summary.Subject})
+		}
 	}
-	for _, summary := range summaries {
-		intent.IncomingChanges = append(intent.IncomingChanges, conflictCapsuleChange{Commit: summary.SHA, Purpose: summary.Subject})
+	if summaries, err := sandbox.CommitsTouching(ctx, item.ProjectPath, request.sides.BaseSHA, request.sides.TheirsSHA, paths); err == nil {
+		for _, summary := range summaries {
+			intent.IncomingChanges = append(intent.IncomingChanges, conflictCapsuleChange{Commit: summary.SHA, Purpose: summary.Subject})
+		}
 	}
 	return intent
 }
@@ -177,6 +180,8 @@ func buildGitConflictResolutionMessage(request gitConflictRequest, paths []strin
 	what := fmt.Sprintf("merging %s into %s", request.ref, firstNonEmpty(request.targetBranch, "the current branch"))
 	if request.origin == domain.GitConflictOriginPush {
 		what = fmt.Sprintf("integrating %s before pushing %s", request.ref, request.remoteBranch)
+	} else if request.origin == domain.GitConflictOriginPull {
+		what = fmt.Sprintf("pulling %s into %s", request.ref, request.targetBranch)
 	}
 	return strings.Join([]string{
 		"A Git merge on the host could not be completed automatically: " + what + ".",

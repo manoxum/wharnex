@@ -862,6 +862,7 @@ const (
 	GitConflictOriginIntegration = "integration"
 	GitConflictOriginPush        = "push"
 	GitConflictOriginBranchMerge = "branch_merge"
+	GitConflictOriginPull        = "pull"
 )
 
 // GitConflictContext describes a host Git merge whose conflict is awaiting a

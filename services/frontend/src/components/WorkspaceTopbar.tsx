@@ -3,16 +3,15 @@ import type { AppConfig, AutomationMode, BundleQuota, ExecutionMode, Session, Wo
 import { api } from '../lib/api'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
-import { InstanceBadge } from './InstanceBadge'
+import { ProjectGitBadge } from './ProjectGitBadge'
 import { SignalCore } from './SignalCore'
 
-export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, instanceID, restartPending = false, restartBlocked = false, busy, onMode, onRestartPending, onSettings, onClose }: {
+export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, restartPending = false, restartBlocked = false, busy, onMode, onRestartPending, onSettings, onClose, onSession }: {
   config?: AppConfig
   session: Session
   mode: WorkspaceMode
   executionMode: ExecutionMode
   automationMode: AutomationMode
-  instanceID?: string
   restartPending?: boolean
   restartBlocked?: boolean
   busy: boolean
@@ -20,6 +19,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
   onRestartPending?: () => void
   onSettings: () => void
   onClose: () => void
+  onSession?: (session: Session) => void
 }) {
   const projectName = session.project_path.split('/').filter(Boolean).at(-1) || session.project_path
   const automaticPlanner = config?.planner === 'openai' && config.api_configured
@@ -37,7 +37,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       <div><strong>{projectName}</strong><span title={session.project_path}>{session.project_path}</span></div>
     </div>
     <div className="workspace-switches">
-      <InstanceBadge instanceID={instanceID} version={config?.version} />
+      <ProjectGitBadge session={session} busy={busy} onSession={onSession} />
       <div className="mode-switch" role="group" aria-label="Modo do workspace">
         <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
         <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>

@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
+import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitBranchActionResult, GitCommit, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8888'
@@ -224,7 +224,7 @@ export const api = {
   rejectPendingChanges: (id: string) => request<Session>(`/api/sessions/${id}/pending-changes/reject`, { method: 'POST', body: '{}' }),
   conflictWorkbench: (id: string) => request<ConflictWorkbench>(`/api/sessions/${id}/conflict`),
   resolveConflictManually: (id: string, resolutions: ConflictManualResolution[]) => request<ConflictManualResult>(`/api/sessions/${id}/conflict/manual`, { method: 'POST', body: JSON.stringify({ resolutions }) }),
-  delegateConflictToGPT: (id: string, resolutions: ConflictManualResolution[]) => request<Session>(`/api/sessions/${id}/conflict/delegate`, { method: 'POST', body: JSON.stringify({ resolutions }) }),
+  delegateConflictToGPT: (id: string, resolutions: ConflictManualResolution[], guidance = '') => request<Session>(`/api/sessions/${id}/conflict/delegate`, { method: 'POST', body: JSON.stringify({ resolutions, guidance }) }),
   revert: (id: string) => request<Session>(`/api/sessions/${id}/revert`, { method: 'POST', body: '{}' }),
   restoreReverted: (id: string) => request<Session>(`/api/sessions/${id}/restore-reverted`, { method: 'POST', body: '{}' }),
   restartSelfEvolution: (id: string) => request<Session>(`/api/sessions/${id}/self-restart`, { method: 'POST', body: '{}' }),
@@ -252,6 +252,13 @@ export const api = {
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
   gitOverview: (id: string) => request<GitOverview>(`/api/sessions/${id}/git/overview`).then(normalizeGitOverview),
   gitFileDiff: (id: string, path: string) => request<GitFileDiff>(`/api/sessions/${id}/git/diff?path=${encodeURIComponent(path)}`),
+  gitHistory: (id: string, refs: string[] = [], all = false) => {
+    const params = new URLSearchParams()
+    if (all) params.set('all', 'true')
+    else refs.forEach((ref) => params.append('ref', ref))
+    const query = params.toString()
+    return request<GitCommit[]>(`/api/sessions/${id}/git/history${query ? `?${query}` : ''}`)
+  },
   setGitCommitMode: (id: string, mode: GitCommitMode) => request<{ commit_mode: GitCommitMode }>(`/api/sessions/${id}/git/commit-mode`, { method: 'PUT', body: JSON.stringify({ commit_mode: mode }) }),
   gitPendingCommit: (id: string, pendingID: string) => request<GitPendingCommit>(`/api/sessions/${id}/git/pending/${encodeURIComponent(pendingID)}`),
   commitGitPending: (id: string, pendingIDs: string[]) => request<GitCommitResult>(`/api/sessions/${id}/git/pending/commit`, { method: 'POST', body: JSON.stringify({ pending_ids: pendingIDs }) }),
@@ -260,6 +267,9 @@ export const api = {
   // to a remote other people read and cannot be undone by a local reset, so it
   // must never be reachable by a stray click or a replayed request.
   gitPush: (id: string, remote: string, branch: string, setUpstream: boolean) => request<GitPushResult>(`/api/sessions/${id}/git/push`, { method: 'POST', body: JSON.stringify({ remote, branch, set_upstream: setUpstream, confirmation: 'push' }) }),
+  gitFetch: (id: string, remote: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/fetch`, { method: 'POST', body: JSON.stringify({ remote }) }),
+  gitPull: (id: string, remote: string, branch: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/pull`, { method: 'POST', body: JSON.stringify({ remote, branch }) }),
+  gitSwitch: (id: string, branch: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/switch`, { method: 'POST', body: JSON.stringify({ branch }) }),
   gitMerge: (id: string, ref: string) => request<GitMergeResult>(`/api/sessions/${id}/git/merge`, { method: 'POST', body: JSON.stringify({ ref }) }),
   orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`).then(normalizeOrchestratorOverview),
   proposeOrchestratorPlan: (id: string, objective: string, composer?: { include_context?: boolean; project_files?: string[]; attachment_cache_key?: string; attachments?: Array<{ name: string; size: number; mime: string; storage_ref: string }> }) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/propose`, { method: 'POST', body: JSON.stringify({ objective, ...composer }) }),

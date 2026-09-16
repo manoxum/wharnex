@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/hostrepo"
@@ -119,6 +120,114 @@ func (s *Service) MergeBranchIntoCurrent(ctx context.Context, sessionID, ref str
 	_, conflictID, prepareErr := s.prepareGitConflictResolution(ctx, sessionID, item, gitConflictRequest{
 		origin: domain.GitConflictOriginBranchMerge, ref: ref,
 		targetBranch: hostrepo.CurrentBranch(ctx, item.ProjectPath), sides: merge.Sides, paths: merge.Paths,
+	})
+	if prepareErr != nil {
+		return result, prepareErr
+	}
+	result.ConflictID = conflictID
+	return result, nil
+}
+
+// GitBranchActionResult reports local branch synchronization actions.
+type GitBranchActionResult struct {
+	Outcome    string   `json:"outcome"`
+	Remote     string   `json:"remote,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
+	Ref        string   `json:"ref,omitempty"`
+	CommitSHA  string   `json:"commit_sha,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
+	ConflictID string   `json:"conflict_id,omitempty"`
+}
+
+// FetchRemote refreshes one remote without changing the current branch.
+func (s *Service) FetchRemote(ctx context.Context, sessionID, remote string) (GitBranchActionResult, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitBranchActionResult{}, err
+	}
+	lock := s.projectApplyLock(item.ProjectPath)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := hostrepo.Fetch(ctx, item.ProjectPath, remote); err != nil {
+		return GitBranchActionResult{}, err
+	}
+	s.bus.Publish(sessionID, "git.fetch_completed", map[string]any{"remote": remote})
+	return GitBranchActionResult{Outcome: "fetched", Remote: remote}, nil
+}
+
+// SwitchBranch changes to an existing local branch. Wharnex refuses to switch
+// across uncommitted work so the branch picker cannot silently carry edits to
+// another line of development.
+func (s *Service) SwitchBranch(ctx context.Context, sessionID, branch string) (GitBranchActionResult, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitBranchActionResult{}, err
+	}
+	lock := s.projectApplyLock(item.ProjectPath)
+	lock.Lock()
+	defer lock.Unlock()
+	state, err := hostrepo.Working(ctx, item.ProjectPath)
+	if err != nil {
+		return GitBranchActionResult{}, err
+	}
+	if !state.Clean() {
+		return GitBranchActionResult{}, fmt.Errorf("commit or discard local changes before switching branches")
+	}
+	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	if err != nil {
+		return GitBranchActionResult{}, err
+	}
+	found := false
+	for _, candidate := range branches {
+		if candidate.Remote == "" && candidate.Name == branch {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return GitBranchActionResult{}, fmt.Errorf("unknown local branch %q", branch)
+	}
+	if hostrepo.CurrentBranch(ctx, item.ProjectPath) == branch {
+		return GitBranchActionResult{Outcome: "unchanged", Branch: branch}, nil
+	}
+	if err := hostrepo.SwitchBranch(ctx, item.ProjectPath, branch); err != nil {
+		return GitBranchActionResult{}, err
+	}
+	s.bus.Publish(sessionID, "git.branch_switched", map[string]any{"branch": branch})
+	return GitBranchActionResult{Outcome: "switched", Branch: branch}, nil
+}
+
+// PullBranch fetches then merges the selected remote branch into the checked
+// out local branch. A content conflict is converted to Wharnex's existing
+// three-way conflict workspace rather than leaving Git in a conflicted state.
+func (s *Service) PullBranch(ctx context.Context, sessionID, remote, branch string) (GitBranchActionResult, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitBranchActionResult{}, err
+	}
+	lock := s.projectApplyLock(item.ProjectPath)
+	lock.Lock()
+	defer lock.Unlock()
+	current := hostrepo.CurrentBranch(ctx, item.ProjectPath)
+	if current == "" || current != branch {
+		return GitBranchActionResult{}, fmt.Errorf("pull is available only for the checked-out branch")
+	}
+	if err := hostrepo.Fetch(ctx, item.ProjectPath, remote); err != nil {
+		return GitBranchActionResult{}, err
+	}
+	ref := remote + "/" + branch
+	merge, err := hostrepo.MergeBranch(ctx, item.ProjectPath, ref)
+	if err != nil {
+		return GitBranchActionResult{}, err
+	}
+	result := GitBranchActionResult{Outcome: string(merge.Outcome), Remote: remote, Branch: branch, Ref: ref, CommitSHA: merge.CommitSHA, Paths: merge.Paths}
+	if merge.Outcome != hostrepo.MergeOutcomeConflict {
+		s.bus.Publish(sessionID, "git.pull_completed", map[string]any{"remote": remote, "branch": branch, "outcome": string(merge.Outcome)})
+		return result, nil
+	}
+	_, conflictID, prepareErr := s.prepareGitConflictResolution(ctx, sessionID, item, gitConflictRequest{
+		origin: domain.GitConflictOriginPull, ref: ref, remote: remote, remoteBranch: branch,
+		targetBranch: branch, sides: merge.Sides, paths: merge.Paths,
 	})
 	if prepareErr != nil {
 		return result, prepareErr
