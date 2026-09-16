@@ -175,6 +175,8 @@ export const api = {
     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
   setAutomationMode: (id: string, automationMode: AutomationMode) =>
     request<Session>(`/api/sessions/${id}/automation-mode`, { method: 'PUT', body: JSON.stringify({ automation_mode: automationMode }) }),
+  setDebugMode: (id: string, enabled: boolean) =>
+    request<Session>(`/api/sessions/${id}/debug-mode`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   setEffortLevel: (id: string, effortLevel: EffortLevel) =>
     request<Session>(`/api/sessions/${id}/effort-level`, { method: 'PUT', body: JSON.stringify({ effort_level: effortLevel }) }),
   setChatTransportMode: (id: string, chatTransportMode: ChatTransportMode) =>
@@ -203,6 +205,8 @@ export const api = {
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/correct`, { method: 'POST', body: JSON.stringify({ guidance }) }),
   rejectPlan: (id: string, requestId: string) =>
     request<Session>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/reject`, { method: 'POST', body: '{}' }),
+  rejectExecutionPlan: (id: string) =>
+    request<Session>(`/api/sessions/${id}/execution-plan/reject`, { method: 'POST', body: '{}' }),
   manualPlan: (id: string, rawJSON: string) =>
     request<Session>(`/api/sessions/${id}/manual-plan`, { method: 'POST', body: rawJSON }),
   executionBundle: (id: string, filename: string, contentBase64: string) =>
@@ -216,6 +220,7 @@ export const api = {
     request<{ session: Session; result: ExecutionResult }>(`/api/sessions/${id}/execute`, {
       method: 'POST', body: JSON.stringify({ approved }),
     }),
+  approveDebug: (id: string) => request<BundleSubmission>(`/api/sessions/${id}/debug/approve`, { method: 'POST', body: '{}' }),
   retryDependencyNetwork: (id: string) => request<Session>(`/api/sessions/${id}/dependency-network-retry`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   retryHostDependencyRepair: (id: string) => request<Session>(`/api/sessions/${id}/host-dependency-repair`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   resumeInterruptedExecution: (id: string) => request<{ session: Session; plan_id: string; status: string }>(`/api/sessions/${id}/interrupted-execution/resume`, { method: 'POST', body: '{}' }),

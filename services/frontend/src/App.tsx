@@ -47,7 +47,12 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
     last_repair_error: record.last_repair_error,
     last_turn: record.last_turn,
     policy: record.policy,
-    plan: record.has_plan ? ({ plan_id: record.plan_id } as Session['plan']) : undefined,
+    plan: record.has_plan ? ({
+      plan_id: record.plan_id,
+      request_id: record.plan_request_id,
+      document: record.has_plan_document ? 'Execution contract available' : undefined,
+      debug: record.debug_target ? { protocol: 'harness.debug/v1', target: record.debug_target, rationale: record.debug_rationale || 'Diagnostic evidence requested' } : undefined,
+    } as Session['plan']) : undefined,
     last_execution: record.last_execution_plan_id ? ({ plan_id: record.last_execution_plan_id } as Session['last_execution']) : undefined,
     pending_host_changes: Array.from({ length: record.pending_host_changes }) as Session['pending_host_changes'],
     pending_manual_request_ids: Array.from({ length: record.pending_manual_requests || 0 }, (_, index) => `compact-${index}`),
@@ -78,7 +83,7 @@ import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib
 import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest } from './lib/pendingRequest'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
 import { hasRecordedRequest } from './lib/requestDispatch'
-import { executionNeedsAttention } from './lib/executionRecovery'
+import { executionNeedsAttention, sessionNeedsExecutionConsent } from './lib/executionRecovery'
 import { errorMessage as messageOf } from './lib/errorMessage'
 import { expectedResponseBundleName } from './lib/bundlename'
 import { reconcileTunnelConfig } from './lib/tunnelConfigState'
@@ -1774,7 +1779,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       // a failure: the commandbar already shows the exact action to take.
       // Keying off structured session state (never auto_error prose) is what
       // tells this apart from a genuine automation failure below.
-      const pendingApproval = Boolean(submission.auto_error && ((updated.policy?.allowed && updated.policy?.requires_approval) || updated.failure_kind === 'offline_go_module_cache'))
+      const pendingDebugApproval = updated.state === 'debug_approval_required'
+      const pendingApproval = Boolean(submission.auto_error && ((updated.policy?.allowed && sessionNeedsExecutionConsent(updated)) || updated.failure_kind === 'offline_go_module_cache' || pendingDebugApproval))
       const plannerFailed = updated.last_turn?.outcome?.status === 'failed' || updated.last_turn?.outcome?.status === 'partial'
       const policyReason = (submission.policy_reasons || updated.policy?.reasons || []).join('; ')
       const workflowRound = submission.workflow_round || updated.workflow_round || 0
@@ -1791,7 +1797,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             : submission.auto_applied
               ? (submission.restart_required ? 'Bundle validado. O plano foi verificado na sandbox, aplicado ao próprio Wharnex e reconstruído no host. O reinício aguarda confirmação.' : 'Bundle validado. O plano foi executado na sandbox e aplicado automaticamente ao host.')
               : pendingApproval
-                ? (updated.failure_kind === 'offline_go_module_cache'
+                ? (pendingDebugApproval
+                  ? `Bundle de debug validado. O probe seguro para ${updated.plan?.debug?.target === 'host' ? 'o host local' : 'a sandbox isolada'} aguarda a autorização única desta Main Request.`
+                  : updated.failure_kind === 'offline_go_module_cache'
                   ? 'Bundle validado. A execução automática pausou porque a verificação Go precisa do cache de módulos, que ainda não está hidratado offline. Abra o resumo de alertas e use "Permitir rede e repetir" para continuar.'
                   : `Bundle validado. A execução automática pausou porque este plano precisa da sua aprovação explícita${policyReason ? ` (${policyReason})` : ''}. Abra o resumo de alertas e use "Aprovar e executar" para continuar.`)
                 : submission.auto_executed
@@ -1817,7 +1825,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           : submission.workflow_prepared || submission.workflow_executed
             ? `Workflow ${workflowRound}/6 · sandbox Protected`
             : pendingApproval
-              ? (updated.failure_kind === 'offline_go_module_cache' ? 'Aguarda aprovação · rede restrita' : 'Aguarda aprovação · Policy')
+              ? (pendingDebugApproval ? 'Aguarda autorização · Debug' : updated.failure_kind === 'offline_go_module_cache' ? 'Aguarda aprovação · rede restrita' : 'Aguarda aprovação · Policy')
               : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? (submission.restart_required ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'AUTO · Host aplicado') : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
         turnKind: updated.last_turn?.kind,
         iteration: updated.last_turn?.request_id ? iterationRef(updated.last_turn.request_id, plannerFailed ? 'failed' : 'result', plannerFailed || updated.last_execution?.success === false ? ['error', 'result'] : ['result'], targetChat.chatgptUrl) : undefined,
@@ -2378,6 +2386,28 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
+  async function rejectExecutionPlan() {
+    if (!session?.plan || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat || !(await confirmDialog({
+      title: 'Rejeitar plano de execução?',
+      message: 'O plano será encerrado sem executar comandos nem alterar o host. O documento continuará no histórico durável do chat.',
+      tone: 'warning',
+      confirmLabel: 'Rejeitar plano',
+    }))) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.rejectExecutionPlan(targetSession.id)
+      acceptSessionForChat(targetChat, updated)
+      appendChatItem(targetChat, updated.project_path, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: 'Plano de execução rejeitado. Nenhum comando foi executado e o host permaneceu inalterado.',
+        meta: 'Plano rejeitado',
+      })
+    } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
+  }
+
   function openFileFromChat(path: string) {
     setEditorOpenPath(path)
     setEditorOpenNonce((value) => value + 1)
@@ -2522,6 +2552,45 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         meta: enabled ? 'Conhecimento ligado' : 'Conhecimento desligado',
       })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function changeDebugMode(enabled: boolean) {
+    if (!session || busy || Boolean(session.debug_enabled) === enabled) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.setDebugMode(targetSession.id, enabled)
+      acceptSessionForChat(targetChat, updated)
+      appendChatItem(targetChat, updated.project_path, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: enabled
+          ? 'Modo Debug ligado. Probes declarados, sem mutações e validados pelo protocolo podem executar automaticamente; o host continua limitado à allowlist somente de leitura.'
+          : 'Modo Debug desligado. O primeiro probe de cada Main Request voltará a pedir uma autorização única.',
+        meta: enabled ? 'Debug ligado' : 'Debug sob autorização',
+      })
+    } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
+  }
+
+  async function approveDebug() {
+    if (!session?.plan?.debug || session.state !== 'debug_approval_required' || busy) return
+    const targetSession = session
+    const debugTarget = session.plan.debug.target
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    setBusy(true); setError(undefined)
+    try {
+      const submission = await api.approveDebug(targetSession.id)
+      const updated = submission.session
+      acceptSessionForChat(targetChat, updated)
+      appendChatItem(targetChat, updated.project_path, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: 'Debug autorizado para esta Main Request. Os próximos probes compatíveis do mesmo fluxo seguem automaticamente; qualquer novo impacto de host continua bloqueado pela Policy.',
+        meta: `Debug · ${debugTarget}`,
+      })
+      if (submission.workflow_prepared && updated.last_manual_prompt) await transportPlannerContinuation(updated, targetChat)
+    } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
   function dismissRestartConfirmation() {
@@ -2883,6 +2952,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
     switch (item.action) {
       case 'approve-execution': await execute(true); return
+      case 'approve-debug': await approveDebug(); return
       case 'retry-dependency-network': await retryDependencyNetwork(); return
       case 'repair-host-dependency': await retryHostDependencyRepair(); return
       case 'repair-with-gpt': {
@@ -2910,7 +2980,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
     artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
     requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
-    onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onEffortLevel: changeEffortLevel, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
+    onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
     onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
     onSend: enqueueMainRequest, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
@@ -2999,7 +3069,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           chatProps={sharedChatProps}
           inspectorProps={{
   		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
-  		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onApply: apply, onRejectPendingChanges: rejectPendingChanges,
+		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onApply: apply, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges,
             onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT,
           }}
         />}
@@ -3065,7 +3135,7 @@ function sessionContextSHA(session: Session) {
 function requestChainActive(session: Session) {
   if (session.planner_in_flight || session.pending_manual_request_ids?.length) return true
   if (session.self_evolution_activation === 'restart_scheduled') return true
-  return new Set(['awaiting_plan', 'awaiting_plan_approval', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending', 'restart_scheduled']).has(session.state)
+  return new Set(['awaiting_plan', 'awaiting_plan_approval', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'debug_approval_required', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending', 'restart_scheduled']).has(session.state)
 }
 
 function buildAppliedChangeSummary(session: Session) {

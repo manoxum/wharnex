@@ -13,7 +13,7 @@ export type Operation = {
 }
 
 export type ExecutionPlan = {
-  protocol: 'harness.execution/v1'
+  protocol: 'harness.execution/v1' | 'harness.execution/v2'
   base_context_sha256?: string
   impact_files?: string[]
   read_files?: string[]
@@ -22,6 +22,10 @@ export type ExecutionPlan = {
   request_id: string
   status: 'ready' | 'blocked'
   summary: string
+  document?: string
+  dependencies?: Array<{ scope: string; manager: string; name: string; version?: string; action: 'install' | 'update' | 'remove' | 'use'; reason: string }>
+  system_tools?: Array<{ target: 'sandbox' | 'host'; name: string; action: 'install' | 'update' | 'configure' | 'use'; reason: string }>
+  debug?: { protocol: 'harness.debug/v1'; target: 'sandbox' | 'host'; rationale: string }
   risk: 'low' | 'medium' | 'high'
   requires_approval: boolean
   operations: Operation[]
@@ -252,6 +256,8 @@ export type Session = {
   chat_id?: string
   execution_mode: ExecutionMode
   automation_mode: AutomationMode
+  debug_enabled?: boolean
+  debug_approved_root_request_id?: string
   effort_level?: EffortLevel
   automation_attempt?: number
   improvement_attempt?: number
@@ -605,6 +611,10 @@ export type AttentionRecord = {
   policy?: Session['policy']
   has_plan: boolean
   plan_id?: string
+  plan_request_id?: string
+  has_plan_document?: boolean
+  debug_target?: 'sandbox' | 'host'
+  debug_rationale?: string
   last_execution_plan_id?: string
   pending_host_changes: number
   pending_manual_requests?: number

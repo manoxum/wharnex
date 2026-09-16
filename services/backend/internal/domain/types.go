@@ -8,7 +8,9 @@ import (
 )
 
 const ProtocolV1 = "harness.execution/v1"
+const ProtocolV2 = "harness.execution/v2"
 const TurnProtocolV1 = "harness.turn/v1"
+const DebugProtocolV1 = "harness.debug/v1"
 
 type TurnKind string
 
@@ -278,16 +280,23 @@ func ValidVersionComponent(component string) bool {
 }
 
 type ExecutionPlan struct {
-	Protocol          string            `json:"protocol"`
-	BaseContextSHA256 string            `json:"base_context_sha256,omitempty"`
-	ImpactFiles       []string          `json:"impact_files,omitempty"`
-	ReadFiles         []string          `json:"read_files,omitempty"`
-	BarrierFiles      []string          `json:"barrier_files,omitempty"`
-	PlanID            string            `json:"plan_id"`
-	RequestID         string            `json:"request_id"`
-	Status            string            `json:"status"`
-	Summary           string            `json:"summary"`
-	VersionIncrement  *VersionIncrement `json:"version_increment,omitempty"`
+	Protocol          string   `json:"protocol"`
+	BaseContextSHA256 string   `json:"base_context_sha256,omitempty"`
+	ImpactFiles       []string `json:"impact_files,omitempty"`
+	ReadFiles         []string `json:"read_files,omitempty"`
+	BarrierFiles      []string `json:"barrier_files,omitempty"`
+	PlanID            string   `json:"plan_id"`
+	RequestID         string   `json:"request_id"`
+	Status            string   `json:"status"`
+	Summary           string   `json:"summary"`
+	// Document is the human-facing execution contract. Unlike Summary (one
+	// sentence), it explains the approach, risks and verification before the
+	// operator consents.
+	Document         string            `json:"document,omitempty"`
+	Dependencies     []PlanDependency  `json:"dependencies,omitempty"`
+	SystemTools      []PlanSystemTool  `json:"system_tools,omitempty"`
+	Debug            *DebugSpec        `json:"debug,omitempty"`
+	VersionIncrement *VersionIncrement `json:"version_increment,omitempty"`
 	// CommitMessage is the planner-authored Git commit message for a
 	// `change` plan's patch, used verbatim (after sanitization) as the
 	// commit Wharnex makes on the sandbox's own integration branch before
@@ -312,6 +321,36 @@ type ExecutionPlan struct {
 	// project by name (see internal/crossproject and adr/ADR-0053). The primary
 	// plan above is unchanged and unaware of this field.
 	CrossProject []CrossProjectUnit `json:"cross_project,omitempty"`
+}
+
+// DebugSpec turns a workflow plan into a bounded diagnostic probe. Host is a
+// narrower target, not broader authority: validation accepts only a closed
+// read-only command vocabulary there.
+type DebugSpec struct {
+	Protocol  string `json:"protocol"`
+	Target    string `json:"target"`
+	Rationale string `json:"rationale"`
+}
+
+// PlanDependency describes project dependency impact. It is presentation
+// metadata only: package-manager authority still comes from Operations and
+// the Policy Engine.
+type PlanDependency struct {
+	Scope   string `json:"scope"`
+	Manager string `json:"manager"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+	Action  string `json:"action"`
+	Reason  string `json:"reason"`
+}
+
+// PlanSystemTool discloses an OS/runtime prerequisite. A host declaration
+// never grants installation authority to a model-authored plan.
+type PlanSystemTool struct {
+	Target string `json:"target"`
+	Name   string `json:"name"`
+	Action string `json:"action"`
+	Reason string `json:"reason"`
 }
 
 // CrossProjectUnit is a complete change for one granted referenced project.
@@ -971,6 +1010,8 @@ type Session struct {
 	CrossProjectRanPlanID   string               `json:"cross_project_ran_plan_id,omitempty"`
 	ExecutionMode           ExecutionMode        `json:"execution_mode"`
 	AutomationMode          AutomationMode       `json:"automation_mode"`
+	DebugEnabled            bool                 `json:"debug_enabled,omitempty"`
+	DebugApprovedRootID     string               `json:"debug_approved_root_request_id,omitempty"`
 	EffortLevel             EffortLevel          `json:"effort_level"`
 	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`

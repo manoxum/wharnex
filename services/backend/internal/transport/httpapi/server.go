@@ -103,6 +103,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/debug-mode", a.debugMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/effort-level", a.effortLevel)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
@@ -114,6 +115,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/approve", a.approvePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/correct", a.correctPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/reject", a.rejectExecutionPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/failures", a.remoteInputFailure)
@@ -124,6 +126,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/failed-request/retry", a.retryFailedRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
+	mux.HandleFunc("POST /api/sessions/{id}/debug/approve", a.approveDebug)
 	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
 	mux.HandleFunc("POST /api/sessions/{id}/host-dependency-repair", a.retryHostDependencyRepair)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/resume", a.resumeInterruptedExecution)
@@ -948,6 +951,30 @@ func (a *API) automationMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) debugMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetDebugEnabled(r.PathValue("id"), body.Enabled)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "debug_mode_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) approveDebug(w http.ResponseWriter, r *http.Request) {
+	result, err := a.service.ApproveDebug(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "debug_approval_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (a *API) effortLevel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		EffortLevel domain.EffortLevel `json:"effort_level"`
@@ -1021,6 +1048,15 @@ func (a *API) rejectPlan(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.RejectPlan(r.PathValue("id"), r.PathValue("request_id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "plan_rejection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) rejectExecutionPlan(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RejectExecutionPlan(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "execution_plan_rejection_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

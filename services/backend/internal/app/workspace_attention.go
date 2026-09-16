@@ -31,6 +31,10 @@ type AttentionRecord struct {
 	Policy                  *domain.PolicyDecision `json:"policy,omitempty"`
 	HasPlan                 bool                   `json:"has_plan"`
 	PlanID                  string                 `json:"plan_id,omitempty"`
+	PlanRequestID           string                 `json:"plan_request_id,omitempty"`
+	HasPlanDocument         bool                   `json:"has_plan_document,omitempty"`
+	DebugTarget             string                 `json:"debug_target,omitempty"`
+	DebugRationale          string                 `json:"debug_rationale,omitempty"`
 	LastExecPlanID          string                 `json:"last_execution_plan_id,omitempty"`
 	PendingCount            int                    `json:"pending_host_changes"`
 	PendingManualCount      int                    `json:"pending_manual_requests,omitempty"`
@@ -90,6 +94,12 @@ func attentionRecordFor(item domain.Session) AttentionRecord {
 	if item.Plan != nil {
 		record.HasPlan = true
 		record.PlanID = item.Plan.PlanID
+		record.PlanRequestID = item.Plan.RequestID
+		record.HasPlanDocument = item.Plan.Document != ""
+		if item.Plan.Debug != nil {
+			record.DebugTarget = item.Plan.Debug.Target
+			record.DebugRationale = truncateRepairText(item.Plan.Debug.Rationale, 1024)
+		}
 	}
 	if item.LastExecution != nil {
 		record.LastExecPlanID = item.LastExecution.PlanID
