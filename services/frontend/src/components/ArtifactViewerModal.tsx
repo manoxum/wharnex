@@ -7,11 +7,10 @@ import { artifactPreviewDefinition } from '../lib/artifactPreviewRegistry'
 import { ArtifactPreview } from './ArtifactPreview'
 import { Icon } from './Icon'
 
-export function ArtifactViewerModal({ sessionId, bundleId, artifactId, directURL, items, initialIndex, onClose }: {
-  sessionId?: string
+export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, initialIndex, onClose }: {
+  sessionId: string
   bundleId?: string
   artifactId?: string
-  directURL?: string
   items: ArtifactViewerItem[]
   initialIndex: number
   onClose: () => void
@@ -41,8 +40,8 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, directURL
   const audioRef = useRef<HTMLAudioElement>(null)
   const item = items[index]
   const definition = useMemo(() => artifactPreviewDefinition(item?.path || '', item?.kind), [item])
-  const previewURL = item ? (directURL || (sessionId && bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path) : sessionId && artifactId ? api.artifactURL(sessionId, artifactId, true) : '')) : ''
-  const downloadURL = item ? (directURL || (sessionId && bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path, true) : sessionId && artifactId ? api.artifactURL(sessionId, artifactId) : '')) : ''
+  const previewURL = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path) : artifactId ? api.artifactURL(sessionId, artifactId, true) : '') : ''
+  const downloadURL = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path, true) : artifactId ? api.artifactURL(sessionId, artifactId) : '') : ''
 
   useEffect(() => {
     setZoom(1); setRotation(0); setFlipX(1); setFlipY(1); setBrightness(100); setContrast(100); setSaturation(100); setGrayscale(0); setCropRatio('free'); setDrawing(false); setMode('preview'); setWrap(false); setMediaSpeed(1); setClipStart(0); setClipEnd(0); setMediaExport(''); setMediaStatus(''); setDocumentMarker('')
