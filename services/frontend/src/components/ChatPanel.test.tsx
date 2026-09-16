@@ -171,21 +171,42 @@ describe('ChatPanel', () => {
     expect(screen.queryByText('5 mensagem(ns) anterior(es)')).toBeNull()
   })
 
-  it('keeps a bounded transcript DOM while traversing a long chat', async () => {
+  it('keeps a bounded transcript DOM while following a long chat scrollbar', async () => {
     const items = Array.from({ length: 120 }, (_, index) => ({ id: `long-${index + 1}`, role: 'user' as const, text: `longa mensagem ${index + 1}` }))
     const view = render(
       <ChatPanel session={session} items={items} chats={[]} activeChatId="long-chat" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
+    const stream = view.container.querySelector('.chat-stream') as HTMLDivElement
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, value: 21600 })
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, value: 360 })
 
-    for (const firstVisible of [81, 61, 41, 21, 1]) {
-      fireEvent.click(screen.getByRole('button', { name: 'Carregar mensagens anteriores' }))
-      await waitFor(() => expect(screen.getByText(`longa mensagem ${firstVisible}`)).toBeTruthy())
-    }
-
+    stream.scrollTop = 0
+    fireEvent.scroll(stream)
     await waitFor(() => expect(screen.getByText('longa mensagem 1')).toBeTruthy())
+
+    stream.scrollTop = 30 * 180
+    fireEvent.scroll(stream)
+    await waitFor(() => expect(screen.getByText('longa mensagem 31')).toBeTruthy())
+
     expect(view.container.querySelectorAll('.chat-stream article.message').length).toBeLessThanOrEqual(60)
     expect(screen.queryByText('longa mensagem 120')).toBeNull()
     expect(screen.getByRole('button', { name: 'Carregar mensagens mais recentes' })).toBeTruthy()
+  })
+
+  it('keeps the transcript content aligned with a drag to the beginning of a long scroll', async () => {
+    const items = Array.from({ length: 120 }, (_, index) => ({ id: `scroll-alignment-${index + 1}`, role: 'user' as const, text: `scroll alinhado ${index + 1}` }))
+    const view = render(
+      <ChatPanel session={session} items={items} chats={[]} activeChatId="scroll-alignment" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    const stream = view.container.querySelector('.chat-stream') as HTMLDivElement
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, value: 21600 })
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, value: 360 })
+    stream.scrollTop = 0
+    fireEvent.scroll(stream)
+
+    await waitFor(() => expect(screen.getByText('scroll alinhado 1')).toBeTruthy())
+    expect(view.container.querySelectorAll('.chat-stream article.message').length).toBeLessThanOrEqual(60)
   })
 
 
@@ -202,8 +223,7 @@ describe('ChatPanel', () => {
     stream.scrollTop = 0
     fireEvent.scroll(stream)
 
-    await waitFor(() => expect(screen.getByText('chat A mensagem 6')).toBeTruthy())
-    expect(screen.queryByText('chat A mensagem 1')).toBeNull()
+    await waitFor(() => expect(screen.getByText('chat A mensagem 1')).toBeTruthy())
 
     stream.scrollTop = 320
     fireEvent.scroll(stream)

@@ -242,7 +242,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   useImperativeHandle(forwardedRef, () => ({ getComposerEditor: () => richEditorRef.current?.getEditor() }), [])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const todos = useMemo(() => latestTodoSnapshot(items), [items])
-  const { endRef, hasOlder, hasNewer, hiddenItemCount, hiddenNewerItemCount, loadOlder, loadNewer, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
+  const { afterHeight, beforeHeight, endRef, hasOlder, hasNewer, hiddenItemCount, hiddenNewerItemCount, loadOlder, loadNewer, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
   const whxNoticeRuns = useMemo(() => indexWhxNoticeRuns(visibleItems), [visibleItems])
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
   // `@ref` names any project Wharnex has worked on before — attached projects
@@ -732,6 +732,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     </div>}
 
     {!composerOnly && <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
+      {beforeHeight > 0 && (
+        <div className="chat-virtual-spacer" aria-hidden="true" style={{ height: beforeHeight }}/>
+      )}
       {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar mensagens anteriores</button></div>}
       {visibleItems.map((item) => {
         const previousNotices = whxNoticeRuns.previousByLatestId.get(item.id) || []
@@ -748,6 +751,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </Fragment>
       })}
       {hasNewer && <div className="chat-history-loader newer"><span>{hiddenNewerItemCount} mensagem(ns) mais recente(s)</span><button type="button" onClick={loadNewer}>Carregar mensagens mais recentes</button></div>}
+      {afterHeight > 0 && (
+        <div className="chat-virtual-spacer" aria-hidden="true" style={{ height: afterHeight }}/>
+      )}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharnex</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
     </div>}
