@@ -33,7 +33,9 @@ describe('RestartConfirmation', () => {
     // The operator is deciding whether to restart the runtime; a diff alone
     // makes them reconstruct the intent from the patch.
     render(<RestartConfirmation sessionId="ses-self" change={{ ...change, summary: 'Corrige o dwell dos workers e espaça as submissões' }} busy={false} onLater={vi.fn()} onRestart={vi.fn()}/>)
-    expect(screen.getByLabelText('Resumo da alteração').textContent).toBe('Corrige o dwell dos workers e espaça as submissões')
+    const summary = screen.getByLabelText('Resumo da alteração')
+    expect(summary.textContent).toContain('O que foi feito')
+    expect(summary.textContent).toContain('Corrige o dwell dos workers e espaça as submissões')
   })
 
   it('omits the summary block when a legacy change carries none', () => {

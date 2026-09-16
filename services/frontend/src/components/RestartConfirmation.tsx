@@ -31,7 +31,13 @@ export function RestartConfirmation({ sessionId, change, busy, onLater, onRestar
       {/* The planner's own short description of the delivered work. The protocol
           requires it on every plan-bearing response, so the operator is never
           asked to restart the runtime without being told what changed. */}
-      {change?.summary && <p className="restart-confirmation-summary" aria-label="Resumo da alteração">{change.summary}</p>}
+      {change?.summary && <aside className="restart-confirmation-summary" aria-label="Resumo da alteração">
+        <span className="restart-confirmation-summary-icon"><Icon name="check" size={16}/></span>
+        <div>
+          <span className="restart-confirmation-summary-label">O que foi feito</span>
+          <p>{change.summary}</p>
+        </div>
+      </aside>}
       <section className="restart-confirmation-changes" aria-labelledby="restart-confirmation-changes-title">
         <header>
           <div><span className="panel-kicker">Fecho da alteração</span><strong id="restart-confirmation-changes-title">Alterações desta versão</strong></div>

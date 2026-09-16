@@ -91,4 +91,10 @@ describe('complete colour themes', () => {
     expect(theme).toContain("[data-theme='dark'] .bundle-tone-final-summary")
   })
 
+  it('keeps the self-evolution change summary readable in dark mode', () => {
+    expect(theme).toMatch(/:root\[data-theme='dark'\] \.restart-confirmation-summary \{[^}]*background: linear-gradient\(135deg, #272c24 0%, #242424 100%\);/)
+    expect(theme).toMatch(/:root\[data-theme='dark'\] \.restart-confirmation-summary p \{[^}]*color: #f1f4ee;/)
+    expect(theme).toContain(":root[data-theme='dark'] .restart-confirmation-summary-label { color: #aebaa8; }")
+  })
+
 })
