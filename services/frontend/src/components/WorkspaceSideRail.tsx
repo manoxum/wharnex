@@ -18,13 +18,14 @@ import { api } from '../lib/api'
 import { summarizeAttention, type AttentionItem } from '../lib/attentionCenter'
 import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import { AttentionList } from './AttentionList'
+import { ArtifactExplorerPanel } from './ArtifactExplorerPanel'
 
 // The workspace side rail is shell-level, not Agent-level: one rail and one
 // drawer sit beside every mode surface, so switching between Agent, Editor and
 // Orchestrator never changes which panel is open or how wide it is. Rendering
 // it once is also what keeps the polling drawers (runtime, Git) from being
 // mounted three times over, which is what a per-mode copy would cost.
-export type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | ProjectActivityKind | ''
+export type Drawer = 'attention' | 'archive' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | ProjectActivityKind | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 42
@@ -129,6 +130,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     <aside className="agent-activity-bar" aria-label="Ferramentas do workspace">
       <button type="button" className={drawer === 'archive' ? 'active' : ''} onClick={() => toggle('archive')} aria-label="Chats arquivados" title="Chats arquivados"><Icon name="folder" size={18}/>{archivedChats.length > 0 && <b>{archivedChats.length}</b>}</button>
       <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggle('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
+      <button type="button" className={drawer === 'library' ? 'active' : ''} onClick={() => toggle('library')} aria-label="Biblioteca de ficheiros" title="Biblioteca de ficheiros"><Icon name="package" size={18}/></button>
       <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggle('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>
       <button type="button" className={drawer === 'git' ? 'active' : ''} onClick={() => toggle('git')} aria-label="Git do projeto" title="Git do projeto"><Icon name="git" size={18}/>{pendingCommitCount > 0 && <b>{pendingCommitCount}</b>}</button>
       <button type="button" className={drawer === 'agents' ? 'active' : ''} onClick={() => toggle('agents')} aria-label="Gestão de agentes" title="Supervisor e Workers"><Icon name="agent" size={18}/></button>
@@ -149,6 +151,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
       {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archivedChats} busy={busy} onRestore={props.onRestoreChat} onDelete={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError} onClose={close}/> : null}
+      {drawer === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
       {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession}/> : null}
       {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}

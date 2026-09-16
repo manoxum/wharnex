@@ -12,7 +12,7 @@ type SortMode = 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'size-desc' | '
 type ViewMode = 'cards' | 'table'
 type DirectionFilter = 'all' | 'input' | 'output'
 
-export function ArtifactExplorerPanel({ sessionId, onError }: { sessionId: string; onError: (message: string) => void }) {
+export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { sessionId: string; onError: (message: string) => void; onClose?: () => void }) {
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<ManagedArtifact[]>([])
   const [selected, setSelected] = useState<ManagedArtifact>()
@@ -64,7 +64,7 @@ export function ArtifactExplorerPanel({ sessionId, onError }: { sessionId: strin
   }
 
   return <section className="right-tool-panel artifact-explorer-panel file-library-panel">
-    <header className="right-tool-heading artifact-explorer-heading"><div><span>Biblioteca de ficheiros</span><strong>Todos os artefactos guardados</strong></div><div className="file-library-heading-actions"><button type="button" onClick={() => uploadRef.current?.click()} disabled={uploading} title="Carregar ficheiros"><Icon name="plus" size={14}/></button><button type="button" onClick={() => void refresh()} aria-label="Atualizar biblioteca" title="Atualizar"><Icon name="refresh" size={15}/></button></div></header>
+    <header className="right-tool-heading artifact-explorer-heading"><div><span>Biblioteca de ficheiros</span><strong>Todos os artefactos guardados</strong></div><div className="file-library-heading-actions"><button type="button" onClick={() => uploadRef.current?.click()} disabled={uploading} title="Carregar ficheiros"><Icon name="plus" size={14}/></button><button type="button" onClick={() => void refresh()} aria-label="Atualizar biblioteca" title="Atualizar"><Icon name="refresh" size={15}/></button>{onClose ? <button type="button" onClick={onClose} aria-label="Fechar biblioteca" title="Fechar biblioteca"><Icon name="close" size={13}/></button> : null}</div></header>
     <input ref={uploadRef} className="sr-only" type="file" multiple aria-label="Carregar ficheiros para a biblioteca" onChange={(event) => void upload(event.target.files)}/>
 
     <div className="artifact-explorer-toolbar">

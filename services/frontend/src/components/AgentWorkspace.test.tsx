@@ -188,6 +188,20 @@ describe('AgentWorkspace', () => {
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
   })
 
+  it('opens the global file library from the left workspace rail', async () => {
+    vi.spyOn(api, 'managedArtifacts').mockResolvedValue({ artifacts: [] })
+    const rendered = render(props().element)
+    const rail = screen.getByRole('complementary', { name: 'Ferramentas do workspace' })
+    const libraryButton = within(rail).getByRole('button', { name: 'Biblioteca de ficheiros' })
+
+    fireEvent.click(libraryButton)
+
+    expect(await screen.findByText('Todos os artefactos guardados')).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-drawer .file-library-panel')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar biblioteca' }))
+    expect(screen.queryByText('Todos os artefactos guardados')).toBeNull()
+  })
+
   it('moves chat files into the inspector group immediately before Plano', async () => {
     const rendered = render(props().element)
     const agentAreas = screen.getByRole('navigation', { name: 'Áreas do Agent' })

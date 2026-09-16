@@ -1,15 +1,14 @@
 import { useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { desktopWindowScope } from '../lib/projectBindings'
-import { ArtifactExplorerPanel } from './ArtifactExplorerPanel'
 import { DatabaseExplorerPanel } from './DatabaseExplorerPanel'
 import { Icon } from './Icon'
 
-export type RightDrawer = 'artifacts' | 'database' | ''
+export type RightDrawer = 'database' | ''
 const WIDTH_KEY = 'whx.workspace.right-drawer-width'
 const MIN_WIDTH = 360
 const MIN_WORKSPACE = 560
 
-export function WorkspaceRightRail({ drawer, sessionId, onDrawer, onError }: { drawer: RightDrawer; sessionId: string; onDrawer: (drawer: RightDrawer) => void; onError: (message: string) => void }) {
+export function WorkspaceRightRail({ drawer, onDrawer, onError }: { drawer: RightDrawer; onDrawer: (drawer: RightDrawer) => void; onError: (message: string) => void }) {
   const [width, setWidth] = useState(loadWidth)
   const toggle = (next: Exclude<RightDrawer, ''>) => onDrawer(drawer === next ? '' : next)
 
@@ -28,11 +27,10 @@ export function WorkspaceRightRail({ drawer, sessionId, onDrawer, onError }: { d
   return <>
     {drawer && <button type="button" className="workspace-right-splitter" onPointerDown={beginResize} aria-label="Redimensionar painel lateral direito" title="Arraste para redimensionar"/>}
     {drawer && <aside className="workspace-right-drawer" style={{ ['--workspace-right-drawer-width' as string]: `${width}px` } as CSSProperties}>
-      <div className="workspace-right-drawer-body">{drawer === 'artifacts' ? <ArtifactExplorerPanel sessionId={sessionId} onError={onError}/> : <DatabaseExplorerPanel onError={onError}/>}</div>
+      <div className="workspace-right-drawer-body"><DatabaseExplorerPanel onError={onError}/></div>
       <button type="button" className="workspace-right-close" onClick={() => onDrawer('')} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button>
     </aside>}
     <aside className="workspace-right-rail" aria-label="Ferramentas laterais direitas">
-      <button type="button" className={drawer === 'artifacts' ? 'active' : ''} onClick={() => toggle('artifacts')} aria-label="Biblioteca de ficheiros" title="Biblioteca de ficheiros"><Icon name="package" size={18}/></button>
       <button type="button" className={drawer === 'database' ? 'active' : ''} onClick={() => toggle('database')} aria-label="Database connection" title="Database connection"><Icon name="database" size={18}/></button>
     </aside>
   </>
