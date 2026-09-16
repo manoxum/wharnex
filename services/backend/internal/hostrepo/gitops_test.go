@@ -145,6 +145,39 @@ func TestLogIdentifiesWharnexCommitsByTrailer(t *testing.T) {
 	}
 }
 
+func TestLogCarriesParentTopologyForMergeGraph(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	baseSHA := git(t, root, "rev-parse", "HEAD")
+
+	git(t, root, "checkout", "-qb", "feature")
+	write(t, root, "feature.txt", "feature\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: feature branch")
+	featureSHA := git(t, root, "rev-parse", "HEAD")
+
+	git(t, root, "checkout", "-q", "main")
+	write(t, root, "main.txt", "main\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: main branch")
+	mainSHA := git(t, root, "rev-parse", "HEAD")
+	git(t, root, "merge", "--no-ff", "-q", "-m", "merge feature", "feature")
+
+	commits, err := Log(context.Background(), root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) < 4 {
+		t.Fatalf("expected merge history, got %+v", commits)
+	}
+	if got := commits[0].Parents; len(got) != 2 || got[0] != mainSHA || got[1] != featureSHA {
+		t.Fatalf("merge parents = %v, want [%s %s]", got, mainSHA, featureSHA)
+	}
+	if got := commits[len(commits)-1].Parents; len(got) != 0 {
+		t.Fatalf("root commit must have no parents, got %v (base %s)", got, baseSHA)
+	}
+}
+
 func TestLogMarksPushedCommits(t *testing.T) {
 	requireGit(t)
 	root := newRepo(t, "README.md", "root\n")

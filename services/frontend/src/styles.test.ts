@@ -306,3 +306,30 @@ describe('terminal and editor execution CSS', () => {
     expect(glyph).toContain('color: #78b841')
   })
 })
+
+describe('Git workbench CSS', () => {
+  it('uses project theme tokens instead of the old green-tinted dark island', () => {
+    const drawer = lastRule('.git-drawer')
+    const section = lastRule('.git-section')
+    const tabs = lastRule('.git-tabs')
+
+    expect(drawer).toContain('background: var(--theme-bg)')
+    expect(drawer).toContain('color: var(--theme-text)')
+    expect(section).toContain('background: var(--theme-surface)')
+    expect(section).toContain('border: 1px solid var(--theme-border-soft)')
+    expect(tabs).toContain('background: var(--theme-surface)')
+    expect(tabs).not.toContain('#1b1e19')
+    expect(section).not.toContain('#1a1d18')
+  })
+
+  it('keeps history rows graph-first and compact', () => {
+    const row = lastRule('.git-history-row')
+    const compactRow = lastRule('.git-drawer .git-history-row')
+    const graph = lastRule('.git-commit-graph')
+    expect(row).toContain('grid-template-columns: auto minmax(0, 1fr) auto')
+    expect(compactRow).toContain('grid-template-columns: auto minmax(0, 1fr)')
+    expect(graph).toContain('height: 38px')
+    expect(css).toContain('--git-lane-0: #5e9cff')
+    expect(css).toContain('.git-graph-node')
+  })
+})

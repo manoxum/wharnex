@@ -674,6 +674,8 @@ export type GitCommit = {
   author_name: string
   author_email: string
   committed_at: string
+  /** Parent SHAs in Git order; merge commits carry 2+ entries. */
+  parents: string[]
   request_id?: string
   plan_id?: string
   /** Originated from a Wharnex change, identified by its Request-Id trailer. */
