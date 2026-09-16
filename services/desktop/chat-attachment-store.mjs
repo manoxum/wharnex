@@ -48,6 +48,20 @@ export async function persistChatAttachmentFiles(root, cacheKey, messageId, atta
   }))
 }
 
+export async function readStoredAttachmentContent(root, storageRef) {
+  const resolved = await resolveStoredAttachment(root, storageRef)
+  const filePath = path.join(resolved.messageDir, safeStoredFilename(resolved.record.filename))
+  await assertRegularFile(filePath)
+  const bytes = await readFile(filePath)
+  return {
+    available: true,
+    name: String(resolved.record.name || resolved.record.filename || 'attachment'),
+    size: bytes.byteLength,
+    mime: String(resolved.record.mime || 'application/octet-stream'),
+    contentBase64: bytes.toString('base64'),
+  }
+}
+
 export async function readStoredAttachmentPreview(root, storageRef) {
   const resolved = await resolveStoredAttachment(root, storageRef)
   if (!resolved.record.previewFilename) return { available: true, dataUrl: '', previewKind: 'none' }
