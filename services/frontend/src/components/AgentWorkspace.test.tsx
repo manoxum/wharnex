@@ -190,6 +190,7 @@ describe('AgentWorkspace', () => {
 
   it('opens the global file library from the left workspace rail', async () => {
     vi.spyOn(api, 'managedArtifacts').mockResolvedValue({ artifacts: [] })
+    vi.spyOn(api, 'storage').mockResolvedValue({ total_bytes: 0, state_bytes: 0, context_bytes: 0, sandbox_bytes: 0, artifact_bytes: 0, archive_bytes: 0, orphan_bytes: 0, projects: [] })
     const rendered = render(props().element)
     const rail = screen.getByRole('complementary', { name: 'Ferramentas do workspace' })
     const libraryButton = within(rail).getByRole('button', { name: 'Biblioteca de ficheiros' })
@@ -711,7 +712,8 @@ describe('AgentWorkspace', () => {
       if (!node) throw new Error('drawer not open')
       return node
     })
-    expect(drawer.className.trim()).toBe('agent-drawer')
+    expect(drawer.className).toContain('agent-drawer')
+    expect(drawer.className).toContain('workspace-side-drawer-left')
     expect(container.querySelector('.agent-drawer-splitter')).toBeTruthy()
 
     fireEvent.click(screen.getByTitle('Conhecimento adquirido'))
@@ -720,8 +722,10 @@ describe('AgentWorkspace', () => {
       if (!node) throw new Error('drawer not open')
       return node
     })
-    // No width class survives, so no drawer can claim its own geometry.
-    expect(knowledge.className.trim()).toBe('agent-drawer')
+    // Side identity is allowed for two configurable rails, but no drawer-specific
+    // geometry class may make different tools open at different widths.
+    expect(knowledge.className).toContain('agent-drawer')
+    expect(knowledge.className).toContain('workspace-side-drawer-left')
 
     // Untouched widths publish no inline override: the stylesheet's equal
     // thirds stay in charge until the operator drags a splitter.
@@ -753,7 +757,8 @@ describe('AgentWorkspace', () => {
     // not be rewritten by a drag of the shell's side panel.
     const workspace = container.querySelector('.agent-workspace') as HTMLElement
     expect(workspace.style.getPropertyValue('--agent-chat-width')).toBe('')
-    expect(localStorage.getItem('whx.workspace.drawer-width:primary')).toBe('458')
+    // Each rail owns its width independently, scoped to the desktop window.
+    expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('458')
   })
 
   it('keeps the left panel open across attention routing and offers every drawer a close control', async () => {

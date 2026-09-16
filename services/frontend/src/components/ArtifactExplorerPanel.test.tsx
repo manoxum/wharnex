@@ -8,12 +8,14 @@ const mocks = vi.hoisted(() => ({
   persistArtifact: vi.fn(),
   deleteManagedArtifact: vi.fn(async () => ({ deleted: true })),
   confirmDialog: vi.fn(async () => true),
+  storage: vi.fn(async () => ({ total_bytes: 8192, state_bytes: 512, context_bytes: 2048, sandbox_bytes: 1024, artifact_bytes: 4096, archive_bytes: 512, orphan_bytes: 0, projects: [] })),
 }))
 
 vi.mock('../lib/api', () => ({ api: {
   managedArtifacts: mocks.managedArtifacts,
   persistArtifact: mocks.persistArtifact,
   deleteManagedArtifact: mocks.deleteManagedArtifact,
+  storage: mocks.storage,
   artifactURL: (_sessionId: string, artifactId: string, preview = false) => `/artifact/${artifactId}${preview ? '?preview=1' : ''}`,
 } }))
 vi.mock('../lib/appDialog', () => ({ confirmDialog: mocks.confirmDialog }))
@@ -29,6 +31,7 @@ afterEach(() => {
   mocks.persistArtifact.mockReset()
   mocks.deleteManagedArtifact.mockClear()
   mocks.confirmDialog.mockClear()
+  mocks.storage.mockClear()
 })
 
 describe('ArtifactExplorerPanel', () => {
@@ -45,6 +48,21 @@ describe('ArtifactExplorerPanel', () => {
     fireEvent.click(screen.getByTitle('Tabela'))
     expect(screen.getByRole('table')).toBeTruthy()
     expect(screen.getByText(/beta/i)).toBeTruthy()
+  })
+
+  it('separates durable user files from exchanged bundles and shows disk usage', async () => {
+    const bundle = managed('ses_bundle', '/workspace/alpha', 'artifact_bundle', 'whx_bundle_res_demo.zip', 2048, '2026-09-16T08:00:00Z')
+    bundle.artifact.bundle = true
+    bundle.artifact.kind = 'response_bundle'
+    mocks.managedArtifacts.mockImplementation(async (_query: string, bundlesOnly: boolean) => ({ artifacts: bundlesOnly ? [bundle] : artifacts }))
+    render(<ArtifactExplorerPanel sessionId="ses_current" onError={vi.fn()}/>)
+
+    expect(await screen.findByText('manual.pdf')).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Resumo de ocupação em disco' }).textContent).toMatch(/8(?:\.0)? KB/)
+    fireEvent.click(screen.getByRole('tab', { name: /Bundles/ }))
+    expect(await screen.findByText('whx_bundle_res_demo.zip')).toBeTruthy()
+    expect(mocks.managedArtifacts).toHaveBeenLastCalledWith('', true)
+    expect(screen.queryByText('manual.pdf')).toBeNull()
   })
 
   it('uploads directly to the library and deletes a stored file', async () => {
