@@ -729,9 +729,15 @@ export type GitPendingCommit = {
   created_at: string
 }
 
+export type GitWorkingFile = {
+  path: string
+  kind: 'change' | 'gitlink' | 'submodule' | 'embedded_repository' | 'unmerged'
+}
+
 export type GitWorkingSummary = {
   clean: boolean
   stageable_count: number
+  files: GitWorkingFile[]
   dirty_submodules?: string[]
   embedded_repositories?: string[]
   unmerged_paths?: string[]
@@ -749,6 +755,21 @@ export type GitConflictContext = {
 }
 
 export type GitFileDiff = { path: string; diff: string; truncated?: boolean }
+
+export type GitUnpushedOverview = {
+  branch: string
+  upstream?: string
+  remote?: string
+  remote_branch?: string
+  has_upstream: boolean
+  commits: GitCommit[]
+}
+
+export type GitCommitDetail = {
+  commit: GitCommit
+  diff: string
+  diff_truncated?: boolean
+}
 
 export type GitOverview = {
   project_path: string

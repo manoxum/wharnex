@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/hostrepo"
@@ -84,6 +85,86 @@ func (s *Service) PushBranch(ctx context.Context, sessionID, remote, branch stri
 	}
 	result.Outcome, result.Detail = string(retry.Outcome), retry.Detail
 	s.bus.Publish(sessionID, "git.push_completed", map[string]any{"remote": remote, "branch": branch, "outcome": string(retry.Outcome), "integrated": true})
+	return result, nil
+}
+
+// PushSelectedCommits publishes the oldest contiguous prefix of commits that
+// are ahead of the current branch upstream. Git cannot publish an arbitrary
+// middle commit to the same branch without also publishing all of its
+// ancestors, so the service rejects non-contiguous selections instead of
+// pretending that checkbox selection can rewrite remote history.
+func (s *Service) PushSelectedCommits(ctx context.Context, sessionID string, commitSHAs []string) (GitPushResult, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitPushResult{}, err
+	}
+	lock := s.projectApplyLock(item.ProjectPath)
+	lock.Lock()
+	defer lock.Unlock()
+
+	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	if err != nil {
+		return GitPushResult{}, err
+	}
+	active, ok := currentLocalBranch(branches)
+	if !ok || !active.HasUpstream || active.Gone {
+		return GitPushResult{}, fmt.Errorf("selective push requires a current branch with a valid upstream")
+	}
+	if active.Ahead <= 0 {
+		return GitPushResult{}, fmt.Errorf("there are no commits pending publication")
+	}
+	remote, remoteBranch := splitUpstream(active.Upstream)
+	if remote == "" || remoteBranch == "" {
+		return GitPushResult{}, fmt.Errorf("cannot resolve upstream %q", active.Upstream)
+	}
+	commits, err := hostrepo.Unpushed(ctx, item.ProjectPath, active.Ahead)
+	if err != nil {
+		return GitPushResult{}, err
+	}
+	selected := make(map[string]bool, len(commitSHAs))
+	for _, sha := range commitSHAs {
+		sha = strings.TrimSpace(sha)
+		if sha != "" {
+			selected[sha] = true
+		}
+	}
+	if len(selected) == 0 {
+		return GitPushResult{}, fmt.Errorf("select at least one commit to publish")
+	}
+	known := make(map[string]bool, len(commits))
+	for _, commit := range commits {
+		known[commit.SHA] = true
+	}
+	for sha := range selected {
+		if !known[sha] {
+			return GitPushResult{}, fmt.Errorf("selected commit %s is no longer pending publication", sha)
+		}
+	}
+
+	// hostrepo.Unpushed is newest first. The only publishable partial set is a
+	// prefix when read oldest first: commit 1, then 2, never only commit 2.
+	oldestFirst := make([]hostrepo.Commit, len(commits))
+	for index := range commits {
+		oldestFirst[len(commits)-1-index] = commits[index]
+	}
+	count := len(selected)
+	if count > len(oldestFirst) {
+		return GitPushResult{}, fmt.Errorf("selected commit set is invalid")
+	}
+	for index, commit := range oldestFirst {
+		want := index < count
+		if selected[commit.SHA] != want {
+			return GitPushResult{}, fmt.Errorf("selective push must choose the oldest contiguous commits")
+		}
+	}
+	target := oldestFirst[count-1]
+	s.bus.Publish(sessionID, "git.push_selected_started", map[string]any{"remote": remote, "branch": remoteBranch, "commits": count, "target": target.SHA})
+	push, err := hostrepo.PushCommit(ctx, item.ProjectPath, remote, remoteBranch, target.SHA)
+	if err != nil {
+		return GitPushResult{}, err
+	}
+	result := GitPushResult{Outcome: string(push.Outcome), Remote: push.Remote, Branch: push.Branch, Detail: push.Detail}
+	s.bus.Publish(sessionID, "git.push_selected_completed", map[string]any{"remote": remote, "branch": remoteBranch, "commits": count, "outcome": string(push.Outcome)})
 	return result, nil
 }
 

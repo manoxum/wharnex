@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
     remotes: [],
     commits: [],
     pending: [],
-    working: { clean: true, stageable_count: 0 },
+    working: { clean: true, stageable_count: 0, files: [] },
   })),
 }))
 vi.mock('../lib/api', () => ({ api: { bundleQuota: mocks.bundleQuota, gitOverview: mocks.gitOverview } }))

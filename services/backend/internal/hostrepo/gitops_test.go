@@ -503,3 +503,58 @@ func TestCommitInternalPathsUsesWharnexIdentityAndLeavesOtherChanges(t *testing.
 		t.Fatalf("unrelated work must remain pending, got %q", status)
 	}
 }
+
+func TestWorktreeDiffIncludesUntrackedFiles(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	write(t, root, "new.txt", "first line\nsecond line\n")
+
+	diff, truncated, err := WorktreeDiff(context.Background(), root, []string{"new.txt"}, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if truncated {
+		t.Fatal("small untracked diff must not be truncated")
+	}
+	if !strings.Contains(diff, "+first line") || !strings.Contains(diff, "+second line") {
+		t.Fatalf("untracked content missing from worktree diff: %q", diff)
+	}
+}
+
+func TestUnpushedAndPushCommitPublishOnlySelectedTip(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+
+	write(t, root, "one.txt", "one\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: first local commit")
+	first := git(t, root, "rev-parse", "HEAD")
+	write(t, root, "two.txt", "two\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: second local commit")
+	second := git(t, root, "rev-parse", "HEAD")
+
+	commits, err := Unpushed(context.Background(), root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 || commits[0].SHA != second || commits[1].SHA != first {
+		t.Fatalf("expected newest-first unpushed commits, got %+v", commits)
+	}
+	result, err := PushCommit(context.Background(), root, "origin", "main", first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != PushOutcomePushed {
+		t.Fatalf("expected selected commit push to succeed, got %+v", result)
+	}
+	if remoteHead := git(t, remote, "rev-parse", "refs/heads/main"); remoteHead != first {
+		t.Fatalf("selective push advanced remote to %s, want %s", remoteHead, first)
+	}
+	if localHead := git(t, root, "rev-parse", "HEAD"); localHead != second {
+		t.Fatalf("selective push must not move local HEAD, got %s want %s", localHead, second)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/pendingcommit"
 	"kernl.local/harness/backend/internal/projectversion"
-	"kernl.local/harness/backend/internal/workspacefs"
 )
 
 // SetGitSurface wires the Git surface's own persistence: where per-project
@@ -137,14 +137,47 @@ func firstLineOf(message string) string {
 	return line
 }
 
-// GitWorkingSummary counts the host worktree's uncommitted state by class, so
-// the Git surface can say what is there without shipping every path.
+// GitWorkingFile is one changed worktree path shown by the Git surface.
+type GitWorkingFile struct {
+	Path string `json:"path"`
+	Kind string `json:"kind"`
+}
+
+// GitWorkingSummary reports both aggregate counts and the concrete paths. The
+// file list is independent of commit mode: auto-commit changes can still leave
+// ordinary operator edits in the worktree and those must remain inspectable.
 type GitWorkingSummary struct {
-	Clean                bool     `json:"clean"`
-	StageableCount       int      `json:"stageable_count"`
-	DirtySubmodules      []string `json:"dirty_submodules,omitempty"`
-	EmbeddedRepositories []string `json:"embedded_repositories,omitempty"`
-	UnmergedPaths        []string `json:"unmerged_paths,omitempty"`
+	Clean                bool             `json:"clean"`
+	StageableCount       int              `json:"stageable_count"`
+	Files                []GitWorkingFile `json:"files"`
+	DirtySubmodules      []string         `json:"dirty_submodules,omitempty"`
+	EmbeddedRepositories []string         `json:"embedded_repositories,omitempty"`
+	UnmergedPaths        []string         `json:"unmerged_paths,omitempty"`
+}
+
+func gitWorkingFiles(state hostrepo.WorkingState) []GitWorkingFile {
+	kinds := make(map[string]string)
+	for _, path := range state.Stageable {
+		kinds[path] = "change"
+	}
+	for _, path := range state.GitlinkChanges {
+		kinds[path] = "gitlink"
+	}
+	for _, path := range state.DirtySubmodules {
+		kinds[path] = "submodule"
+	}
+	for _, path := range state.EmbeddedRepositories {
+		kinds[path] = "embedded_repository"
+	}
+	for _, path := range state.Unmerged {
+		kinds[path] = "unmerged"
+	}
+	files := make([]GitWorkingFile, 0, len(kinds))
+	for path, kind := range kinds {
+		files = append(files, GitWorkingFile{Path: path, Kind: kind})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files
 }
 
 // GitOverview is everything the Git surface renders in one round trip.
@@ -174,17 +207,33 @@ type GitFileDiff struct {
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
-// GitFileDiff returns a bounded, read-only worktree diff for one editor file.
-// workspacefs.Read deliberately performs the same containment, ignore, symlink
-// and text-file checks as the editor before the path is handed to Git.
+// GitFileDiff returns a bounded, read-only diff for one path that Git itself
+// currently reports as changed. Matching against WorkingState avoids accepting
+// arbitrary path input while still allowing deleted and untracked files, which
+// an editor-style read guard cannot open.
 func (s *Service) GitFileDiff(ctx context.Context, sessionID, path string) (GitFileDiff, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return GitFileDiff{}, err
 	}
-	file, err := workspacefs.Read(item.ProjectPath, path)
+	path = strings.TrimSpace(path)
+	state, err := hostrepo.Working(ctx, item.ProjectPath)
 	if err != nil {
 		return GitFileDiff{}, err
+	}
+	var file *GitWorkingFile
+	for _, candidate := range gitWorkingFiles(state) {
+		if candidate.Path == path {
+			current := candidate
+			file = &current
+			break
+		}
+	}
+	if file == nil {
+		return GitFileDiff{}, fmt.Errorf("path is not a changed worktree file")
+	}
+	if file.Kind == "submodule" || file.Kind == "embedded_repository" {
+		return GitFileDiff{}, fmt.Errorf("inline diff is unavailable for %s", file.Kind)
 	}
 	diff, truncated, err := hostrepo.WorktreeDiff(ctx, item.ProjectPath, []string{file.Path}, 512<<10)
 	if err != nil {
@@ -235,7 +284,7 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 	}
 	if state, stateErr := hostrepo.Working(ctx, item.ProjectPath); stateErr == nil {
 		overview.Working = GitWorkingSummary{
-			Clean: state.Clean(), StageableCount: len(state.Stageable),
+			Clean: state.Clean(), StageableCount: len(state.Stageable), Files: gitWorkingFiles(state),
 			DirtySubmodules: state.DirtySubmodules, EmbeddedRepositories: state.EmbeddedRepositories,
 			UnmergedPaths: state.Unmerged,
 		}
@@ -245,6 +294,101 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 		overview.Conflict = item.IntegrationConflict.Git
 	}
 	return overview, nil
+}
+
+// GitUnpushedOverview is the current local branch's commits that are not yet
+// reachable from its configured upstream. Commits are newest first, matching
+// the rest of the Git history APIs.
+type GitUnpushedOverview struct {
+	Branch       string            `json:"branch"`
+	Upstream     string            `json:"upstream,omitempty"`
+	Remote       string            `json:"remote,omitempty"`
+	RemoteBranch string            `json:"remote_branch,omitempty"`
+	HasUpstream  bool              `json:"has_upstream"`
+	Commits      []hostrepo.Commit `json:"commits"`
+}
+
+// GitCommitDetail combines one unpushed commit's metadata with its bounded
+// unified diff for the detail panel.
+type GitCommitDetail struct {
+	Commit        hostrepo.Commit `json:"commit"`
+	Diff          string          `json:"diff"`
+	DiffTruncated bool            `json:"diff_truncated,omitempty"`
+}
+
+func currentLocalBranch(branches []hostrepo.Branch) (hostrepo.Branch, bool) {
+	for _, branch := range branches {
+		if branch.Remote == "" && branch.Current {
+			return branch, true
+		}
+	}
+	return hostrepo.Branch{}, false
+}
+
+func splitUpstream(upstream string) (string, string) {
+	remote, branch, ok := strings.Cut(strings.TrimSpace(upstream), "/")
+	if !ok {
+		return "", ""
+	}
+	return remote, branch
+}
+
+// GitUnpushed returns every commit ahead of the current branch's upstream. A
+// branch without an upstream is intentionally reported as such rather than
+// guessing which remote branch should define published history.
+func (s *Service) GitUnpushed(ctx context.Context, sessionID string) (GitUnpushedOverview, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitUnpushedOverview{}, err
+	}
+	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	if err != nil {
+		return GitUnpushedOverview{}, err
+	}
+	active, ok := currentLocalBranch(branches)
+	if !ok {
+		return GitUnpushedOverview{Commits: []hostrepo.Commit{}}, nil
+	}
+	hasUpstream := active.HasUpstream && !active.Gone
+	overview := GitUnpushedOverview{Branch: active.Name, Upstream: active.Upstream, HasUpstream: hasUpstream, Commits: []hostrepo.Commit{}}
+	if !hasUpstream {
+		return overview, nil
+	}
+	overview.Remote, overview.RemoteBranch = splitUpstream(active.Upstream)
+	if active.Ahead <= 0 {
+		return overview, nil
+	}
+	commits, err := hostrepo.Unpushed(ctx, item.ProjectPath, active.Ahead)
+	if err != nil {
+		return GitUnpushedOverview{}, err
+	}
+	overview.Commits = commits
+	return overview, nil
+}
+
+// GitUnpushedCommit returns detail only for a commit that is currently in the
+// unpushed set, so arbitrary historical SHAs cannot be used as a generic Git
+// object reader through this endpoint.
+func (s *Service) GitUnpushedCommit(ctx context.Context, sessionID, sha string) (GitCommitDetail, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitCommitDetail{}, err
+	}
+	overview, err := s.GitUnpushed(ctx, sessionID)
+	if err != nil {
+		return GitCommitDetail{}, err
+	}
+	for _, commit := range overview.Commits {
+		if commit.SHA != strings.TrimSpace(sha) {
+			continue
+		}
+		diff, truncated, diffErr := hostrepo.CommitDiff(ctx, item.ProjectPath, commit.SHA, 512<<10)
+		if diffErr != nil {
+			return GitCommitDetail{}, diffErr
+		}
+		return GitCommitDetail{Commit: commit, Diff: diff, DiffTruncated: truncated}, nil
+	}
+	return GitCommitDetail{}, errors.New("commit is not pending publication")
 }
 
 // GitHistory returns a graph-ready commit timeline for selected branch refs or

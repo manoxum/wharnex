@@ -10,11 +10,15 @@ vi.mock('../lib/api', async () => {
     ...actual,
     api: {
       gitOverview: vi.fn(),
+      gitFileDiff: vi.fn().mockResolvedValue({ path: 'app.go', diff: 'diff --git a/app.go b/app.go\n+changed' }),
+      gitUnpushed: vi.fn().mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] }),
+      gitUnpushedCommit: vi.fn(),
       setGitCommitMode: vi.fn().mockResolvedValue({ commit_mode: 'manual' }),
       gitPendingCommit: vi.fn(),
       commitGitPending: vi.fn().mockResolvedValue({ outcomes: [{ pending_id: 'p1', subject: 'feat: one', commit_sha: 'abc' }] }),
       discardGitPending: vi.fn().mockResolvedValue({ removed: 1 }),
       gitPush: vi.fn().mockResolvedValue({ outcome: 'pushed', remote: 'origin', branch: 'main' }),
+      gitPushSelected: vi.fn().mockResolvedValue({ outcome: 'pushed', remote: 'origin', branch: 'main' }),
       gitFetch: vi.fn().mockResolvedValue({ outcome: 'fetched', remote: 'origin' }),
       gitPull: vi.fn().mockResolvedValue({ outcome: 'merged', remote: 'origin', branch: 'main', ref: 'origin/main' }),
       gitSwitch: vi.fn().mockResolvedValue({ outcome: 'switched', branch: 'feature' }),
@@ -44,12 +48,12 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
       { id: 'p1', project_path: '/w/alpha', subject: 'feat: one', message: 'feat: one\n\nRequest-Id: req_1', paths: ['a.go'], created_at: '2026-09-10T10:00:00Z' },
       { id: 'p2', project_path: '/w/alpha', subject: 'fix: two', message: 'fix: two', paths: ['b.go'], created_at: '2026-09-10T11:00:00Z' },
     ],
-    working: { clean: false, stageable_count: 2 },
+    working: { clean: false, stageable_count: 2, files: [{ path: 'app.go', kind: 'change' }, { path: 'new.ts', kind: 'change' }] },
     ...patch,
   }
 }
 
-function openTab(name: 'Alterações' | 'Histórico' | 'Branches' | 'Definições') {
+function openTab(name: 'Alterações' | 'Por publicar' | 'Histórico' | 'Branches' | 'Definições') {
   fireEvent.click(screen.getByRole('tab', { name: new RegExp(name) }))
 }
 
@@ -59,11 +63,13 @@ describe('GitDrawer', () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
   })
 
-  it('organizes changes, history, branches and settings into dedicated tabs', async () => {
+  it('organizes changes, unpublished commits, history, branches and settings into dedicated tabs', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
     expect(await screen.findByText('feat: one')).toBeTruthy()
     expect(screen.getByRole('tab', { name: /Alterações/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByText('feat: applied by whx')).toBeNull()
+
+    expect(screen.getByRole('tab', { name: /Por publicar/ })).toBeTruthy()
 
     openTab('Histórico')
     expect(screen.getByText('feat: applied by whx')).toBeTruthy()
@@ -78,6 +84,43 @@ describe('GitDrawer', () => {
     openTab('Definições')
     expect(screen.getByRole('group', { name: 'Modo de commit' })).toBeTruthy()
     expect(screen.getByText('https://github.com/org/repo.git')).toBeTruthy()
+  })
+
+
+  it('lists changed worktree files and opens their current diff in auto-commit or manual mode', async () => {
+    vi.mocked(api.gitOverview).mockResolvedValue(overview({ commit_mode: 'auto', pending: [] }))
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    expect(await screen.findByText('Ficheiros alterados')).toBeTruthy()
+    expect(screen.getByText('app.go')).toBeTruthy()
+    const diffButtons = screen.getAllByRole('button', { name: /Diff/ })
+    fireEvent.click(diffButtons[0])
+    await waitFor(() => expect(api.gitFileDiff).toHaveBeenCalledWith('ses_1', 'app.go'))
+    expect(await screen.findByRole('dialog', { name: 'Diff de app.go' })).toBeTruthy()
+    expect(screen.getByText(/\+changed/)).toBeTruthy()
+  })
+
+  it('shows unpublished commits with details and publishes only the selected oldest prefix', async () => {
+    const oldest = { sha: '1111111111111111111111111111111111111111', short_sha: '1111111', subject: 'feat: oldest unpublished', body: 'Old body', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-10T10:00:00Z', parents: ['0000000000000000000000000000000000000000'], request_id: 'req_1', plan_id: 'plan_1', wharnex: true, merge: false, pushed: false }
+    const newest = { sha: '2222222222222222222222222222222222222222', short_sha: '2222222', subject: 'fix: newest unpublished', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-11T10:00:00Z', parents: [oldest.sha], request_id: 'req_2', plan_id: 'plan_2', wharnex: true, merge: false, pushed: false }
+    vi.mocked(api.gitOverview).mockResolvedValue(overview({ branches: overview().branches.map((branch) => branch.name === 'main' ? { ...branch, ahead: 2, commit_sha: newest.sha } : branch) }))
+    vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [newest, oldest] })
+    vi.mocked(api.gitUnpushedCommit).mockResolvedValue({ commit: newest, diff: 'diff --git a/new.ts b/new.ts\n+fixed' })
+
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('feat: one')
+    openTab('Por publicar')
+    expect(await screen.findByText('fix: newest unpublished')).toBeTruthy()
+    expect(screen.getByText('feat: oldest unpublished')).toBeTruthy()
+
+    fireEvent.click(screen.getAllByRole('checkbox')[1])
+    fireEvent.click(screen.getByRole('button', { name: /Push selecionado \(1\)/ }))
+    await waitFor(() => expect(api.gitPushSelected).toHaveBeenCalledWith('ses_1', [oldest.sha]))
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Detalhes/ })[0])
+    await waitFor(() => expect(api.gitUnpushedCommit).toHaveBeenCalledWith('ses_1', newest.sha))
+    expect(await screen.findByRole('dialog', { name: 'Commit 2222222' })).toBeTruthy()
+    expect(screen.getByText(/Request/)).toBeTruthy()
+    expect(screen.getByText(/\+fixed/)).toBeTruthy()
   })
 
   it('loads selected and all-branch commit timelines', async () => {

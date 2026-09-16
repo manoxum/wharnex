@@ -424,6 +424,9 @@ func TestGitOverviewReportsBranchesPendingAndWorkingState(t *testing.T) {
 	if overview.Working.Clean || overview.Working.StageableCount != 1 {
 		t.Fatalf("expected one uncommitted path, got %+v", overview.Working)
 	}
+	if len(overview.Working.Files) != 1 || overview.Working.Files[0].Path != "app.go" || overview.Working.Files[0].Kind != "change" {
+		t.Fatalf("expected changed worktree files to be listed, got %+v", overview.Working.Files)
+	}
 	if len(overview.Pending) != 1 || overview.Pending[0].Subject != "feat(app): dirty" {
 		t.Fatalf("expected the pending record listed, got %+v", overview.Pending)
 	}
@@ -444,4 +447,78 @@ func startGitSession(t *testing.T, service *Service, root string) string {
 		t.Fatal(err)
 	}
 	return item.ID
+}
+
+func TestGitFileDiffIncludesUntrackedChangedPath(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	sessionID := startGitSession(t, service, root)
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "chore: project config")
+	if err := os.WriteFile(filepath.Join(root, "new.go"), []byte("package extra\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := service.GitFileDiff(context.Background(), sessionID, "new.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff.Diff, "+package extra") {
+		t.Fatalf("untracked file diff is missing content: %+v", diff)
+	}
+}
+
+func TestSelectivePushRequiresOldestContiguousUnpushedCommits(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	sessionID := startGitSession(t, service, root)
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "chore: project config")
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	runGitForApp(t, t.TempDir(), "init", "-q", "--bare", "-b", "main", remote)
+	runGitForApp(t, root, "remote", "add", "origin", remote)
+	runGitForApp(t, root, "push", "-q", "--set-upstream", "origin", "main")
+
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "feat: first unpublished")
+	first := headOf(t, root)
+	if err := os.WriteFile(filepath.Join(root, "two.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "feat: second unpublished")
+	second := headOf(t, root)
+
+	overview, err := service.GitUnpushed(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !overview.HasUpstream || overview.Remote != "origin" || overview.RemoteBranch != "main" || len(overview.Commits) != 2 {
+		t.Fatalf("unexpected unpublished overview: %+v", overview)
+	}
+	detail, err := service.GitUnpushedCommit(context.Background(), sessionID, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Commit.SHA != second || !strings.Contains(detail.Diff, "+two") {
+		t.Fatalf("unpublished commit detail is incomplete: %+v", detail)
+	}
+	if _, err := service.PushSelectedCommits(context.Background(), sessionID, []string{second}); err == nil {
+		t.Fatal("publishing only a newer commit must be rejected because its ancestor would be included")
+	}
+	result, err := service.PushSelectedCommits(context.Background(), sessionID, []string{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != string(hostrepo.PushOutcomePushed) {
+		t.Fatalf("expected oldest selected commit to publish, got %+v", result)
+	}
+	remoteHead := headOf(t, remote)
+	if remoteHead != first {
+		t.Fatalf("remote advanced to %s, want only %s", remoteHead, first)
+	}
 }
