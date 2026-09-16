@@ -1984,17 +1984,18 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const response = await api.execute(targetSession.id, approved || direct)
       acceptSessionForChat(targetChat, response.session)
       const ok = response.session.last_execution?.success
+      const autoApplied = !direct && ok && (response.session.state === 'applied' || response.session.state === 'restart_pending')
       terminalStatus = ok ? 'completed' : 'failed'
       const warnings = response.session.last_execution?.warnings || []
       if (response.session.last_execution) updateWorkspaceChat(targetChat.id, response.session.project_path, { artifactSelection: { ...targetChat.artifactSelection, result: true, error: !ok } })
-      if (direct && ok) {
+      if ((direct || autoApplied) && ok) {
         markContextDirtyForOtherChats(response.session.project_path, targetChat.id)
         void syncPeerBaselineUpdates(response.session.project_path, targetChat.id)
       }
       appendChatItem(targetChat, response.session.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-        text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
-        meta: direct && ok ? 'Host alterado diretamente' : (warnings.length ? `${warnings.length} dívida(s) pré-existente(s)` : undefined),
+        text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : autoApplied ? 'A aprovação foi consumida uma única vez: o plano passou pela sandbox Protected e foi aplicado automaticamente ao host.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
+        meta: (direct || autoApplied) && ok ? 'Host atualizado' : (warnings.length ? `${warnings.length} dívida(s) pré-existente(s)` : undefined),
       })
       if (!ok) reportChatError(errorArtifact(response.session) || 'A execução terminou com falha.', 'Execução falhou', targetChat, response.session.project_path)
     } catch (e) {

@@ -83,6 +83,19 @@ describe('Inspector plan compatibility', () => {
     expect(screen.getByRole('button', { name: /src\/demo\.ts/i })).toBeTruthy()
     expect(screen.queryByText(/diff --git a\/src\/demo\.ts/)).toBeNull()
   })
+
+  it('distinguishes the approved chat plan from the later execution plan', () => {
+    const session = legacySession()
+    session.plan = {
+      ...session.plan!, protocol: 'harness.execution/v2', document: '## Execução\nAlterações locais completas.', dependencies: [], system_tools: [],
+      approved_chat_plan: { protocol: 'harness.chat-plan/v1', request_id: 'req-proposal', sha256: 'a'.repeat(64), document: '## Proposta aprovada\nImplementar o fluxo definido.' },
+    }
+    render(<Inspector config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }} session={session} events={[]} manualPrompt="" busy={false} activeTab="plan" onChatGPTURL={() => true} onExecute={async () => undefined} onApply={async () => undefined} onManualPlan={async () => undefined} onPlanFile={async () => ''} onBundleFile={async () => ''} onSession={() => undefined}/>)
+    expect(screen.getByText('Plano do Chat aprovado')).toBeTruthy()
+    expect(screen.getByText('Plano de execução')).toBeTruthy()
+    expect(screen.getByText('Implementar o fluxo definido.')).toBeTruthy()
+    expect(screen.getByText('Alterações locais completas.')).toBeTruthy()
+  })
 })
 
 it('hides the execute control while the active plan already has a durable execution intent', () => {

@@ -191,8 +191,27 @@ func TestValidateChangePlanRequiresExplicitExecutionContract(t *testing.T) {
 		t.Fatalf("omitted system-tool disclosure was accepted: %v", err)
 	}
 	plan.SystemTools = []domain.PlanSystemTool{}
+	plan.ImpactFiles = []string{}
 	if err := ValidateChangePlan(plan); err != nil {
 		t.Fatalf("explicit empty impact inventories were rejected: %v", err)
+	}
+}
+
+func TestValidateChangePlanRequiresEveryRenamePathInImpactFiles(t *testing.T) {
+	plan := validPlan()
+	plan.Protocol = domain.ProtocolV2
+	plan.Document = "# Rename execution contract"
+	plan.Dependencies = []domain.PlanDependency{}
+	plan.SystemTools = []domain.PlanSystemTool{}
+	plan.VersionIncrement = &domain.VersionIncrement{Component: domain.VersionComponentPatch, Amount: 1}
+	plan.Operations = []domain.Operation{{Type: "apply_patch", Patch: "diff --git a/old.txt b/new.txt\nrename from old.txt\nrename to new.txt\n"}}
+	plan.ImpactFiles = []string{"new.txt"}
+	if err := ValidateChangePlan(plan); err == nil || !strings.Contains(err.Error(), `"old.txt"`) {
+		t.Fatalf("rename source omitted from impact_files was accepted: %v", err)
+	}
+	plan.ImpactFiles = []string{"old.txt", "new.txt"}
+	if err := ValidateChangePlan(plan); err != nil {
+		t.Fatalf("complete rename impact was rejected: %v", err)
 	}
 }
 
