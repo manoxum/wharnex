@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import type { AppConfig, ChatGPTActivity, HarnessEvent, Session } from '../types'
+import type { AppConfig, ChatChangeFile, ChatGPTActivity, HarnessEvent, Operation, Session } from '../types'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 import { riskLabel } from '../lib/risk'
@@ -18,6 +18,7 @@ import { activePendingRequestId } from '../lib/pendingRequest'
 import { sessionCanExecutePlan, sessionNeedsExecutionConsent } from '../lib/executionRecovery'
 import { SignalCore } from './SignalCore'
 import { ChatArtifactLibrary } from './BundleExplorer'
+import { ChangeDiffEditor } from './ChangeDiffEditor'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
@@ -304,6 +305,9 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   onResolveManually?: () => void
   onResolveWithGPT?: () => void
 }) {
+  const [manualNotice, setManualNotice] = useState('')
+  const [manualBusy, setManualBusy] = useState(false)
+  useEffect(() => { setManualNotice('') }, [session.plan?.plan_id])
 	const integration = <IntegrationQueue session={session} conflictGuidance={conflictGuidance} onConflictGuidance={onConflictGuidance} onResolveManually={onResolveManually} onResolveWithGPT={onResolveWithGPT} />
 	if (!session.plan) return <>{integration}<Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." /></>
   const plan = session.plan
@@ -313,8 +317,31 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   const dependencies = plan.dependencies || []
   const systemTools = plan.system_tools || []
   const patches = operations.filter((operation) => operation.type === 'apply_patch')
+  const manualPatches = manualPatchEntries(plan.plan_id, patches)
   const hostTools = systemTools.filter((tool) => tool.target === 'host' && tool.action !== 'use')
   const policyStatus = session.policy ? (session.policy.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado') : 'Histórico'
+
+  async function savePatchesToProject() {
+    if (!manualPatches.length) return
+    setManualBusy(true); setManualNotice('')
+    try {
+      const listed = await api.listFiles(session.id)
+      if (!listed.files.some((entry) => entry.kind === 'directory' && entry.path.replace(/\/$/, '') === 'patches')) await api.createWorkspacePath(session.id, 'patches', 'directory')
+      for (const patch of manualPatches) {
+        let file
+        try { file = await api.readFile(session.id, patch.path) }
+        catch { await api.createWorkspacePath(session.id, patch.path, 'file'); file = await api.readFile(session.id, patch.path) }
+        if (file.content !== patch.content) await api.writeFile(session.id, { path: patch.path, content: patch.content, sha256: file.sha256 })
+      }
+      setManualNotice(`${manualPatches.length} patch(es) guardado(s) em /patches.`)
+    } catch (error) { setManualNotice(error instanceof Error ? error.message : String(error)) }
+    finally { setManualBusy(false) }
+  }
+
+  async function copyManualCommands() {
+    try { await navigator.clipboard.writeText(buildManualCommandBatch(manualPatches, operations, verification)); setManualNotice('Lote de comandos copiado para a área de transferência.') }
+    catch (error) { setManualNotice(error instanceof Error ? error.message : 'Não foi possível copiar os comandos.') }
+  }
   const policyTone = session.policy ? (session.policy.allowed ? 'success' : 'danger') : 'neutral'
 	return <div className="plan-view">
 	{integration}
@@ -327,6 +354,8 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
         {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
       </div>
     </div>
+    {manualPatches.length > 0 && <div className="plan-manual-tools"><div><span className="panel-kicker">Fallback manual</span><strong>Aplicação alternativa dos patches</strong><small>Guarde uma cópia em /patches ou copie um lote com quoting seguro para executar manualmente na raiz do projeto.</small></div><div><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void savePatchesToProject()}><Icon name="download" size={13}/> Descarregar patches</button><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void copyManualCommands()}><Icon name="copy" size={13}/> Copiar lote de comandos</button></div></div>}
+    {manualNotice && <p className="plan-manual-notice" role="status">{manualNotice}</p>}
     <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.debug ? `Debug ${plan.debug.target} · ${session.workflow_round || 0}/6` : workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><h3>{plan.summary}</h3></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
     {plan.debug && <div className="policy-box"><Icon name="terminal" size={17}/><div><strong>Probe de debug · {plan.debug.target}</strong><span>{plan.debug.rationale}</span><span>Somente comandos validados, sem patches e sem rede.</span></div></div>}
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
@@ -339,10 +368,57 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
     {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><TranslatableMarkdown sessionId={session.id} markdown={session.last_bundle.readme} /></div></details>}
     <div className="plan-section-title plan-changes-title"><span>04</span><div><strong>Alterações previstas</strong><small>Diffs exatos incluídos no bundle</small></div></div>
     <div className="operation-list">
-      {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <details><summary>Ver diff</summary><pre className="diff-view">{op.patch}</pre></details>}</div></div>)}
+      {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <PlanPatchDiff sessionId={session.id} patch={op.patch || ''}/>}</div></div>)}
       {verification.map((command, index) => <div className="operation verification" key={`v-${index}`}><div className="operation-index"><Icon name="check" size={15}/></div><div className="operation-body"><strong>{(command.argv || []).join(' ')}</strong><span>Verification · {command.cwd || '.'}</span></div></div>)}
     </div>
   </div>
+}
+
+
+type ManualPatch = { path: string; content: string }
+
+function manualPatchEntries(planId: string, operations: Operation[]): ManualPatch[] {
+  const stem = planId.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'plan'
+  return operations.filter((operation) => operation.type === 'apply_patch' && operation.patch.trim()).map((operation, index) => ({
+    path: `patches/${stem}-${String(index + 1).padStart(2, '0')}.patch`,
+    content: operation.patch.endsWith('\n') ? operation.patch : `${operation.patch}\n`,
+  }))
+}
+
+function shellQuote(value: string) { return `'${value.replace(/'/g, `'"'"'`)}'` }
+function manualCommand(command: { argv: string[]; cwd: string }) {
+  const argv = (command.argv || []).map(shellQuote).join(' ')
+  if (!argv) return ''
+  return command.cwd && command.cwd !== '.' ? `(cd ${shellQuote(command.cwd)} && ${argv})` : argv
+}
+function buildManualCommandBatch(patches: ManualPatch[], operations: Operation[], verification: Array<{ argv: string[]; cwd: string }>) {
+  const lines = ['set -eu', '', '# Validar e aplicar os patches guardados pelo Wharnex.']
+  for (const patch of patches) lines.push(`git apply --check -- ${shellQuote(patch.path)}`)
+  for (const patch of patches) lines.push(`git apply -- ${shellQuote(patch.path)}`)
+  const commands = operations.filter((operation) => operation.type === 'command').map((operation) => manualCommand(operation.command)).filter(Boolean)
+  if (commands.length) lines.push('', '# Operações declaradas no plano.', ...commands)
+  const checks = verification.map(manualCommand).filter(Boolean)
+  if (checks.length) lines.push('', '# Verificações declaradas no plano.', ...checks)
+  return `${lines.join('\n')}\n`
+}
+
+function planPatchFiles(patch: string): ChatChangeFile[] {
+  return patch.replace(/\r\n/g, '\n').split(/(?=^diff --git )/m).filter((block) => block.trim()).map((block) => {
+    const newPath = /^\+\+\+\s+(?:b\/)?(.+)$/m.exec(block)?.[1]?.trim()
+    const oldPath = /^---\s+(?:a\/)?(.+)$/m.exec(block)?.[1]?.trim()
+    const headerPath = /^diff --git a\/(\S+) b\/(\S+)$/m.exec(block)?.[2]
+    const path = newPath && newPath !== '/dev/null' ? newPath : oldPath && oldPath !== '/dev/null' ? oldPath : headerPath || 'ficheiro'
+    const additions = block.split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++')).length
+    const deletions = block.split('\n').filter((line) => line.startsWith('-') && !line.startsWith('---')).length
+    return { path, additions, deletions, diff: block.endsWith('\n') ? block : `${block}\n` }
+  })
+}
+
+function PlanPatchDiff({ sessionId, patch }: { sessionId: string; patch: string }) {
+  const [selected, setSelected] = useState<ChatChangeFile>()
+  const files = useMemo(() => planPatchFiles(patch), [patch])
+  if (!files.length) return <span className="plan-diff-empty">Sem diff legível.</span>
+  return <><div className="plan-diff-files">{files.map((file) => <button type="button" key={file.path} className="plan-diff-file" onClick={() => setSelected(file)} title={`Comparar ${file.path}`}><span><Icon name="file" size={12}/><b>{file.path}</b></span><span className="plan-diff-stats"><em>+{file.additions}</em><i>−{file.deletions}</i><Icon name="chevron" size={10}/></span></button>)}</div>{selected && <div className="diff-inspector-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(undefined) }}><section className="diff-inspector" role="dialog" aria-modal="true" aria-label={`Diff de ${selected.path}`}><header><div><strong>{selected.path}</strong><span>+{selected.additions} −{selected.deletions}</span></div><button type="button" className="icon-button light" onClick={() => setSelected(undefined)} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header><ChangeDiffEditor sessionId={sessionId} file={selected}/></section></div>}</>
 }
 
 function IntegrationQueue({ session, conflictGuidance, onConflictGuidance, onResolveManually, onResolveWithGPT }: { session: Session; conflictGuidance: string; onConflictGuidance?: (value: string) => void; onResolveManually?: () => void; onResolveWithGPT?: () => void }) {

@@ -86,7 +86,10 @@ describe('GitDrawer', () => {
     await screen.findByText('feat: one')
     openTab('Histórico')
 
-    fireEvent.click(screen.getByRole('button', { name: /feature/ }))
+    const branchSelect = screen.getByRole('listbox', { name: 'Branches do histórico' }) as HTMLSelectElement
+    const featureOption = screen.getByRole('option', { name: 'feature' }) as HTMLOptionElement
+    featureOption.selected = true
+    fireEvent.change(branchSelect)
     await waitFor(() => expect(api.gitHistory).toHaveBeenCalledWith('ses_1', ['feature'], false))
     expect(await screen.findByText('feat: feature timeline')).toBeTruthy()
 
