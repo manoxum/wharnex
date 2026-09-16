@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { parseStoredAttachmentRef, persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
+import { parseStoredAttachmentRef, persistChatAttachmentFiles, readStoredAttachmentContent, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 
 test('stored attachment refs are narrow local identifiers', () => {
   assert.deepEqual(parseStoredAttachmentRef('chat-1/message-1/0'), { cacheKey: 'chat-1', messageId: 'message-1', index: 0 })
@@ -23,6 +23,11 @@ test('attachment files and previews survive later reads and can be removed per c
 
   assert.equal(stored[0].storageRef, 'chat-1/message-1/0')
   assert.equal(await readFile(await storedAttachmentPath(root, stored[0].storageRef), 'utf8'), 'image-bytes')
+  const content = await readStoredAttachmentContent(root, stored[0].storageRef)
+  assert.equal(content.name, 'screen.png')
+  assert.equal(content.mime, 'image/png')
+  assert.equal(content.size, Buffer.byteLength('image-bytes'))
+  assert.equal(Buffer.from(content.contentBase64, 'base64').toString(), 'image-bytes')
   const preview = await readStoredAttachmentPreview(root, stored[0].storageRef)
   assert.equal(Buffer.from(preview.dataUrl.split(',')[1], 'base64').toString(), 'preview-bytes')
   await removeStoredChatAttachments(root, 'chat-1')

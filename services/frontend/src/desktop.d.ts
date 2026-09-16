@@ -17,6 +17,7 @@ type DesktopChatGPTAccountAction = { cacheKey: string; action: 'organize' | 'arc
 type DesktopUserAttachment = { name: string; mime?: string; contentBase64: string }
 type DesktopStoredAttachment = { name: string; size: number; mime: string; storageRef: string; previewKind: 'thumbnail' | 'icon' | 'none' }
 type DesktopAttachmentPreview = { available: boolean; dataUrl: string; previewKind: 'thumbnail' | 'icon' | 'none' }
+type DesktopAttachmentContent = { available: boolean; name: string; size: number; mime: string; contentBase64: string }
 type DesktopStorageUsage = { total_bytes: number; user_data_bytes: number; browser_bytes: number; attachment_bytes: number; temp_bytes: number; other_user_data_bytes: number }
 type DesktopBrowserSessionResult = { cancelled: boolean; filename?: string; bytes?: number; files?: number; restarting?: boolean }
 type DesktopAgentRuntimeTask = {
@@ -156,6 +157,7 @@ interface WharnessDesktopBridge {
   attachments: {
     persist(request: { cacheKey: string; messageId: string; attachments: DesktopUserAttachment[] }): Promise<{ ok: boolean; attachments: DesktopStoredAttachment[] }>
     preview(request: { storageRef: string }): Promise<DesktopAttachmentPreview>
+    read(request: { storageRef: string }): Promise<DesktopAttachmentContent>
     open(request: { storageRef: string }): Promise<{ ok: boolean }>
     removeChat(request: { cacheKey: string }): Promise<{ ok: boolean }>
   }
