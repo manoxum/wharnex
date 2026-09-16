@@ -40,7 +40,8 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
   const audioRef = useRef<HTMLAudioElement>(null)
   const item = items[index]
   const definition = useMemo(() => artifactPreviewDefinition(item?.path || '', item?.kind), [item])
-  const url = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path) : artifactId ? api.artifactURL(sessionId, artifactId, true) : '') : ''
+  const previewURL = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path) : artifactId ? api.artifactURL(sessionId, artifactId, true) : '') : ''
+  const downloadURL = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path, true) : artifactId ? api.artifactURL(sessionId, artifactId) : '') : ''
 
   useEffect(() => {
     setZoom(1); setRotation(0); setFlipX(1); setFlipY(1); setBrightness(100); setContrast(100); setSaturation(100); setGrayscale(0); setCropRatio('free'); setDrawing(false); setMode('preview'); setWrap(false); setMediaSpeed(1); setClipStart(0); setClipEnd(0); setMediaExport(''); setMediaStatus(''); setDocumentMarker('')
@@ -191,7 +192,7 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
       <header>
         <div><strong>{item.label || baseName(item.path)}</strong><small>{index + 1}/{items.length} · {formatBytes(item.size)} · {definition.kind}</small></div>
         <div className="artifact-viewer-actions">
-          <a href={bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path, true) : url} download={baseName(item.path)} title={`Descarregar ${item.path}`}><Icon name="download" size={13}/> Descarregar</a>
+          <a href={downloadURL} download={baseName(item.path)} title={`Descarregar ${item.path}`}><Icon name="download" size={13}/> Descarregar</a>
           <button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar viewer"><Icon name="close" size={13}/></button>
         </div>
       </header>
@@ -218,10 +219,10 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
       {mediaStatus && <div className="artifact-media-status" role="status">{mediaStatus}</div>}
       <div className="artifact-viewer-stage">
         {definition.kind === 'image'
-          ? <div className={`artifact-image-workbench ${drawing ? 'is-drawing' : ''}`} style={cropRatio === 'free' ? undefined : { aspectRatio: cropRatio }}><img src={url} alt={item.alt || item.label || item.path} style={{ transform: `scale(${zoom}) rotate(${rotation}deg) scaleX(${flipX}) scaleY(${flipY})`, filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) grayscale(${grayscale}%)`, objectFit: cropRatio === 'free' ? 'contain' : 'cover' }}/><canvas ref={drawCanvasRef} onPointerDown={drawPointer} onPointerMove={drawPointer} onPointerUp={drawPointer} onPointerCancel={drawPointer}/></div>
-          : definition.kind === 'video' ? <video key={url} src={url} controls preload="metadata" ref={videoRef} onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; if (Number.isFinite(duration)) setClipEnd(duration) }}/>
-          : definition.kind === 'audio' ? <audio key={url} src={url} controls preload="metadata" ref={audioRef} onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; if (Number.isFinite(duration)) setClipEnd(duration) }}/>
-          : <ArtifactPreview sessionId={sessionId} path={item.path} size={item.size} url={url} kind={item.kind} mode={mode} wrap={wrap} highlight={documentMarker}/>}
+          ? <div className={`artifact-image-workbench ${drawing ? 'is-drawing' : ''}`} style={cropRatio === 'free' ? undefined : { aspectRatio: cropRatio }}><img src={previewURL} alt={item.alt || item.label || item.path} style={{ transform: `scale(${zoom}) rotate(${rotation}deg) scaleX(${flipX}) scaleY(${flipY})`, filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) grayscale(${grayscale}%)`, objectFit: cropRatio === 'free' ? 'contain' : 'cover' }}/><canvas ref={drawCanvasRef} onPointerDown={drawPointer} onPointerMove={drawPointer} onPointerUp={drawPointer} onPointerCancel={drawPointer}/></div>
+          : definition.kind === 'video' ? <video key={previewURL} src={previewURL} controls preload="metadata" ref={videoRef} onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; if (Number.isFinite(duration)) setClipEnd(duration) }}/>
+          : definition.kind === 'audio' ? <audio key={previewURL} src={previewURL} controls preload="metadata" ref={audioRef} onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; if (Number.isFinite(duration)) setClipEnd(duration) }}/>
+          : <ArtifactPreview sessionId={sessionId} path={item.path} size={item.size} url={previewURL} kind={item.kind} mode={mode} wrap={wrap} highlight={documentMarker}/>}
       </div>
     </section>
   </div>
