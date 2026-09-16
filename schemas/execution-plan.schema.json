@@ -106,6 +106,18 @@
         }
       }
     },
+    "approved_chat_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "request_id", "sha256", "document"],
+      "properties": {
+        "protocol": {"const": "harness.chat-plan/v1"},
+        "request_id": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "document": {"type": "string", "minLength": 1, "maxLength": 262144}
+      },
+      "description": "Exact planning-only proposal previously approved by the operator. Required on its linked implementation continuation and verified byte-for-byte by Wharnex."
+    },
     "debug": {
       "type": "object",
       "additionalProperties": false,

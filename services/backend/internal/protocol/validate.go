@@ -119,6 +119,19 @@ func validatePlanPresentation(plan domain.ExecutionPlan) error {
 			return fmt.Errorf("system_tools %d has invalid action %q", i, tool.Action)
 		}
 	}
+	if approved := plan.ApprovedChatPlan; approved != nil {
+		if approved.Protocol != "harness.chat-plan/v1" || strings.TrimSpace(approved.RequestID) == "" || len(approved.SHA256) != 64 || strings.TrimSpace(approved.Document) == "" {
+			return errors.New("approved_chat_plan requires protocol, request_id, sha256 and document")
+		}
+		if len(approved.Document) > 256<<10 {
+			return errors.New("approved_chat_plan document exceeds 256 KiB limit")
+		}
+		for _, value := range approved.SHA256 {
+			if (value < '0' || value > '9') && (value < 'a' || value > 'f') {
+				return errors.New("approved_chat_plan sha256 must be lowercase hexadecimal")
+			}
+		}
+	}
 	return nil
 }
 
@@ -224,11 +237,65 @@ func ValidateChangePlan(plan domain.ExecutionPlan) error {
 		if plan.SystemTools == nil {
 			return errors.New("change plan requires system_tools (use [] when none)")
 		}
+		if plan.ImpactFiles == nil {
+			return errors.New("change plan requires impact_files with every patched path (use [] only when there are no patches)")
+		}
+		declared := make(map[string]bool, len(plan.ImpactFiles))
+		for _, path := range plan.ImpactFiles {
+			declared[path] = true
+		}
+		for _, operation := range plan.Operations {
+			if operation.Type != "apply_patch" {
+				continue
+			}
+			for _, path := range patchDeclaredPaths(operation.Patch) {
+				if !declared[path] {
+					return fmt.Errorf("impact_files must include patched path %q", path)
+				}
+			}
+		}
 	}
 	if plan.VersionIncrement == nil {
 		return errors.New("change plan requires version_increment")
 	}
 	return nil
+}
+
+func patchDeclaredPaths(patch string) []string {
+	seen := make(map[string]bool)
+	paths := make([]string, 0)
+	add := func(value string, stripDiffPrefix bool) {
+		value = strings.TrimSpace(value)
+		if stripDiffPrefix {
+			if fields := strings.Fields(value); len(fields) > 0 {
+				value = fields[0]
+			}
+			value = strings.TrimPrefix(strings.TrimPrefix(value, "a/"), "b/")
+		}
+		if value != "" && value != "/dev/null" && !seen[value] {
+			seen[value] = true
+			paths = append(paths, value)
+		}
+	}
+	for _, line := range strings.Split(patch, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "):
+			add(line[4:], true)
+		case strings.HasPrefix(line, "rename from "):
+			add(strings.TrimPrefix(line, "rename from "), false)
+		case strings.HasPrefix(line, "rename to "):
+			add(strings.TrimPrefix(line, "rename to "), false)
+		case strings.HasPrefix(line, "copy from "):
+			add(strings.TrimPrefix(line, "copy from "), false)
+		case strings.HasPrefix(line, "copy to "):
+			add(strings.TrimPrefix(line, "copy to "), false)
+		case strings.HasPrefix(line, "diff --git "):
+			for _, value := range strings.Fields(strings.TrimPrefix(line, "diff --git ")) {
+				add(value, true)
+			}
+		}
+	}
+	return paths
 }
 
 func validateImpactPath(value string) error {
