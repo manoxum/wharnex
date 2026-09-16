@@ -4,8 +4,9 @@ import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
 import { Icon } from './Icon'
 import { GitUnpushedSection } from './GitUnpushedSection'
+import { GitDiffReview } from './GitDiffReview'
 
-type GitTab = 'changes' | 'unpushed' | 'history' | 'branches' | 'settings'
+type GitTab = 'changes' | 'history' | 'branches' | 'settings'
 
 export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   session: Session
@@ -19,6 +20,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   const [working, setWorking] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [notice, setNotice] = useState('')
+  const [noticeError, setNoticeError] = useState(false)
   const [openDiff, setOpenDiff] = useState<GitPendingCommit | null>(null)
   const [worktreeDiff, setWorktreeDiff] = useState<GitFileDiff | null>(null)
   const [mergeRef, setMergeRef] = useState('')
@@ -27,6 +29,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   const report = useCallback((error: unknown) => {
     const message = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
     setNotice(message)
+    setNoticeError(true)
     onError?.(message)
   }, [onError])
 
@@ -51,6 +54,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   async function run(action: () => Promise<void>, syncSession = false) {
     setWorking(true)
     setNotice('')
+    setNoticeError(false)
     try {
       await action()
       await refresh()
@@ -101,7 +105,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
 
     {overview?.available && <>
       <GitTabs active={activeTab} onChange={setActiveTab} overview={overview}/>
-      {notice && <p className="git-notice" role="status">{notice}</p>}
+      {notice && <p className={`git-notice ${noticeError ? 'error-card' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
       {overview.conflict && <div className="git-conflict-card warning-card">
         <strong>Conflito de Git em resolução</strong>
         <p>A integrar <code>{overview.conflict.ref}</code>. A resolução está no chat e o merge será concluído localmente quando chegar.</p>
@@ -123,21 +127,23 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
               try { setOpenDiff(await api.gitPendingCommit(session.id, record.id)) } catch (error) { report(error) }
             })()}
           />
+          <GitUnpushedSection
+            sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
+            onFullPush={async (remote, branch, setUpstream) => {
+              const result = await api.gitPush(session.id, remote, branch, setUpstream)
+              setNoticeError(false)
+              setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
+              await refresh()
+              if (onSession) onSession(await api.getSession(session.id))
+            }}
+            onSelectedPush={async (commitSHAs) => {
+              const result = await api.gitPushSelected(session.id, commitSHAs)
+              setNoticeError(false)
+              setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
+              await refresh()
+            }}
+          />
         </>}
-        {activeTab === 'unpushed' && <GitUnpushedSection
-          sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
-          onFullPush={async (remote, branch, setUpstream) => {
-            const result = await api.gitPush(session.id, remote, branch, setUpstream)
-            setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
-            await refresh()
-            if (onSession) onSession(await api.getSession(session.id))
-          }}
-          onSelectedPush={async (commitSHAs) => {
-            const result = await api.gitPushSelected(session.id, commitSHAs)
-            setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
-            await refresh()
-          }}
-        />}
         {activeTab === 'history' && <HistorySection sessionId={session.id} commits={overview.commits} branches={overview.branches}/>}
         {activeTab === 'branches' && <BranchSection
           current={current?.name || overview.current_branch} detached={overview.detached}
@@ -171,24 +177,24 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
       </div>
     </>}
 
-    {openDiff && <DiffModal record={openDiff} onClose={() => setOpenDiff(null)} />}
-    {worktreeDiff && <WorktreeDiffModal file={worktreeDiff} onClose={() => setWorktreeDiff(null)}/>}
+    {openDiff && <DiffModal sessionId={session.id} record={openDiff} onClose={() => setOpenDiff(null)} />}
+    {worktreeDiff && <WorktreeDiffModal sessionId={session.id} file={worktreeDiff} onClose={() => setWorktreeDiff(null)}/>}
   </section>
 }
 
 function gitTabLabel(tab: GitTab) {
-  return ({ changes: 'Alterações', unpushed: 'Por publicar', history: 'Histórico', branches: 'Branches', settings: 'Definições' } as const)[tab]
+  return ({ changes: 'Alterações', history: 'Histórico', branches: 'Branches', settings: 'Definições' } as const)[tab]
 }
 
 function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (tab: GitTab) => void; overview: GitOverview }) {
-  const changes = Math.max(overview.pending.length, overview.working.files?.length || overview.working.stageable_count)
+  const localChanges = Math.max(overview.pending.length, overview.working.files?.length || overview.working.stageable_count)
   const current = overview.branches.find((branch) => !branch.remote && branch.current)
   const unpublished = current?.has_upstream && !current.gone
     ? current.ahead
     : overview.commits.filter((commit) => !commit.pushed).length
-  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'bridge' | 'settings' | 'arrow-up'; count?: number }> = [
+  const changes = localChanges + unpublished
+  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'bridge' | 'settings'; count?: number }> = [
     { id: 'changes', icon: 'edit', count: changes },
-    { id: 'unpushed', icon: 'arrow-up', count: unpublished },
     { id: 'history', icon: 'git', count: overview.commits.length },
     { id: 'branches', icon: 'bridge', count: overview.branches.length },
     { id: 'settings', icon: 'settings' },
@@ -236,7 +242,7 @@ function pushMessage(outcome: string, integrated?: boolean, conflictID?: string)
   switch (outcome) {
     case 'pushed': return integrated ? 'Trabalho do remoto integrado e push concluído.' : 'Push concluído.'
     case 'up_to_date': return 'O remoto já estava atualizado.'
-    case 'auth_required': return 'O remoto pediu credenciais. Configure um credential helper do Git e repita.'
+    case 'auth_required': return 'O Git no host não conseguiu autenticar no remoto. Confirme as credenciais ou o credential helper da sessão do host e repita.'
     case 'rejected': return 'O remoto rejeitou o push e a integração automática não foi possível.'
     default: return `Push: ${outcome}.`
   }
@@ -410,18 +416,18 @@ function formatCommitDate(value: string) {
 }
 
 
-function WorktreeDiffModal({ file, onClose }: { file: GitFileDiff; onClose: () => void }) {
+function WorktreeDiffModal({ sessionId, file, onClose }: { sessionId: string; file: GitFileDiff; onClose: () => void }) {
   return <div className="git-diff-modal" role="dialog" aria-label={`Diff de ${file.path}`}>
     <header><strong>{file.path}</strong><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
-    <pre className="git-diff-body">{file.diff || 'Sem diferenças de conteúdo para apresentar.'}</pre>
+    <GitDiffReview sessionId={sessionId} diff={file.diff} emptyText="Sem diferenças de conteúdo para apresentar."/>
     {file.truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
   </div>
 }
 
-function DiffModal({ record, onClose }: { record: GitPendingCommit; onClose: () => void }) {
+function DiffModal({ sessionId, record, onClose }: { sessionId: string; record: GitPendingCommit; onClose: () => void }) {
   return <div className="git-diff-modal" role="dialog" aria-label={`Diff de ${record.subject}`}>
     <header><strong>{record.subject}</strong><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
-    <pre className="git-diff-body">{record.diff || 'Sem diff registado.'}</pre>
+    <GitDiffReview sessionId={sessionId} diff={record.diff} emptyText="Sem diff registado."/>
     {record.diff_truncated && <p className="git-hint">O diff foi truncado para apresentação; o commit usa sempre o conteúdo atual dos ficheiros.</p>}
     <details className="git-message-preview"><summary>Mensagem de commit</summary><pre>{record.message}</pre></details>
   </div>

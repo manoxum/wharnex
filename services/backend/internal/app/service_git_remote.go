@@ -44,7 +44,7 @@ func (s *Service) PushBranch(ctx context.Context, sessionID, remote, branch stri
 	defer lock.Unlock()
 
 	s.bus.Publish(sessionID, "git.push_started", map[string]any{"remote": remote, "branch": branch})
-	push, err := hostrepo.Push(ctx, item.ProjectPath, remote, branch, setUpstream)
+	push, err := gitRemotePush(ctx, item.ProjectPath, remote, branch, setUpstream)
 	if err != nil {
 		return GitPushResult{}, err
 	}
@@ -54,7 +54,7 @@ func (s *Service) PushBranch(ctx context.Context, sessionID, remote, branch stri
 		return result, nil
 	}
 
-	if err := hostrepo.Fetch(ctx, item.ProjectPath, remote); err != nil {
+	if err := gitRemoteFetch(ctx, item.ProjectPath, remote); err != nil {
 		result.Detail = err.Error()
 		return result, nil
 	}
@@ -79,7 +79,7 @@ func (s *Service) PushBranch(ctx context.Context, sessionID, remote, branch stri
 	}
 
 	result.Integrated = true
-	retry, err := hostrepo.Push(ctx, item.ProjectPath, remote, branch, setUpstream)
+	retry, err := gitRemotePush(ctx, item.ProjectPath, remote, branch, setUpstream)
 	if err != nil {
 		return result, err
 	}
@@ -159,7 +159,7 @@ func (s *Service) PushSelectedCommits(ctx context.Context, sessionID string, com
 	}
 	target := oldestFirst[count-1]
 	s.bus.Publish(sessionID, "git.push_selected_started", map[string]any{"remote": remote, "branch": remoteBranch, "commits": count, "target": target.SHA})
-	push, err := hostrepo.PushCommit(ctx, item.ProjectPath, remote, remoteBranch, target.SHA)
+	push, err := gitRemotePushCommit(ctx, item.ProjectPath, remote, remoteBranch, target.SHA)
 	if err != nil {
 		return GitPushResult{}, err
 	}
@@ -229,7 +229,7 @@ func (s *Service) FetchRemote(ctx context.Context, sessionID, remote string) (Gi
 	lock := s.projectApplyLock(item.ProjectPath)
 	lock.Lock()
 	defer lock.Unlock()
-	if err := hostrepo.Fetch(ctx, item.ProjectPath, remote); err != nil {
+	if err := gitRemoteFetch(ctx, item.ProjectPath, remote); err != nil {
 		return GitBranchActionResult{}, err
 	}
 	s.bus.Publish(sessionID, "git.fetch_completed", map[string]any{"remote": remote})
@@ -293,7 +293,7 @@ func (s *Service) PullBranch(ctx context.Context, sessionID, remote, branch stri
 	if current == "" || current != branch {
 		return GitBranchActionResult{}, fmt.Errorf("pull is available only for the checked-out branch")
 	}
-	if err := hostrepo.Fetch(ctx, item.ProjectPath, remote); err != nil {
+	if err := gitRemoteFetch(ctx, item.ProjectPath, remote); err != nil {
 		return GitBranchActionResult{}, err
 	}
 	ref := remote + "/" + branch

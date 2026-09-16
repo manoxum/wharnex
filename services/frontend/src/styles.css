@@ -4341,3 +4341,22 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .git-unpushed-summary .git-action, .git-unpushed-actions .git-action { align-self: flex-start; }
   .git-commit-detail-meta { grid-template-columns: 1fr; }
 }
+
+/* Git review: surface transport errors clearly and reuse the structured diff inspector. */
+.git-notice.error-card { border-bottom-color: color-mix(in srgb, var(--theme-danger, #d66b62) 55%, var(--theme-border)); background: color-mix(in srgb, var(--theme-danger, #d66b62) 14%, var(--theme-surface)); color: color-mix(in srgb, var(--theme-danger, #d66b62) 72%, var(--theme-text)); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono-font-family, monospace); }
+.git-diff-review { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(150px, 30%) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--theme-border-soft); border-radius: 8px; background: var(--theme-bg); }
+.git-diff-review-files { min-width: 0; min-height: 0; padding: 5px; display: grid; align-content: start; gap: 2px; overflow: auto; border-right: 1px solid var(--theme-border-soft); background: var(--theme-surface); }
+.git-diff-review-files button { width: 100%; min-width: 0; padding: 7px 7px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--theme-text-muted); text-align: left; cursor: pointer; }
+.git-diff-review-files button:hover { background: var(--theme-hover); color: var(--theme-text); }
+.git-diff-review-files button.active { border-color: var(--theme-border); background: var(--theme-accent-soft); color: var(--theme-text); }
+.git-diff-review-files button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(7.8px * var(--ui-font-scale))/1.2 var(--mono-font-family, monospace); }
+.git-diff-review-files small, .git-diff-review-file-heading > span { display: inline-flex; gap: 5px; font: 700 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
+.git-diff-review-files b, .git-diff-review-file-heading b { color: #78b884; }
+.git-diff-review-files i, .git-diff-review-file-heading i { color: #cf7d75; font-style: normal; }
+.git-diff-review-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 30px minmax(0,1fr); background: #121411; }
+.git-diff-review-file-heading { min-width: 0; padding: 0 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #30352e; background: #1b1e19; }
+.git-diff-review-file-heading strong { overflow: hidden; color: #d9ded5; font: 650 calc(7.8px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); text-overflow: ellipsis; white-space: nowrap; }
+.git-diff-review-main .change-diff-shell { min-height: 0; }
+.git-diff-empty { min-height: 180px; margin: 0; display: grid; place-items: center; color: var(--theme-text-muted); border: 1px dashed var(--theme-border-soft); border-radius: 8px; }
+.git-commit-detail-modal { grid-template-rows: auto auto auto minmax(0,1fr) auto; }
+@media (max-width: 720px) { .git-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(90px, 28%) minmax(0,1fr); } .git-diff-review-files { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); } }
