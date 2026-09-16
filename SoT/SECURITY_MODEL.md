@@ -10,7 +10,7 @@ The security boundary is enforced by:
 - network approval;
 - narrowly scoped dependency-network recovery after a locally classified offline-cache failure, with a new explicit human approval and Protected-sandbox enforcement;
 - isolated Docker execution;
-- explicit apply;
+- informed Protected execution approval before any model-authored host mutation; successful verification reuses that authorization for host integration without a second Apply approval;
 - secret-filtered context;
 - audit events.
 

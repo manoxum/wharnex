@@ -75,7 +75,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
       else if (item.action === 'retry-dependency-network') await onRetryDependencyNetwork()
       else if (item.action === 'repair-host-dependency') await onRetryHostDependencyRepair()
       else if (item.action === 'retry-transport') await (chatOverride?.onRetryTransportFailure as ((id: string) => Promise<void>) | undefined)?.(item.requestId || '')
-      else if (item.action === 'apply-host' || item.action === 'retry-host-apply') await onApply()
+      else if (item.action === 'retry-host-apply') await onApply()
     }
     return <div className="workspace-body">
       <WorkspaceSideRail
@@ -107,7 +107,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
           } as ComponentProps<typeof AgentWorkspace>['chatProps']}
           inspectorProps={{
             config: { planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }, session: active, events: [], manualPrompt: '', busy,
-            onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onApply, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
+            onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
             ...inspectorOverride,
           } as ComponentProps<typeof AgentWorkspace>['inspectorProps']}
         />
@@ -334,7 +334,7 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: /Rejeitar alterações verificadas/ })).toBeNull()
   })
 
-  it('keeps verified host Apply available after opening its alert and highlights Plano', () => {
+  it('does not expose a second host-apply approval for a verified candidate', () => {
     const ready = session()
     ready.state = 'verified'
     ready.pending_host_changes = [{
@@ -344,25 +344,19 @@ describe('AgentWorkspace', () => {
     }]
     const view = props(ready)
     render(<view.Harness attentionSessions={{ 'chat-1': ready }} />)
-    expect(screen.getByRole('button', { name: 'Aplicar no host' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /^Plano(?: ·|$)/ }).className).toContain('attention-success')
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
-    expect(screen.getByRole('dialog', { name: 'Alertas ativos' })).toBeTruthy()
-    const apply = within(screen.getByRole('dialog', { name: 'Alertas ativos' })).getByRole('button', { name: 'Aplicar no host' })
-    fireEvent.click(apply)
-    expect(view.onApply).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Aplicar no host' })).toBeNull()
+    expect(screen.getByText('Integração pendente de recuperação')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Plano(?: ·|$)/ }).className).not.toContain('attention-success')
+    expect(view.onApply).not.toHaveBeenCalled()
   })
 
   it('opens a compact alert popover first, then the full alert panel', async () => {
     const current = session()
     const parallel = session()
     parallel.id = 'ses-parallel'
-    parallel.state = 'verified'
-    parallel.pending_host_changes = [{
-      plan: { ...parallel.plan!, plan_id: 'plan-parallel', request_id: 'req-parallel' },
-      execution: { plan_id: 'plan-parallel', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
-      verified_at: '2026-09-07T10:00:01.000Z',
-    }]
+    parallel.state = 'planned'
+    parallel.plan = { ...parallel.plan!, plan_id: 'plan-parallel', request_id: 'req-parallel', risk: 'high', requires_approval: true }
+    parallel.policy = { allowed: true, requires_approval: true, risk: 'high', reasons: ['approval required'] }
     const view = props(current)
     render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
     const summary = screen.getByRole('button', { name: /Centro de notificações, 1 alerta/ })
@@ -370,10 +364,10 @@ describe('AgentWorkspace', () => {
     expect(summary.textContent).toContain('0 urgentes')
     fireEvent.click(summary)
     expect(screen.getByRole('dialog', { name: 'Alertas ativos' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Paralelo.*Alterações prontas para o host/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Paralelo.*Aprovação necessária/ })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Ver todos os alertas' }))
     expect(screen.getByRole('region', { name: 'Centro de notificações' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Paralelo.*Alterações prontas para o host/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Paralelo.*Aprovação necessária/ }))
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
   })
 
@@ -381,18 +375,15 @@ describe('AgentWorkspace', () => {
     const current = session()
     const parallel = session()
     parallel.id = 'ses-parallel'
-    parallel.state = 'verified'
-    parallel.pending_host_changes = [{
-      plan: { ...parallel.plan!, plan_id: 'plan-parallel', request_id: 'req-parallel' },
-      execution: { plan_id: 'plan-parallel', success: true, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] },
-      verified_at: '2026-09-07T10:00:01.000Z',
-    }]
+    parallel.state = 'planned'
+    parallel.plan = { ...parallel.plan!, plan_id: 'plan-parallel', request_id: 'req-parallel', risk: 'high', requires_approval: true }
+    parallel.policy = { allowed: true, requires_approval: true, risk: 'high', reasons: ['approval required'] }
     const view = props(current)
     render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
     fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir Paralelo para Aplicar no host' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir Paralelo para Aprovar e executar' }))
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
-    expect(view.onApply).not.toHaveBeenCalled()
+    expect(view.onExecute).not.toHaveBeenCalled()
   })
 
   it('exposes the owning chat recovery action after navigating from a global transport alert', async () => {

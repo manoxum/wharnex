@@ -57,7 +57,7 @@ Go backend
 
 Agent execution is selected per project in the UI. **Protected** is the default:
 
-`Plan -> Policy -> Sandbox -> Verification -> Explicit Apply`
+`Plan -> Policy -> Informed approval -> Sandbox -> Verification -> Automatic host integration`
 
 When the user explicitly switches that project to **Unprotected** and confirms execution:
 
@@ -217,7 +217,7 @@ With the supported provider, every request returns a structured `harness.turn/v1
 7. Wharness imports the bundle automatically after the download starts. Answers appear in chat; only completed `change` bundles expose and execute a plan.
 
 Manual import is transport-resilient: Wharness accepts fenced JSON and can repair the narrow case where a unified-diff `patch` contains unescaped source-code quotes (for example CSS `content: "";`). The repaired plan is still subjected to the same strict protocol/path/policy validation before execution.
-9. For a change in **Protected**, execute in the sandbox and Apply only after verification. In **Unprotected**, the execution button requires confirmation and runs the validated plan directly on the project; there is no separate Apply step.
+9. For a change in **Protected**, the informed execution approval covers sandbox execution and automatic host integration after successful verification; there is no second Apply approval. In **Unprotected**, the execution button requires confirmation and runs the validated plan directly on the project; there is no separate Apply step.
 
 The file clipboard behavior uses the OS native copied-file representation. Acceptance of pasted file attachments remains a capability of the destination web application; if a particular ChatGPT UI version does not accept file paste, the ZIP remains available in the OS clipboard/temp path for normal attachment selection.
 
@@ -248,7 +248,7 @@ A project that already carries `.wharnex/knowledge/*.md` from an earlier version
 
 The workspace top bar contains a project-scoped execution switch:
 
-- **Protected** (default): Agent patches/commands run in the isolated Docker copy. The real project changes only through the later **Apply** action.
+- **Protected** (default): Agent patches/commands run in the isolated Docker copy. The informed execution decision also authorizes the verified candidate to integrate into the real project automatically; a later Apply action exists only for recovery of an already-authorized integration failure.
 - **Unprotected**: Agent patches/commands/verification run directly in the real `project_path`. Switching into this mode and each direct execution both require explicit confirmation. A failed multi-step plan can leave partial host changes.
 
 The preference is stored by project path and restored when that workspace is reopened. All Harness chats belonging to the workspace follow the same project preference. The interactive Editor terminal deliberately stays sandboxed in both modes.

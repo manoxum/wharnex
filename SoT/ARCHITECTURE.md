@@ -37,7 +37,7 @@ provider semantics directly.
 
 The change branch continues through:
 
-`Change Plan -> Policy -> Sandbox Execute -> Verify -> Explicit or Auto-approved Host Apply`
+`Change Plan -> Policy -> Informed Execution Decision -> Sandbox Execute -> Verify -> Authorized Host Integration`
 
 The iterative evidence branch is bounded and non-mutating on the host:
 

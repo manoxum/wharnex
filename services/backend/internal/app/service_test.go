@@ -2647,6 +2647,43 @@ func TestApprovedProtectedAutoExecutionAlsoAppliesHost(t *testing.T) {
 	}
 }
 
+func TestApprovedProtectedManualExecutionAlsoAppliesHost(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "change hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedResponseBundleFilename(prompted, prompted.LastRequestID), makeV2ExecutionBundle(t, prompted.LastRequestID, true, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submission.AutoExecuted || submission.AutoApplied || submission.Session.State != "planned" {
+		t.Fatalf("manual automation should still wait for the execution decision: %#v", submission)
+	}
+	_, applied, err := service.Execute(context.Background(), started.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.State != "applied" || len(applied.PendingHostChanges) != 0 {
+		t.Fatalf("one informed approval must cover sandbox execution and host integration even in manual automation: %#v", applied)
+	}
+	contents, err := os.ReadFile(filepath.Join(root, "hello.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "new\n" {
+		t.Fatalf("approved manual-mode change was not applied to host: %q", contents)
+	}
+}
+
 func TestAutoModeRequiresProtected(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})

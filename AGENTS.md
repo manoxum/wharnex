@@ -18,7 +18,7 @@ When implementation conflicts with a Source of Truth, the implementation is wron
 - The AI/planner MUST NOT directly execute commands.
 - `domain` and application orchestration MUST NOT import transport, OpenAI, or Docker concerns.
 - Planner adapters implement ports; executor adapters implement ports.
-- Protected mode: host-project mutation requires an explicit Apply step after sandbox verification.
+- Protected mode: the informed execution approval authorizes sandbox execution and the resulting host integration after successful verification. Host integration MUST NOT require a second Apply approval; a separate Apply action is recovery-only for a previously authorized integration failure.
 - Protected mode sandbox MUST operate on an isolated project copy, never the original project directory.
 - Unprotected mode is an explicit per-project UI choice. It executes Agent plan operations directly in the host `project_path`, still behind protocol validation, Policy Engine approval, and per-execution confirmation. It MUST never become the default.
 - Arbitrary shell strings are forbidden in the execution protocol. Commands are argv arrays.

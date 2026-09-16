@@ -5,7 +5,7 @@ import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable } from './planne
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
-export type AttentionAction = 'approve-execution' | 'approve-debug' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-transport' | 'retry-host-apply' | 'apply-host'
+export type AttentionAction = 'approve-execution' | 'approve-debug' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-transport' | 'retry-host-apply'
 export const ATTENTION_ACTION_LABEL: Record<AttentionAction, string> = {
   'approve-execution': 'Aprovar e executar',
   'approve-debug': 'Autorizar debug',
@@ -14,7 +14,6 @@ export const ATTENTION_ACTION_LABEL: Record<AttentionAction, string> = {
   'repair-with-gpt': 'Corrigir com GPT',
   'retry-transport': 'Repetir pedido',
   'retry-host-apply': 'Repetir aplicação',
-  'apply-host': 'Aplicar no host',
 }
 export type AttentionItem = {
   id: string
@@ -47,16 +46,8 @@ const PENDING_RESOLUTION_STATES = new Set([
   'repair_pending', 'planned', 'debug_approval_required', 'baseline_update_pending', 'conflict_resolution_pending',
 ])
 
-const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'stale_host_baseline', 'host_integration_race', 'host_working_state_blocked'])
-const APPLY_BLOCKING_FAILURES = new Set(['offline_go_module_cache', 'host_build_toolchain_mismatch', 'host_dependency_state', 'sandbox_preparation_timeout', ...APPLY_RETRY_FAILURES])
-
 export function sessionHostResolutionBlocked(session: Session) {
   return Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || PENDING_RESOLUTION_STATES.has(session.state) || session.last_turn?.kind === 'workflow')
-}
-
-export function sessionCanApplyHost(session: Session) {
-  const pendingCount = session.pending_host_changes?.length || 0
-  return session.execution_mode !== 'unprotected' && pendingCount > 0 && !sessionHostResolutionBlocked(session) && !APPLY_BLOCKING_FAILURES.has(session.failure_kind || '')
 }
 
 export function collectAttentionItems(
@@ -118,7 +109,6 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   if (!session) return items
 
   const pendingCount = session.pending_host_changes?.length || 0
-  const canApply = sessionCanApplyHost(session)
   const canExecute = sessionCanExecutePlan(session)
   let failureAlertAdded = false
 
@@ -178,14 +168,14 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
       break
     case 'self_evolution_transaction_metadata_mismatch':
       if (pendingCount) {
-        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; o estado transacional local será validado e reparado com segurança antes do novo Apply.', 'plan', 'retry-host-apply'))
+        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; o estado transacional local será validado e reparado com segurança antes de repetir a integração.', 'plan', 'retry-host-apply'))
         failureAlertAdded = true
       }
       break
     case 'self_evolution_transaction_busy':
     case 'host_integration_race':
       if (pendingCount) {
-        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu o Apply anterior.', 'plan', 'retry-host-apply'))
+        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu a integração anterior.', 'plan', 'retry-host-apply'))
         failureAlertAdded = true
       }
       break
@@ -230,9 +220,6 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
     items.push(item(chat, 'policy-blocked', 'danger', 'Plano bloqueado pela Policy', session.policy.reasons?.[0] || 'Revise o plano antes de executar.', 'plan'))
   }
 
-  if (canApply && !APPLY_BLOCKING_FAILURES.has(session.failure_kind || '')) {
-    items.push(item(chat, 'host-apply', 'success', 'Alterações prontas para o host', pendingCount === 1 ? '1 candidata verificada aguarda aplicação no host.' : `${pendingCount} candidatas verificadas aguardam aplicação no host.`, 'plan', 'apply-host'))
-  }
 
   if (session.self_evolution_activation === 'restart_pending') {
     items.push(item(chat, 'restart-pending', 'warning', 'Reinício do Wharnex pendente', 'As alterações já foram aplicadas e construídas; falta confirmar o reinício.', 'plan'))
