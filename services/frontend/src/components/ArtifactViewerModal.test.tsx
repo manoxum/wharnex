@@ -21,6 +21,12 @@ describe('ArtifactViewerModal', () => {
     expect(screen.getByTitle('Descarregar report.pdf').getAttribute('href')).toBe('/artifact/artifact_direct')
     expect(screen.getByTitle('Pré-visualização de report.pdf').getAttribute('src')).toBe('/artifact/artifact_direct?preview=1')
   })
+  it('renders a local direct URL without requiring an artifact endpoint', () => {
+    const directURL = 'data:application/pdf;base64,JVBERi0xLjQ='
+    render(<ArtifactViewerModal directURL={directURL} items={[{ path: 'local.pdf', size: 9, content_type: 'application/pdf', kind: 'pdf' }]} initialIndex={0} onClose={vi.fn()}/>)
+    expect(screen.getByTitle('Descarregar local.pdf').getAttribute('href')).toBe(directURL)
+    expect(screen.getByTitle('Pré-visualização de local.pdf').getAttribute('src')).toBe(directURL)
+  })
   it('navigates with keyboard and exposes non-destructive image controls', () => {
     const close = vi.fn()
     render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={items} initialIndex={0} onClose={close}/>)
