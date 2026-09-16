@@ -96,9 +96,10 @@ temporary nested candidate branch after the original branch retains its
 commit. A dirty nested repository, an uninitialized submodule or a
 missing candidate commit remains fail-closed. A later merge or verification
 failure resets the superproject to its pre-Apply HEAD and restores every
-affected submodule branch to its recorded base commit. The superproject's explicit Apply
-confirmation authorizes this bounded repository tree as one transaction; it
-does not authorize remote pushes or unrelated nested Git repositories.
+affected submodule branch to its recorded base commit. The informed execution decision that authorized this Protected candidate also
+authorizes the bounded repository tree as one post-verification transaction. An
+integration retry reuses that decision and does not request a second Apply
+approval. The authorization does not cover remote pushes or unrelated nested Git repositories.
 
 A path-scoped read-only Git verification whose complete path set belongs to
 one initialized submodule MUST run with that submodule as its working root and

@@ -2290,12 +2290,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!session) return
     const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
-    if (!targetChat || !(await confirmDialog({
-      title: 'Aplicar alterações verificadas?',
-      message: 'Os patches já verificados na sandbox serão incorporados no projeto real.',
-      tone: 'warning',
-      confirmLabel: 'Aplicar patches',
-    }))) return
+    if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
       const updated = await api.apply(targetSession.id)
@@ -3002,8 +2997,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         if (detail !== undefined) await repairFailureWithGPT(detail)
         return
       }
-      case 'retry-host-apply':
-      case 'apply-host': await apply(); return
+      case 'retry-host-apply': await apply(); return
     }
   }
 
@@ -3117,7 +3111,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           chatProps={sharedChatProps}
           inspectorProps={{
   		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
-		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onApply: apply, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges,
+		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges,
             onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT,
           }}
         />}

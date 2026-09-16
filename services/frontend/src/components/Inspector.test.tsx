@@ -41,7 +41,6 @@ describe('Inspector plan compatibility', () => {
       busy={false}
       onChatGPTURL={() => true}
       onExecute={async () => undefined}
-      onApply={async () => undefined}
       onManualPlan={async () => undefined}
       onPlanFile={async () => ''}
       onBundleFile={async () => ''}
@@ -72,7 +71,6 @@ describe('Inspector plan compatibility', () => {
       activeTab="plan"
       onChatGPTURL={() => true}
       onExecute={async () => undefined}
-      onApply={async () => undefined}
       onManualPlan={async () => undefined}
       onPlanFile={async () => ''}
       onBundleFile={async () => ''}
@@ -90,7 +88,7 @@ describe('Inspector plan compatibility', () => {
       ...session.plan!, protocol: 'harness.execution/v2', document: '## Execução\nAlterações locais completas.', dependencies: [], system_tools: [],
       approved_chat_plan: { protocol: 'harness.chat-plan/v1', request_id: 'req-proposal', sha256: 'a'.repeat(64), document: '## Proposta aprovada\nImplementar o fluxo definido.' },
     }
-    render(<Inspector config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }} session={session} events={[]} manualPrompt="" busy={false} activeTab="plan" onChatGPTURL={() => true} onExecute={async () => undefined} onApply={async () => undefined} onManualPlan={async () => undefined} onPlanFile={async () => ''} onBundleFile={async () => ''} onSession={() => undefined}/>)
+    render(<Inspector config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }} session={session} events={[]} manualPrompt="" busy={false} activeTab="plan" onChatGPTURL={() => true} onExecute={async () => undefined} onManualPlan={async () => undefined} onPlanFile={async () => ''} onBundleFile={async () => ''} onSession={() => undefined}/>)
     expect(screen.getByText('Plano do Chat aprovado')).toBeTruthy()
     expect(screen.getByText('Plano de execução')).toBeTruthy()
     expect(screen.getByText('Implementar o fluxo definido.')).toBeTruthy()
@@ -109,7 +107,6 @@ it('hides the execute control while the active plan already has a durable execut
     busy={false}
     onChatGPTURL={() => true}
     onExecute={async () => undefined}
-    onApply={async () => undefined}
     onManualPlan={async () => undefined}
     onPlanFile={async () => ''}
     onBundleFile={async () => ''}
@@ -140,7 +137,6 @@ it('shows workflow as a local probe without exposing change execution controls',
     busy={false}
     onChatGPTURL={() => true}
     onExecute={async () => undefined}
-    onApply={async () => undefined}
     onManualPlan={async () => undefined}
     onPlanFile={async () => ''}
     onBundleFile={async () => ''}
@@ -152,7 +148,7 @@ it('shows workflow as a local probe without exposing change execution controls',
   expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
 })
 
-it('offers apply and reject for a verified cumulative host candidate', () => {
+it('never asks for a second host-apply approval after a verified execution', () => {
   const session = legacySession()
   session.state = 'verified'
   session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
@@ -160,7 +156,6 @@ it('offers apply and reject for a verified cumulative host candidate', () => {
     { plan: session.plan!, execution: session.last_execution, verified_at: session.last_execution.completed_at },
     { plan: { ...session.plan!, plan_id: 'plan-fix', summary: 'Correção incremental' }, execution: { ...session.last_execution, plan_id: 'plan-fix' }, verified_at: session.last_execution.completed_at },
   ]
-  const onApply = vi.fn(async () => undefined)
   const onReject = vi.fn(async () => undefined)
   render(<Inspector
     config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
@@ -170,17 +165,15 @@ it('offers apply and reject for a verified cumulative host candidate', () => {
     busy={false}
     onChatGPTURL={() => true}
     onExecute={async () => undefined}
-    onApply={onApply}
     onRejectPendingChanges={onReject}
     onManualPlan={async () => undefined}
     onPlanFile={async () => ''}
     onBundleFile={async () => ''}
     onSession={() => undefined}
   />)
-  expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: /Aplicar no host \(2\)/i }))
+  expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+  expect(screen.getByText('Integração pendente de recuperação')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /^Rejeitar$/i }))
-  expect(onApply).toHaveBeenCalledOnce()
   expect(onReject).toHaveBeenCalledOnce()
 })
 
@@ -199,7 +192,6 @@ it('does not expose execution again after a self-evolution plan is applied or re
       busy={false}
       onChatGPTURL={() => true}
       onExecute={async () => undefined}
-      onApply={async () => undefined}
       onManualPlan={async () => undefined}
       onPlanFile={async () => ''}
       onBundleFile={async () => ''}
@@ -227,7 +219,6 @@ it('blocks apply while a baseline adaptation is active', () => {
     busy={false}
     onChatGPTURL={() => true}
     onExecute={async () => undefined}
-    onApply={async () => undefined}
     onRejectPendingChanges={async () => undefined}
     onManualPlan={async () => undefined}
     onPlanFile={async () => ''}
@@ -255,7 +246,6 @@ it('shows streamed command output immediately below the command event', () => {
     busy={false}
     onChatGPTURL={() => true}
     onExecute={async () => undefined}
-    onApply={async () => undefined}
     onManualPlan={async () => undefined}
     onPlanFile={async () => ''}
     onBundleFile={async () => ''}
@@ -310,7 +300,7 @@ describe('Inspector ChatGPT engine pool (desktop)', () => {
     const props = {
       config: { planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false } as const,
       events: [], manualPrompt: '', busy: false, chats: [chatA, chatB],
-      onChatGPTURL: () => true, onExecute: async () => undefined, onApply: async () => undefined,
+      onChatGPTURL: () => true, onExecute: async () => undefined,
       onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
     }
     const view = render(<Inspector {...props} session={sessionA} chat={chatA} />)
@@ -345,7 +335,6 @@ describe('Inspector Manual chat transport mode', () => {
       activeTab="chatgpt"
       onChatGPTURL={() => true}
       onExecute={async () => undefined}
-      onApply={async () => undefined}
       onManualPlan={async () => undefined}
       onPlanFile={async () => ''}
       onBundleFile={async () => ''}
@@ -371,7 +360,6 @@ describe('Inspector Manual chat transport mode', () => {
       chats={[chatA]}
       onChatGPTURL={() => true}
       onExecute={async () => undefined}
-      onApply={async () => undefined}
       onManualPlan={async () => undefined}
       onPlanFile={async () => ''}
       onBundleFile={async () => ''}
@@ -394,7 +382,6 @@ describe('Inspector Manual chat transport mode', () => {
       activeTab="chatgpt"
       onChatGPTURL={() => true}
       onExecute={async () => undefined}
-      onApply={async () => undefined}
       onManualPlan={async () => undefined}
       onPlanFile={async () => ''}
       onBundleFile={onBundleFile}
@@ -428,7 +415,6 @@ describe('Inspector Manual chat transport mode', () => {
       activeTab="chatgpt"
       onChatGPTURL={() => true}
       onExecute={async () => undefined}
-      onApply={async () => undefined}
       onManualPlan={async () => undefined}
       onPlanFile={async () => ''}
       onBundleFile={onBundleFile}

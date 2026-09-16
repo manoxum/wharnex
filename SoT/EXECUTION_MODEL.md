@@ -2,7 +2,7 @@
 
 ## Informed consent and diagnostic execution (v1.3.11 — see `adr/ADR-0057`)
 
-The first enriched change plan of a Protected Main Request pauses before execution and exposes its complete contract: Markdown plan, dependency inventory, sandbox/host system-tool inventory, exact patches/commands, verification and Policy decision. Accepting it authorizes compatible correction waves in that request lineage; any later network/package/Git or host-tool impact is a new Policy approval boundary. Rejecting it records the decision and performs no command. Unprotected execution remains a distinct host-direct mode with confirmation for each execution.
+The first enriched change plan of a Protected Main Request pauses before execution and exposes its complete contract: Markdown plan, dependency inventory, sandbox/host system-tool inventory, exact patches/commands, verification and Policy decision. Accepting it authorizes sandbox execution, post-verification host integration, and compatible correction waves in that request lineage; any later network/package/Git or host-tool impact is a new Policy approval boundary. When a later boundary requires another decision, that decision likewise covers both the resulting Protected execution and its host integration. Rejecting it records the decision and performs no command. Unprotected execution remains a distinct host-direct mode with confirmation for each execution.
 
 A `harness.debug/v1` workflow may gather evidence in the copied sandbox or, for host-only failures, through the closed read-only host diagnostic allowlist. It is never an Apply candidate and never carries patches or network. Debug enabled in the composer is a standing diagnostic grant; when disabled, one grant is required per Main Request root and inherited only by its diagnostic descendants.
 
@@ -16,10 +16,10 @@ Wharness supports a per-project execution mode selected in the workspace UI.
 4. Approved plans execute against an isolated copy.
 5. Patches are applied in the sandbox first.
 6. Commands/verification run with declared cwd, timeout, network policy, and expected exit codes.
-7. Host application is a separate endpoint/action and is allowed only after successful sandbox verification.
-8. Host application re-validates patch paths and re-checks patch applicability before mutation.
-9. A verified plan remains a host-pending candidate independent from the next planner turn. A later Protected plan MAY extend that candidate: Wharness replays every earlier pending patch in order in a fresh isolated copy, then applies and verifies the new plan against the cumulative candidate state.
-10. Apply accepts the complete ordered candidate as one user decision. If a later patch fails during host application, Wharness reverses patches already applied by that attempt before returning the error; the verified candidate remains pending for correction or retry.
+7. After successful sandbox verification, Wharnex automatically starts host integration under the same informed execution decision. Host integration is an engine phase/API, not a second user approval.
+8. Host integration re-validates patch paths and re-checks patch applicability before mutation.
+9. If host integration cannot complete safely, the verified plan remains a host-pending recovery candidate independent from the next planner turn. A later Protected plan MAY extend that candidate: Wharness replays every earlier pending patch in order in a fresh isolated copy, then applies and verifies the new plan against the cumulative candidate state.
+10. The informed execution decision covers the complete ordered candidate produced by that approved boundary. If a later patch fails during host integration, Wharness reverses patches already applied by that attempt before returning the error; the verified candidate remains pending for correction or an explicit integration retry. That retry is recovery of already-authorized work, not a new Apply approval.
 11. Reject discards the complete host-pending candidate and resets its execution state without mutating the host. It is distinct from Revert, which acts only after a successful host application.
 12. A successful Revert retains the exact applied patch batch as the session's reversible redo candidate instead of discarding it. The user MAY explicitly **Restore** that latest reverted batch; Wharnex forward-replays the retained patches in original order and, if any patch fails, reverses every patch already replayed by that restore attempt before leaving the host.
 13. A deterministic Restore that cannot be completed safely MUST create a fresh planner continuation from the current project snapshot rather than retry the stale pre-revert baseline. That continuation uses request-lineage kind `revert_restore`, carries the intended reverted patch batch as reconciliation evidence, preserves unrelated current work, and follows the normal Protected verification/Apply pipeline before changing the host again. Self-evolution restoration always takes this planner path so it cannot bypass the transactional host-build/restart model.
@@ -27,7 +27,7 @@ Wharness supports a per-project execution mode selected in the workspace UI.
 ## Unprotected (explicit per project)
 
 1. The project must be switched to `Unprotected` from the workspace UI.
-   Any Protected candidate must first be applied or rejected; changing mode MUST NOT carry a hidden pending candidate across the trust-boundary switch.
+   Any pending Protected integration/recovery candidate must first be integrated or rejected; changing mode MUST NOT carry a hidden pending candidate across the trust-boundary switch.
 2. The choice is persisted per project and restored when the workspace is reopened.
 3. Plans still require structural validation and Policy Engine approval.
 4. Every execution requires an explicit user confirmation even when the plan would not otherwise require approval.
@@ -282,10 +282,12 @@ integrated it into the current HEAD. The latter is an idempotent success and
 MUST NOT rewind the operator branch. A failed proof retains the candidate and
 fails closed as host drift; it never guesses or requests a source-repair turn.
 
-The operator's explicit Apply confirmation authorizes this bounded repository
-tree as one transaction. It does not authorize remote pushes and does not extend
-to unrelated nested Git repositories, so every repository Wharnex committed into
-still holds work only the operator can push.
+The operator's informed execution decision authorizes this bounded repository
+tree as one transaction after successful Protected verification. A host-integration
+retry reuses that existing authorization rather than asking for a second Apply
+decision. The authorization does not cover remote pushes or unrelated nested Git
+repositories, so every repository Wharnex committed into still holds work only
+the operator can push.
 
 ## Persistent integration race (v1.3.2)
 

@@ -24,7 +24,7 @@
 - network none by default;
 - resource-limited runner;
 - isolated copy;
-- explicit apply after successful run;
+- informed execution approval before the Protected run, with host integration permitted only after successful verification and no second Apply approval;
 - secret/path filtering before context export.
 
 ## Residual risks

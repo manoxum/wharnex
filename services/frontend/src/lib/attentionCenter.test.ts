@@ -13,7 +13,7 @@ function session(id: string): Session {
 }
 
 describe('attention center', () => {
-  it('collects pending host applies from inactive chats', () => {
+  it('does not create a second host-apply approval for a verified candidate', () => {
     const principal = chat('chat-1', 'Principal')
     const parallel = chat('chat-2', 'Paralelo')
     const inactive = session('ses-chat-2')
@@ -23,7 +23,7 @@ describe('attention center', () => {
       verified_at: '2026-09-07T10:00:01.000Z',
     }]
     const items = collectAttentionItems([principal, parallel], { 'chat-1': session('ses-chat-1'), 'chat-2': inactive })
-    expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ chatId: 'chat-2', title: 'Alterações prontas para o host', tone: 'success', action: 'apply-host' })]))
+    expect(items).toEqual([])
   })
 
   it('surfaces human action and integration conflicts ahead of ready applies', () => {

@@ -1876,7 +1876,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		}
 		return result, item, err
 	}
-	if err == nil && approved && cleared.ExecutionMode == domain.ExecutionModeProtected && cleared.AutomationMode == domain.AutomationModeAuto && len(hostApplicablePendingChanges(pendingHostChanges(cleared))) > 0 {
+	if err == nil && approved && cleared.ExecutionMode == domain.ExecutionModeProtected && len(hostApplicablePendingChanges(pendingHostChanges(cleared))) > 0 {
 		applied, applyErr := s.applyToHostWithLocalRetry(ctx, sessionID)
 		if applyErr != nil {
 			return result, applied, applyErr

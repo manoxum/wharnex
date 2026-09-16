@@ -43,11 +43,13 @@ describe('App policy-repair recovery', () => {
 	expect(source).toMatch(/if \(force\) repairDispatchRef\.current\.delete\(dispatchKey\)/)
   })
 
-  it('dispatches a prepared repair immediately after a manual host Apply failure', () => {
+  it('retries an already-authorized host integration without a second confirmation', () => {
     const applyStart = source.indexOf('async function apply()')
     const applyEnd = source.indexOf('async function retryDependencyNetwork()', applyStart)
     const applyBody = source.slice(applyStart, applyEnd)
 
+    expect(applyBody).not.toMatch(/confirmDialog\(/)
+    expect(applyBody).toMatch(/await api\.apply\(targetSession\.id\)/)
     expect(applyBody).toMatch(/latest\.state === 'repair_pending'/)
     expect(applyBody).toMatch(/await submitRepairPrompt\(latest, targetChat\)/)
   })

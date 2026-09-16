@@ -9,7 +9,6 @@ const ACTION_ICON: Record<AttentionAction, 'play' | 'network' | 'apply'> = {
   'repair-with-gpt': 'play',
   'retry-transport': 'network',
   'retry-host-apply': 'apply',
-  'apply-host': 'apply',
 }
 
 const TONE_LABEL = {

@@ -105,10 +105,12 @@ func priorExecutionConsentCovers(item domain.Session) bool {
 }
 
 // planNeedsInitialConsent is the single decision seam for the Main Request
-// execution gate. Protected Auto may complete later repair/evidence rounds,
-// but the first directly-authored change waits for one informed operator
-// decision. A plan_approval continuation is already covered by the approval
-// that created it. Missing legacy lineage fails safe and asks once.
+// execution gate. Protected execution may complete later repair/evidence rounds
+// under the recorded consent, and successful verification reuses that same
+// consent for host integration regardless of automation mode. The first
+// directly-authored change waits for one informed operator decision. A
+// plan_approval continuation is already covered by the approval that created it.
+// Missing legacy lineage fails safe and asks once.
 func planNeedsInitialConsent(item domain.Session) bool {
 	if item.ExecutionMode != domain.ExecutionModeProtected || item.Plan == nil {
 		return false
