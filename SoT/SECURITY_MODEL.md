@@ -8,6 +8,8 @@ The security boundary is enforced by:
 - path validation;
 - command allow/deny policy;
 - network approval;
+- debug host-action approval: `harness.debug/v1 access=modify` is always bound to one exact `plan_id`, high-risk, and consumed after the workflow round; Debug mode never turns it into standing host-write authority;
+- debug tool lifetime disclosure: host install/update/configure requests state `temporary` or `persistent`, while Policy still denies privilege escalation, shells, Docker/host-service control and other forbidden primitives;
 - narrowly scoped dependency-network recovery after a locally classified offline-cache failure, with a new explicit human approval and Protected-sandbox enforcement;
 - isolated Docker execution;
 - informed Protected execution approval before any model-authored host mutation; successful verification reuses that authorization for host integration without a second Apply approval;

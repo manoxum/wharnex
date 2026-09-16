@@ -1324,7 +1324,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			return BundleSubmission{}, err
 		}
 		decision := s.policy.Evaluate(*parsed.Plan)
-		debugApproved := current.DebugEnabled || current.DebugApprovedRootID == debugRootRequestID(current, parsed.Plan.RequestID)
+		debugApproved := debugPlanAuthorized(current, parsed.Plan)
 		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
 			turn := parsed.Turn
 			item.LastTurn = &turn

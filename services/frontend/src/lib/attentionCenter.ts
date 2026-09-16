@@ -121,7 +121,11 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   }
   if (session.state === 'debug_approval_required' && session.plan?.debug) {
     const target = session.plan.debug.target === 'host' ? 'host local' : 'sandbox isolada'
-    items.push(item(chat, 'debug-approval', 'warning', 'Debug aguarda autorização', `Probe somente de leitura no ${target}: ${session.plan.debug.rationale}`, 'plan', 'approve-debug'))
+    const modifiesHost = session.plan.debug.target === 'host' && session.plan.debug.access === 'modify'
+    const description = modifiesHost
+      ? `Ação de debug com alteração no ${target}: ${session.plan.debug.rationale}`
+      : `Probe de observação no ${target}: ${session.plan.debug.rationale}`
+    items.push(item(chat, 'debug-approval', 'warning', 'Debug aguarda autorização', description, 'plan', 'approve-debug'))
   }
 
   switch (session.failure_kind) {

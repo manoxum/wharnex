@@ -26,6 +26,11 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 		decision.RequiresApproval = true
 		decision.Reasons = append(decision.Reasons, "planner requested explicit approval")
 	}
+	if plan.Debug != nil && plan.Debug.Target == "host" && plan.Debug.EffectiveAccess() == domain.DebugAccessModify {
+		decision.RequiresApproval = true
+		decision.Risk = maxRisk(decision.Risk, "high")
+		decision.Reasons = append(decision.Reasons, "debug host modification requires per-plan approval")
+	}
 	for _, tool := range plan.SystemTools {
 		if tool.Target == "host" && tool.Action != "use" {
 			decision.RequiresApproval = true

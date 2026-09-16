@@ -14,6 +14,16 @@ const DebugProtocolV1 = "harness.debug/v1"
 
 const DebugQueryProjectExecutionSummary = "project_execution_summary"
 
+const (
+	DebugAccessObserve = "observe"
+	DebugAccessModify  = "modify"
+)
+
+const (
+	ToolLifetimeTemporary  = "temporary"
+	ToolLifetimePersistent = "persistent"
+)
+
 type TurnKind string
 
 const (
@@ -352,17 +362,25 @@ type ExecutionPlan struct {
 	CrossProject []CrossProjectUnit `json:"cross_project,omitempty"`
 }
 
-// DebugSpec turns a workflow plan into a bounded diagnostic probe. Host is a
-// narrower target, not broader authority: validation accepts only a closed
-// read-only command vocabulary there.
+// DebugSpec turns a workflow plan into a bounded diagnostic probe. Observe is
+// the backwards-compatible default. Modify is host-only, approval-gated, and
+// still constrained by argv validation plus the Policy Engine.
 type DebugSpec struct {
 	Protocol string `json:"protocol"`
 	Target   string `json:"target"`
+	Access   string `json:"access,omitempty"`
 	// Query selects an engine-owned, read-only diagnostic. Unlike a command it
 	// never crosses the process boundary and cannot acquire shell/filesystem
-	// authority from model-controlled argv.
+	// authority from model-controlled argv. Queries are observe-only.
 	Query     string `json:"query,omitempty"`
 	Rationale string `json:"rationale"`
+}
+
+func (d DebugSpec) EffectiveAccess() string {
+	if d.Access == "" {
+		return DebugAccessObserve
+	}
+	return d.Access
 }
 
 // PlanDependency describes project dependency impact. It is presentation
@@ -377,13 +395,15 @@ type PlanDependency struct {
 	Reason  string `json:"reason"`
 }
 
-// PlanSystemTool discloses an OS/runtime prerequisite. A host declaration
-// never grants installation authority to a model-authored plan.
+// PlanSystemTool discloses an OS/runtime prerequisite. Lifetime is required
+// when a host-debug modify plan installs/updates/configures a tool so the
+// operator can distinguish disposable tooling from durable host state.
 type PlanSystemTool struct {
-	Target string `json:"target"`
-	Name   string `json:"name"`
-	Action string `json:"action"`
-	Reason string `json:"reason"`
+	Target   string `json:"target"`
+	Name     string `json:"name"`
+	Action   string `json:"action"`
+	Lifetime string `json:"lifetime,omitempty"`
+	Reason   string `json:"reason"`
 }
 
 // ApprovedChatPlan binds an executable response to the exact planning-only
@@ -1054,6 +1074,7 @@ type Session struct {
 	AutomationMode          AutomationMode       `json:"automation_mode"`
 	DebugEnabled            bool                 `json:"debug_enabled,omitempty"`
 	DebugApprovedRootID     string               `json:"debug_approved_root_request_id,omitempty"`
+	DebugApprovedPlanID     string               `json:"debug_approved_plan_id,omitempty"`
 	ApprovedChatPlan        *ApprovedChatPlan    `json:"approved_chat_plan,omitempty"`
 	ExecutionApprovedRootID string               `json:"execution_approved_root_request_id,omitempty"`
 	ApprovedBoundaryKeys    []string             `json:"approved_execution_boundary_keys,omitempty"`

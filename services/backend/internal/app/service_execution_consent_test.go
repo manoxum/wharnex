@@ -95,6 +95,15 @@ func TestDebugAuthorizationIsInheritedOnlyInsideOneMainRequestCycle(t *testing.T
 
 	item.DebugEnabled = true
 	if !debugAuthorized(item) {
-		t.Fatal("enabled Debug mode should authorize a valid debug plan")
+		t.Fatal("enabled Debug mode should authorize an observe debug plan")
+	}
+
+	item.Plan = &domain.ExecutionPlan{PlanID: "plan-host-write", RequestID: "req-debug-2", Debug: &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "apply the requested host change"}}
+	if debugAuthorized(item) {
+		t.Fatal("enabled Debug mode must not auto-authorize host modification")
+	}
+	item.DebugApprovedPlanID = "plan-host-write"
+	if !debugAuthorized(item) {
+		t.Fatal("host modification should be authorized only for the exact approved debug plan")
 	}
 }

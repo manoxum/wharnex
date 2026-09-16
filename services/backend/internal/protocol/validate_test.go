@@ -124,6 +124,47 @@ func TestValidateDebugPlanRejectsHostMutationAndArbitraryReads(t *testing.T) {
 	}
 }
 
+func TestValidateDebugPlanAllowsApprovedHostModification(t *testing.T) {
+	command := domain.CommandSpec{Argv: []string{"npm", "install", "--global", "some-debug-tool"}, Cwd: ".", TimeoutSeconds: 120, Network: true, ExpectedExitCodes: []int{0}}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "debug-modify", RequestID: "req_12345678", Status: "ready", Summary: "install a host debug helper", Risk: "high", RequiresApproval: true,
+		Debug:       &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "the requested host diagnosis needs a missing local helper"},
+		SystemTools: []domain.PlanSystemTool{{Target: "host", Name: "some-debug-tool", Action: "install", Lifetime: domain.ToolLifetimePersistent, Reason: "inspect the requested host state"}},
+		Operations:  []domain.Operation{{Type: "command", Command: command}},
+	}
+	if err := ValidateWorkflowPlan(plan); err != nil {
+		t.Fatalf("approved host debug modification was rejected: %v", err)
+	}
+}
+
+func TestValidateDebugPlanRejectsHostModificationWithoutDedicatedApproval(t *testing.T) {
+	base := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "debug-modify", RequestID: "req_12345678", Status: "ready", Summary: "change host state", Risk: "high",
+		Debug:      &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "perform the user-requested host change"},
+		Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"npm", "cache", "verify"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}},
+	}
+	if err := ValidateWorkflowPlan(base); err == nil || !strings.Contains(err.Error(), "explicit approval") {
+		t.Fatalf("host modify without approval was not rejected: %v", err)
+	}
+	base.RequiresApproval = true
+	base.Risk = "medium"
+	if err := ValidateWorkflowPlan(base); err == nil || !strings.Contains(err.Error(), "risk must be high") {
+		t.Fatalf("host modify without high risk was not rejected: %v", err)
+	}
+}
+
+func TestValidateDebugPlanRequiresLifetimeForHostToolMutation(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "debug-modify", RequestID: "req_12345678", Status: "ready", Summary: "install a host debug helper", Risk: "high", RequiresApproval: true,
+		Debug:       &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "install a helper for the requested host diagnosis"},
+		SystemTools: []domain.PlanSystemTool{{Target: "host", Name: "helper", Action: "install", Reason: "required by the requested diagnosis"}},
+		Operations:  []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"npm", "--version"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "lifetime") {
+		t.Fatalf("host tool mutation without lifetime was not rejected: %v", err)
+	}
+}
+
 func TestValidateChangePlanRejectsDebugExtension(t *testing.T) {
 	plan := validPlan()
 	plan.VersionIncrement = &domain.VersionIncrement{Component: domain.VersionComponentPatch, Amount: 1}
