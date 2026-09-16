@@ -3,18 +3,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { WorkspaceRightRail } from './WorkspaceRightRail'
 
 describe('WorkspaceRightRail', () => {
-  it('routes both right-side tools and renders the PostgreSQL first phase', () => {
+  it('keeps the right rail focused on the database tool', () => {
     const onDrawer = vi.fn()
     const onError = vi.fn()
-    const view = render(<WorkspaceRightRail drawer="" sessionId="ses_test" onDrawer={onDrawer} onError={onError}/>)
+    const view = render(<WorkspaceRightRail drawer="" onDrawer={onDrawer} onError={onError}/>)
 
-    fireEvent.click(screen.getByLabelText('Biblioteca de ficheiros'))
-    expect(onDrawer).toHaveBeenCalledWith('artifacts')
+    expect(screen.queryByLabelText('Biblioteca de ficheiros')).toBeNull()
     fireEvent.click(screen.getByLabelText('Database connection'))
     expect(onDrawer).toHaveBeenCalledWith('database')
 
-    view.rerender(<WorkspaceRightRail drawer="database" sessionId="ses_test" onDrawer={onDrawer} onError={onError}/>)
-    expect(screen.getByText('SQL console')).toBeTruthy()
+    view.rerender(<WorkspaceRightRail drawer="database" onDrawer={onDrawer} onError={onError}/>)
     expect(screen.getByText(/passwords nunca são persistidas/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'SQL' }))
+    expect(screen.getByText('SQL console')).toBeTruthy()
   })
 })

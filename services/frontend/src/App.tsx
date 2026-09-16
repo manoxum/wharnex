@@ -3092,7 +3092,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         {terminalOpen && <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(275)} />}
         <TerminalWorkspace key={session.id} session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
       </div>
-      <WorkspaceRightRail drawer={rightDrawer} sessionId={session.id} onDrawer={setRightDrawer} onError={setError} />
+      <WorkspaceRightRail drawer={rightDrawer} onDrawer={setRightDrawer} onError={setError} />
     </div>
   </main>
 }
