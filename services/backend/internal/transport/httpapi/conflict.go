@@ -42,11 +42,12 @@ func (a *API) resolveConflictManually(w http.ResponseWriter, r *http.Request) {
 func (a *API) delegateConflictToGPT(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Resolutions []app.ConflictManualResolution `json:"resolutions"`
+		Guidance    string                         `json:"guidance"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	item, err := a.service.DelegateConflictToGPT(r.Context(), r.PathValue("id"), body.Resolutions)
+	item, err := a.service.DelegateConflictToGPT(r.Context(), r.PathValue("id"), body.Resolutions, body.Guidance)
 	if err != nil {
 		writeError(w, http.StatusConflict, "conflict_delegate_failed", err.Error())
 		return

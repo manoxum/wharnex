@@ -178,6 +178,59 @@ func TestLogCarriesParentTopologyForMergeGraph(t *testing.T) {
 	}
 }
 
+func TestLogRefsScopesHistoryToSelectedBranchesOrAll(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	git(t, root, "checkout", "-qb", "feature")
+	write(t, root, "feature.txt", "feature\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: feature only")
+	git(t, root, "checkout", "-q", "main")
+	write(t, root, "main.txt", "main\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: main only")
+
+	feature, err := LogRefs(context.Background(), root, []string{"feature"}, false, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, commit := range feature {
+		if commit.Subject == "feat: main only" {
+			t.Fatalf("selected feature history leaked a main-only commit: %+v", feature)
+		}
+	}
+	if len(feature) < 2 || feature[0].Subject != "feat: feature only" {
+		t.Fatalf("expected feature tip first, got %+v", feature)
+	}
+
+	all, err := LogRefs(context.Background(), root, nil, true, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, commit := range all {
+		seen[commit.Subject] = true
+	}
+	if !seen["feat: feature only"] || !seen["feat: main only"] {
+		t.Fatalf("all-branch history must include both branch tips, got %+v", all)
+	}
+}
+
+func TestSwitchBranchChangesOnlyToRequestedLocalBranch(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	git(t, root, "branch", "feature")
+	if err := SwitchBranch(context.Background(), root, "feature"); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentBranch(context.Background(), root); got != "feature" {
+		t.Fatalf("current branch = %q, want feature", got)
+	}
+	if err := SwitchBranch(context.Background(), root, "--detach"); err == nil {
+		t.Fatal("option-shaped branch must be rejected")
+	}
+}
+
 func TestLogMarksPushedCommits(t *testing.T) {
 	requireGit(t)
 	root := newRepo(t, "README.md", "root\n")

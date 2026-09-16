@@ -63,6 +63,7 @@ export type WorkspaceSideRailProps = {
   onOpenFile: (path: string) => void
   onAnalyzeEvolution?: (ids: string[]) => Promise<void>
   onError: (message: string) => void
+  onSession?: (session: Session) => void
   terminalOpen: boolean
   onToggleTerminal: () => void
   onGoToChat?: (chatId?: string, sessionId?: string) => void
@@ -149,7 +150,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archivedChats} busy={busy} onRestore={props.onRestoreChat} onDelete={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
       {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError} onClose={close}/> : null}
       {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
-      {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError}/> : null}
+      {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession}/> : null}
       {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
       {drawer === 'tasks' ? <ChatAgentTasksDrawer projectPath={session.project_path} onClose={close} onError={onError} chats={props.chats} onGoToChat={props.onGoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onFollowInstance={props.onFollowInstance}/> : null}
       {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}

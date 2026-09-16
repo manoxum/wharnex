@@ -15,6 +15,10 @@ vi.mock('../lib/api', async () => {
       commitGitPending: vi.fn().mockResolvedValue({ outcomes: [{ pending_id: 'p1', subject: 'feat: one', commit_sha: 'abc' }] }),
       discardGitPending: vi.fn().mockResolvedValue({ removed: 1 }),
       gitPush: vi.fn().mockResolvedValue({ outcome: 'pushed', remote: 'origin', branch: 'main' }),
+      gitFetch: vi.fn().mockResolvedValue({ outcome: 'fetched', remote: 'origin' }),
+      gitPull: vi.fn().mockResolvedValue({ outcome: 'merged', remote: 'origin', branch: 'main', ref: 'origin/main' }),
+      gitSwitch: vi.fn().mockResolvedValue({ outcome: 'switched', branch: 'feature' }),
+      gitHistory: vi.fn().mockResolvedValue([]),
       gitMerge: vi.fn().mockResolvedValue({ outcome: 'merged', ref: 'feature' }),
     },
   }
@@ -74,6 +78,37 @@ describe('GitDrawer', () => {
     openTab('Definições')
     expect(screen.getByRole('group', { name: 'Modo de commit' })).toBeTruthy()
     expect(screen.getByText('https://github.com/org/repo.git')).toBeTruthy()
+  })
+
+  it('loads selected and all-branch commit timelines', async () => {
+    vi.mocked(api.gitHistory).mockResolvedValue([{ sha: 'f1', short_sha: 'f1', subject: 'feat: feature timeline', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-11T10:00:00Z', parents: ['a2'], wharnex: false, merge: false, pushed: false }])
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('feat: one')
+    openTab('Histórico')
+
+    fireEvent.click(screen.getByRole('button', { name: /feature/ }))
+    await waitFor(() => expect(api.gitHistory).toHaveBeenCalledWith('ses_1', ['feature'], false))
+    expect(await screen.findByText('feat: feature timeline')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Todas' }))
+    await waitFor(() => expect(api.gitHistory).toHaveBeenCalledWith('ses_1', [], true))
+  })
+
+  it('fetches, pulls and switches branches from version control', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('feat: one')
+    openTab('Branches')
+
+    fireEvent.click(screen.getByRole('button', { name: /Fetch/ }))
+    await waitFor(() => expect((screen.getByRole('button', { name: /Pull/ }) as HTMLButtonElement).disabled).toBe(false))
+    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
+
+    fireEvent.click(screen.getByRole('button', { name: /Pull/ }))
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Alternar' }) as HTMLButtonElement).disabled).toBe(false))
+    expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alternar' }))
+    await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'feature'))
   })
 
   it('toggles the commit mode from settings', async () => {

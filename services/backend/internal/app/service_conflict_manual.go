@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/hostrepo"
@@ -154,7 +155,7 @@ func (s *Service) ResolveConflictManually(ctx context.Context, sessionID string,
 // rebuilds the pending prompt for only the remaining paths. The backend later
 // injects ManualPatch into the returned GPT plan, so the model cannot rewrite
 // an accepted human decision.
-func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, resolutions []ConflictManualResolution) (domain.Session, error) {
+func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, resolutions []ConflictManualResolution, guidance string) (domain.Session, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return item, err
@@ -192,6 +193,11 @@ func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, r
 		g := item.IntegrationConflict.Git
 		capsule.Origin = g.Origin
 		capsule.Git = &conflictCapsuleGit{Ref: g.Ref, TargetBranch: g.TargetBranch, Remote: g.Remote, BaseSHA: g.BaseSHA, OursSHA: g.OursSHA, TheirsSHA: g.TheirsSHA}
+		capsule.Intent = s.gitConflictIntent(ctx, item, gitConflictRequest{
+			origin: g.Origin, ref: g.Ref, remote: g.Remote, remoteBranch: g.RemoteBranch, targetBranch: g.TargetBranch,
+			sides: hostrepo.MergeSides{BaseSHA: g.BaseSHA, OursSHA: g.OursSHA, TheirsSHA: g.TheirsSHA, Ref: g.Ref}, paths: remaining,
+		}, remaining)
+		capsule.Intent.UserGuidance = strings.TrimSpace(guidance)
 	}
 	capsuleJSON, err := json.MarshalIndent(capsule, "", "  ")
 	if err != nil {

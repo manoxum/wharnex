@@ -6,11 +6,12 @@ import { Icon } from './Icon'
 
 type GitTab = 'changes' | 'history' | 'branches' | 'settings'
 
-export function GitDrawer({ session, busy, onClose, onError }: {
+export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   session: Session
   busy: boolean
   onClose: () => void
   onError?: (message: string) => void
+  onSession?: (session: Session) => void
 }) {
   const [overview, setOverview] = useState<GitOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -45,12 +46,13 @@ export function GitDrawer({ session, busy, onClose, onError }: {
   const current = useMemo(() => localBranches.find((branch) => branch.current), [localBranches])
   const pending = overview?.pending || []
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>, syncSession = false) {
     setWorking(true)
     setNotice('')
     try {
       await action()
       await refresh()
+      if (syncSession && onSession) onSession(await api.getSession(session.id))
     } catch (error) {
       report(error)
     } finally {
@@ -117,7 +119,7 @@ export function GitDrawer({ session, busy, onClose, onError }: {
             })()}
           />
         </>}
-        {activeTab === 'history' && <HistorySection commits={overview.commits} branches={overview.branches}/>}
+        {activeTab === 'history' && <HistorySection sessionId={session.id} commits={overview.commits} branches={overview.branches}/>}
         {activeTab === 'branches' && <BranchSection
           current={current?.name || overview.current_branch} detached={overview.detached}
           localBranches={localBranches} remoteBranches={remoteBranches} remotes={overview.remotes}
@@ -125,12 +127,24 @@ export function GitDrawer({ session, busy, onClose, onError }: {
           onMerge={() => run(async () => {
             const result = await api.gitMerge(session.id, mergeRef)
             setMergeRef('')
-            setNotice(result.conflict_id ? `Merge de ${result.ref} entrou em conflito; foi pedida uma resolução ao ChatGPT.` : `Merge de ${result.ref}: ${result.outcome}.`)
+            setNotice(result.conflict_id ? `Merge de ${result.ref} entrou em conflito; escolha resolução manual ou GPT no chat.` : `Merge de ${result.ref}: ${result.outcome}.`)
+          }, true)}
+          onFetch={(remote) => run(async () => {
+            await api.gitFetch(session.id, remote)
+            setNotice(`Fetch de ${remote} concluído.`)
           })}
+          onPull={(remote, branch) => run(async () => {
+            const result = await api.gitPull(session.id, remote, branch)
+            setNotice(result.conflict_id ? `Pull de ${result.ref} encontrou conflito; escolha resolução manual ou GPT no chat.` : `Pull de ${result.ref}: ${result.outcome}.`)
+          }, true)}
+          onSwitch={(branch) => run(async () => {
+            await api.gitSwitch(session.id, branch)
+            setNotice(`Branch alterada para ${branch}.`)
+          }, true)}
           onPush={(remote, branch, setUpstream) => run(async () => {
             const result = await api.gitPush(session.id, remote, branch, setUpstream)
             setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
-          })}
+          }, true)}
         />}
         {activeTab === 'settings' && <RepositorySettings overview={overview} disabled={disabled} onChange={(mode) => run(async () => {
           await api.setGitCommitMode(session.id, mode)
@@ -172,7 +186,7 @@ function WorktreeSummary({ overview }: { overview: GitOverview }) {
 }
 
 function pushMessage(outcome: string, integrated?: boolean, conflictID?: string) {
-  if (conflictID) return 'O remoto tinha trabalho que entrou em conflito; foi pedida uma resolução ao ChatGPT. Nada foi publicado.'
+  if (conflictID) return 'O remoto tinha trabalho que entrou em conflito; escolha resolução manual ou GPT no chat. Nada foi publicado.'
   switch (outcome) {
     case 'pushed': return integrated ? 'Trabalho do remoto integrado e push concluído.' : 'Push concluído.'
     case 'up_to_date': return 'O remoto já estava atualizado.'
@@ -207,18 +221,21 @@ function CommitModeSection({ overview, disabled, onChange }: { overview: GitOver
   </section>
 }
 
-function BranchSection({ current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, onPush }: {
+function BranchSection({ current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, onFetch, onPull, onSwitch, onPush }: {
   current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
-  disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void; onPush: (remote: string, branch: string, setUpstream: boolean) => void
+  disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void
+  onFetch: (remote: string) => void; onPull: (remote: string, branch: string) => void; onSwitch: (branch: string) => void
+  onPush: (remote: string, branch: string, setUpstream: boolean) => void
 }) {
   const active = localBranches.find((branch) => branch.current)
-  const defaultRemote = remotes[0]?.name || 'origin'
-  const canPush = Boolean(current) && !detached && remotes.length > 0
+  const upstreamRemote = active?.upstream?.split('/')[0]
+  const defaultRemote = upstreamRemote || remotes[0]?.name || 'origin'
+  const canSync = Boolean(current) && !detached && remotes.length > 0
   return <section className="git-section git-branches-section">
     <div className="git-branch-hero">
       <span className="git-branch-icon"><Icon name="git" size={16}/></span>
       <div><span>Branch atual</span><strong>{detached ? 'HEAD destacado' : current || '—'}</strong>{active?.has_upstream && <small>↑{active.ahead} ↓{active.behind} · {active.upstream}</small>}{active && !active.has_upstream && <small>sem upstream</small>}</div>
-      {canPush && active && <button type="button" className="git-action" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)}><Icon name="arrow-up" size={13}/> Push</button>}
+      {canSync && active && <div className="git-branch-hero-actions"><button type="button" className="git-action" disabled={disabled} onClick={() => onFetch(defaultRemote)}><Icon name="refresh" size={13}/> Fetch</button><button type="button" className="git-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)}><Icon name="arrow-down" size={13}/> Pull</button><button type="button" className="git-action" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)}><Icon name="arrow-up" size={13}/> Push</button></div>}
     </div>
     <div className="git-merge-card">
       <div><span>Integrar branch</span><strong>Merge no branch atual</strong></div>
@@ -231,15 +248,15 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
         <button type="button" className="git-action" disabled={disabled || !mergeRef} onClick={onMerge}><Icon name="bridge" size={13}/> Merge</button>
       </div>
     </div>
-    <BranchList title="Locais" branches={localBranches}/>
+    <BranchList title="Locais" branches={localBranches} disabled={disabled} onSwitch={onSwitch}/>
     <BranchList title="Remotas" branches={remoteBranches}/>
   </section>
 }
 
-function BranchList({ title, branches }: { title: string; branches: GitBranch[] }) {
+function BranchList({ title, branches, disabled = false, onSwitch }: { title: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void }) {
   return <div className="git-branch-group"><div className="git-section-heading compact"><div><span>{title}</span></div><span className="git-section-count">{branches.length}</span></div>
     <ul className="git-branch-list">{branches.map((branch) => <li key={branch.name} className={`${branch.current ? 'current' : ''} ${branch.remote ? 'remote' : ''}`}>
-      <span className="git-branch-marker"><Icon name="git" size={12}/></span><span className="git-branch-name">{branch.name}</span><span className="git-branch-subject">{branch.subject}</span>
+      <span className="git-branch-marker"><Icon name="git" size={12}/></span><span className="git-branch-name">{branch.name}</span><span className="git-branch-subject">{branch.subject}</span>{onSwitch && !branch.current && <button type="button" className="git-action small" disabled={disabled} onClick={() => onSwitch(branch.name)}>Alternar</button>}
     </li>)}</ul>
   </div>
 }
@@ -265,13 +282,53 @@ function PendingSection({ pending, selected, disabled, hasIdentity, commitMode, 
   </section>
 }
 
-function HistorySection({ commits, branches }: { commits: GitOverview['commits']; branches: GitOverview['branches'] }) {
-  const rows = buildGitGraphRows(commits)
+function HistorySection({ sessionId, commits, branches }: { sessionId: string; commits: GitOverview['commits']; branches: GitOverview['branches'] }) {
+  const [mode, setMode] = useState<'current' | 'selected' | 'all'>('current')
+  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set())
+  const [history, setHistory] = useState(commits)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (mode === 'current') {
+      setHistory(commits)
+      return
+    }
+    let alive = true
+    setLoading(true); setError('')
+    api.gitHistory(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all')
+      .then((next) => { if (alive) setHistory(next) })
+      .catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : String(cause)) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [sessionId, commits, mode, selectedRefs])
+
+  function toggleRef(name: string) {
+    setMode('selected')
+    setSelectedRefs((current) => {
+      const next = new Set(current)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  const rows = buildGitGraphRows(history)
   const refsBySHA = new Map<string, GitBranch[]>()
   for (const branch of branches) refsBySHA.set(branch.commit_sha, [...(refsBySHA.get(branch.commit_sha) || []), branch])
   return <section className="git-section git-history-section">
-    <div className="git-section-heading"><div><span>Timeline</span><strong>Histórico de commits</strong></div><span className="git-section-count">{commits.length}</span></div>
-    {commits.length === 0 && <p className="git-empty inline">Sem commits.</p>}
+    <div className="git-section-heading"><div><span>Timeline</span><strong>Histórico de commits</strong></div><span className="git-section-count">{history.length}</span></div>
+    <div className="git-history-scope" role="group" aria-label="Âmbito do histórico">
+      <button type="button" className={mode === 'current' ? 'active' : ''} onClick={() => setMode('current')}>Branch atual</button>
+      <button type="button" className={mode === 'selected' ? 'active' : ''} onClick={() => setMode('selected')}>Selecionadas {selectedRefs.size ? `(${selectedRefs.size})` : ''}</button>
+      <button type="button" className={mode === 'all' ? 'active' : ''} onClick={() => setMode('all')}>Todas</button>
+    </div>
+    <div className="git-history-branch-picker" aria-label="Selecionar branches do histórico">
+      {branches.map((branch) => <button key={branch.name} type="button" className={selectedRefs.has(branch.name) ? 'active' : ''} aria-pressed={selectedRefs.has(branch.name)} onClick={() => toggleRef(branch.name)}><Icon name="git" size={11}/>{branch.name}</button>)}
+    </div>
+    {loading && <p className="git-empty inline">A carregar timeline…</p>}
+    {error && <p className="git-notice warning-card">{error}</p>}
+    {!loading && history.length === 0 && <p className="git-empty inline">Sem commits para o âmbito selecionado.</p>}
     <ul className="git-commit-list">{rows.map((row) => <li key={row.commit.sha} className="git-history-row">
       <CommitGraph row={row}/>
       <div className="git-history-copy">

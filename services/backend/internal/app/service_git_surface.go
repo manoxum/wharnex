@@ -12,6 +12,7 @@ import (
 	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/pendingcommit"
+	"kernl.local/harness/backend/internal/projectversion"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
 
@@ -149,6 +150,7 @@ type GitWorkingSummary struct {
 // GitOverview is everything the Git surface renders in one round trip.
 type GitOverview struct {
 	ProjectPath     string                     `json:"project_path"`
+	ProjectVersion  string                     `json:"project_version"`
 	Available       bool                       `json:"available"`
 	Unavailable     string                     `json:"unavailable,omitempty"`
 	CommitMode      string                     `json:"commit_mode"`
@@ -203,6 +205,9 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 		ProjectPath: item.ProjectPath,
 		CommitMode:  string(s.projectCommitMode(item.ProjectPath)),
 	}
+	if version, _, versionErr := projectversion.Ensure(item.ProjectPath); versionErr == nil {
+		overview.ProjectVersion = version
+	}
 	if s.isSelfEvolution(item) {
 		// Self-evolution always commits; presenting a toggle that Apply would
 		// then override would be a lie about what the button does.
@@ -240,6 +245,46 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 		overview.Conflict = item.IntegrationConflict.Git
 	}
 	return overview, nil
+}
+
+// GitHistory returns a graph-ready commit timeline for selected branch refs or
+// all refs. Only branch names reported by this repository are accepted.
+func (s *Service) GitHistory(ctx context.Context, sessionID string, refs []string, all bool) ([]hostrepo.Commit, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if all {
+		return hostrepo.LogRefs(ctx, item.ProjectPath, nil, true, 200)
+	}
+	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]bool, len(branches))
+	for _, branch := range branches {
+		allowed[branch.Name] = true
+	}
+	selected := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		if !allowed[ref] {
+			return nil, fmt.Errorf("unknown branch %q", ref)
+		}
+		seen[ref] = true
+		selected = append(selected, ref)
+		if len(selected) >= 32 {
+			break
+		}
+	}
+	if len(selected) == 0 {
+		return hostrepo.Log(ctx, item.ProjectPath, 50)
+	}
+	return hostrepo.LogRefs(ctx, item.ProjectPath, selected, false, 200)
 }
 
 // pendingRecordsWithoutDiffs lists the queue with diffs stripped. A diff is up

@@ -19,6 +19,7 @@ export function ConflictResolverModal({ session, busy, onClose, onSession, onDel
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [guidance, setGuidance] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -60,7 +61,7 @@ export function ConflictResolverModal({ session, busy, onClose, onSession, onDel
   async function delegateRemaining() {
     setSubmitting(true); setError('')
     try {
-      const updated = await api.delegateConflictToGPT(session.id, resolvedPayload)
+      const updated = await api.delegateConflictToGPT(session.id, resolvedPayload, guidance)
       onSession(updated)
       onClose()
       await onDelegateToGPT(updated)
@@ -71,7 +72,7 @@ export function ConflictResolverModal({ session, busy, onClose, onSession, onDel
   return <div className="diff-inspector-backdrop conflict-resolver-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !locked) onClose() }}>
     <section className="conflict-resolver" role="dialog" aria-modal="true" aria-label="Resolução manual de conflito">
       <header className="conflict-resolver-header">
-        <div><span className="panel-kicker">Merge manual</span><strong>Resolver conflito</strong><span>Atual · Resultado editável · Recebido</span></div>
+        <div><span className="panel-kicker">Merge manual</span><strong>Resolver conflito</strong><span>Local · Consolidação editável · Remota</span></div>
         <div><StatusPill tone={allResolved ? 'success' : 'warning'}>{resolvedCount}/{workbench?.files.length || 0} resolvido(s)</StatusPill><button className="icon-button light" disabled={locked} onClick={onClose} aria-label="Fechar resolução"><Icon name="close" size={14}/></button></div>
       </header>
       {error && <div className="conflict-resolver-error">{error}</div>}
@@ -80,21 +81,21 @@ export function ConflictResolverModal({ session, busy, onClose, onSession, onDel
           {workbench.files.map((candidate) => <button key={candidate.path} role="tab" aria-selected={candidate.path === activePath} className={candidate.path === activePath ? 'active' : ''} onClick={() => setActivePath(candidate.path)}><span>{drafts[candidate.path]?.resolved ? '✓' : '•'}</span>{candidate.path}</button>)}
         </div>
         {file && draft && <div className="conflict-merge-grid">
-          <ConflictPane title="Atual" subtitle={file.current_exists ? 'Versão no host' : 'Ficheiro ausente'} actionLabel="Aceitar atual" onAccept={() => accept(file.current, file.current_exists)}>
+          <ConflictPane title="Local" subtitle={file.current_exists ? 'Versão no host' : 'Ficheiro ausente'} actionLabel="Aceitar local" onAccept={() => accept(file.current, file.current_exists)}>
             <CodeEditor path={`.wharnex-conflict/current/${file.path}`} value={file.current} onChange={() => undefined} onSave={() => undefined} onCursorChange={() => undefined} readOnly/>
           </ConflictPane>
-          <ConflictPane title="Resultado" subtitle={draft.exists ? (draft.resolved ? 'Marcado como resolvido' : 'Edite e confirme') : 'Ficheiro será removido'} center>
+          <ConflictPane title="Consolidação" subtitle={draft.exists ? (draft.resolved ? 'Marcado como resolvido' : 'Edite e confirme') : 'Ficheiro será removido'} center>
             <CodeEditor path={`.wharnex-conflict/result/${file.path}`} value={draft.content} onChange={(content) => updateDraft({ content, exists: true, resolved: false })} onSave={() => updateDraft({ resolved: true })} onCursorChange={() => undefined}/>
             <div className="conflict-result-actions"><button className="secondary-button" onClick={() => updateDraft({ resolved: true })}>Marcar edição como resolvida</button>{(!file.current_exists || !file.incoming_exists) && <button className="text-button danger" onClick={() => updateDraft({ content: '', exists: false, resolved: true })}>Resolver como removido</button>}</div>
           </ConflictPane>
-          <ConflictPane title="Recebido" subtitle={file.incoming_exists ? 'Versão concorrente' : 'Ficheiro ausente'} actionLabel="Aceitar recebido" onAccept={() => accept(file.incoming, file.incoming_exists)}>
+          <ConflictPane title="Remota" subtitle={file.incoming_exists ? 'Versão concorrente' : 'Ficheiro ausente'} actionLabel="Aceitar remota" onAccept={() => accept(file.incoming, file.incoming_exists)}>
             <CodeEditor path={`.wharnex-conflict/incoming/${file.path}`} value={file.incoming} onChange={() => undefined} onSave={() => undefined} onCursorChange={() => undefined} readOnly/>
           </ConflictPane>
         </div>}
         {file && <details className="conflict-base"><summary>Ver base comum</summary><pre>{file.base_exists ? file.base : 'Ficheiro inexistente na base.'}</pre></details>}
       </>}
       <footer className="conflict-resolver-footer">
-        <div><span>As decisões manuais ficam bloqueadas se delegar o restante ao GPT.</span></div>
+        <div><span>As decisões manuais ficam bloqueadas se delegar o restante ao GPT.</span><textarea className="conflict-guidance" value={guidance} onChange={(event) => setGuidance(event.target.value)} placeholder="Instrução auxiliar opcional para o GPT…" rows={2}/></div>
         <div><button className="text-button" disabled={locked} onClick={onClose}>Cancelar</button><button className="secondary-button" disabled={locked || !workbench || allResolved || resolvedCount === 0} onClick={() => void delegateRemaining()}><Icon name="chatgpt" size={14}/> Delegar restantes ao GPT</button><button className="apply-button" disabled={locked || !allResolved} onClick={() => void applyManual()}><Icon name="apply" size={14}/> Aplicar resolução manual</button></div>
       </footer>
     </section>

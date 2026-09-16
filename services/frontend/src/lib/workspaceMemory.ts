@@ -137,11 +137,9 @@ export function mergeDurableWorkspaceChats(local: WorkspaceChat[], durable: Dura
 }
 
 export function conflictChatGPTCacheKey(chatId: string, conflictId: string) {
-  // Conflict resolution is another turn in the chat's one remote
-  // conversation. Keep this helper only as a compatibility seam.
-  void conflictId
-  const clean = chatId.replace(/[^A-Za-z0-9_-]/g, '_')
-  return clean.slice(0, 128)
+  const cleanChat = chatId.replace(/[^A-Za-z0-9_-]/g, '_')
+  const cleanConflict = conflictId.replace(/[^A-Za-z0-9_-]/g, '_')
+  return `${cleanChat}_cf_${cleanConflict}`.slice(0, 128)
 }
 
 export function loadActiveWorkspace(): ActiveWorkspace | undefined {

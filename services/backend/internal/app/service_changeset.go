@@ -463,9 +463,14 @@ type conflictCapsuleIntent struct {
 	OurGoal string `json:"our_goal,omitempty"`
 	// OurCommitMessage is the Conventional Commits subject the plan declared.
 	OurCommitMessage string `json:"our_commit_message,omitempty"`
-	// IncomingChanges are the already-integrated changes this candidate
-	// collides with, newest first, each stating its own purpose.
+	// LocalChanges and IncomingChanges carry the commit intent on each side
+	// of a Git merge, newest first. Integration conflicts normally populate
+	// only IncomingChanges because their local intent is OurGoal.
+	LocalChanges    []conflictCapsuleChange `json:"local_changes,omitempty"`
 	IncomingChanges []conflictCapsuleChange `json:"incoming_changes,omitempty"`
+	// UserGuidance is optional operator context supplied when delegating a
+	// conflict to GPT from the manual/automatic choice surface.
+	UserGuidance string `json:"user_guidance,omitempty"`
 	// Attempt/MaxAttempts make the remaining budget explicit so the resolver
 	// can tell a first attempt from the last one and choose a decisively
 	// simpler reconciliation rather than repeating a strategy that has already

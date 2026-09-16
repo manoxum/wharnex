@@ -55,11 +55,31 @@ const (
 // the log itself is the record of what Wharnex has committed — no parallel
 // bookkeeping that could drift from the repository's real state.
 func Log(ctx context.Context, root string, limit int) ([]Commit, error) {
+	return LogRefs(ctx, root, nil, false, limit)
+}
+
+// LogRefs reads history for selected branch refs or the whole repository.
+// Refs are validated as names rather than arbitrary rev expressions so the
+// trusted UI cannot accidentally turn a branch picker into a Git argument
+// injection surface.
+func LogRefs(ctx context.Context, root string, refs []string, all bool, limit int) ([]Commit, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%cI", "%P", "%s", "%b"}, commitFieldSeparator) + commitRecordSeparator
-	output, err := run(ctx, root, "log", "--no-color", "--topo-order", fmt.Sprintf("--max-count=%d", limit), "--format="+format)
+	args := []string{"log", "--no-color", "--topo-order", fmt.Sprintf("--max-count=%d", limit), "--format=" + format}
+	if all {
+		args = append(args, "--all")
+	} else {
+		for _, ref := range refs {
+			ref = strings.TrimSpace(ref)
+			if ref == "" || strings.HasPrefix(ref, "-") {
+				return nil, fmt.Errorf("invalid history ref %q", ref)
+			}
+			args = append(args, ref)
+		}
+	}
+	output, err := run(ctx, root, args...)
 	if err != nil {
 		// A repository with no commit yet is an empty log, not a failure.
 		if strings.Contains(output, "does not have any commits") || strings.Contains(output, "unknown revision") {
