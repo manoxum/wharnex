@@ -172,7 +172,6 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   attachments: Object.freeze({
     persist: (request) => invoke('wharness:attachments:persist', request),
     preview: (request) => invoke('wharness:attachments:preview', request),
-    read: (request) => invoke('wharness:attachments:read', request),
     open: (request) => invoke('wharness:attachments:open', request),
     removeChat: (request) => invoke('wharness:attachments:remove-chat', request),
   }),
