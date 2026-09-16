@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,10 +19,18 @@ import (
 )
 
 type memoryArtifactStore struct {
-	objects map[string][]byte
+	objects   map[string][]byte
+	putErrors []error
+	putCalls  int
 }
 
 func (m *memoryArtifactStore) Put(_ context.Context, key, _ string, raw []byte) error {
+	m.putCalls++
+	if len(m.putErrors) > 0 {
+		err := m.putErrors[0]
+		m.putErrors = m.putErrors[1:]
+		return err
+	}
 	m.objects[key] = append([]byte(nil), raw...)
 	return nil
 }
@@ -70,6 +79,65 @@ func TestArtifactLifecycleExploresAndCleansBundle(t *testing.T) {
 	}
 	if len(objects.objects) != 0 {
 		t.Fatalf("artifact object was not deleted: %#v", objects.objects)
+	}
+}
+
+func TestArtifactStorageFullCleansExpiredArtifactsAndRetries(t *testing.T) {
+	store := session.NewStore()
+	if err := store.Put(domain.Session{ID: "ses_recovery", ProjectPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	objects := &memoryArtifactStore{objects: map[string][]byte{}}
+	service.SetArtifactStore(objects, 30)
+
+	old, err := service.PersistArtifact(context.Background(), "ses_recovery", "req_old", "output", "response_bundle", "old.zip", "application/zip", testArtifactZIP(t, map[string]string{"old.txt": "old"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Update("ses_recovery", func(item *domain.Session) error {
+		for index := range item.Artifacts {
+			if item.Artifacts[index].ID == old.ID {
+				item.Artifacts[index].CreatedAt = time.Now().UTC().Add(-60 * 24 * time.Hour)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects.putErrors = []error{errors.New("XMinioStorageFull: Storage backend has reached its minimum free drive threshold")}
+
+	record, err := service.PersistArtifact(context.Background(), "ses_recovery", "req_new", "input", "library", "new.txt", "text/plain", []byte("new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Name != "new.txt" || objects.putCalls != 3 {
+		t.Fatalf("unexpected recovered write: record=%+v putCalls=%d", record, objects.putCalls)
+	}
+	if _, ok := objects.objects[old.ObjectKey]; ok {
+		t.Fatalf("expired artifact object was not reclaimed: %s", old.ObjectKey)
+	}
+}
+
+func TestArtifactStorageFullReturnsStableErrorAfterRetry(t *testing.T) {
+	store := session.NewStore()
+	if err := store.Put(domain.Session{ID: "ses_full", ProjectPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	objects := &memoryArtifactStore{objects: map[string][]byte{}, putErrors: []error{
+		errors.New("XMinioStorageFull: Storage backend has reached its minimum free drive threshold"),
+		errors.New("XMinioStorageFull: Storage backend has reached its minimum free drive threshold"),
+	}}
+	service.SetArtifactStore(objects, 30)
+
+	_, err := service.PersistArtifact(context.Background(), "ses_full", "req_full", "input", "library", "full.txt", "text/plain", []byte("data"))
+	if !errors.Is(err, ErrArtifactStorageFull) {
+		t.Fatalf("expected stable full-storage error, got %v", err)
+	}
+	if strings.Contains(err.Error(), "XMinioStorageFull") || objects.putCalls != 2 {
+		t.Fatalf("raw MinIO error leaked or retry count wrong: err=%v putCalls=%d", err, objects.putCalls)
 	}
 }
 
