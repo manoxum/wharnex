@@ -1,3 +1,10 @@
+## Unreleased Git/Plan visual ergonomics and manual patch fallback
+
+- `GitDrawer.test.tsx` verifies history branch selection through the new multi-select while keeping selected/all history fetch semantics.
+- `Inspector.test.tsx` verifies patch plans expose per-file diff rows plus **Descarregar patches** and **Copiar lote de comandos**, without rendering the raw `diff --git` payload as the normal Plan UI.
+- Static gates: `git diff --check`, targeted contract searches for the new controls/styles, then the normal frontend typecheck/test suite in the hydrated Wharnex execution environment.
+- Manual UX check: verify the branch popup is opaque in light/dark themes, the version badge remains legible, branch actions align, Chat files preserve card/table navigation, the Plan diff opens Monaco before/after, and the fallback buttons persist patches under project-root `patches/` and copy a check-before-apply batch.
+
 ## Unreleased Git shell and conflict-intent validation
 
 - `WorkspaceShell.test.tsx` verifies the shell's former instance/version slot renders the active project branch plus project version and keeps that Git control before the workspace mode selector.

@@ -51,6 +51,38 @@ describe('Inspector plan compatibility', () => {
     expect(screen.getByText('Operações').parentElement?.textContent).toContain('0')
     expect(screen.getByText('Verificações').parentElement?.textContent).toContain('0')
   })
+
+  it('shows plan patches as file-level diffs with manual fallback actions', () => {
+    const session = legacySession()
+    session.plan = {
+      ...session.plan!,
+      operations: [{
+        type: 'apply_patch',
+        patch: 'diff --git a/src/demo.ts b/src/demo.ts\n--- a/src/demo.ts\n+++ b/src/demo.ts\n@@ -1 +1 @@\n-old\n+new\n',
+        command: { argv: [], cwd: '.', timeout_seconds: 60, network: false, expected_exit_codes: [0] },
+      }],
+      verification: [],
+    }
+    render(<Inspector
+      config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={session}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      activeTab="plan"
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onApply={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+    expect(screen.getByRole('button', { name: /Descarregar patches/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Copiar lote de comandos/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /src\/demo\.ts/i })).toBeTruthy()
+    expect(screen.queryByText(/diff --git a\/src\/demo\.ts/)).toBeNull()
+  })
 })
 
 it('hides the execute control while the active plan already has a durable execution intent', () => {

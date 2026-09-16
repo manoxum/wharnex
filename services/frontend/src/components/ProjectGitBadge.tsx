@@ -56,7 +56,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       <Icon name="chevron" size={11}/>
     </button>
     {open && <section className="project-git-menu" aria-label="Operações da branch atual">
-      <header><div><span>Branch de trabalho</span><strong>{currentBranch}</strong></div><span>{overview?.project_version || '—'}</span></header>
+      <header><div><span>Branch de trabalho</span><strong>{currentBranch}</strong></div><span className="project-git-menu-version">{overview?.project_version || '—'}</span></header>
       <label>Alternar branch<select value={branch} disabled={disabled} onChange={(event) => setBranch(event.target.value)}>{locals.map((item) => <option key={item.name} value={item.name}>{item.name}{item.current ? ' · atual' : ''}</option>)}</select></label>
       <div className="project-git-actions">
         <button type="button" disabled={disabled || !branch || branch === overview?.current_branch} onClick={() => void run(async () => { await api.gitSwitch(id, branch); return `Branch alterada para ${branch}.` }, true)}><Icon name="bridge" size={12}/> Alternar</button>

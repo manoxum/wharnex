@@ -256,7 +256,7 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
 function BranchList({ title, branches, disabled = false, onSwitch }: { title: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void }) {
   return <div className="git-branch-group"><div className="git-section-heading compact"><div><span>{title}</span></div><span className="git-section-count">{branches.length}</span></div>
     <ul className="git-branch-list">{branches.map((branch) => <li key={branch.name} className={`${branch.current ? 'current' : ''} ${branch.remote ? 'remote' : ''}`}>
-      <span className="git-branch-marker"><Icon name="git" size={12}/></span><span className="git-branch-name">{branch.name}</span><span className="git-branch-subject">{branch.subject}</span>{onSwitch && !branch.current && <button type="button" className="git-action small" disabled={disabled} onClick={() => onSwitch(branch.name)}>Alternar</button>}
+      <span className="git-branch-marker"><Icon name="git" size={12}/></span><span className="git-branch-name">{branch.name}</span><span className="git-branch-subject">{branch.subject}</span>{onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>Alternar</span></button>}
     </li>)}</ul>
   </div>
 }
@@ -303,14 +303,9 @@ function HistorySection({ sessionId, commits, branches }: { sessionId: string; c
     return () => { alive = false }
   }, [sessionId, commits, mode, selectedRefs])
 
-  function toggleRef(name: string) {
+  function selectRefs(values: string[]) {
+    setSelectedRefs(new Set(values))
     setMode('selected')
-    setSelectedRefs((current) => {
-      const next = new Set(current)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
   }
 
   const rows = buildGitGraphRows(history)
@@ -323,9 +318,12 @@ function HistorySection({ sessionId, commits, branches }: { sessionId: string; c
       <button type="button" className={mode === 'selected' ? 'active' : ''} onClick={() => setMode('selected')}>Selecionadas {selectedRefs.size ? `(${selectedRefs.size})` : ''}</button>
       <button type="button" className={mode === 'all' ? 'active' : ''} onClick={() => setMode('all')}>Todas</button>
     </div>
-    <div className="git-history-branch-picker" aria-label="Selecionar branches do histórico">
-      {branches.map((branch) => <button key={branch.name} type="button" className={selectedRefs.has(branch.name) ? 'active' : ''} aria-pressed={selectedRefs.has(branch.name)} onClick={() => toggleRef(branch.name)}><Icon name="git" size={11}/>{branch.name}</button>)}
-    </div>
+    <label className="git-history-branch-picker">
+      <span>Branches específicas <small>{selectedRefs.size ? `${selectedRefs.size} selecionada(s)` : 'Selecione uma ou mais'}</small></span>
+      <select multiple value={Array.from(selectedRefs)} aria-label="Branches do histórico" onChange={(event) => selectRefs(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>
+        {branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.current ? ' · atual' : ''}</option>)}
+      </select>
+    </label>
     {loading && <p className="git-empty inline">A carregar timeline…</p>}
     {error && <p className="git-notice warning-card">{error}</p>}
     {!loading && history.length === 0 && <p className="git-empty inline">Sem commits para o âmbito selecionado.</p>}

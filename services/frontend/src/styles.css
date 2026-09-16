@@ -4169,3 +4169,72 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-bundle-strip > header strong { font-size:11px; color:var(--theme-text); }
 .chat-bundle-strip > header small { font-size:9px; color:var(--theme-text-muted); }
 .chat-bundle-strip > div { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:7px; }
+
+/* Git + Plan refinement: stronger hierarchy and theme-safe contrast. */
+.project-git-menu { z-index:40; isolation:isolate; background:var(--theme-elevated); border-color:var(--theme-border); box-shadow:0 20px 54px color-mix(in srgb,#000 28%,transparent),0 1px 0 color-mix(in srgb,#fff 5%,transparent) inset; }
+.project-git-menu-version { min-width:44px; padding:4px 8px; border:1px solid color-mix(in srgb,var(--theme-accent) 28%,var(--theme-border)); border-radius:999px; background:var(--theme-accent-soft); color:var(--theme-accent) !important; font:700 10px/1.1 var(--mono-font-family); text-align:center; }
+.git-branch-list li { grid-template-columns:18px minmax(90px,auto) minmax(0,1fr) auto; }
+.git-branch-switch { min-width:86px; justify-self:end; display:inline-flex; align-items:center; justify-content:center; gap:5px; border-radius:8px; }
+.git-history-scope button { border:1px solid var(--theme-border); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); min-height:27px; padding:0 9px; font-size:11px; cursor:pointer; }
+.git-history-scope button.active { color:var(--theme-text); border-color:color-mix(in srgb,var(--theme-accent) 60%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent) 10%,var(--theme-bg)); }
+.git-history-branch-picker { display:grid; gap:7px; padding:10px; margin:0 0 10px; border:1px solid var(--theme-border-soft); border-radius:10px; background:color-mix(in srgb,var(--theme-elevated) 86%,var(--theme-accent) 3%); }
+.git-history-branch-picker > span { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:var(--theme-text); font-size:10px; font-weight:700; }
+.git-history-branch-picker > span small { color:var(--theme-text-muted); font-size:8px; font-weight:500; }
+.git-history-branch-picker select { width:100%; min-height:82px; max-height:132px; padding:4px; border:1px solid var(--theme-border); border-radius:8px; background:var(--theme-surface); color:var(--theme-text); font:10px/1.35 var(--mono-font-family); outline:none; }
+.git-history-branch-picker select:focus { border-color:color-mix(in srgb,var(--theme-accent) 60%,var(--theme-border)); box-shadow:0 0 0 2px color-mix(in srgb,var(--theme-accent) 11%,transparent); }
+.git-history-branch-picker option { padding:5px 7px; border-radius:5px; }
+
+.plan-view { --plan-ink:var(--theme-text); --plan-muted:var(--theme-text-muted); --plan-line:var(--theme-border-soft); --plan-accent:var(--theme-accent); color:var(--theme-text); }
+.plan-view .policy-box { border-color:var(--theme-border-soft); background:var(--theme-elevated); color:var(--theme-text); }
+.plan-view .policy-box span { color:var(--theme-text-muted); }
+.plan-view .metric-row { border-color:var(--theme-border-soft); background:var(--theme-elevated); border-radius:11px; overflow:hidden; }
+.plan-view .metric { border-color:var(--theme-border-soft); }
+.plan-view .metric span { color:var(--theme-text-muted); }
+.plan-view .metric strong { color:var(--theme-text); }
+.plan-command-deck { border-color:color-mix(in srgb,var(--theme-accent) 30%,var(--theme-border)); border-left-color:var(--theme-accent); background:color-mix(in srgb,var(--theme-elevated) 90%,var(--theme-accent) 4%); color:var(--theme-text); box-shadow:0 12px 30px color-mix(in srgb,#000 13%,transparent); }
+.plan-command-deck .panel-kicker { color:var(--theme-accent); }
+.plan-command-deck > div:first-child > span:last-child { color:var(--theme-text-muted); }
+.plan-section-title > span { border-color:color-mix(in srgb,var(--theme-accent) 35%,var(--theme-border)); background:var(--theme-accent-soft); color:var(--theme-accent); }
+.plan-document { border-color:var(--theme-border-soft); background:var(--theme-elevated); box-shadow:0 9px 24px color-mix(in srgb,#000 5%,transparent); }
+.plan-document .markdown-content { color:var(--theme-text-soft); }
+.plan-impact-panel { border-color:var(--theme-border-soft); background:var(--theme-elevated); }
+.plan-impact-panel.host-impact { border-color:color-mix(in srgb,#d68b56 55%,var(--theme-border)); background:color-mix(in srgb,var(--theme-elevated) 90%,#d68b56 10%); }
+.plan-requirement { border-color:var(--theme-border-soft); }
+.plan-requirement > span { background:var(--theme-subtle); color:var(--theme-text-soft); }
+.plan-requirement .target-host { background:color-mix(in srgb,#d68b56 18%,var(--theme-elevated)); color:color-mix(in srgb,#d68b56 80%,var(--theme-text)); }
+.plan-requirement strong { color:var(--theme-text); }
+.plan-requirement small,.plan-requirement p,.plan-none { color:var(--theme-text-muted); }
+.plan-view .operation-list { border-color:var(--theme-border-soft); }
+.plan-view .operation { border-color:var(--theme-border-soft); }
+.plan-view .operation-index,.plan-view .operation-body > span { color:var(--theme-text-muted); }
+.plan-view .operation-body strong { color:var(--theme-text); }
+.plan-manual-tools { margin:-12px 0 22px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:14px; border:1px solid var(--theme-border-soft); border-radius:11px; background:color-mix(in srgb,var(--theme-elevated) 94%,var(--theme-accent) 3%); }
+.plan-manual-tools > div:first-child { min-width:0; display:grid; gap:3px; }
+.plan-manual-tools strong { color:var(--theme-text); font-size:11px; }
+.plan-manual-tools small { max-width:650px; color:var(--theme-text-muted); font-size:9px; line-height:1.45; }
+.plan-manual-tools > div:last-child { flex:0 0 auto; display:flex; gap:6px; }
+.plan-manual-notice { margin:-14px 0 18px; padding:8px 10px; border-radius:8px; background:var(--theme-accent-soft); color:var(--theme-accent); font-size:9px; }
+.plan-diff-files { margin-top:7px; display:grid; gap:5px; }
+.plan-diff-file { width:100%; min-height:37px; padding:0 9px; display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-elevated); color:var(--theme-text); cursor:pointer; text-align:left; }
+.plan-diff-file:hover { border-color:color-mix(in srgb,var(--theme-accent) 35%,var(--theme-border)); background:var(--theme-hover); }
+.plan-diff-file > span:first-child { min-width:0; display:flex; align-items:center; gap:7px; }
+.plan-diff-file b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:600 9.5px/1.2 var(--mono-font-family); }
+.plan-diff-stats { flex:0 0 auto; display:flex; align-items:center; gap:6px; font:700 8.5px/1 var(--mono-font-family); }
+.plan-diff-stats em { color:var(--theme-success,#6fb75c); font-style:normal; }
+.plan-diff-stats i { color:var(--theme-danger,#d66b62); font-style:normal; }
+.plan-diff-empty { margin-top:5px; color:var(--theme-text-muted); font-size:9px; }
+
+.chat-artifact-library { background:var(--theme-surface); }
+.chat-artifact-library-header { min-height:64px; padding:10px 14px; background:color-mix(in srgb,var(--theme-elevated) 96%,var(--theme-accent) 2%); }
+.chat-artifact-library-header > div:first-child > span { width:34px; height:34px; flex-basis:34px; border-radius:10px; }
+.chat-artifact-library-header strong { font-size:12.5px; }
+.chat-artifact-library-header small { font-size:9px; line-height:1.4; }
+.chat-file-toolbar { position:sticky; top:0; z-index:3; padding:9px 11px; background:color-mix(in srgb,var(--theme-surface) 94%,var(--theme-elevated)); backdrop-filter:blur(10px); }
+.chat-file-grid { padding:13px; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+.chat-file-card { grid-template-rows:148px auto auto; border-radius:14px; box-shadow:0 4px 14px color-mix(in srgb,#000 5%,transparent); }
+.chat-file-card:hover { transform:translateY(-2px); box-shadow:0 12px 28px color-mix(in srgb,#000 12%,transparent); }
+.chat-file-copy { padding:10px 11px 8px; gap:4px; }
+.chat-file-copy strong { font-size:10.5px; }
+.chat-file-actions { padding:7px 8px; background:color-mix(in srgb,var(--theme-surface) 65%,transparent); }
+.chat-file-actions button,.chat-file-actions a { min-height:30px; border-radius:8px; }
+@media (max-width:860px) { .plan-manual-tools { align-items:stretch; flex-direction:column; } .plan-manual-tools > div:last-child { flex-wrap:wrap; } }
