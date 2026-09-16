@@ -93,6 +93,7 @@ services:
       HARNESS_DATABASE_URL: "postgres://wharness:${WHARNESS_DATABASE_PASSWORD}@database:5432/wharness?sslmode=disable"
       HARNESS_STATE_FILE: "${WHARNESS_STATE_DIR}/sessions.json"
       HARNESS_HOST_PTY_SOCKET: "${WHARNESS_BRIDGE_DIR}/host-pty.sock"
+      HARNESS_HOST_GIT_SOCKET: "${WHARNESS_BRIDGE_DIR}/host-git.sock"
       HARNESS_TUNNEL_DAEMON_URL: "http://tunnel:8090"
       HARNESS_TUNNEL_DAEMON_TOKEN: "${WHARNESS_TUNNEL_API_TOKEN}"
       WHARNESS_SERVICES_MODE: "stack"

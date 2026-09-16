@@ -4,6 +4,10 @@ import type { GitOverview, Session } from '../types'
 import { api } from '../lib/api'
 import { GitDrawer } from './GitDrawer'
 
+vi.mock('./ChangeDiffEditor', () => ({
+  ChangeDiffEditor: ({ file }: { file: { path: string } }) => <div data-testid="change-diff-editor">Comparação estruturada: {file.path}</div>,
+}))
+
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
   return {
@@ -53,7 +57,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
   }
 }
 
-function openTab(name: 'Alterações' | 'Por publicar' | 'Histórico' | 'Branches' | 'Definições') {
+function openTab(name: 'Alterações' | 'Histórico' | 'Branches' | 'Definições') {
   fireEvent.click(screen.getByRole('tab', { name: new RegExp(name) }))
 }
 
@@ -63,13 +67,14 @@ describe('GitDrawer', () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
   })
 
-  it('organizes changes, unpublished commits, history, branches and settings into dedicated tabs', async () => {
+  it('combines local and unpublished changes while keeping history, branches and settings in dedicated tabs', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
     expect(await screen.findByText('feat: one')).toBeTruthy()
     expect(screen.getByRole('tab', { name: /Alterações/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByText('feat: applied by whx')).toBeNull()
 
-    expect(screen.getByRole('tab', { name: /Por publicar/ })).toBeTruthy()
+    expect(screen.queryByRole('tab', { name: /Por publicar/ })).toBeNull()
+    expect(await screen.findByText('Commits por publicar')).toBeTruthy()
 
     openTab('Histórico')
     expect(screen.getByText('feat: applied by whx')).toBeTruthy()
@@ -96,7 +101,7 @@ describe('GitDrawer', () => {
     fireEvent.click(diffButtons[0])
     await waitFor(() => expect(api.gitFileDiff).toHaveBeenCalledWith('ses_1', 'app.go'))
     expect(await screen.findByRole('dialog', { name: 'Diff de app.go' })).toBeTruthy()
-    expect(screen.getByText(/\+changed/)).toBeTruthy()
+    expect(screen.getByTestId('change-diff-editor').textContent).toContain('app.go')
   })
 
   it('shows unpublished commits with details and publishes only the selected oldest prefix', async () => {
@@ -108,11 +113,10 @@ describe('GitDrawer', () => {
 
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
     await screen.findByText('feat: one')
-    openTab('Por publicar')
     expect(await screen.findByText('fix: newest unpublished')).toBeTruthy()
     expect(screen.getByText('feat: oldest unpublished')).toBeTruthy()
 
-    fireEvent.click(screen.getAllByRole('checkbox')[1])
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar feat: oldest unpublished' }))
     fireEvent.click(screen.getByRole('button', { name: /Push selecionado \(1\)/ }))
     await waitFor(() => expect(api.gitPushSelected).toHaveBeenCalledWith('ses_1', [oldest.sha]))
 
@@ -120,7 +124,7 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(api.gitUnpushedCommit).toHaveBeenCalledWith('ses_1', newest.sha))
     expect(await screen.findByRole('dialog', { name: 'Commit 2222222' })).toBeTruthy()
     expect(screen.getByText(/Request/)).toBeTruthy()
-    expect(screen.getByText(/\+fixed/)).toBeTruthy()
+    expect(screen.getByTestId('change-diff-editor').textContent).toContain('new.ts')
   })
 
   it('lists local-only commits without an upstream and keeps selective push disabled', async () => {
@@ -137,14 +141,14 @@ describe('GitDrawer', () => {
     vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'fix/no-upstream', has_upstream: false, commits: [local] })
 
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    const tab = await screen.findByRole('tab', { name: /Por publicar/ })
-    expect(tab.querySelector('.git-tab-count')?.textContent).toBe('1')
-    fireEvent.click(tab)
+    const tab = await screen.findByRole('tab', { name: /Alterações/ })
+    expect(tab.querySelector('.git-tab-count')?.textContent).toBe('3')
+    expect(screen.queryByRole('tab', { name: /Por publicar/ })).toBeNull()
 
     expect(await screen.findByText('fix: local unpublished commit')).toBeTruthy()
     expect(screen.getByText(/Sem upstream, a lista abaixo mostra commits de HEAD/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Push selecionado/ })).toBeNull()
-    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByRole('checkbox', { name: 'Selecionar fix: local unpublished commit' }) as HTMLInputElement).disabled).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: /Push completo/ }))
     await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'fix/no-upstream', true))
@@ -165,6 +169,18 @@ describe('GitDrawer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Todas' }))
     await waitFor(() => expect(api.gitHistory).toHaveBeenCalledWith('ses_1', [], true))
+  })
+
+  it('renders remote Git failures as high-contrast operational errors', async () => {
+    vi.mocked(api.gitFetch).mockRejectedValueOnce(new Error('fetch origin: /usr/bin/gh: not found'))
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('feat: one')
+    openTab('Branches')
+
+    fireEvent.click(screen.getByRole('button', { name: /Fetch/ }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.classList.contains('error-card')).toBe(true)
+    expect(alert.textContent).toContain('/usr/bin/gh: not found')
   })
 
   it('fetches, pulls and switches branches from version control', async () => {

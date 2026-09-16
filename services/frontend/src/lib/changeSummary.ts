@@ -64,7 +64,7 @@ export function mergeAppliedChangePresentationItems(current: ChatItem[], project
   return next
 }
 
-function splitPatchByFile(patch: string): ChatChangeFile[] {
+export function splitPatchByFile(patch: string): ChatChangeFile[] {
   const lines = patch.replace(/\r\n/g, '\n').split('\n')
   const starts: number[] = []
   lines.forEach((line, index) => { if (line.startsWith('diff --git ') || (line.startsWith('--- ') && index === 0)) starts.push(index) })

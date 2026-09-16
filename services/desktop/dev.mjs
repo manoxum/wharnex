@@ -14,6 +14,7 @@ const runtimeDir = path.resolve(process.env.WHARNESS_RUNTIME_DIR || path.join(pr
 const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
 const hostPTYBinary = path.resolve(projectRoot, 'dist/bin/wharnex-host-pty')
 const hostPTYSocket = path.resolve(projectRoot, '.harness/bridge/host-pty.sock')
+const hostGitSocket = path.resolve(projectRoot, '.harness/bridge/host-git.sock')
 const children = new Map()
 const servicesMode = process.env.WHARNESS_SERVICES_MODE || 'local'
 // Two checkouts running concurrently each pin their own backend/frontend
@@ -131,8 +132,9 @@ function frontendCommand() {
 async function main() {
   if (servicesMode === 'stack') {
     if (!existsSync(hostPTYBinary)) throw new Error(`Host PTY bridge is missing: ${hostPTYBinary}. Run make build.`)
-    const hostPTY = run('hostpty', hostPTYBinary, ['--socket', hostPTYSocket], projectRoot, {
+    const hostPTY = run('hostpty', hostPTYBinary, ['--socket', hostPTYSocket, '--git-socket', hostGitSocket], projectRoot, {
       HARNESS_HOST_PTY_SOCKET: hostPTYSocket,
+      HARNESS_HOST_GIT_SOCKET: hostGitSocket,
     })
     hostPTY.on('exit', (code) => {
       if (!shuttingDown) shutdown(code || 1)
@@ -141,6 +143,7 @@ async function main() {
       waitFor(`${apiURL}/api/health`, 'stack backend'),
       waitFor(frontendURL, 'stack frontend'),
       waitForUnixSocket(hostPTYSocket, 'host PTY bridge'),
+      waitForUnixSocket(hostGitSocket, 'host Git bridge'),
     ])
   } else {
     if (await ready(`${apiURL}/api/health`)) throw new Error(`An untracked process already owns Wharnex backend ${apiURL}. Stop that verified Wharnex process before starting.`)

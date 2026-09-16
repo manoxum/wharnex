@@ -90,14 +90,20 @@ func PushCommit(ctx context.Context, root, remote, branch, sha string) (PushResu
 
 func pushWithArgs(ctx context.Context, root, remote, branch string, args []string) (PushResult, error) {
 	output, err := run(ctx, root, args...)
+	return InterpretPushResult(remote, branch, output, err == nil), nil
+}
+
+// InterpretPushResult applies the same push semantics to output produced by
+// either the local Git process or the restricted native-host Git bridge.
+func InterpretPushResult(remote, branch, output string, succeeded bool) PushResult {
 	detail := RedactRemoteURL(output)
-	if err == nil {
+	if succeeded {
 		if strings.Contains(output, "Everything up-to-date") {
-			return PushResult{Outcome: PushOutcomeUpToDate, Remote: remote, Branch: branch, Detail: detail}, nil
+			return PushResult{Outcome: PushOutcomeUpToDate, Remote: remote, Branch: branch, Detail: detail}
 		}
-		return PushResult{Outcome: PushOutcomePushed, Remote: remote, Branch: branch, Detail: detail}, nil
+		return PushResult{Outcome: PushOutcomePushed, Remote: remote, Branch: branch, Detail: detail}
 	}
-	return PushResult{Outcome: classifyPushFailure(output), Remote: remote, Branch: branch, Detail: detail}, nil
+	return PushResult{Outcome: classifyPushFailure(output), Remote: remote, Branch: branch, Detail: detail}
 }
 
 // classifyPushFailure reads Git's own refusal. Matching on Git's message is

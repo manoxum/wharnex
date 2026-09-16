@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { GitBranch, GitCommitDetail, GitRemote, GitUnpushedOverview } from '../types'
 import { api, APIError } from '../lib/api'
 import { Icon } from './Icon'
+import { GitDiffReview } from './GitDiffReview'
 
 export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
   sessionId: string
@@ -86,7 +87,7 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
       </button>
     </div>
 
-    {error && <p className="git-notice warning-card" role="alert">{error}</p>}
+    {error && <p className="git-notice error-card" role="alert">{error}</p>}
     {loading && <p className="git-empty inline">A comparar a branch local com a origem…</p>}
     {!loading && overview && !overview.has_upstream && <p className="git-empty inline">{overview.commits.length > 0
       ? 'Sem upstream, a lista abaixo mostra commits de HEAD que ainda não são alcançáveis por nenhuma referência remota local. Faça o push completo para publicar a branch e estabelecer a origem.'
@@ -118,11 +119,11 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
       </ul>
     </>}
 
-    {detail && <CommitDetailModal detail={detail} onClose={() => setDetail(null)}/>}
+    {detail && <CommitDetailModal sessionId={sessionId} detail={detail} onClose={() => setDetail(null)}/>}
   </section>
 }
 
-function CommitDetailModal({ detail, onClose }: { detail: GitCommitDetail; onClose: () => void }) {
+function CommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; detail: GitCommitDetail; onClose: () => void }) {
   const commit = detail.commit
   return <div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-label={`Commit ${commit.short_sha}`}>
     <header><strong>{commit.subject}</strong><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button></header>
@@ -135,7 +136,7 @@ function CommitDetailModal({ detail, onClose }: { detail: GitCommitDetail; onClo
       {commit.plan_id && <span><strong>Plano</strong><code>{commit.plan_id}</code></span>}
     </div>
     {(commit.body || commit.subject) && <details className="git-message-preview" open><summary>Mensagem</summary><pre>{commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject}</pre></details>}
-    <pre className="git-diff-body">{detail.diff || 'Este commit não contém alterações de ficheiros.'}</pre>
+    <GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>
     {detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
   </div>
 }
