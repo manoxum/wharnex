@@ -12,5 +12,6 @@ describe('prompt delivery failure classification', () => {
 
   it('separates local storage exhaustion from a ChatGPT or GPT failure', () => {
     expect(promptDeliveryFailureKind('XMinioStorageFull: minimum free drive threshold reached')).toBe('storage')
+    expect(promptDeliveryFailureKind('artifact_storage_full: armazenamento de artefactos está sem espaço livre suficiente')).toBe('storage')
   })
 })

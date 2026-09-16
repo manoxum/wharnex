@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chatAgentBackoff, ChatAgentSchedulerClient, DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, DEFAULT_CHAT_AGENT_WORKERS } from './chat-agent-scheduler.mjs'
+import { chatAgentBackoff, chatAgentErrorDisposition, ChatAgentSchedulerClient, DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS, DEFAULT_CHAT_AGENT_WORKERS } from './chat-agent-scheduler.mjs'
 
 test('scheduler defaults to exactly three autonomous small-task workers', () => {
   const scheduler = new ChatAgentSchedulerClient({
@@ -72,6 +72,36 @@ test('backoff is bounded and grows with attempts', () => {
   assert.equal(first, 2_000)
   assert.equal(third, 8_000)
   assert.equal(huge, 60_000)
+})
+
+test('artifact capacity failures require operator attention instead of blind provider retries', () => {
+  assert.equal(chatAgentErrorDisposition(new Error('artifact_storage_full: armazenamento sem espaço livre')).action, 'attention')
+  assert.equal(chatAgentErrorDisposition(new Error('ChatGPT upload timed out')).action, 'retry')
+})
+
+test('artifact capacity failure stops a durable write on its first attempt', async () => {
+  const transitions = []
+  let claimed = false
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1, taskCooldownMs: 0,
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        if (!claimed) {
+          claimed = true
+          return { ok: true, json: async () => ({ task: { task_id: 'cat-storage', type: 'BOT_WRITE', attempt: 1, max_attempts: 6 } }) }
+        }
+        return { ok: true, json: async () => ({}) }
+      }
+      transitions.push({ action: url.split('/').pop(), body: JSON.parse(String(init.body || '{}')) })
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => { throw new Error('artifact_storage_full: armazenamento sem espaço livre') },
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && !transitions.some((item) => item.action === 'attention'); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 2))
+  await scheduler.stop()
+  assert.ok(transitions.some((item) => item.action === 'attention'))
+  assert.ok(!transitions.some((item) => item.action === 'wait'))
 })
 
 test('enqueue preserves typed durable task fields', async () => {

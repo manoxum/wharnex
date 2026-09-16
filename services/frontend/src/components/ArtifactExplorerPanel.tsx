@@ -36,7 +36,7 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
     finally { setLoading(false) }
   }
 
-  useEffect(() => { setSelected(undefined); void refresh() }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelected(undefined); void refresh() }, [mode])
 
   const visibleItems = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase('pt')

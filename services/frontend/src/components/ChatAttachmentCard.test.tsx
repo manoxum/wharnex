@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { desktopBridge } from '../lib/desktop'
 import { MessageAttachmentCard } from './ChatAttachmentCard'
@@ -24,7 +24,7 @@ describe('MessageAttachmentCard', () => {
     read.mockReset()
     open.mockReset()
     read.mockResolvedValue({ available: true, name: 'report.pdf', size: 9, mime: 'application/pdf', contentBase64: 'JVBERi0xLjQ=' })
-    vi.mocked(desktopBridge).mockReturnValue({ attachments: { preview, read, open } } as any)
+    vi.mocked(desktopBridge).mockReturnValue({ attachments: { preview, read, open } } as unknown as NonNullable<ReturnType<typeof desktopBridge>>)
   })
 
   it('opens a persisted attachment in the Wharnex viewer instead of the operating-system opener', async () => {
@@ -36,6 +36,6 @@ describe('MessageAttachmentCard', () => {
     expect(open).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: 'Visualizador de anexo' })).toBeTruthy()
     expect(screen.getByText('data:application/pdf;base64,JVBERi0xLjQ=')).toBeTruthy()
-    expect(screen.getByText('report.pdf')).toBeTruthy()
+    expect(within(screen.getByRole('dialog', { name: 'Visualizador de anexo' })).getByText('report.pdf')).toBeTruthy()
   })
 })

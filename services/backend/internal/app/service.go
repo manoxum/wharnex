@@ -44,6 +44,7 @@ import (
 var (
 	ErrApprovalRequired                   = errors.New("explicit approval required")
 	ErrExecutionRequired                  = errors.New("successful sandbox execution required before host apply")
+	ErrExecutionInProgress                = errors.New("execution already in progress or pending recovery")
 	ErrRemoteStorageConnectorUnavailable  = errors.New("remote storage connector is unavailable")
 	ErrTunnelProviderConnectorUnavailable = errors.New("tunnel provider connector is unavailable")
 	ErrExecutionBundleRequestMismatch     = errors.New("execution bundle filename/request_id mismatch")
@@ -1667,6 +1668,17 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		result.Session = executed
 		if execErr != nil {
 			current = executed
+			if errors.Is(execErr, ErrExecutionInProgress) {
+				// Bundle delivery and renderer recovery may converge on the same
+				// automatic execution. The durable execution intent is the owner;
+				// a second trigger joins it instead of recording a false failure
+				// and starting another repair round.
+				result.AutoExecuted = false
+				result.Execution = nil
+				result.Session = executed
+				s.bus.Publish(sessionID, "automation.execution_joined", map[string]any{"plan_id": planID, "transport": transport})
+				return result
+			}
 			if executed.State == "planned" && executed.Plan != nil && executed.Plan.PlanID != planID {
 				continue
 			}
@@ -1815,7 +1827,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 			return fmt.Errorf("plan %s already executed successfully; submit a new change request instead of executing it again", planID)
 		}
 		if current.InterruptedExecution != nil && current.InterruptedExecution.PlanID == planID {
-			return fmt.Errorf("plan %s already has an execution in progress or pending recovery", planID)
+			return fmt.Errorf("plan %s already has an execution in progress or pending recovery: %w", planID, ErrExecutionInProgress)
 		}
 		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: planID, RequestedAt: time.Now().UTC(), Approved: approved, Status: domain.InterruptedExecutionRunning}
 		if approved && current.ExecutionMode == domain.ExecutionModeProtected {

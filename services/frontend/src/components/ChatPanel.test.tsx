@@ -171,6 +171,23 @@ describe('ChatPanel', () => {
     expect(screen.queryByText('5 mensagem(ns) anterior(es)')).toBeNull()
   })
 
+  it('keeps a bounded transcript DOM while traversing a long chat', async () => {
+    const items = Array.from({ length: 120 }, (_, index) => ({ id: `long-${index + 1}`, role: 'user' as const, text: `longa mensagem ${index + 1}` }))
+    const view = render(
+      <ChatPanel session={session} items={items} chats={[]} activeChatId="long-chat" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    for (const firstVisible of [81, 61, 41, 21, 1]) {
+      fireEvent.click(screen.getByRole('button', { name: 'Carregar mensagens anteriores' }))
+      await waitFor(() => expect(screen.getByText(`longa mensagem ${firstVisible}`)).toBeTruthy())
+    }
+
+    await waitFor(() => expect(screen.getByText('longa mensagem 1')).toBeTruthy())
+    expect(view.container.querySelectorAll('.chat-stream article.message').length).toBeLessThanOrEqual(60)
+    expect(screen.queryByText('longa mensagem 120')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Carregar mensagens mais recentes' })).toBeTruthy()
+  })
+
 
   it('restores independent viewport positions and loaded history when switching chats', async () => {
     const chatAItems = Array.from({ length: 45 }, (_, index) => ({ id: `chat-a-${index + 1}`, role: 'user' as const, text: `chat A mensagem ${index + 1}` }))
