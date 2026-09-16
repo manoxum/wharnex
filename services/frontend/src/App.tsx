@@ -6,7 +6,6 @@ import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
 import { ChatPanel } from './components/ChatPanel'
 import { WorkspaceSideRail, type Drawer } from './components/WorkspaceSideRail'
-import { WorkspaceRightRail, type RightDrawer } from './components/WorkspaceRightRail'
 import { TerminalWorkspace } from './components/TerminalWorkspace'
 import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem } from './lib/executionQueueView'
 import { collectAttentionItems, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
@@ -89,6 +88,7 @@ import { expectedResponseBundleName } from './lib/bundlename'
 import { reconcileTunnelConfig } from './lib/tunnelConfigState'
 import { mergeDurableChatItems } from './lib/chatHistory'
 import { executionStartedNotice } from './lib/executionNotice'
+import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 
@@ -142,7 +142,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // The side rail and its drawer live beside every mode surface, so the open
   // panel and its width belong to the shell rather than to one workspace.
   const [sideDrawer, setSideDrawer] = useState<Drawer>('')
-  const [rightDrawer, setRightDrawer] = useState<RightDrawer>('')
+  const [rightDrawer, setRightDrawer] = useState<Drawer>('')
+  const [railLayout, setRailLayout] = useState(loadWorkspaceRailLayout)
   // The interactive terminal is shell-level for the same reason as the rail:
   // it is the project's terminal, not the Editor's. It stays collapsed by
   // default because Agent already divides its width three ways, and a panel
@@ -2990,6 +2991,18 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
   }
 
+  function moveRailTool(tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool) {
+    const source: WorkspaceRailSide = railLayout.left.includes(tool) ? 'left' : 'right'
+    const next = saveWorkspaceRailLayout(moveWorkspaceTool(railLayout, tool, side, before))
+    setRailLayout(next)
+    if (source === side || tool === 'terminal') return
+    if (source === 'left' && sideDrawer === tool) { setSideDrawer(''); setRightDrawer(tool) }
+    if (source === 'right' && rightDrawer === tool) { setRightDrawer(''); setSideDrawer(tool) }
+  }
+
+  const openLeftDrawer = (next: Drawer) => { setSideDrawer(next); if (next) setRightDrawer('') }
+  const openRightDrawer = (next: Drawer) => { setRightDrawer(next); if (next) setSideDrawer('') }
+
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, chatTransportMode,
     attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
@@ -3021,12 +3034,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         shell, so switching between Agent, Editor and Orchestrator never changes
         which panel is open — and the polling drawers are mounted once, not once
         per workspace. */}
-    <div className={`workspace-body ${sideDrawer ? 'drawer-open' : ''}`}>
+    <div className={`workspace-body ${sideDrawer || rightDrawer ? 'drawer-open' : ''}`}>
       <WorkspaceSideRail
         session={session}
         busy={activeBusy}
         drawer={sideDrawer}
-        onDrawer={setSideDrawer}
+        onDrawer={openLeftDrawer}
+        side="left"
+        tools={railLayout.left}
+        onMoveTool={moveRailTool}
         chats={chats}
         onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
         onGoToOrchestrator={goToOrchestratorFromTask}
@@ -3079,7 +3095,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           inspectorAttention={inspectorAttention}
           onOpenAttention={openAttentionItem}
           onAttentionAction={runAttentionItemAction}
-          onOpenAttentionDrawer={() => setSideDrawer('attention')}
+          onOpenAttentionDrawer={() => openLeftDrawer('attention')}
           onExportChat={exportActiveChat}
           onReorderChat={reorderChat}
           chatProps={sharedChatProps}
@@ -3093,7 +3109,38 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         {terminalOpen && <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(275)} />}
         <TerminalWorkspace key={session.id} session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
       </div>
-      <WorkspaceRightRail drawer={rightDrawer} onDrawer={setRightDrawer} onError={setError} />
+      <WorkspaceSideRail
+        session={session}
+        busy={activeBusy}
+        drawer={rightDrawer}
+        onDrawer={openRightDrawer}
+        side="right"
+        tools={railLayout.right}
+        onMoveTool={moveRailTool}
+        chats={chats}
+        onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
+        onGoToOrchestrator={goToOrchestratorFromTask}
+        onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
+        onFocusProject={focusProject}
+        archivedChats={archivedChats}
+        activeChatId={activeChatId}
+        activeEvents={events}
+        attentionItems={attentionItems}
+        executionFIFO={visibleExecutionFIFO}
+        activeExecutionCount={activeExecutionCount}
+        onOpenAttention={openAttentionItem}
+        onAttentionAction={runAttentionItemAction}
+        onRestoreChat={restoreArchivedChat}
+        onDeleteArchivedChat={deleteArchivedChat}
+        onRenameChat={renameWorkspaceChat}
+        onGenerateChatTitle={generateWorkspaceChatTitle}
+        onOpenFile={openFileFromChat}
+        onAnalyzeEvolution={analyzeEvolutionEvidence}
+        onError={setError}
+        onSession={setSession}
+        terminalOpen={terminalOpen}
+        onToggleTerminal={() => setTerminalOpen((open) => !open)}
+      />
     </div>
   </main>
 }
