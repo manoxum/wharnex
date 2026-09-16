@@ -107,7 +107,32 @@ function StorageSummary({ storage }: { storage?: BackendStorageUsage }) {
 
 function ArtifactCard({ item, canIndex, onOpen, onIndex, onDelete }: { item: ManagedArtifact; canIndex: boolean; onOpen: () => void; onIndex: () => void; onDelete: () => void }) {
   const artifact = item.artifact
-  return <article className="file-library-card"><button type="button" className="file-library-card-preview" aria-label={`Abrir ${artifact.name}`} onClick={onOpen}><ArtifactPreview path={artifact.name} size={artifact.size} compact url={api.artifactURL(item.session_id, artifact.id, true)}/></button><div className="file-library-card-copy"><strong title={artifact.name}>{artifact.name}</strong><small>{projectName(item.project_path)} · {formatBytes(artifact.size)}</small><span>{artifact.direction === 'input' ? 'Recebido' : 'Devolvido'} · {formatDate(artifact.created_at)}</span></div><div className="file-library-card-actions">{canIndex ? <button type="button" onClick={onIndex}><Icon name="link" size={12}/> Indexar</button> : null}<button type="button" onClick={onOpen}><Icon name="external" size={12}/> Abrir</button><a href={api.artifactURL(item.session_id, artifact.id)} download={artifact.name} aria-label={`Descarregar ${artifact.name}`}><Icon name="download" size={12}/></a><button type="button" className="danger" aria-label={`Eliminar ${artifact.name}`} onClick={onDelete}><Icon name="trash" size={12}/></button></div></article>
+  const directionLabel = artifact.direction === 'input' ? 'Recebido' : 'Devolvido'
+  return <article className="file-library-card">
+    <button type="button" className="file-library-card-preview" aria-label={`Abrir ${artifact.name}`} onClick={onOpen}>
+      <ArtifactPreview path={artifact.name} size={artifact.size} compact url={api.artifactURL(item.session_id, artifact.id, true)}/>
+      <span className="file-library-card-type">{artifactTypeLabel(artifact.name, artifact.content_type)}</span>
+      <span className={`file-library-card-direction ${artifact.direction}`}>{directionLabel}</span>
+    </button>
+    <div className="file-library-card-copy">
+      <div className="file-library-card-title"><span><Icon name={artifact.bundle ? 'package' : 'file'} size={13}/></span><strong title={artifact.name}>{artifact.name}</strong></div>
+      <small title={item.project_path}>{projectName(item.project_path)}</small>
+      <span>{formatBytes(artifact.size)} · {formatDate(artifact.created_at)}</span>
+    </div>
+    <div className="file-library-card-actions">
+      <div>{canIndex ? <button type="button" className="file-library-card-primary" onClick={onIndex}><Icon name="link" size={12}/> Indexar</button> : null}<button type="button" onClick={onOpen}><Icon name="external" size={12}/> Abrir</button></div>
+      <div><a href={api.artifactURL(item.session_id, artifact.id)} download={artifact.name} aria-label={`Descarregar ${artifact.name}`} title="Descarregar"><Icon name="download" size={12}/></a><button type="button" className="danger" aria-label={`Eliminar ${artifact.name}`} title="Eliminar" onClick={onDelete}><Icon name="trash" size={12}/></button></div>
+    </div>
+  </article>
+}
+
+function artifactTypeLabel(name: string, contentType = '') {
+  const extension = name.split('.').pop()?.trim().toUpperCase()
+  if (extension && extension !== name.toUpperCase() && extension.length <= 6) return extension
+  if (contentType.startsWith('image/')) return 'IMG'
+  if (contentType.startsWith('video/')) return 'VÍDEO'
+  if (contentType.startsWith('audio/')) return 'ÁUDIO'
+  return 'FICHEIRO'
 }
 
 function artifactKey(item: ManagedArtifact) { return `${item.session_id}:${item.artifact.id}` }

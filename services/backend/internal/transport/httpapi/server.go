@@ -694,7 +694,7 @@ func (a *API) persistArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := a.service.PersistArtifact(r.Context(), r.PathValue("id"), body.RequestID, body.Direction, body.Kind, body.Filename, body.ContentType, raw)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "artifact_persist_failed", err.Error())
+		writeArtifactMutationError(w, "artifact_persist_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, record)
