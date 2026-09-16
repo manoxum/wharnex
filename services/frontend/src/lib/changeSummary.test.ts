@@ -54,3 +54,25 @@ it('rebuilds the terminal package with one summary followed by the diff even fro
 
   expect(merged).toEqual([user, summary, change])
 })
+
+it('keeps the applied terminal package before a newer main request', () => {
+  const plan: ExecutionPlan = { protocol: 'harness.execution/v1', plan_id: 'p-applied', request_id: 'r-applied', status: 'ready', summary: 'Resumo curto', risk: 'low', requires_approval: false, operations: [{ type: 'apply_patch', patch: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n', command: { argv: [], cwd: '.', timeout_seconds: 60, network: false, expected_exit_codes: [0] } }], verification: [] }
+  const session = {
+    id: 'ses-applied', project_path: '/workspace/project', state: 'applied', execution_mode: 'protected', automation_mode: 'auto', created_at: '2026-09-16T22:00:00Z',
+    context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/workspace/project', sha256: 'sha', files: [], excluded: [], text_truncated: false } },
+    last_main_request_summary: 'Resumo final',
+    last_host_applied_at: '2026-09-16T22:10:00Z',
+    last_applied_changes: [{ plan, execution: { plan_id: 'p-applied', success: true, started_at: '', completed_at: '', commands: [] }, verified_at: '2026-09-16T22:10:00Z' }],
+  } satisfies Session
+  const projected = appliedChangePresentationItems(session)
+  const priorUser: ChatItem = { id: 'prior-user', role: 'user', text: 'Corrija o chat', createdAt: '2026-09-16T22:00:00Z', iteration: { id: 'iter-applied', requestId: 'r-applied', phase: 'outbound', artifacts: [] } }
+  const reviewNotice: ChatItem = { id: 'review', role: 'harness', source: 'wharness', presentation: 'notice', text: 'Revisão final em curso', createdAt: '2026-09-16T22:10:30Z' }
+  const transientResult: ChatItem = { id: 'transient-result', role: 'harness', source: 'chatgpt', presentation: 'message', text: 'Resultado transitório', meta: 'AUTO · Host aplicado', createdAt: '2026-09-16T22:10:45Z', iteration: { id: 'iter-result', requestId: 'r-applied', phase: 'result', artifacts: ['result'] } }
+  const nextUser: ChatItem = { id: 'next-user', role: 'user', text: 'Novo pedido', createdAt: '2026-09-16T22:11:00Z' }
+
+  const merged = mergeAppliedChangePresentationItems([priorUser, reviewNotice, transientResult, nextUser], projected)
+
+  expect(merged.map((item) => item.id)).toEqual(['prior-user', 'review', projected[0].id, projected[1].id, 'next-user'])
+  expect(merged.some((item) => item.id === transientResult.id)).toBe(false)
+  expect(projected[1].change?.requestId).toBe('r-applied')
+})

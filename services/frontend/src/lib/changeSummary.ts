@@ -17,7 +17,7 @@ export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = 
   const values = [...files.values()]
   if (!values.length && !hostCommands.length) return undefined
   const canRevert = values.length > 0 && plan.operations.every((operation) => operation.type === 'apply_patch')
-  return { planId: plan.plan_id, summary: plan.summary?.trim() || undefined, files: values, hostCommands, appliedAt, canRevert }
+  return { planId: plan.plan_id, requestId: plan.request_id || undefined, summary: plan.summary?.trim() || undefined, files: values, hostCommands, appliedAt, canRevert }
 }
 
 export function appliedChangePresentationItems(session: Session): ChatItem[] {
@@ -47,8 +47,22 @@ export function mergeAppliedChangePresentationItems(current: ChatItem[], project
   const summary = projected.find((item) => item.presentation === 'message')
   const change = projected.find((item) => item.presentation === 'change')
   const planId = change?.change?.planId
+  const requestId = change?.change?.requestId
   const appliedAt = change?.change?.appliedAt
   const lastUserIndex = current.reduce((latest, item, index) => item.role === 'user' ? index : latest, -1)
+  const requestUserIndex = requestId
+    ? current.findIndex((item) => item.role === 'user' && item.iteration?.requestId === requestId)
+    : -1
+  const appliedTime = Date.parse(appliedAt || '')
+  const nextRequest = current.find((item, index) => {
+    if (item.role !== 'user') return false
+    if (requestId && item.iteration?.requestId) {
+      if (item.iteration.requestId === requestId) return false
+      if (requestUserIndex >= 0) return index > requestUserIndex
+    }
+    const createdTime = Date.parse(item.createdAt || '')
+    return Number.isFinite(appliedTime) && Number.isFinite(createdTime) && createdTime > appliedTime
+  })
   // Recompose the terminal result as one package. Older versions appended the
   // turn message, diff and cumulative summary independently, so a reload could
   // preserve both GPT messages and strand the diff before the summary.
@@ -56,11 +70,14 @@ export function mergeAppliedChangePresentationItems(current: ChatItem[], project
     if (projected.some((candidate) => candidate.id === item.id)) return false
     if (item.presentation === 'change' && planId && item.change?.planId === planId && item.change?.appliedAt === appliedAt) return false
     if (summary && item.meta === summary.meta && item.text.trim() === summary.text.trim()) return false
-    if (summary && planId && index > lastUserIndex && item.source === 'chatgpt' && item.meta?.includes('Host aplicado')) return false
+    if (summary && requestId && item.source === 'chatgpt' && item.meta?.includes('Host aplicado') && item.iteration?.requestId === requestId) return false
+    if (summary && !requestId && planId && index > lastUserIndex && item.source === 'chatgpt' && item.meta?.includes('Host aplicado')) return false
     return true
   })
-  if (summary) next.push(summary)
-  if (change) next.push(change)
+  const terminalPackage = [summary, change].filter((item): item is ChatItem => Boolean(item))
+  const nextRequestIndex = nextRequest ? next.findIndex((item) => item.id === nextRequest.id) : -1
+  if (nextRequestIndex >= 0) next.splice(nextRequestIndex, 0, ...terminalPackage)
+  else next.push(...terminalPackage)
   return next
 }
 
