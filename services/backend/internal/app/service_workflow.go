@@ -213,6 +213,10 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 	requestID := ids.New("req")
 	s.prepareContinuation(ctx, refreshed, requestID, refreshed.LastRequestID)
 	_, _ = s.store.Update(sessionID, func(item *domain.Session) error {
+		// Per-plan authorization for a host-modifying debug step is one-shot.
+		// Any continuation that wants to touch the host again must present its
+		// own exact plan for approval, even when Debug mode is enabled.
+		item.DebugApprovedPlanID = ""
 		// A workflow round is evidence gathering, not a failure, but it is
 		// still a round the planner spent: recording it stops the next round
 		// re-running probes whose answers are already in hand.

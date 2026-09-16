@@ -81,6 +81,17 @@ func TestProjectDefinedCommandsRaiseRiskWithoutForcingApproval(t *testing.T) {
 	}
 }
 
+func TestDebugHostModificationAlwaysRequiresHighRiskApproval(t *testing.T) {
+	plan := basePlan()
+	plan.Risk = "low"
+	plan.Debug = &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "change requested host state"}
+	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("npm", "cache", "verify")}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("host debug modification must be high-risk approval-gated: %#v", decision)
+	}
+}
+
 func TestHumanPTYOnlyDeveloperToolsRemainDeniedToModelPlans(t *testing.T) {
 	for _, executable := range []string{"pip3", "composer", "sqlite3", "psql", "redis-cli", "fzf", "tmux"} {
 		plan := basePlan()

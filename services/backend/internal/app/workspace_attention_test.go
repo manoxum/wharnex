@@ -33,11 +33,11 @@ func TestAttentionRecordKeepsConsentAndDebugDecisionMetadata(t *testing.T) {
 		ID: "ses-debug", State: "debug_approval_required",
 		Plan: &domain.ExecutionPlan{
 			PlanID: "plan-debug", RequestID: "req-debug", Document: "# Execution contract",
-			Debug: &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Rationale: "inspect the live runtime"},
+			Debug: &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "inspect the live runtime"},
 		},
 	})
 
-	if !record.HasPlanDocument || record.PlanRequestID != "req-debug" || record.DebugTarget != "host" || record.DebugRationale == "" {
+	if !record.HasPlanDocument || record.PlanRequestID != "req-debug" || record.DebugTarget != "host" || record.DebugAccess != domain.DebugAccessModify || record.DebugRationale == "" {
 		t.Fatalf("compact projection lost an operator decision input: %+v", record)
 	}
 }

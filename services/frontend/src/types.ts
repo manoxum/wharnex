@@ -24,9 +24,9 @@ export type ExecutionPlan = {
   summary: string
   document?: string
   dependencies?: Array<{ scope: string; manager: string; name: string; version?: string; action: 'install' | 'update' | 'remove' | 'use'; reason: string }>
-  system_tools?: Array<{ target: 'sandbox' | 'host'; name: string; action: 'install' | 'update' | 'configure' | 'use'; reason: string }>
+  system_tools?: Array<{ target: 'sandbox' | 'host'; name: string; action: 'install' | 'update' | 'configure' | 'use'; lifetime?: 'temporary' | 'persistent'; reason: string }>
   approved_chat_plan?: ApprovedChatPlan
-  debug?: { protocol: 'harness.debug/v1'; target: 'sandbox' | 'host'; query?: 'project_execution_summary'; rationale: string }
+  debug?: { protocol: 'harness.debug/v1'; target: 'sandbox' | 'host'; access?: 'observe' | 'modify'; query?: 'project_execution_summary'; rationale: string }
   risk: 'low' | 'medium' | 'high'
   requires_approval: boolean
   operations: Operation[]
@@ -635,6 +635,7 @@ export type AttentionRecord = {
   plan_request_id?: string
   has_plan_document?: boolean
   debug_target?: 'sandbox' | 'host'
+  debug_access?: 'observe' | 'modify'
   debug_rationale?: string
   last_execution_plan_id?: string
   pending_host_changes: number

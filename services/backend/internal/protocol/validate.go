@@ -118,6 +118,11 @@ func validatePlanPresentation(plan domain.ExecutionPlan) error {
 		default:
 			return fmt.Errorf("system_tools %d has invalid action %q", i, tool.Action)
 		}
+		switch tool.Lifetime {
+		case "", domain.ToolLifetimeTemporary, domain.ToolLifetimePersistent:
+		default:
+			return fmt.Errorf("system_tools %d has invalid lifetime %q", i, tool.Lifetime)
+		}
 	}
 	if approved := plan.ApprovedChatPlan; approved != nil {
 		if approved.Protocol != "harness.chat-plan/v1" || strings.TrimSpace(approved.RequestID) == "" || len(approved.SHA256) != 64 || strings.TrimSpace(approved.Document) == "" {
@@ -488,10 +493,10 @@ func validatePatchPath(value string) error {
 	return nil
 }
 
-// ValidateWorkflowPlan constrains an iterative investigation step to the
-// Protected sandbox. Workflow steps may run project-local commands to gather
-// evidence, but they never patch the project, request network access, or
-// become host-apply candidates.
+// ValidateWorkflowPlan constrains an iterative evidence/action step. Ordinary
+// workflows remain sandbox-only, low/medium risk and network-free. A debug
+// host modify step is the sole exception: it is host-only, high risk and
+// explicitly approval-gated, while still carrying no patches or Apply.
 func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 	if err := Validate(plan); err != nil {
 		return err
@@ -502,11 +507,20 @@ func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 	if plan.Status != "ready" {
 		return errors.New("workflow plan must be ready")
 	}
-	if plan.Risk == "high" {
-		return errors.New("workflow plan risk must be low or medium")
+	debugModify := plan.Debug != nil && plan.Debug.Target == "host" && plan.Debug.EffectiveAccess() == domain.DebugAccessModify
+	if plan.Risk == "high" && !debugModify {
+		return errors.New("workflow plan risk must be low or medium unless debug host modify is used")
 	}
-	if plan.RequiresApproval {
-		return errors.New("workflow plan cannot require host approval")
+	if plan.RequiresApproval && !debugModify {
+		return errors.New("workflow plan cannot require host approval unless debug host modify is used")
+	}
+	if debugModify {
+		if plan.Risk != "high" {
+			return errors.New("debug host modify workflow risk must be high")
+		}
+		if !plan.RequiresApproval {
+			return errors.New("debug host modify workflow requires explicit approval")
+		}
 	}
 	engineQuery := plan.Debug != nil && strings.TrimSpace(plan.Debug.Query) != ""
 	if len(plan.Operations) == 0 && !engineQuery {
@@ -519,12 +533,12 @@ func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 		if op.Type != "command" {
 			return fmt.Errorf("workflow operation %d must be command", i)
 		}
-		if op.Command.Network {
+		if op.Command.Network && !debugModify {
 			return fmt.Errorf("workflow operation %d cannot request network access", i)
 		}
 	}
 	for i, command := range plan.Verification {
-		if command.Network {
+		if command.Network && !debugModify {
 			return fmt.Errorf("workflow verification %d cannot request network access", i)
 		}
 	}
@@ -537,9 +551,9 @@ func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 }
 
 // ValidateDebugPlan validates the harness.debug/v1 extension carried by a
-// workflow plan. Sandbox diagnostics retain the normal workflow policy. Host
-// diagnostics cross a more sensitive seam and therefore use a closed,
-// read-only command vocabulary in addition to the normal argv validation.
+// workflow plan. Observe is backwards-compatible and remains read-only on the
+// host. Modify is host-only, explicitly approved per plan, and relies on the
+// Policy Engine for the final command/tool/network decision.
 func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 	debug := plan.Debug
 	if debug == nil {
@@ -551,6 +565,13 @@ func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 	if debug.Target != "sandbox" && debug.Target != "host" {
 		return errors.New("debug target must be sandbox or host")
 	}
+	access := debug.EffectiveAccess()
+	if access != domain.DebugAccessObserve && access != domain.DebugAccessModify {
+		return fmt.Errorf("unsupported debug access %q", debug.Access)
+	}
+	if access == domain.DebugAccessModify && debug.Target != "host" {
+		return errors.New("debug modify access requires host target")
+	}
 	if debug.Query != "" {
 		if debug.Query != domain.DebugQueryProjectExecutionSummary {
 			return fmt.Errorf("unsupported debug query %q", debug.Query)
@@ -558,9 +579,20 @@ func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 		if debug.Target != "host" {
 			return errors.New("project execution summary debug query requires host target")
 		}
+		if access != domain.DebugAccessObserve {
+			return errors.New("debug queries are observe-only")
+		}
 	}
 	if rationale := strings.TrimSpace(debug.Rationale); rationale == "" || len(rationale) > 4096 {
 		return errors.New("debug rationale must be 1..4096 bytes")
+	}
+	if access == domain.DebugAccessModify {
+		for i, tool := range plan.SystemTools {
+			if tool.Target == "host" && tool.Action != "use" && tool.Lifetime == "" {
+				return fmt.Errorf("debug host modify system_tools %d requires temporary or persistent lifetime", i)
+			}
+		}
+		return nil
 	}
 	if debug.Target != "host" {
 		return nil

@@ -264,4 +264,16 @@ describe('attention center', () => {
     expect(items).toEqual([expect.objectContaining({ title: 'Debug aguarda autorização', target: 'plan', action: 'approve-debug' })])
     expect(items[0].detail).toContain('host local')
   })
+
+  it('labels a pending host-modifying debug plan as a host action', () => {
+    const current = session('ses-chat-1')
+    current.state = 'debug_approval_required'
+    current.plan = {
+      protocol: 'harness.execution/v2', plan_id: 'debug-write-1', request_id: 'req-debug', status: 'ready', summary: 'Install helper', risk: 'high', requires_approval: true,
+      debug: { protocol: 'harness.debug/v1', target: 'host', access: 'modify', rationale: 'install the requested diagnostic helper' }, operations: [], verification: [],
+    }
+    const items = collectAttentionItems([chat('chat-1', 'Debug')], { 'chat-1': current })
+    expect(items).toEqual([expect.objectContaining({ title: 'Debug aguarda autorização', target: 'plan', action: 'approve-debug' })])
+    expect(items[0].detail).toContain('Ação de debug com alteração no host local')
+  })
 })

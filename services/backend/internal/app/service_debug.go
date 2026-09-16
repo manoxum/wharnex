@@ -15,6 +15,7 @@ func (s *Service) SetDebugEnabled(sessionID string, enabled bool) (domain.Sessio
 		// turning Debug off mid-chain must not convert the former standing grant
 		// into an implicit one-request grant that the operator never gave.
 		current.DebugApprovedRootID = ""
+		current.DebugApprovedPlanID = ""
 		return nil
 	})
 	if err == nil {
@@ -30,11 +31,18 @@ func debugRootRequestID(item domain.Session, requestID string) string {
 	return requestID
 }
 
-func debugAuthorized(item domain.Session) bool {
-	if item.Plan == nil || item.Plan.Debug == nil {
+func debugPlanAuthorized(item domain.Session, plan *domain.ExecutionPlan) bool {
+	if plan == nil || plan.Debug == nil {
 		return false
 	}
-	return item.DebugEnabled || item.DebugApprovedRootID == debugRootRequestID(item, item.Plan.RequestID)
+	if plan.Debug.Target == "host" && plan.Debug.EffectiveAccess() == domain.DebugAccessModify {
+		return item.DebugApprovedPlanID == plan.PlanID
+	}
+	return item.DebugEnabled || item.DebugApprovedRootID == debugRootRequestID(item, plan.RequestID)
+}
+
+func debugAuthorized(item domain.Session) bool {
+	return debugPlanAuthorized(item, item.Plan)
 }
 
 func (s *Service) ApproveDebug(ctx context.Context, sessionID string) (BundleSubmission, error) {
@@ -49,14 +57,19 @@ func (s *Service) ApproveDebug(ctx context.Context, sessionID string) (BundleSub
 		return BundleSubmission{Session: current}, err
 	}
 	rootID := debugRootRequestID(current, current.Plan.RequestID)
+	access := current.Plan.Debug.EffectiveAccess()
 	updated, err := s.store.Update(sessionID, func(item *domain.Session) error {
-		item.DebugApprovedRootID = rootID
+		if current.Plan.Debug.Target == "host" && access == domain.DebugAccessModify {
+			item.DebugApprovedPlanID = current.Plan.PlanID
+		} else {
+			item.DebugApprovedRootID = rootID
+		}
 		item.State = "workflow_planned"
 		return nil
 	})
 	if err != nil {
 		return BundleSubmission{Session: current}, err
 	}
-	s.bus.Publish(sessionID, "debug.approved", map[string]any{"root_request_id": rootID, "target": updated.Plan.Debug.Target})
+	s.bus.Publish(sessionID, "debug.approved", map[string]any{"root_request_id": rootID, "plan_id": updated.Plan.PlanID, "target": updated.Plan.Debug.Target, "access": updated.Plan.Debug.EffectiveAccess()})
 	return s.runWorkflowLoop(ctx, sessionID, "debug_approved")
 }

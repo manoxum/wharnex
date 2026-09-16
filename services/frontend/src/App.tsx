@@ -51,7 +51,7 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
       plan_id: record.plan_id,
       request_id: record.plan_request_id,
       document: record.has_plan_document ? 'Execution contract available' : undefined,
-      debug: record.debug_target ? { protocol: 'harness.debug/v1', target: record.debug_target, rationale: record.debug_rationale || 'Diagnostic evidence requested' } : undefined,
+      debug: record.debug_target ? { protocol: 'harness.debug/v1', target: record.debug_target, access: record.debug_access, rationale: record.debug_rationale || 'Diagnostic evidence requested' } : undefined,
     } as Session['plan']) : undefined,
     last_execution: record.last_execution_plan_id ? ({ plan_id: record.last_execution_plan_id } as Session['last_execution']) : undefined,
     pending_host_changes: Array.from({ length: record.pending_host_changes }) as Session['pending_host_changes'],
@@ -2594,7 +2594,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       appendChatItem(targetChat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: enabled
-          ? 'Modo Debug ligado. Probes declarados, sem mutações e validados pelo protocolo podem executar automaticamente; o host continua limitado à allowlist somente de leitura.'
+          ? 'Modo Debug ligado. Probes de observação validados podem executar automaticamente; qualquer alteração no host, rede ou instalação de ferramenta continua a exigir aprovação dedicada do plano.'
           : 'Modo Debug desligado. O primeiro probe de cada Main Request voltará a pedir uma autorização única.',
         meta: enabled ? 'Debug ligado' : 'Debug sob autorização',
       })
@@ -2612,9 +2612,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const submission = await api.approveDebug(targetSession.id)
       const updated = submission.session
       acceptSessionForChat(targetChat, updated)
+      const modifiesHost = session.plan.debug.target === 'host' && session.plan.debug.access === 'modify'
       appendChatItem(targetChat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-        text: 'Debug autorizado para esta Main Request. Os próximos probes compatíveis do mesmo fluxo seguem automaticamente; qualquer novo impacto de host continua bloqueado pela Policy.',
+        text: modifiesHost
+          ? 'Ação de debug no host autorizada somente para este plano. Uma continuação que volte a alterar o host terá de apresentar e aprovar um novo plano.'
+          : 'Debug autorizado para esta Main Request. Os próximos probes de observação compatíveis do mesmo fluxo seguem automaticamente.',
         meta: `Debug · ${debugTarget}`,
       })
       if (submission.workflow_prepared && updated.last_manual_prompt) await transportPlannerContinuation(updated, targetChat)
