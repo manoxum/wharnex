@@ -17,6 +17,9 @@ type Commit struct {
 	AuthorName  string    `json:"author_name"`
 	AuthorEmail string    `json:"author_email"`
 	CommittedAt time.Time `json:"committed_at"`
+	// Parents preserves Git's parent order so the frontend can draw the real
+	// branch topology instead of guessing it from merge markers.
+	Parents []string `json:"parents"`
 	// RequestID/PlanID come from the trailers every Wharnex-originated commit
 	// message carries.
 	RequestID string `json:"request_id,omitempty"`
@@ -56,7 +59,7 @@ func Log(ctx context.Context, root string, limit int) ([]Commit, error) {
 		limit = 50
 	}
 	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%cI", "%P", "%s", "%b"}, commitFieldSeparator) + commitRecordSeparator
-	output, err := run(ctx, root, "log", "--no-color", fmt.Sprintf("--max-count=%d", limit), "--format="+format)
+	output, err := run(ctx, root, "log", "--no-color", "--topo-order", fmt.Sprintf("--max-count=%d", limit), "--format="+format)
 	if err != nil {
 		// A repository with no commit yet is an empty log, not a failure.
 		if strings.Contains(output, "does not have any commits") || strings.Contains(output, "unknown revision") {
@@ -75,10 +78,14 @@ func Log(ctx context.Context, root string, limit int) ([]Commit, error) {
 		if len(fields) < 8 {
 			continue
 		}
+		parents := strings.Fields(fields[5])
+		if parents == nil {
+			parents = []string{}
+		}
 		commit := Commit{
 			SHA: fields[0], ShortSHA: fields[1], AuthorName: fields[2], AuthorEmail: fields[3],
-			Subject: fields[6], Body: strings.TrimSpace(fields[7]),
-			Merge: len(strings.Fields(fields[5])) > 1,
+			Subject: fields[6], Body: strings.TrimSpace(fields[7]), Parents: parents,
+			Merge: len(parents) > 1,
 		}
 		if when, parseErr := time.Parse(time.RFC3339, fields[4]); parseErr == nil {
 			commit.CommittedAt = when.UTC()
