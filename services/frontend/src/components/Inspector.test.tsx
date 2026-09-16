@@ -203,6 +203,7 @@ it('shows streamed command output immediately below the command event', () => {
     events={[
       { id: 'evt-start', session_id: session.id, type: 'command.started', timestamp, data: { run_id: 'run-1', argv: ['go', 'test', './...'], cwd: '.', target: 'sandbox' } },
       { id: 'evt-output', session_id: session.id, type: 'command.output', timestamp, data: { run_id: 'run-1', stream: 'stdout', text: 'package ok\n', target: 'sandbox' } },
+      { id: 'evt-error', session_id: session.id, type: 'command.output', timestamp, data: { run_id: 'run-1', stream: 'stderr', text: 'warning detail\n', target: 'sandbox' } },
       { id: 'evt-done', session_id: session.id, type: 'command.completed', timestamp, data: { run_id: 'run-1', argv: ['go', 'test', './...'], exit_code: 0, success: true, stdout: 'package ok\n', target: 'sandbox' } },
     ]}
     manualPrompt=""
@@ -218,6 +219,11 @@ it('shows streamed command output immediately below the command event', () => {
   fireEvent.click(screen.getByRole('button', { name: /Execução/ }))
   const output = document.querySelector('.execution-command-output')
   expect(output?.textContent).toContain('package ok')
+  expect(output?.textContent).toContain('warning detail')
+  expect(output?.textContent).not.toContain('[stdout]')
+  expect(output?.textContent).not.toContain('[stderr]')
+  expect(document.querySelector('.execution-output-segment.stderr')?.textContent).toContain('warning detail')
+  expect(document.querySelector('.execution-output-segment.stderr')?.getAttribute('data-stream')).toBe('stderr')
   expect(document.querySelectorAll('.execution-command-output')).toHaveLength(1)
   expect(document.querySelectorAll('.execution-command-card')).toHaveLength(1)
   expect(document.querySelector('.execution-log-panel')).toBeNull()

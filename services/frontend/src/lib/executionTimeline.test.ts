@@ -12,8 +12,25 @@ it('groups one command with all of its streamed output and duration', () => {
   ])
   expect(entries).toHaveLength(1)
   expect(entries[0]).toMatchObject({ id: 'r', running: false, durationMs: 321, badge: 'exit 0' })
-  expect(entries[0].output).toContain('[stdout] one')
-  expect(entries[0].output).toContain('[stderr] two')
+  expect(entries[0].output).toBe('one\ntwo\n')
+  expect(entries[0].output).not.toContain('[stdout]')
+  expect(entries[0].output).not.toContain('[stderr]')
+  expect(entries[0].outputSegments).toEqual([
+    { stream: 'stdout', text: 'one\n' },
+    { stream: 'stderr', text: 'two\n' },
+  ])
+})
+
+it('keeps stdout and stderr semantics when only completion output is available', () => {
+  const event = (id: string, type: string, data: Record<string, unknown>): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-04T06:00:00Z', data })
+  const entries = buildExecutionTimeline([
+    event('1', 'command.completed', { run_id: 'fallback', argv: ['go', 'test'], exit_code: 1, success: false, stdout: 'ordinary output', stderr: 'failure detail' }),
+  ])
+  expect(entries[0].output).toBe('ordinary output\nfailure detail')
+  expect(entries[0].outputSegments).toEqual([
+    { stream: 'stdout', text: 'ordinary output' },
+    { stream: 'stderr', text: 'failure detail' },
+  ])
 })
 
 it('streams a self-evolution host build live instead of only reporting it after completion', () => {
@@ -26,8 +43,11 @@ it('streams a self-evolution host build live instead of only reporting it after 
   ])
   expect(entries).toHaveLength(1)
   expect(entries[0]).toMatchObject({ id: 'txn-1', kind: 'command', title: 'Build do Wharnex concluído', badge: 'OK', tone: 'ok', running: false })
-  expect(entries[0].output).toContain('[stdout] [deps] frontend: running npm ci')
-  expect(entries[0].output).toContain('[stderr] npm warn EBADENGINE')
+  expect(entries[0].output).toContain('[deps] frontend: running npm ci')
+  expect(entries[0].output).toContain('npm warn EBADENGINE')
+  expect(entries[0].output).not.toContain('[stdout]')
+  expect(entries[0].output).not.toContain('[stderr]')
+  expect(entries[0].outputSegments.map((segment) => segment.stream)).toEqual(['stdout', 'stderr'])
 })
 
 it('marks a self-evolution host build failed while keeping whatever output already streamed', () => {

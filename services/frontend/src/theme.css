@@ -974,6 +974,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .execution-log-line.stderr pre,
 :root[data-theme='light'] .execution-inline-log.stderr pre,
 :root[data-theme='light'] .terminal-event pre.stderr { color: #a14940; }
+:root[data-theme='light'] .execution-output-segment.stderr { background: rgba(161,73,64,.10); color: #8f443c; }
 :root[data-theme='light'] .execution-log-line.warning pre,
 :root[data-theme='light'] .execution-inline-log.warning pre { color: #7d5a1e; }
 :root[data-theme='light'] .change-diff-view { background: #f7f8f4; color: #30382d; }
