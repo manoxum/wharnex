@@ -321,7 +321,7 @@ export type Session = {
   artifacts?: ArtifactRecord[]
   interrupted_execution?: { plan_id: string; requested_at: string; approved: boolean; status?: 'awaiting_decision' | 'running' | 'resuming' | 'failed_retryable'; last_error?: string }
   remote_recovery_attempt?: number
-	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict' | 'knowledge_review'; created_at: string }>
+	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'plan_approval' | 'plan_correction' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict' | 'knowledge_review' | 'knowledge_consolidation'; created_at: string }>
   /** Set the instant a chat's session is archived; null once restored. Set
    *  together, restore is a pure state flip (api.restoreChat) while it is
    *  still within the grace window (see compacted_at). */
@@ -347,6 +347,7 @@ export type ArtifactRecord = {
   created_at: string
   expires_at: string
   bundle: boolean
+  bundle_type?: string
   entry_count?: number
 }
 
