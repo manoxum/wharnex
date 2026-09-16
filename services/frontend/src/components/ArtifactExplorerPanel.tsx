@@ -121,7 +121,7 @@ export function ArtifactExplorerPanel({ onError }: { onError: (message: string) 
     <header className="right-tool-heading artifact-explorer-heading"><div><span>Biblioteca global · MinIO</span><strong>Explorador de artefactos</strong></div><button type="button" onClick={() => void refresh()} aria-label="Atualizar bundles" title="Atualizar"><Icon name="refresh" size={15}/></button></header>
 
     <div className="artifact-explorer-toolbar">
-      <label className="artifact-explorer-search"><Icon name="search" size={15}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar por nome, projeto, request ou SHA…" aria-label="Pesquisar artefactos"/></label>
+      <label className="panel-search-field artifact-explorer-search"><Icon name="search" size={15}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar por nome, projeto, request ou SHA…" aria-label="Pesquisar artefactos"/></label>
       <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label="Ordenar artefactos">
         <option value="newest">Mais recentes</option><option value="oldest">Mais antigos</option><option value="name-asc">Nome A–Z</option><option value="name-desc">Nome Z–A</option><option value="size-desc">Maior tamanho</option><option value="size-asc">Menor tamanho</option>
       </select>

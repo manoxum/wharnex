@@ -45,7 +45,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar explorador" title="Fechar explorador"><Icon name="close" size={13}/></button>
       </div>
     </header>
-    <label className="agent-explorer-search">
+    <label className="panel-search-field agent-explorer-search">
       <Icon name="search" size={13}/>
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar no projeto" aria-label="Pesquisar ficheiros" />
       {query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}

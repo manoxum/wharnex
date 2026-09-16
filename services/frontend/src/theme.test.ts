@@ -16,6 +16,12 @@ describe('complete colour themes', () => {
     ]) expect(theme).toContain(surface)
   })
 
+  it('keeps shared panel searches seamless in both themes', () => {
+    expect(theme).toContain(":root[data-theme='light'] .panel-search-field input { border-color: transparent; background: transparent; color: var(--theme-text); }")
+    expect(theme).toContain(":root[data-theme='dark'] .panel-search-field { border-color: #3b3b3b; background: #202020; color: #adadad; }")
+    expect(theme).toContain(":root[data-theme='dark'] .panel-search-field input { border-color: transparent; background: transparent; color: #ececec; }")
+  })
+
   it('keeps the effort selector integrated with the dark composer chrome', () => {
     expect(theme).toContain(":root[data-theme='dark'] .composer-effort-picker {")
     expect(theme).toContain(":root[data-theme='dark'] .composer-effort-picker select {")

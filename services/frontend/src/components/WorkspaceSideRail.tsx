@@ -293,7 +293,7 @@ function ArchiveDrawer({ projectPath, chats, busy, onRestore, onDelete, onRename
 
   return <section className="agent-archive-drawer" aria-label="Chats arquivados">
     <header className="agent-drawer-heading agent-archive-heading"><div><span className="panel-kicker">Gestão de chats</span><div className="agent-archive-heading-row"><strong>Arquivados</strong><span className="agent-archive-count">{chats.length}</span></div></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
-    <div className="agent-archive-toolbar"><label className="archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar chats arquivados"/></label><span className="agent-archive-filter-count" aria-live="polite">{visibleLabel}</span></div>
+    <div className="agent-archive-toolbar"><label className="panel-search-field archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar chats arquivados"/></label><span className="agent-archive-filter-count" aria-live="polite">{visibleLabel}</span></div>
     <div className="agent-archive-list">
       {visible.length ? visible.map((chat) => {
         const archivedAt = chat.archivedAt || chat.updatedAt
