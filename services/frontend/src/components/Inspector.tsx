@@ -335,7 +335,7 @@ export function TerminalView({ events }: { events: HarnessEvent[] }) {
   const failed = [...entries].reverse().find((entry) => entry.tone === 'fail')
   return <div className="execution-view">
     <div className="execution-overview">
-      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : 'Atividade de execução'}</h3><p>Cada comando é um único item: stdout/stderr ficam agrupados, com data/hora, duração e expansão sob demanda. A vista acompanha o fim enquanto esta aba estiver ativa.</p></div>
+      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : 'Atividade de execução'}</h3><p>Cada comando é um único item: a saída fica agrupada sem prefixos repetitivos; stderr recebe realce de fundo, com data/hora, duração e expansão sob demanda. A vista acompanha o fim enquanto esta aba estiver ativa.</p></div>
       <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : 'Atualizada'}</StatusPill>
     </div>
     <div className="execution-timeline">
@@ -350,7 +350,9 @@ export function TerminalView({ events }: { events: HarnessEvent[] }) {
             <div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatExecutionDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatDuration(entry.durationMs)}` : ''}</span></div>
             <div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={isExpanded ? 'execution-expand open' : 'execution-expand'} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id); return next })} title={isExpanded ? 'Ocultar output' : 'Mostrar output'} aria-label={isExpanded ? 'Ocultar output' : 'Mostrar output'}>⌄</button>}</div>
           </div>
-          {canExpand && isExpanded && <pre className="execution-command-output">{entry.output}</pre>}
+          {canExpand && isExpanded && <div className="execution-command-output" role="log" aria-label="Saída da execução">
+            {entry.outputSegments.length ? entry.outputSegments.map((segment, segmentIndex) => <pre key={`${entry.id}-output-${segmentIndex}`} className={`execution-output-segment ${segment.stream}`} data-stream={segment.stream} aria-label={segment.stream === 'stderr' ? 'stderr' : undefined}>{segment.text}</pre>) : <pre className="execution-output-segment meta">{entry.output}</pre>}
+          </div>}
         </div></Fragment>
       })}
       <div ref={endRef}/>

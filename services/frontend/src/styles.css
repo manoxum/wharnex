@@ -1404,7 +1404,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .execution-expand { width: 25px; height: 25px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #6c7567; cursor: pointer; font-size: calc(17px * var(--ui-font-scale)); line-height: 1; transition: transform .14s ease, background .14s ease; }
 .execution-expand:hover { background: #e3e7df; }
 .execution-expand.open { transform: rotate(180deg); }
-.execution-command-output { margin: 0 10px 9px 29px; padding: 9px 10px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-left: 2px solid #596356; border-radius: 5px; background: #171a16; color: #bdc6b6; font: calc(9.5px * var(--ui-font-scale))/1.55 var(--mono-font-family); }
+.execution-command-output { margin: 0 10px 9px 29px; padding: 6px 0; max-height: 320px; overflow: auto; border-left: 2px solid #596356; border-radius: 5px; background: #171a16; color: #bdc6b6; }
+.execution-output-segment { min-width: 0; margin: 0; padding: 2px 10px; white-space: pre-wrap; overflow-wrap: anywhere; background: transparent; color: inherit; font: calc(9.5px * var(--ui-font-scale))/1.55 var(--mono-font-family); }
+.execution-output-segment.stderr { background: rgba(184,110,102,.16); color: #e4a29a; }
 .lamp.blinking { animation: execution-pulse 1s ease-in-out infinite; }
 @keyframes execution-pulse { 0%, 100% { opacity: .35; transform: scale(.82); } 50% { opacity: 1; transform: scale(1.16); box-shadow: 0 0 0 4px rgba(168,103,22,.12); } }
 

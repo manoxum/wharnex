@@ -1,5 +1,10 @@
 import type { HarnessEvent } from '../types'
 
+export type ExecutionOutputSegment = {
+  stream: 'stdout' | 'stderr' | 'meta'
+  text: string
+}
+
 export type ExecutionTimelineEntry = {
   id: string
   kind: 'command' | 'patch' | 'status'
@@ -11,6 +16,7 @@ export type ExecutionTimelineEntry = {
   durationMs?: number
   running: boolean
   output: string
+  outputSegments: ExecutionOutputSegment[]
 	requestId: string
 	rootRequestId: string
 	iterationKind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict'
@@ -26,14 +32,14 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
+        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'command.started') {
         entry.title = commandTitle(event); entry.detail = commandDetail(event); entry.timestamp = event.timestamp
       } else if (event.type === 'command.output') {
         const text = String(event.data.text || '')
-        if (text) entry.output += `${event.data.stream === 'stderr' ? '[stderr]' : '[stdout]'} ${text}`
+        if (text) appendOutput(entry, event.data.stream === 'stderr' ? 'stderr' : 'stdout', text)
       } else {
         entry.title = commandTitle(event) || entry.title
         entry.detail = commandDetail(event) || entry.detail
@@ -41,7 +47,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
         entry.tone = event.data.success === false ? 'fail' : 'ok'
         entry.running = false
         entry.durationMs = finiteNumber(event.data.duration_ms)
-        if (!entry.output) entry.output = joinedFallback(event)
+        if (!entry.output) setFallbackOutput(entry, event)
       }
       continue
     }
@@ -55,17 +61,17 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.transaction_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'command', title: 'Build do Wharnex no host', detail: '', badge: 'BUILD', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
+        entry = { id: runID, kind: 'command', title: 'Build do Wharnex no host', detail: '', badge: 'BUILD', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'self_evolution.host_build_output') {
         const text = String(event.data.text || '')
-        if (text) entry.output += `${event.data.stream === 'stderr' ? '[stderr]' : '[stdout]'} ${text}`
+        if (text) appendOutput(entry, event.data.stream === 'stderr' ? 'stderr' : 'stdout', text)
       } else if (event.type === 'self_evolution.host_build_completed') {
         entry.title = 'Build do Wharnex concluído'; entry.badge = 'OK'; entry.tone = 'ok'; entry.running = false
       } else if (event.type === 'self_evolution.host_build_failed') {
         entry.title = 'Build do Wharnex falhou'; entry.badge = 'FAIL'; entry.tone = 'fail'; entry.running = false
-        if (!entry.output) entry.output = joinedFallback(event)
+        if (!entry.output) setFallbackOutput(entry, event)
       }
       continue
     }
@@ -73,7 +79,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'patch', title: patchTitle(event), detail: patchDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', ...active }
+        entry = { id: runID, kind: 'patch', title: patchTitle(event), detail: patchDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'patch.applied') {
@@ -82,7 +88,8 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       continue
     }
     const meta = statusMeta(event)
-    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: statusEventOutput(event), ...active, ...meta })
+    const outputSegments = statusEventOutput(event)
+    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: segmentsText(outputSegments), outputSegments, ...active, ...meta })
   }
   return entries
 }
@@ -107,16 +114,32 @@ function patchDetail(event: HarnessEvent) {
 }
 function finiteNumber(value: unknown) { const number = Number(value); return Number.isFinite(number) && number >= 0 ? number : undefined }
 
-function joinedFallback(event: HarnessEvent) {
-  const chunks: string[] = []
+function appendOutput(entry: ExecutionTimelineEntry, stream: 'stdout' | 'stderr', text: string) {
+  entry.output += text
+  const previous = entry.outputSegments.at(-1)
+  if (previous?.stream === stream) previous.text += text
+  else entry.outputSegments.push({ stream, text })
+}
+
+function fallbackOutput(event: HarnessEvent): ExecutionOutputSegment[] {
+  const segments: ExecutionOutputSegment[] = []
   for (const [key, label] of [['stdout', 'stdout'], ['stderr', 'stderr'], ['diagnostic', 'diagnóstico'], ['baseline_diagnostic', 'baseline'], ['post_diagnostic', 'pós-verificação'], ['error', 'erro']] as const) {
     const text = typeof event.data[key] === 'string' ? String(event.data[key]).trim() : ''
-    if (text) chunks.push(`[${label}] ${text}`)
+    if (!text) continue
+    if (key === 'stdout' || key === 'stderr') segments.push({ stream: key, text })
+    else segments.push({ stream: 'meta', text: `[${label}] ${text}` })
   }
   const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String).filter(Boolean) : []
-  chunks.push(...reasons.map((value) => `[policy] ${value}`))
-  return chunks.join('\n')
+  segments.push(...reasons.map((value) => ({ stream: 'meta' as const, text: `[policy] ${value}` })))
+  return segments
 }
+
+function setFallbackOutput(entry: ExecutionTimelineEntry, event: HarnessEvent) {
+  entry.outputSegments = fallbackOutput(event)
+  entry.output = segmentsText(entry.outputSegments)
+}
+
+function segmentsText(segments: ExecutionOutputSegment[]) { return segments.map((segment) => segment.text).join('\n') }
 
 function statusMeta(event: HarnessEvent) {
   const target = String(event.data.target || '')
@@ -175,12 +198,11 @@ function structuredEventData(event: HarnessEvent) {
   try { return JSON.stringify(event.data, null, 2) || '' } catch { return String(event.data) }
 }
 
-function statusEventOutput(event: HarnessEvent) {
-  const summary = joinedFallback(event)
+function statusEventOutput(event: HarnessEvent): ExecutionOutputSegment[] {
+  const segments = fallbackOutput(event)
   const structured = structuredEventData(event)
-  if (!summary) return structured
-  if (!structured) return summary
-  return `${summary}\n\n[dados]\n${structured}`
+  if (structured) segments.push({ stream: 'meta', text: `[dados]\n${structured}` })
+  return segments
 }
 
 function genericEventTone(event: HarnessEvent): ExecutionTimelineEntry['tone'] {
