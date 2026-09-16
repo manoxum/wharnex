@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,16 +49,17 @@ func (r *LocalRunner) Run(ctx context.Context, workspace Workspace, command doma
 }
 
 func (r *LocalRunner) RunStreaming(ctx context.Context, workspace Workspace, command domain.CommandSpec, onOutput StreamCallback) (domain.CommandResult, error) {
+	timeout := time.Duration(command.TimeoutSeconds) * time.Second
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	started := time.Now()
 	cwd, err := safeWorkspaceCwd(workspace.Path, command.Cwd)
 	if err != nil {
 		return domain.CommandResult{}, err
 	}
-	if err := prepareCommandDependencies(workspace, command); err != nil {
-		return domain.CommandResult{}, err
+	if err := prepareCommandDependenciesContext(runCtx, workspace, command); err != nil {
+		return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "dependency preparation", err)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, time.Duration(command.TimeoutSeconds)*time.Second)
-	defer cancel()
-	started := time.Now()
 	cmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
 	cmd.Dir = cwd
 	stdout := newStreamCapture("stdout", onOutput)
@@ -66,5 +69,11 @@ func (r *LocalRunner) RunStreaming(ctx context.Context, workspace Workspace, com
 	err = cmd.Run()
 	code := exitCode(err)
 	res := domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: code, Stdout: limit(stdout.String()), Stderr: processStderr(stderr.String(), err), DurationMS: time.Since(started).Milliseconds(), Success: containsInt(command.ExpectedExitCodes, code) && runCtx.Err() == nil}
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		return res, fmt.Errorf("command timeout after %s", timeout)
+	}
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		return res, context.Canceled
+	}
 	return res, nil
 }

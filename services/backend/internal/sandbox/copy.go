@@ -311,11 +311,18 @@ func safeSandboxRemoteURL(raw string) (string, bool) {
 }
 
 func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec) error {
+	return prepareCommandDependenciesContext(context.Background(), workspace, command)
+}
+
+func prepareCommandDependenciesContext(ctx context.Context, workspace Workspace, command domain.CommandSpec) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if workspace.SourcePath == "" {
 		return nil
 	}
 	if requiresLocalGoDependencies(command.Argv) || (command.Network && hydratesGoDependencies(command.Argv)) {
-		if err := prepareGoDependencies(workspace, command); err != nil {
+		if err := prepareGoDependenciesContext(ctx, workspace, command); err != nil {
 			return err
 		}
 	}
@@ -356,7 +363,7 @@ func prepareCommandDependencies(workspace Workspace, command domain.CommandSpec)
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		if err := copyDependencyTree(sourceModules, destModules, workspace.SourcePath, workspace.Path); err != nil {
+		if err := copyDependencyTreeContext(ctx, sourceModules, destModules, workspace.SourcePath, workspace.Path); err != nil {
 			return fmt.Errorf("prepare sandbox node dependencies: %w", err)
 		}
 		copied = true
@@ -385,11 +392,15 @@ type goModuleDownload struct {
 // to the host: GOFLAGS=-mod=readonly turns any attempt to update go.mod into
 // a hard error instead of a silent host mutation.
 func goModuleInventoryCommand(moduleRoot string) *exec.Cmd {
-	return goModuleInventoryCommandFromCache(moduleRoot, "")
+	return goModuleInventoryCommandFromCacheContext(context.Background(), moduleRoot, "")
 }
 
 func goModuleInventoryCommandFromCache(moduleRoot, cacheRoot string) *exec.Cmd {
-	cmd := exec.Command("go", "mod", "download", "-json")
+	return goModuleInventoryCommandFromCacheContext(context.Background(), moduleRoot, cacheRoot)
+}
+
+func goModuleInventoryCommandFromCacheContext(ctx context.Context, moduleRoot, cacheRoot string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "go", "mod", "download", "-json")
 	cmd.Dir = moduleRoot
 	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=readonly")
 	if cacheRoot != "" {
@@ -409,6 +420,13 @@ func truncateForError(s string, limit int) string {
 }
 
 func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) error {
+	return prepareGoDependenciesContext(context.Background(), workspace, command)
+}
+
+func prepareGoDependenciesContext(ctx context.Context, workspace Workspace, command domain.CommandSpec) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	targetCache := filepath.Join(workspace.Path, ".kernl", "go-mod")
 	if command.Network {
 		// A network-approved command resolves modules inside the isolated runner.
@@ -417,7 +435,7 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 		if err := os.MkdirAll(targetCache, 0o755); err != nil {
 			return err
 		}
-		return mergeGoModuleCache(workspace.GoModuleCachePath, targetCache)
+		return mergeGoModuleCacheContext(ctx, workspace.GoModuleCachePath, targetCache)
 	}
 	sourceCwd, err := safeRelativePath(workspace.SourcePath, command.Cwd)
 	if err != nil {
@@ -432,8 +450,10 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 		return nil
 	}
 	if workspace.GoModuleCachePath != "" {
-		if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, workspace.GoModuleCachePath, "private Wharnex Go module cache"); err == nil {
+		if err := hydrateGoDependenciesFromCacheContext(ctx, moduleRoot, targetCache, workspace.GoModuleCachePath, "private Wharnex Go module cache"); err == nil {
 			return os.WriteFile(marker, []byte("offline module cache ready\n"), 0o600)
+		} else if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		// A failed private-cache attempt may have copied a prefix before finding
 		// an incomplete entry. Discard only this fresh sandbox cache before
@@ -448,7 +468,7 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 	// all. Calling it "host" made a container measurement read as a statement
 	// about the operator's machine, so the diagnostic names what was actually
 	// inspected (see adr/ADR-0045).
-	cacheOutput, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	cacheOutput, err := exec.CommandContext(ctx, "go", "env", "GOMODCACHE").Output()
 	if err != nil {
 		return fmt.Errorf("%w: resolve the Wharnex runtime Go module cache: %v", ErrOfflineDependenciesUnavailable, err)
 	}
@@ -456,7 +476,7 @@ func prepareGoDependencies(workspace Workspace, command domain.CommandSpec) erro
 	if runtimeCache == "" || !filepath.IsAbs(runtimeCache) {
 		return fmt.Errorf("%w: the Wharnex runtime reports no usable GOMODCACHE", ErrOfflineDependenciesUnavailable)
 	}
-	if err := hydrateGoDependenciesFromCache(moduleRoot, targetCache, runtimeCache, runtimeCacheLabel(runtimeCache)); err != nil {
+	if err := hydrateGoDependenciesFromCacheContext(ctx, moduleRoot, targetCache, runtimeCache, runtimeCacheLabel(runtimeCache)); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(targetCache, 0o755); err != nil {
@@ -477,11 +497,21 @@ func runtimeCacheLabel(path string) string {
 }
 
 func hydrateGoDependenciesFromCache(moduleRoot, targetCache, sourceCache, cacheLabel string) error {
+	return hydrateGoDependenciesFromCacheContext(context.Background(), moduleRoot, targetCache, sourceCache, cacheLabel)
+}
+
+func hydrateGoDependenciesFromCacheContext(ctx context.Context, moduleRoot, targetCache, sourceCache, cacheLabel string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if info, err := os.Stat(sourceCache); err != nil || !info.IsDir() {
 		return fmt.Errorf("%w: %s is unavailable", ErrOfflineDependenciesUnavailable, cacheLabel)
 	}
-	cmd := goModuleInventoryCommandFromCache(moduleRoot, sourceCache)
+	cmd := goModuleInventoryCommandFromCacheContext(ctx, moduleRoot, sourceCache)
 	output, downloadErr := cmd.Output()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	decoder := json.NewDecoder(strings.NewReader(string(output)))
 	modules := make([]goModuleDownload, 0)
 	for {
@@ -513,7 +543,7 @@ func hydrateGoDependenciesFromCache(moduleRoot, targetCache, sourceCache, cacheL
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("%w: cached module %s escaped GOMODCACHE", ErrOfflineDependenciesUnavailable, module.Path)
 		}
-		if err := copyDependencyTree(module.Dir, filepath.Join(targetCache, rel), sourceCache, targetCache); err != nil {
+		if err := copyDependencyTreeContext(ctx, module.Dir, filepath.Join(targetCache, rel), sourceCache, targetCache); err != nil {
 			return fmt.Errorf("%w: copy cached Go module %s: %v", ErrOfflineDependenciesUnavailable, module.Path, err)
 		}
 		for _, cachedFile := range []string{module.Info, module.GoMod, module.Zip, module.Zip + "hash"} {
@@ -528,7 +558,7 @@ func hydrateGoDependenciesFromCache(moduleRoot, targetCache, sourceCache, cacheL
 			if err != nil {
 				return fmt.Errorf("%w: cached metadata for %s is incomplete: %s", ErrOfflineDependenciesUnavailable, module.Path, filepath.Base(cachedFile))
 			}
-			if err := copyFile(cachedFile, filepath.Join(targetCache, fileRel), info.Mode().Perm()); err != nil {
+			if err := copyFileContext(ctx, cachedFile, filepath.Join(targetCache, fileRel), info.Mode().Perm()); err != nil {
 				return fmt.Errorf("%w: copy cached metadata for %s: %v", ErrOfflineDependenciesUnavailable, module.Path, err)
 			}
 		}
@@ -562,6 +592,10 @@ func markNetworkGoDependenciesReady(workspace Workspace, command domain.CommandS
 // overwritten. The per-execution readiness marker is intentionally excluded:
 // every fresh sandbox validates its current build list before running offline.
 func mergeGoModuleCache(source, destination string) error {
+	return mergeGoModuleCacheContext(context.Background(), source, destination)
+}
+
+func mergeGoModuleCacheContext(ctx context.Context, source, destination string) error {
 	if source == "" || destination == "" || filepath.Clean(source) == filepath.Clean(destination) {
 		return nil
 	}
@@ -576,6 +610,9 @@ func mergeGoModuleCache(source, destination string) error {
 		return errors.New("Go module cache source is not a directory")
 	}
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -608,7 +645,7 @@ func mergeGoModuleCache(source, destination string) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		return copyFile(path, target, fileInfo.Mode().Perm())
+		return copyFileContext(ctx, path, target, fileInfo.Mode().Perm())
 	})
 }
 
@@ -680,7 +717,14 @@ func requiresLocalNodeDependencies(argv []string) bool {
 }
 
 func copyDependencyTree(source, dest, sourceRoot, destRoot string) error {
+	return copyDependencyTreeContext(context.Background(), source, dest, sourceRoot, destRoot)
+}
+
+func copyDependencyTreeContext(ctx context.Context, source, dest, sourceRoot, destRoot string) error {
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -726,7 +770,7 @@ func copyDependencyTree(source, dest, sourceRoot, destRoot string) error {
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		return copyFile(path, dst, info.Mode().Perm())
+		return copyFileContext(ctx, path, dst, info.Mode().Perm())
 	})
 }
 
@@ -759,6 +803,13 @@ func initializeWorkspaceGit(root string) error {
 }
 
 func copyFile(source, dest string, mode os.FileMode) error {
+	return copyFileContext(context.Background(), source, dest, mode)
+}
+
+func copyFileContext(ctx context.Context, source, dest string, mode os.FileMode) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
@@ -772,8 +823,24 @@ func copyFile(source, dest string, mode os.FileMode) error {
 		return err
 	}
 	defer dst.Close()
-	_, err = io.Copy(dst, src)
-	return err
+	buffer := make([]byte, 128*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		read, readErr := src.Read(buffer)
+		if read > 0 {
+			if _, writeErr := dst.Write(buffer[:read]); writeErr != nil {
+				return writeErr
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
 }
 
 func safeWorkspaceCwd(workspace, cwd string) (string, error) {

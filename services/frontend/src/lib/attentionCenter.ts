@@ -48,7 +48,7 @@ const PENDING_RESOLUTION_STATES = new Set([
 ])
 
 const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'stale_host_baseline', 'host_integration_race', 'host_working_state_blocked'])
-const APPLY_BLOCKING_FAILURES = new Set(['offline_go_module_cache', 'host_build_toolchain_mismatch', 'host_dependency_state', ...APPLY_RETRY_FAILURES])
+const APPLY_BLOCKING_FAILURES = new Set(['offline_go_module_cache', 'host_build_toolchain_mismatch', 'host_dependency_state', 'sandbox_preparation_timeout', ...APPLY_RETRY_FAILURES])
 
 export function sessionHostResolutionBlocked(session: Session) {
   return Boolean(session.planner_in_flight || session.pending_manual_request_ids?.length || PENDING_RESOLUTION_STATES.has(session.state) || session.last_turn?.kind === 'workflow')
@@ -157,6 +157,10 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
       break
     case 'host_dependency_state':
       items.push(item(chat, 'host-dependency', 'warning', 'Dependências do host incompletas', 'Reinstale as dependências do host e repita a aplicação verificada.', 'terminal', 'repair-host-dependency'))
+      failureAlertAdded = true
+      break
+    case 'sandbox_preparation_timeout':
+      items.push(item(chat, 'sandbox-preparation-timeout', 'warning', 'Preparação do sandbox excedeu o limite', session.last_repair_error || 'A preparação local do sandbox excedeu o tempo do comando antes de o processo iniciar.', 'terminal'))
       failureAlertAdded = true
       break
     case 'offline_go_module_cache':

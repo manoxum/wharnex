@@ -41,6 +41,7 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 	"host_integration_race":                        domain.FailureKindHostIntegrationRace,
 	"integration_race":                             domain.FailureKindHostIntegrationRace,
 	"sandbox_resource_exhausted":                   domain.FailureKindSandboxResourceExhausted,
+	"sandbox_preparation_timeout":                  domain.FailureKindSandboxPreparationTimeout,
 	"sandbox_disk_full":                            domain.FailureKindSandboxResourceExhausted,
 	"artifact_storage_full":                        domain.FailureKindArtifactStorageFull,
 	"host_working_state_blocked":                   domain.FailureKindHostWorkingStateBlocked,
@@ -75,6 +76,9 @@ func classifyExecutionFailure(cause error) string {
 	}
 	if errors.Is(cause, ErrHostWorkingStateBlocked) {
 		return domain.FailureKindHostWorkingStateBlocked
+	}
+	if errors.Is(cause, sandbox.ErrCommandPreparationTimeout) {
+		return domain.FailureKindSandboxPreparationTimeout
 	}
 	if errors.Is(cause, context.Canceled) {
 		return domain.FailureKindExecutionCanceled
@@ -296,6 +300,9 @@ func sessionFailureKind(item domain.Session) string {
 		}
 		if strings.Contains(legacyDetail, strings.ToLower(ErrHostIntegrationRace.Error())) {
 			return domain.FailureKindHostIntegrationRace
+		}
+		if strings.Contains(legacyDetail, strings.ToLower(sandbox.ErrCommandPreparationTimeout.Error())) {
+			return domain.FailureKindSandboxPreparationTimeout
 		}
 		if strings.Contains(legacyDetail, context.Canceled.Error()) {
 			return domain.FailureKindExecutionCanceled

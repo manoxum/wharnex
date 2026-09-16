@@ -119,6 +119,12 @@ const (
 	// model/source defect; the candidate remains safe to retry.
 	FailureKindHostIntegrationRace = "host_integration_race"
 
+	// FailureKindSandboxPreparationTimeout marks a Protected command whose
+	// command budget expired while Wharnex was preparing the isolated runner
+	// (for example while copying project-local node_modules). The source patch
+	// has not executed yet, so replanning source cannot resolve this failure.
+	FailureKindSandboxPreparationTimeout = "sandbox_preparation_timeout"
+
 	// FailureKindExecutionCanceled marks a sandbox/host command interrupted by
 	// cancellation of the owning request context. It is a transport/lifecycle
 	// interruption, not evidence that the model-generated source is defective.

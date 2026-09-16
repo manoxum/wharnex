@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 )
@@ -282,6 +283,57 @@ func TestPrepareCommandDependenciesCopiesNodeModulesLazily(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "/usr/bin/env node") {
 		t.Fatalf("unexpected copied dependency: %q", data)
+	}
+}
+
+func TestLocalRunnerCancellationStopsBeforeNodeDependencyHydration(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"build":"node -e \"process.exit(0)\""}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moduleDir := filepath.Join(root, "node_modules", "example")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, "index.js"), []byte("module.exports = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := NewLocalRunner()
+	workspace, err := runner.Prepare(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Cleanup(workspace)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = runner.Run(ctx, workspace, domain.CommandSpec{
+		Argv:              []string{"npm", "run", "build"},
+		Cwd:               ".",
+		TimeoutSeconds:    30,
+		ExpectedExitCodes: []int{0},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled command returned %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(workspace.Path, "node_modules")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("dependency hydration continued after cancellation: %v", statErr)
+	}
+}
+
+func TestCommandPreparationDeadlineHasInfrastructureSentinel(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	err := commandPreparationError(ctx, 180*time.Second, "dependency preparation", ctx.Err())
+	if !errors.Is(err, ErrCommandPreparationTimeout) {
+		t.Fatalf("preparation deadline returned %v", err)
+	}
+	if !strings.Contains(err.Error(), "dependency preparation") {
+		t.Fatalf("preparation deadline lost its phase: %v", err)
 	}
 }
 

@@ -2340,7 +2340,7 @@ func normalizedVerificationOutput(result domain.CommandResult) string {
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
 	command = repositoryTreeCommand(ctx, workspace.Path, command)
 	runID := ids.New("run")
-	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "target": target})
+	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "timeout_seconds": command.TimeoutSeconds, "target": target})
 	var result domain.CommandResult
 	var err error
 	if streaming, ok := runner.(sandbox.StreamingRunner); ok {

@@ -2171,6 +2171,29 @@ func TestFailExecutionClassifiesOfflineGoModuleCache(t *testing.T) {
 	}
 }
 
+func TestFailExecutionDoesNotQueueRepairForSandboxPreparationTimeout(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := fmt.Errorf("verification failed: %w after 3m0s during dependency preparation", sandbox.ErrCommandPreparationTimeout)
+	_, updated, err := service.failExecution(context.Background(), started.ID, domain.ExecutionResult{PlanID: "p"}, cause)
+	if err == nil {
+		t.Fatal("expected failExecution to propagate the cause")
+	}
+	if updated.FailureKind != domain.FailureKindSandboxPreparationTimeout {
+		t.Fatalf("failure_kind = %q, want %q", updated.FailureKind, domain.FailureKindSandboxPreparationTimeout)
+	}
+	if updated.State == "repair_pending" {
+		t.Fatal("sandbox preparation timeout must not queue a planner repair")
+	}
+	if updated.RepairAttempt != 0 {
+		t.Fatalf("sandbox preparation timeout consumed %d repair attempts", updated.RepairAttempt)
+	}
+}
+
 func TestPrepareRepairRequestBlocksHostToolchainMismatchInsteadOfConsumingAnAttempt(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})

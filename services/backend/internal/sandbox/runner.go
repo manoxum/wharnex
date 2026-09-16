@@ -3,11 +3,24 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 )
 
 var ErrOfflineDependenciesUnavailable = errors.New("offline sandbox dependencies unavailable")
+var ErrCommandPreparationTimeout = errors.New("sandbox command preparation timed out")
+
+func commandPreparationError(runCtx context.Context, timeout time.Duration, phase string, cause error) error {
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("%w after %s during %s: %v", ErrCommandPreparationTimeout, timeout, phase, cause)
+	}
+	return cause
+}
 
 type Workspace struct {
 	Path       string

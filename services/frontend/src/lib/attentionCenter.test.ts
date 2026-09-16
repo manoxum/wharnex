@@ -151,6 +151,19 @@ describe('attention center', () => {
     expect(offlineItems).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Dependências precisam de rede', action: 'retry-dependency-network' })]))
   })
 
+  it('surfaces sandbox preparation timeout as local execution infrastructure', () => {
+    const failed = session('ses-chat-1')
+    failed.state = 'failed'
+    failed.failure_kind = 'sandbox_preparation_timeout'
+    failed.last_repair_error = 'sandbox command preparation timed out after 3m0s during dependency preparation'
+
+    const items = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': failed })
+    expect(items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: 'Preparação do sandbox excedeu o limite', target: 'terminal', action: undefined }),
+    ]))
+    expect(items).not.toEqual(expect.arrayContaining([expect.objectContaining({ action: 'repair-with-gpt' })]))
+  })
+
   it('does not offer network retry for a planner-reported offline_go_module_cache that never carries a plan', () => {
     // Per SoT/AI_PROTOCOL.md, a `blocked`/`failed` planner turn never carries a
     // plan, so RetryDependencyNetwork (which requires a coherent failed plan +

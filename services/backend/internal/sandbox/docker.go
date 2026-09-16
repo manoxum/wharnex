@@ -78,24 +78,25 @@ func (r *DockerRunner) Run(ctx context.Context, workspace Workspace, command dom
 }
 
 func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, command domain.CommandSpec, onOutput StreamCallback) (domain.CommandResult, error) {
+	timeout := time.Duration(command.TimeoutSeconds) * time.Second
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	started := time.Now()
 	if _, err := safeWorkspaceCwd(workspace.Path, command.Cwd); err != nil {
 		return domain.CommandResult{}, err
 	}
-	if err := prepareCommandDependencies(workspace, command); err != nil {
-		return domain.CommandResult{}, err
+	if err := prepareCommandDependenciesContext(runCtx, workspace, command); err != nil {
+		return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "dependency preparation", err)
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return domain.CommandResult{}, errors.New("docker CLI not found; build/install Docker or use explicitly-enabled local dev sandbox")
 	}
-	if err := refuseDockerSocketActivation(); err != nil {
-		return domain.CommandResult{}, err
+	if err := refuseDockerSocketActivationContext(runCtx); err != nil {
+		return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "Docker daemon preflight", err)
 	}
-	if err := ensureLocalRunnerImage(ctx, r.image); err != nil {
-		return domain.CommandResult{}, err
+	if err := ensureLocalRunnerImage(runCtx, r.image); err != nil {
+		return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "runner image check", err)
 	}
-	timeout := time.Duration(command.TimeoutSeconds) * time.Second
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	network := "none"
 	if command.Network {
 		network = "bridge"
@@ -131,7 +132,6 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 		args = append(args[:len(args)-1], "--env", "GOPROXY=off", args[len(args)-1])
 	}
 	args = append(args, command.Argv...)
-	started := time.Now()
 	cmd := exec.CommandContext(runCtx, "docker", args...)
 	stdout := newStreamCapture("stdout", onOutput)
 	stderr := newStreamCapture("stderr", onOutput)
