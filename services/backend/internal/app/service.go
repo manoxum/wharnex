@@ -160,7 +160,8 @@ type translationWorkerResult struct {
 }
 
 func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, target utility.LanguageCode, markdown string) (utility.Result, error) {
-	if _, err := s.GetSession(sessionID); err != nil {
+	currentSession, err := s.GetSession(sessionID)
+	if err != nil {
 		return utility.Result{}, err
 	}
 	request := utility.Request{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown}
@@ -174,7 +175,17 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 	// it: the request bundle cannot be built without knowing what the answer
 	// will be called.
 	taskID := session.NewChatAgentTaskID()
-	manifest, archive, err := translation.BuildRequest(taskID, string(target), markdown)
+	chatID := currentSession.ChatID
+	if chatID == "" {
+		chatID = currentSession.ID
+	}
+	chatHash := currentSession.Context.WorkspaceSHA256
+	if chatHash == "" {
+		chatHash = currentSession.Context.Manifest.SHA256
+	}
+	manifest, archive, err := translation.BuildRequestWithMetadata(taskID, string(target), markdown, translation.RequestMetadata{
+		ChatTitle: "Document translation", ChatID: chatID, ChatHash: chatHash, RequestedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
 	if err != nil {
 		return utility.Result{}, err
 	}

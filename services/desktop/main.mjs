@@ -619,7 +619,7 @@ function authoritativeBundleFilename(value, requestId, fallbackChatId) {
   return canonicalBundleFilename(fallbackChatId, requestId)
 }
 
-function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, recoveryBootstrap = '', liveTunnels = [], originalPrompt = '', sessionId = '', expectedFilename = '') {
+function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, recoveryBootstrap = '', liveTunnels = [], originalPrompt = '', sessionId = '', expectedFilename = '', requestMetadata = {}) {
   const key = sanitizeChatCacheKey(cacheKey)
   const prior = expectedChatGPTBundles.get(key)
   const sameRequest = prior?.requestId === String(requestId)
@@ -650,6 +650,9 @@ function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, re
     recoveryBootstrap: String(recoveryBootstrap || (sameRequest ? prior?.recoveryBootstrap : '') || ''),
     originalPrompt: String(originalPrompt || (sameRequest ? prior?.originalPrompt : '') || ''),
     sessionId: String(sessionId || (sameRequest ? prior?.sessionId : '') || ''),
+    requestMetadata: Object.keys(requestMetadata || {}).length
+      ? { ...requestMetadata }
+      : (sameRequest && prior?.requestMetadata ? { ...prior.requestMetadata } : {}),
     liveTunnels: Array.isArray(liveTunnels) && liveTunnels.length ? liveTunnels.slice(0, 16) : (sameRequest && Array.isArray(prior?.liveTunnels) ? prior.liveTunnels.slice(0, 16) : []),
     recovery: createChatGPTRecoveryState(Date.now()),
   })
@@ -2995,12 +2998,12 @@ async function persistChatArtifact(sessionId, requestId, direction, kind, filena
   return response.json()
 }
 
-async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = [], tunnelInstanceIds = []) {
+async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = [], tunnelInstanceIds = [], requestMetadata = {}) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/remote-input`, BACKEND_URL)
   const response = await fetch(target, {
     method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles, tunnelInstanceIds)),
+    body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles, tunnelInstanceIds, requestMetadata)),
   })
   const result = await response.json().catch(() => ({}))
   return parseRemoteInputResponse(response.status, result)
@@ -3069,7 +3072,7 @@ function chatAttachmentRoot() {
   return path.join(app.getPath('userData'), 'chat-attachments-v1')
 }
 
-async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], liveTunnels = []) {
+async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], liveTunnels = [], requestMetadata = {}) {
   const { decoded } = decodeChatAttachmentSet(values)
   const artifacts = decodeChatArtifactSet(artifactValues)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', cacheKey)
@@ -3085,6 +3088,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   const archivePath = path.join(dir, archiveName)
   const archive = await writeChatInputArchive(archivePath, {
     requestId,
+    requestMetadata,
     prompt: promptText,
     context,
     knowledge,
@@ -3098,10 +3102,10 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   if (context) await persistChatArtifact(sessionId, requestId, 'input', 'context', `context-${requestId}.zip`, 'application/zip', context.bytes)
   for (const attachment of decoded) await persistChatArtifact(sessionId, requestId, 'input', 'attachment', attachment.name, attachment.mime, attachment.bytes)
   for (const artifact of artifacts.decoded) await persistChatArtifact(sessionId, requestId, 'input', 'system-artifact', artifact.name, artifact.mime, artifact.bytes)
-  return { archivePath, archiveName, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes }
+  return { archivePath, archiveName, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
 }
 
-async function materializeProtocolChatInput(cacheKey, sessionId, requestId, promptText, values = [], liveTunnels = []) {
+async function materializeProtocolChatInput(cacheKey, sessionId, requestId, promptText, values = [], liveTunnels = [], requestMetadata = {}) {
   const { decoded } = decodeChatAttachmentSet(values)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-protocol', cacheKey, `${Date.now()}-${randomUUID()}`)
   await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -3110,13 +3114,13 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   const context = await fetchContextZip(sessionId)
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
   const continuation = await fetchRequestContinuation(sessionId, requestId)
-  const archive = await writeChatInputArchive(archivePath, { requestId, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels })
-  return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes }
+  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels })
+  return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
 }
 
-async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], liveTunnels = []) {
-  const input = await materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, liveTunnels)
-  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels)
+async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], liveTunnels = [], requestMetadata = {}) {
+  const input = await materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, liveTunnels, requestMetadata)
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels, input.requestMetadata)
   try {
     const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)
     if (!filled) throw new Error('ChatGPT composer DOM could not be populated with bundled protocol input')
@@ -3707,8 +3711,8 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
 // that relied on their own try/catch or on the shared DOM-probe-failure
 // counter in pollExpectedChatGPTDownloadKey already handle a thrown error
 // correctly.
-async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '') {
-  const target = await targetChatGPTComposer(key, '', false, entryOverride)
+async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined) {
+  const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
   const expectedConversation = canonicalChatGPTConversationURL(expectedURL)
   const assertExpectedConversation = () => {
@@ -3750,6 +3754,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   const key = sanitizeChatCacheKey(request?.cacheKey)
   const workspaceChatId = durableWorkspaceChatID(key, request?.workspaceChatId)
   const requestId = String(request?.requestId || '').trim()
+  const requestedTitle = String(request?.chatTitle || '').replace(/\s+/g, ' ').trim().slice(0, 82)
   const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
   const autoSubmit = request?.autoSubmit === true
   if (autoSubmit) await requireAutoSession(request?.sessionId)
@@ -3762,13 +3767,19 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   const currentSha = String(request?.contextSha256 || '').trim()
   const previousSha = String(request?.lastContextSha256 || '').trim()
   const previousURL = String(request?.lastContextChatgptUrl || '').trim()
+  const requestMetadata = {
+    chat_title: requestedTitle,
+    chat_id: workspaceChatId || key,
+    chat_hash: currentSha,
+    requested_at: String(request?.requestedAt || ''),
+  }
   const includeContext = shouldAttachProjectContext({ currentSha, previousSha, currentConversationId: chatGPTConversationID(currentConversationURL), previousConversationId: chatGPTConversationID(previousURL), force: request?.includeContext === true })
 
   const tunnelInstanceIds = normalizeTunnelInstanceIDs(request?.tunnelInstanceIds)
   let remoteInput = null
   if (tunnelInstanceIds.length) {
     try {
-      remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, request?.bootstrapText, includeContext, request?.attachments || [], request?.artifacts || [], request?.projectFiles || [], tunnelInstanceIds)
+      remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, request?.bootstrapText, includeContext, request?.attachments || [], request?.artifacts || [], request?.projectFiles || [], tunnelInstanceIds, requestMetadata)
     } catch (error) {
       console.warn(`[chatgpt-protocol-channel] optional live fallback unavailable: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -3777,8 +3788,8 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   // Every planner request is transported as exactly one request ZIP. Selected
   // tunnels are optional live mirrors and never replace that authoritative ZIP.
   const directPrompt = remoteInput?.fallbackPrompt ? `${text}\n\n${remoteInput.fallbackPrompt}` : text
-  const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [])
-  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [])
+  const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [], requestMetadata)
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [], input.requestMetadata)
   const target = await targetChatGPTComposer(key, linkedConversation || CHATGPT_URL, linkedConversation ? request?.preferCurrentConversation === true : false, entryOverride)
   if (!linkedConversation) syncChatGPTAffinityURL(key, target.entry)
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
@@ -3788,9 +3799,9 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   if (autoSubmit) {
     await wait(chatInputSettleDelay(input.bytes, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-    armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename)
+    armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename, input.requestMetadata)
     try {
-      await submitChatGPTDraft(key, target.entry, target.conversationUrl)
+      await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
     } catch (error) {
       disarmExpectedChatGPTBundle(key, requestId)
       throw error
@@ -3802,6 +3813,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
       await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
         expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
         sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
+        requestMetadata: input.requestMetadata,
         projectName: request?.projectName || '', projectPath: request?.projectPath || '', workspaceChatId,
       })
     } catch (error) {
@@ -3809,7 +3821,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
     }
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId, requestMetadata: input.requestMetadata })
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=1 archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
@@ -3911,7 +3923,7 @@ async function retryPersistedChatGPTPrompt(request, entryOverride = undefined) {
   await wait(chatInputSettleDelay(bytes.byteLength, 1))
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, [], String(request?.recoveryPrompt || ''), sessionId, expectedFilename)
-  try { await submitChatGPTDraft(key, target.entry, target.conversationUrl) }
+  try { await submitChatGPTDraft(key, target.entry, target.conversationUrl, target) }
   catch (error) { disarmExpectedChatGPTBundle(key, requestId); throw error }
   clearChatGPTHumanAction(key, 'entrada persistida reenviada')
   return { ok: true, cacheKey: key, requestId, attachmentCount: 1, submitted: true, expectedFilename, includedContext: true, conversationUrl: targetURL, durable: true }
@@ -3954,7 +3966,7 @@ async function attachContextToChatGPT(request, entryOverride = undefined) {
   await writeFile(filePath, context.bytes, { mode: 0o600 })
   await pasteChatGPTFile(target.entry, filePath, 1, 1)
   await wait(chatInputSettleDelay(context.bytes.byteLength, 1))
-  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl)
+  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
   if (!submission.accepted) throw new Error('ChatGPT context submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   touchChatGPTEntry(target.entry)
@@ -3975,7 +3987,7 @@ async function attachPromptToChatGPT(request, entryOverride = undefined) {
   await writeFile(filePath, prompt.bytes, { mode: 0o600 })
   await pasteChatGPTFile(target.entry, filePath, 1, 1)
   await wait(chatInputSettleDelay(prompt.bytes.byteLength, 1))
-  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl)
+  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
   if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   touchChatGPTEntry(target.entry)
@@ -3994,13 +4006,14 @@ async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
   if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, entry)
   if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
-  armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap, prepared.liveTunnels || [], prepared.originalPrompt || '', prepared.sessionId || '', expectedFilename)
+  armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap, prepared.liveTunnels || [], prepared.originalPrompt || '', prepared.sessionId || '', expectedFilename, prepared.requestMetadata || {})
   const workspaceChatId = durableWorkspaceChatID(key, prepared.workspaceChatId)
   if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversationUrl, { remoteState: 'awaiting-response' })
   try {
     await enqueueChatAgentFollowups(key, prepared.requestId, conversationUrl, {
       expectedFilename, assistantBaseline, recoveryBootstrap: prepared.recoveryBootstrap,
       originalPrompt: prepared.originalPrompt || '', sessionId: prepared.sessionId || '', liveTunnels: prepared.liveTunnels || [],
+      requestMetadata: prepared.requestMetadata || {},
       projectName: prepared.projectName || '', projectPath: prepared.projectPath || '', fallbackTitle: prepared.chatTitle || '', workspaceChatId,
     })
   } catch (error) {
@@ -4022,13 +4035,14 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   const prior = expectedChatGPTBundles.get(key)
   const liveTunnels = prior?.requestId === requestId && Array.isArray(prior.liveTunnels) ? prior.liveTunnels : []
-  const bundled = await fillBundledChatGPTComposer(key, target.entry, sessionId, requestId, text, expectedFilename, [], liveTunnels)
+  const requestMetadata = prior?.requestId === requestId ? prior.requestMetadata || {} : {}
+  const bundled = await fillBundledChatGPTComposer(key, target.entry, sessionId, requestId, text, expectedFilename, [], liveTunnels, requestMetadata)
   await wait(100)
-  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl)
+  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
   if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
-  armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, liveTunnels, text, sessionId, expectedFilename)
+  armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, liveTunnels, text, sessionId, expectedFilename, requestMetadata)
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=dom`)
   return { ok: true, cacheKey: key, expectedFilename, conversationUrl, assistantBaseline, recoveryBootstrap: bundled.bootstrap, liveTunnels }
@@ -4157,6 +4171,7 @@ function expectedChatAgentPayload(key, requestId, conversationURL, values = {}) 
     project_name: String(values.projectName || ''), project_path: String(values.projectPath || ''),
     fallback_title: String(values.fallbackTitle || ''), recovery_count: Math.max(0, Number(values.recoveryCount || 0)),
     workspace_chat_id: String(values.workspaceChatId || ''),
+    request_metadata: values.requestMetadata && typeof values.requestMetadata === 'object' ? { ...values.requestMetadata } : {},
     request_eligible_at: String(values.requestEligibleAt || ''),
   }
 }
@@ -4174,7 +4189,7 @@ function hydrateExpectedChatAgentBundle(key, task, payload) {
   const requestId = String(task?.request_id || '')
   let expected = expectedChatGPTBundles.get(key)
   if (expected?.requestId === requestId) return expected
-  armExpectedChatGPTBundle(key, requestId, payload.assistant_baseline, payload.recovery_bootstrap, payload.live_tunnels || [], payload.original_prompt || '', payload.session_id || task?.session_id || '', payload.expected_filename || '')
+  armExpectedChatGPTBundle(key, requestId, payload.assistant_baseline, payload.recovery_bootstrap, payload.live_tunnels || [], payload.original_prompt || '', payload.session_id || task?.session_id || '', payload.expected_filename || '', payload.request_metadata || {})
   expected = expectedChatGPTBundles.get(key)
   expected.continuationCount = Math.max(0, Number(payload.recovery_count || 0))
   return expected
@@ -4655,7 +4670,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       if (uploadPaths.length) await wait(chatInputSettleDelay(uploadBytes, uploadPaths.length))
       else await wait(150)
       assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-      await submitChatGPTDraft(key, target.entry, target.conversationUrl)
+      await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
       conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
       if (!conversationUrl) throw new Error('ChatGPT orchestrator submission has no stable conversation id')
       await checkpointChatAgentTask(task.task_id, owner, {
@@ -4718,7 +4733,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         if (!refilled) throw new Error('ChatGPT orchestrator composer could not be populated for the re-request')
         await wait(150)
         assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-        await submitChatGPTDraft(key, target.entry, conversationUrl)
+        await submitChatGPTDraft(key, target.entry, conversationUrl, { ...target, conversationUrl })
         continue
       }
       if (Number(completion?.assistantCount || 0) > assistantBaseline) {
@@ -4819,7 +4834,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-    await submitChatGPTDraft(key, target.entry, target.conversationUrl)
+    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT translation submission has no stable conversation id')
 
@@ -5201,10 +5216,11 @@ async function flushQueuedChatGPTComments() {
           ? `${pending.text}\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this comment bundle:\n\n${expected.originalPrompt}`
           : pending.text
         const expectedFilename = expected?.requestId === pending.requestId ? expected.filename : canonicalBundleFilename(key, pending.requestId)
-        const bundled = await fillBundledChatGPTComposer(key, target.entry, pending.sessionId, pending.requestId, commentPrompt, expectedFilename, pending.attachments, liveTunnels)
+        const requestMetadata = expected?.requestId === pending.requestId ? expected.requestMetadata || {} : pending.requestMetadata || {}
+        const bundled = await fillBundledChatGPTComposer(key, target.entry, pending.sessionId, pending.requestId, commentPrompt, expectedFilename, pending.attachments, liveTunnels, requestMetadata)
         const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
         await wait(80)
-        await submitChatGPTDraft(key, target.entry, target.conversationUrl)
+        await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
         if (pending.sessionId) {
           try { await publishRemoteChannelComment(pending.sessionId, pending.requestId, pending.comment) }
           catch (error) { console.warn(`[remote-channel-comment] ${error instanceof Error ? error.message : String(error)}`) }
@@ -5213,7 +5229,7 @@ async function flushQueuedChatGPTComments() {
         recentChatGPTCommentIds.set(`${key}:${pending.commentId}`, Date.now())
         recentChatGPTCommentFingerprints.set(pending.fingerprint, Date.now())
         if (!queue.length) pendingChatGPTComments.delete(key)
-        if (expectedChatGPTBundles.has(key)) armExpectedChatGPTBundle(key, pending.requestId, assistantBaseline, '', [], '', pending.sessionId, expectedFilename)
+        if (expectedChatGPTBundles.has(key)) armExpectedChatGPTBundle(key, pending.requestId, assistantBaseline, '', [], '', pending.sessionId, expectedFilename, requestMetadata)
         touchChatGPTEntry(target.entry)
         sendToChatGPTKey(key, 'wharness:chatgpt:comment-sent', { cacheKey: key, requestId: pending.requestId, attachments: bundled.attachmentCount })
       })
@@ -5320,10 +5336,10 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
   try {
     await withChatGPTTransportPreparation(key, entry, expected.requestId, async () => {
       if (expectedChatGPTBundles.get(key) !== expected) return
-      await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, prompt, expected.filename, [], expected.liveTunnels || [])
+      await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, prompt, expected.filename, [], expected.liveTunnels || [], expected.requestMetadata || {})
       await wait(80)
       if (expectedChatGPTBundles.get(key) !== expected) return
-      await submitChatGPTDraft(key, entry, entry.affinity.boundURL)
+      await submitChatGPTDraft(key, entry, entry.affinity.boundURL, { entry, wc, conversationUrl: entry.affinity.boundURL })
     })
   } catch (error) {
     escalateChatGPTContinuationFailure(key, expected, error, 'automatic-recovery')
@@ -5505,10 +5521,10 @@ async function pollExpectedChatGPTDownloadKey(key) {
       try {
         await withChatGPTTransportPreparation(key, entry, expected.requestId, async () => {
           if (expectedChatGPTBundles.get(key) !== expected) return
-          await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, continuation, expected.filename, [], expected.liveTunnels || [])
+          await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, continuation, expected.filename, [], expected.liveTunnels || [], expected.requestMetadata || {})
           await wait(80)
           if (expectedChatGPTBundles.get(key) !== expected) return
-          await submitChatGPTDraft(key, entry, entry.affinity.boundURL)
+          await submitChatGPTDraft(key, entry, entry.affinity.boundURL, { entry, wc, conversationUrl: entry.affinity.boundURL })
         })
       } catch (error) {
         // Continuation assembly/submission is an operational transport failure,
@@ -6110,14 +6126,18 @@ function registerIPC() {
     if (!conversation) throw new Error('Pending bundle recovery requires a concrete trusted ChatGPT conversation URL')
     const recoveryPrompt = String(request?.recoveryBootstrap || '')
     const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
-    armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename)
+    const requestMetadata = {
+      chat_title: String(request?.chatTitle || ''), chat_id: key,
+      chat_hash: String(request?.chatHash || ''), requested_at: String(request?.requestedAt || ''),
+    }
+    armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename, requestMetadata)
     const resumedExpected = expectedChatGPTBundles.get(key)
     if (resumedExpected) resumedExpected.recoveryEligibleAt = Date.now() + chatAgentInitialRequestWaitMs()
     const workspaceChatId = durableWorkspaceChatID(key, request?.workspaceChatId)
     if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversation, { remoteState: 'awaiting-response' })
     const payload = expectedChatAgentPayload(key, requestId, conversation, {
       expectedFilename, recoveryBootstrap: recoveryPrompt, originalPrompt: recoveryPrompt,
-      sessionId: request?.sessionId, workspaceChatId,
+      sessionId: request?.sessionId, workspaceChatId, requestMetadata,
     })
     await enqueueChatAgentTask('AWAIT_RESPONSE', {
       key, requestId, rootRequestId: requestId, conversationURL: conversation,
@@ -6190,13 +6210,13 @@ function registerIPC() {
     try {
       const prompt = chatGPTStalledRecoveryPrompt(requestId, expected.filename, expected.originalPrompt)
       try {
-        await fillBundledChatGPTComposer(key, entry, expected.sessionId, requestId, prompt, expected.filename, [], expected.liveTunnels || [])
+        await fillBundledChatGPTComposer(key, entry, expected.sessionId, requestId, prompt, expected.filename, [], expected.liveTunnels || [], expected.requestMetadata || {})
       } catch (error) {
         escalateChatGPTContinuationFailure(key, expected, error, 'manual-continuation')
         return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'continuation_failed' }
       }
       await wait(80)
-      await submitChatGPTDraft(key, entry, affinityURL)
+      await submitChatGPTDraft(key, entry, affinityURL, targeted)
       expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion?.assistantCount) || 0)
       expected.settledAt = 0
       expected.lastDOMClick = 0

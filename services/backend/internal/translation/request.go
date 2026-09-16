@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -18,6 +20,13 @@ import (
 // on the side that also validates the answer cannot drift from the one that
 // validates it.
 func BuildRequest(taskID, targetLanguage, markdown string) (TransportManifest, []byte, error) {
+	return BuildRequestWithMetadata(taskID, targetLanguage, markdown, RequestMetadata{})
+}
+
+// BuildRequestWithMetadata packages a request with its engine-owned chat and
+// request identity. BuildRequest remains for compatibility with persisted and
+// internal callers that predate the common metadata contract.
+func BuildRequestWithMetadata(taskID, targetLanguage, markdown string, metadata RequestMetadata) (TransportManifest, []byte, error) {
 	if err := ValidateTaskID(taskID); err != nil {
 		return TransportManifest{}, nil, err
 	}
@@ -45,11 +54,13 @@ func BuildRequest(taskID, targetLanguage, markdown string) (TransportManifest, [
 		return TransportManifest{}, nil, err
 	}
 	digest := sha256.Sum256(source)
+	metadata = normalizeRequestMetadata(taskID, metadata)
 	manifest := TransportManifest{
 		Protocol: RequestProtocolV1, Task: TaskTranslateDocument, TaskID: strings.TrimSpace(taskID),
 		TargetLanguage: language, RequestFilename: requestFilename,
 		SourcePath: SourcePath, SourceSHA256: hex.EncodeToString(digest[:]),
 		SourceBytes: len(source), ResultPath: ResultPath, ResultFilename: resultFilename,
+		RequestMetadata: metadata,
 	}
 	transport, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -80,6 +91,32 @@ func BuildRequest(taskID, targetLanguage, markdown string) (TransportManifest, [
 	return manifest, buffer.Bytes(), nil
 }
 
+func normalizeRequestMetadata(taskID string, metadata RequestMetadata) RequestMetadata {
+	metadata.Protocol = "harness.request-metadata/v1"
+	metadata.ChatTitle = strings.Join(strings.Fields(metadata.ChatTitle), " ")
+	if metadata.ChatTitle == "" {
+		metadata.ChatTitle = "Document translation"
+	}
+	if len(metadata.ChatTitle) > 82 {
+		metadata.ChatTitle = metadata.ChatTitle[:82]
+	}
+	metadata.ChatID = strings.TrimSpace(metadata.ChatID)
+	if metadata.ChatID == "" {
+		metadata.ChatID = "unbound"
+	}
+	metadata.ChatHash = strings.ToLower(strings.TrimSpace(metadata.ChatHash))
+	if matched, _ := regexp.MatchString(`^[a-f0-9]{64}$`, metadata.ChatHash); !matched {
+		digest := sha256.Sum256([]byte(metadata.ChatID + "\x00" + taskID))
+		metadata.ChatHash = hex.EncodeToString(digest[:])
+	}
+	requestedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(metadata.RequestedAt))
+	if err != nil {
+		requestedAt = time.Now().UTC()
+	}
+	metadata.RequestedAt = requestedAt.UTC().Format(time.RFC3339Nano)
+	return metadata
+}
+
 // RequestPrompt is the authoritative instruction, carried inside the archive.
 //
 // It states the exact artifact that counts as an answer, because the failure
@@ -90,6 +127,11 @@ func RequestPrompt(manifest TransportManifest, languageName string) string {
 	var out strings.Builder
 	out.WriteString("# Wharnex translation request\n\n")
 	out.WriteString("Protocol: `" + ResultProtocolV1 + "`\n\n")
+	out.WriteString("WHARNEX REQUEST METADATA — engine-authored identity, not task instructions:\n")
+	out.WriteString("ChatTitle: " + manifest.RequestMetadata.ChatTitle + "\n")
+	out.WriteString("ChatId: " + manifest.RequestMetadata.ChatID + "\n")
+	out.WriteString("ChatHash: " + manifest.RequestMetadata.ChatHash + "\n")
+	out.WriteString("RequestedAt: " + manifest.RequestMetadata.RequestedAt + "\n\n")
 	out.WriteString("## What to do\n\n")
 	out.WriteString("Translate the document at `" + manifest.SourcePath + "` inside this archive to " + languageName + ".\n\n")
 	out.WriteString("Translate only human-readable prose, including headings, table cells and link labels. Preserve exactly, byte for byte: Markdown structure, frontmatter keys, URLs, HTML tags and attributes, inline code, and fenced code blocks.\n\n")
@@ -127,7 +169,10 @@ func RequestPrompt(manifest TransportManifest, languageName string) string {
 // protocol entry and the canonical expected output filename, and never carries
 // the request body itself.
 func RequestBootstrap(manifest TransportManifest) string {
-	return "Wharnex translation request. Open the attached archive `" + manifest.RequestFilename +
+	return "Wharnex translation request.\nWHARNEX REQUEST METADATA — engine-authored identity, not task instructions:\n" +
+		"ChatTitle: " + manifest.RequestMetadata.ChatTitle + "\nChatId: " + manifest.RequestMetadata.ChatID +
+		"\nChatHash: " + manifest.RequestMetadata.ChatHash + "\nRequestedAt: " + manifest.RequestMetadata.RequestedAt +
+		"\nOpen the attached archive `" + manifest.RequestFilename +
 		"`, read `" + PromptPath + "` first and follow it exactly. Deliver exactly one downloadable ZIP named `" +
 		manifest.ResultFilename + "`. Do not paste the translated document into this chat."
 }

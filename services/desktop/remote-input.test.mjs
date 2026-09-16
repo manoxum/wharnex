@@ -3,9 +3,10 @@ import test from 'node:test'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 
 test('remote input payload translates bounded Desktop attachments and project references to the backend wire shape', () => {
-  assert.deepEqual(remoteInputPayload('req_1', 'full prompt', 'short user request', true, [{ name: 'note.txt', mime: 'text/plain', contentBase64: 'bm90ZQ==' }], [], ['src/App.tsx'], ['primary']), {
+  assert.deepEqual(remoteInputPayload('req_1', 'full prompt', 'short user request', true, [{ name: 'note.txt', mime: 'text/plain', contentBase64: 'bm90ZQ==' }], [], ['src/App.tsx'], ['primary'], { chat_title: 'Title' }), {
 	request_id: 'req_1', prompt: 'full prompt', bootstrap_text: 'short user request', include_context: true,
     attachments: [{ name: 'note.txt', mime: 'text/plain', content_base64: 'bm90ZQ==' }], artifacts: [], project_files: ['src/App.tsx'], tunnel_instance_ids: ['primary'],
+    request_metadata: { chat_title: 'Title' },
   })
 })
 

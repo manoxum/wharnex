@@ -18,7 +18,7 @@ The same reasoning applies beyond translation. Any exchange that is not a bundle
 
 **Every exchange with the provider is a bundle in both directions.** Wharnex sends exactly one request archive and accepts exactly one response bundle. No other format or convention is a valid way to ask the provider for something or to accept its answer. This is recorded as an invariant in `AGENTS.md` and as the opening rule of `SoT/AUTOMATION_BUNDLE.md`.
 
-A request archive carries its own protocol identity in a root transport document, the authoritative instruction as a file inside it, and every input the exchange needs. Composer text stays what it already is for planner requests: a bounded bootstrap naming the archive and the canonical expected output filename, and nothing else.
+A request archive carries its own protocol identity in a root transport document, the authoritative instruction as a file inside it, and every input the exchange needs. Composer text stays what it already is for planner requests: a bounded bootstrap naming the archive and the canonical expected output filename. `ADR-0056` additionally requires the same bounded engine-authored request identity in the archive, prompt, and bootstrap; no task body or project content is added to composer text.
 
 A response bundle is named by an exact canonical filename derived from that exchange's durable identity, carries its own protocol identity in a root manifest, and is validated fail-closed before any byte is used. Validation binds the answer to the request — its identity, what was asked of it, and the digest of what was sent.
 

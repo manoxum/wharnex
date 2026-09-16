@@ -1289,7 +1289,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             try {
               const recoveryBootstrap = pendingRequestRecoveryPrompt(candidate, requestId)
               if (!recoveryBootstrap) return
-              await bridge.chatgpt.resumeExpectedBundle({ cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap, expectedFilename: expectedResponseBundleName(recoveryBootstrap, requestId) })
+              await bridge.chatgpt.resumeExpectedBundle({
+                cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap,
+                expectedFilename: expectedResponseBundleName(recoveryBootstrap, requestId),
+                chatTitle: chat.title, chatHash: sessionContextSHA(candidate),
+                requestedAt: candidate.request_lineages?.[requestId]?.created_at || candidate.created_at,
+              })
             } catch (resumeError) {
               resumedBundleKeysRef.current.delete(resumeKey)
               console.warn('pending ChatGPT bundle recovery failed', cacheKey, messageOf(resumeError))
@@ -1444,7 +1449,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             projectFiles,
             contextSha256: sessionContextSHA(response.session), lastContextSha256: targetChat.lastContextSha256,
             lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0, preferCurrentConversation: true,
-            firstRequest, chatTitle: generatedChatTitle, projectName: chatGPTProjectName(projectPath),
+            firstRequest, chatTitle: generatedChatTitle, requestedAt: userItem.createdAt, projectName: chatGPTProjectName(projectPath),
             // The owning project of every task this request enqueues. The
             // backend can also resolve it from the chat, but a first request
             // may run before that chat row is durable, and an unattributed
@@ -2065,6 +2070,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       projectFiles: [],
 	  contextSha256: sessionContextSHA(promptSession), lastContextSha256: targetChat.lastContextSha256,
 	  lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: continuationArtifacts.context, preferCurrentConversation: true,
+      chatTitle: targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
       projectPath: promptSession.project_path,
     })
 	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(cacheKey, promptSession.project_path, prepared.conversationUrl) : true

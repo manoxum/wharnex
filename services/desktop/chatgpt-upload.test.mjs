@@ -35,14 +35,10 @@ test('ChatGPT upload uses the native file input so the canonical basename is pre
     ['Runtime.evaluate', { expression: calls[1][1].expression, returnByValue: false }],
     ['DOM.requestNode', { objectId: 'scoped-upload-input' }],
     ['DOM.setFileInputFiles', { nodeId: 9, files: ['/tmp/whx_bundle_req_chat-1_req_20260907T111505_example.zip'] }],
-    ['DOM.resolveNode', { nodeId: 9 }],
-    ['Runtime.callFunctionOn', {
-      objectId: 'upload-object-9',
-      functionDeclaration: 'function () { const fileCount = this.files?.length || 0; const firstName = this.files?.[0]?.name || ""; this.dispatchEvent(new Event("input", { bubbles: true, composed: true })); this.dispatchEvent(new Event("change", { bubbles: true })); return { fileCount, firstName }; }',
-      returnByValue: true,
-    }],
     ['detach'],
   ])
+  assert.equal(calls.filter(([method]) => method === 'DOM.setFileInputFiles').length, 1)
+  assert.equal(calls.filter(([method]) => method === 'Runtime.callFunctionOn').length, 0, 'manually replaying input/change makes ChatGPT process the same native selection twice')
 })
 
 test('ChatGPT upload fails closed when the dedicated file input is unavailable', async () => {

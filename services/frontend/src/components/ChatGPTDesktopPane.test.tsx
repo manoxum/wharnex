@@ -358,6 +358,9 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
       url: 'https://chatgpt.com/c/right',
       recoveryBootstrap: 'bootstrap',
       expectedFilename: '',
+      chatTitle: 'Chat 1',
+      chatHash: undefined,
+      requestedAt: undefined,
     }))
     await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledTimes(2))
     expect(await screen.findByText(/Continuação manual enviada/)).toBeTruthy()
