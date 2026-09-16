@@ -914,6 +914,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .restart-confirmation-dialog { border-color: var(--theme-border); background: #1b1f19; box-shadow: 0 28px 90px rgba(0,0,0,.5); }
 :root[data-theme='dark'] .restart-confirmation-dialog h2 { color: var(--theme-text); }
 :root[data-theme='dark'] .restart-confirmation-dialog p { color: var(--theme-text-soft); }
+:root[data-theme='dark'] .restart-confirmation-summary { border-color: #444a40; background: linear-gradient(135deg, #272c24 0%, #242424 100%); box-shadow: inset 3px 0 #91c64b, 0 8px 22px rgba(0,0,0,.18); }
+:root[data-theme='dark'] .restart-confirmation-summary-icon { border-color: #44513b; background: #30392b; color: #b9df88; }
+:root[data-theme='dark'] .restart-confirmation-summary-label { color: #aebaa8; }
+:root[data-theme='dark'] .restart-confirmation-summary p { color: #f1f4ee; }
 :root[data-theme='dark'] .restart-confirmation-changes { border-color: var(--theme-border); background: #20231f; }
 :root[data-theme='dark'] .restart-confirmation-changes > header { border-color: var(--theme-border-soft); }
 :root[data-theme='dark'] .restart-confirmation-changes > header strong { color: var(--theme-text); }
