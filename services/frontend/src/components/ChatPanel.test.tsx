@@ -110,16 +110,18 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(deletePreview).toHaveBeenCalledWith(session.id, preview.id))
   })
 
-  it('keeps copyable context hash and chat identity in the header instead of repeating them in the transcript', async () => {
+  it('keeps hash and chat identity copyable without rendering either value in the compact context header', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     const view = render(
-      <ChatPanel session={{ ...session, context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'README.md', size: 12, sha256: 'abc' }] } } }} items={[]} chats={[]} activeChatId="chat-1" busy={false} onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel session={{ ...session, state: 'applied', context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'README.md', size: 12, sha256: 'abc' }] } } }} items={[]} chats={[]} activeChatId="chat-1" busy={false} onSend={async () => undefined} onExportChat={async () => undefined} {...chatActions} />,
     )
     const context = view.container.querySelector('.chat-header-context')
     expect(context?.textContent).toContain('Contexto isolado')
-    expect(context?.textContent).toContain('Hash abcdef123456')
-    expect(context?.textContent).toContain('Chat chat-1')
+    expect(context?.textContent).toContain('Aplicado')
+    expect(context?.textContent).not.toContain('abcdef123456')
+    expect(context?.textContent).not.toContain('chat-1')
+    expect(screen.getByRole('button', { name: 'Exportar ZIP' }).closest('.chat-header-context')).toBe(context)
     fireEvent.click(screen.getByRole('button', { name: 'Copiar hash e ID do chat' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('Hash: abcdef1234567890\nChat ID: chat-1'))
     expect(view.container.querySelector('.chat-stream .system-note')).toBeNull()
@@ -131,7 +133,7 @@ describe('ChatPanel', () => {
       <ChatPanel session={{ ...session, context: { ...session.context, workspace_sha256: 'fedcba654321', related_projects: [related] } }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     expect(view.container.querySelector('.chat-header-context')?.textContent).toContain('Contexto de 2 projetos')
-    expect(view.container.querySelector('.chat-header-context')?.textContent).toContain('fedcba654321')
+    expect(view.container.querySelector('.chat-header-context')?.textContent).not.toContain('fedcba654321')
   })
 
   it('removes redundant chat labels from the header while keeping the title in the switcher', () => {

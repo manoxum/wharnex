@@ -588,6 +588,7 @@ describe('AgentWorkspace', () => {
     expect((exportButton as HTMLButtonElement).disabled).toBe(false)
     expect(exportButton.textContent).toBe('')
     expect(exportButton.closest('header')?.className).toContain('chat-header')
+    expect(exportButton.closest('.chat-header-context')).toBeTruthy()
     expect(exportButton.closest('.agent-activity-bar')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Principal' })).toBeNull()
     expect(screen.getByRole('button', { name: /^Principal$/ })).toBeTruthy()
