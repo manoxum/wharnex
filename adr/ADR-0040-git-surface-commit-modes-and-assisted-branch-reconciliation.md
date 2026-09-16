@@ -72,6 +72,19 @@ not in the project. Writing it into the repository would put Wharnex
 bookkeeping into the operator's commits and, in this mode specifically, into
 the very diff the mode exists to keep clean.
 
+### 2a. Worktree visibility is independent of commit mode
+
+The Git surface reports the repository's current worktree separately from the
+pending-commit queue. Auto-commit decides what Wharnex does after a successful
+Apply; it does not mean the worktree is assumed clean or that manual/editor
+changes should disappear from the surface. The Changes view therefore derives
+its file list from Git working state in both modes and exposes bounded per-file
+diffs for tracked and untracked paths that Git currently reports as changed.
+
+Submodules and embedded repositories stay visible as worktree state but do not
+pretend to have an inline file diff: they are repository boundaries and keep
+their dedicated status semantics.
+
 ### 3. Selective committing is validated, not just offered
 
 Committing a path takes its current working-tree content, which already
@@ -110,6 +123,22 @@ a colleague's commits one click in a surface whose purpose is safe history.
 Pushing requires an explicit confirmation token at the API boundary, because it
 is the only action here that reaches outside the operator's machine and cannot
 be undone by a local reset.
+
+### 5a. Selective push is ancestry-aware
+
+Publishing a commit to a branch also publishes every ancestor needed to reach
+that commit. A checkbox UI must not imply that an arbitrary middle commit can
+be pushed independently without rewriting history. Selective push therefore
+accepts only the oldest contiguous prefix of commits that are ahead of the
+configured upstream and advances that upstream branch to the newest commit in
+that prefix with an ordinary fast-forward push.
+
+The selective path never force-pushes and does not automatically fetch/merge on
+a rejection, because doing so could change which commits the operator selected.
+The operator refreshes/reviews the new upstream state or uses the existing full
+push flow when branch reconciliation is intended. A branch with no valid
+upstream has no safe definition of unpublished history, so the surface requires
+a full push to establish that reference before selective publishing is offered.
 
 ### 6. A conflicting merge is aborted, then replayed
 

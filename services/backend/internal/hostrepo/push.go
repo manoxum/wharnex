@@ -63,6 +63,32 @@ func Push(ctx context.Context, root, remote, branch string, setUpstream bool) (P
 		args = append(args, "--set-upstream")
 	}
 	args = append(args, "--", remote, branch+":refs/heads/"+branch)
+	return pushWithArgs(ctx, root, remote, branch, args)
+}
+
+// PushCommit advances one remote branch only through a selected local commit.
+// It is intentionally fast-forward-only and never configures upstream state:
+// callers use it only after proving the current branch already tracks the
+// destination and the selected commits form the oldest contiguous prefix of
+// the branch's unpushed history.
+func PushCommit(ctx context.Context, root, remote, branch, sha string) (PushResult, error) {
+	remote, branch, sha = strings.TrimSpace(remote), strings.TrimSpace(branch), strings.TrimSpace(sha)
+	if remote == "" || branch == "" || len(sha) != 40 {
+		return PushResult{}, errors.New("a remote, branch and full commit sha are required")
+	}
+	if strings.HasPrefix(remote, "-") || strings.HasPrefix(branch, "-") {
+		return PushResult{}, errors.New("remote and branch must not look like options")
+	}
+	for _, r := range sha {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return PushResult{}, errors.New("invalid commit sha")
+		}
+	}
+	args := []string{"push", "--", remote, sha + ":refs/heads/" + branch}
+	return pushWithArgs(ctx, root, remote, branch, args)
+}
+
+func pushWithArgs(ctx context.Context, root, remote, branch string, args []string) (PushResult, error) {
 	output, err := run(ctx, root, args...)
 	detail := RedactRemoteURL(output)
 	if err == nil {

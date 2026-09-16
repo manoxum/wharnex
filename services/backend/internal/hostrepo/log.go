@@ -2,6 +2,7 @@ package hostrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -56,6 +57,17 @@ const (
 // bookkeeping that could drift from the repository's real state.
 func Log(ctx context.Context, root string, limit int) ([]Commit, error) {
 	return LogRefs(ctx, root, nil, false, limit)
+}
+
+// Unpushed returns every commit on the current branch that is not reachable
+// from its configured upstream. A branch without an upstream has no safe
+// remote comparison, so it reports an empty list rather than guessing.
+func Unpushed(ctx context.Context, root string, limit int) ([]Commit, error) {
+	upstream, err := run(ctx, root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if err != nil || strings.TrimSpace(upstream) == "" {
+		return []Commit{}, nil
+	}
+	return LogRefs(ctx, root, []string{strings.TrimSpace(upstream) + "..HEAD"}, false, limit)
 }
 
 // LogRefs reads history for selected branch refs or the whole repository.
@@ -170,8 +182,32 @@ func DiffBetween(ctx context.Context, root, fromSHA, toSHA string, limitBytes in
 	return output, false, nil
 }
 
+// CommitDiff returns one commit's patch without its prose header. The caller
+// is responsible for validating that sha belongs to a commit it intends to
+// expose.
+func CommitDiff(ctx context.Context, root, sha string, limitBytes int) (diff string, truncated bool, err error) {
+	sha = strings.TrimSpace(sha)
+	if len(sha) != 40 {
+		return "", false, errors.New("a full commit sha is required")
+	}
+	for _, r := range sha {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return "", false, errors.New("invalid commit sha")
+		}
+	}
+	output, err := runRaw(ctx, root, "show", "--format=", "--no-color", "--no-ext-diff", sha)
+	if err != nil {
+		return "", false, fmt.Errorf("read commit diff failed")
+	}
+	if limitBytes > 0 && len(output) > limitBytes {
+		return output[:limitBytes], true, nil
+	}
+	return output, false, nil
+}
+
 // WorktreeDiff returns the current uncommitted diff against HEAD, including
-// untracked files, bounded the same way.
+// untracked files, bounded the same way. Git's ordinary diff omits untracked
+// files, so those are appended as /dev/null diffs after the tracked patch.
 func WorktreeDiff(ctx context.Context, root string, paths []string, limitBytes int) (diff string, truncated bool, err error) {
 	args := []string{"diff", "--no-color", "HEAD"}
 	if len(paths) > 0 {
@@ -181,6 +217,27 @@ func WorktreeDiff(ctx context.Context, root string, paths []string, limitBytes i
 	output, err := runRaw(ctx, root, args...)
 	if err != nil {
 		return "", false, fmt.Errorf("read worktree diff failed")
+	}
+	untrackedArgs := []string{"ls-files", "--others", "--exclude-standard", "-z"}
+	if len(paths) > 0 {
+		untrackedArgs = append(untrackedArgs, "--")
+		untrackedArgs = append(untrackedArgs, paths...)
+	}
+	untracked, listErr := runRaw(ctx, root, untrackedArgs...)
+	if listErr != nil {
+		return "", false, fmt.Errorf("read untracked worktree paths failed")
+	}
+	for _, path := range strings.Split(untracked, "\x00") {
+		if path == "" {
+			continue
+		}
+		piece, pieceErr := runRaw(ctx, root, "diff", "--no-index", "--no-color", "--", "/dev/null", path)
+		// git diff --no-index returns exit 1 when it successfully found a
+		// difference. cmd.Output still returns the patch in that case.
+		if pieceErr != nil && piece == "" {
+			return "", false, fmt.Errorf("read untracked diff for %s failed", path)
+		}
+		output += piece
 	}
 	if limitBytes > 0 && len(output) > limitBytes {
 		return output[:limitBytes], true, nil

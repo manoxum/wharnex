@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitBranchActionResult, GitCommit, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
+import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitBranchActionResult, GitCommit, GitUnpushedOverview, GitCommitDetail, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8888'
@@ -85,7 +85,10 @@ export function normalizeGitOverview(overview: GitOverview): GitOverview {
     remotes: Array.isArray(overview?.remotes) ? overview.remotes : [],
     commits: Array.isArray(overview?.commits) ? overview.commits : [],
     pending: Array.isArray(overview?.pending) ? overview.pending : [],
-    working: overview?.working || { clean: true, stageable_count: 0 },
+    working: {
+      ...(overview?.working || { clean: true, stageable_count: 0 }),
+      files: Array.isArray(overview?.working?.files) ? overview.working.files : [],
+    },
   }
 }
 
@@ -259,6 +262,8 @@ export const api = {
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
   gitOverview: (id: string) => request<GitOverview>(`/api/sessions/${id}/git/overview`).then(normalizeGitOverview),
   gitFileDiff: (id: string, path: string) => request<GitFileDiff>(`/api/sessions/${id}/git/diff?path=${encodeURIComponent(path)}`),
+  gitUnpushed: (id: string) => request<GitUnpushedOverview>(`/api/sessions/${id}/git/unpushed`),
+  gitUnpushedCommit: (id: string, sha: string) => request<GitCommitDetail>(`/api/sessions/${id}/git/unpushed/${encodeURIComponent(sha)}`),
   gitHistory: (id: string, refs: string[] = [], all = false) => {
     const params = new URLSearchParams()
     if (all) params.set('all', 'true')
@@ -274,6 +279,7 @@ export const api = {
   // to a remote other people read and cannot be undone by a local reset, so it
   // must never be reachable by a stray click or a replayed request.
   gitPush: (id: string, remote: string, branch: string, setUpstream: boolean) => request<GitPushResult>(`/api/sessions/${id}/git/push`, { method: 'POST', body: JSON.stringify({ remote, branch, set_upstream: setUpstream, confirmation: 'push' }) }),
+  gitPushSelected: (id: string, commitSHAs: string[]) => request<GitPushResult>(`/api/sessions/${id}/git/push-selected`, { method: 'POST', body: JSON.stringify({ commit_shas: commitSHAs, confirmation: 'push' }) }),
   gitFetch: (id: string, remote: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/fetch`, { method: 'POST', body: JSON.stringify({ remote }) }),
   gitPull: (id: string, remote: string, branch: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/pull`, { method: 'POST', body: JSON.stringify({ remote, branch }) }),
   gitSwitch: (id: string, branch: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/switch`, { method: 'POST', body: JSON.stringify({ branch }) }),

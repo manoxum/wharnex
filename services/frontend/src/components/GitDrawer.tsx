@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { GitBranch, GitCommitMode, GitOverview, GitPendingCommit, Session } from '../types'
+import type { GitBranch, GitCommitMode, GitFileDiff, GitOverview, GitPendingCommit, Session } from '../types'
 import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
 import { Icon } from './Icon'
+import { GitUnpushedSection } from './GitUnpushedSection'
 
-type GitTab = 'changes' | 'history' | 'branches' | 'settings'
+type GitTab = 'changes' | 'unpushed' | 'history' | 'branches' | 'settings'
 
 export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   session: Session
@@ -19,6 +20,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [notice, setNotice] = useState('')
   const [openDiff, setOpenDiff] = useState<GitPendingCommit | null>(null)
+  const [worktreeDiff, setWorktreeDiff] = useState<GitFileDiff | null>(null)
   const [mergeRef, setMergeRef] = useState('')
   const [activeTab, setActiveTab] = useState<GitTab>('changes')
 
@@ -109,6 +111,9 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
       <div className="git-tab-content" role="tabpanel" aria-label={gitTabLabel(activeTab)}>
         {activeTab === 'changes' && <>
           <WorktreeSummary overview={overview}/>
+          <WorktreeFiles overview={overview} disabled={disabled} onOpenDiff={(path) => void (async () => {
+            try { setWorktreeDiff(await api.gitFileDiff(session.id, path)) } catch (error) { report(error) }
+          })()}/>
           <PendingSection
             pending={pending} selected={selected} disabled={disabled} hasIdentity={overview.has_identity}
             commitMode={overview.commit_mode} onToggle={toggle} onCommitAll={() => void commit([])}
@@ -119,6 +124,20 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
             })()}
           />
         </>}
+        {activeTab === 'unpushed' && <GitUnpushedSection
+          sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
+          onFullPush={async (remote, branch, setUpstream) => {
+            const result = await api.gitPush(session.id, remote, branch, setUpstream)
+            setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
+            await refresh()
+            if (onSession) onSession(await api.getSession(session.id))
+          }}
+          onSelectedPush={async (commitSHAs) => {
+            const result = await api.gitPushSelected(session.id, commitSHAs)
+            setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
+            await refresh()
+          }}
+        />}
         {activeTab === 'history' && <HistorySection sessionId={session.id} commits={overview.commits} branches={overview.branches}/>}
         {activeTab === 'branches' && <BranchSection
           current={current?.name || overview.current_branch} detached={overview.detached}
@@ -153,17 +172,20 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
     </>}
 
     {openDiff && <DiffModal record={openDiff} onClose={() => setOpenDiff(null)} />}
+    {worktreeDiff && <WorktreeDiffModal file={worktreeDiff} onClose={() => setWorktreeDiff(null)}/>}
   </section>
 }
 
 function gitTabLabel(tab: GitTab) {
-  return ({ changes: 'Alterações', history: 'Histórico', branches: 'Branches', settings: 'Definições' } as const)[tab]
+  return ({ changes: 'Alterações', unpushed: 'Por publicar', history: 'Histórico', branches: 'Branches', settings: 'Definições' } as const)[tab]
 }
 
 function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (tab: GitTab) => void; overview: GitOverview }) {
-  const changes = Math.max(overview.pending.length, overview.working.stageable_count)
-  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'bridge' | 'settings'; count?: number }> = [
+  const changes = Math.max(overview.pending.length, overview.working.files?.length || overview.working.stageable_count)
+  const current = overview.branches.find((branch) => !branch.remote && branch.current)
+  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'bridge' | 'settings' | 'arrow-up'; count?: number }> = [
     { id: 'changes', icon: 'edit', count: changes },
+    { id: 'unpushed', icon: 'arrow-up', count: current?.ahead || 0 },
     { id: 'history', icon: 'git', count: overview.commits.length },
     { id: 'branches', icon: 'bridge', count: overview.branches.length },
     { id: 'settings', icon: 'settings' },
@@ -179,10 +201,31 @@ function WorktreeSummary({ overview }: { overview: GitOverview }) {
   const clean = overview.working.clean
   return <section className="git-worktree-card">
     <span className={`git-worktree-status ${clean ? 'clean' : 'dirty'}`}><Icon name={clean ? 'check' : 'edit'} size={14}/></span>
-    <div><strong>{clean ? 'Worktree limpo' : `${overview.working.stageable_count} alteração(ões) no worktree`}</strong>
+    <div><strong>{clean ? 'Worktree limpo' : `${overview.working.files?.length || overview.working.stageable_count} alteração(ões) no worktree`}</strong>
       <p>{clean ? 'Não há ficheiros locais por commitar.' : 'As alterações locais permanecem separadas dos registos pendentes do Wharnex.'}</p></div>
     <span className="git-worktree-badge">{overview.pending.length} pendente(s)</span>
   </section>
+}
+
+
+function WorktreeFiles({ overview, disabled, onOpenDiff }: { overview: GitOverview; disabled: boolean; onOpenDiff: (path: string) => void }) {
+  const files = overview.working.files || []
+  if (files.length === 0) return null
+  return <section className="git-section git-worktree-files-section">
+    <div className="git-section-heading"><div><span>Worktree</span><strong>Ficheiros alterados</strong></div><span className="git-section-count">{files.length}</span></div>
+    <ul className="git-worktree-files">{files.map((file) => {
+      const diffable = file.kind !== 'submodule' && file.kind !== 'embedded_repository'
+      return <li key={`${file.kind}:${file.path}`}>
+        <span className="git-worktree-file-icon"><Icon name={file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/></span>
+        <span className="git-worktree-file-copy"><strong>{file.path}</strong><small>{worktreeKind(file.kind)}</small></span>
+        <button type="button" className="git-action small" disabled={disabled || !diffable} title={diffable ? 'Ver alterações deste ficheiro' : 'Este tipo de entrada não tem diff inline'} onClick={() => onOpenDiff(file.path)}><Icon name="code" size={11}/> Diff</button>
+      </li>
+    })}</ul>
+  </section>
+}
+
+function worktreeKind(kind: GitOverview['working']['files'][number]['kind']) {
+  return ({ change: 'alterado', gitlink: 'gitlink alterado', submodule: 'submódulo com alterações', embedded_repository: 'repositório embebido', unmerged: 'conflito não resolvido' } as const)[kind]
 }
 
 function pushMessage(outcome: string, integrated?: boolean, conflictID?: string) {
@@ -361,6 +404,15 @@ function formatCommitDate(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+
+function WorktreeDiffModal({ file, onClose }: { file: GitFileDiff; onClose: () => void }) {
+  return <div className="git-diff-modal" role="dialog" aria-label={`Diff de ${file.path}`}>
+    <header><strong>{file.path}</strong><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
+    <pre className="git-diff-body">{file.diff || 'Sem diferenças de conteúdo para apresentar.'}</pre>
+    {file.truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
+  </div>
 }
 
 function DiffModal({ record, onClose }: { record: GitPendingCommit; onClose: () => void }) {

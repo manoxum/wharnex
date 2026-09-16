@@ -18,11 +18,14 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/overview", a.gitOverview)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", a.gitFileDiff)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history", a.gitHistory)
+	mux.HandleFunc("GET /api/sessions/{id}/git/unpushed", a.gitUnpushed)
+	mux.HandleFunc("GET /api/sessions/{id}/git/unpushed/{sha}", a.gitUnpushedCommit)
 	mux.HandleFunc("PUT /api/sessions/{id}/git/commit-mode", a.setGitCommitMode)
 	mux.HandleFunc("GET /api/sessions/{id}/git/pending/{pending_id}", a.gitPendingCommit)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/commit", a.commitGitPending)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/discard", a.discardGitPending)
 	mux.HandleFunc("POST /api/sessions/{id}/git/push", a.gitPush)
+	mux.HandleFunc("POST /api/sessions/{id}/git/push-selected", a.gitPushSelected)
 	mux.HandleFunc("POST /api/sessions/{id}/git/fetch", a.gitFetch)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pull", a.gitPull)
 	mux.HandleFunc("POST /api/sessions/{id}/git/switch", a.gitSwitch)
@@ -46,6 +49,24 @@ func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, commits)
+}
+
+func (a *API) gitUnpushed(w http.ResponseWriter, r *http.Request) {
+	overview, err := a.service.GitUnpushed(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_unpushed_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) gitUnpushedCommit(w http.ResponseWriter, r *http.Request) {
+	detail, err := a.service.GitUnpushedCommit(r.Context(), r.PathValue("id"), r.PathValue("sha"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "git_unpushed_commit_not_found", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (a *API) gitFileDiff(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +160,26 @@ func (a *API) gitPush(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.PushBranch(r.Context(), r.PathValue("id"), body.Remote, body.Branch, body.SetUpstream)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_push_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitPushSelected(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CommitSHAs   []string `json:"commit_shas"`
+		Confirmation string   `json:"confirmation"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Confirmation) != "push" {
+		writeError(w, http.StatusBadRequest, "git_push_unconfirmed", "pushing to a remote requires an explicit confirmation")
+		return
+	}
+	result, err := a.service.PushSelectedCommits(r.Context(), r.PathValue("id"), body.CommitSHAs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_push_selected_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
