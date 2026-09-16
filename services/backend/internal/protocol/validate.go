@@ -18,7 +18,7 @@ func Validate(plan domain.ExecutionPlan) error {
 	if len(plan.Verification) > MaxVerificationCommands {
 		return errors.New("too many verification commands")
 	}
-	if plan.Protocol != domain.ProtocolV1 {
+	if plan.Protocol != domain.ProtocolV1 && plan.Protocol != domain.ProtocolV2 {
 		return fmt.Errorf("unsupported protocol %q", plan.Protocol)
 	}
 	if plan.PlanID == "" || plan.RequestID == "" {
@@ -29,6 +29,9 @@ func Validate(plan domain.ExecutionPlan) error {
 	}
 	if plan.Risk != "low" && plan.Risk != "medium" && plan.Risk != "high" {
 		return errors.New("invalid risk")
+	}
+	if err := validatePlanPresentation(plan); err != nil {
+		return err
 	}
 	if plan.VersionIncrement != nil {
 		if err := ValidateVersionIncrement(*plan.VersionIncrement); err != nil {
@@ -81,6 +84,42 @@ func Validate(plan domain.ExecutionPlan) error {
 		}
 	}
 	return validateCrossProjectUnits(plan.CrossProject)
+}
+
+func validatePlanPresentation(plan domain.ExecutionPlan) error {
+	if len(plan.Document) > 256<<10 {
+		return errors.New("document exceeds 256 KiB limit")
+	}
+	if len(plan.Dependencies) > 128 {
+		return errors.New("dependencies exceeds 128 entries")
+	}
+	for i, dependency := range plan.Dependencies {
+		if strings.TrimSpace(dependency.Scope) == "" || strings.TrimSpace(dependency.Manager) == "" || strings.TrimSpace(dependency.Name) == "" || strings.TrimSpace(dependency.Reason) == "" {
+			return fmt.Errorf("dependencies %d requires scope, manager, name and reason", i)
+		}
+		switch dependency.Action {
+		case "install", "update", "remove", "use":
+		default:
+			return fmt.Errorf("dependencies %d has invalid action %q", i, dependency.Action)
+		}
+	}
+	if len(plan.SystemTools) > 64 {
+		return errors.New("system_tools exceeds 64 entries")
+	}
+	for i, tool := range plan.SystemTools {
+		if tool.Target != "sandbox" && tool.Target != "host" {
+			return fmt.Errorf("system_tools %d target must be sandbox or host", i)
+		}
+		if strings.TrimSpace(tool.Name) == "" || strings.TrimSpace(tool.Reason) == "" {
+			return fmt.Errorf("system_tools %d requires name and reason", i)
+		}
+		switch tool.Action {
+		case "install", "update", "configure", "use":
+		default:
+			return fmt.Errorf("system_tools %d has invalid action %q", i, tool.Action)
+		}
+	}
+	return nil
 }
 
 // validateCrossProjectUnits checks the structure of work aimed at other
@@ -169,6 +208,22 @@ func ValidateVersionIncrement(increment domain.VersionIncrement) error {
 func ValidateChangePlan(plan domain.ExecutionPlan) error {
 	if err := Validate(plan); err != nil {
 		return err
+	}
+	if plan.Debug != nil {
+		return errors.New("change plan must not contain debug protocol")
+	}
+	if plan.Protocol == domain.ProtocolV2 {
+		if strings.TrimSpace(plan.Document) == "" {
+			return errors.New("change plan requires a non-empty execution-contract document")
+		}
+		// Nil distinguishes an omitted key from an explicit empty JSON array. The
+		// operator must be told that there is no impact; silence is not disclosure.
+		if plan.Dependencies == nil {
+			return errors.New("change plan requires dependencies (use [] when none)")
+		}
+		if plan.SystemTools == nil {
+			return errors.New("change plan requires system_tools (use [] when none)")
+		}
 	}
 	if plan.VersionIncrement == nil {
 		return errors.New("change plan requires version_increment")
@@ -405,5 +460,119 @@ func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 			return fmt.Errorf("workflow verification %d cannot request network access", i)
 		}
 	}
+	if plan.Debug != nil {
+		if err := ValidateDebugPlan(plan); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// ValidateDebugPlan validates the harness.debug/v1 extension carried by a
+// workflow plan. Sandbox diagnostics retain the normal workflow policy. Host
+// diagnostics cross a more sensitive seam and therefore use a closed,
+// read-only command vocabulary in addition to the normal argv validation.
+func ValidateDebugPlan(plan domain.ExecutionPlan) error {
+	debug := plan.Debug
+	if debug == nil {
+		return errors.New("debug protocol is required")
+	}
+	if debug.Protocol != domain.DebugProtocolV1 {
+		return fmt.Errorf("unsupported debug protocol %q", debug.Protocol)
+	}
+	if debug.Target != "sandbox" && debug.Target != "host" {
+		return errors.New("debug target must be sandbox or host")
+	}
+	if rationale := strings.TrimSpace(debug.Rationale); rationale == "" || len(rationale) > 4096 {
+		return errors.New("debug rationale must be 1..4096 bytes")
+	}
+	if debug.Target != "host" {
+		return nil
+	}
+	for i, op := range plan.Operations {
+		if err := validateHostDebugCommand(op.Command); err != nil {
+			return fmt.Errorf("debug host operation %d: %w", i, err)
+		}
+	}
+	for i, command := range plan.Verification {
+		if err := validateHostDebugCommand(command); err != nil {
+			return fmt.Errorf("debug host verification %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateHostDebugCommand(command domain.CommandSpec) error {
+	if err := ValidateCommand(command); err != nil {
+		return err
+	}
+	name := strings.ToLower(filepath.Base(command.Argv[0]))
+	args := command.Argv[1:]
+	switch name {
+	case "git":
+		if len(args) == 0 {
+			return errors.New("host debug git requires a bounded read-only subcommand")
+		}
+		sub := strings.ToLower(args[0])
+		rest := args[1:]
+		safe := (sub == "status" && allArgsIn(rest, "--short", "--branch", "--porcelain", "--porcelain=v1")) ||
+			(sub == "rev-parse" && len(rest) == 1 && allArgsIn(rest, "--show-toplevel", "--is-inside-work-tree", "HEAD")) ||
+			(sub == "ls-files" && allArgsIn(rest, "--modified", "--deleted", "--others", "--exclude-standard"))
+		if !safe {
+			return errors.New("host debug git permits only bounded status, rev-parse or ls-files queries")
+		}
+	case "go":
+		if len(args) == 1 && args[0] == "version" {
+			return nil
+		}
+		if len(args) < 2 || args[0] != "env" {
+			return errors.New("host debug permits only go version or bounded go env keys")
+		}
+		allowed := map[string]bool{"GOMOD": true, "GOPATH": true, "GOCACHE": true, "GOVERSION": true, "GOOS": true, "GOARCH": true, "CGO_ENABLED": true}
+		for _, key := range args[1:] {
+			if !allowed[key] {
+				return fmt.Errorf("go env key %q is not allowed in host debug", key)
+			}
+		}
+	case "node", "npm":
+		if len(args) != 1 || (args[0] != "--version" && args[0] != "-v") {
+			return fmt.Errorf("host debug permits only %s --version", name)
+		}
+	case "uname":
+		for _, arg := range args {
+			if !map[string]bool{"-a": true, "-s": true, "-n": true, "-r": true, "-v": true, "-m": true, "-p": true, "-i": true, "-o": true}[arg] {
+				return fmt.Errorf("uname argument %q is not allowed in host debug", arg)
+			}
+		}
+	case "df":
+		for _, arg := range args {
+			if arg != "-h" && arg != "." {
+				return fmt.Errorf("df argument %q is not allowed in host debug", arg)
+			}
+		}
+	case "free":
+		if len(args) > 1 || (len(args) == 1 && args[0] != "-h" && args[0] != "-m" && args[0] != "-g") {
+			return errors.New("free accepts only -h, -m or -g in host debug")
+		}
+	case "uptime", "pwd":
+		if len(args) != 0 {
+			return fmt.Errorf("%s accepts no arguments in host debug", name)
+		}
+	default:
+		return fmt.Errorf("executable %q is not in the host debug read-only allowlist", name)
+	}
+	return nil
+}
+
+func allArgsIn(args []string, allowed ...string) bool {
+	set := make(map[string]bool, len(allowed))
+	for _, value := range allowed {
+		set[value] = true
+	}
+	for _, value := range args {
+		if !set[value] {
+			return false
+		}
+	}
+	return true
 }

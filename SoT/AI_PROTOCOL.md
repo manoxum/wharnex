@@ -4,7 +4,9 @@
 
 - `harness.request-metadata/v1`: engine-authored identity repeated in every provider request bundle and its bounded composer bootstrap: `chat_title`, local `chat_id`, context/chat `chat_hash`, and `requested_at`.
 - `harness.turn/v1`: classifies one conversational agent outcome.
-- `harness.execution/v1`: describes executable work for a `workflow` or `change` turn.
+- `harness.execution/v1`: legacy executable work accepted only for persisted/in-flight compatibility; new planner/provider output does not target it.
+- `harness.execution/v2`: describes new executable work for a `workflow` or `change` turn and carries the informed execution contract.
+- `harness.debug/v1`: a diagnostic extension carried only by a `workflow` execution plan; it selects a bounded `sandbox` or read-only allowlisted `host` probe and states its rationale.
 - `wharness.translation-input/v1`: the request bundle Wharnex uploads for one document translation.
 - `harness.translation/v1`: the response bundle ChatGPT returns for that request.
 - `harness.conflict/v1`: a Wharness-generated, focused BASE/CURRENT/RESULT capsule for resolving a planner-resolvable conflict. It travels as the fixed `conflict/capsule.json` entry of the single request ZIP and is referenced, never duplicated, by the bounded prompt. Its `origin` field says which reconciliation is being asked for — `integration` (the historical case, and the default when the field is absent), or `push`/`branch_merge` for a host Git operation the operator started, which additionally carries the `git` block naming the merge to replay (see `adr/ADR-0040`). For an integration conflict it resolves a verified candidate — sourced from a real Git merge conflict's merge-base/host/branch commits for a candidate integrated via the Git-native flow (see `AUTOMATION_BUNDLE.md`), or from a canonical `ChangeSet` for a candidate reconciled from an immutable archived base. Wharnex-managed `.wharnex/knowledge/**` paths never enter this planner capsule: managed-only Git collisions preserve the current host state locally, while mixed collisions expose only ordinary paths.
@@ -75,7 +77,7 @@ Questions and advice requests SHOULD terminate as `answer` when the attached con
 
 A `workflow` turn exists so one user request can span multiple ChatGPT ⇄ Wharness reasoning rounds without scraping model prose.
 
-A workflow turn carries a normal `harness.execution/v1` plan with stricter semantics:
+A workflow turn carries a normal `harness.execution/v2` plan with stricter semantics:
 
 - status is `ready`;
 - risk is `low` or `medium`;
@@ -94,6 +96,12 @@ The workflow is bounded to six local rounds per original user turn. The final co
 
 Command failure in a workflow is evidence, not an automatic repair trigger. Automatic repair remains specific to a requested `change` plan.
 
+### Debug workflow
+
+A planner MAY attach `debug: {protocol:"harness.debug/v1", target:"sandbox|host", rationale:"…"}` to a `workflow` plan when refreshed local evidence is necessary. Debug never changes the meaning of `workflow`: operations remain argv arrays, patches and network are forbidden, output is untrusted evidence, and the six-round cap applies. A sandbox target uses the isolated copied workspace. A host target is additionally restricted to the Engine's closed read-only diagnostic vocabulary; generic file readers, shells, package mutation, Git mutation, Docker and privilege tools are forbidden.
+
+Debug mode is an operator-selected composer capability. With it enabled, valid debug rounds may run automatically. With it disabled, the first debug plan for each Main Request root waits for one explicit authorization and descendants of that same root inherit it. That authorization does not approve network, project mutation, package/dependency mutation, system-tool changes, Apply, or Unprotected execution.
+
 ### Effort level and autonomous iteration budget
 Every Main Request carries one user-selected `effort_level`: `low`, `medium`, `high`, `extra_high`, `max`, `ultra`, or `loop`. The level is a hard ceiling for autonomous AI resolution attempts across the request chain, including the initial attempt and subsequent automatic repair/conflict rounds: Low=1, Medium=3, High=6, Extra High=10, Max=15, Ultra=30, while Loop has no numeric ceiling. Manual operator-triggered repair is outside this automatic budget. The selected value MUST be included in planner/provider prompts so the model can optimize cost/benefit inside the available budget rather than blindly consuming it.
 
@@ -102,6 +110,8 @@ Every Main Request carries one user-selected `effort_level`: `low`, `medium`, `h
 ## AI output rule
 
 The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; `plan` is an approval proposal in `turn.message` and carries no execution plan or patches; all remaining kinds also carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
+
+Every newly requested `harness.execution/v2` `change` plan MUST be an informed execution contract: `document` contains the complete Markdown implementation plan, `dependencies` lists every install/update/remove by service/scope and package manager, and `system_tools` lists every sandbox/host tool to use/install/update/configure. Empty lists are explicit when there is no such impact. The exact `operations` patches and commands remain authoritative and must be sufficient for the Plan surface to display every create/modify/delete diff without deriving executable work from prose.
 
 When a Desktop window binds several projects, the request context MAY carry `harness.related-projects/v1`: the primary project remains at the context root and each companion snapshot is placed below its declared `RELATED_PROJECTS/<slot>-<name>/` namespace. The combined transport identity covers every snapshot, but `ExecutionPlan.base_context_sha256`, all relative paths and every operation in `operations` continue to target exactly the primary project. Cross-project analysis is always allowed. Mutating a companion project is allowed only through `cross_project` and only for a project this request's own prompt granted with `@ref:` (see "Cross-project requests" above); it still runs as a separate plan against that project's own Session, preserving independent Policy, Protected sandbox, verification and Apply decisions. A companion project that was not granted remains reference material only.
 

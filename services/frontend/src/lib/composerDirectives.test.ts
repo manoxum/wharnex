@@ -248,11 +248,17 @@ describe('aliases', () => {
   it('walks the whole KEYWORDS table end to end', () => {
     for (const entry of KEYWORDS) {
       for (const word of [entry.keyword, ...entry.aliases]) {
-        const value = entry.kind === 'attach' ? '/srv/x' : 'flowcore'
+        const value = entry.kind === 'attach' ? '/srv/x' : entry.kind === 'lib' ? 'session|ses_123|artifact_456' : entry.kind === 'chat' ? 'diagram.png' : 'flowcore'
         const [directive] = parseDirectives(`@${word}:${value}`)
         expect(directive?.kind).toBe(entry.kind)
       }
     }
+  })
+
+  it('indexes chat and library files with stable canonical markers', () => {
+    expect(canonicalizeDirectives('usa @chat:diagram.png e @library:session|ses_123|artifact_456'))
+      .toBe('usa @{[chat]diagram.png} e @{[lib]session|ses_123|artifact_456}')
+    expect(parseDirectives('@chat:entry|artifact_bundle|artifacts/report.pdf')[0]).toMatchObject({ kind: 'chat', project: 'artifact_bundle', path: 'artifacts/report.pdf' })
   })
 })
 
@@ -266,7 +272,7 @@ describe('bare @ kind picker', () => {
   })
 
   it('filters by keyword or any alias', () => {
-    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see'])
+    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see', 'chat', 'lib'])
     expect(directiveKindSuggestions('proj').map((s) => s.kind)).toEqual(['ref'])
     expect(directiveKindSuggestions('dir').map((s) => s.kind)).toEqual(['attach'])
   })

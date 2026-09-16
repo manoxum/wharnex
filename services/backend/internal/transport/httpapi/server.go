@@ -103,6 +103,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("PUT /api/sessions/{id}/execution-mode", a.executionMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/debug-mode", a.debugMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/effort-level", a.effortLevel)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
@@ -114,6 +115,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/approve", a.approvePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/correct", a.correctPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/reject", a.rejectExecutionPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/failures", a.remoteInputFailure)
@@ -124,6 +126,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/failed-request/retry", a.retryFailedRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
+	mux.HandleFunc("POST /api/sessions/{id}/debug/approve", a.approveDebug)
 	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
 	mux.HandleFunc("POST /api/sessions/{id}/host-dependency-repair", a.retryHostDependencyRepair)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/resume", a.resumeInterruptedExecution)
@@ -151,6 +154,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/requests/{request_id}/continuation", a.requestContinuation)
 	mux.HandleFunc("POST /api/sessions/{id}/chat-export", a.chatExport)
 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
+	mux.HandleFunc("GET /api/sessions/{id}/chat-files", a.chatFiles)
+	mux.HandleFunc("POST /api/sessions/{id}/chat-files/{artifact_id}/library", a.saveChatFileToLibrary)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts", a.artifacts)
 	mux.HandleFunc("POST /api/sessions/{id}/artifacts", a.persistArtifact)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}", a.artifactDownload)
@@ -701,12 +706,27 @@ func (a *API) artifactDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "artifact_missing", err.Error())
 		return
 	}
+	if r.URL.Query().Get("office") == "1" || r.URL.Query().Get("preview") == "office" {
+		preview, previewErr := documentpreview.OfficeText(record.Name, raw)
+		if previewErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, "office_preview_unavailable", previewErr.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "private, no-store")
+		_, _ = io.WriteString(w, preview)
+		return
+	}
 	contentType := record.ContentType
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(record.Name, `"`, "")+`"`)
+	disposition := "attachment"
+	if r.URL.Query().Get("preview") == "1" {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", disposition+`; filename="`+strings.ReplaceAll(record.Name, `"`, "")+`"`)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(raw)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
@@ -730,7 +750,7 @@ func (a *API) artifactEntry(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(name, `"`, "")+`"`)
 	}
-	if r.URL.Query().Get("preview") == "office" {
+	if r.URL.Query().Get("office") == "1" || r.URL.Query().Get("preview") == "office" {
 		preview, previewErr := documentpreview.OfficeText(name, data)
 		if previewErr != nil {
 			writeError(w, http.StatusUnprocessableEntity, "office_preview_unavailable", previewErr.Error())
@@ -948,6 +968,30 @@ func (a *API) automationMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) debugMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetDebugEnabled(r.PathValue("id"), body.Enabled)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "debug_mode_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) approveDebug(w http.ResponseWriter, r *http.Request) {
+	result, err := a.service.ApproveDebug(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "debug_approval_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (a *API) effortLevel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		EffortLevel domain.EffortLevel `json:"effort_level"`
@@ -1021,6 +1065,15 @@ func (a *API) rejectPlan(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.RejectPlan(r.PathValue("id"), r.PathValue("request_id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "plan_rejection_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) rejectExecutionPlan(w http.ResponseWriter, r *http.Request) {
+	item, err := a.service.RejectExecutionPlan(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "execution_plan_rejection_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

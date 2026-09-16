@@ -15,3 +15,11 @@ export function sessionCanExecutePlan(session: Session) {
   const pendingSamePlan = Boolean(planID && session.interrupted_execution?.plan_id === planID)
   return Boolean(session.plan && session.policy?.allowed && ['planned', 'failed'].includes(session.state) && session.last_turn?.kind !== 'workflow' && !pendingSamePlan)
 }
+
+export function sessionNeedsExecutionConsent(session: Session) {
+  if (!session.plan) return false
+  if (session.execution_mode === 'unprotected' || session.policy?.requires_approval) return true
+  if (!session.plan.document?.trim()) return false
+  const lineage = session.request_lineages?.[session.plan.request_id]
+  return session.execution_mode === 'protected' && (!lineage || lineage.kind === 'standard')
+}

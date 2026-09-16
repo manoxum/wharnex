@@ -1,5 +1,5 @@
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, QueuedChatRequest, Session } from '../types'
+import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ManagedArtifact, ChatFileRecord, QueuedChatRequest, Session } from '../types'
 import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ChatItemBoundary } from './ChatItemBoundary'
@@ -35,6 +35,7 @@ import { useProgressiveChatHistory, type ChatViewportStore } from './useProgress
 import { promptDialog } from '../lib/appDialog'
 import { plannerDeclaredNonRetryable, promptGPTRepairDetail } from '../lib/plannerRecovery'
 import { activePendingRequestId } from '../lib/pendingRequest'
+import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } from '../lib/artifactIndexing'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
@@ -135,6 +136,7 @@ export type ChatPanelProps = {
   transportProgress?: string
   onExecutionMode?: (mode: ExecutionMode) => void
   onAutomationMode?: (mode: AutomationMode) => void
+  onDebugMode?: (enabled: boolean) => void
   onEffortLevel?: (level: EffortLevel) => void
   onChatTransportMode?: (mode: ChatTransportMode) => void
   onKnowledgeSharing?: (enabled: boolean) => void
@@ -176,7 +178,7 @@ export type ChatPanelProps = {
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }
 
-export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
   const initialFileDraft = loadComposerFileDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)
@@ -217,6 +219,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // in sync live: a menu that is a request behind reality is a normal, minor
   // staleness, unlike suggesting a name the engine will actually refuse.
   const [knownProjects, setKnownProjects] = useState<{ name: string; projectPath: string }[]>([])
+  const [libraryArtifacts, setLibraryArtifacts] = useState<ManagedArtifact[]>([])
+  const [chatFiles, setChatFiles] = useState<ChatFileRecord[]>([])
   const [kindQuery, setKindQuery] = useState<{ start: number; end: number; query: string }>()
   const [expandedWhxNoticeRunId, setExpandedWhxNoticeRunId] = useState('')
   const [inspectedArtifact, setInspectedArtifact] = useState<ChatArtifactKind | ''>('')
@@ -262,8 +266,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       .catch(() => { if (alive) setKnownProjects([]) })
     return () => { alive = false }
   }, [session.id])
+  useEffect(() => {
+    let alive = true
+    void api.managedArtifacts('', false, 'library')
+      .then((result) => { if (alive) setLibraryArtifacts(result.artifacts || []) })
+      .catch(() => { if (alive) setLibraryArtifacts([]) })
+    return () => { alive = false }
+  }, [session.id])
+  useEffect(() => {
+    let alive = true
+    void api.chatFiles(session.id)
+      .then((result) => { if (alive) setChatFiles(result.files || []) })
+      .catch(() => { if (alive) setChatFiles([]) })
+    return () => { alive = false }
+  }, [session.id, session.artifacts])
   const attachmentNames = useMemo(() => attachments.map((file) => file.name), [attachments])
-  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles])
+  const chatFileCandidates = useMemo(() => chatFiles.map((file) => ({ value: file.direct ? `artifact|${file.artifact_id}` : `entry|${file.artifact_id}|${file.path || ''}`, label: file.name, detail: file.source === 'attachment' ? 'Anexo enviado' : file.source === 'returned' ? 'Ficheiro devolvido' : file.direction })), [chatFiles])
+  const libraryFileCandidates = useMemo(() => libraryArtifacts.map((item) => ({ value: `session|${item.session_id}|${item.artifact.id}`, label: item.artifact.name, detail: `${item.project_path} · ${item.artifact.kind}` })), [libraryArtifacts])
+  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates])
   const kindSuggestions = useMemo(() => kindQuery ? directiveKindSuggestions(kindQuery.query) : [], [kindQuery])
   const activeSuggestionCount = kindQuery
     ? kindSuggestions.length
@@ -286,6 +306,22 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     })).then((values) => { if (alive) setAttachedPathFiles(values) })
     return () => { alive = false }
   }, [session.id, attachmentDirectiveKey])
+  useEffect(() => {
+    const onIndex = (event: Event) => {
+      const detail = (event as CustomEvent<ArtifactIndexRequest>).detail
+      if (!detail || (detail.kind !== 'chat' && detail.kind !== 'lib') || !detail.value) return
+      const marker = artifactIndexMarker(detail.kind, detail.value)
+      setMessage((current) => {
+        if (current.includes(marker)) return current
+        const prefix = current.trimEnd()
+        const next = prefix ? `${prefix} ${marker}` : marker
+        window.setTimeout(() => focusCaretAt(next.length), 0)
+        return next
+      })
+    }
+    window.addEventListener(ARTIFACT_INDEX_EVENT, onIndex)
+    return () => window.removeEventListener(ARTIFACT_INDEX_EVENT, onIndex)
+  }, [])
   const isProjectAttached = (name: string) => attachedProjects.some((project) => project.name.toLowerCase() === name.toLowerCase())
   const isAttachmentAvailable = (name: string) => attachmentNames.some((candidate) => candidate.toLowerCase() === name.toLowerCase())
   // The directive the caret currently sits inside, if any — the one that gets
@@ -354,7 +390,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     event?.preventDefault()
     const text = message.trim() || (attachments.length ? 'Analise os ficheiros anexados.' : '')
     if (!text || preparedAttachmentCount || commentBusy) return
-    const selected = attachments
+    let selected: File[]
+    try { selected = await resolveIndexedArtifactFiles(text, attachments) } catch (error) { setAttachmentError(error instanceof Error ? error.message : 'Não foi possível indexar o ficheiro referido.'); return }
     const selectedProjectFiles = projectFiles
     clearComposer()
     try { await onSend(text, selected, selectedProjectFiles, selectedArtifacts, requestMode) } catch { /* parent reports the actionable error */ }
@@ -366,7 +403,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     setBundlePreviewBusy(true)
     setBundlePreviewError('')
     try {
-      const record = await onPreviewBundle(text, attachments, projectFiles, selectedArtifacts, requestMode)
+      const selected = await resolveIndexedArtifactFiles(text, attachments)
+      const record = await onPreviewBundle(text, selected, projectFiles, selectedArtifacts, requestMode)
       if (bundlePreview) void api.deleteManagedArtifact(session.id, bundlePreview.id).catch(() => undefined)
       setBundlePreview(record)
     } catch (reason) {
@@ -385,7 +423,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   async function submitComment() {
     const text = message.trim() || (attachments.length ? 'Analise os ficheiros anexados como orientação adicional para esta tarefa.' : '')
     if (!text || !taskInFlight || !onComment || preparedAttachmentCount || commentBusy) return
-    const selected = attachments
+    let selected: File[]
+    try { selected = await resolveIndexedArtifactFiles(text, attachments) } catch (error) { setAttachmentError(error instanceof Error ? error.message : 'Não foi possível indexar o ficheiro referido.'); return }
     clearComposer()
     setCommentBusy(true)
     try { await onComment(text, selected) } catch { /* parent surfaces the transport error */ } finally { setCommentBusy(false) }
@@ -395,6 +434,42 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     const next = addChatAttachments(attachments, files)
     persistAttachments(next.files); setAttachmentError(next.error || '')
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function resolveIndexedArtifactFiles(text: string, existing: File[]) {
+    const files = [...existing]
+    const seen = new Set(files.map((file) => `${file.name}:${file.size}`))
+    for (const directive of parseDirectives(text).filter((item) => item.kind === 'chat' || item.kind === 'lib')) {
+      let url = ''
+      let name = ''
+      let contentType = 'application/octet-stream'
+      if (directive.kind === 'chat') {
+        if (directive.value.startsWith('entry|')) {
+          const [, bundleId, entryPath] = directive.value.split('|', 3)
+          url = api.artifactEntryURL(session.id, bundleId, entryPath)
+          name = entryPath.split('/').pop() || entryPath
+        } else {
+          const artifact = directive.value.startsWith('artifact|')
+            ? (session.artifacts || []).find((item) => item.id === directive.value.slice('artifact|'.length))
+            : [...(session.artifacts || [])].reverse().find((item) => item.name === directive.value)
+          if (!artifact) throw new Error(`O ficheiro @chat ${directive.value} já não está disponível neste chat.`)
+          url = api.artifactURL(session.id, artifact.id); name = artifact.name; contentType = artifact.content_type || contentType
+        }
+      } else {
+        const parts = directive.value.split('|')
+        const sourceSession = parts[1]; const artifactId = parts[2]
+        const item = libraryArtifacts.find((candidate) => candidate.session_id === sourceSession && candidate.artifact.id === artifactId)
+        if (!item) throw new Error(`O ficheiro @lib ${artifactId} já não está disponível na biblioteca.`)
+        url = api.artifactURL(sourceSession, artifactId); name = item.artifact.name; contentType = item.artifact.content_type || contentType
+      }
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Falha ao carregar ${name || directive.value} para o próximo bundle (HTTP ${response.status}).`)
+      const blob = await response.blob()
+      const file = new File([blob], name || 'artifact.bin', { type: blob.type || contentType })
+      const key = `${file.name}:${file.size}`
+      if (!seen.has(key)) { files.push(file); seen.add(key) }
+    }
+    return files
   }
 
   function pasteFiles(files: File[]) {
@@ -740,6 +815,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <span className="composer-action-divider" />
           <span className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
+          <button type="button" className={`composer-round-action debug-mode ${session.debug_enabled ? 'selected' : ''}`} disabled={busy || !onDebugMode} aria-pressed={Boolean(session.debug_enabled)} aria-label="Modo debug" title={session.debug_enabled ? 'Debug ligado · probes seguros podem executar automaticamente no sandbox ou host conforme o protocolo' : 'Debug desligado · o primeiro probe de cada Main Request pedirá autorização'} onClick={() => onDebugMode?.(!session.debug_enabled)}><Icon name="code" size={12}/>{session.debug_enabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <span className="composer-mode-group" role="group" aria-label="Proteção de execução">
             <button type="button" className={`composer-round-action mode-protected ${currentExecutionMode === 'protected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode} aria-pressed={currentExecutionMode === 'protected'} aria-label="Protected" title="Protected · executar e verificar primeiro na sandbox" onClick={() => onExecutionMode?.('protected')}><Icon name="shield" size={12}/></button>
             <button type="button" className={`composer-round-action mode-unprotected ${currentExecutionMode === 'unprotected' ? 'selected' : ''}`} disabled={busy || !onExecutionMode || Boolean(session.self_evolution)} aria-pressed={currentExecutionMode === 'unprotected'} aria-label="Unprotected" title={session.self_evolution ? 'Unprotected indisponível · auto-evolução do Wharnex é sempre Protected' : 'Unprotected · executar diretamente no projeto real'} onClick={() => onExecutionMode?.('unprotected')}><Icon name="external" size={12}/></button>

@@ -1,5 +1,11 @@
 # Execution Model SoT
 
+## Informed consent and diagnostic execution (v1.3.11 — see `adr/ADR-0057`)
+
+The first enriched change plan of a Protected Main Request pauses before execution and exposes its complete contract: Markdown plan, dependency inventory, sandbox/host system-tool inventory, exact patches/commands, verification and Policy decision. Accepting it authorizes compatible correction waves in that request lineage; any later network/package/Git or host-tool impact is a new Policy approval boundary. Rejecting it records the decision and performs no command. Unprotected execution remains a distinct host-direct mode with confirmation for each execution.
+
+A `harness.debug/v1` workflow may gather evidence in the copied sandbox or, for host-only failures, through the closed read-only host diagnostic allowlist. It is never an Apply candidate and never carries patches or network. Debug enabled in the composer is a standing diagnostic grant; when disabled, one grant is required per Main Request root and inherited only by its diagnostic descendants.
+
 Wharness supports a per-project execution mode selected in the workspace UI.
 
 ## Protected (default)

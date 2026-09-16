@@ -100,6 +100,9 @@ func (s *Service) PersistArtifact(ctx context.Context, sessionID, requestID, dir
 		ContentType: contentType, Size: int64(len(raw)), SHA256: digestHex, ObjectKey: key,
 		CreatedAt: now, ExpiresAt: now.Add(time.Duration(s.ArtifactSettings().RetentionDays) * 24 * time.Hour), Bundle: bundle, EntryCount: entries,
 	}
+	if kind == "library" {
+		record.ExpiresAt = time.Time{}
+	}
 	if err := s.artifactStore.Put(ctx, key, record.ContentType, raw); err != nil {
 		return domain.ArtifactRecord{}, err
 	}
@@ -194,6 +197,9 @@ func (s *Service) CleanupArtifacts(ctx context.Context, before time.Time) error 
 	var cleanupErrors []error
 	for _, item := range s.store.List() {
 		for _, record := range item.Artifacts {
+			if record.Kind == "library" {
+				continue
+			}
 			if !record.CreatedAt.Before(before) {
 				continue
 			}

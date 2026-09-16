@@ -19,10 +19,18 @@ type ManagedArtifact struct {
 // ListManagedArtifacts exposes the artifact metadata Wharnex already owns.
 // Object keys and MinIO credentials intentionally remain server-only.
 func (s *Service) ListManagedArtifacts(query string, bundlesOnly bool) []ManagedArtifact {
+	return s.ListManagedArtifactsByKind(query, bundlesOnly, "")
+}
+
+func (s *Service) ListManagedArtifactsByKind(query string, bundlesOnly bool, kind string) []ManagedArtifact {
 	query = strings.ToLower(strings.TrimSpace(query))
+	kind = strings.ToLower(strings.TrimSpace(kind))
 	items := make([]ManagedArtifact, 0)
 	for _, session := range s.store.List() {
 		for _, artifact := range session.Artifacts {
+			if kind != "" && artifact.Kind != kind {
+				continue
+			}
 			if bundlesOnly && !artifact.Bundle {
 				continue
 			}

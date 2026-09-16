@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitBranchActionResult, GitCommit, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
+import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitBranchActionResult, GitCommit, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8888'
@@ -124,7 +124,7 @@ export const api = {
   connectRemoteStorage: (instanceID: string, provider: RemoteStorageProviderID, fields: Record<string, string>) => request<RemoteStorageConnection>('/api/remote-storage/connections', { method: 'POST', body: JSON.stringify({ instance_id: instanceID, provider, fields }) }),
   checkRemoteStorage: (remote: string) => request<{ connected: boolean }>('/api/remote-storage/connections/check', { method: 'POST', body: JSON.stringify({ remote }) }),
   artifactSettings: () => request<ArtifactSettings>('/api/artifact-settings'),
-  managedArtifacts: (query = '', bundlesOnly = true) => request<{ artifacts: ManagedArtifact[] }>(`/api/artifacts?q=${encodeURIComponent(query)}${bundlesOnly ? '&bundles=1' : ''}`),
+  managedArtifacts: (query = '', bundlesOnly = true, kind = '') => request<{ artifacts: ManagedArtifact[] }>(`/api/artifacts?q=${encodeURIComponent(query)}${bundlesOnly ? '&bundles=1' : ''}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`),
   deleteManagedArtifact: (sessionId: string, artifactId: string) => request<{ deleted: boolean }>(`/api/artifacts/${encodeURIComponent(sessionId)}/${encodeURIComponent(artifactId)}`, { method: 'DELETE' }),
   testPostgres: (connection: PostgresConnectionInput) => request<{ connected: boolean }>('/api/database/postgres/test', { method: 'POST', body: JSON.stringify({ connection }) }),
   postgresCatalog: (connection: PostgresConnectionInput) => request<PostgresCatalog>('/api/database/postgres/catalog', { method: 'POST', body: JSON.stringify({ connection }) }),
@@ -134,11 +134,13 @@ export const api = {
   updateArtifactSettings: (retentionDays: number, bundleWindowLimit: number) => request<ArtifactSettings>('/api/artifact-settings', { method: 'PUT', body: JSON.stringify({ retention_days: retentionDays, bundle_window_limit: bundleWindowLimit }) }),
   bundleQuota: () => request<BundleQuota>('/api/bundle-quota'),
   artifacts: (id: string) => request<{ artifacts: ArtifactRecord[] }>(`/api/sessions/${id}/artifacts`),
+  chatFiles: (id: string) => request<{ files: ChatFileRecord[] }>(`/api/sessions/${id}/chat-files`),
+  saveChatFileToLibrary: (id: string, artifactId: string, path = '') => request<ArtifactRecord>(`/api/sessions/${id}/chat-files/${encodeURIComponent(artifactId)}/library`, { method: 'POST', body: JSON.stringify({ path }) }),
   exportChat: (id: string, input: ChatExportRequest) => requestDownload(`/api/sessions/${id}/chat-export`, input),
   artifactEntries: (id: string, artifactId: string) => request<{ entries: ArtifactEntry[] }>(`/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}/entries`),
   artifactPresentation: (id: string, artifactId: string) => request<ArtifactPresentation>(`/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}/presentation`),
   persistArtifact: (id: string, input: { request_id: string; direction: 'input' | 'output'; kind: string; filename: string; content_type: string; content_base64: string }) => request<ArtifactRecord>(`/api/sessions/${id}/artifacts`, { method: 'POST', body: JSON.stringify(input) }),
-  artifactURL: (id: string, artifactId: string) => `${API_URL}/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}`,
+  artifactURL: (id: string, artifactId: string, preview = false) => `${API_URL}/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}${preview ? '?preview=1' : ''}`,
   artifactEntryURL: (id: string, artifactId: string, path: string, download = false) => `${API_URL}/api/sessions/${id}/artifacts/${encodeURIComponent(artifactId)}/entry?path=${encodeURIComponent(path)}${download ? '&download=1' : ''}`,
   storage: () => request<BackendStorageUsage>('/api/storage'),
   clearStorage: (confirm: string) => request<{ status: string }>('/api/storage', { method: 'DELETE', body: JSON.stringify({ confirm }) }),
@@ -175,6 +177,8 @@ export const api = {
     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),
   setAutomationMode: (id: string, automationMode: AutomationMode) =>
     request<Session>(`/api/sessions/${id}/automation-mode`, { method: 'PUT', body: JSON.stringify({ automation_mode: automationMode }) }),
+  setDebugMode: (id: string, enabled: boolean) =>
+    request<Session>(`/api/sessions/${id}/debug-mode`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   setEffortLevel: (id: string, effortLevel: EffortLevel) =>
     request<Session>(`/api/sessions/${id}/effort-level`, { method: 'PUT', body: JSON.stringify({ effort_level: effortLevel }) }),
   setChatTransportMode: (id: string, chatTransportMode: ChatTransportMode) =>
@@ -203,6 +207,8 @@ export const api = {
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/correct`, { method: 'POST', body: JSON.stringify({ guidance }) }),
   rejectPlan: (id: string, requestId: string) =>
     request<Session>(`/api/sessions/${id}/plans/${encodeURIComponent(requestId)}/reject`, { method: 'POST', body: '{}' }),
+  rejectExecutionPlan: (id: string) =>
+    request<Session>(`/api/sessions/${id}/execution-plan/reject`, { method: 'POST', body: '{}' }),
   manualPlan: (id: string, rawJSON: string) =>
     request<Session>(`/api/sessions/${id}/manual-plan`, { method: 'POST', body: rawJSON }),
   executionBundle: (id: string, filename: string, contentBase64: string) =>
@@ -216,6 +222,7 @@ export const api = {
     request<{ session: Session; result: ExecutionResult }>(`/api/sessions/${id}/execute`, {
       method: 'POST', body: JSON.stringify({ approved }),
     }),
+  approveDebug: (id: string) => request<BundleSubmission>(`/api/sessions/${id}/debug/approve`, { method: 'POST', body: '{}' }),
   retryDependencyNetwork: (id: string) => request<Session>(`/api/sessions/${id}/dependency-network-retry`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   retryHostDependencyRepair: (id: string) => request<Session>(`/api/sessions/${id}/host-dependency-repair`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   resumeInterruptedExecution: (id: string) => request<{ session: Session; plan_id: string; status: string }>(`/api/sessions/${id}/interrupted-execution/resume`, { method: 'POST', body: '{}' }),

@@ -247,6 +247,31 @@ func TestServicePlansAndExecutes(t *testing.T) {
 	}
 }
 
+func TestRejectExecutionPlanEndsUnstartedPlanWithoutRunningCommands(t *testing.T) {
+	root := t.TempDir()
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "reject-me", Status: "ready", Summary: "planned change", Document: "# Complete plan", Risk: "low"}
+	runner := &terminalTargetRunner{}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), runner)
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, planned, err := service.SubmitMessage(context.Background(), started.ID, "prepare a change")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned.Plan == nil || planned.State != "planned" {
+		t.Fatalf("expected an unstarted plan, got %#v", planned)
+	}
+	rejected, err := service.RejectExecutionPlan(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.State != "plan_rejected" || rejected.Plan != nil || rejected.Policy != nil || runner.ran {
+		t.Fatalf("rejection changed execution state unexpectedly: session=%#v ran=%v", rejected, runner.ran)
+	}
+}
+
 func TestAutoExecutionCannotBeExecutedAgain(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n"), 0o600); err != nil {
