@@ -138,8 +138,8 @@ func TestLogIdentifiesWharnexCommitsByTrailer(t *testing.T) {
 	if whx.Subject != "feat: add a" || !strings.Contains(whx.Body, "Why it matters.") {
 		t.Fatalf("subject/body were not separated correctly: %+v", whx)
 	}
-	// No upstream means nothing is provably pushed; claiming otherwise is the
-	// dangerous direction.
+	// This repository has no remote-tracking refs, so neither commit is
+	// provably pushed.
 	if whx.Pushed {
 		t.Fatal("with no upstream a commit must not be reported as pushed")
 	}
@@ -518,6 +518,45 @@ func TestWorktreeDiffIncludesUntrackedFiles(t *testing.T) {
 	}
 	if !strings.Contains(diff, "+first line") || !strings.Contains(diff, "+second line") {
 		t.Fatalf("untracked content missing from worktree diff: %q", diff)
+	}
+}
+
+func TestUnpushedWithoutUpstreamUsesRemoteReachability(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "origin", "main")
+	base := git(t, root, "rev-parse", "HEAD")
+	git(t, root, "rev-parse", "refs/remotes/origin/main")
+
+	git(t, root, "checkout", "-qb", "feature")
+	write(t, root, "local.txt", "local\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: local feature commit")
+	local := git(t, root, "rev-parse", "HEAD")
+
+	commits, err := Unpushed(context.Background(), root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 || commits[0].SHA != local {
+		t.Fatalf("expected only the commit absent from every remote ref, got %+v", commits)
+	}
+
+	history, err := Log(context.Background(), root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushed := map[string]bool{}
+	for _, commit := range history {
+		pushed[commit.SHA] = commit.Pushed
+	}
+	if pushed[local] {
+		t.Fatal("the feature commit must remain unpublished")
+	}
+	if !pushed[base] {
+		t.Fatal("the base commit reachable from origin/main must be marked published")
 	}
 }
 

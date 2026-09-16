@@ -183,9 +183,12 @@ function gitTabLabel(tab: GitTab) {
 function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (tab: GitTab) => void; overview: GitOverview }) {
   const changes = Math.max(overview.pending.length, overview.working.files?.length || overview.working.stageable_count)
   const current = overview.branches.find((branch) => !branch.remote && branch.current)
+  const unpublished = current?.has_upstream && !current.gone
+    ? current.ahead
+    : overview.commits.filter((commit) => !commit.pushed).length
   const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'bridge' | 'settings' | 'arrow-up'; count?: number }> = [
     { id: 'changes', icon: 'edit', count: changes },
-    { id: 'unpushed', icon: 'arrow-up', count: current?.ahead || 0 },
+    { id: 'unpushed', icon: 'arrow-up', count: unpublished },
     { id: 'history', icon: 'git', count: overview.commits.length },
     { id: 'branches', icon: 'bridge', count: overview.branches.length },
     { id: 'settings', icon: 'settings' },

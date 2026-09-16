@@ -137,8 +137,10 @@ The selective path never force-pushes and does not automatically fetch/merge on
 a rejection, because doing so could change which commits the operator selected.
 The operator refreshes/reviews the new upstream state or uses the existing full
 push flow when branch reconciliation is intended. A branch with no valid
-upstream has no safe definition of unpublished history, so the surface requires
-a full push to establish that reference before selective publishing is offered.
+upstream still has a safe read-only unpublished view: commits reachable from
+`HEAD` but from no remote-tracking ref (`git log HEAD --not --remotes`). That
+fallback does not identify a destination branch, so selective publishing stays
+disabled until a full push establishes the upstream reference.
 
 ### 6. A conflicting merge is aborted, then replayed
 
