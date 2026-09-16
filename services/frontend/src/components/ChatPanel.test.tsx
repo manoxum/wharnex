@@ -263,6 +263,15 @@ describe('ChatPanel', () => {
     expect(screen.getByText('services/frontend/src/e.ts')).toBeTruthy()
   })
 
+  it('separates the total deletion count for danger styling', () => {
+    const view = render(
+      <ChatPanel session={session} items={[{ id: 'change-total-stats', role: 'harness', source: 'wharness', presentation: 'change', text: 'Aplicado.', change: { planId: 'plan-total-stats', files: [{ path: 'services/frontend/src/a.ts', additions: 7, deletions: 3, diff: 'diff total stats' }], appliedAt: '2026-09-09T18:00:00Z', canRevert: false } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    expect(view.container.querySelector('.change-summary-card > header > code')?.textContent).toBe('+7 −3')
+    expect(view.container.querySelector('.change-summary-card > header > code i')?.textContent).toBe('−3')
+  })
+
   it('offers the inverse restore action for a reverted change card', async () => {
     const onRevertChange = vi.fn(async () => undefined)
     const item = { id: 'change-reverted', role: 'harness' as const, source: 'wharness' as const, presentation: 'change' as const, text: 'Revertido.', change: { planId: 'plan-reverted', files: [], appliedAt: '2026-09-09T18:00:00Z', canRevert: true, reverted: true } }

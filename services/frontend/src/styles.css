@@ -1393,6 +1393,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .change-summary-card > header strong { color: #30372d; font-size: calc(11px * var(--ui-font-scale)); }
 .change-summary-card > header span { color: #7d8578; font-size: calc(8.5px * var(--ui-font-scale)); }
 .change-summary-card > header > code { white-space: nowrap; color: #4f6750; font: 700 calc(9px * var(--ui-font-scale))/1 var(--mono-font-family); }
+.change-summary-card > header > code i { color: #a05249; font-style: normal; }
 .change-summary-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 8px; background: #e4eddc; color: #4e7136; }
 .change-file-list { display: grid; }
 .change-file-row { min-height: 38px; padding: 4px 8px 4px 11px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid #e6e9e1; }
