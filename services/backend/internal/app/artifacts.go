@@ -103,7 +103,7 @@ func (s *Service) PersistArtifact(ctx context.Context, sessionID, requestID, dir
 	if kind == "library" {
 		record.ExpiresAt = time.Time{}
 	}
-	if err := s.artifactStore.Put(ctx, key, record.ContentType, raw); err != nil {
+	if err := s.putArtifactWithRecovery(ctx, key, record.ContentType, raw); err != nil {
 		return domain.ArtifactRecord{}, err
 	}
 	_, err = s.store.Update(sessionID, func(item *domain.Session) error {

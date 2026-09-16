@@ -141,7 +141,14 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     }
   }, [bridge, applyDesktopState])
 
-  useEffect(() => observeChatGPTOverlayBlockers(window, setOverlayBlocked), [])
+  useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
+    // A WebContentsView is composited above the renderer. Hide it in the
+    // observer callback itself; waiting for React to commit state and run the
+    // visibility effect leaves a visible frame in which the native surface can
+    // cover a modal or even the next selected workspace surface.
+    if (blocked) void bridge?.chatgpt.hide(chatIdRef.current)
+    setOverlayBlocked(blocked)
+  }), [bridge])
 
   useEffect(() => {
     const agents = bridge?.agents

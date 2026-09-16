@@ -44,6 +44,7 @@ import (
 var (
 	ErrApprovalRequired                   = errors.New("explicit approval required")
 	ErrExecutionRequired                  = errors.New("successful sandbox execution required before host apply")
+	ErrExecutionInProgress                = errors.New("execution already in progress or pending recovery")
 	ErrRemoteStorageConnectorUnavailable  = errors.New("remote storage connector is unavailable")
 	ErrTunnelProviderConnectorUnavailable = errors.New("tunnel provider connector is unavailable")
 	ErrExecutionBundleRequestMismatch     = errors.New("execution bundle filename/request_id mismatch")
@@ -719,7 +720,11 @@ func (s *Service) SubmitPlanApproval(ctx context.Context, sessionID, parentReque
 	if current.LastRequestID != parentRequestID || current.State != "awaiting_plan_approval" || current.LastTurn == nil || current.LastTurn.RequestID != parentRequestID || current.LastTurn.Kind != domain.TurnKindPlan || current.LastTurn.Outcome == nil || current.LastTurn.Outcome.Status != domain.TurnOutcomeCompleted {
 		return planner.Result{}, current, errors.New("plan approval requires the latest pending completed plan proposal")
 	}
-	message := fmt.Sprintf("PLAN APPROVAL CONTINUATION\nParent request: %s\nThe user approved the following plan proposal. Implement exactly this approved scope now.\n\n%s", parentRequestID, current.LastTurn.Message)
+	approved := approvedChatPlan(parentRequestID, current.LastTurn.Message)
+	if current, err = s.store.Update(sessionID, func(item *domain.Session) error { item.ApprovedChatPlan = approved; return nil }); err != nil {
+		return planner.Result{}, current, err
+	}
+	message := fmt.Sprintf("PLAN APPROVAL CONTINUATION\nParent request: %s\nApproved plan protocol: %s\nApproved plan SHA-256: %s\nThe user approved the following plan proposal. Implement exactly this approved scope now and echo it unchanged in plan.approved_chat_plan.\n\n%s", parentRequestID, approved.Protocol, approved.SHA256, approved.Document)
 	return s.submitPlannerRequest(ctx, sessionID, message, "approve_plan", parentRequestID, requestKindPlanApproval)
 }
 
@@ -811,6 +816,9 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			current.AutomationAttempt = 1
 			current.ImprovementAttempt = 0
 			current.DebugApprovedRootID = ""
+			current.ApprovedChatPlan = nil
+			current.ExecutionApprovedRootID = ""
+			current.ApprovedBoundaryKeys = nil
 			return nil
 		}); clearErr == nil {
 			item = refreshed
@@ -1362,6 +1370,9 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	if err := protocol.ValidateChangePlan(*parsed.Plan); err != nil {
 		return BundleSubmission{}, err
 	}
+	if err := validateApprovedChatPlanBinding(current, parsed.Plan); err != nil {
+		return BundleSubmission{}, err
+	}
 	// The summary is the one sentence a human reads to learn what this bundle
 	// did — in the transcript, and in the self-evolution activation dialog where
 	// it is the only prose between the operator and a decision to restart the
@@ -1640,7 +1651,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			result.Session = current
 			return result
 		}
-		if current.Policy.RequiresApproval {
+		if current.Policy.RequiresApproval && !planCoveredByChatApproval(current) && !priorExecutionConsentCovers(current) {
 			reason := strings.Join(current.Policy.Reasons, "; ")
 			if strings.TrimSpace(reason) == "" {
 				reason = "policy requires explicit approval"
@@ -1651,17 +1662,35 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			return result
 		}
 		s.bus.Publish(sessionID, "automation.started", map[string]any{"plan_id": planID, "transport": transport, "attempt": attempt + 1})
-		execution, executed, execErr := s.Execute(ctx, sessionID, false)
+		execution, executed, execErr := s.Execute(ctx, sessionID, planCoveredByChatApproval(current) || priorExecutionConsentCovers(current))
 		result.AutoExecuted = true
 		result.Execution = &execution
 		result.Session = executed
 		if execErr != nil {
 			current = executed
+			if errors.Is(execErr, ErrExecutionInProgress) {
+				// Bundle delivery and renderer recovery may converge on the same
+				// automatic execution. The durable execution intent is the owner;
+				// a second trigger joins it instead of recording a false failure
+				// and starting another repair round.
+				result.AutoExecuted = false
+				result.Execution = nil
+				result.Session = executed
+				s.bus.Publish(sessionID, "automation.execution_joined", map[string]any{"plan_id": planID, "transport": transport})
+				return result
+			}
 			if executed.State == "planned" && executed.Plan != nil && executed.Plan.PlanID != planID {
 				continue
 			}
 			result.AutoError = execErr.Error()
 			s.bus.Publish(sessionID, "automation.execution_failed", map[string]any{"error": execErr.Error(), "repair_pending": executed.State == "repair_pending"})
+			return result
+		}
+		if len(executed.LastAppliedChanges) > 0 && (executed.State == "applied" || executed.State == "restart_pending") {
+			result.AutoApplied = true
+			result.RestartRequired = executed.SelfEvolution && executed.State == "restart_pending" && planHasPatch(current.Plan)
+			result.Session = executed
+			s.bus.Publish(sessionID, "automation.completed", map[string]any{"plan_id": planID, "applied": true, "transport": transport, "restart_required": result.RestartRequired})
 			return result
 		}
 		if len(hostApplicablePendingChanges(pendingHostChanges(executed))) == 0 {
@@ -1798,9 +1827,13 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 			return fmt.Errorf("plan %s already executed successfully; submit a new change request instead of executing it again", planID)
 		}
 		if current.InterruptedExecution != nil && current.InterruptedExecution.PlanID == planID {
-			return fmt.Errorf("plan %s already has an execution in progress or pending recovery", planID)
+			return fmt.Errorf("plan %s already has an execution in progress or pending recovery: %w", planID, ErrExecutionInProgress)
 		}
 		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: planID, RequestedAt: time.Now().UTC(), Approved: approved, Status: domain.InterruptedExecutionRunning}
+		if approved && current.ExecutionMode == domain.ExecutionModeProtected {
+			current.ExecutionApprovedRootID = executionConsentRoot(*current, current.Plan.RequestID)
+			current.ApprovedBoundaryKeys = executionBoundaryKeys(current.Plan)
+		}
 		return nil
 	})
 	if updateErr != nil {
@@ -1826,6 +1859,13 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 			err = fmt.Errorf("clear completed execution recovery intent: %w", clearErr)
 		}
 		return result, item, err
+	}
+	if err == nil && approved && cleared.ExecutionMode == domain.ExecutionModeProtected && cleared.AutomationMode == domain.AutomationModeAuto && len(hostApplicablePendingChanges(pendingHostChanges(cleared))) > 0 {
+		applied, applyErr := s.applyToHostWithLocalRetry(ctx, sessionID)
+		if applyErr != nil {
+			return result, applied, applyErr
+		}
+		return result, applied, nil
 	}
 	return result, cleared, err
 }

@@ -167,6 +167,7 @@ EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 - For every change plan, document is the complete human-facing Markdown execution contract. Explain the intended outcome, ordered implementation approach, affected areas, risks/rollback and verification. It must let the operator make one informed decision without reconstructing intent from commands or patches.
 - dependencies is the complete dependency impact list. Each item has scope (service/stack/side), manager, name, optional version, action=install|update|remove|use, and reason. Use [] when none.
 - system_tools is the complete OS/runtime tool impact list. Each item has target=sandbox|host, name, action=install|update|configure|use, and reason. Use [] when none. Declaring a host tool is disclosure only and never grants permission to install it; any host setup remains a separate explicit human action.
+- approved_chat_plan is omitted for an ordinary direct change. For an APPROVE_PLAN continuation it is MANDATORY and must echo the exact operator-approved proposal and supplied identity: protocol=harness.chat-plan/v1, parent request_id, supplied sha256, and the exact approved document. Wharnex rejects a missing or altered binding before Policy or execution.
 - For a change plan, commit_message is MANDATORY and validated before execution. It MUST classify the change accurately, describe the concrete implemented outcome in a subject of at most 72 characters, and carry a body — after one blank line — explaining why, whenever the change is not self-evident. Wharnex commits your verified patch to its own integration branch using this message, then merges that branch into the host, so it becomes the real commit message in the project's Git history. Encode the line breaks as \n inside the JSON string. Omit it (or leave empty) for workflow, which never reaches the host.
 - For a change plan, version_increment is MANDATORY and has exactly {"component":"major|medium|minor|patch","amount":N}, where N is 1..1000. VERSION itself MUST NOT appear in planner mutations. Wharnex owns that file and performs the increment only after successful host integration. Workflow plans omit version_increment.
 - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
@@ -325,7 +326,7 @@ This turn is planning-only. Produce a concrete implementation proposal with a ##
 `
 	} else if planningMode == "approve_plan" {
 		header += `REQUEST STRATEGY: APPROVE_PLAN
-The user explicitly approved the plan from the parent request in this same Main Request. Implement that approved proposal now; do not reinterpret this as a new Main Request, do not silently expand scope, and include the required ## TODO checklist in turn.message.
+The user explicitly approved the plan from the parent request in this same Main Request. Implement that approved proposal now; do not reinterpret this as a new Main Request, do not silently expand scope, and include the required ## TODO checklist in turn.message. The execution plan MUST carry approved_chat_plan with protocol=harness.chat-plan/v1, the parent request id, the exact SHA-256 supplied in the continuation, and the exact approved proposal text byte-for-byte. This binding is the user's one authorization for the declared implementation, sandbox verification and Protected Auto host Apply.
 
 `
 	} else if planningMode == "correct_plan" {
@@ -335,7 +336,7 @@ The user explicitly requested a correction to the plan from the parent request i
 `
 	} else {
 		header += `REQUEST STRATEGY: DIRECT
-For explicit CHANGE requests, implement the requested change in this turn and include the required ## TODO checklist in turn.message.
+For explicit CHANGE requests, implement the requested change in this turn and include the required ## TODO checklist in turn.message. If the user's words explicitly ask you to elaborate, propose, draft or present an implementation plan for approval before changing anything, detect that intent even when the UI Plan-first toggle is off: return kind=plan with no plan.json or patches and wait for the linked approval continuation.
 
 `
 	}

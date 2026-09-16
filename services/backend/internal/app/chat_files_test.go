@@ -28,14 +28,17 @@ func TestChatFilesIncludeAttachmentsAndReturnedFilesWithoutTransportDuplicates(t
 		t.Fatal(err)
 	}
 	if _, err := service.PersistArtifact(context.Background(), "ses_files", "req_files", "input", "bundle", "request.zip", "application/zip", testArtifactZIP(t, map[string]string{
-		"attachments/hello.txt": "hello",
-		"prompt/request.md":     "request",
+		"attachments/hello.txt":                  "hello",
+		"attachments/wharnex-execution-error.md": "operational",
+		"prompt/request.md":                      "request",
 	})); err != nil {
 		t.Fatal(err)
 	}
 	response, err := service.PersistArtifact(context.Background(), "ses_files", "req_files", "output", "bundle", "response.zip", "application/zip", testArtifactZIP(t, map[string]string{
-		"artifacts/report.md": "# report",
-		"turn.json":           `{"kind":"change"}`,
+		"artifacts/report.md":                   "# report",
+		"artifacts/wharnex-execution-result.md": "operational",
+		"metadata/artifact-presentation.json":   `{"protocol":"harness.artifact-presentation/v1","galleries":[{"id":"docs","items":[{"path":"artifacts/report.md"}]}]}`,
+		"turn.json":                             `{"kind":"change"}`,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +52,7 @@ func TestChatFilesIncludeAttachmentsAndReturnedFilesWithoutTransportDuplicates(t
 		t.Fatal(err)
 	}
 	if len(files) != 2 {
-		t.Fatalf("expected direct attachment plus returned file, got %#v", files)
+		t.Fatalf("expected direct attachment plus gallery-declared markdown, got %#v", files)
 	}
 	var attachmentFile, returnedFile *ChatFile
 	for i := range files {
@@ -65,6 +68,15 @@ func TestChatFilesIncludeAttachmentsAndReturnedFilesWithoutTransportDuplicates(t
 	}
 	if returnedFile == nil || returnedFile.Direct || returnedFile.Path != "artifacts/report.md" || returnedFile.Source != "returned" {
 		t.Fatalf("returned bundle entry missing: %#v", returnedFile)
+	}
+
+	for _, file := range files {
+		if file.Name == "wharnex-execution-error.md" || file.Name == "wharnex-execution-result.md" {
+			t.Fatalf("operational markdown must stay out of chat files unless declared by the output gallery: %#v", file)
+		}
+	}
+	if _, err := service.SaveChatFileToLibrary(context.Background(), "ses_files", response.ID, "artifacts/wharnex-execution-result.md"); err == nil {
+		t.Fatal("hidden operational markdown must not be saveable through the chat-files endpoint")
 	}
 
 	saved, err := service.SaveChatFileToLibrary(context.Background(), "ses_files", response.ID, "artifacts/report.md")

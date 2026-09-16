@@ -7,6 +7,7 @@ import type { Session } from '../types'
 import { clearEphemeralComposerDrafts } from '../lib/workspaceMemory'
 import { api } from '../lib/api'
 import { deltaToCanonicalText, directivesToDelta, textOffsetToQuillIndex } from '../lib/composerRichText'
+import { requestArtifactIndex } from '../lib/artifactIndexing'
 
 // jsdom cannot faithfully simulate real keystrokes into a contenteditable
 // Quill instance (no real Selection/Range layout), so these tests drive the
@@ -170,6 +171,23 @@ describe('ChatPanel', () => {
     expect(screen.queryByText('5 mensagem(ns) anterior(es)')).toBeNull()
   })
 
+  it('keeps a bounded transcript DOM while traversing a long chat', async () => {
+    const items = Array.from({ length: 120 }, (_, index) => ({ id: `long-${index + 1}`, role: 'user' as const, text: `longa mensagem ${index + 1}` }))
+    const view = render(
+      <ChatPanel session={session} items={items} chats={[]} activeChatId="long-chat" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    for (const firstVisible of [81, 61, 41, 21, 1]) {
+      fireEvent.click(screen.getByRole('button', { name: 'Carregar mensagens anteriores' }))
+      await waitFor(() => expect(screen.getByText(`longa mensagem ${firstVisible}`)).toBeTruthy())
+    }
+
+    await waitFor(() => expect(screen.getByText('longa mensagem 1')).toBeTruthy())
+    expect(view.container.querySelectorAll('.chat-stream article.message').length).toBeLessThanOrEqual(60)
+    expect(screen.queryByText('longa mensagem 120')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Carregar mensagens mais recentes' })).toBeTruthy()
+  })
+
 
   it('restores independent viewport positions and loaded history when switching chats', async () => {
     const chatAItems = Array.from({ length: 45 }, (_, index) => ({ id: `chat-a-${index + 1}`, role: 'user' as const, text: `chat A mensagem ${index + 1}` }))
@@ -261,6 +279,15 @@ describe('ChatPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 2 diffs' }))
     expect(view.container.querySelectorAll('.change-file-row')).toHaveLength(6)
     expect(screen.getByText('services/frontend/src/e.ts')).toBeTruthy()
+  })
+
+  it('separates the total deletion count for danger styling', () => {
+    const view = render(
+      <ChatPanel session={session} items={[{ id: 'change-total-stats', role: 'harness', source: 'wharness', presentation: 'change', text: 'Aplicado.', change: { planId: 'plan-total-stats', files: [{ path: 'services/frontend/src/a.ts', additions: 7, deletions: 3, diff: 'diff total stats' }], appliedAt: '2026-09-09T18:00:00Z', canRevert: false } }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    expect(view.container.querySelector('.change-summary-card > header > code')?.textContent).toBe('+7 −3')
+    expect(view.container.querySelector('.change-summary-card > header > code i')?.textContent).toBe('−3')
   })
 
   it('offers the inverse restore action for a reverted change card', async () => {
@@ -629,6 +656,20 @@ describe('ChatPanel', () => {
     // The chip is a real embedded node, not the marker's own tinted text — its
     // title still carries the exact canonical marker it stands for.
     expect(view.container.querySelector('.composer-directive-chip.file')?.getAttribute('title')).toBe('@{[file]src/App.tsx}')
+    view.unmount()
+  })
+
+  it('inserts @chat references at the current composer caret as a chip', async () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="chat-file-insert" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    typeInComposer(ref, 'Revê isto agora', 5)
+    act(() => requestArtifactIndex('chat', 'artifact|artifact-1'))
+
+    await waitFor(() => expect(composerText(ref)).toBe('Revê @{[chat]artifact|artifact-1} isto agora'))
+    expect(view.container.querySelector('.composer-directive-chip.chat')?.getAttribute('title')).toBe('@{[chat]artifact|artifact-1}')
     view.unmount()
   })
 

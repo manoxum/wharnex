@@ -132,7 +132,7 @@ func TestBuildManualPromptDirectSupportsExplicitPlanIntent(t *testing.T) {
 
 func TestBuildManualPromptPlanApprovalContinuesSameMainRequest(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-plan-approval", Message: "approved proposal", PlanningMode: "approve_plan"})
-	for _, want := range []string{"REQUEST STRATEGY: APPROVE_PLAN", "same Main Request", "approved proposal", "do not silently expand scope"} {
+	for _, want := range []string{"REQUEST STRATEGY: APPROVE_PLAN", "same Main Request", "approved proposal", "do not silently expand scope", "approved_chat_plan", "Protected Auto host Apply"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("plan-approval prompt missing %q", want)
 		}

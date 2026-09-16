@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeImage } from 'electron'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { desktopIconSVG } from './desktop-identity.mjs'
+import { readProjectVersion } from './splash-version.mjs'
 
 // install-dev.sh installs a raster icon per instance slug at this exact path
 // (and the scalable SVG source next to it). Reusing that installed asset,
@@ -26,6 +27,8 @@ function resolveSplashIcon() {
 }
 
 const SPLASH_ICON = resolveSplashIcon()
+const SPLASH_VERSION = readProjectVersion()
+const SPLASH_VERSION_MARKUP = SPLASH_VERSION ? `<br>VERSION ${SPLASH_VERSION}` : ''
 
 const statusFile = process.env.WHARNESS_SPLASH_STATUS_FILE || ''
 const readyFile = process.env.WHARNESS_SPLASH_READY_FILE || ''
@@ -45,7 +48,7 @@ const page = `<!doctype html><html lang="pt"><meta charset="utf-8"><style>
   .mark{width:30px;height:30px;position:relative;border:1px solid #4a5540;border-radius:9px;background:#171a15;box-shadow:inset 0 1px rgba(255,255,255,.08)}
   .mark:before,.mark:after{content:"";position:absolute;inset:5px;border:2px dashed #b9ff56;border-radius:50%;animation:orbit 4s linear infinite}.mark:after{inset:9px;border-width:2px;animation-direction:reverse;animation-duration:2.7s}.core{position:absolute;inset:12px;border-radius:50%;background:#b9ff56;box-shadow:0 0 16px #b9ff5688}
   .content{position:relative;z-index:1;display:grid;align-content:end;height:calc(100% - 30px);padding-bottom:3px}.eyebrow{font:600 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:#b9ff56}.title{margin:12px 0 14px;font-size:38px;line-height:.97;letter-spacing:-.055em;font-weight:650}.status{min-height:42px;max-width:420px;color:#b8bdb2;font-size:14px;line-height:1.5}.rail{height:2px;margin-top:25px;background:#30362b;overflow:hidden}.rail i{display:block;width:34%;height:100%;background:#b9ff56;box-shadow:0 0 18px #b9ff56;animation:travel 1.45s ease-in-out infinite}.meta{position:absolute;right:34px;bottom:34px;color:#798173;font:10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;text-align:right}@keyframes orbit{to{transform:rotate(360deg)}}@keyframes travel{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
-</style><body><main><div class="grain"></div><header><span class="mark"><span class="core"></span></span>Wharnex <span style="opacity:.45">/</span> Desktop</header><section class="content"><div class="eyebrow">Arranque seguro</div><h1 class="title">A montar<br>o teu espaço.</h1><div class="status" id="status">A preparar o espaço de trabalho…</div><div class="rail"><i></i></div></section><div class="meta">PROTECTED WORKSPACE<br>LOCAL DESKTOP</div></main><script>window.setStatus=(value)=>{document.getElementById('status').textContent=value}</script></body></html>`
+</style><body><main><div class="grain"></div><header><span class="mark"><span class="core"></span></span>Wharnex <span style="opacity:.45">/</span> Desktop</header><section class="content"><div class="eyebrow">Arranque seguro</div><h1 class="title">A montar<br>o teu espaço.</h1><div class="status" id="status">A preparar o espaço de trabalho…</div><div class="rail"><i></i></div></section><div class="meta">PROTECTED WORKSPACE<br>LOCAL DESKTOP${SPLASH_VERSION_MARKUP}</div></main><script>window.setStatus=(value)=>{document.getElementById('status').textContent=value}</script></body></html>`
 
 app.whenReady().then(async () => {
   splash = new BrowserWindow({

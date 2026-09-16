@@ -236,11 +236,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
   const copiedResetTimerRef = useRef<number | null>(null)
   const richEditorRef = useRef<ComposerRichEditorHandle>(null)
+  const composerMessageRef = useRef(initialDraft.message)
+  const composerCaretRef = useRef(initialDraft.message.length)
   const editorShellRef = useRef<HTMLDivElement>(null)
   useImperativeHandle(forwardedRef, () => ({ getComposerEditor: () => richEditorRef.current?.getEditor() }), [])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const todos = useMemo(() => latestTodoSnapshot(items), [items])
-  const { endRef, hasOlder, hiddenItemCount, loadOlder, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
+  const { endRef, hasOlder, hasNewer, hiddenItemCount, hiddenNewerItemCount, loadOlder, loadNewer, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
   const whxNoticeRuns = useMemo(() => indexWhxNoticeRuns(visibleItems), [visibleItems])
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
   // `@ref` names any project Wharnex has worked on before — attached projects
@@ -312,10 +314,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       if (!detail || (detail.kind !== 'chat' && detail.kind !== 'lib') || !detail.value) return
       const marker = artifactIndexMarker(detail.kind, detail.value)
       setMessage((current) => {
-        if (current.includes(marker)) return current
-        const prefix = current.trimEnd()
-        const next = prefix ? `${prefix} ${marker}` : marker
-        window.setTimeout(() => focusCaretAt(next.length), 0)
+        const caret = Math.max(0, Math.min(composerCaretRef.current, current.length))
+        const before = current.slice(0, caret)
+        const after = current.slice(caret)
+        const leftSpace = before && !/\s$/.test(before) ? ' ' : ''
+        const rightSpace = after && !/^\s/.test(after) ? ' ' : ''
+        const insertion = `${leftSpace}${marker}${rightSpace}`
+        const next = `${before}${insertion}${after}`
+        const nextCaret = caret + insertion.length
+        composerMessageRef.current = next
+        composerCaretRef.current = nextCaret
+        window.setTimeout(() => focusCaretAt(nextCaret), 0)
         return next
       })
     }
@@ -337,7 +346,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     // draft open across the change does not silently lose the files they had
     // already chosen.
     const migrated = fileDraft.projectFiles.map((path) => canonicalDirective({ kind: 'file', value: path })).join(' ')
-    setMessage(migrated ? [draft.message.trim(), migrated].filter(Boolean).join(' ') : draft.message)
+    const nextMessage = migrated ? [draft.message.trim(), migrated].filter(Boolean).join(' ') : draft.message
+    composerMessageRef.current = nextMessage
+    composerCaretRef.current = nextMessage.length
+    setMessage(nextMessage)
     setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setExpandedWhxNoticeRunId('')
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
@@ -377,6 +389,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
 
   function clearComposer() {
+    composerMessageRef.current = ''
+    composerCaretRef.current = 0
     setMessage('')
     setAttachments([])
     setProjectFiles([])
@@ -388,7 +402,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   async function submitMain(event?: FormEvent) {
     event?.preventDefault()
-    const text = message.trim() || (attachments.length ? 'Analise os ficheiros anexados.' : '')
+    const text = composerMessageRef.current.trim() || (attachments.length ? 'Analise os ficheiros anexados.' : '')
     if (!text || preparedAttachmentCount || commentBusy) return
     let selected: File[]
     try { selected = await resolveIndexedArtifactFiles(text, attachments) } catch (error) { setAttachmentError(error instanceof Error ? error.message : 'Não foi possível indexar o ficheiro referido.'); return }
@@ -398,7 +412,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
 
   async function previewMainBundle() {
-    const text = message.trim() || (attachments.length ? 'Analise os ficheiros anexados.' : '')
+    const text = composerMessageRef.current.trim() || (attachments.length ? 'Analise os ficheiros anexados.' : '')
     if (!text || !onPreviewBundle || preparedAttachmentCount || commentBusy || bundlePreviewBusy) return
     setBundlePreviewBusy(true)
     setBundlePreviewError('')
@@ -421,7 +435,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
 
   async function submitComment() {
-    const text = message.trim() || (attachments.length ? 'Analise os ficheiros anexados como orientação adicional para esta tarefa.' : '')
+    const text = composerMessageRef.current.trim() || (attachments.length ? 'Analise os ficheiros anexados como orientação adicional para esta tarefa.' : '')
     if (!text || !taskInFlight || !onComment || preparedAttachmentCount || commentBusy) return
     let selected: File[]
     try { selected = await resolveIndexedArtifactFiles(text, attachments) } catch (error) { setAttachmentError(error instanceof Error ? error.message : 'Não foi possível indexar o ficheiro referido.'); return }
@@ -496,6 +510,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // (drafts, submission and autocomplete) keeps reading and writing that same
   // plain string exactly as it did before the rich editor.
   function updateMessage(value: string, caret: number) {
+    composerMessageRef.current = value
+    composerCaretRef.current = caret
     setMessage(value)
     syncDirectiveQueries(value, caret)
   }
@@ -539,6 +555,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // a request to a position identical to the last one (jumping to the same
   // chip twice) still takes effect.
   function focusCaretAt(position: number) {
+    composerCaretRef.current = position
     richEditorRef.current?.focus()
     setPendingCaret((current) => ({ index: position, token: (current?.token ?? 0) + 1 }))
   }
@@ -562,6 +579,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   function selectDirective(suggestion: { value: string; label: string; continues?: boolean }) {
     if (!fileQuery) return
     const applied = applyDirectiveSuggestion(message, fileQuery, suggestion)
+    composerMessageRef.current = applied.text
     setMessage(applied.text)
     setFileQuery(suggestion.continues ? directiveQuery(applied.text, applied.caret) : undefined)
     setActiveSuggestionIndex(0)
@@ -575,6 +593,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   function selectKind(suggestion: DirectiveKindSuggestion) {
     if (!kindQuery) return
     const applied = applyDirectiveKindSuggestion(message, kindQuery, suggestion)
+    composerMessageRef.current = applied.text
     setMessage(applied.text)
     setKindQuery(undefined)
     setFileQuery(directiveQuery(applied.text, applied.caret))
@@ -597,6 +616,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     const prefix = message.slice(0, directive.start)
     const suffix = message.slice(directive.end)
     const next = `${prefix}@${keyword}:${suffix}`
+    composerMessageRef.current = next
     setMessage(next)
     const caret = directive.start + keyword.length + 2
     setFileQuery(directiveQuery(next, caret))
@@ -604,7 +624,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
 
   function removeDirectiveChip(directive: ComposerDirective) {
-    setMessage((current) => removeDirective(current, directive))
+    setMessage((current) => {
+      const next = removeDirective(current, directive)
+      composerMessageRef.current = next
+      return next
+    })
     setFileQuery(undefined)
     setKindQuery(undefined)
     setOpenDirective((current) => current?.directive.start === directive.start && current.directive.end === directive.end ? undefined : current)
@@ -723,6 +747,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           {renderChatEntry(item)}
         </Fragment>
       })}
+      {hasNewer && <div className="chat-history-loader newer"><span>{hiddenNewerItemCount} mensagem(ns) mais recente(s)</span><button type="button" onClick={loadNewer}>Carregar mensagens mais recentes</button></div>}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharnex</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
     </div>}
@@ -757,7 +782,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
-      {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={setMessage} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>} 
+      {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={(value) => { composerMessageRef.current = value; setMessage(value) }} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>}
       <div ref={editorShellRef} className="composer-editor-shell">
         <ComposerRichEditor
           ref={richEditorRef} value={message} caret={pendingCaret} onChange={updateMessage}
@@ -958,7 +983,7 @@ function ChangeSummaryCard({ item, onInspect, onOpenFile, onRevert }: { item: Ch
   const visibleFiles = expanded ? prioritizedFiles : prioritizedFiles.slice(0, CHANGE_DIFF_PREVIEW_COUNT)
   const hiddenCount = Math.max(0, prioritizedFiles.length - visibleFiles.length)
   return <article className="change-summary-card">
-    <header><div><span className="change-summary-icon"><Icon name="apply" size={14}/></span><div><strong>{change.reverted ? 'Alterações revertidas' : 'Alterações aplicadas'}</strong><span>{change.files.length} ficheiro(s) · {formatMessageTime(change.appliedAt)}</span></div></div><code>+{additions} −{deletions}</code></header>
+    <header><div><span className="change-summary-icon"><Icon name="apply" size={14}/></span><div><strong>{change.reverted ? 'Alterações revertidas' : 'Alterações aplicadas'}</strong><span>{change.files.length} ficheiro(s) · {formatMessageTime(change.appliedAt)}</span></div></div><code>+{additions} <i>−{deletions}</i></code></header>
     {prioritizedFiles.length > 0 && <div className={`change-file-disclosure${hiddenCount ? ' collapsed' : ''}`}>
       <div className="change-file-list">{visibleFiles.map((file) => <div className={`change-file-row${isNormativeChangePath(file.path) ? ' normative' : ''}`} key={file.path}><button type="button" className="change-file-name" onClick={() => onOpenFile?.(file.path)} title="Abrir no Editor"><Icon name="file" size={12}/><span>{file.path}</span>{isNormativeChangePath(file.path) && <em>Normativo</em>}</button><button type="button" className="change-file-diff" onClick={() => onInspect(file)} title="Ver diff"><b>+{file.additions}</b><i>−{file.deletions}</i></button></div>)}</div>
       {prioritizedFiles.length > CHANGE_DIFF_PREVIEW_COUNT && <button type="button" className="change-file-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}><span aria-hidden="true">{expanded ? '−' : '···'}</span>{expanded ? 'Mostrar menos diffs' : `Mostrar mais ${hiddenCount} diff${hiddenCount === 1 ? '' : 's'}`}</button>}

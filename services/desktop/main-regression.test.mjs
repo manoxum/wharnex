@@ -437,6 +437,25 @@ test('renderer navigation preserves overlay-driven ChatGPT visibility', async ()
   assert.match(navigate, /activateChatGPTView\(key, request\?\.bounds, windowState\)/)
 })
 
+test('closing or switching the active project hides Supervisor and interactive Worker surfaces in Desktop before renderer teardown', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const suspendStart = source.indexOf('function suspendNativeSurfacesForWindow(windowState)')
+  const suspendEnd = source.indexOf('\nfunction releaseProjectForWindow', suspendStart)
+  const suspend = source.slice(suspendStart, suspendEnd)
+  assert.ok(suspendStart >= 0)
+  assert.match(suspend, /windowState\.chatgptVisible = false/)
+  assert.match(suspend, /active\.view\.setVisible\(false\)/)
+  assert.match(suspend, /hideChatAgentInteractionsForWindow\(windowState\)/)
+
+  const releaseStart = source.indexOf('function releaseProjectForWindow(windowState, value)')
+  const releaseEnd = source.indexOf('\nfunction releaseWindowProjects', releaseStart)
+  assert.match(source.slice(releaseStart, releaseEnd), /activeProject === requested\) suspendNativeSurfacesForWindow\(windowState\)/)
+
+  const activateStart = source.indexOf("ipcMain.handle('wharness:projects:activate'")
+  const activateEnd = source.indexOf("ipcMain.handle('wharness:projects:bindings'", activateStart)
+  assert.match(source.slice(activateStart, activateEnd), /activeProject !== projectPath\) suspendNativeSurfacesForWindow\(windowState\)/)
+})
+
 test('same-origin ChatGPT auth redirects stay embedded and explicit loads are serialized', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const routeStart = source.indexOf('function routeChatGPTNavigation')

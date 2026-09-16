@@ -33,7 +33,7 @@ func (a *API) saveChatFileToLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := a.service.SaveChatFileToLibrary(r.Context(), r.PathValue("id"), r.PathValue("artifact_id"), body.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "library_save_failed", err.Error())
+		writeArtifactMutationError(w, "library_save_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, record)

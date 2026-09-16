@@ -32,6 +32,14 @@ export function chatAgentBackoff(attempt, { baseMs = 2_000, maxMs = 60_000, jitt
   return exp - spread + Math.floor(jitter() * spread * 2)
 }
 
+export function chatAgentErrorDisposition(error) {
+  const detail = error instanceof Error ? error.message : String(error || '')
+  if (/artifact_storage_full|xminiostoragefull|minimum free drive threshold|no space left|armazenamento.+(?:sem espaço|cheio)/i.test(detail)) {
+    return { action: 'attention', error: detail }
+  }
+  return { action: 'retry', error: detail }
+}
+
 export class ChatAgentSchedulerClient {
   constructor({
     baseURL,
@@ -314,15 +322,21 @@ export class ChatAgentSchedulerClient {
       this.onState({ kind: 'settled', worker, task, result })
       return result
     } catch (error) {
+      const disposition = chatAgentErrorDisposition(error)
+      if (disposition.action === 'attention') {
+        await this.#transition(task.task_id, 'attention', { owner, error: disposition.error }).catch(() => undefined)
+        this.onState({ kind: 'task-error', worker, task, error })
+        return { status: 'attention', error: disposition.error }
+      }
       const retryable = task.attempt < task.max_attempts
       const action = retryable ? 'wait' : 'fail'
       const body = retryable
         ? {
             owner,
             not_before: new Date(Date.now() + chatAgentBackoff(task.attempt)).toISOString(),
-            error: error instanceof Error ? error.message : String(error),
+            error: disposition.error,
           }
-        : { owner, error: error instanceof Error ? error.message : String(error) }
+        : { owner, error: disposition.error }
       await this.#transition(task.task_id, action, body).catch(() => undefined)
       this.onState({ kind: 'task-error', worker, task, error })
       return { status: action === 'wait' ? 'waiting' : 'failed' }

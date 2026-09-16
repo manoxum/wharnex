@@ -48,6 +48,7 @@ type planWire struct {
 	Document          string                   `json:"document,omitempty"`
 	Dependencies      []domain.PlanDependency  `json:"dependencies,omitempty"`
 	SystemTools       []domain.PlanSystemTool  `json:"system_tools,omitempty"`
+	ApprovedChatPlan  *domain.ApprovedChatPlan `json:"approved_chat_plan,omitempty"`
 	Debug             *domain.DebugSpec        `json:"debug,omitempty"`
 	VersionIncrement  *domain.VersionIncrement `json:"version_increment,omitempty"`
 	CommitMessage     string                   `json:"commit_message,omitempty"`
@@ -193,7 +194,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		}
 		resolvedPlan := domain.ExecutionPlan{
 			Protocol: wire.Protocol, BaseContextSHA256: wire.BaseContextSHA256, ImpactFiles: wire.ImpactFiles, ReadFiles: wire.ReadFiles, BarrierFiles: wire.BarrierFiles, PlanID: wire.PlanID, RequestID: wire.RequestID,
-			Status: wire.Status, Summary: wire.Summary, Document: wire.Document, Dependencies: wire.Dependencies, SystemTools: wire.SystemTools, Debug: wire.Debug,
+			Status: wire.Status, Summary: wire.Summary, Document: wire.Document, Dependencies: wire.Dependencies, SystemTools: wire.SystemTools, ApprovedChatPlan: wire.ApprovedChatPlan, Debug: wire.Debug,
 			VersionIncrement: wire.VersionIncrement, CommitMessage: wire.CommitMessage, Risk: wire.Risk,
 			RequiresApproval: wire.RequiresApproval, Operations: make([]domain.Operation, 0), Verification: wire.Verification,
 		}

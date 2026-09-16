@@ -135,7 +135,7 @@ func TestExecuteRejectsDuplicateWhileSamePlanIsAlreadyPending(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	if _, _, err = service.Execute(context.Background(), started.ID, false); err == nil || !strings.Contains(err.Error(), "already has an execution in progress or pending recovery") {
+	if _, _, err = service.Execute(context.Background(), started.ID, false); err == nil || !errors.Is(err, ErrExecutionInProgress) || !strings.Contains(err.Error(), "already has an execution in progress or pending recovery") {
 		t.Fatalf("duplicate execution error = %v", err)
 	}
 	blocker.release()

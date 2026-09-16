@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentProps } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { HarnessEvent, Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import { promptDialog } from '../lib/appDialog'
@@ -18,29 +18,25 @@ import { api } from '../lib/api'
 import { summarizeAttention, type AttentionItem } from '../lib/attentionCenter'
 import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import { AttentionList } from './AttentionList'
+import { ArtifactExplorerPanel } from './ArtifactExplorerPanel'
+import { DatabaseExplorerPanel } from './DatabaseExplorerPanel'
+import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
 
-// The workspace side rail is shell-level, not Agent-level: one rail and one
-// drawer sit beside every mode surface, so switching between Agent, Editor and
-// Orchestrator never changes which panel is open or how wide it is. Rendering
-// it once is also what keeps the polling drawers (runtime, Git) from being
-// mounted three times over, which is what a per-mode copy would cost.
-export type Drawer = 'attention' | 'archive' | 'project' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | ProjectActivityKind | ''
+export type Drawer = 'attention' | 'archive' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | ProjectActivityKind | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 42
 const WORKSPACE_SPLITTER_PX = 6
 const WORKSPACE_DRAWER_MIN_PX = 240
+const WORKSPACE_RIGHT_DRAWER_MIN_PX = 360
+const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
 const WORKSPACE_STACK_MIN_PX = 560
+const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
 
-function scopedKey(prefix: string) { return `${prefix}:${desktopWindowScope()}` }
+function scopedKey(prefix: string, side: WorkspaceRailSide) { return `${prefix}:${side}:${desktopWindowScope()}` }
 
-function loadWorkspaceDrawerWidth() {
-  try { return Number(localStorage.getItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY))) || 0 } catch { return 0 }
-}
-
-function saveWorkspaceDrawerWidth(width: number) {
-  try { localStorage.setItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY), String(width)) } catch { /* best effort */ }
-}
+function loadWorkspaceDrawerWidth(side: WorkspaceRailSide) { const fallback = side === 'right' ? WORKSPACE_RIGHT_DRAWER_DEFAULT_PX : 0; try { return Number(localStorage.getItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY, side))) || fallback } catch { return fallback } }
+function saveWorkspaceDrawerWidth(side: WorkspaceRailSide, width: number) { try { localStorage.setItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY, side), String(width)) } catch { /* best effort */ } }
 
 export type WorkspaceSideRailProps = {
   session: Session
@@ -69,45 +65,65 @@ export type WorkspaceSideRailProps = {
   onGoToChat?: (chatId?: string, sessionId?: string) => void
   onGoToOrchestrator?: () => void
   onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
-  // Bring another project to the front. The agent pool is shared across
-  // projects, so a slot the operator is reading about here is frequently
-  // working for a project that is not the one in front of them.
   onFocusProject?: (projectPath: string) => void
+  side?: WorkspaceRailSide
+  tools?: WorkspaceTool[]
+  onMoveTool?: (tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool) => void
 }
 
-/**
- * The activity rail, the open drawer and the drawer's own resize splitter.
- *
- * The drawer closes only through its own close control or by toggling the same
- * rail button: no event — attention routing, following a Worker, switching
- * workspace mode — dismisses it, because the operator loses their place when a
- * panel they were reading disappears underneath them.
- */
+type ToolMeta = { label: string; title: string; icon: ComponentProps<typeof Icon>['name']; drawer?: Exclude<Drawer, ''>; badge?: number }
+
 export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, activeExecutionCount, onError } = props
+  const side = props.side || 'left'
+  const tools = props.tools || DEFAULT_WORKSPACE_RAIL_LAYOUT.left
   const [previewPath, setPreviewPath] = useState<string>()
-  const [drawerWidth, setDrawerWidth] = useState(loadWorkspaceDrawerWidth)
+  const [drawerWidth, setDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
   const [pendingCommitCount, setPendingCommitCount] = useState(0)
+  const visibleTools = useMemo(() => tools.filter((tool) => tool !== 'evolution' || session.self_evolution), [session.self_evolution, tools])
 
-  // The badge exists so uncommitted Wharnex work is visible without opening the
-  // panel. It refetches only when an Apply could have created a record, never
-  // on a timer: a poll would make an idle workspace talk to the backend forever
-  // to learn a number that only changes when the user applies something.
   useEffect(() => {
+    if (!tools.includes('git') && drawer !== 'git') return
     let cancelled = false
     void (async () => {
-      try {
-        const overview = await api.gitOverview(session.id)
-        if (!cancelled) setPendingCommitCount(overview.pending.length)
-      } catch {
-        if (!cancelled) setPendingCommitCount(0)
-      }
+      try { const overview = await api.gitOverview(session.id); if (!cancelled) setPendingCommitCount(overview.pending.length) }
+      catch { if (!cancelled) setPendingCommitCount(0) }
     })()
     return () => { cancelled = true }
-  }, [session.id, session.last_host_applied_at, drawer])
+  }, [session.id, session.last_host_applied_at, drawer, tools])
 
   const toggle = (next: Exclude<Drawer, ''>) => onDrawer(drawer === next ? '' : next)
   const close = () => onDrawer('')
+
+  function toolMeta(tool: WorkspaceTool): ToolMeta {
+    if (tool === 'archive') return { label: 'Chats arquivados', title: 'Chats arquivados', icon: 'folder', drawer: 'archive', badge: archivedChats.length }
+    if (tool === 'project') return { label: 'Explorador do projeto', title: 'Explorador do projeto', icon: 'workspace', drawer: 'project' }
+    if (tool === 'library') return { label: 'Biblioteca de ficheiros', title: 'Biblioteca de ficheiros', icon: 'package', drawer: 'library' }
+    if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'clipboard', drawer: 'knowledge' }
+    if (tool === 'git') return { label: 'Git do projeto', title: 'Git do projeto', icon: 'git', drawer: 'git', badge: pendingCommitCount }
+    if (tool === 'agents') return { label: 'Gestão de agentes', title: 'Supervisor e Workers', icon: 'agent', drawer: 'agents' }
+    if (tool === 'tasks') return { label: 'Tarefas do runtime', title: 'Fila e tarefas em execução', icon: 'list', drawer: 'tasks' }
+    if (tool === 'plans') return { label: 'Planos do projeto', title: 'Planos do projeto', icon: 'plan', drawer: 'plans' }
+    if (tool === 'executions') return { label: 'Execuções do projeto', title: 'Execuções do projeto', icon: 'terminal', drawer: 'executions' }
+    if (tool === 'fifo') return { label: 'Fila FIFO de execução', title: 'Fila FIFO de execução', icon: 'play', drawer: 'fifo', badge: activeExecutionCount }
+    if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
+    if (tool === 'database') return { label: 'Database connection', title: 'Database connection', icon: 'database', drawer: 'database' }
+    return { label: props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal', title: props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal do projeto', icon: 'terminal' }
+  }
+
+  function beginToolDrag(event: React.DragEvent<HTMLButtonElement>, tool: WorkspaceTool) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(TOOL_DRAG_TYPE, tool)
+    event.dataTransfer.setData('text/plain', tool)
+  }
+
+  function droppedTool(event: React.DragEvent, before?: WorkspaceTool) {
+    if (!props.onMoveTool) return
+    event.preventDefault()
+    event.stopPropagation()
+    const value = event.dataTransfer.getData(TOOL_DRAG_TYPE) || event.dataTransfer.getData('text/plain')
+    if (isWorkspaceTool(value)) props.onMoveTool(value, side, before)
+  }
 
   function beginDrawerResize(event: React.PointerEvent<HTMLButtonElement>) {
     const body = event.currentTarget.closest('.workspace-body') as HTMLElement | null
@@ -115,54 +131,47 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     const rect = body.getBoundingClientRect()
     event.currentTarget.setPointerCapture(event.pointerId)
     const update = (clientX: number) => {
-      // Whatever the drawer takes must leave the mode surface a usable width.
-      const ceiling = Math.max(WORKSPACE_DRAWER_MIN_PX, rect.width - WORKSPACE_RAIL_PX - WORKSPACE_SPLITTER_PX - WORKSPACE_STACK_MIN_PX)
-      const next = Math.round(Math.max(WORKSPACE_DRAWER_MIN_PX, Math.min(ceiling, clientX - rect.left - WORKSPACE_RAIL_PX)))
-      setDrawerWidth(next); saveWorkspaceDrawerWidth(next)
+      const minimum = side === 'right' ? WORKSPACE_RIGHT_DRAWER_MIN_PX : WORKSPACE_DRAWER_MIN_PX
+      const ceiling = Math.max(minimum, rect.width - (WORKSPACE_RAIL_PX * 2) - WORKSPACE_SPLITTER_PX - WORKSPACE_STACK_MIN_PX)
+      const raw = side === 'left' ? clientX - rect.left - WORKSPACE_RAIL_PX : rect.right - clientX - WORKSPACE_RAIL_PX
+      const next = Math.round(Math.max(minimum, Math.min(ceiling, raw)))
+      setDrawerWidth(next); saveWorkspaceDrawerWidth(side, next)
     }
     const move = (moveEvent: PointerEvent) => update(moveEvent.clientX)
     const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish)
   }
 
-  return <>
-    <aside className="agent-activity-bar" aria-label="Ferramentas do workspace">
-      <button type="button" className={drawer === 'archive' ? 'active' : ''} onClick={() => toggle('archive')} aria-label="Chats arquivados" title="Chats arquivados"><Icon name="folder" size={18}/>{archivedChats.length > 0 && <b>{archivedChats.length}</b>}</button>
-      <button type="button" className={drawer === 'project' ? 'active' : ''} onClick={() => toggle('project')} aria-label="Explorador do projeto" title="Explorador do projeto"><Icon name="workspace" size={18}/></button>
-      <button type="button" className={drawer === 'knowledge' ? 'active' : ''} onClick={() => toggle('knowledge')} aria-label="Conhecimento do projeto" title="Conhecimento adquirido"><Icon name="clipboard" size={18}/></button>
-      <button type="button" className={drawer === 'git' ? 'active' : ''} onClick={() => toggle('git')} aria-label="Git do projeto" title="Git do projeto"><Icon name="git" size={18}/>{pendingCommitCount > 0 && <b>{pendingCommitCount}</b>}</button>
-      <button type="button" className={drawer === 'agents' ? 'active' : ''} onClick={() => toggle('agents')} aria-label="Gestão de agentes" title="Supervisor e Workers"><Icon name="agent" size={18}/></button>
-      <button type="button" className={drawer === 'tasks' ? 'active' : ''} onClick={() => toggle('tasks')} aria-label="Tarefas do runtime" title="Fila e tarefas em execução"><Icon name="list" size={18}/></button>
-      <button type="button" className={drawer === 'plans' ? 'active' : ''} onClick={() => toggle('plans')} aria-label="Planos do projeto" title="Planos do projeto"><Icon name="plan" size={18}/></button>
-      <button type="button" className={drawer === 'executions' ? 'active' : ''} onClick={() => toggle('executions')} aria-label="Execuções do projeto" title="Execuções do projeto"><Icon name="terminal" size={18}/></button>
-      <button type="button" className={drawer === 'fifo' ? 'active' : ''} onClick={() => toggle('fifo')} aria-label="Fila FIFO de execução" title="Fila FIFO de execução"><Icon name="play" size={18}/>{activeExecutionCount > 0 && <b>{activeExecutionCount}</b>}</button>
-      {session.self_evolution && <button type="button" className={drawer === 'evolution' ? 'active' : ''} onClick={() => toggle('evolution')} aria-label="Logs de auto-evolução" title="Logs e análise de auto-evolução"><Icon name="refresh" size={18}/></button>}
-      {/* The terminal is the project's, not the Editor's, so it is reachable
-          from every mode — collapsed by default so it costs no height until
-          the operator asks for it. */}
-      <button type="button" className={`workspace-rail-terminal ${props.terminalOpen ? 'active' : ''}`} onClick={props.onToggleTerminal} aria-pressed={props.terminalOpen} aria-label={props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal'} title={props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal do projeto'}><Icon name="terminal" size={18}/></button>
-    </aside>
+  const rail = <aside className={`agent-activity-bar workspace-side-rail workspace-side-rail-${side}`} aria-label={side === 'left' ? 'Ferramentas do workspace' : 'Ferramentas laterais direitas'} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event)}>
+    {visibleTools.map((tool) => {
+      const meta = toolMeta(tool)
+      const active = tool === 'terminal' ? props.terminalOpen : meta.drawer === drawer
+      return <button key={tool} type="button" draggable={Boolean(props.onMoveTool)} data-workspace-tool={tool} className={`${active ? 'active' : ''} ${tool === 'terminal' ? 'workspace-rail-terminal' : ''}`.trim()} onDragStart={(event) => beginToolDrag(event, tool)} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, tool)} onClick={() => tool === 'terminal' ? props.onToggleTerminal() : meta.drawer && toggle(meta.drawer)} aria-pressed={tool === 'terminal' ? props.terminalOpen : undefined} aria-label={meta.label} title={`${meta.title}${props.onMoveTool ? ' · arraste para reorganizar' : ''}`}><Icon name={meta.icon} size={18}/>{Boolean(meta.badge) && <b>{meta.badge}</b>}</button>
+    })}
+  </aside>
 
-    {/* No per-drawer width class: every drawer opens at the same width, and the
-        operator resizes it from the splitter that follows. */}
-    {drawer && <aside className="agent-drawer" style={drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } as React.CSSProperties : undefined}>
-      {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
-      {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archivedChats} busy={busy} onRestore={props.onRestoreChat} onDelete={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
-      {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError} onClose={close}/> : null}
-      {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
-      {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession}/> : null}
-      {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
-      {drawer === 'tasks' ? <ChatAgentTasksDrawer projectPath={session.project_path} onClose={close} onError={onError} chats={props.chats} onGoToChat={props.onGoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onFollowInstance={props.onFollowInstance}/> : null}
-      {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}
-      {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
-      {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
-    </aside>}
-    {drawer && <button type="button" className="agent-drawer-splitter" aria-label="Redimensionar painel lateral" title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/>}
+  const drawerPanel = drawer ? <aside className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } as React.CSSProperties : undefined}>
+    {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
+    {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archivedChats} busy={busy} onRestore={props.onRestoreChat} onDelete={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
+    {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError} onClose={close}/> : null}
+    {drawer === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
+    {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
+    {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession}/> : null}
+    {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
+    {drawer === 'tasks' ? <ChatAgentTasksDrawer projectPath={session.project_path} onClose={close} onError={onError} chats={props.chats} onGoToChat={props.onGoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onFollowInstance={props.onFollowInstance}/> : null}
+    {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}
+    {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
+    {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
+    {drawer === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
+  </aside> : null
+  const splitter = drawer ? <button type="button" className={`agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`} aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/> : null
 
-    {previewPath && <FilePreviewModal sessionId={session.id} path={previewPath} onOpenInEditor={props.onOpenFile} onClose={() => setPreviewPath(undefined)}/>}
-  </>
+  return <>{side === 'left' ? <>{rail}{drawerPanel}{splitter}</> : <>{splitter}{drawerPanel}{rail}</>}{previewPath && <FilePreviewModal sessionId={session.id} path={previewPath} onOpenInEditor={props.onOpenFile} onClose={() => setPreviewPath(undefined)}/>}</>
 }
 
+function isWorkspaceTool(value: string): value is WorkspaceTool {
+  return ['archive', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal', 'database'].includes(value)
+}
 function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable'>('all')
   const summary = summarizeAttention(items)

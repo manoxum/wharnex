@@ -48,6 +48,14 @@ describe('chat header CSS', () => {
   })
 })
 
+describe('applied change summary CSS', () => {
+  it('renders the total deletion count with the same red tone as file deletions', () => {
+    const totalDeletions = lastRule('.change-summary-card > header > code i')
+    expect(totalDeletions).toContain('color: #a05249')
+    expect(totalDeletions).toContain('font-style: normal')
+  })
+})
+
 describe('execution output CSS', () => {
   it('uses stream-aware rows and a distinct stderr background without visible prefixes', () => {
     const segment = lastRule('.execution-output-segment')

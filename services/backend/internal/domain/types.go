@@ -295,6 +295,7 @@ type ExecutionPlan struct {
 	Document         string            `json:"document,omitempty"`
 	Dependencies     []PlanDependency  `json:"dependencies,omitempty"`
 	SystemTools      []PlanSystemTool  `json:"system_tools,omitempty"`
+	ApprovedChatPlan *ApprovedChatPlan `json:"approved_chat_plan,omitempty"`
 	Debug            *DebugSpec        `json:"debug,omitempty"`
 	VersionIncrement *VersionIncrement `json:"version_increment,omitempty"`
 	// CommitMessage is the planner-authored Git commit message for a
@@ -351,6 +352,15 @@ type PlanSystemTool struct {
 	Name   string `json:"name"`
 	Action string `json:"action"`
 	Reason string `json:"reason"`
+}
+
+// ApprovedChatPlan binds an executable response to the exact planning-only
+// proposal the operator approved earlier in the same Main Request.
+type ApprovedChatPlan struct {
+	Protocol  string `json:"protocol"`
+	RequestID string `json:"request_id"`
+	SHA256    string `json:"sha256"`
+	Document  string `json:"document"`
 }
 
 // CrossProjectUnit is a complete change for one granted referenced project.
@@ -1012,6 +1022,9 @@ type Session struct {
 	AutomationMode          AutomationMode       `json:"automation_mode"`
 	DebugEnabled            bool                 `json:"debug_enabled,omitempty"`
 	DebugApprovedRootID     string               `json:"debug_approved_root_request_id,omitempty"`
+	ApprovedChatPlan        *ApprovedChatPlan    `json:"approved_chat_plan,omitempty"`
+	ExecutionApprovedRootID string               `json:"execution_approved_root_request_id,omitempty"`
+	ApprovedBoundaryKeys    []string             `json:"approved_execution_boundary_keys,omitempty"`
 	EffortLevel             EffortLevel          `json:"effort_level"`
 	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`

@@ -28,6 +28,7 @@ describe('ArtifactViewerModal', () => {
     fireEvent.keyDown(window, { key: 'ArrowRight' })
     expect(screen.getByText('Imagem B')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '+ Zoom' }))
+    expect(screen.getByLabelText('Zoom atual').textContent).toBe('125%')
     fireEvent.click(screen.getByRole('button', { name: '↻' }))
     const image = screen.getByRole('img')
     expect(image.getAttribute('style')).toContain('scale(1.25)')
@@ -35,4 +36,12 @@ describe('ArtifactViewerModal', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(close).toHaveBeenCalledTimes(1)
   })
+  it('does not use arrow-key navigation while an adjustment control is active', () => {
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={items} initialIndex={0} onClose={vi.fn()}/>)
+    const brightness = screen.getByRole('slider', { name: 'Brilho' })
+    brightness.focus()
+    fireEvent.keyDown(brightness, { key: 'ArrowRight' })
+    expect(screen.getByText('Imagem A')).toBeTruthy()
+  })
+
 })

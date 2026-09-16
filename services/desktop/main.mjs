@@ -550,7 +550,28 @@ function acquireProjectForWindow(windowState, value) {
   return lock
 }
 
+// Native WebContentsViews live above the renderer tree. Project frames cannot
+// be trusted to hide them during unmount: closing the last project replaces the
+// frame with the launcher, and the renderer may disappear before its cleanup
+// IPC runs. The Desktop lifecycle boundary therefore hides both kinds of native
+// surface before changing project ownership.
+function suspendNativeSurfacesForWindow(windowState) {
+  if (!windowState) return false
+  windowState.chatgptVisible = false
+  windowState.desiredVisibleChatGPTKey = ''
+  if (deferredSupervisorNavigation?.windowState === windowState) deferredSupervisorNavigation.visible = false
+  const active = activeChatGPTEntry(windowState)
+  if (active && !active.view.webContents.isDestroyed()) {
+    active.view.setVisible(false)
+    reconcileChatGPTThrottle(chatGPTKeyForEntry(active), active)
+  }
+  hideChatAgentInteractionsForWindow(windowState)
+  return true
+}
+
 function releaseProjectForWindow(windowState, value) {
+  const requested = canonicalProjectPath(value)
+  if (windowState.activeProject === requested) suspendNativeSurfacesForWindow(windowState)
   const result = projectWindowRegistry.release(windowState.id, value)
   if (result.released) {
     windowState.projects.delete(result.path)
@@ -2993,7 +3014,9 @@ async function persistChatArtifact(sessionId, requestId, direction, kind, filena
   })
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
-    throw new Error(body?.error?.message || `Artifact persistence HTTP ${response.status}`)
+    const code = String(body?.error?.code || '').trim()
+    const detail = String(body?.error?.message || `Artifact persistence HTTP ${response.status}`)
+    throw new Error(code ? `${code}: ${detail}` : detail)
   }
   return response.json()
 }
@@ -5824,6 +5847,7 @@ function registerIPC() {
     const windowState = trustedSender(event)
     const projectPath = canonicalProjectPath(request?.projectPath)
     if (!windowState.projects.has(projectPath)) throw new Error('Projeto ativo não pertence a esta janela')
+    if (windowState.activeProject && windowState.activeProject !== projectPath) suspendNativeSurfacesForWindow(windowState)
     windowState.activeProject = projectPath
     windowState.window.setTitle(desktopWindowTitle(projectPath, DESKTOP_INSTANCE))
     return { ok: true, path: projectPath }
