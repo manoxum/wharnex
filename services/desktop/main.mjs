@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
-import { persistChatAttachmentFiles, readStoredAttachmentContent, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
+import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
@@ -6426,11 +6426,6 @@ function registerIPC() {
     trustedSender(event)
     try { return await readStoredAttachmentPreview(chatAttachmentRoot(), request?.storageRef) }
     catch { return { available: false, dataUrl: '', previewKind: 'none' } }
-  })
-  ipcMain.handle('wharness:attachments:read', async (event, request) => {
-    trustedSender(event)
-    try { return await readStoredAttachmentContent(chatAttachmentRoot(), request?.storageRef) }
-    catch { return { available: false, name: '', size: 0, mime: 'application/octet-stream', contentBase64: '' } }
   })
   ipcMain.handle('wharness:attachments:open', async (event, request) => {
     trustedSender(event)
