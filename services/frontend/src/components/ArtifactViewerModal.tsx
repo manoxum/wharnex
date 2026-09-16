@@ -75,12 +75,14 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, directURL
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const dialog = dialogRef.current
-    const focusables = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled])') || [])
+    const focusables = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled])') || [])
     focusables()[0]?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
-      if (event.key === 'ArrowLeft' && items.length > 1) { event.preventDefault(); setIndex((value) => (value - 1 + items.length) % items.length); return }
-      if (event.key === 'ArrowRight' && items.length > 1) { event.preventDefault(); setIndex((value) => (value + 1) % items.length); return }
+      const target = event.target
+      const editingControl = target instanceof HTMLElement && (target.matches('input, select, textarea') || target.isContentEditable)
+      if (event.key === 'ArrowLeft' && items.length > 1 && !editingControl) { event.preventDefault(); setIndex((value) => (value - 1 + items.length) % items.length); return }
+      if (event.key === 'ArrowRight' && items.length > 1 && !editingControl) { event.preventDefault(); setIndex((value) => (value + 1) % items.length); return }
       if (event.key !== 'Tab') return
       const nodes = focusables(); if (!nodes.length) return
       const first = nodes[0]; const last = nodes[nodes.length - 1]
@@ -191,34 +193,49 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, directURL
   return <div className="artifact-viewer-backdrop" role="presentation" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section ref={dialogRef} className="artifact-viewer" role="dialog" aria-modal="true" aria-label={`Visualizar ${item.label || baseName(item.path)}`}>
       <header>
-        <div><strong>{item.label || baseName(item.path)}</strong><small>{index + 1}/{items.length} · {formatBytes(item.size)} · {definition.kind}</small></div>
+        <div className="artifact-viewer-heading">
+          <span className="artifact-viewer-kind" aria-hidden="true"><Icon name="file" size={15}/></span>
+          <div>
+            <strong>{item.label || baseName(item.path)}</strong>
+            <small><span>{index + 1}/{items.length}</span><span>{formatBytes(item.size)}</span><span>{definition.kind}</span></small>
+          </div>
+        </div>
         <div className="artifact-viewer-actions">
-          <a href={downloadURL} download={baseName(item.path)} title={`Descarregar ${item.path}`}><Icon name="download" size={13}/> Descarregar</a>
+          <a className="artifact-viewer-download" href={downloadURL} download={baseName(item.path)} title={`Descarregar ${item.path}`}><Icon name="download" size={13}/> Descarregar</a>
           <button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar viewer"><Icon name="close" size={13}/></button>
         </div>
       </header>
       <div className="artifact-viewer-toolbar" aria-label="Ferramentas do ficheiro">
-        {items.length > 1 && <><button type="button" onClick={() => setIndex((value) => (value - 1 + items.length) % items.length)}>← Anterior</button><button type="button" onClick={() => setIndex((value) => (value + 1) % items.length)}>Seguinte →</button></>}
+        {items.length > 1 && <div className="artifact-viewer-tool-group" role="group" aria-label="Navegação"><button type="button" onClick={() => setIndex((value) => (value - 1 + items.length) % items.length)}>← Anterior</button><button type="button" onClick={() => setIndex((value) => (value + 1) % items.length)}>Seguinte →</button></div>}
         {definition.kind === 'image' && <>
-          <button type="button" onClick={() => setZoom((value) => Math.max(.25, value - .25))}>− Zoom</button><button type="button" onClick={() => setZoom((value) => Math.min(4, value + .25))}>+ Zoom</button>
-          <button type="button" onClick={() => setRotation((value) => value - 90)}>↺</button><button type="button" onClick={() => setRotation((value) => value + 90)}>↻</button>
-          <button type="button" onClick={() => setFlipX((value) => -value)}>Inverter H</button><button type="button" onClick={() => setFlipY((value) => -value)}>Inverter V</button>
-          <label>Brilho <input type="range" min="50" max="150" value={brightness} onChange={(event) => setBrightness(Number(event.target.value))}/></label>
-          <label>Contraste <input type="range" min="50" max="150" value={contrast} onChange={(event) => setContrast(Number(event.target.value))}/></label>
-          <label>Saturação <input type="range" min="0" max="200" value={saturation} onChange={(event) => setSaturation(Number(event.target.value))}/></label>
-          <label>Recorte <select value={cropRatio} onChange={(event) => setCropRatio(event.target.value as typeof cropRatio)}><option value="free">Livre</option><option value="1/1">1:1</option><option value="4/3">4:3</option><option value="16/9">16:9</option></select></label>
-          <button type="button" aria-pressed={drawing} onClick={() => setDrawing((value) => !value)}>Desenhar</button><button type="button" onClick={clearDrawing}>Limpar traços</button>
-          <button type="button" aria-pressed={grayscale > 0} onClick={() => setGrayscale((value) => value ? 0 : 100)}>P&B</button><button type="button" onClick={resetImage}>Reset</button>
+          <div className="artifact-viewer-tool-group" role="group" aria-label="Escala e orientação">
+            <button type="button" onClick={() => setZoom((value) => Math.max(.25, value - .25))}>− Zoom</button><output className="artifact-viewer-zoom" aria-label="Zoom atual">{Math.round(zoom * 100)}%</output><button type="button" onClick={() => setZoom((value) => Math.min(4, value + .25))}>+ Zoom</button>
+            <span className="artifact-viewer-tool-divider" aria-hidden="true"/>
+            <button type="button" title="Rodar 90° para a esquerda" onClick={() => setRotation((value) => value - 90)}>↺</button><button type="button" title="Rodar 90° para a direita" onClick={() => setRotation((value) => value + 90)}>↻</button>
+            <button type="button" onClick={() => setFlipX((value) => -value)}>Inverter H</button><button type="button" onClick={() => setFlipY((value) => -value)}>Inverter V</button>
+          </div>
+          <div className="artifact-viewer-tool-group artifact-viewer-adjustments" role="group" aria-label="Ajustes de imagem">
+            <label><span>Brilho <output>{brightness}%</output></span><input aria-label="Brilho" type="range" min="50" max="150" value={brightness} onChange={(event) => setBrightness(Number(event.target.value))}/></label>
+            <label><span>Contraste <output>{contrast}%</output></span><input aria-label="Contraste" type="range" min="50" max="150" value={contrast} onChange={(event) => setContrast(Number(event.target.value))}/></label>
+            <label><span>Saturação <output>{saturation}%</output></span><input aria-label="Saturação" type="range" min="0" max="200" value={saturation} onChange={(event) => setSaturation(Number(event.target.value))}/></label>
+            <label className="artifact-viewer-select-control"><span>Recorte</span><select aria-label="Recorte" value={cropRatio} onChange={(event) => setCropRatio(event.target.value as typeof cropRatio)}><option value="free">Livre</option><option value="1/1">1:1</option><option value="4/3">4:3</option><option value="16/9">16:9</option></select></label>
+          </div>
+          <div className="artifact-viewer-tool-group" role="group" aria-label="Edição temporária">
+            <button type="button" aria-pressed={drawing} onClick={() => setDrawing((value) => !value)}>Desenhar</button><button type="button" onClick={clearDrawing}>Limpar traços</button>
+            <button type="button" aria-pressed={grayscale > 0} onClick={() => setGrayscale((value) => value ? 0 : 100)}>P&B</button><button type="button" onClick={resetImage}>Reset</button>
+          </div>
         </>}
-        {canRaw && <button type="button" aria-pressed={mode === 'raw'} onClick={() => setMode((value) => value === 'preview' ? 'raw' : 'preview')}>{mode === 'preview' ? 'Ver source' : 'Ver preview'}</button>}
-        {definition.capabilities.includes('wrap') && <button type="button" aria-pressed={wrap} onClick={() => setWrap((value) => !value)}>Quebrar linhas</button>}
-        {(definition.kind === 'video' || definition.kind === 'audio') && <><button type="button" onClick={() => seekMedia(-10)}>−10s</button><button type="button" onClick={() => seekMedia(10)}>+10s</button><button type="button" onClick={toggleMediaMute}>Mute</button><label>Velocidade <select value={mediaSpeed} onChange={(event) => setMediaSpeed(Number(event.target.value))}><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1">1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button type="button" onClick={() => markClip('start')}>Marcar início</button><button type="button" onClick={() => markClip('end')}>Marcar fim</button></>}
-        {definition.kind === 'video' && <><span className="artifact-media-range">{formatDuration(clipStart)}–{clipEnd ? formatDuration(clipEnd) : 'fim'}</span><button type="button" disabled={Boolean(mediaExport)} onClick={() => void exportVideoSelection(false)}>{mediaExport === 'clip' ? 'A cortar…' : 'Exportar corte'}</button><button type="button" disabled={Boolean(mediaExport)} onClick={() => void exportVideoSelection(true)}>{mediaExport === 'audio' ? 'A extrair…' : 'Extrair áudio'}</button></>}
-        {['markdown', 'text', 'office'].includes(definition.kind) && <label className="artifact-document-marker">Marcador <input type="search" value={documentMarker} onChange={(event) => setDocumentMarker(event.target.value)} placeholder="Realçar termo…"/></label>}
+        {canRaw && <div className="artifact-viewer-tool-group"><button type="button" aria-pressed={mode === 'raw'} onClick={() => setMode((value) => value === 'preview' ? 'raw' : 'preview')}>{mode === 'preview' ? 'Ver source' : 'Ver preview'}</button></div>}
+        {definition.capabilities.includes('wrap') && <div className="artifact-viewer-tool-group"><button type="button" aria-pressed={wrap} onClick={() => setWrap((value) => !value)}>Quebrar linhas</button></div>}
+        {(definition.kind === 'video' || definition.kind === 'audio') && <div className="artifact-viewer-tool-group artifact-viewer-media-tools"><button type="button" onClick={() => seekMedia(-10)}>−10s</button><button type="button" onClick={() => seekMedia(10)}>+10s</button><button type="button" onClick={toggleMediaMute}>Mute</button><label className="artifact-viewer-select-control"><span>Velocidade</span><select value={mediaSpeed} onChange={(event) => setMediaSpeed(Number(event.target.value))}><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1">1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button type="button" onClick={() => markClip('start')}>Marcar início</button><button type="button" onClick={() => markClip('end')}>Marcar fim</button></div>}
+        {definition.kind === 'video' && <div className="artifact-viewer-tool-group"><span className="artifact-media-range">{formatDuration(clipStart)}–{clipEnd ? formatDuration(clipEnd) : 'fim'}</span><button type="button" disabled={Boolean(mediaExport)} onClick={() => void exportVideoSelection(false)}>{mediaExport === 'clip' ? 'A cortar…' : 'Exportar corte'}</button><button type="button" disabled={Boolean(mediaExport)} onClick={() => void exportVideoSelection(true)}>{mediaExport === 'audio' ? 'A extrair…' : 'Extrair áudio'}</button></div>}
+        {['markdown', 'text', 'office'].includes(definition.kind) && <div className="artifact-viewer-tool-group"><label className="artifact-document-marker">Marcador <input type="search" value={documentMarker} onChange={(event) => setDocumentMarker(event.target.value)} placeholder="Realçar termo…"/></label></div>}
       </div>
-      {item.description && <p className="artifact-viewer-description">{item.description}</p>}
-      {mediaStatus && <div className="artifact-media-status" role="status">{mediaStatus}</div>}
-      <div className="artifact-viewer-stage">
+      <div className="artifact-viewer-notices">
+        {item.description && <p className="artifact-viewer-description">{item.description}</p>}
+        {mediaStatus && <div className="artifact-media-status" role="status">{mediaStatus}</div>}
+      </div>
+      <div className={`artifact-viewer-stage is-${definition.kind}`}>
         {definition.kind === 'image'
           ? <div className={`artifact-image-workbench ${drawing ? 'is-drawing' : ''}`} style={cropRatio === 'free' ? undefined : { aspectRatio: cropRatio }}><img src={previewURL} alt={item.alt || item.label || item.path} style={{ transform: `scale(${zoom}) rotate(${rotation}deg) scaleX(${flipX}) scaleY(${flipY})`, filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) grayscale(${grayscale}%)`, objectFit: cropRatio === 'free' ? 'contain' : 'cover' }}/><canvas ref={drawCanvasRef} onPointerDown={drawPointer} onPointerMove={drawPointer} onPointerUp={drawPointer} onPointerCancel={drawPointer}/></div>
           : definition.kind === 'video' ? <video key={previewURL} src={previewURL} controls preload="metadata" ref={videoRef} onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; if (Number.isFinite(duration)) setClipEnd(duration) }}/>
