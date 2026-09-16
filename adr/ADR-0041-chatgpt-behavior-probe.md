@@ -42,7 +42,7 @@ It is not a JavaScript evaluation capability. Four properties define it:
 
 1. **Closed vocabulary.** The caller names a control from a fixed enum
    (`sidebar-toggle`, `conversation-menu`, `menu-items`, `project-anchors`,
-   `project-dialog`, `delete-dialog`). An unrecognized name is rejected before
+   `project-dialog`, `delete-dialog`, `reasoning-effort`). An unrecognized name is rejected before
    anything is built. Adding a control is a reviewed change, exactly like
    admitting a planner reason code.
 
@@ -52,7 +52,7 @@ It is not a JavaScript evaluation capability. Four properties define it:
 
 3. **Bounded structural output.** Results carry counts, the renderer viewport,
    and the structural identity of containers (`tag`, `role`, `data-testid`). For
-   menu and dialog controls they additionally carry the exact control labels the
+   menu, dialog and composer reasoning-effort controls they additionally carry the exact control labels the
    account automation is already permitted to read under `AGENTS.md` §7 — app
    chrome, bounded to 16 entries of 120 characters. The main process re-bounds
    every result before it crosses IPC, so a page returning something unexpected

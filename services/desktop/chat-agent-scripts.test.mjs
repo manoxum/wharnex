@@ -12,6 +12,7 @@ import {
   projectItemRectScript,
   readinessScript,
   reasoningDisclosureRectScript,
+  reasoningEffortStateScript,
   reasoningRowsScript,
   titleEditorScript,
 } from './chat-agent-scripts.mjs'
@@ -28,6 +29,7 @@ const ALL = [
   projectItemRectScript(BASE, 'wharnex'),
   titleEditorScript(BASE, 'WHX: teste'),
   reasoningDisclosureRectScript(BASE),
+  reasoningEffortStateScript(BASE),
   reasoningRowsScript(BASE),
   anomalyCaptureScript(BASE),
 ]
@@ -64,6 +66,16 @@ test('locating scripts return a rect and never click the control themselves', ()
 
 test('the conversation menu trigger is the one control a script may click', () => {
   assert.match(openConversationMenuScript(BASE, 'conv-1'), /trigger\.click\(\)/)
+})
+
+test('reasoning effort probe is composer-scoped and reads only allowlisted chrome labels', () => {
+  const source = reasoningEffortStateScript(BASE)
+  assert.match(source, /closest\?\.\('\[data-composer-surface\]'\)/)
+  assert.match(source, /surface\.contains\(node\)/)
+  assert.match(source, /candidates\.length !== 1/)
+  assert.match(source, /__whx\.effortLevels/)
+  const body = source.slice(source.indexOf('const composer = pick(S.composer)'))
+  assert.doesNotMatch(body, /assistantTurn|conversationTurn|\.markdown|\.click\(/)
 })
 
 // Inspection classifies structurally so it can tell "finished" from "still

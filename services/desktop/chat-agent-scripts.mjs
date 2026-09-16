@@ -54,8 +54,32 @@ function script(behavior, body) {
     selectors: behavior.selectors,
     optionalSelectors: behavior.optionalSelectors,
     labels: behavior.labels,
+    effortLevels: behavior.effortLevels,
   })
   return `(() => { const __whx = ${context};${PRELUDE}\n${body}\n})()`
+}
+
+/**
+ * Reads only the composer effort pill's UI-chrome label.
+ *
+ * This is intentionally narrower than a generic menu scraper: the composer is
+ * located first, candidates must belong to that exact composer surface, and an
+ * ambiguous or unknown control fails closed. The script never activates the
+ * control and never reads conversation content.
+ */
+export function reasoningEffortStateScript(behavior) {
+  return script(behavior, `
+    const composer = pick(S.composer);
+    const surface = composer?.closest?.('[data-composer-surface]');
+    if (!surface) return { ok: false, state: 'effort-composer-unavailable' };
+    const candidates = all(__whx.optionalSelectors.effortPicker)
+      .filter((node) => usable(node) && surface.contains(node));
+    if (candidates.length !== 1) return { ok: false, state: candidates.length ? 'effort-control-ambiguous' : 'effort-control-unavailable', count: candidates.length };
+    const label = fold(text(candidates[0]));
+    const matches = __whx.effortLevels.filter((level) => level.labels.some((value) => fold(value) === label));
+    if (matches.length !== 1) return { ok: false, state: 'effort-level-unknown' };
+    return { ok: true, state: 'effort-level-read', effort: matches[0].id };
+  `)
 }
 
 /** Structural readiness: is this a usable chat surface right now? */

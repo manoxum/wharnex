@@ -45,6 +45,14 @@ export function dispatchChatGPTSubmit(webContents) {
   return { method: 'native-enter' }
 }
 
+export function dispatchChatGPTEffortCycle(webContents) {
+  if (!webContents || typeof webContents.sendInputEvent !== 'function') throw new Error('ChatGPT web contents are unavailable')
+  const modifiers = ['control', 'shift']
+  webContents.sendInputEvent({ type: 'keyDown', keyCode: 'M', modifiers })
+  webContents.sendInputEvent({ type: 'keyUp', keyCode: 'M', modifiers })
+  return { method: 'native-reasoning-effort-cycle' }
+}
+
 function isConversationSubmission(details) {
   try {
     const url = new URL(String(details?.url || ''))

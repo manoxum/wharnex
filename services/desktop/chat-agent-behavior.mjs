@@ -93,12 +93,11 @@ export const CHATGPT_BEHAVIOR = Object.freeze({
     // carries a duration ("Processou durante 5m 23s").
     reasoningDisclosure: ['processou durante', 'pensou durante', 'thought for', 'reasoned for', 'thinking for', 'razonó durante', 'a réfléchi pendant'],
   },
-  // Reasoning-effort levels as the composer slider presents them, weakest to
-  // strongest. The slider is keyboard-driven, so a target level is reached by
-  // stepping from the level currently shown rather than by clicking a position.
+  // Reasoning-effort levels observed on the composer slider, weakest to
+  // strongest. Do not invent intermediate levels: the September 2026 captured
+  // surfaces expose exactly these three stops.
   effortLevels: [
     { id: 'instant', labels: ['instantâneo', 'instantaneo', 'instant'] },
-    { id: 'light', labels: ['rápido', 'rapido', 'light', 'fast'] },
     { id: 'medium', labels: ['médio', 'medio', 'medium', 'standard'] },
     { id: 'high', labels: ['elevada', 'elevado', 'high', 'alta'] },
   ],

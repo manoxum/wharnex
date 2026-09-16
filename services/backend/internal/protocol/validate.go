@@ -508,7 +508,8 @@ func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 	if plan.RequiresApproval {
 		return errors.New("workflow plan cannot require host approval")
 	}
-	if len(plan.Operations) == 0 {
+	engineQuery := plan.Debug != nil && strings.TrimSpace(plan.Debug.Query) != ""
+	if len(plan.Operations) == 0 && !engineQuery {
 		return errors.New("workflow plan requires at least one command operation")
 	}
 	if len(plan.Operations) > 16 {
@@ -549,6 +550,14 @@ func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 	}
 	if debug.Target != "sandbox" && debug.Target != "host" {
 		return errors.New("debug target must be sandbox or host")
+	}
+	if debug.Query != "" {
+		if debug.Query != domain.DebugQueryProjectExecutionSummary {
+			return fmt.Errorf("unsupported debug query %q", debug.Query)
+		}
+		if debug.Target != "host" {
+			return errors.New("project execution summary debug query requires host target")
+		}
 	}
 	if rationale := strings.TrimSpace(debug.Rationale); rationale == "" || len(rationale) > 4096 {
 		return errors.New("debug rationale must be 1..4096 bytes")

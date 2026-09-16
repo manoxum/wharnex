@@ -134,8 +134,15 @@ type Transaction struct {
 	// Git repository, or for a transaction created before this field
 	// existed). See Rollback.
 	PreTransactionSHA string
-	lockPath          string
-	stageLockPath     string
+	// Extended distinguishes a newly captured rollback batch from a stage that
+	// joined an already restart-pending batch. A pre-mutation failure in the
+	// latter must release only the stage lock; finalizing it would destroy the
+	// prior batch's still-needed restart/rollback evidence.
+	Extended           bool
+	ExtensionAddedPlan bool
+	PreviousPending    PendingPlan
+	lockPath           string
+	stageLockPath      string
 }
 
 type PendingPlan struct {
@@ -398,6 +405,17 @@ func (m *Manager) extendPendingBatch(base, lockPath, stageLockPath, sessionID, p
 	}
 	tx.lockPath = lockPath
 	tx.stageLockPath = stageLockPath
+	tx.Extended = true
+	tx.PreviousPending = PendingPlan{SessionID: latest.SessionID, PlanID: latest.PlanID}
+	if plans, plansErr := tx.PendingPlans(); plansErr == nil {
+		tx.ExtensionAddedPlan = true
+		for _, pending := range plans {
+			if pending.SessionID == sessionID && pending.PlanID == planID {
+				tx.ExtensionAddedPlan = false
+				break
+			}
+		}
+	}
 	if err := m.RecordStatus(tx, sessionID, planID, "preparing", "extending pending self-evolution batch without restarting the running runtime"); err != nil {
 		return Transaction{}, err
 	}

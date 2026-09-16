@@ -71,6 +71,9 @@ func TestManualOrchestratorProposalQueuesDurableUrgentWorker(t *testing.T) {
 	if payload["protocol"] != orchestratorPlanningWorkerProtocol || payload["request_id"] != result.RequestID || payload["objective"] != "ship a durable objective" || payload["prompt"] == "" {
 		t.Fatalf("unexpected orchestrator worker payload: %#v", payload)
 	}
+	if payload["reasoning_effort"] != string(domain.ReasoningEffortHigh) {
+		t.Fatalf("orchestrator reasoning effort=%q, want high", payload["reasoning_effort"])
+	}
 	overview, err := service.OrchestratorOverview(context.Background(), started.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -107,6 +110,9 @@ func TestOrchestratorComposerContextFlowsToPlannerAndWorker(t *testing.T) {
 	if capture.request.EffortLevel != started.EffortLevel {
 		t.Fatalf("planner effort = %q, expected %q", capture.request.EffortLevel, started.EffortLevel)
 	}
+	if capture.request.ReasoningEffort != domain.ReasoningEffortHigh {
+		t.Fatalf("planner reasoning effort = %q, expected high", capture.request.ReasoningEffort)
+	}
 	queued, err := store.GetChatAgentTask(result.WorkerTaskID)
 	if err != nil {
 		t.Fatal(err)
@@ -115,9 +121,13 @@ func TestOrchestratorComposerContextFlowsToPlannerAndWorker(t *testing.T) {
 		IncludeContext     bool                             `json:"include_context"`
 		AttachmentCacheKey string                           `json:"attachment_cache_key"`
 		Attachments        []OrchestratorPlanningAttachment `json:"attachments"`
+		ReasoningEffort    string                           `json:"reasoning_effort"`
 	}
 	if err := json.Unmarshal(queued.Payload, &payload); err != nil {
 		t.Fatal(err)
+	}
+	if payload.ReasoningEffort != string(domain.ReasoningEffortHigh) {
+		t.Fatalf("worker reasoning effort=%q, want high", payload.ReasoningEffort)
 	}
 	if !payload.IncludeContext || payload.AttachmentCacheKey != input.AttachmentCacheKey || len(payload.Attachments) != 1 || payload.Attachments[0].StorageRef != input.Attachments[0].StorageRef {
 		t.Fatalf("worker payload lost composer context: %#v", payload)

@@ -80,7 +80,8 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 		SessionID: item.ID, RequestID: requestID, Message: orchestratorPlanningMessage(objective, input),
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		AutomationMode: item.AutomationMode, EffortLevel: item.EffortLevel, SelfEvolution: s.isSelfEvolution(item),
-		PlanningMode: "orchestrator",
+		ReasoningEffort: normalizeReasoningEffort(item.ReasoningEffort),
+		PlanningMode:    "orchestrator",
 	}, knowledge))
 	if err != nil {
 		return OrchestratorProposalResult{}, err
@@ -96,9 +97,11 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 				IncludeContext     bool                             `json:"include_context,omitempty"`
 				AttachmentCacheKey string                           `json:"attachment_cache_key,omitempty"`
 				Attachments        []OrchestratorPlanningAttachment `json:"attachments,omitempty"`
+				ReasoningEffort    string                           `json:"reasoning_effort"`
 			}{
 				Protocol: orchestratorPlanningWorkerProtocol, SessionID: sessionID, RequestID: requestID, Objective: objective, Prompt: result.ManualPrompt,
 				IncludeContext: input.IncludeContext || len(input.ProjectFiles) > 0, AttachmentCacheKey: input.AttachmentCacheKey, Attachments: input.Attachments,
+				ReasoningEffort: string(normalizeReasoningEffort(item.ReasoningEffort)),
 			})
 			if marshalErr != nil {
 				return OrchestratorProposalResult{}, fmt.Errorf("encode orchestrator planning worker: %w", marshalErr)
@@ -233,6 +236,7 @@ func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orches
 		return orchestrator.PlanningRequest{}, fmt.Errorf("decode orchestrator planning request: %w", err)
 	}
 	payload["session_id"] = sessionID
+	payload["reasoning_effort"] = string(normalizeReasoningEffort(item.ReasoningEffort))
 	// The checkpoint belongs to the attempt that wrote it, not to the request.
 	// Its expected filename is derived from that task's own id, so carrying it
 	// into a retry makes the new task fail its own filename check immediately

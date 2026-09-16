@@ -111,6 +111,9 @@ func TestTranslateMarkdownDispatchesARequestBundle(t *testing.T) {
 	if payload.Protocol != translation.RequestProtocolV1 || payload.Task != translation.TaskTranslateDocument {
 		t.Fatalf("worker payload must carry its protocol identity, got protocol=%q task=%q", payload.Protocol, payload.Task)
 	}
+	if payload.ReasoningEffort != string(domain.ReasoningEffortInstant) {
+		t.Fatalf("translation reasoning effort=%q, want instant", payload.ReasoningEffort)
+	}
 	if payload.RequestFilename != "whx_translation_req_"+task.TaskID+".zip" {
 		t.Fatalf("request filename=%q", payload.RequestFilename)
 	}

@@ -41,6 +41,17 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 			if body["model"] != "gpt-test" {
 				t.Errorf("model=%v", body["model"])
 			}
+			reasoning, ok := body["reasoning"].(map[string]any)
+			if !ok {
+				t.Fatalf("reasoning config missing: %#v", body["reasoning"])
+			}
+			expectedReasoning := "none"
+			if responses.Load() == 2 {
+				expectedReasoning = "medium"
+			}
+			if reasoning["effort"] != expectedReasoning {
+				t.Errorf("reasoning.effort=%v, want %s", reasoning["effort"], expectedReasoning)
+			}
 			if responses.Load() == 2 && body["previous_response_id"] != "resp1" {
 				t.Errorf("previous_response_id=%v", body["previous_response_id"])
 			}
@@ -86,14 +97,14 @@ func TestPlanUploadsContextAndParsesStructuredResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := New("test-key", "gpt-test", server.URL)
-	first, err := client.Plan(context.Background(), planner.Request{RequestID: "req1", Message: "fix", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}})
+	first, err := client.Plan(context.Background(), planner.Request{RequestID: "req1", Message: "fix", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}, ReasoningEffort: domain.ReasoningEffortInstant})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Plan != nil || first.Turn == nil || first.Turn.Kind != domain.TurnKindAnswer || first.Turn.ChatTitle != "Resposta baseada no projeto" || first.ProviderResponseID != "resp1" {
 		t.Fatalf("unexpected first result: %#v", first)
 	}
-	second, err := client.Plan(context.Background(), planner.Request{RequestID: "req2", Message: "continue", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}, PreviousResponseID: "resp1"})
+	second, err := client.Plan(context.Background(), planner.Request{RequestID: "req2", Message: "continue", ContextTextPath: contextFile, ContextManifest: domain.ContextManifest{SHA256: "snapshot-1"}, PreviousResponseID: "resp1", ReasoningEffort: domain.ReasoningEffortMedium})
 	if err != nil {
 		t.Fatal(err)
 	}

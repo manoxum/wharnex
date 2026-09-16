@@ -49,6 +49,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	}
 	body := map[string]any{
 		"model":        c.model,
+		"reasoning":    map[string]any{"effort": apiReasoningEffort(request.ReasoningEffort)},
 		"instructions": planner.SystemProtocol + planner.ProviderTurnContract,
 		"text":         map[string]any{"format": executionFormat(request.RequestID, request.ContextManifest.SHA256)},
 		"store":        true,
@@ -107,6 +108,17 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	}
 	turn := domain.AgentTurn{Protocol: wire.Protocol, RequestID: wire.RequestID, Kind: wire.Kind, ChatTitle: wire.ChatTitle, Message: wire.Message, Outcome: wire.Outcome}
 	return planner.Result{Plan: wire.Plan, Turn: &turn, ProviderResponseID: decoded.ID}, nil
+}
+
+func apiReasoningEffort(effort domain.ReasoningEffort) string {
+	switch effort {
+	case domain.ReasoningEffortInstant:
+		return "none"
+	case domain.ReasoningEffortMedium:
+		return "medium"
+	default:
+		return "high"
+	}
 }
 
 func (c *Client) contextFileID(ctx context.Context, path, cacheKey string) (string, error) {

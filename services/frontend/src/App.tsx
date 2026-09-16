@@ -2,6 +2,7 @@ import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'r
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
+import type { ReasoningEffort } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
 import { ChatPanel } from './components/ChatPanel'
@@ -1473,6 +1474,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             // may run before that chat row is durable, and an unattributed
             // task appears in no project's Tarefas panel at all.
             projectPath,
+            reasoningEffort: response.session.reasoning_effort || 'high',
           })
           try {
             const artifactSession = await api.getSession(response.session.id)
@@ -1656,7 +1658,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
         return
       }
-      const prepared = await bridge.chatgpt.retryPreparedPrompt({ cacheKey: activeChatId, expectedRequestId: requestId, sessionId: session.id, url: targetChat.chatgptUrl, recoveryPrompt: requestId ? pendingRequestRecoveryPrompt(session, requestId) : session.last_manual_prompt, expectedFilename: requestId ? expectedResponseBundleName(session.last_manual_prompt || '', requestId) : '' })
+      const prepared = await bridge.chatgpt.retryPreparedPrompt({ cacheKey: activeChatId, expectedRequestId: requestId, sessionId: session.id, url: targetChat.chatgptUrl, recoveryPrompt: requestId ? pendingRequestRecoveryPrompt(session, requestId) : session.last_manual_prompt, expectedFilename: requestId ? expectedResponseBundleName(session.last_manual_prompt || '', requestId) : '', reasoningEffort: session.reasoning_effort || 'high' })
       if (prepared.alreadyDelivered) {
         setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
         setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
@@ -2093,6 +2095,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	  lastContextChatgptUrl: isolatedSurface ? undefined : targetChat.lastContextChatgptUrl, includeContext: surface?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: surface?.preferCurrentConversation ?? true,
       chatTitle: surface?.chatTitle || targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
       projectPath: promptSession.project_path,
+      reasoningEffort: promptSession.reasoning_effort || 'high',
     })
 	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(cacheKey, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}
@@ -2535,6 +2538,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
   }
 
+  // Provider reasoning is a per-chat choice. It is separate from EffortLevel,
+  // which remains the project-wide ceiling for autonomous retry rounds.
+  async function changeReasoningEffort(next: ReasoningEffort) {
+    if (!session || next === (session.reasoning_effort || 'high') || busy) return
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    setBusy(true); setError(undefined)
+    try {
+      const updated = await api.setReasoningEffort(session.id, next)
+      acceptSessionForChat(targetChat, updated)
+    } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
+  }
+
   // Chat transport is genuinely per-chat: it only decides whether THIS chat's
   // Desktop DOM automation runs, so switching it must never touch peer sessions.
   async function changeChatTransportMode(next: ChatTransportMode) {
@@ -2639,7 +2655,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Comentários de tarefa requerem Wharnex Desktop.')
       const encoded = attachments.length ? await encodeChatAttachments(attachments) : []
-      const result = await bridge.chatgpt.queueComment({ cacheKey: active.id, sessionId: session.id, text: message, url: active.chatgptUrl, requestId, commentId: crypto.randomUUID(), attachments: encoded })
+      const result = await bridge.chatgpt.queueComment({ cacheKey: active.id, sessionId: session.id, text: message, url: active.chatgptUrl, requestId, commentId: crypto.randomUUID(), attachments: encoded, reasoningEffort: session.reasoning_effort || 'high' })
       const item: ChatItem = { id: crypto.randomUUID(), role: 'user', source: 'user', text: message, createdAt: new Date().toISOString(), meta: `${result.queued ? 'Comentário em fila' : 'Comentário enviado'} para a tarefa ativa${attachments.length ? ` · ${attachments.length} anexo(s)` : ''}`, iteration: iterationRef(requestId, 'submitted', ['prompt'], active.chatgptUrl) }
       appendChatItem(active, session.project_path, item)
     } catch (error) {
@@ -3004,12 +3020,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const openRightDrawer = (next: Drawer) => { setRightDrawer(next); if (next) setSideDrawer('') }
 
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
-    session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, chatTransportMode,
+    session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
     attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
     artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
     artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
     requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
-    onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
+    onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onReasoningEffort: changeReasoningEffort, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
     onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
     onSend: enqueueMainRequest, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),

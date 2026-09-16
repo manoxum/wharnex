@@ -22,6 +22,14 @@ test('the probe vocabulary is closed', () => {
   assert.equal(sanitizeBehaviorProbeControl('  menu-items  '), 'menu-items')
 })
 
+test('reasoning-effort probe is confined to the active composer chrome', () => {
+  const script = behaviorProbeScript('reasoning-effort')
+  assert.match(script, /prompt-textarea/)
+  assert.match(script, /closest\('\[data-composer-surface\]'\)/)
+  assert.match(script, /button\[aria-haspopup="menu"\]:not\(\[data-testid\]\)/)
+  assert.doesNotMatch(script, /data-message-author-role|conversation-turn|\.click\(/)
+})
+
 // The whole point of the closed enum is that nothing the caller says can reach
 // the page. A probe that interpolated its argument would be an arbitrary-script
 // capability wearing an enum's clothes.

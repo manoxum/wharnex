@@ -125,6 +125,7 @@
       "properties": {
         "protocol": {"const": "harness.debug/v1"},
         "target": {"enum": ["sandbox", "host"]},
+		"query": {"enum": ["project_execution_summary"]},
         "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}
       },
       "description": "Bounded diagnostic protocol for a workflow plan. Host target accepts only the engine's closed read-only command allowlist."

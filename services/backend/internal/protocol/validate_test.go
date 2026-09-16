@@ -237,3 +237,18 @@ func TestValidateWorkflowPlanRejectsVersionIncrement(t *testing.T) {
 		t.Fatalf("workflow version increment was not rejected: %v", err)
 	}
 }
+
+func TestValidateWorkflowPlanAcceptsEngineOwnedProjectExecutionSummary(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV2, PlanID: "wf-execution-summary", RequestID: "req_12345678", Status: "ready", Summary: "summarize local executions", Document: "# Diagnostic execution summary", Risk: "low",
+		Dependencies: []domain.PlanDependency{}, SystemTools: []domain.PlanSystemTool{}, Operations: []domain.Operation{}, Verification: []domain.CommandSpec{},
+		Debug: &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Query: domain.DebugQueryProjectExecutionSummary, Rationale: "the requested rates live in the durable local audit ledger"},
+	}
+	if err := ValidateWorkflowPlan(plan); err != nil {
+		t.Fatalf("engine-owned execution summary query was rejected: %v", err)
+	}
+	plan.Debug.Target = "sandbox"
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "host") {
+		t.Fatalf("host-owned execution ledger query was accepted for sandbox target: %v", err)
+	}
+}

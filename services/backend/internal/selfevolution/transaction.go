@@ -195,6 +195,29 @@ func (tx Transaction) appendPendingPlan(sessionID, planID string) error {
 	return tx.saveMetadata(metadata)
 }
 
+// RemoveExtensionPlan rolls back only the membership appended while preparing
+// an extension that failed before any host mutation. Source backups captured
+// for new paths are intentionally retained: they still describe the original
+// batch baseline and are safe/useful if a later extension touches those paths.
+func (tx Transaction) RemoveExtensionPlan(sessionID, planID string) error {
+	if !tx.Extended || !tx.ExtensionAddedPlan {
+		return nil
+	}
+	metadata, err := tx.readMetadata()
+	if err != nil {
+		return err
+	}
+	kept := metadata.Plans[:0]
+	for _, pending := range metadata.Plans {
+		if pending.SessionID == sessionID && pending.PlanID == planID {
+			continue
+		}
+		kept = append(kept, pending)
+	}
+	metadata.Plans = kept
+	return tx.saveMetadata(metadata)
+}
+
 func (tx Transaction) PendingPlans() ([]PendingPlan, error) {
 	metadata, err := tx.readMetadata()
 	if err != nil {

@@ -25,6 +25,7 @@ func (c *Client) planOrchestrator(ctx context.Context, request planner.Request) 
 	}
 	body := map[string]any{
 		"model":        c.model,
+		"reasoning":    map[string]any{"effort": apiReasoningEffort(request.ReasoningEffort)},
 		"instructions": planner.OrchestratorSystemPrompt,
 		"text":         map[string]any{"format": orchestratorFormat()},
 		"store":        false,

@@ -217,6 +217,7 @@ DEBUG PROTOCOL — harness.debug/v1:
 - When local runtime evidence is genuinely necessary, a workflow plan MAY include debug={"protocol":"harness.debug/v1","target":"sandbox|host","rationale":"why this evidence is necessary"}.
 - Prefer sandbox. Choose host only when the evidence describes the real local runtime/machine and cannot be learned from the copied sandbox.
 - Host debug is observation-only and accepts only the engine's closed commands: bounded git status/rev-parse/ls-files, go version or selected non-secret go env keys, node/npm version, uname, df, free, uptime and pwd. Never request logs likely to contain secrets, process arguments, environment dumps, shells, Docker, package installation, mutation, network, or privilege escalation.
+- For project-wide plan/execution counts, success/failure rates, Apply counts, pending restarts, or failure-kind distribution, set debug.query="project_execution_summary" with target="host". This is an engine-owned aggregate over the durable audit ledger; it may be the workflow's only observation and therefore needs no command operation. Do not return a terminal missing-evidence failure for those questions before using this query.
 - A debug workflow may be proposed even in Manual automation mode. If Debug mode is off, Wharnex asks the operator once for the Main Request before executing any debug command; when on, safe debug steps proceed automatically.`
 
 const ProviderTurnContract = `
@@ -352,6 +353,11 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 	if effortLevel == "" {
 		effortLevel = "medium"
 	}
+	reasoningEffort := string(req.ReasoningEffort)
+	if reasoningEffort == "" {
+		reasoningEffort = "high"
+	}
+	header += fmt.Sprintf("REASONING EFFORT: %s\n\n", reasoningEffort)
 	knowledgeState := "sharing=off; no prior knowledge files are attached to this request"
 	knowledgeMode := "overlay"
 	if req.KnowledgeSharingEnabled {

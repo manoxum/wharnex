@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTEffortCycle, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
@@ -30,6 +30,8 @@ import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
+import { reasoningEffortStateScript } from './chat-agent-scripts.mjs'
+import { ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -3737,6 +3739,7 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
 async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined) {
   const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
+  const reasoningEffort = normalizeChatGPTReasoningEffort(target.reasoningEffort || target.entry.reasoningEffort || 'high')
   const expectedConversation = canonicalChatGPTConversationURL(expectedURL)
   const assertExpectedConversation = () => {
     if (!expectedConversation) return
@@ -3745,6 +3748,16 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
     }
   }
   assertExpectedConversation()
+  const effort = await ensureChatGPTReasoningEffort({
+    target: reasoningEffort,
+    observe: () => executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR)),
+    cycle: async () => {
+      const owned = requireOwnedChatGPTEntry(key, target.entry)
+      assertExpectedConversation()
+      dispatchChatGPTEffortCycle(owned.wc)
+    },
+  })
+  console.log(`[chatgpt-effort] key=${key} target=${effort.effort} changed=${effort.changed} cycles=${effort.cycles}`)
   markChatGPTAffinitySubmitted(target.entry.affinity)
   let method = 'dom-click'
   const result = await submitWithRetry({
@@ -3780,6 +3793,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   const requestedTitle = String(request?.chatTitle || '').replace(/\s+/g, ' ').trim().slice(0, 82)
   const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
   const autoSubmit = request?.autoSubmit === true
+  const reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
   if (autoSubmit) await requireAutoSession(request?.sessionId)
   // Preserve this already-authorized delivery only in Desktop memory so a
   // transient remote-surface failure can be retried without replanning.
@@ -3814,6 +3828,8 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [], requestMetadata)
   const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [], input.requestMetadata)
   const target = await targetChatGPTComposer(key, linkedConversation || CHATGPT_URL, linkedConversation ? request?.preferCurrentConversation === true : false, entryOverride)
+  target.reasoningEffort = reasoningEffort
+  target.entry.reasoningEffort = reasoningEffort
   if (!linkedConversation) syncChatGPTAffinityURL(key, target.entry)
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with local input bootstrap')
@@ -3844,7 +3860,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
     }
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId, requestMetadata: input.requestMetadata })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId, requestMetadata: input.requestMetadata, reasoningEffort })
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=1 archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
@@ -3939,6 +3955,8 @@ async function retryPersistedChatGPTPrompt(request, entryOverride = undefined) {
   const archivePath = path.join(dir, archiveName)
   await writeFile(archivePath, bytes, { mode: 0o600 })
   const target = await targetChatGPTComposer(key, targetURL, false, entryOverride)
+  target.reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
+  target.entry.reasoningEffort = target.reasoningEffort
   const bootstrap = localChatInputBootstrap(requestId, archiveName, expectedFilename, [])
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-durable-retry', chatGPTFillComposerScript(bootstrap))
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with the persisted request')
@@ -3981,6 +3999,8 @@ async function retryPreparedChatGPTPrompt(request, entryOverride = undefined) {
 async function attachContextToChatGPT(request, entryOverride = undefined) {
   const key = sanitizeChatCacheKey(request?.cacheKey)
   const target = await targetChatGPTComposer(key, request?.url || '', true, entryOverride)
+  target.reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
+  target.entry.reasoningEffort = target.reasoningEffort
   const context = await fetchContextZip(request?.sessionId)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', key, 'manual-context')
   await rm(dir, { recursive: true, force: true })
@@ -4002,6 +4022,8 @@ async function attachPromptToChatGPT(request, entryOverride = undefined) {
   if (text.length > 1024 * 1024) throw new Error('Prepared prompt exceeds 1 MiB limit')
   const key = sanitizeChatCacheKey(request?.cacheKey)
   const target = await targetChatGPTComposer(key, request?.url || '', true, entryOverride)
+  target.reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
+  target.entry.reasoningEffort = target.reasoningEffort
   const prompt = plannerPromptMarkdown(text)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', key, 'manual-prompt')
   await rm(dir, { recursive: true, force: true })
@@ -4025,6 +4047,7 @@ async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
   requireOwnedChatGPTEntry(key, entry)
   const assistantBaseline = await chatGPTAssistantTurnCount(entry.view.webContents)
   const expectedFilename = authoritativeBundleFilename(prepared.expectedFilename, prepared.requestId, key)
+  entry.reasoningEffort = normalizeChatGPTReasoningEffort(prepared.reasoningEffort)
   const submission = await submitChatGPTDraft(key, entry, prepared.conversationUrl || entry.affinity.boundURL)
   if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, entry)
@@ -4852,6 +4875,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
   let conversationUrl = ''
   try {
     const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
+    target.reasoningEffort = 'instant'
     const filled = await executeChatGPTDOMScript(key, target.entry, 'translation-fill-composer', chatGPTFillComposerScript(bootstrap))
     if (!filled) throw new Error('ChatGPT translation composer could not be populated')
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
@@ -5202,6 +5226,7 @@ ${comment}
 Treat this as additional guidance for the SAME task and SAME request. Do not replace, cancel or downgrade the original deliverable. Continue the work and still return the required canonical bundle ${expectedFilename}.`
   const commentId = String(request?.commentId || `${requestId}:${comment}`).slice(0, 20000)
   const attachments = Array.isArray(request?.attachments) ? request.attachments : []
+  const reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
   const fingerprint = chatGPTCommentFingerprint(key, requestId, comment, attachments)
   const now = Date.now()
   const priorAt = recentChatGPTCommentIds.get(`${key}:${commentId}`) || 0
@@ -5209,7 +5234,7 @@ Treat this as additional guidance for the SAME task and SAME request. Do not rep
   if (now - priorAt < 30 * 60 * 1000 || now - priorFingerprintAt < 60 * 1000) return { ok: true, cacheKey: key, queued: hasPendingChatGPTComments(key), requestId, duplicate: true }
   const queue = pendingChatGPTComments.get(key) || []
   const sessionId = request?.sessionId ? sanitizeSessionId(request.sessionId) : ''
-  if (!queue.some((item) => item.commentId === commentId || item.fingerprint === fingerprint)) queue.push({ commentId, fingerprint, text, comment, sessionId, url: String(request?.url || ''), requestId, attachments, queuedAt: now })
+  if (!queue.some((item) => item.commentId === commentId || item.fingerprint === fingerprint)) queue.push({ commentId, fingerprint, text, comment, sessionId, url: String(request?.url || ''), requestId, attachments, reasoningEffort, queuedAt: now })
   pendingChatGPTComments.set(key, queue)
   await flushQueuedChatGPTComments()
   return { ok: true, cacheKey: key, queued: Boolean(pendingChatGPTComments.get(key)?.length), requestId }
@@ -5231,6 +5256,8 @@ async function flushQueuedChatGPTComments() {
     try {
       await withChatGPTTransportPreparation(key, ownedEntry, pending.requestId, async () => {
         const target = await targetChatGPTComposer(key, pending.url, false)
+        target.reasoningEffort = normalizeChatGPTReasoningEffort(pending.reasoningEffort)
+        target.entry.reasoningEffort = target.reasoningEffort
         const ready = await executeChatGPTDOMScript(key, target.entry, 'comment-composer-ready', chatGPTComposerReadyScript())
         if (!ready) return
         const expected = expectedChatGPTBundles.get(key)

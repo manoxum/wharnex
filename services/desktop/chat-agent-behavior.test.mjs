@@ -17,6 +17,8 @@ test('the builtin selectors match what the live ChatGPT DOM actually exposes', (
   assert.ok(BASE.selectors.titleEditor.includes('input[name="title-editor"]'))
   assert.ok(BASE.selectors.projectAnchor.includes('a[role="menuitem"][href^="/g/g-p-"]'))
   assert.ok(BASE.selectors.composer.includes('#prompt-textarea'))
+  assert.deepEqual(BASE.effortLevels.map((level) => level.id), ['instant', 'medium', 'high'])
+  assert.ok(BASE.optionalSelectors.effortPicker.includes('[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'))
 })
 
 test('validation refuses a document that is not this schema', () => {

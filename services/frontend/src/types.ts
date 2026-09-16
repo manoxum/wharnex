@@ -26,7 +26,7 @@ export type ExecutionPlan = {
   dependencies?: Array<{ scope: string; manager: string; name: string; version?: string; action: 'install' | 'update' | 'remove' | 'use'; reason: string }>
   system_tools?: Array<{ target: 'sandbox' | 'host'; name: string; action: 'install' | 'update' | 'configure' | 'use'; reason: string }>
   approved_chat_plan?: ApprovedChatPlan
-  debug?: { protocol: 'harness.debug/v1'; target: 'sandbox' | 'host'; rationale: string }
+  debug?: { protocol: 'harness.debug/v1'; target: 'sandbox' | 'host'; query?: 'project_execution_summary'; rationale: string }
   risk: 'low' | 'medium' | 'high'
   requires_approval: boolean
   operations: Operation[]
@@ -200,6 +200,7 @@ export type KnownProjectRef = {
 export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'
+export type ReasoningEffort = 'instant' | 'medium' | 'high'
 /** Scraper: Desktop drives the embedded ChatGPT DOM directly, as it always
  *  has. Manual: Desktop never touches that DOM — the prompt is only shown
  *  for copy/paste and a response bundle is only imported by explicit human
@@ -265,6 +266,7 @@ export type Session = {
   execution_approved_root_request_id?: string
   approved_execution_boundary_keys?: string[]
   effort_level?: EffortLevel
+  reasoning_effort?: ReasoningEffort
   automation_attempt?: number
   improvement_attempt?: number
   chat_transport_mode?: ChatTransportMode

@@ -17,6 +17,7 @@ type Request struct {
 	AutomationMode     domain.AutomationMode
 	DebugEnabled       bool
 	EffortLevel        domain.EffortLevel
+	ReasoningEffort    domain.ReasoningEffort
 	SelfEvolution      bool
 	PlanningMode       string
 	// ExpectedBundleFilename is the canonical whx_bundle_res_* name the

@@ -11,6 +11,8 @@ Wharness is an engineering workspace, not a chatbot skin.
 - mobile layout stacks panels without hiding execution state.
 - the fixed chat header keeps context identity compact: hash and stable Harness chat ID are not rendered as text, while one icon-only, keyboard-accessible control copies both complete values. The same context cluster also carries the current chat/session state and the icon-only chat export action.
 
+The Agent composer exposes provider reasoning depth as **Inteligência**, with `Instantâneo`, `Médio` and `Elevado`. This control is per chat and is distinct from **Esforço**, which remains the autonomous attempt budget. Changing Inteligência persists the session choice and affects the next and subsequent provider submissions; document translation remains fixed to Instantâneo.
+
 ## Appearance themes
 
 - Wharness supports complete Light and Dark themes across bootstrap, workspace chrome, Agent, Editor, Monaco, terminal, settings, dialogs and observability surfaces. Theme selection is a local interface preference and MUST NOT alter project data.

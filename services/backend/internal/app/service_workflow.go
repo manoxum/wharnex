@@ -123,11 +123,30 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 	}
 	result := domain.ExecutionResult{PlanID: plan.PlanID, StartedAt: time.Now().UTC(), Commands: []domain.CommandResult{}}
 	s.bus.Publish(sessionID, "workflow.started", map[string]any{"plan_id": plan.PlanID, "transport": transport, "round": current.WorkflowRound + 1})
+	if plan.Debug != nil && plan.Debug.Query != "" {
+		observation, queryErr := s.executeDebugQuery(sessionID, current, plan.Debug.Query)
+		result.Commands = append(result.Commands, observation)
+		if queryErr != nil {
+			result.Error = queryErr.Error()
+			result.CompletedAt = time.Now().UTC()
+			s.storeWorkflowObservation(sessionID, result, decision)
+			return result, queryErr
+		}
+	}
 	runner := s.runner
 	target := "workflow-sandbox"
 	if plan.Debug != nil && plan.Debug.Target == "host" {
 		runner = s.hostRunner
 		target = "debug-host"
+	}
+	// An engine-owned query with no command operations never needs to prepare a
+	// sandbox or host workspace. Keeping it in-process is the security boundary.
+	if len(plan.Operations) == 0 && len(plan.Verification) == 0 {
+		result.Success = true
+		result.CompletedAt = time.Now().UTC()
+		s.storeWorkflowObservation(sessionID, result, decision)
+		s.bus.Publish(sessionID, "workflow.completed", map[string]any{"plan_id": plan.PlanID, "commands": len(result.Commands), "transport": transport, "target": target})
+		return result, nil
 	}
 	workspace, err := runner.Prepare(ctx, current.ProjectPath)
 	if err != nil {

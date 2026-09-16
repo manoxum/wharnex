@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -192,6 +193,24 @@ func (r fakeRunner) RunStreaming(ctx context.Context, workspace sandbox.Workspac
 	return r.Run(ctx, workspace, c)
 }
 
+type blockingPrepareRunner struct {
+	sandbox.Runner
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingPrepareRunner) Prepare(ctx context.Context, root string) (sandbox.Workspace, error) {
+	r.once.Do(func() {
+		close(r.entered)
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+		}
+	})
+	return r.Runner.Prepare(ctx, root)
+}
+
 type streamingEventRunner struct{}
 
 func (streamingEventRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {
@@ -356,6 +375,60 @@ func TestVerifiedPatchDoesNotTouchHostUntilApply(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	if string(after) != "new\n" {
 		t.Fatalf("host was not patched: %q", after)
+	}
+}
+
+func TestConcurrentHostApplyReloadsCandidateAfterProjectLock(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "hello.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "concurrent-apply", RequestID: "placeholder", Status: "ready", Summary: "change hello", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), started.ID, "change"); err != nil {
+		t.Fatal(err)
+	}
+	if result, _, executeErr := service.Execute(context.Background(), started.ID, false); executeErr != nil || !result.Success {
+		t.Fatalf("prepare verified candidate: result=%#v err=%v", result, executeErr)
+	}
+	blocker := &blockingPrepareRunner{Runner: service.hostRunner, entered: make(chan struct{}), release: make(chan struct{})}
+	service.hostRunner = blocker
+	firstDone := make(chan error, 1)
+	secondDone := make(chan error, 1)
+	go func() {
+		_, applyErr := service.ApplyToHost(context.Background(), started.ID)
+		firstDone <- applyErr
+	}()
+	<-blocker.entered
+	go func() {
+		_, applyErr := service.ApplyToHost(context.Background(), started.ID)
+		secondDone <- applyErr
+	}()
+	// Give the second caller time to read the still-verified session before it
+	// blocks on the project apply lock. This is the real duplicate-delivery
+	// ordering that previously replayed an already-consumed integration branch.
+	time.Sleep(50 * time.Millisecond)
+	close(blocker.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first Apply failed: %v", err)
+	}
+	if err := <-secondDone; !errors.Is(err, ErrExecutionRequired) {
+		t.Fatalf("duplicate concurrent Apply must observe the consumed candidate, got %v", err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "new\n" {
+		t.Fatalf("host change was not integrated exactly once: %q", contents)
 	}
 }
 
@@ -2909,6 +2982,39 @@ func TestAutoSelfEvolutionRunsProjectVerificationAndReachesRestartPending(t *tes
 	}
 	if _, _, err := restarted.Execute(context.Background(), started.ID, false); err == nil || !strings.Contains(err.Error(), "already executed successfully") {
 		t.Fatalf("completed self-evolution plan must be single-shot after restart, got %v", err)
+	}
+}
+
+func TestLaterHealthyRestartReconcilesOlderPendingActivation(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	bus := audit.NewBus()
+	appliedAt := time.Date(2026, 9, 16, 17, 52, 17, 0, time.UTC)
+	pending := domain.Session{
+		ID: "ses-older", ProjectPath: root, ExecutionMode: domain.ExecutionModeProtected,
+		SelfEvolution: true, SelfEvolutionActivation: "restart_pending", State: "restart_pending",
+		LastHostAppliedAt: appliedAt, LastRepairError: "host build passed; explicit restart confirmation pending",
+	}
+	if err := store.Put(pending); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{store: store, bus: bus, selfEvolution: selfevolution.New(root)}
+	service.reconcileEarlierRestartPending(selfevolution.Status{
+		Phase: "restarted", PlanID: "newer-plan", UpdatedAt: "2026-09-16T18:47:14Z",
+	})
+	reconciled, err := store.Get(pending.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconciled.State != "applied" || reconciled.SelfEvolutionActivation != "" || reconciled.LastRepairError != "" {
+		t.Fatalf("later healthy restart did not clear stale activation: %#v", reconciled)
+	}
+	found := false
+	for _, event := range bus.History(pending.ID) {
+		found = found || event.Type == "self_evolution.activation_reconciled"
+	}
+	if !found {
+		t.Fatal("expected durable activation reconciliation evidence")
 	}
 }
 

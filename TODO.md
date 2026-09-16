@@ -1174,3 +1174,5 @@ ficheiros) — nenhum commit foi pedido nesta sessão.
 
 wdwdw
 dw
+dwd
+dwdw

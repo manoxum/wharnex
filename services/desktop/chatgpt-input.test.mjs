@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTComposerClick, dispatchChatGPTPointerClick, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTComposerClick, dispatchChatGPTEffortCycle, dispatchChatGPTPointerClick, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
 
 const conversationURL = 'https://chatgpt.com/backend-api/f/conversation/prepare'
 
@@ -19,6 +19,16 @@ test('ChatGPT submit uses a layout-independent native Enter key without stealing
   assert.deepEqual(events, [
     { type: 'keyDown', keyCode: 'Enter' },
     { type: 'keyUp', keyCode: 'Enter' },
+  ])
+})
+
+test('reasoning effort uses only ChatGPT own bounded native shortcut', () => {
+  const events = []
+  const result = dispatchChatGPTEffortCycle({ sendInputEvent: (event) => events.push(event) })
+  assert.deepEqual(result, { method: 'native-reasoning-effort-cycle' })
+  assert.deepEqual(events, [
+    { type: 'keyDown', keyCode: 'M', modifiers: ['control', 'shift'] },
+    { type: 'keyUp', keyCode: 'M', modifiers: ['control', 'shift'] },
   ])
 })
 

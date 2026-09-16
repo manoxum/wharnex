@@ -32,6 +32,7 @@ export const BEHAVIOR_PROBE_CONTROLS = Object.freeze([
   'project-anchors',
   'project-dialog',
   'delete-dialog',
+  'reasoning-effort',
 ])
 
 const MAX_LABELS = 16
@@ -144,6 +145,21 @@ const PROBES = Object.freeze({
       labels: buttons.slice(0, ${MAX_LABELS}).map((node) => ({ label: label(node), testid: node.getAttribute('data-testid') || '' })),
     };
   `,
+  // Composer chrome only. This records the exact bounded labels needed to
+  // validate the selector/locale mapping; it never traverses a chat turn.
+  'reasoning-effort': `
+    const composers = [...document.querySelectorAll('#prompt-textarea, div[contenteditable="true"][role="textbox"], textarea[name="prompt-textarea"]')].filter((node) => usable(node) && visible(node));
+    const surfaces = composers.map((node) => node.closest('[data-composer-surface]')).filter(Boolean);
+    const controls = surfaces.flatMap((surface) => [...surface.querySelectorAll('button[aria-haspopup="menu"]:not([data-testid])')]).filter((node) => usable(node) && visible(node));
+    return {
+      control: 'reasoning-effort',
+      viewport: viewport(),
+      composers: composers.length,
+      surfaces: surfaces.length,
+      controls: controls.length,
+      labels: controls.slice(0, ${MAX_LABELS}).map((node) => ({ label: label(node), role: node.getAttribute('role') || '', expanded: node.getAttribute('aria-expanded') === 'true' })),
+    };
+  `,
 })
 
 export function behaviorProbeScript(control) {
@@ -181,7 +197,7 @@ function entry(value) {
   for (const key of ['matches', 'total', 'visible', 'usable']) {
     if (Number.isFinite(value[key])) out[key] = value[key]
   }
-  for (const key of ['submenu', 'visible']) {
+  for (const key of ['submenu', 'visible', 'expanded']) {
     if (typeof value[key] === 'boolean') out[key] = value[key]
   }
   return out

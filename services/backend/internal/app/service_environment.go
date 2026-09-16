@@ -52,6 +52,9 @@ func (s *Service) plannerRequest(ctx context.Context, base planner.Request, snap
 	if request.SessionID != "" {
 		if item, err := s.store.Get(request.SessionID); err == nil {
 			request.DebugEnabled = item.DebugEnabled
+			if request.ReasoningEffort == "" {
+				request.ReasoningEffort = normalizeReasoningEffort(item.ReasoningEffort)
+			}
 			if request.EffortLevel == "" {
 				request.EffortLevel = normalizeEffortLevel(item.EffortLevel)
 			}
@@ -64,6 +67,9 @@ func (s *Service) plannerRequest(ctx context.Context, base planner.Request, snap
 	}
 	if request.EffortLevel == "" {
 		request.EffortLevel = domain.EffortLevelMedium
+	}
+	if request.ReasoningEffort == "" {
+		request.ReasoningEffort = domain.ReasoningEffortHigh
 	}
 	request.ExecutionEnvironment = s.executionEnvironmentSection(ctx, projectPath)
 	request.RepositoryTopology = s.repositoryTopologySection(ctx, projectPath)

@@ -1158,6 +1158,19 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
   assert.doesNotMatch(body, /return \{ accepted: false/)
 })
 
+test('every ChatGPT submit verifies the requested reasoning effort before starting its POST observation', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined)")
+  const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
+  const body = source.slice(start, end)
+  const ensure = body.indexOf('await ensureChatGPTReasoningEffort({')
+  const observe = body.indexOf("executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state'")
+  const cycle = body.indexOf('dispatchChatGPTEffortCycle(owned.wc)')
+  const submit = body.indexOf('submitWithRetry({')
+  assert.ok(ensure >= 0 && observe > ensure && cycle > observe && submit > cycle)
+  assert.match(body, /normalizeChatGPTReasoningEffort\(target\.reasoningEffort \|\| target\.entry\.reasoningEffort \|\| 'high'\)/)
+})
+
 test('expected bundle supervision is armed only around submissions that can leave stale state', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
@@ -1705,6 +1718,8 @@ test('translation worker is transport only: it uploads the engine’s bundle and
   assert.match(worker, /chatGPTResponseCompletionScript\(assistantBaseline\)/)
   assert.doesNotMatch(worker, /textContent|innerText|chatGPTVisibleActivityScript/)
   assert.match(worker, /expectedChatGPTTranslations\.set\(filename, expected\)/)
+  assert.match(worker, /target\.reasoningEffort = 'instant'/)
+  assert.ok(worker.indexOf("target.reasoningEffort = 'instant'") < worker.indexOf('await submitChatGPTDraft('))
 
   // Everything the provider is asked for was authored by the backend engine and
   // sealed into the request archive. The worker uploads it and submits the

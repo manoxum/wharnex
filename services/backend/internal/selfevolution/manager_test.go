@@ -813,6 +813,46 @@ func TestPendingTransactionRecoversRestartConfirmationHandoff(t *testing.T) {
 	}
 }
 
+func TestFailedPreMutationExtensionCanRetainPreviousPendingBatch(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	first, err := manager.Prepare("ses-one", "plan-one", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after-one\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	if err := manager.RecordStatus(first, "ses-one", "plan-one", "restart_pending", "first build ready"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+
+	extended, err := manager.Prepare("ses-two", "plan-two", []string{"--- a/extra.txt\n+++ b/extra.txt\n@@ -0,0 +1 @@\n+extra\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !extended.Extended || !extended.ExtensionAddedPlan || extended.PreviousPending.PlanID != "plan-one" {
+		t.Fatalf("extension checkpoint was not retained: %#v", extended)
+	}
+	if err := extended.RemoveExtensionPlan("ses-two", "plan-two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RecordStatus(extended, extended.PreviousPending.SessionID, extended.PreviousPending.PlanID, "restart_pending", "extension failed before mutation"); err != nil {
+		t.Fatal(err)
+	}
+	extended.ReleaseStage()
+	if _, err := os.Stat(first.Dir); err != nil {
+		t.Fatalf("prior transaction directory was destroyed: %v", err)
+	}
+	plans, err := first.PendingPlans()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || plans[0].SessionID != "ses-one" || plans[0].PlanID != "plan-one" {
+		t.Fatalf("failed extension polluted prior pending membership: %#v", plans)
+	}
+}
+
 func TestScheduleRestartStackUsesDetachedSupervisorContainer(t *testing.T) {
 	root := fakeRoot(t)
 	worker := filepath.Join(root, ".harness", "self-evolution", "txn-stack", "worker.sh")

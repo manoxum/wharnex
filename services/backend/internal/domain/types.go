@@ -12,6 +12,8 @@ const ProtocolV2 = "harness.execution/v2"
 const TurnProtocolV1 = "harness.turn/v1"
 const DebugProtocolV1 = "harness.debug/v1"
 
+const DebugQueryProjectExecutionSummary = "project_execution_summary"
+
 type TurnKind string
 
 const (
@@ -220,6 +222,26 @@ func ValidEffortLevel(level EffortLevel) bool {
 	}
 }
 
+// ReasoningEffort controls the provider's per-turn reasoning depth. It is
+// deliberately independent from EffortLevel, which bounds how many autonomous
+// attempts Wharnex may spend across the whole Main Request.
+type ReasoningEffort string
+
+const (
+	ReasoningEffortInstant ReasoningEffort = "instant"
+	ReasoningEffortMedium  ReasoningEffort = "medium"
+	ReasoningEffortHigh    ReasoningEffort = "high"
+)
+
+func ValidReasoningEffort(effort ReasoningEffort) bool {
+	switch effort {
+	case ReasoningEffortInstant, ReasoningEffortMedium, ReasoningEffortHigh:
+		return true
+	default:
+		return false
+	}
+}
+
 // ChatTransportMode controls whether Wharnex Desktop drives the embedded
 // ChatGPT conversation's DOM directly (Scraper — composer fill, submit, and
 // download interception, as it always has) or never touches that DOM at all
@@ -334,8 +356,12 @@ type ExecutionPlan struct {
 // narrower target, not broader authority: validation accepts only a closed
 // read-only command vocabulary there.
 type DebugSpec struct {
-	Protocol  string `json:"protocol"`
-	Target    string `json:"target"`
+	Protocol string `json:"protocol"`
+	Target   string `json:"target"`
+	// Query selects an engine-owned, read-only diagnostic. Unlike a command it
+	// never crosses the process boundary and cannot acquire shell/filesystem
+	// authority from model-controlled argv.
+	Query     string `json:"query,omitempty"`
 	Rationale string `json:"rationale"`
 }
 
@@ -1032,6 +1058,7 @@ type Session struct {
 	ExecutionApprovedRootID string               `json:"execution_approved_root_request_id,omitempty"`
 	ApprovedBoundaryKeys    []string             `json:"approved_execution_boundary_keys,omitempty"`
 	EffortLevel             EffortLevel          `json:"effort_level"`
+	ReasoningEffort         ReasoningEffort      `json:"reasoning_effort"`
 	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
 	WharnexInstanceID       string               `json:"wharnex_instance_id,omitempty"`

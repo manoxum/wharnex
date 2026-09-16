@@ -105,6 +105,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/automation-mode", a.automationMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/debug-mode", a.debugMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/effort-level", a.effortLevel)
+	mux.HandleFunc("PUT /api/sessions/{id}/reasoning-effort", a.reasoningEffort)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
@@ -868,17 +869,22 @@ func (a *API) cloneProject(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ProjectPath    string                `json:"project_path"`
-		ExecutionMode  domain.ExecutionMode  `json:"execution_mode"`
-		AutomationMode domain.AutomationMode `json:"automation_mode"`
-		EffortLevel    domain.EffortLevel    `json:"effort_level"`
-		ChatID         string                `json:"chat_id"`
+		ProjectPath     string                 `json:"project_path"`
+		ExecutionMode   domain.ExecutionMode   `json:"execution_mode"`
+		AutomationMode  domain.AutomationMode  `json:"automation_mode"`
+		EffortLevel     domain.EffortLevel     `json:"effort_level"`
+		ReasoningEffort domain.ReasoningEffort `json:"reasoning_effort"`
+		ChatID          string                 `json:"chat_id"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if strings.TrimSpace(body.ProjectPath) == "" {
 		writeError(w, http.StatusBadRequest, "invalid_project_path", "project_path is required")
+		return
+	}
+	if body.ReasoningEffort != "" && !domain.ValidReasoningEffort(body.ReasoningEffort) {
+		writeError(w, http.StatusBadRequest, "reasoning_effort_failed", fmt.Sprintf("unsupported reasoning effort %q", body.ReasoningEffort))
 		return
 	}
 	item, err := a.service.StartSessionWithModes(r.Context(), body.ProjectPath, body.ExecutionMode, body.AutomationMode, body.EffortLevel)
@@ -889,6 +895,14 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(body.ChatID) != "" {
 		if withChat, chatErr := a.service.SetChatID(item.ID, body.ChatID); chatErr == nil {
 			item = withChat
+		}
+	}
+	if body.ReasoningEffort != "" {
+		if withEffort, effortErr := a.service.SetReasoningEffort(item.ID, body.ReasoningEffort); effortErr != nil {
+			writeError(w, http.StatusBadRequest, "reasoning_effort_failed", effortErr.Error())
+			return
+		} else {
+			item = withEffort
 		}
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -1002,6 +1016,21 @@ func (a *API) effortLevel(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetEffortLevel(r.PathValue("id"), body.EffortLevel)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "effort_level_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) reasoningEffort(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ReasoningEffort domain.ReasoningEffort `json:"reasoning_effort"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetReasoningEffort(r.PathValue("id"), body.ReasoningEffort)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "reasoning_effort_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

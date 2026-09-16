@@ -149,6 +149,7 @@ type translationWorkerPayload struct {
 	ResultFilename  string `json:"result_filename"`
 	Bootstrap       string `json:"bootstrap"`
 	ArchiveBase64   string `json:"archive_base64"`
+	ReasoningEffort string `json:"reasoning_effort"`
 }
 
 // translationWorkerResult is what the worker returns on completion: the exact
@@ -194,7 +195,7 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 		Protocol: translation.RequestProtocolV1, Task: translation.TaskTranslateDocument, TaskID: taskID,
 		TargetLanguage: manifest.TargetLanguage, RequestFilename: manifest.RequestFilename,
 		ResultFilename: manifest.ResultFilename, Bootstrap: translation.RequestBootstrap(manifest),
-		ArchiveBase64: base64.StdEncoding.EncodeToString(archive),
+		ArchiveBase64: base64.StdEncoding.EncodeToString(archive), ReasoningEffort: string(domain.ReasoningEffortInstant),
 	})
 	if err != nil {
 		return utility.Result{}, fmt.Errorf("encode translation task: %w", err)
@@ -431,7 +432,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		return domain.Session{}, err
 	}
 	knowledgeSharing := true
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ReasoningEffort: domain.ReasoningEffortHigh, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if selfEvolution {
 		item.WharnexInstanceID = ""
 	}
@@ -656,6 +657,21 @@ func (s *Service) SetEffortLevel(sessionID string, level domain.EffortLevel) (do
 		return domain.Session{}, err
 	}
 	s.bus.Publish(sessionID, "effort.level_changed", map[string]any{"effort_level": level})
+	return item, nil
+}
+
+func (s *Service) SetReasoningEffort(sessionID string, effort domain.ReasoningEffort) (domain.Session, error) {
+	if !domain.ValidReasoningEffort(effort) {
+		return domain.Session{}, fmt.Errorf("unsupported reasoning effort %q", effort)
+	}
+	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.ReasoningEffort = effort
+		return nil
+	})
+	if err != nil {
+		return domain.Session{}, err
+	}
+	s.bus.Publish(sessionID, "reasoning.effort_changed", map[string]any{"reasoning_effort": effort})
 	return item, nil
 }
 
@@ -2904,6 +2920,15 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	applyLock := s.projectApplyLock(item.ProjectPath)
 	applyLock.Lock()
 	defer applyLock.Unlock()
+	// The caller may have read the session while another Apply for the same
+	// project was still running. The project lock serializes host mutation, but
+	// it does not make that pre-lock snapshot current: using it here replayed an
+	// integration branch that the first Apply had already merged and deleted.
+	// Reload under the lock so candidate consumption is an atomic precondition.
+	item, err = s.store.Get(sessionID)
+	if err != nil {
+		return item, err
+	}
 	if item.ExecutionMode == domain.ExecutionModeUnprotected {
 		return item, errors.New("apply is unavailable in unprotected mode because execution already targets the host")
 	}
@@ -2916,6 +2941,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	}
 	pending := hostApplicablePendingChanges(pendingHostChanges(item))
 	if len(pending) == 0 {
+		s.bus.Publish(sessionID, "host.apply_duplicate_blocked", map[string]any{"state": item.State, "reason": "no unconsumed verified candidate remains after acquiring the project apply lock"})
 		return item, ErrExecutionRequired
 	}
 	if pendingHostResolutionBlocked(item) {
@@ -3079,6 +3105,16 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	}
 	abortPreparedTransaction := func(cause error) error {
 		if !selfEvolution {
+			return cause
+		}
+		if transaction.Extended {
+			if removeErr := transaction.RemoveExtensionPlan(sessionID, latestPlanID); removeErr != nil {
+				cause = fmt.Errorf("%w; retain pending self-evolution membership after failed extension: %v", cause, removeErr)
+			}
+			previous := transaction.PreviousPending
+			_ = s.selfEvolution.RecordStatus(transaction, previous.SessionID, previous.PlanID, "restart_pending", "previous pending batch retained after extension failed before host mutation: "+cause.Error())
+			transaction.ReleaseStage()
+			s.bus.Publish(sessionID, "self_evolution.extension_aborted_retained", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID, "error": cause.Error()})
 			return cause
 		}
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "aborted", cause.Error())
@@ -3660,6 +3696,7 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 	default:
 		return
 	}
+	transactionReconciled := false
 	if transaction, txErr := s.selfEvolution.TransactionForStatus(status); txErr == nil {
 		detail := status.Detail
 		if status.Phase == "restarted" {
@@ -3669,30 +3706,69 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 			if finalize {
 				transaction.Finalize()
 			}
-			return
+			transactionReconciled = true
 		}
 	}
-	updated, err := s.store.Update(status.SessionID, func(current *domain.Session) error {
-		if !s.isSelfEvolution(*current) || current.Plan == nil || current.Plan.PlanID != status.PlanID {
+	if !transactionReconciled {
+		updated, updateErr := s.store.Update(status.SessionID, func(current *domain.Session) error {
+			if !s.isSelfEvolution(*current) || current.Plan == nil || current.Plan.PlanID != status.PlanID {
+				return nil
+			}
+			current.SelfEvolution = true
+			if state == "restart_pending" || state == "restart_scheduled" {
+				current.SelfEvolutionActivation = state
+			} else {
+				current.SelfEvolutionActivation = ""
+			}
+			current.State = state
+			if status.Phase == "restarted" {
+				clearSessionFailure(current)
+			} else if status.Detail != "" {
+				current.LastRepairError = status.Detail
+				current.FailureKind = ""
+			}
 			return nil
+		})
+		if updateErr == nil && updated.ID != "" {
+			s.bus.Publish(status.SessionID, "self_evolution.status_reconciled", map[string]any{"plan_id": status.PlanID, "phase": status.Phase, "state": state, "detail": status.Detail})
 		}
-		current.SelfEvolution = true
-		if state == "restart_pending" || state == "restart_scheduled" {
-			current.SelfEvolutionActivation = state
-		} else {
+	}
+	if status.Phase == "restarted" {
+		s.reconcileEarlierRestartPending(status)
+	}
+}
+
+// A successful runtime restart activates the complete host tree that existed
+// at that instant, not only the session named by the latest transaction. This
+// repairs older sessions whose own transaction evidence was lost after a
+// duplicate pre-mutation Apply, while requiring temporal proof that their host
+// Apply completed before the healthy restart.
+func (s *Service) reconcileEarlierRestartPending(status selfevolution.Status) {
+	restartedAt, err := time.Parse(time.RFC3339, status.UpdatedAt)
+	if err != nil {
+		return
+	}
+	for _, candidate := range s.store.List() {
+		if !s.isSelfEvolution(candidate) || candidate.SelfEvolutionActivation != "restart_pending" || candidate.LastHostAppliedAt.IsZero() || candidate.LastHostAppliedAt.After(restartedAt) {
+			continue
+		}
+		updated, updateErr := s.store.Update(candidate.ID, func(current *domain.Session) error {
+			if current.SelfEvolutionActivation != "restart_pending" || current.LastHostAppliedAt.IsZero() || current.LastHostAppliedAt.After(restartedAt) {
+				return nil
+			}
 			current.SelfEvolutionActivation = ""
+			if current.State == "restart_pending" || current.State == "restart_scheduled" {
+				current.State = "applied"
+				clearSessionFailure(current)
+			}
+			return nil
+		})
+		if updateErr == nil && updated.ID != "" {
+			s.bus.Publish(candidate.ID, "self_evolution.activation_reconciled", map[string]any{
+				"plan_id": status.PlanID, "restart_completed_at": restartedAt.Format(time.RFC3339),
+				"host_applied_at": candidate.LastHostAppliedAt.Format(time.RFC3339), "evidence": "later healthy Wharnex restart",
+			})
 		}
-		current.State = state
-		if status.Phase == "restarted" {
-			clearSessionFailure(current)
-		} else if status.Detail != "" {
-			current.LastRepairError = status.Detail
-			current.FailureKind = ""
-		}
-		return nil
-	})
-	if err == nil && updated.ID != "" {
-		s.bus.Publish(status.SessionID, "self_evolution.status_reconciled", map[string]any{"plan_id": status.PlanID, "phase": status.Phase, "state": state, "detail": status.Detail})
 	}
 }
 
