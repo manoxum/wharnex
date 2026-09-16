@@ -583,6 +583,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
 
   const latestFailureNoticeId = [...items].reverse().find(isFailureNotice)?.id
+  const contextLabel = session.context.related_projects?.length ? `Contexto de ${session.context.related_projects.length + 1} projetos` : 'Contexto isolado'
+  const contextStateTone = session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'
   // Each entry renders inside its own boundary: without one, a single throwing
   // item unmounts the whole workspace and leaves a blank window, turning a
   // cosmetic defect in one message into total loss of the UI.
@@ -595,16 +597,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   return <section className={`chat-panel ${embedded ? 'embedded' : ''} ${composerOnly ? 'composer-only' : ''}`}>
     {!composerOnly && <header className={`panel-header chat-header ${embedded ? 'embedded' : ''}`}>
-      <div className="chat-header-context" aria-label="Contexto isolado">
+      <div className="chat-header-context" aria-label={contextLabel}>
         <span className="chat-header-context-icon"><Icon name="shield" size={13}/></span>
-        <span className="chat-header-context-copy"><strong>{session.context.related_projects?.length ? `Contexto de ${session.context.related_projects.length + 1} projetos` : 'Contexto isolado'}</strong><small><span title={contextIdentityHash(session)}>Hash {contextIdentityHash(session).slice(0, 12)}</span><i aria-hidden="true">·</i><span title={activeChatId || session.chat_id || '—'}>Chat {activeChatId || session.chat_id || '—'}</span></small></span>
-        <button type="button" className="chat-header-context-copy-button" onClick={() => void copyContextIdentity()} aria-label="Copiar hash e ID do chat" title={contextIdentityCopied ? 'Hash e ID copiados' : 'Copiar hash completo e ID do chat'}><Icon name={contextIdentityCopied ? 'check' : 'copy'} size={12}/></button>
+        <strong title={contextLabel}>{contextLabel}</strong>
+        <StatusPill tone={contextStateTone}>{stateLabel(session.state)}</StatusPill>
+        <div className="chat-header-context-actions">
+          <button type="button" className="chat-header-context-copy-button" onClick={() => void copyContextIdentity()} aria-label="Copiar hash e ID do chat" title={contextIdentityCopied ? 'Hash e ID copiados' : 'Copiar hash completo e ID do chat'}><Icon name={contextIdentityCopied ? 'check' : 'copy'} size={12}/></button>
+          {onExportChat && <button type="button" className="chat-export-button" disabled={busy} onClick={() => void onExportChat()} aria-label="Exportar ZIP" title="Exportar chat completo, execuções e bundles em ZIP"><Icon name="download" size={13}/></button>}
+        </div>
       </div>
       <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages} />
-      <div className="chat-header-actions">
-        <StatusPill tone={session.state === 'failed' ? 'danger' : session.state === 'verified' || session.state === 'applied' ? 'success' : 'neutral'}>{stateLabel(session.state)}</StatusPill>
-        {onExportChat && <button type="button" className="chat-export-button" disabled={busy} onClick={() => void onExportChat()} aria-label="Exportar ZIP" title="Exportar chat completo, execuções e bundles em ZIP"><Icon name="download" size={13}/></button>}
-      </div>
     </header>}
 
     {!composerOnly && !hideSwitcher && <div className="chat-switcher" aria-label="Conversas do Harness">

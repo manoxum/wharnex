@@ -27,12 +27,17 @@ describe('chat header CSS', () => {
     expect(stream).toContain('overflow-y: auto')
   })
 
-  it('keeps chat export as a compact square icon action', () => {
-    const exportButton = firstRule('.chat-export-button')
-    expect(exportButton).toContain('width: 32px')
-    expect(exportButton).toContain('height: 32px')
-    expect(exportButton).toContain('padding: 0')
-    expect(exportButton).toContain('justify-content: center')
+  it('keeps context identity, state and export in one compact header cluster', () => {
+    const context = firstRule('.chat-header-context')
+    const actions = firstRule('.chat-header-context-actions')
+    const iconActions = firstRule('.chat-header-context-copy-button, .chat-header-context .chat-export-button')
+    expect(context).toContain('max-width: min(300px, 42vw)')
+    expect(context).toContain('display: flex')
+    expect(actions).toContain('margin-left: auto')
+    expect(iconActions).toContain('width: 28px')
+    expect(iconActions).toContain('height: 28px')
+    expect(css).not.toContain('.chat-header-context-copy {')
+    expect(css).not.toContain('.chat-header-context small {')
   })
 
   it('keeps the bundle strip dedicated to recent bundle cards', () => {
