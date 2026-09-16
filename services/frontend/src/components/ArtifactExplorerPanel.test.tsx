@@ -80,6 +80,49 @@ describe('ArtifactExplorerPanel', () => {
     await waitFor(() => expect(mocks.deleteManagedArtifact).toHaveBeenCalledWith('ses_a', 'artifact_a'))
     expect(mocks.confirmDialog).toHaveBeenCalledTimes(1)
   })
+
+  it('selects multiple library items and deletes them with one confirmation', async () => {
+    mocks.managedArtifacts.mockResolvedValue({ artifacts })
+    render(<ArtifactExplorerPanel sessionId="ses_current" onError={vi.fn()}/>)
+    await screen.findByText('manual.pdf')
+
+    fireEvent.click(screen.getByLabelText('Selecionar manual.pdf'))
+    fireEvent.click(screen.getByLabelText('Selecionar dados.csv'))
+    expect(screen.getByText('2 selecionados')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Eliminar selecionados \(2\)/ }))
+    await waitFor(() => expect(mocks.deleteManagedArtifact).toHaveBeenCalledTimes(2))
+    expect(mocks.deleteManagedArtifact).toHaveBeenCalledWith('ses_a', 'artifact_a')
+    expect(mocks.deleteManagedArtifact).toHaveBeenCalledWith('ses_b', 'artifact_b')
+    expect(mocks.confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ title: 'Eliminar 2 itens?', confirmLabel: 'Eliminar 2' }))
+  })
+
+  it('renders bundles as semantic cards and filters them by a custom date interval', async () => {
+    const oldBundle = managed('ses_old', '/workspace/alpha', 'artifact_old', 'whx_bundle_req_old.zip', 2048, '2026-09-10T08:00:00Z')
+    oldBundle.artifact.bundle = true
+    oldBundle.artifact.kind = 'bundle'
+    oldBundle.artifact.request_id = 'req_20260910T080000_old'
+    oldBundle.artifact.entry_count = 12
+    const recentBundle = managed('ses_recent', '/workspace/alpha', 'artifact_recent', 'whx_bundle_res_recent.zip', 4096, '2026-09-16T08:00:00Z')
+    recentBundle.artifact.bundle = true
+    recentBundle.artifact.kind = 'bundle'
+    recentBundle.artifact.direction = 'output'
+    recentBundle.artifact.request_id = 'req_20260916T080000_recent'
+    recentBundle.artifact.entry_count = 7
+    mocks.managedArtifacts.mockImplementation(async (_query: string, bundlesOnly: boolean) => ({ artifacts: bundlesOnly ? [recentBundle, oldBundle] : artifacts }))
+    render(<ArtifactExplorerPanel sessionId="ses_current" onError={vi.fn()}/>)
+    await screen.findByText('manual.pdf')
+
+    fireEvent.click(screen.getByRole('tab', { name: /Bundles/ }))
+    expect(await screen.findByText('Bundle de resposta')).toBeTruthy()
+    expect(screen.getByText('Bundle de pedido')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Janela temporal'), { target: { value: 'custom' } })
+    fireEvent.change(screen.getByLabelText('Data inicial'), { target: { value: '2026-09-15' } })
+    fireEvent.change(screen.getByLabelText('Data final'), { target: { value: '2026-09-16' } })
+
+    expect(screen.getByText('whx_bundle_res_recent.zip')).toBeTruthy()
+    expect(screen.queryByText('whx_bundle_req_old.zip')).toBeNull()
+  })
 })
 
 function managed(sessionId: string, projectPath: string, artifactId: string, name: string, size: number, createdAt: string): ManagedArtifact {
