@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1566,7 +1567,7 @@ func TestSuccessfulRetainedPlanRetryRetiresObsoleteRepairRequest(t *testing.T) {
 	if err != nil || !result.Success {
 		t.Fatalf("retained plan retry failed: result=%#v err=%v", result, err)
 	}
-	if retried.State != "verified" || len(retried.PendingManualRequestIDs) != 0 || retried.LastManualPrompt != "" || retried.LastRequestID != originalRequest {
+	if retried.State != "applied" || len(retried.PendingManualRequestIDs) != 0 || retried.LastManualPrompt != "" || retried.LastRequestID != originalRequest {
 		t.Fatalf("obsolete repair request survived successful retry: %#v", retried)
 	}
 }
@@ -1604,23 +1605,37 @@ func makeExecutionBundle(t *testing.T, requestID string) []byte {
 	return makeExecutionBundleWithBaseline(t, requestID, "")
 }
 
-func makeV2ExecutionBundle(t *testing.T, requestID string, requiresApproval bool) []byte {
+func makeV2ExecutionBundle(t *testing.T, requestID string, requiresApproval bool, approved *domain.ApprovedChatPlan) []byte {
 	t.Helper()
 	var out bytes.Buffer
 	writer := zip.NewWriter(&out)
+	approvedField := ""
+	if approved != nil {
+		rawApproved, err := json.Marshal(approved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		approvedField = `,"approved_chat_plan":` + string(rawApproved)
+	}
 	entries := map[string]string{
 		"README.md":         "# Informed execution plan\nChanges hello.txt from old to new.\n",
 		"turn.json":         `{"protocol":"harness.turn/v1","request_id":"` + requestID + `","kind":"change","message":"Implementação concluída e pronta para execução local.","outcome":{"status":"completed","retryable":false}}`,
 		"patches/001.patch": "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n",
-		"plan.json":         `{"protocol":"harness.execution/v2","plan_id":"bundle-plan-v2","request_id":"` + requestID + `","status":"ready","summary":"Substitui a saudação do ficheiro de demonstração.","document":"## Resultado\nSubstituir old por new em hello.txt.\n\n## Alterações\nUma alteração textual em hello.txt.\n\n## Riscos e rollback\nBaixo; reverter o patch.\n\n## Verificação\nConfirmar o conteúdo final.","dependencies":[],"system_tools":[],"version_increment":{"component":"patch","amount":1},"commit_message":"fix(demo): replace greeting text\n\nKeep the demo content aligned with the approved request.","risk":"low","requires_approval":` + strconv.FormatBool(requiresApproval) + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+		"plan.json":         `{"protocol":"harness.execution/v2","plan_id":"bundle-plan-v2","request_id":"` + requestID + `","status":"ready","summary":"Substitui a saudação do ficheiro de demonstração.","document":"## Resultado\nSubstituir old por new em hello.txt.\n\n## Alterações\nUma alteração textual em hello.txt.\n\n## Riscos e rollback\nBaixo; reverter o patch.\n\n## Verificação\nConfirmar o conteúdo final.","dependencies":[],"system_tools":[]` + approvedField + `,"version_increment":{"component":"patch","amount":1},"commit_message":"fix(demo): replace greeting text\n\nKeep the demo content aligned with the approved request.","risk":"low","requires_approval":` + strconv.FormatBool(requiresApproval) + `,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
 	}
 	addV2ResponseArtifacts(entries, "Atualização cumulativa do pedido de teste.")
 	for name, value := range entries {
 		entry, err := writer.Create(name)
-		if err != nil { t.Fatal(err) }
-		if _, err := entry.Write([]byte(value)); err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(value)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := writer.Close(); err != nil { t.Fatal(err) }
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return out.Bytes()
 }
 
@@ -2292,6 +2307,9 @@ func TestAutoWorkflowBundleExecutesSandboxAndPreparesSameConversationContinuatio
 
 func TestPlanFirstRejectsImplementationBundleUntilLinkedApproval(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
 	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
 	if err != nil {
@@ -2334,6 +2352,19 @@ func TestPlanFirstRejectsImplementationBundleUntilLinkedApproval(t *testing.T) {
 	expectedFilename := expectedResponseBundleFilename(approved, approved.LastRequestID)
 	if !strings.Contains(approved.LastManualPrompt, expectedFilename) {
 		t.Fatalf("approval prompt did not use the derived canonical filename %q", expectedFilename)
+	}
+	if approved.ApprovedChatPlan == nil || !strings.Contains(approved.LastManualPrompt, approved.ApprovedChatPlan.SHA256) {
+		t.Fatalf("approval continuation did not persist and transport the approved chat plan: %#v", approved.ApprovedChatPlan)
+	}
+	if _, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedFilename, makeV2ExecutionBundle(t, approved.LastRequestID, true, nil)); err == nil || !strings.Contains(err.Error(), "approved_chat_plan") {
+		t.Fatalf("approved implementation without its exact chat-plan binding must be rejected, got %v", err)
+	}
+	implementation, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedFilename, makeV2ExecutionBundle(t, approved.LastRequestID, true, approved.ApprovedChatPlan))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !implementation.AutoExecuted || !implementation.AutoApplied || implementation.Session.State != "applied" {
+		t.Fatalf("approved chat plan must authorize its bound Protected Auto implementation through host Apply: %#v", implementation)
 	}
 	if _, _, err := service.SubmitPlanApproval(context.Background(), started.ID, planRequestID); err == nil {
 		t.Fatal("duplicate approval must not create a second continuation")
@@ -2485,25 +2516,39 @@ func TestAutoBundleExecutesSandboxAndAppliesHost(t *testing.T) {
 
 func TestApprovedProtectedAutoExecutionAlsoAppliesHost(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("old\n"), 0o600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
 	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "change hello")
-	if err != nil { t.Fatal(err) }
-	submission, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedResponseBundleFilename(prompted, prompted.LastRequestID), makeV2ExecutionBundle(t, prompted.LastRequestID, true))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedResponseBundleFilename(prompted, prompted.LastRequestID), makeV2ExecutionBundle(t, prompted.LastRequestID, true, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if submission.AutoExecuted || submission.AutoApplied || submission.Session.State != "planned" {
 		t.Fatalf("approval-gated execution should pause before local work: %#v", submission)
 	}
 	_, applied, err := service.Execute(context.Background(), started.ID, true)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if applied.State != "applied" || len(applied.PendingHostChanges) != 0 {
 		t.Fatalf("one informed approval must cover sandbox execution and Protected Auto Apply: %#v", applied)
 	}
 	contents, err := os.ReadFile(filepath.Join(root, "hello.txt"))
-	if err != nil { t.Fatal(err) }
-	if string(contents) != "new\n" { t.Fatalf("approved change was not applied to host: %q", contents) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "new\n" {
+		t.Fatalf("approved change was not applied to host: %q", contents)
+	}
 }
 
 func TestAutoModeRequiresProtected(t *testing.T) {

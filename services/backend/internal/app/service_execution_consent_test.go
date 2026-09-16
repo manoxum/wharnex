@@ -1,10 +1,37 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
 )
+
+func TestValidateApprovedChatPlanBindingRejectsTampering(t *testing.T) {
+	approved := approvedChatPlan("req-plan", "# Approved plan\n\nChange the execution flow.")
+	item := domain.Session{
+		ApprovedChatPlan: approved,
+		RequestLineages: map[string]domain.RequestLineage{
+			"req-implementation": {
+				RequestID:       "req-implementation",
+				RootRequestID:   "req-plan",
+				ParentRequestID: "req-plan",
+				Kind:            requestKindPlanApproval,
+			},
+		},
+	}
+	plan := domain.ExecutionPlan{RequestID: "req-implementation", ApprovedChatPlan: approved}
+	if err := validateApprovedChatPlanBinding(item, &plan); err != nil {
+		t.Fatalf("exact approved plan binding was rejected: %v", err)
+	}
+
+	tampered := *approved
+	tampered.Document += "\nUnapproved host change."
+	plan.ApprovedChatPlan = &tampered
+	if err := validateApprovedChatPlanBinding(item, &plan); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("tampered approved plan document was not rejected: %v", err)
+	}
+}
 
 func TestPlanNeedsInitialConsentOnlyForProtectedRootChange(t *testing.T) {
 	base := domain.Session{
@@ -23,6 +50,15 @@ func TestPlanNeedsInitialConsentOnlyForProtectedRootChange(t *testing.T) {
 	repair.RequestLineages["req-repair"] = domain.RequestLineage{RequestID: "req-repair", RootRequestID: "req-root", Kind: requestKindRepair}
 	if planNeedsInitialConsent(repair) {
 		t.Fatal("derived repair must inherit the root approval")
+	}
+	repair.ExecutionApprovedRootID = "req-root"
+	repair.ApprovedBoundaryKeys = []string{}
+	if !priorExecutionConsentCovers(repair) {
+		t.Fatal("derived repair without a new boundary must inherit the root execution consent")
+	}
+	repair.Plan.SystemTools = []domain.PlanSystemTool{{Target: "host", Name: "new-cli", Action: "install", Reason: "newly discovered requirement"}}
+	if priorExecutionConsentCovers(repair) {
+		t.Fatal("a newly introduced host tool must not inherit narrower consent")
 	}
 
 	direct := base

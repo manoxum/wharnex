@@ -25,12 +25,15 @@ export type ExecutionPlan = {
   document?: string
   dependencies?: Array<{ scope: string; manager: string; name: string; version?: string; action: 'install' | 'update' | 'remove' | 'use'; reason: string }>
   system_tools?: Array<{ target: 'sandbox' | 'host'; name: string; action: 'install' | 'update' | 'configure' | 'use'; reason: string }>
+  approved_chat_plan?: ApprovedChatPlan
   debug?: { protocol: 'harness.debug/v1'; target: 'sandbox' | 'host'; rationale: string }
   risk: 'low' | 'medium' | 'high'
   requires_approval: boolean
   operations: Operation[]
   verification: CommandSpec[]
 }
+
+export type ApprovedChatPlan = { protocol: 'harness.chat-plan/v1'; request_id: string; sha256: string; document: string }
 
 export type PolicyDecision = {
   allowed: boolean
@@ -258,6 +261,9 @@ export type Session = {
   automation_mode: AutomationMode
   debug_enabled?: boolean
   debug_approved_root_request_id?: string
+  approved_chat_plan?: ApprovedChatPlan
+  execution_approved_root_request_id?: string
+  approved_execution_boundary_keys?: string[]
   effort_level?: EffortLevel
   automation_attempt?: number
   improvement_attempt?: number
