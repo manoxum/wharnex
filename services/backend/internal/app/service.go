@@ -293,6 +293,7 @@ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Bui
 	service.normalizeFailureKinds()
 	service.normalizePendingHostChanges()
 	service.reconcileSelfEvolutionStatus()
+	service.reconcileStrandedHostApplies()
 	return service
 }
 

@@ -13,6 +13,7 @@ import (
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/sandbox"
 	"kernl.local/harness/backend/internal/session"
 )
 
@@ -269,4 +270,89 @@ func TestInterruptedExecutionResumeIsAsyncAndIdempotent(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("asynchronous resume did not complete")
+}
+
+// Regression test: resuming an execution interrupted mid-sandbox-run used to
+// stop at the "verified" state instead of finishing the same host
+// integration an uninterrupted Execute call performs automatically. The
+// candidate was left choking on a verified sandbox result with nothing
+// ever propagating it into the host tree.
+func TestInterruptedExecutionResumeAppliesToHostWithoutASecondApproval(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "shared.txt")
+	if err := os.WriteFile(file, []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "resume-apply-plan", RequestID: "resume-apply-request", Status: "ready",
+		Summary: "append a line", CommitMessage: "feat(demo): append a line", Risk: "low",
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/shared.txt\n+++ b/shared.txt\n@@ -1,2 +1,3 @@\n one\n two\n+MINE\n"}},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), started.ID, "change"); err != nil {
+		t.Fatal(err)
+	}
+
+	blocker, err := service.executionQueue.acquire(context.Background(), root, "initial-blocker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, _, executeErr := service.Execute(ctx, started.ID, true); done <- executeErr }()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("cancelled execution should leave an interrupted intent")
+	}
+	blocker.release()
+
+	if _, err := service.ResumeInterruptedExecution(started.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Clearing the interrupted-execution intent and applying to the host are
+	// two separate steps of the same resume; poll for the final "applied"
+	// state rather than treating the brief window between them as failure.
+	deadline := time.Now().Add(2 * time.Second)
+	var current domain.Session
+	for {
+		var getErr error
+		current, getErr = service.store.Get(started.ID)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if current.InterruptedExecution == nil && (current.State == "applied" || current.FailureKind != "") {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if current.State != "applied" {
+		for _, ev := range service.bus.History(started.ID) {
+			t.Logf("event %s: %#v", ev.Type, ev.Data)
+		}
+		t.Fatalf("resume completed without propagating to the host: state=%q pending=%d", current.State, len(current.PendingHostChanges))
+	}
+	if len(current.PendingHostChanges) != 0 {
+		t.Fatalf("resume left an unapplied candidate behind: %#v", current.PendingHostChanges)
+	}
+
+	merged, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(merged), "MINE") {
+		t.Fatalf("resume did not apply the verified patch to the host:\n%s", merged)
+	}
+	// The resume goroutine's integration-branch cleanup runs after the state
+	// write observed above; give it a moment to finish before t.TempDir()
+	// removes the root out from under a still-running git subprocess.
+	time.Sleep(100 * time.Millisecond)
 }

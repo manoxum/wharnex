@@ -99,6 +99,48 @@ func hostApplicablePendingChanges(changes []domain.PendingHostChange) []domain.P
 	return filtered
 }
 
+// reconcileStrandedHostApplies finds sessions whose sandbox verification
+// already succeeded and durably authorized host integration, but whose
+// candidate never reached the host — e.g. the backend exited between
+// recording "verified" and running the automatic Apply that follows it in
+// the same call. Such a session carries no InterruptedExecution marker: the
+// execution itself finished successfully, so nothing else on startup
+// recognizes it as needing to resume, and the protocol forbids ever asking
+// for a second host-apply approval, so without this it would wait forever.
+func (s *Service) reconcileStrandedHostApplies() {
+	for _, item := range s.store.List() {
+		if !strandedHostApply(item) {
+			continue
+		}
+		sessionID := item.ID
+		s.bus.Publish(sessionID, "integration.startup_reconcile_started", map[string]any{"plan_count": len(hostApplicablePendingChanges(pendingHostChanges(item)))})
+		go func() {
+			if _, err := s.applyToHostWithLocalRetry(context.Background(), sessionID); err != nil {
+				s.bus.Publish(sessionID, "integration.startup_reconcile_failed", map[string]any{"error": err.Error()})
+			}
+		}()
+	}
+}
+
+// strandedHostApply reports whether a session's verified candidate is stuck
+// with nothing left to finish it. Sandbox verification only reaches "verified"
+// after passing the Policy/approval gate that Execute enforces before it ever
+// runs a command, so a verified candidate here already carries the informed
+// execution consent that authorizes host integration; it is never a second
+// approval decision.
+func strandedHostApply(item domain.Session) bool {
+	if item.ExecutionMode != domain.ExecutionModeProtected {
+		return false
+	}
+	if item.State != "verified" || item.InterruptedExecution != nil {
+		return false
+	}
+	if pendingHostResolutionBlocked(item) {
+		return false
+	}
+	return len(hostApplicablePendingChanges(pendingHostChanges(item))) > 0
+}
+
 // normalizePendingHostChanges makes the public/session state use the same
 // candidate set as ApplyToHost. This also materializes the legacy implicit
 // verified-plan fallback, so the frontend never advertises a raw count that

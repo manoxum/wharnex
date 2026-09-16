@@ -67,7 +67,8 @@ func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecover
 }
 
 func (s *Service) runInterruptedExecutionResume(sessionID, planID string, approved bool) {
-	result, _, err := s.executeRecordedForPlan(context.Background(), sessionID, approved, planID)
+	ctx := context.Background()
+	result, _, err := s.executeRecordedForPlan(ctx, sessionID, approved, planID)
 	if err != nil {
 		s.markInterruptedExecutionFailed(sessionID, planID, err.Error())
 		return
@@ -76,9 +77,22 @@ func (s *Service) runInterruptedExecutionResume(sessionID, planID string, approv
 		s.markInterruptedExecutionFailed(sessionID, planID, "execution did not complete successfully")
 		return
 	}
-	if _, err := s.clearInterruptedExecution(sessionID, planID); err != nil {
+	cleared, err := s.clearInterruptedExecution(sessionID, planID)
+	if err != nil {
 		s.bus.Publish(sessionID, "execution.recovery_failed", map[string]any{"plan_id": planID, "error": err.Error()})
 		return
+	}
+	// A resumed execution that verified successfully carries the same
+	// informed execution consent as an uninterrupted run: Execute already
+	// integrates a verified Protected candidate into the host without a
+	// second approval, and resuming after an interruption must reach the
+	// same outcome instead of stranding the candidate in "verified" with
+	// nothing left to prompt the operator to finish it.
+	if approved && cleared.ExecutionMode == domain.ExecutionModeProtected && len(hostApplicablePendingChanges(pendingHostChanges(cleared))) > 0 {
+		if _, applyErr := s.applyToHostWithLocalRetry(ctx, sessionID); applyErr != nil {
+			s.bus.Publish(sessionID, "execution.recovery_apply_failed", map[string]any{"plan_id": planID, "error": applyErr.Error()})
+			return
+		}
 	}
 	s.bus.Publish(sessionID, "execution.recovery_completed", map[string]any{"plan_id": planID})
 }
