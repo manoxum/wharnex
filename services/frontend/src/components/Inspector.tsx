@@ -17,8 +17,9 @@ import { sessionCanApplyHost, sessionHostResolutionBlocked } from '../lib/attent
 import { activePendingRequestId } from '../lib/pendingRequest'
 import { sessionCanExecutePlan } from '../lib/executionRecovery'
 import { SignalCore } from './SignalCore'
+import { ChatArtifactLibrary } from './BundleExplorer'
 
-export type InspectorTab = 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
+export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
 export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
@@ -86,13 +87,15 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
       </header>}
 
       {!embedded && <nav className="tabs" aria-label="Inspector">
+        <button className={selectedTab === 'files' ? 'active' : ''} onClick={() => selectTab('files')}><Icon name="folder" size={16}/> Ficheiros</button>
         <button className={selectedTab === 'plan' ? 'active' : ''} onClick={() => selectTab('plan')}><Icon name="plan" size={16}/> Plano</button>
         <button className={selectedTab === 'terminal' ? 'active' : ''} onClick={() => selectTab('terminal')}><Icon name="terminal" size={16}/> Execução <span className="tab-count">{terminalEvents.length}</span></button>
         <button className={selectedTab === 'chatgpt' ? 'active' : ''} onClick={() => selectTab('chatgpt')}><Icon name="agent" size={16}/> Engine {desktop && <span className="desktop-dot" title="Wharnex Desktop"/>}</button>
         <button className={selectedTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => selectTab('direct-chatgpt')}><Icon name="chatgpt" size={16}/> ChatGPT</button>
       </nav>}
 
-      <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''}`}>
+      <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
+        {selectedTab === 'files' && <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
         {selectedTab === 'plan' && <PlanView session={session} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void onResolveConflictWithGPT?.(session)} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}

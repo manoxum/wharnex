@@ -189,6 +189,23 @@ describe('AgentWorkspace', () => {
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
   })
 
+  it('moves chat files into the inspector group immediately before Plano', () => {
+    const rendered = render(props().element)
+    const agentAreas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
+    const files = screen.getByRole('button', { name: 'Ficheiros' })
+    const plan = screen.getByRole('button', { name: 'Plano' })
+
+    expect(files.parentElement).toBe(agentAreas)
+    expect(files.nextElementSibling).toBe(plan)
+    expect(rendered.container.querySelector('.agent-chat-stage .chat-content-tabs')).toBeNull()
+
+    fireEvent.click(files)
+
+    const library = screen.getByRole('region', { name: 'Ficheiros e bundles do chat' })
+    expect(library.closest('.agent-inspector-stage')).toBeTruthy()
+    expect(screen.getByText('Nenhum bundle trocado neste chat.')).toBeTruthy()
+  })
+
   it('removes execute affordances while the active plan is already being dispatched or executed', () => {
     const running = session()
     running.interrupted_execution = { plan_id: running.plan!.plan_id, requested_at: '2026-09-12T19:00:00.000Z', approved: false, status: 'running' }

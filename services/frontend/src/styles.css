@@ -98,10 +98,6 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .danger-button:hover { background: #692720; }
 
 .chat-stream { flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 22px 20px 32px; scrollbar-width: thin; }
-.chat-content-tabs { flex:0 0 auto; min-height:36px; padding:4px 12px; display:flex; align-items:center; gap:4px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb, var(--theme-surface) 96%, transparent); }
-.chat-content-tabs button { min-height:27px; padding:0 10px; display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--theme-text-muted); font-size:calc(9px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
-.chat-content-tabs button:hover { background:var(--theme-hover); color:var(--theme-text); }
-.chat-content-tabs button.active { border-color:var(--theme-border-soft); background:var(--theme-elevated); color:var(--theme-accent); box-shadow:0 1px 4px var(--theme-shadow); }
 .chat-history-loader { min-height: 34px; margin: 0 auto 18px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #7d8378; font-size: calc(8.5px * var(--ui-font-scale)); }
 .chat-history-loader span { display: inline-flex; align-items: center; gap: 5px; }
 .chat-history-loader button { min-height: 27px; padding: 0 9px; border: 1px solid #d4d9cf; border-radius: 999px; background: #f5f7f2; color: #5f6859; font-size: calc(8px * var(--ui-font-scale)); cursor: pointer; }
@@ -323,6 +319,7 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 
 /* v1.2 Desktop ChatGPT composition */
 .inspector-content.desktop-content { padding: 0; overflow: hidden; background: #e5e7df; }
+.inspector-content.files-content { padding: 0; overflow: hidden; display: flex; }
 .desktop-chatgpt-pool { height: 100%; min-height: 0; }
 .desktop-chatgpt-pool-item { display: none; height: 100%; min-height: 0; }
 .desktop-chatgpt-pool-item.active { display: block; }
@@ -1765,7 +1762,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-bundle-counters span + span { padding-left: 7px; border-left: 1px solid #343a31; }
 .agent-bundle-counters i { color: #778171; font-style: normal; font-weight: 800; }
 .agent-bundle-counters b { color: #e4e9df; font-weight: 750; }
-.agent-surface-tabs { grid-column: 4; min-width: 0; display: grid; grid-template-columns: repeat(3, 42px); justify-self: end; border-left: 1px solid #30342d; }
+.agent-surface-tabs { grid-column: 4; min-width: 0; display: grid; grid-template-columns: repeat(4, 42px); justify-self: end; border-left: 1px solid #30342d; }
 .agent-direct-chatgpt-tab button, .agent-surface-tabs button { min-width: 0; height: 42px; position: relative; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-right: 1px solid #292d27; border-bottom: 2px solid transparent; background: transparent; color: #7f887a; cursor: pointer; }
 .agent-direct-chatgpt-tab button:hover, .agent-surface-tabs button:hover { background: #20241e; color: #cfd6c8; }
 .agent-direct-chatgpt-tab button.active, .agent-surface-tabs button.active { border-bottom-color: var(--acid); background: #21251f; color: #f0f3ec; }

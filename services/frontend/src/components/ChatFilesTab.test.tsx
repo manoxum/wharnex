@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Session } from '../types'
 import { ChatPanel } from './ChatPanel'
@@ -25,18 +25,15 @@ const chatActions = {
   onDeleteArchivedChat: async () => undefined,
 }
 
-describe('ChatPanel files tab', () => {
+describe('ChatPanel content surface', () => {
   afterEach(cleanup)
 
-  it('switches from the conversation to the chat bundle and artifact library', () => {
+  it('keeps conversation content direct and removes the local conversation/files tabs', () => {
     render(<ChatPanel session={session} items={[{ id: 'message-1', role: 'user', text: 'Olá' }]} chats={[]} activeChatId="chat-files" busy={false} onSend={async () => undefined} {...chatActions} />)
 
-    expect(screen.getByRole('tab', { name: 'Conversa' }).getAttribute('aria-selected')).toBe('true')
-    fireEvent.click(screen.getByRole('tab', { name: 'Ficheiros' }))
-
-    expect(screen.getByRole('tab', { name: 'Ficheiros' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('region', { name: 'Ficheiros e bundles do chat' })).toBeTruthy()
-    expect(screen.getByText('Nenhum bundle trocado neste chat.')).toBeTruthy()
-    expect(screen.queryByText('Olá')).toBeNull()
+    expect(screen.queryByRole('tablist', { name: 'Conteúdo do chat' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Conversa' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Ficheiros' })).toBeNull()
+    expect(screen.getByText('Olá')).toBeTruthy()
   })
 })

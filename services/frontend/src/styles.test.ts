@@ -285,7 +285,7 @@ describe('split Agent layout CSS', () => {
     expect(splitLayout).toContain('.agent-direct-chatgpt-tab { grid-column: 1')
     expect(splitLayout).toContain('justify-self: start')
     expect(splitLayout).toContain('.agent-surface-tabs { grid-column: 4')
-    expect(splitLayout).toContain('grid-template-columns: repeat(3, 42px)')
+    expect(splitLayout).toContain('grid-template-columns: repeat(4, 42px)')
     expect(splitLayout).toContain('justify-self: end')
     expect(splitLayout).toContain('.agent-commandbar-center { position: absolute; inset: 0')
     expect(splitLayout).toContain('place-items: center')
