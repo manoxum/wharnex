@@ -84,13 +84,13 @@ if [ "$action" = 'restart after source change' ]; then
   update_splash 'Código alterado. A parar a versão anterior…'
   printf '%s source fingerprint changed; rebuilding and restarting.\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" >>"$LOG_FILE"
   update_splash 'A compilar a nova versão. Isto pode demorar alguns minutos…'
-  (cd "$ROOT" && make stop && make build && make start) >>"$LOG_FILE" 2>&1 || {
+  (cd "$ROOT" && export WHARNESS_LAUNCHER_AUTOSTART_DOCKER=1 && make stop && make build && make start) >>"$LOG_FILE" 2>&1 || {
     show_failure
     exit 1
   }
 else
   update_splash 'A iniciar o Desktop…'
-  (cd "$ROOT" && make start) >>"$LOG_FILE" 2>&1 || {
+  (cd "$ROOT" && export WHARNESS_LAUNCHER_AUTOSTART_DOCKER=1 && make start) >>"$LOG_FILE" 2>&1 || {
     show_failure
     exit 1
   }

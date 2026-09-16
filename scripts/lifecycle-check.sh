@@ -8,6 +8,7 @@ LAUNCHER="$ROOT/scripts/launcher.sh"
 SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
 SOURCE_FINGERPRINT_CHECK="$ROOT/scripts/source-fingerprint-check.sh"
 LAUNCHER_CHECK="$ROOT/scripts/launcher-check.sh"
+DOCKER_DAEMON_GUARD_CHECK="$ROOT/scripts/docker-daemon-guard-check.sh"
 INSTALL_DEV="$ROOT/scripts/install-dev.sh"
 INSTALL_DEV_CHECK="$ROOT/scripts/install-dev-check.sh"
 STOP="$ROOT/scripts/stop.sh"
@@ -110,10 +111,11 @@ if ! grep -Fq 'launcher-splash.mjs' "$LAUNCHER" || ! grep -Fq 'SPLASH_READY_FILE
   exit 1
 fi
 WHARNESS_ROOT="$ROOT" "$INSTALL_DEV_CHECK"
-if grep -Fq 'sudo systemctl start docker.service' "$ROOT/scripts/docker-daemon-guard.sh" || ! grep -Fq 'Start docker.service explicitly' "$ROOT/scripts/docker-daemon-guard.sh"; then
-  echo 'lifecycle regression: Docker lifecycle guard must require explicit daemon startup' >&2
+if [ ! -x "$DOCKER_DAEMON_GUARD_CHECK" ]; then
+  echo 'lifecycle regression: Docker lifecycle needs an isolated daemon-start regression check' >&2
   exit 1
 fi
+WHARNESS_ROOT="$ROOT" "$DOCKER_DAEMON_GUARD_CHECK"
 if grep -Eq 'database\.sh.*stop|stack\.sh.*(stop|down)' "$STOP" || printf '%s\n' "$stop_block" | grep -Eq 'stack-(stop|down)'; then
   echo 'lifecycle regression: make stop must never stop the persistent Compose stack' >&2
   exit 1

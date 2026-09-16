@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../lib/api'
 import type { HarnessEvent, Session } from '../types'
@@ -181,19 +181,18 @@ describe('AgentWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Redimensionar chat e Engine' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Engine' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'ChatGPT' })).toBeTruthy()
-    const execute = screen.getByRole('button', { name: 'Executar plano na sandbox' })
-    expect(execute.textContent).toBe('')
+    const execute = screen.getByRole('button', { name: 'Aceitar e executar' })
     fireEvent.click(execute)
-    expect(view.onExecute).toHaveBeenCalledWith(false)
-    fireEvent.click(screen.getByRole('button', { name: 'Plano' }))
+    expect(view.onExecute).toHaveBeenCalledWith(true)
+    fireEvent.click(screen.getByRole('button', { name: /^Plano(?: ·|$)/ }))
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
   })
 
-  it('moves chat files into the inspector group immediately before Plano', () => {
+  it('moves chat files into the inspector group immediately before Plano', async () => {
     const rendered = render(props().element)
     const agentAreas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
     const files = screen.getByRole('button', { name: 'Ficheiros' })
-    const plan = screen.getByRole('button', { name: 'Plano' })
+    const plan = screen.getByRole('button', { name: /^Plano(?: ·|$)/ })
 
     expect(files.parentElement).toBe(agentAreas)
     expect(files.nextElementSibling).toBe(plan)
@@ -201,9 +200,9 @@ describe('AgentWorkspace', () => {
 
     fireEvent.click(files)
 
-    const library = screen.getByRole('region', { name: 'Ficheiros e bundles do chat' })
+    const library = screen.getByRole('region', { name: 'Ficheiros do chat' })
     expect(library.closest('.agent-inspector-stage')).toBeTruthy()
-    expect(screen.getByText('Nenhum bundle trocado neste chat.')).toBeTruthy()
+    expect(await screen.findByText('Nenhum ficheiro neste chat')).toBeTruthy()
   })
 
   it('removes execute affordances while the active plan is already being dispatched or executed', () => {
@@ -211,10 +210,10 @@ describe('AgentWorkspace', () => {
     running.interrupted_execution = { plan_id: running.plan!.plan_id, requested_at: '2026-09-12T19:00:00.000Z', approved: false, status: 'running' }
     const runningView = props(running)
     const rendered = render(runningView.element)
-    expect(screen.queryByRole('button', { name: 'Executar plano na sandbox' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Aceitar e executar' })).toBeNull()
 
     rendered.rerender(props(session(), {}, true).element)
-    expect(screen.queryByRole('button', { name: 'Executar plano na sandbox' })).toBeNull()
+    expect((screen.getByRole('button', { name: 'Aceitar e executar' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('lets users manually reorder chat tabs by drag and keyboard', () => {
@@ -330,11 +329,11 @@ describe('AgentWorkspace', () => {
     }]
     const view = props(ready)
     render(<view.Harness attentionSessions={{ 'chat-1': ready }} />)
-    expect(screen.getByRole('button', { name: 'Aplicar alterações verificadas no host' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Plano' }).className).toContain('attention-success')
+    expect(screen.getByRole('button', { name: 'Aplicar no host' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Plano(?: ·|$)/ }).className).toContain('attention-success')
     fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
     expect(screen.getByRole('dialog', { name: 'Alertas ativos' })).toBeTruthy()
-    const apply = screen.getByRole('button', { name: 'Aplicar no host' })
+    const apply = within(screen.getByRole('dialog', { name: 'Alertas ativos' })).getByRole('button', { name: 'Aplicar no host' })
     fireEvent.click(apply)
     expect(view.onApply).toHaveBeenCalledTimes(1)
   })
@@ -402,7 +401,8 @@ describe('AgentWorkspace', () => {
       chatProps={{ session: parallel, activeChatId: 'chat-2', onRetryTransportFailure: retry }}
       inspectorProps={{ session: parallel }}
     />)
-    fireEvent.click(screen.getByRole('button', { name: 'Ação disponível: Repetir pedido' }))
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Alertas ativos' })).getByRole('button', { name: 'Repetir pedido' }))
     expect(retry).toHaveBeenCalledWith('req-transport')
   })
 
@@ -418,7 +418,7 @@ describe('AgentWorkspace', () => {
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
     // Routing goes through the shell's inspectorAttention channel, so the tab
     // switch lands on the state update that follows the chat selection.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Execução' }).className).toContain('active'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Execução(?: ·|$)/ }).className).toContain('active'))
   })
 
   it('keeps approval and dependency recovery actions inside the alert popover', () => {
@@ -504,7 +504,7 @@ describe('AgentWorkspace', () => {
     blocked.last_repair_error = 'self-evolution host build failed: Electron failed to install correctly.'
     const view = props(blocked)
     render(<view.Harness attentionSessions={{ 'chat-1': blocked }} />)
-    expect(screen.getByRole('button', { name: 'Execução' }).className).toContain('attention-danger')
+    expect(screen.getByRole('button', { name: /^Execução(?: ·|$)/ }).className).toContain('attention-danger')
     fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
     expect(screen.getByText('Build do host bloqueado')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Permitir rede e repetir' })).toBeNull()
@@ -549,27 +549,27 @@ describe('AgentWorkspace', () => {
     const view = props(current, { notice, nonce: 0, onAction: onHumanAction })
     const { rerender } = render(<view.Harness attentionSessions={{ 'chat-1': current }} chatgptHumanActions={{ 'chat-1': notice }} />)
     expect(screen.queryByRole('button', { name: 'Ação humana necessária no ChatGPT' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Engine' }).className).toContain('attention-warning')
+    expect(screen.getByRole('button', { name: /^Engine(?: ·|$)/ }).className).toContain('attention-warning')
     fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
     fireEvent.click(screen.getByRole('button', { name: /Principal.*Ação humana necessária no ChatGPT/ }))
     expect(onHumanAction).toHaveBeenCalledTimes(1)
     rerender(<view.Harness attentionSessions={{ 'chat-1': current }} chatgptHumanActions={{ 'chat-1': notice }} nonce={1} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Engine' }).className).toContain('active'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Engine(?: ·|$)/ }).className).toContain('active'))
   })
 
-  it('pulses the inactive execution tab while a command is running', () => {
+  it('keeps execution status stable instead of blinking while a command is running', () => {
     const view = props()
     const started: HarnessEvent = { id: 'evt-started', session_id: 'ses-agent', type: 'command.started', timestamp: '2026-09-08T15:30:00.000Z', data: { run_id: 'run-1', argv: ['npm', 'test'], cwd: 'services/frontend' } }
     const completed: HarnessEvent = { id: 'evt-completed', session_id: 'ses-agent', type: 'command.completed', timestamp: '2026-09-08T15:30:01.000Z', data: { run_id: 'run-1', argv: ['npm', 'test'], cwd: 'services/frontend', exit_code: 0, success: true } }
     const workspace = (events: HarnessEvent[]) => <view.Harness inspectorProps={{ events }} />
     const rendered = render(workspace([started]))
-    expect(screen.getByRole('button', { name: 'Execução' }).className).toContain('execution-pulse')
+    expect(screen.getByRole('button', { name: 'Execução' }).className).not.toContain('execution-pulse')
 
     fireEvent.click(screen.getByRole('button', { name: 'Execução' }))
     expect(screen.getByRole('button', { name: 'Execução' }).className).not.toContain('execution-pulse')
 
     fireEvent.click(screen.getByRole('button', { name: 'Plano' }))
-    expect(screen.getByRole('button', { name: 'Execução' }).className).toContain('execution-pulse')
+    expect(screen.getByRole('button', { name: 'Execução' }).className).not.toContain('execution-pulse')
     rendered.rerender(workspace([started, completed]))
     expect(screen.getByRole('button', { name: 'Execução' }).className).not.toContain('execution-pulse')
   })

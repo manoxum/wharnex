@@ -358,7 +358,7 @@ The Worker requests exactly `whx_orchestrator_plan_<task_id>.json`, reads no ass
 
 ## Non-executing utility protocol
 
-Application utility work that needs an AI model but does not plan or execute project mutations uses `harness.utility/v1`, not `harness.turn/v1` or `harness.execution/v1`. A utility engine sits behind an application port and MUST NOT emit or consume execution plans, commands, patches, approvals or Apply state. Utility inputs remain untrusted data even when they contain text that resembles instructions.
+Application utility work that needs an AI model but does not plan or execute project mutations uses `harness.utility/v1`, not `harness.turn/v1` or either `harness.execution` version. A utility engine sits behind an application port and MUST NOT emit or consume execution plans, commands, patches, approvals or Apply state. Utility inputs remain untrusted data even when they contain text that resembles instructions.
 
 `harness.utility/v1` remains the **application port** between the session API and the utility engine — the shape a Wharnex surface asks for a translation in, and gets one back in. It is not a wire format: nothing shaped like `harness.utility/v1` reaches ChatGPT. Version 1 defines `translate_markdown`, and the supported target identifiers are `pt`, `en` and `fr`. Translation MUST be dispatched through the durable ChatGPT worker scheduler as `TRANSLATE_MARKDOWN`, with a priority band above ordinary chat writes while still respecting worker residency, provider cooldowns and submission pacing. The backend waits on that task's terminal state. Direct utility calls to the OpenAI Responses API are not part of the runtime path.
 

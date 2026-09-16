@@ -24,6 +24,7 @@ EOF
 cat >"$fake_bin/make" <<'EOF'
 #!/usr/bin/env sh
 printf 'make %s\n' "$*" >>"$WHARNESS_LAUNCHER_TRACE"
+printf 'docker-autostart=%s\n' "${WHARNESS_LAUNCHER_AUTOSTART_DOCKER:-}" >>"$WHARNESS_LAUNCHER_TRACE"
 EOF
 cat >"$fake_bin/zenity" <<'EOF'
 #!/usr/bin/env sh
@@ -47,6 +48,7 @@ first_make=$(awk '/^make / { print NR; exit }' "$trace")
 grep -Fx 'make stop' "$trace"
 grep -Fx 'make build' "$trace"
 grep -Fx 'make start' "$trace"
+grep -Fxc 'docker-autostart=1' "$trace" | grep -Fx '3'
 if grep -Fq 'splash-node-mode' "$trace"; then
   echo 'launcher regression: splash inherited ELECTRON_RUN_AS_NODE and started as plain Node' >&2
   exit 1
