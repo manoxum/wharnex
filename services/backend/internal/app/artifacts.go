@@ -98,7 +98,8 @@ func (s *Service) PersistArtifact(ctx context.Context, sessionID, requestID, dir
 	record := domain.ArtifactRecord{
 		ID: id, RequestID: strings.TrimSpace(requestID), Direction: direction, Kind: kind, Name: name,
 		ContentType: contentType, Size: int64(len(raw)), SHA256: digestHex, ObjectKey: key,
-		CreatedAt: now, ExpiresAt: now.Add(time.Duration(s.ArtifactSettings().RetentionDays) * 24 * time.Hour), Bundle: bundle, EntryCount: entries,
+		CreatedAt: now, ExpiresAt: now.Add(time.Duration(s.ArtifactSettings().RetentionDays) * 24 * time.Hour), Bundle: bundle,
+		BundleType: classifyTransportBundleType(item, requestID, direction, kind, raw, bundle), EntryCount: entries,
 	}
 	if kind == "library" {
 		record.ExpiresAt = time.Time{}

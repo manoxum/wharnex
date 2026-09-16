@@ -1221,6 +1221,7 @@ type ArtifactRecord struct {
 	CreatedAt   time.Time `json:"created_at"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	Bundle      bool      `json:"bundle"`
+	BundleType  string    `json:"bundle_type,omitempty"`
 	EntryCount  int       `json:"entry_count,omitempty"`
 }
 

@@ -60,7 +60,7 @@ func TestArtifactLifecycleExploresAndCleansBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !record.Bundle || record.EntryCount != 2 || record.Size != int64(len(bundle)) {
+	if !record.Bundle || record.BundleType != bundleTypeMainRequest || record.EntryCount != 2 || record.Size != int64(len(bundle)) {
 		t.Fatalf("unexpected bundle metadata: %#v", record)
 	}
 	entries, err := service.ArtifactEntries(context.Background(), "ses_artifacts", record.ID)
