@@ -5,7 +5,7 @@ import { api } from '../lib/api'
 import { formatBytes } from '../lib/desktop'
 import { parseBundleName, parseBundleNameWithDuplicateSuffix } from '../lib/bundlename'
 import { Icon } from './Icon'
-import { requestArtifactIndex } from '../lib/artifactIndexing'
+import { artifactIndexMarker, requestArtifactIndex } from '../lib/artifactIndexing'
 import { ArtifactPreview } from './ArtifactPreview'
 import { ArtifactViewerModal, type ArtifactViewerItem } from './ArtifactViewerModal'
 
@@ -71,17 +71,21 @@ export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }
 
 
 type ChatFileView = 'cards' | 'table'
+type ChatFileSortKey = 'name' | 'source' | 'size' | 'date'
+type ChatFileSort = { key: ChatFileSortKey; direction: 'asc' | 'desc' }
 
 export function ChatArtifactLibrary({ sessionId, artifacts = EMPTY_ARTIFACTS, requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
   const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
   const [files, setFiles] = useState<ChatFileRecord[]>([])
   const [query, setQuery] = useState('')
   const [view, setView] = useState<ChatFileView>('cards')
+  const [sort, setSort] = useState<ChatFileSort>({ key: 'date', direction: 'desc' })
   const [selectedBundle, setSelectedBundle] = useState<ArtifactRecord>()
   const [viewer, setViewer] = useState<ChatFileRecord>()
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -94,38 +98,102 @@ export function ChatArtifactLibrary({ sessionId, artifacts = EMPTY_ARTIFACTS, re
 
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase('pt')
-    return files.filter((file) => !needle || `${file.name} ${file.path || ''} ${file.source} ${file.request_id || ''}`.toLocaleLowerCase('pt').includes(needle))
-  }, [files, query])
+    return files
+      .filter((file) => !needle || `${file.name} ${file.path || ''} ${file.source} ${file.request_id || ''}`.toLocaleLowerCase('pt').includes(needle))
+      .sort((left, right) => compareChatFiles(left, right, sort))
+  }, [files, query, sort])
   const visibleBundles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase('pt')
     return bundles.filter((bundle) => !needle || `${bundle.name} ${bundle.request_id || ''}`.toLocaleLowerCase('pt').includes(needle))
   }, [bundles, query])
 
-  function indexFile(file: ChatFileRecord) {
-    requestArtifactIndex('chat', file.direct ? `artifact|${file.artifact_id}` : `entry|${file.artifact_id}|${file.path || ''}`)
+  function chatReference(file: ChatFileRecord) {
+    return file.direct ? `artifact|${file.artifact_id}` : `entry|${file.artifact_id}|${file.path || ''}`
+  }
+
+  function insertChatReference(file: ChatFileRecord) {
+    const value = chatReference(file)
+    const marker = artifactIndexMarker('chat', value)
+    requestArtifactIndex('chat', value)
+    setNotice(`${file.name} inserido no composer como @chat.`)
+    void navigator.clipboard?.writeText(marker).catch(() => undefined)
   }
 
   async function saveToLibrary(file: ChatFileRecord) {
-    const key = chatFileKey(file); setSaving(key); setError('')
-    try { await api.saveChatFileToLibrary(sessionId, file.artifact_id, file.path || '') }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível guardar o ficheiro na biblioteca.') }
+    const key = chatFileKey(file); setSaving(key); setError(''); setNotice('')
+    try {
+      await api.saveChatFileToLibrary(sessionId, file.artifact_id, file.path || '')
+      setNotice(`${file.name} guardado na biblioteca.`)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível guardar o ficheiro na biblioteca.') }
     finally { setSaving('') }
+  }
+
+  function changeSort(key: ChatFileSortKey) {
+    setSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: key === 'date' || key === 'size' ? 'desc' : 'asc' })
   }
 
   return <section className="chat-artifact-library" aria-label="Ficheiros do chat">
     <header className="chat-artifact-library-header"><div><span><Icon name="folder" size={14}/></span><div><strong>Ficheiros do chat</strong><small>Anexos enviados e ficheiros devolvidos pelo GPT numa única área. Os bundles do protocolo continuam disponíveis separadamente.</small></div></div><div className="chat-artifact-library-counts"><b>{visible.length}</b><span>ficheiros</span><b>{visibleBundles.length}</b><span>bundles</span></div></header>
-    <div className="chat-file-toolbar"><label className="panel-search-field"><Icon name="search" size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar ficheiros deste chat…" aria-label="Pesquisar ficheiros deste chat"/></label><div className="file-view-switch"><button type="button" className={view === 'cards' ? 'active' : ''} onClick={() => setView('cards')} title="Cards"><Icon name="package" size={13}/></button><button type="button" className={view === 'table' ? 'active' : ''} onClick={() => setView('table')} title="Tabela"><Icon name="list" size={13}/></button></div></div>
+    <div className="chat-file-toolbar"><label className="panel-search-field"><Icon name="search" size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar ficheiros deste chat…" aria-label="Pesquisar ficheiros deste chat"/></label><div className="file-view-switch" role="group" aria-label="Modo de visualização"><button type="button" className={view === 'cards' ? 'active' : ''} onClick={() => setView('cards')} title="Cards"><Icon name="package" size={13}/></button><button type="button" className={view === 'table' ? 'active' : ''} onClick={() => setView('table')} title="Tabela"><Icon name="list" size={13}/></button></div></div>
     {error && <div className="composer-error">{error}</div>}
+    {notice && <div className="artifact-action-notice" role="status">{notice}</div>}
     {loading && <p className="muted-copy">A carregar ficheiros do chat…</p>}
-    {view === 'cards' ? <div className="chat-file-grid">{visible.map((file) => <article className="chat-file-card" key={chatFileKey(file)}><button type="button" className="chat-file-preview" onClick={() => setViewer(file)}><ArtifactPreview sessionId={sessionId} path={file.name} size={file.size} compact url={chatFileURL(sessionId, file)}/></button><div className="chat-file-copy"><strong title={file.name}>{file.name}</strong><small>{chatFileSourceLabel(file)} · {formatBytes(file.size)}</small></div><div className="chat-file-actions"><button type="button" onClick={() => indexFile(file)} title="Indexar no próximo prompt"><Icon name="link" size={12}/> Indexar</button><button type="button" onClick={() => void saveToLibrary(file)} disabled={saving === chatFileKey(file)} title="Guardar na biblioteca"><Icon name="save" size={12}/></button><a href={chatFileDownloadURL(sessionId, file)} download={file.name} title="Descarregar"><Icon name="download" size={12}/></a></div></article>)}</div>
-      : <div className="chat-file-table"><div className="chat-file-table-head"><span>Nome</span><span>Origem</span><span>Tamanho</span><span>Data</span><span>Ações</span></div>{visible.map((file) => <div className="chat-file-table-row" key={chatFileKey(file)}><button type="button" onClick={() => setViewer(file)}><Icon name="file" size={13}/><span>{file.name}</span></button><span>{chatFileSourceLabel(file)}</span><span>{formatBytes(file.size)}</span><span>{formatDateTime(file.created_at)}</span><span><button type="button" onClick={() => indexFile(file)}>Indexar</button><button type="button" onClick={() => void saveToLibrary(file)} disabled={saving === chatFileKey(file)}>Biblioteca</button><a href={chatFileDownloadURL(sessionId, file)} download={file.name}>Descarregar</a></span></div>)}</div>}
+    {view === 'cards' ? <div className="chat-file-grid">{visible.map((file) => <article className="chat-file-card" key={chatFileKey(file)}><button type="button" className="chat-file-preview" onClick={() => setViewer(file)} aria-label={`Abrir ${file.name}`}><ChatFileThumbnail sessionId={sessionId} file={file}/></button><div className="chat-file-copy"><strong title={file.name}>{file.name}</strong><small>{chatFileSourceLabel(file)} · {formatBytes(file.size)}</small></div><div className="chat-file-actions"><button type="button" onClick={() => insertChatReference(file)} title="Inserir @chat no composer"><Icon name="link" size={12}/> @chat</button><button type="button" onClick={() => void saveToLibrary(file)} disabled={saving === chatFileKey(file)} title="Guardar na biblioteca"><Icon name="save" size={12}/></button><a href={chatFileDownloadURL(sessionId, file)} download={file.name} title="Descarregar"><Icon name="download" size={12}/></a></div></article>)}</div>
+      : <div className="chat-file-table" role="table" aria-label="Tabela de ficheiros do chat"><div className="chat-file-table-head" role="row"><ChatFileSortButton label="Ficheiro" sortKey="name" sort={sort} onSort={changeSort}/><ChatFileSortButton label="Origem" sortKey="source" sort={sort} onSort={changeSort}/><ChatFileSortButton label="Tamanho" sortKey="size" sort={sort} onSort={changeSort}/><ChatFileSortButton label="Data" sortKey="date" sort={sort} onSort={changeSort}/><span role="columnheader">Ações</span></div>{visible.map((file) => <div className="chat-file-table-row" role="row" key={chatFileKey(file)}><button type="button" className="chat-file-table-name" onClick={() => setViewer(file)}><span className="chat-file-table-thumb"><ChatFileThumbnail sessionId={sessionId} file={file} compact/></span><span>{file.name}</span></button><span>{chatFileSourceLabel(file)}</span><span>{formatBytes(file.size)}</span><span>{formatDateTime(file.created_at)}</span><span><button type="button" onClick={() => insertChatReference(file)}>@chat</button><button type="button" onClick={() => void saveToLibrary(file)} disabled={saving === chatFileKey(file)}>Biblioteca</button><a href={chatFileDownloadURL(sessionId, file)} download={file.name}>Descarregar</a></span></div>)}</div>}
     {!loading && !visible.length && <div className="artifact-preview-empty"><Icon name="file" size={28}/><strong>Nenhum ficheiro neste chat</strong><span>Os anexos enviados e os ficheiros devolvidos pelo GPT aparecerão aqui.</span></div>}
     {visibleBundles.length > 0 && <section className="chat-bundle-strip" aria-label="Bundles do protocolo"><header><strong>Bundles do protocolo</strong><small>Pedidos e respostas integrais para auditoria.</small></header><div>{visibleBundles.map((bundle) => { const presentation = bundlePresentation(bundle, requestLineages); return <button key={bundle.id} type="button" className={`bundle-card bundle-tone-${presentation.tone}`} onClick={() => setSelectedBundle(bundle)}><span className="bundle-kind-mark">{bundle.direction === 'input' ? '↑' : '↓'}</span><span><em>{presentation.label}</em><b>{bundle.name}</b><small>{formatBytes(bundle.size)} · {bundle.entry_count || 0} itens</small></span><Icon name="chevron" size={10}/></button> })}</div></section>}
     {selectedBundle && <BundleExplorer sessionId={sessionId} bundle={selectedBundle} bundles={bundles} requestLineages={requestLineages} onBundle={setSelectedBundle} onClose={() => setSelectedBundle(undefined)}/>}
     {viewer && (viewer.direct
       ? <ArtifactViewerModal sessionId={sessionId} artifactId={viewer.artifact_id} items={[{ path: viewer.name, size: viewer.size, content_type: viewer.content_type }]} initialIndex={0} onClose={() => setViewer(undefined)}/>
-      : <ArtifactViewerModal sessionId={sessionId} bundleId={viewer.artifact_id} items={[{ path: viewer.path || viewer.name, size: viewer.size, content_type: viewer.content_type }]} initialIndex={0} onClose={() => setViewer(undefined)}/>)}
+      : <ArtifactViewerModal sessionId={sessionId} bundleId={viewer.artifact_id} items={[{ path: viewer.path || viewer.name, size: viewer.size, content_type: viewer.content_type }]} initialIndex={0} onClose={() => setViewer(undefined)}/>) }
   </section>
+}
+
+function ChatFileSortButton({ label, sortKey, sort, onSort }: { label: string; sortKey: ChatFileSortKey; sort: ChatFileSort; onSort: (key: ChatFileSortKey) => void }) {
+  const active = sort.key === sortKey
+  return <span role="columnheader" aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className={active ? 'chat-file-sort active' : 'chat-file-sort'} onClick={() => onSort(sortKey)} aria-label={`Ordenar por ${label.toLocaleLowerCase('pt')}`}>{label}<span aria-hidden="true">{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></span>
+}
+
+function ChatFileThumbnail({ sessionId, file, compact = false }: { sessionId: string; file: ChatFileRecord; compact?: boolean }) {
+  const kind = chatFileThumbnailKind(file)
+  const url = chatFileURL(sessionId, file)
+  if (kind === 'image') return <span className="chat-file-media-thumb"><img src={url} alt="" loading="lazy"/></span>
+  if (kind === 'video') return <span className="chat-file-media-thumb"><video src={url} muted playsInline preload="metadata"/></span>
+  const label = genericDocumentLabel(file.name)
+  return <span className={`chat-file-generic-thumb ${compact ? 'compact' : ''}`}><span><Icon name="file" size={compact ? 14 : 30}/></span><b>{label}</b>{!compact && <small>{genericDocumentCaption(file.name, file.content_type)}</small>}</span>
+}
+
+function chatFileThumbnailKind(file: ChatFileRecord): 'image' | 'video' | 'document' {
+  const type = (file.content_type || '').toLocaleLowerCase('en')
+  const ext = file.name.toLocaleLowerCase('en').split('.').pop() || ''
+  if (type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'].includes(ext)) return 'image'
+  if (type.startsWith('video/') || ['mp4', 'webm', 'mov', 'm4v', 'ogv', 'avi', 'mkv'].includes(ext)) return 'video'
+  return 'document'
+}
+
+function genericDocumentLabel(name: string) {
+  const ext = name.toLocaleLowerCase('en').split('.').pop() || ''
+  if (ext === 'pdf') return 'PDF'
+  if (['doc', 'docx', 'odt'].includes(ext)) return 'WORD'
+  if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) return 'SHEET'
+  if (['ppt', 'pptx', 'odp'].includes(ext)) return 'SLIDE'
+  if (['md', 'mdx', 'markdown'].includes(ext)) return 'MD'
+  if (['txt', 'log', 'rtf'].includes(ext)) return 'TXT'
+  return ext ? ext.slice(0, 6).toLocaleUpperCase('en') : 'FILE'
+}
+
+function genericDocumentCaption(name: string, contentType?: string) {
+  const ext = name.split('.').pop()?.toLocaleUpperCase('en')
+  return ext && ext.length <= 8 ? `${ext} · documento` : (contentType || 'Documento')
+}
+
+function compareChatFiles(left: ChatFileRecord, right: ChatFileRecord, sort: ChatFileSort) {
+  let value = 0
+  if (sort.key === 'name') value = left.name.localeCompare(right.name, 'pt')
+  else if (sort.key === 'source') value = chatFileSourceLabel(left).localeCompare(chatFileSourceLabel(right), 'pt')
+  else if (sort.key === 'size') value = left.size - right.size
+  else value = Date.parse(left.created_at) - Date.parse(right.created_at)
+  return sort.direction === 'asc' ? value : -value
 }
 
 function chatFileKey(file: ChatFileRecord) { return `${file.artifact_id}:${file.path || ''}` }

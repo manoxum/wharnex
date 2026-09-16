@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ArtifactPresentation, ArtifactRecord, ChatFileRecord } from '../types'
 import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
+import { ARTIFACT_INDEX_EVENT, type ArtifactIndexRequest } from '../lib/artifactIndexing'
 
 const mocks = vi.hoisted(() => ({
   artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })),
@@ -122,14 +123,43 @@ describe('BundleExchangeBar', () => {
 
     render(<ChatArtifactLibrary sessionId="ses_1" artifacts={[input, output]} />)
 
-    expect(await screen.findByText('brief.pdf')).toBeTruthy()
-    expect(screen.getByText('chart.png')).toBeTruthy()
+    const briefName = await screen.findByText('brief.pdf')
+    const chartName = screen.getByText('chart.png')
     expect(screen.getByText(input.name)).toBeTruthy()
     expect(screen.getByText(output.name)).toBeTruthy()
     expect(mocks.chatFiles).toHaveBeenCalledWith('ses_1')
-    const libraryButtons = screen.getAllByTitle('Guardar na biblioteca')
-    fireEvent.click(libraryButtons[1])
+
+    const briefCard = briefName.closest('.chat-file-card') as HTMLElement
+    const chartCard = chartName.closest('.chat-file-card') as HTMLElement
+    expect(briefCard.querySelector('.chat-file-generic-thumb')?.textContent).toContain('PDF')
+    expect(briefCard.querySelector('img')).toBeNull()
+    expect(briefCard.querySelector('video')).toBeNull()
+    expect(chartCard.querySelector('.chat-file-media-thumb img')).toBeTruthy()
+
+    const indexed: ArtifactIndexRequest[] = []
+    window.addEventListener(ARTIFACT_INDEX_EVENT, (event: Event) => {
+      indexed.push((event as CustomEvent<ArtifactIndexRequest>).detail)
+    }, { once: true })
+    fireEvent.click(chartCard.querySelector('button[title="Inserir @chat no composer"]') as HTMLButtonElement)
+    expect(indexed).toEqual([{ kind: 'chat', value: 'entry|output-bundle|artifacts/chart.png' }])
+
+    fireEvent.click(chartCard.querySelector('button[title="Guardar na biblioteca"]') as HTMLButtonElement)
     await waitFor(() => expect(mocks.saveChatFileToLibrary).toHaveBeenCalledWith('ses_1', 'output-bundle', 'artifacts/chart.png'))
+
+    fireEvent.click(screen.getByTitle('Tabela'))
+    expect(screen.getByRole('table', { name: 'Tabela de ficheiros do chat' })).toBeTruthy()
+    let rows = Array.from(document.querySelectorAll<HTMLElement>('.chat-file-table-row'))
+    expect(rows[0]?.textContent).toContain('chart.png')
+    expect(rows[0]?.querySelector('.chat-file-table-thumb img')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ordenar por ficheiro' }))
+    rows = Array.from(document.querySelectorAll<HTMLElement>('.chat-file-table-row'))
+    expect(rows[0]?.textContent).toContain('brief.pdf')
+    expect(rows[0]?.querySelector('.chat-file-table-thumb .chat-file-generic-thumb')?.textContent).toContain('PDF')
+
+    fireEvent.change(screen.getByLabelText('Pesquisar ficheiros deste chat'), { target: { value: 'chart' } })
+    expect(screen.queryByText('brief.pdf')).toBeNull()
+    expect(screen.getByText('chart.png')).toBeTruthy()
   })
 
   it('renders user-facing files from artifacts/ in the matching response bundle', async () => {
