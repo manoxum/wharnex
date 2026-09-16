@@ -47,6 +47,8 @@ describe('Inspector plan compatibility', () => {
       onSession={() => undefined}
     />)
     expect(screen.getByText('Plano sem operações')).toBeTruthy()
+    expect(document.querySelector('.plan-control-surface')).toBeTruthy()
+    expect(document.querySelector('.plan-command-deck')).toBeNull()
     expect(screen.getByText('Operações').parentElement?.textContent).toContain('0')
     expect(screen.getByText('Verificações').parentElement?.textContent).toContain('0')
   })
@@ -76,7 +78,10 @@ describe('Inspector plan compatibility', () => {
       onBundleFile={async () => ''}
       onSession={() => undefined}
     />)
-    expect(screen.getByRole('button', { name: /Descarregar patches/i })).toBeTruthy()
+    const downloadPatches = screen.getByRole('button', { name: /Descarregar patches/i })
+    expect(downloadPatches).toBeTruthy()
+    expect(downloadPatches.closest('.plan-control-surface')).toBeTruthy()
+    expect(downloadPatches.closest('.plan-manual-tools')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Copiar lote de comandos/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /src\/demo\.ts/i })).toBeTruthy()
     expect(screen.queryByText(/diff --git a\/src\/demo\.ts/)).toBeNull()
