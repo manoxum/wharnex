@@ -68,8 +68,9 @@ func (s *Service) ListChatFiles(ctx context.Context, sessionID string) ([]ChatFi
 		if entryErr != nil {
 			continue
 		}
+		declaredMarkdown := s.declaredMarkdownPaths(ctx, sessionID, artifact)
 		for _, entry := range entries {
-			if entry.Dir || !chatVisibleBundleEntry(artifact.Direction, entry.Path) {
+			if entry.Dir || !chatVisibleBundleEntry(artifact.Direction, entry.Path, declaredMarkdown) {
 				continue
 			}
 			name := filepath.Base(entry.Path)
@@ -86,6 +87,9 @@ func (s *Service) ListChatFiles(ctx context.Context, sessionID string) ([]ChatFi
 }
 
 func chatVisibleDirectArtifact(artifact domain.ArtifactRecord) bool {
+	if isMarkdownPath(artifact.Name) {
+		return false
+	}
 	switch artifact.Kind {
 	case "context", "library", "bundle-preview":
 		return false
@@ -94,12 +98,44 @@ func chatVisibleDirectArtifact(artifact domain.ArtifactRecord) bool {
 	}
 }
 
-func chatVisibleBundleEntry(direction, entryPath string) bool {
+func chatVisibleBundleEntry(direction, entryPath string, declaredMarkdown map[string]bool) bool {
 	clean := strings.TrimPrefix(filepath.ToSlash(entryPath), "/")
+	visiblePrefix := strings.HasPrefix(clean, "artifacts/")
 	if direction == "input" {
-		return strings.HasPrefix(clean, "attachments/") || strings.HasPrefix(clean, "artifacts/")
+		visiblePrefix = strings.HasPrefix(clean, "attachments/") || visiblePrefix
 	}
-	return strings.HasPrefix(clean, "artifacts/")
+	if !visiblePrefix {
+		return false
+	}
+	return !isMarkdownPath(clean) || declaredMarkdown[clean]
+}
+
+func isMarkdownPath(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".md", ".mdx", ".markdown":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) declaredMarkdownPaths(ctx context.Context, sessionID string, artifact domain.ArtifactRecord) map[string]bool {
+	declared := map[string]bool{}
+	if artifact.Direction != "output" {
+		return declared
+	}
+	presentation, err := s.ArtifactPresentation(ctx, sessionID, artifact.ID)
+	if err != nil || presentation.Fallback {
+		return declared
+	}
+	for _, gallery := range presentation.Galleries {
+		for _, item := range gallery.Items {
+			if item.Kind == "markdown" {
+				declared[strings.TrimPrefix(filepath.ToSlash(item.Path), "/")] = true
+			}
+		}
+	}
+	return declared
 }
 
 func chatFileSource(direction, kind, entryPath string) string {
@@ -137,7 +173,7 @@ func (s *Service) SaveChatFileToLibrary(ctx context.Context, sessionID, artifact
 		if err != nil {
 			return domain.ArtifactRecord{}, err
 		}
-		if !record.Bundle || !chatVisibleBundleEntry(record.Direction, entryPath) {
+		if !record.Bundle || !chatVisibleBundleEntry(record.Direction, entryPath, s.declaredMarkdownPaths(ctx, sessionID, record)) {
 			return domain.ArtifactRecord{}, errors.New("bundle entry is not a chat-visible file")
 		}
 		data, entryName, err := s.ReadArtifactEntry(ctx, sessionID, artifactID, entryPath)

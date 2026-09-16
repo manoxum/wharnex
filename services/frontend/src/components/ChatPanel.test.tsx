@@ -7,6 +7,7 @@ import type { Session } from '../types'
 import { clearEphemeralComposerDrafts } from '../lib/workspaceMemory'
 import { api } from '../lib/api'
 import { deltaToCanonicalText, directivesToDelta, textOffsetToQuillIndex } from '../lib/composerRichText'
+import { requestArtifactIndex } from '../lib/artifactIndexing'
 
 // jsdom cannot faithfully simulate real keystrokes into a contenteditable
 // Quill instance (no real Selection/Range layout), so these tests drive the
@@ -638,6 +639,20 @@ describe('ChatPanel', () => {
     // The chip is a real embedded node, not the marker's own tinted text — its
     // title still carries the exact canonical marker it stands for.
     expect(view.container.querySelector('.composer-directive-chip.file')?.getAttribute('title')).toBe('@{[file]src/App.tsx}')
+    view.unmount()
+  })
+
+  it('inserts @chat references at the current composer caret as a chip', async () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="chat-file-insert" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    typeInComposer(ref, 'Revê isto agora', 5)
+    act(() => requestArtifactIndex('chat', 'artifact|artifact-1'))
+
+    await waitFor(() => expect(composerText(ref)).toBe('Revê @{[chat]artifact|artifact-1} isto agora'))
+    expect(view.container.querySelector('.composer-directive-chip.chat')?.getAttribute('title')).toBe('@{[chat]artifact|artifact-1}')
     view.unmount()
   })
 
