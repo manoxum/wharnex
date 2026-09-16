@@ -4,7 +4,7 @@
 
 - `harness.request-metadata/v1`: engine-authored identity repeated in every provider request bundle and its bounded composer bootstrap: `chat_title`, local `chat_id`, context/chat `chat_hash`, and `requested_at`.
 - `harness.turn/v1`: classifies one conversational agent outcome.
-- `harness.execution/v1`: legacy executable work accepted for persisted/in-flight compatibility.
+- `harness.execution/v1`: legacy executable work accepted only for persisted/in-flight compatibility; new planner/provider output does not target it.
 - `harness.execution/v2`: describes new executable work for a `workflow` or `change` turn and carries the informed execution contract.
 - `harness.debug/v1`: a diagnostic extension carried only by a `workflow` execution plan; it selects a bounded `sandbox` or read-only allowlisted `host` probe and states its rationale.
 - `wharness.translation-input/v1`: the request bundle Wharnex uploads for one document translation.

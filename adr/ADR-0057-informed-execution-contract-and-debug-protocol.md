@@ -10,7 +10,7 @@ An executable bundle previously exposed commands and patches but did not give th
 
 ## Decision
 
-New plans use `harness.execution/v2`, which adds a Markdown `document`, typed `dependencies`, and typed `system_tools`; `harness.execution/v1` remains readable for persisted/in-flight compatibility. Newly prompted change bundles must populate all three, using empty arrays when there is no dependency or system-tool impact. Exact operations and patches remain authoritative; prose never grants execution authority.
+New plans use `harness.execution/v2`, which adds a Markdown `document`, typed `dependencies`, and typed `system_tools`; `harness.execution/v1` remains readable for persisted/in-flight compatibility and is not the target for newly prompted plans. Newly prompted change bundles must populate all three, using empty arrays when there is no dependency or system-tool impact. Exact operations and patches remain authoritative; prose never grants execution authority.
 
 A new `harness.debug/v1` extension may be attached only to a `workflow` plan. It declares `target=sandbox|host` and a rationale. Every debug step remains argv-only, patch-free, network-disabled, bounded to the existing six workflow rounds, validated by Policy, and its output is untrusted evidence. Sandbox debug uses the disposable copied workspace. Host debug uses a closed read-only command vocabulary and can neither mutate files nor invoke arbitrary readers, shells, package managers, privilege tools, or Docker.
 
