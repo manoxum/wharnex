@@ -270,6 +270,8 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
         chatgptUrl={surface ? surface.url : activeChat.chatgptUrl}
         pendingRequestId={activePendingRequestId(session)}
         sessionId={session.id}
+        chatHash={session.context.workspace_sha256 || session.context.manifest.sha256}
+        requestedAt={session.request_lineages?.[activePendingRequestId(session)]?.created_at || session.created_at}
         recoveryBootstrap={session.last_manual_prompt}
         onChatGPTURL={onChatGPTURL}
         onActivity={onChatGPTActivity}

@@ -150,6 +150,15 @@ type RemoteInputRequest struct {
 	Artifacts         []RemoteInputFile `json:"artifacts"`
 	ProjectFiles      []string          `json:"project_files"`
 	TunnelInstanceIDs []string          `json:"tunnel_instance_ids"`
+	RequestMetadata   RequestMetadata   `json:"request_metadata"`
+}
+
+type RequestMetadata struct {
+	Protocol    string `json:"protocol"`
+	ChatTitle   string `json:"chat_title"`
+	ChatID      string `json:"chat_id"`
+	ChatHash    string `json:"chat_hash"`
+	RequestedAt string `json:"requested_at"`
 }
 
 type RemoteInputResult struct {

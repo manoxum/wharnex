@@ -74,6 +74,9 @@ func TestBuildRequestSealsPromptSourceAndDigest(t *testing.T) {
 	if manifest.TargetLanguage != "pt" {
 		t.Fatalf("target language must be normalized, got %q", manifest.TargetLanguage)
 	}
+	if manifest.RequestMetadata.Protocol != "harness.request-metadata/v1" || manifest.RequestMetadata.ChatTitle == "" || manifest.RequestMetadata.ChatID == "" || len(manifest.RequestMetadata.ChatHash) != 64 || manifest.RequestMetadata.RequestedAt == "" {
+		t.Fatalf("request metadata must be complete: %#v", manifest.RequestMetadata)
+	}
 	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
 	if err != nil {
 		t.Fatal(err)
@@ -95,8 +98,12 @@ func TestBuildRequestSealsPromptSourceAndDigest(t *testing.T) {
 		t.Fatalf("source entry=%q", found[SourcePath])
 	}
 	prompt := found[PromptPath]
-	if !strings.Contains(prompt, manifest.ResultFilename) || !strings.Contains(prompt, manifest.SourceSHA256) {
+	if !strings.Contains(prompt, manifest.ResultFilename) || !strings.Contains(prompt, manifest.SourceSHA256) || !strings.Contains(prompt, "ChatId: "+manifest.RequestMetadata.ChatID) {
 		t.Fatalf("prompt must name the expected artifact and the source digest: %q", prompt)
+	}
+	bootstrap := RequestBootstrap(manifest)
+	if !strings.Contains(bootstrap, "ChatHash: "+manifest.RequestMetadata.ChatHash) || !strings.Contains(bootstrap, "RequestedAt: "+manifest.RequestMetadata.RequestedAt) {
+		t.Fatalf("bootstrap must expose the request metadata: %q", bootstrap)
 	}
 	// The document is arbitrary third-party text and may well contain sentences
 	// shaped like instructions. Saying so is part of the contract.

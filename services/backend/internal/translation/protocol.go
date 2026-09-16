@@ -110,16 +110,27 @@ func LanguageName(code string) string {
 
 // TransportManifest is the request archive's root document.
 type TransportManifest struct {
-	Protocol        string `json:"protocol"`
-	Task            string `json:"task"`
-	TaskID          string `json:"task_id"`
-	TargetLanguage  string `json:"target_language"`
-	RequestFilename string `json:"request_filename"`
-	SourcePath      string `json:"source_path"`
-	SourceSHA256    string `json:"source_sha256"`
-	SourceBytes     int    `json:"source_bytes"`
-	ResultPath      string `json:"result_path"`
-	ResultFilename  string `json:"result_filename"`
+	Protocol        string          `json:"protocol"`
+	Task            string          `json:"task"`
+	TaskID          string          `json:"task_id"`
+	TargetLanguage  string          `json:"target_language"`
+	RequestFilename string          `json:"request_filename"`
+	SourcePath      string          `json:"source_path"`
+	SourceSHA256    string          `json:"source_sha256"`
+	SourceBytes     int             `json:"source_bytes"`
+	ResultPath      string          `json:"result_path"`
+	ResultFilename  string          `json:"result_filename"`
+	RequestMetadata RequestMetadata `json:"request_metadata"`
+}
+
+// RequestMetadata gives every provider request the same stable, engine-owned
+// identity, independent of the surrounding browser conversation label.
+type RequestMetadata struct {
+	Protocol    string `json:"protocol"`
+	ChatTitle   string `json:"chat_title"`
+	ChatID      string `json:"chat_id"`
+	ChatHash    string `json:"chat_hash"`
+	RequestedAt string `json:"requested_at"`
 }
 
 // ResultManifest is the response bundle's root document.

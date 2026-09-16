@@ -223,7 +223,9 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 		t.Fatal(err)
 	}
 	target := filepath.Join(root, "remote.zip")
-	request := RemoteInputRequest{RequestID: "req_test", Prompt: "full prompt", IncludeContext: true}
+	request := RemoteInputRequest{RequestID: "req_test", Prompt: "full prompt", IncludeContext: true, RequestMetadata: RequestMetadata{
+		Protocol: "harness.request-metadata/v1", ChatTitle: "Remote request", ChatID: "chat-1", ChatHash: strings.Repeat("a", 64), RequestedAt: "2026-09-15T23:04:43Z",
+	}}
 	attachments, err := decodeRemoteFiles([]RemoteInputFile{{Name: "notes.txt", ContentBase64: base64.StdEncoding.EncodeToString([]byte("notes"))}}, maxRemoteAttachmentBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -241,13 +243,29 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 	}
 	defer archive.Close()
 	names := map[string]bool{}
+	var transport map[string]any
 	for _, entry := range archive.File {
 		names[entry.Name] = true
+		if entry.Name == "transport.json" {
+			input, openErr := entry.Open()
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+			raw, readErr := io.ReadAll(input)
+			_ = input.Close()
+			if readErr != nil || json.Unmarshal(raw, &transport) != nil {
+				t.Fatalf("read transport metadata: %v", readErr)
+			}
+		}
 	}
 	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "context/src/main.txt", "attachments/notes.txt"} {
 		if !names[expected] {
 			t.Errorf("missing %s", expected)
 		}
+	}
+	metadata, ok := transport["request_metadata"].(map[string]any)
+	if !ok || metadata["chat_id"] != "chat-1" || metadata["protocol"] != "harness.request-metadata/v1" {
+		t.Fatalf("request metadata missing from remote archive: %#v", transport)
 	}
 }
 

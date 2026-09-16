@@ -106,6 +106,8 @@ test('download DOM automation is bound to expected canonical filename and narrow
   assert.match(script, /latest-assistant-unique/)
   assert.match(script, /const baseline = 3/)
   assert.match(script, /assistantTurns\.length > baseline/)
+  assert.match(script, /\[data-turn-id\]/)
+  assert.match(script, /data-testid\*="file"/)
   assert.match(script, /nearbyText/)
   assert.match(script, /data-testid\*=.*download/)
   assert.match(chatGPTAssistantTurnCountScript(), /data-message-author-role/)
@@ -121,6 +123,10 @@ test('download candidate policy prefers exact filename and only accepts one newe
   assert.deepEqual(chooseChatGPTDownloadCandidate([
     { index: 4, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
   ], 'wharness-bundle-req_12345678.zip'), { index: 4, mode: 'latest-assistant-unique' })
+
+  assert.deepEqual(chooseChatGPTDownloadCandidate([
+    { index: 7, metadata: 'generated file', latestTurn: true, fileLike: true, visible: true },
+  ], 'wharness-bundle-req_12345678.zip'), { index: 7, mode: 'latest-turn-unique' })
 
   assert.deepEqual(chooseChatGPTDownloadCandidate([
     { index: 4, metadata: '⬇️', latestAssistant: true, iconOnly: true, visible: true },
