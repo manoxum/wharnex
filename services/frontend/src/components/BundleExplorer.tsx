@@ -138,6 +138,10 @@ export function ComposerBundlePreviewExplorer({ sessionId, bundle, onClose }: { 
   return <BundleExplorer sessionId={sessionId} bundle={bundle} bundles={[bundle]} requestLineages={{}} presentationOverride={{ tone: 'request-main', label: 'Pré-visualização · próximo bundle' }} onBundle={() => undefined} onClose={onClose}/>
 }
 
+export function BundleExplorerModal({ sessionId, bundle, onClose }: { sessionId: string; bundle: ArtifactRecord; onClose: () => void }) {
+  return <BundleExplorer sessionId={sessionId} bundle={bundle} bundles={[bundle]} requestLineages={{}} onBundle={() => undefined} onClose={onClose}/>
+}
+
 function BundleExplorer({ sessionId, bundle, bundles, requestLineages, presentationOverride, onBundle, onClose }: { sessionId: string; bundle: ArtifactRecord; bundles: ArtifactRecord[]; requestLineages: RequestLineages; presentationOverride?: BundlePresentation; onBundle: (bundle: ArtifactRecord) => void; onClose: () => void }) {
   const [entries, setEntries] = useState<ArtifactEntry[]>([]); const [currentDir, setCurrentDir] = useState(''); const [path, setPath] = useState(''); const [viewerIndex, setViewerIndex] = useState<number>(); const [loading, setLoading] = useState(false); const [error, setError] = useState('')
   useEffect(() => { let alive = true; setLoading(true); setError(''); setCurrentDir(''); setPath(''); void api.artifactEntries(sessionId, bundle.id).then((result) => { if (alive) setEntries(result.entries) }).catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível abrir o bundle.') }).finally(() => { if (alive) setLoading(false) }); return () => { alive = false } }, [bundle.id, sessionId])
