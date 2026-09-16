@@ -141,9 +141,9 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 	return updated, conflictID, err
 }
 
-// gitConflictIntent describes both sides of a host merge. The incoming side's
-// purpose comes from the commit messages the remote or branch already carries,
-// which is the same source the integration path uses.
+// gitConflictIntent describes both sides of a host merge. Commit history gives
+// each side's purpose/provenance, bounded BASE-to-side diffs expose surrounding
+// intent, and a durable matching request may contribute its original prompt.
 func (s *Service) gitConflictIntent(ctx context.Context, item domain.Session, request gitConflictRequest, paths []string) *conflictCapsuleIntent {
 	intent := &conflictCapsuleIntent{
 		OurGoal:     fmt.Sprintf("preserve the work already on %s", firstNonEmpty(request.targetBranch, "the current branch")),
@@ -152,15 +152,54 @@ func (s *Service) gitConflictIntent(ctx context.Context, item domain.Session, re
 	}
 	if summaries, err := sandbox.CommitsTouching(ctx, item.ProjectPath, request.sides.BaseSHA, request.sides.OursSHA, paths); err == nil {
 		for _, summary := range summaries {
-			intent.LocalChanges = append(intent.LocalChanges, conflictCapsuleChange{Commit: summary.SHA, Purpose: summary.Subject})
+			intent.LocalChanges = append(intent.LocalChanges, conflictCapsuleChange{
+				Commit: summary.SHA, Purpose: summary.Subject, Message: truncateRepairText(summary.Body, 6000), RequestID: summary.RequestID,
+				Prompt: s.requestPromptForCommit(item, summary.RequestID),
+			})
 		}
 	}
 	if summaries, err := sandbox.CommitsTouching(ctx, item.ProjectPath, request.sides.BaseSHA, request.sides.TheirsSHA, paths); err == nil {
 		for _, summary := range summaries {
-			intent.IncomingChanges = append(intent.IncomingChanges, conflictCapsuleChange{Commit: summary.SHA, Purpose: summary.Subject})
+			intent.IncomingChanges = append(intent.IncomingChanges, conflictCapsuleChange{
+				Commit: summary.SHA, Purpose: summary.Subject, Message: truncateRepairText(summary.Body, 6000), RequestID: summary.RequestID,
+				Prompt: s.requestPromptForCommit(item, summary.RequestID),
+			})
 		}
 	}
+	if diff, truncated, err := hostrepo.DiffBetween(ctx, item.ProjectPath, request.sides.BaseSHA, request.sides.OursSHA, 48000); err == nil {
+		intent.LocalDiff, intent.LocalDiffTruncated = diff, truncated
+	}
+	if diff, truncated, err := hostrepo.DiffBetween(ctx, item.ProjectPath, request.sides.BaseSHA, request.sides.TheirsSHA, 48000); err == nil {
+		intent.IncomingDiff, intent.IncomingDiffTruncated = diff, truncated
+	}
 	return intent
+}
+
+func (s *Service) requestPromptForCommit(item domain.Session, requestID string) string {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || strings.TrimSpace(item.ChatID) == "" {
+		return ""
+	}
+	items, err := s.store.ListWorkspaceChatItems(item.ChatID)
+	if err != nil {
+		return ""
+	}
+	for _, chatItem := range items {
+		if role, _ := chatItem.Payload["role"].(string); role != "user" {
+			continue
+		}
+		iteration, _ := chatItem.Payload["iteration"].(map[string]any)
+		linkedID, _ := iteration["requestId"].(string)
+		if linkedID == "" {
+			linkedID, _ = iteration["request_id"].(string)
+		}
+		if strings.TrimSpace(linkedID) != requestID {
+			continue
+		}
+		prompt, _ := chatItem.Payload["text"].(string)
+		return truncateRepairText(prompt, 12000)
+	}
+	return ""
 }
 
 func firstNonEmpty(values ...string) string {

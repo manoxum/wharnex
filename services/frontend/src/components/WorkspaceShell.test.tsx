@@ -41,10 +41,17 @@ describe('WorkspaceShell project actions', () => {
     expect(onBindPath).toHaveBeenCalledWith('/work/related')
   })
 
-  it('places the instance identifier before the Editor and Agent selector', () => {
-    render(<ShellChrome instanceID="legacy" version="v1.2.46.13" projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
-    const badge = screen.getByLabelText('Instância: legacy · versão v1.2.46.13')
-    expect(badge.textContent).toBe('legacy · v1.2.46.13')
+  it('places the active branch and project version before the mode selector', async () => {
+    vi.spyOn(api, 'gitOverview').mockResolvedValue({
+      project_path: '/tmp/legacy', project_version: 'v2.4.1.0', available: true, commit_mode: 'auto', current_branch: 'feature/git-shell', detached: false,
+      has_identity: true, branches: [{ name: 'feature/git-shell', current: true, commit_sha: 'abc123', has_upstream: false, ahead: 0, behind: 0, gone: false }], remotes: [], commits: [], pending: [],
+      working: { clean: true, stageable_count: 0 },
+    })
+    render(<ShellChrome projects={['/tmp/legacy']} activeProject="/tmp/legacy" activeSessionID="ses_git" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const badge = await screen.findByLabelText('Git: feature/git-shell, projeto v2.4.1.0')
+    expect(badge.textContent).toContain('feature/git-shell')
+    expect(badge.textContent).toContain('v2.4.1.0')
+    expect(screen.queryByText(/legacy · v1\.2\.46\.13/)).toBeNull()
     const editor = screen.getByRole('button', { name: 'Editor' })
     expect(Boolean(badge.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
@@ -137,6 +144,31 @@ describe('WorkspaceShell project actions', () => {
       { type: 'wharness:project-active', active: true, projects: ['/tmp/active-project'] },
       window.location.origin,
     ))
+  })
+
+  it('binds the active embedded session to the shell Git badge', async () => {
+    vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
+    const gitOverview = vi.spyOn(api, 'gitOverview').mockResolvedValue({
+      project_path: '/tmp/active-project', project_version: 'v3.1.0.0', available: true, commit_mode: 'auto', current_branch: 'main', detached: false,
+      has_identity: true, branches: [{ name: 'main', current: true, commit_sha: 'abc123', has_upstream: false, ahead: 0, behind: 0, gone: false }], remotes: [], commits: [], pending: [],
+      working: { clean: true, stageable_count: 0 },
+    })
+    saveBoundProjects(['/tmp/active-project'])
+    saveBoundActiveProject('/tmp/active-project')
+    window.wharnessDesktop = {
+      projects: { acquire: vi.fn().mockResolvedValue({ ok: true, path: '/tmp/active-project' }) },
+    } as unknown as WharnessDesktopBridge
+
+    render(<WorkspaceShell />)
+    const frame = await screen.findByTitle('Wharnex · active-project') as HTMLIFrameElement
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: frame.contentWindow,
+      data: { type: 'wharness:project-session', projectPath: '/tmp/active-project', sessionId: 'ses_shell' },
+    }))
+
+    await waitFor(() => expect(gitOverview).toHaveBeenCalledWith('ses_shell'))
+    expect(await screen.findByLabelText('Git: main, projeto v3.1.0.0')).toBeTruthy()
   })
 
   it('shows when bound projects share analysis context', () => {

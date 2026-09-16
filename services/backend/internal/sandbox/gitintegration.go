@@ -293,11 +293,13 @@ func ChangedPathsBetween(ctx context.Context, repoPath, fromSHA, toSHA string) (
 // CommitSummary is one integrated change's own description of what it was
 // for. Subject is the planner-authored Conventional Commits line the protocol
 // already requires on every change plan (see AI_PROTOCOL "Commit-history
-// communication"), so it states the intent of that change rather than merely
-// naming the files it touched.
+// communication"). Body and RequestID retain bounded provenance that can link a
+// Wharnex commit back to the durable user request without guessing.
 type CommitSummary struct {
-	SHA     string
-	Subject string
+	SHA       string
+	Subject   string
+	Body      string
+	RequestID string
 }
 
 // CommitsTouching lists the commits reachable from toSHA but not fromSHA that
@@ -318,23 +320,43 @@ func CommitsTouching(ctx context.Context, repoPath, fromSHA, toSHA string, paths
 	if fromSHA != "" && fromSHA != toSHA {
 		rangeSpec = fromSHA + ".." + toSHA
 	}
-	args := append([]string{"log", "--no-merges", "--format=%H%x1f%s", "--max-count=20", rangeSpec, "--"}, paths...)
+	args := append([]string{"log", "--no-merges", "--format=%H%x1f%s%x1f%b%x1e", "--max-count=20", rangeSpec, "--"}, paths...)
 	output, err := runGit(ctx, repoPath, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list commits touching %s: %s", strings.Join(paths, ", "), output)
 	}
 	summaries := make([]CommitSummary, 0)
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if strings.TrimSpace(line) == "" {
+	for _, record := range strings.Split(output, "\x1e") {
+		record = strings.TrimSpace(record)
+		if record == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\x1f", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(record, "\x1f", 3)
+		if len(parts) < 2 {
 			continue
 		}
-		summaries = append(summaries, CommitSummary{SHA: strings.TrimSpace(parts[0]), Subject: strings.TrimSpace(parts[1])})
+		body := ""
+		if len(parts) == 3 {
+			body = strings.TrimSpace(parts[2])
+		}
+		summaries = append(summaries, CommitSummary{
+			SHA: strings.TrimSpace(parts[0]), Subject: strings.TrimSpace(parts[1]), Body: body,
+			RequestID: commitTrailer(body, "Request-Id"),
+		})
 	}
 	return summaries, nil
+}
+
+func commitTrailer(body, key string) string {
+	prefix := strings.ToLower(strings.TrimSpace(key)) + ":"
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) <= len(prefix) || !strings.EqualFold(line[:len(prefix)], prefix) {
+			continue
+		}
+		return strings.TrimSpace(line[len(prefix):])
+	}
+	return ""
 }
 
 // RevertHostMerge resets the host's checked-out branch back to preMergeSHA.

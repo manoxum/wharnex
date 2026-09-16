@@ -463,11 +463,16 @@ type conflictCapsuleIntent struct {
 	OurGoal string `json:"our_goal,omitempty"`
 	// OurCommitMessage is the Conventional Commits subject the plan declared.
 	OurCommitMessage string `json:"our_commit_message,omitempty"`
-	// LocalChanges and IncomingChanges carry the commit intent on each side
-	// of a Git merge, newest first. Integration conflicts normally populate
-	// only IncomingChanges because their local intent is OurGoal.
-	LocalChanges    []conflictCapsuleChange `json:"local_changes,omitempty"`
-	IncomingChanges []conflictCapsuleChange `json:"incoming_changes,omitempty"`
+	// LocalChanges and IncomingChanges carry the commit intent/provenance on
+	// each side of a Git merge, newest first. The side diffs provide bounded
+	// context outside the conflicting files. Integration conflicts normally
+	// populate only IncomingChanges because their local intent is OurGoal.
+	LocalChanges          []conflictCapsuleChange `json:"local_changes,omitempty"`
+	IncomingChanges       []conflictCapsuleChange `json:"incoming_changes,omitempty"`
+	LocalDiff             string                  `json:"local_diff,omitempty"`
+	LocalDiffTruncated    bool                    `json:"local_diff_truncated,omitempty"`
+	IncomingDiff          string                  `json:"incoming_diff,omitempty"`
+	IncomingDiffTruncated bool                    `json:"incoming_diff_truncated,omitempty"`
 	// UserGuidance is optional operator context supplied when delegating a
 	// conflict to GPT from the manual/automatic choice surface.
 	UserGuidance string `json:"user_guidance,omitempty"`
@@ -483,8 +488,11 @@ type conflictCapsuleIntent struct {
 }
 
 type conflictCapsuleChange struct {
-	Commit  string `json:"commit"`
-	Purpose string `json:"purpose"`
+	Commit    string `json:"commit"`
+	Purpose   string `json:"purpose"`
+	Message   string `json:"message,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
 }
 
 type conflictCapsuleFile struct {

@@ -1,3 +1,10 @@
+## Unreleased Git shell and conflict-intent validation
+
+- `WorkspaceShell.test.tsx` verifies the shell's former instance/version slot renders the active project branch plus project version and keeps that Git control before the workspace mode selector.
+- `service_git_conflict_test.go` verifies a Git-origin conflict capsule carries bounded LOCAL/INCOMING side diffs and links a commit `Request-Id` to the original durable user prompt when that provenance exists.
+- `schemas/conflict-capsule.schema.json` keeps all richer Git intent fields optional under `harness.conflict/v1`; existing capsules remain valid and no migration or protocol-version bump is required.
+- Required hydrated gates: focused backend Git-conflict tests, frontend `WorkspaceShell`/`GitDrawer` tests, frontend typecheck, and repository diff/patch checks.
+
 ## v1.2.46.4 ChatGPT single-file real-filename transport restored
 
 - Root cause: commit `0865378` ("fix: preserve ChatGPT request bundle filename") had already fixed this exact bug — clipboard `text/uri-list` paste losing the canonical filename — by switching to `selectChatGPTUploadFile` (CDP `DOM.setFileInputFiles` on ChatGPT's own `input#upload-files`). A later self-evolution transaction (`txn-20260907T121045-...`, plan `plan_req_20260907T111505_single_bundle_filename`) failed to activate its rebuilt containers and rolled back; its rollback restores working-tree files by raw copy from its own captured backup, bypassing git, so it silently reverted `services/desktop/main.mjs`/`chatgpt-upload.mjs`/`SoT/AUTOMATION_BUNDLE.md` back to the pre-fix clipboard-paste code — while git HEAD still showed the fix as merged (`f09a9c7`). The working tree and HEAD diverged with no error surfaced anywhere.

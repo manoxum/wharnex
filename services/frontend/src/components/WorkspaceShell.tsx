@@ -10,7 +10,7 @@ import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
 import { ErrorToast } from './ErrorToast'
 import { TunnelOverviewModal } from './TunnelOverviewModal'
-import { InstanceBadge } from './InstanceBadge'
+import { ProjectGitBadge } from './ProjectGitBadge'
 import { SignalCore } from './SignalCore'
 import { ProjectLinkModal } from './ProjectLinkModal'
 
@@ -19,13 +19,12 @@ type OpenProjectWindow = { windowId: string; projectPath: string; focused: boole
 type ProjectWindowSnapshot = { currentWindowId: string; items: OpenProjectWindow[] }
 
 const MAX_BOUND_PROJECTS = 12
-const INSTANCE_ID = import.meta.env.VITE_WHARNESS_INSTANCE_ID?.trim()
-
 export function WorkspaceShell() {
   const [config, setConfig] = useState<AppConfig>()
   const [projects, setProjects] = useState<string[]>([])
   const [activeProject, setActiveProject] = useState('')
   const [projectModes, setProjectModes] = useState<Record<string, WorkspaceMode>>({})
+  const [projectSessions, setProjectSessions] = useState<Record<string, string>>({})
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [busy, setBusy] = useState(true)
   const [initialized, setInitialized] = useState(false)
@@ -71,6 +70,12 @@ export function WorkspaceShell() {
         const projectPath = String(event.data.projectPath || '')
         const frame = frames.current.get(projectPath)
         if (frame?.contentWindow === event.source) publishActivation(frame, projectPath === activeProject, projects)
+      }
+      if (event.data?.type === 'wharness:project-session') {
+        const projectPath = String(event.data.projectPath || '')
+        const sessionID = String(event.data.sessionId || '')
+        const frame = frames.current.get(projectPath)
+        if (projectPath && frame?.contentWindow === event.source) setProjectSessions((current) => ({ ...current, [projectPath]: sessionID }))
       }
       if (event.data?.type === 'wharness:unbind-project') {
         const projectPath = String(event.data.projectPath || '')
@@ -140,6 +145,7 @@ export function WorkspaceShell() {
       await desktopBridge()?.projects.release(projectPath)
       const next = projects.filter((item) => item !== projectPath)
       frames.current.delete(projectPath)
+      setProjectSessions((current) => { const nextSessions = { ...current }; delete nextSessions[projectPath]; return nextSessions })
       setProjects(next)
       if (activeProject === projectPath) setActiveProject(next[0] || '')
     } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
@@ -179,7 +185,7 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false); return false }
   }
 
-  const chrome = <ShellChrome instanceID={INSTANCE_ID} version={config?.version} projects={projects} activeProject={activeProject} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  const chrome = <ShellChrome projects={projects} activeProject={activeProject} activeSessionID={projectSessions[activeProject] || ''} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
   const linkModal = linkModalOpen ? <ProjectLinkModal recent={recent} boundProjects={projects} busy={busy} error={error} onOpen={bindProject} onBrowse={chooseAndBind} onCreate={createProject} onClone={cloneProject} onClose={() => setLinkModalOpen(false)} /> : null
 
   if (!projects.length) return <div className="desktop-shell-root">
@@ -205,12 +211,10 @@ export function WorkspaceShell() {
   </main>
 }
 
-export function ShellChrome({ instanceID, version, projects, activeProject, mode, busy, onActivate, onMode, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
-  instanceID?: string
-  version?: string
-  projects: string[]; activeProject: string; busy: boolean
+export function ShellChrome({ projects, activeProject, activeSessionID, mode, busy, onActivate, onMode, onGitSync, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
+  projects: string[]; activeProject: string; activeSessionID?: string; busy: boolean
   mode: WorkspaceMode
-  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
+  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
 }) {
   const [projectActionsOpen, setProjectActionsOpen] = useState(false)
   const [projectWindowOpen, setProjectWindowOpen] = useState(false)
@@ -255,7 +259,7 @@ export function ShellChrome({ instanceID, version, projects, activeProject, mode
 
   return <header className="multi-project-bar">
     <div className="multi-project-brand"><SignalCore size="compact" /></div>
-    <InstanceBadge instanceID={instanceID} version={version} />
+    {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
     {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={14}/> Orchestrator</button></div>}
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {projects.map((projectPath) => {
