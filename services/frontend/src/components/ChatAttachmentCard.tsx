@@ -3,6 +3,7 @@ import type { ChatAttachmentInfo } from '../types'
 import { desktopBridge } from '../lib/desktop'
 import { formatBytes } from '../lib/desktop'
 import { Icon } from './Icon'
+import { requestArtifactIndex } from '../lib/artifactIndexing'
 
 export function MessageAttachmentCard({ attachment }: { attachment: ChatAttachmentInfo }) {
   const [preview, setPreview] = useState('')
@@ -29,16 +30,13 @@ export function MessageAttachmentCard({ attachment }: { attachment: ChatAttachme
   }
 
   const persisted = Boolean(attachment.storageRef)
-  return <button
-    type="button"
-    className={`message-attachment-card${persisted ? ' is-persisted' : ''}`}
-    disabled={!persisted || !available}
-    onClick={() => void openAttachment()}
-    title={persisted ? `Abrir ${attachment.name}` : `${attachment.name} · anexo histórico sem cópia persistida`}
-  >
-    <AttachmentVisual preview={preview} name={attachment.name} />
-    <span className="message-attachment-copy"><b>{attachment.name}</b><small>{formatBytes(attachment.size)}{attachment.mime ? ` · ${attachment.mime}` : ''}</small></span>
-  </button>
+  return <article className={`message-attachment-card${persisted ? ' is-persisted' : ''}`}>
+    <button type="button" className="message-attachment-open" disabled={!persisted || !available} onClick={() => void openAttachment()} title={persisted ? `Abrir ${attachment.name}` : `${attachment.name} · anexo histórico sem cópia persistida`}>
+      <AttachmentVisual preview={preview} name={attachment.name} />
+      <span className="message-attachment-copy"><b>{attachment.name}</b><small>{formatBytes(attachment.size)}{attachment.mime ? ` · ${attachment.mime}` : ''}</small></span>
+    </button>
+    <button type="button" className="message-attachment-index" onClick={() => requestArtifactIndex('chat', attachment.name)} title="Indexar no próximo prompt" aria-label={`Indexar ${attachment.name} no composer`}><Icon name="link" size={12}/></button>
+  </article>
 }
 
 export function ComposerAttachmentChip({ file, onRemove }: { file: File; onRemove: () => void }) {

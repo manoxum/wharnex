@@ -19,6 +19,8 @@ function capabilitiesFor(kind: ArtifactPreviewKind): ArtifactCapability[] {
     case 'video': return ['native-media', 'download']
     case 'markdown': return ['preview', 'raw', 'wrap', 'download']
     case 'html': return ['preview', 'raw', 'wrap', 'download']
+    case 'office': return ['preview', 'raw', 'wrap', 'download']
+    case 'pdf': return ['preview', 'download']
     case 'text': return ['raw', 'wrap', 'download']
     default: return ['download']
   }

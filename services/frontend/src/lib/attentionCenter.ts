@@ -1,13 +1,14 @@
 import type { Session } from '../types'
 import type { WorkspaceChat } from './workspaceMemory'
-import { executionNeedsAttention, sessionCanExecutePlan } from './executionRecovery'
+import { executionNeedsAttention, sessionCanExecutePlan, sessionNeedsExecutionConsent } from './executionRecovery'
 import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable } from './plannerRecovery'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
-export type AttentionAction = 'approve-execution' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-transport' | 'retry-host-apply' | 'apply-host'
+export type AttentionAction = 'approve-execution' | 'approve-debug' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-transport' | 'retry-host-apply' | 'apply-host'
 export const ATTENTION_ACTION_LABEL: Record<AttentionAction, string> = {
   'approve-execution': 'Aprovar e executar',
+  'approve-debug': 'Autorizar debug',
   'retry-dependency-network': 'Permitir rede e repetir',
   'repair-host-dependency': 'Reinstalar dependências e repetir',
   'repair-with-gpt': 'Corrigir com GPT',
@@ -43,7 +44,7 @@ export type AttentionHumanAction = {
 
 const PENDING_RESOLUTION_STATES = new Set([
   'awaiting_plan', 'awaiting_plan_approval', 'workflow_pending', 'workflow_planned', 'workflow_observed',
-  'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending',
+  'repair_pending', 'planned', 'debug_approval_required', 'baseline_update_pending', 'conflict_resolution_pending',
 ])
 
 const APPLY_RETRY_FAILURES = new Set(['self_evolution_transaction_busy', 'self_evolution_transaction_metadata_mismatch', 'stale_host_baseline', 'host_integration_race', 'host_working_state_blocked'])
@@ -127,6 +128,10 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   if (executionNeedsAttention(session)) {
     const status = session.interrupted_execution.status || 'awaiting_decision'
     items.push(item(chat, 'interrupted-execution', 'danger', 'Execução interrompida', `Plano ${session.interrupted_execution.plan_id} · ${status}.`, 'terminal'))
+  }
+  if (session.state === 'debug_approval_required' && session.plan?.debug) {
+    const target = session.plan.debug.target === 'host' ? 'host local' : 'sandbox isolada'
+    items.push(item(chat, 'debug-approval', 'warning', 'Debug aguarda autorização', `Probe somente de leitura no ${target}: ${session.plan.debug.rationale}`, 'plan', 'approve-debug'))
   }
 
   switch (session.failure_kind) {
@@ -215,8 +220,8 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
     failureAlertAdded = true
   }
 
-  if (canExecute && session.policy?.requires_approval) {
-    items.push(item(chat, 'approval-required', 'warning', 'Aprovação necessária', `Plano pronto para executar · risco ${session.policy.risk}.`, 'plan', 'approve-execution'))
+  if (canExecute && sessionNeedsExecutionConsent(session)) {
+    items.push(item(chat, 'approval-required', 'warning', 'Aprovação necessária', `Plano pronto para executar · risco ${session.policy?.risk || session.plan?.risk || 'desconhecido'}.`, 'plan', 'approve-execution'))
   } else if (session.plan && session.policy && !session.policy.allowed) {
     items.push(item(chat, 'policy-blocked', 'danger', 'Plano bloqueado pela Policy', session.policy.reasons?.[0] || 'Revise o plano antes de executar.', 'plan'))
   }

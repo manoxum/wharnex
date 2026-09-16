@@ -196,11 +196,29 @@ func TestEveryKeywordAndAliasParses(t *testing.T) {
 			value := "flowcore"
 			if spec.Kind == KindAttach {
 				value = "/srv/x"
+			} else if spec.Kind == KindLib {
+				value = "session|ses_123|artifact_456"
+			} else if spec.Kind == KindChat {
+				value = "diagram.png"
 			}
 			parsed := Parse("@" + word + ":" + value)
 			if len(parsed) != 1 || parsed[0].Kind != spec.Kind {
 				t.Fatalf("keyword %q (kind %s): parsed=%#v", word, spec.Kind, parsed)
 			}
 		}
+	}
+}
+
+func TestChatAndLibraryDirectivesUseStableArtifactReferences(t *testing.T) {
+	parsed := Parse("use @chat:diagram.png and @lib:session|ses_123|artifact_456")
+	if len(parsed) != 2 || parsed[0].Kind != KindChat || parsed[0].Path != "diagram.png" {
+		t.Fatalf("chat=%#v", parsed)
+	}
+	if parsed[1].Kind != KindLib || parsed[1].Project != "ses_123" || parsed[1].Path != "artifact_456" {
+		t.Fatalf("lib=%#v", parsed[1])
+	}
+	want := "use @{[chat]diagram.png} and @{[lib]session|ses_123|artifact_456}"
+	if got := Canonicalize("use @chat:diagram.png and @library:session|ses_123|artifact_456"); got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }

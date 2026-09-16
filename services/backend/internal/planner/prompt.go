@@ -64,7 +64,7 @@ TERMINAL RESPONSE QUALITY — IMPORTANT:
 ITERATIVE WORKFLOW RULES:
 - workflow is a non-terminal evidence-gathering turn. Use it only when local commands can materially improve the answer or make a later change safer.
 - You MAY return a workflow bundle to ask the local agent for missing project information. turn.message must state what information is needed; the command-only plan must contain the complete, targeted extraction instructions.
-- A workflow turn carries a harness.execution/v1 plan, but that plan is NOT a project-change plan: it may contain command operations only, runs only in the Protected sandbox, is never applied to the host, and must request network=false.
+- A workflow turn carries a harness.execution/v2 plan, but that plan is NOT a project-change plan: it may contain command operations only, runs only in the Protected sandbox, is never applied to the host, and must request network=false.
 - Workflow plans MUST NOT contain apply_patch operations. Prefer small, targeted commands such as git status/diff/grep, file listing/search, existing test commands, compiler/type checks, or other policy-allowed project-local probes.
 - Do not use workflow merely because tools exist. If the project context already answers the question, answer immediately.
 - Wharnex sends workflow command outputs back into this SAME conversation as LOCAL WORKFLOW OBSERVATIONS. Read those observations, update your reasoning, and then either: (a) answer/investigate conclusively, (b) request another materially different workflow step, (c) propose an explicit change if the original user asked for mutation, or (d) block/clarify.
@@ -75,7 +75,7 @@ ITERATIVE WORKFLOW RULES:
 TURN RULES:
 - Valid kinds are answer, clarification, investigation, plan, workflow, change, blocked.
 - answer, clarification, investigation, plan and blocked carry no execution plan. A plan is a concrete approval-gated proposal, not an execution plan.
-- workflow and change carry a harness.execution/v1 plan.
+- workflow and change carry a harness.execution/v2 plan.
 - Only change may contain project patches and become eligible for host Apply.
 - Auto mode automates policy-allowed change plans and bounded Protected workflow steps only.
 
@@ -161,9 +161,12 @@ COMMIT MESSAGE QUALITY — REQUIRED FOR CHANGE PLANS:
 
 EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 - The top-level key is exactly "protocol", NEVER "schema".
-- protocol MUST equal "harness.execution/v1".
-- Include every top-level key: protocol, plan_id, request_id, status, summary, risk, requires_approval, operations, verification.
+- protocol MUST equal "harness.execution/v2". Version 1 is accepted only for already persisted/in-flight compatibility and MUST NOT be emitted by a new response.
+- Include every top-level key: protocol, plan_id, request_id, status, summary, document, dependencies, system_tools, risk, requires_approval, operations, verification.
 - summary is MANDATORY on EVERY plan you return — change, workflow, blocked, every round — and is validated at ingestion, before execution. It is not transport metadata: Wharnex shows it to the operator in the chat transcript and, for a self-evolution, inside the dialog that asks whether to activate the rebuilt runtime, where it is the only prose explaining what a restart would activate. Write ONE short sentence (roughly 16 to 600 characters) stating the concrete outcome — what you implemented, corrected or investigated — in the language of the conversation. Wharnex REJECTS the bundle if summary is missing, is a single token, or is a placeholder such as 'short summary', 'changes', 'update', 'done' or 'task completed'; that rejection costs you the whole round.
+- For every change plan, document is the complete human-facing Markdown execution contract. Explain the intended outcome, ordered implementation approach, affected areas, risks/rollback and verification. It must let the operator make one informed decision without reconstructing intent from commands or patches.
+- dependencies is the complete dependency impact list. Each item has scope (service/stack/side), manager, name, optional version, action=install|update|remove|use, and reason. Use [] when none.
+- system_tools is the complete OS/runtime tool impact list. Each item has target=sandbox|host, name, action=install|update|configure|use, and reason. Use [] when none. Declaring a host tool is disclosure only and never grants permission to install it; any host setup remains a separate explicit human action.
 - For a change plan, commit_message is MANDATORY and validated before execution. It MUST classify the change accurately, describe the concrete implemented outcome in a subject of at most 72 characters, and carry a body — after one blank line — explaining why, whenever the change is not self-evident. Wharnex commits your verified patch to its own integration branch using this message, then merges that branch into the host, so it becomes the real commit message in the project's Git history. Encode the line breaks as \n inside the JSON string. Omit it (or leave empty) for workflow, which never reaches the host.
 - For a change plan, version_increment is MANDATORY and has exactly {"component":"major|medium|minor|patch","amount":N}, where N is 1..1000. VERSION itself MUST NOT appear in planner mutations. Wharnex owns that file and performs the increment only after successful host integration. Workflow plans omit version_increment.
 - Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
@@ -175,7 +178,7 @@ EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 
 Exact change-plan shape:
 {
-  "protocol": "harness.execution/v1",
+  "protocol": "harness.execution/v2",
   "base_context_sha256": "<PROJECT MANIFEST SHA256>",
   "impact_files": ["relative/path.ext"],
   "read_files": ["relative/dependency.ext"],
@@ -184,6 +187,9 @@ Exact change-plan shape:
   "request_id": "<REQUEST ID FROM WHARNEX>",
   "status": "ready",
   "summary": "one short sentence stating the concrete outcome of this bundle",
+  "document": "## Resultado\n...\n\n## Implementação\n...\n\n## Riscos e rollback\n...\n\n## Verificação\n...",
+  "dependencies": [{"scope":"services/frontend","manager":"npm","name":"example","version":"1.2.3","action":"install","reason":"concrete reason"}],
+  "system_tools": [{"target":"sandbox","name":"example-cli","action":"use","reason":"concrete reason"}],
   "version_increment": {"component": "patch", "amount": 1},
   "commit_message": "fix(auth): preserve session during concurrent token refresh\n\nTwo refreshes racing on one session revoked the older token after the\nnewer one was issued, logging the user out mid-request.\n\nThe swap is now atomic, so the loser observes the winner's token.",
   "risk": "low|medium|high",
@@ -204,7 +210,13 @@ Exact change-plan shape:
   "verification": []
 }
 
-For workflow, use the same shape but OMIT version_increment, EVERY operation.type MUST be command, EVERY patch MUST be empty, network MUST be false, risk MUST be low or medium, and the plan is never applied to the host.`
+For workflow, use the same shape but OMIT version_increment, EVERY operation.type MUST be command, EVERY patch MUST be empty, network MUST be false, risk MUST be low or medium, and the plan is never applied to the host.
+
+DEBUG PROTOCOL — harness.debug/v1:
+- When local runtime evidence is genuinely necessary, a workflow plan MAY include debug={"protocol":"harness.debug/v1","target":"sandbox|host","rationale":"why this evidence is necessary"}.
+- Prefer sandbox. Choose host only when the evidence describes the real local runtime/machine and cannot be learned from the copied sandbox.
+- Host debug is observation-only and accepts only the engine's closed commands: bounded git status/rev-parse/ls-files, go version or selected non-secret go env keys, node/npm version, uname, df, free, uptime and pwd. Never request logs likely to contain secrets, process arguments, environment dumps, shells, Docker, package installation, mutation, network, or privilege escalation.
+- A debug workflow may be proposed even in Manual automation mode. If Debug mode is off, Wharnex asks the operator once for the Main Request before executing any debug command; when on, safe debug steps proceed automatically.`
 
 const ProviderTurnContract = `
 
@@ -217,7 +229,7 @@ Return one harness.turn/v1 JSON object with: protocol, request_id, kind, chat_ti
 - message is the complete user-facing Markdown response for answer/clarification/investigation/plan/blocked; for workflow/change it briefly explains the next step.
 - outcome is required: status is completed, failed, or partial; include a short message, optional machine-readable reason_code, and retryable. This reports planner completion only, never host execution. Set retryable=true only when another fresh request could materially change the evidence/strategy/transient capability; structural or operator-action blockers are retryable=false.
 - plan is null for answer, clarification, investigation, plan and blocked.
-- plan is the complete harness.execution/v1 object for workflow or change.`
+- plan is the complete harness.execution/v2 object for workflow or change.`
 
 // buildContinuationSection renders the two artifacts that make a multi-round
 // Main Request converge: what the local project has done since the planner's
@@ -375,6 +387,11 @@ PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2:
 	if topology := strings.TrimSpace(req.RepositoryTopology); topology != "" {
 		measuredSections = strings.TrimRight(measuredSections, "\n") + "\n\n" + topology
 	}
+	debugState := "off; the first harness.debug/v1 step in this Main Request requires one operator approval"
+	if req.DebugEnabled {
+		debugState = "on; validated harness.debug/v1 steps may execute automatically"
+	}
+	measuredSections = strings.TrimRight(measuredSections, "\n") + "\n\nDEBUG MODE: " + debugState
 	return header + fmt.Sprintf(`%s
 %s
 REQUEST ID: %s
@@ -392,8 +409,8 @@ INTENT REMINDER:
 - Do not assume this is coding work merely because a project ZIP is attached.
 - If this is a question/advice request and the current context is sufficient, return kind=answer with the COMPLETE useful answer in turn.message and no plan; never return a generic one-line summary such as 'recommendation prepared'.
 - If the user explicitly asks for a plan, return kind=plan even when REQUEST STRATEGY is DIRECT. This is a non-mutating approval proposal and carries no plan.json.
-- If local evidence is genuinely missing AND AUTOMATION MODE is auto, kind=workflow may request a small Protected-sandbox command step; Wharnex will return the outputs in the same ChatGPT conversation.
-- If AUTOMATION MODE is manual, do not emit workflow; answer/investigate from current context or ask the user for the needed information.
+- If local evidence is genuinely missing, kind=workflow may request a small command step. Ordinary workflow requires AUTOMATION MODE auto and Protected sandbox; a harness.debug/v1 workflow follows the DEBUG PROTOCOL and may request its one explicit consent in Manual mode.
+- If AUTOMATION MODE is manual and this is not a harness.debug/v1 step, do not emit workflow; answer/investigate from current context or ask the user for the needed information.
 - Only explicit mutation intent may end in kind=change.
 
 Use the Wharnex context if it is not already represented in this project conversation or if Wharnex supplied a newer snapshot. In local transport it is a ChatGPT attachment; in remote transport read the authorized individual files from file-map.json rather than downloading a ZIP. Fetch only the files needed for the task and use the map's SHA-256 values to verify them when possible.
@@ -434,9 +451,9 @@ ZIP ROOT CONTRACT:
 CHANGE PLAN CONTRACT:
 - request_id in turn.json and plan.json MUST be exactly %q.
 - base_context_sha256 in plan.json MUST be exactly %q.
-- impact_files MUST list the relative project files/areas you expect this change can touch. read_files lists concrete files relied upon but not written. barrier_files lists dependency/build/schema/protocol inputs that require broad verification if concurrently changed. Wharnex uses the actual patch result as the authoritative write set.
+- impact_files MUST list the relative project files/areas you expect this change can touch. read_files lists concrete files relied upon but not written. barrier_files lists dependency/build/schema/protocol inputs that require broad verification if concurrently changed. document, dependencies and system_tools MUST give the operator the complete execution contract before consent. Wharnex uses the actual patch result as the authoritative write set.
 - version_increment MUST exist for kind=change and contain exactly component=major|medium|minor|patch plus amount=1..1000. It is an engine instruction, not a project-file patch. Root VERSION is owned by Wharnex: NEVER include VERSION in patch bytes or impact_files.
-- plan.json uses harness.execution/v1. apply_patch operations SHOULD use patch_file=patches/NNN-description.patch and an empty patch string.
+- plan.json uses harness.execution/v2. apply_patch operations SHOULD use patch_file=patches/NNN-description.patch and an empty patch string.
 - patch files are raw UTF-8 standard unified diffs accepted by git apply; never use proprietary *** Begin Patch syntax.
 - PATCH FILE BYTE RULE (mandatory): every patches/*.patch file is raw diff bytes, never Markdown and never fenced with three-backtick diff. Every diff --git header has exactly this shape: diff --git a/relative/path b/relative/path. It has exactly two unquoted, space-free paths, no trailing backslash, and no extra words. Follow it with matching --- a/... and +++ b/... lines (or /dev/null for create/delete). Do not place source-code examples containing diff --git outside a real patch header.
 - Before zipping, parse every patch file line by line: reject it yourself if a diff --git header has anything other than exactly two paths after the header, or if it contains quotes, a backslash, or Markdown fence markers.
@@ -446,7 +463,7 @@ CHANGE PLAN CONTRACT:
 WORKFLOW PLAN CONTRACT:
 - request_id in turn.json and plan.json MUST be exactly %q.
 - kind MUST be workflow only when another local evidence-gathering round is truly useful.
-- plan.json uses harness.execution/v1 with status=ready, risk=low or medium, requires_approval=false.
+- plan.json uses harness.execution/v2 with status=ready, risk=low or medium, requires_approval=false.
 - operations contain 1..16 command operations only; patch is always empty; network is always false.
 - NEVER use apply_patch in workflow. Wharnex discards the sandbox after the observation and never applies workflow changes to the host.
 - Keep probes targeted. Prefer inspecting/testing the specific uncertainty rather than running broad expensive suites by default.

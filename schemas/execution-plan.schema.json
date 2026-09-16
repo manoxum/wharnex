@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kernl.local/schemas/execution-plan.schema.json",
-  "title": "Wharness Execution Plan v1",
+  "title": "Wharness Execution Plan v1/v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,7 +19,7 @@
   ],
   "properties": {
     "protocol": {
-      "const": "harness.execution/v1"
+      "enum": ["harness.execution/v1", "harness.execution/v2"]
     },
     "base_context_sha256": {
       "type": "string",
@@ -68,6 +68,54 @@
       "minLength": 1,
       "maxLength": 600,
       "description": "Short human-facing description of what this bundle actually did, mandatory on every plan-bearing response and validated at ingestion. Wharnex shows it in the chat transcript and in the self-evolution activation dialog, where it is the only prose explaining what a restart would activate. State the concrete implemented, corrected or investigated outcome; placeholders such as 'short summary', 'changes' or 'done' are rejected."
+    },
+    "document": {
+      "type": "string",
+      "maxLength": 262144,
+      "description": "Human-facing Markdown execution contract: outcome, approach, risks, rollback considerations and verification."
+    },
+    "dependencies": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "manager", "name", "action", "reason"],
+        "properties": {
+          "scope": {"type": "string", "minLength": 1},
+          "manager": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "version": {"type": "string"},
+          "action": {"enum": ["install", "update", "remove", "use"]},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "system_tools": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "name", "action", "reason"],
+        "properties": {
+          "target": {"enum": ["sandbox", "host"]},
+          "name": {"type": "string", "minLength": 1},
+          "action": {"enum": ["install", "update", "configure", "use"]},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "target", "rationale"],
+      "properties": {
+        "protocol": {"const": "harness.debug/v1"},
+        "target": {"enum": ["sandbox", "host"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}
+      },
+      "description": "Bounded diagnostic protocol for a workflow plan. Host target accepts only the engine's closed read-only command allowlist."
     },
     "version_increment": {
       "type": "object",

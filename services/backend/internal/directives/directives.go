@@ -62,6 +62,10 @@ const (
 	// marker stable and in place, the same reason every other kind is parsed
 	// here instead of being left as prose.
 	KindSee Kind = "see"
+	// KindChat points at a persisted file that belongs to the current chat.
+	KindChat Kind = "chat"
+	// KindLib points at a persisted file in the global Wharnex library.
+	KindLib Kind = "lib"
 )
 
 const (
@@ -95,6 +99,8 @@ var keywords = []KeywordSpec{
 	{Kind: KindRef, Keyword: "ref", Aliases: []string{"reference", "references", "project"}},
 	{Kind: KindAttach, Keyword: "attach", Aliases: []string{"att", "attch", "attche", "attaches", "attahes", "dir"}},
 	{Kind: KindSee, Keyword: "see", Aliases: []string{"look"}},
+	{Kind: KindChat, Keyword: "chat"},
+	{Kind: KindLib, Keyword: "lib", Aliases: []string{"library"}},
 }
 
 // Keywords returns the directive vocabulary, so a menu — or a test — can
@@ -145,7 +151,7 @@ func typedKeywordAlternation() string {
 // "change @ref:core, then stop" refers to `core`, not to `core,`. A value that
 // genuinely contains one of those characters needs the bracketed form, which is
 // what it is for.
-var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
+var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see|chat|lib)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
 
 // Directive is one parsed reference, with the byte range it occupied.
 type Directive struct {
@@ -260,6 +266,10 @@ func build(kind Kind, raw string) (Directive, bool) {
 		return Directive{Kind: KindFile, Value: clean, Path: clean}, true
 	case KindSee:
 		return parseSeeValue(strings.TrimSpace(raw))
+	case KindChat:
+		return parseChatValue(strings.TrimSpace(raw))
+	case KindLib:
+		return parseLibraryValue(strings.TrimSpace(raw))
 	case KindRef:
 		segments := strings.Split(raw, "|")
 		target := strings.TrimRight(strings.TrimSpace(segments[0]), "/.")
@@ -291,6 +301,44 @@ func build(kind Kind, raw string) (Directive, bool) {
 		return Directive{Kind: KindRef, Value: canonical, Project: project, Path: file, Rules: rules, RulesExplicit: explicit}, true
 	}
 	return Directive{}, false
+}
+
+func parseChatValue(raw string) (Directive, bool) {
+	if raw == "" || len(raw) > MaxValueLength || strings.ContainsAny(raw, "{}\x00\r\n") {
+		return Directive{}, false
+	}
+	if strings.HasPrefix(raw, "artifact|") {
+		id := strings.TrimPrefix(raw, "artifact|")
+		if !namePattern.MatchString(id) {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindChat, Value: raw, Path: id, Source: "artifact"}, true
+	}
+	if strings.HasPrefix(raw, "entry|") {
+		parts := strings.SplitN(raw, "|", 3)
+		if len(parts) != 3 || !namePattern.MatchString(parts[1]) {
+			return Directive{}, false
+		}
+		entry, ok := safeRelativePath(parts[2])
+		if !ok {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindChat, Value: "entry|" + parts[1] + "|" + entry, Project: parts[1], Path: entry, Source: "entry"}, true
+	}
+	name, ok := safeAttachmentName(raw)
+	if !ok {
+		return Directive{}, false
+	}
+	return Directive{Kind: KindChat, Value: name, Path: name, Source: "name"}, true
+}
+
+func parseLibraryValue(raw string) (Directive, bool) {
+	parts := strings.Split(raw, "|")
+	if len(parts) != 3 || parts[0] != "session" || !namePattern.MatchString(parts[1]) || !namePattern.MatchString(parts[2]) {
+		return Directive{}, false
+	}
+	value := "session|" + parts[1] + "|" + parts[2]
+	return Directive{Kind: KindLib, Value: value, Project: parts[1], Path: parts[2], Source: "library"}, true
 }
 
 func parseSeeValue(raw string) (Directive, bool) {

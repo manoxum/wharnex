@@ -38,7 +38,9 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	refs := directives.Values(parsed, directives.KindRef)
 	attached := directives.Values(parsed, directives.KindAttach)
 	seen := directives.Values(parsed, directives.KindSee)
-	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 && len(seen) == 0 {
+	chatFiles := directives.Values(parsed, directives.KindChat)
+	libraryFiles := directives.Values(parsed, directives.KindLib)
+	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 && len(seen) == 0 && len(chatFiles) == 0 && len(libraryFiles) == 0 {
 		return ""
 	}
 	var shapes []string
@@ -53,6 +55,12 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	}
 	if len(seen) > 0 {
 		shapes = append(shapes, "@{[see]<source-qualified target>}")
+	}
+	if len(chatFiles) > 0 {
+		shapes = append(shapes, "@{[chat]<chat file>}")
+	}
+	if len(libraryFiles) > 0 {
+		shapes = append(shapes, "@{[lib]<library file>}")
 	}
 	var builder strings.Builder
 	builder.WriteString("\n\nINLINE REFERENCE MARKERS (Wharnex-owned scope metadata):\n")
@@ -71,6 +79,12 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	}
 	if len(seen) > 0 {
 		builder.WriteString("- @{[see]…} spotlights one exact file already carried by the primary project, a referenced project, an external path, or a direct upload. Its source-qualified target is resolved below; the marker changes reading priority, never write authority. A legacy bare value means a direct upload.\n")
+	}
+	if len(chatFiles) > 0 {
+		builder.WriteString("- @{[chat]…} identifies a file already stored in this chat. The UI resolves it into the request attachment transport before submission; treat the matching attachment as the file named at this point in the sentence.\n")
+	}
+	if len(libraryFiles) > 0 {
+		builder.WriteString("- @{[lib]…} identifies a file from the Wharnex library. The UI resolves it into the request attachment transport before submission; the marker preserves where the operator referred to it.\n")
 	}
 	if missing := missingContextFiles(files, context.Manifest); len(missing) > 0 {
 		builder.WriteString("Referenced with @{[file]…} but absent from the context snapshot, so their contents are not available in this request: " + strings.Join(missing, ", ") + ".\n")

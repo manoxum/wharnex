@@ -10,8 +10,33 @@ import (
 
 func (a *API) managedArtifacts(w http.ResponseWriter, r *http.Request) {
 	bundlesOnly := r.URL.Query().Get("bundles") == "1"
-	items := a.service.ListManagedArtifacts(r.URL.Query().Get("q"), bundlesOnly)
+	items := a.service.ListManagedArtifactsByKind(r.URL.Query().Get("q"), bundlesOnly, r.URL.Query().Get("kind"))
 	writeJSON(w, http.StatusOK, map[string]any{"artifacts": items})
+}
+
+func (a *API) chatFiles(w http.ResponseWriter, r *http.Request) {
+	items, err := a.service.ListChatFiles(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": items})
+}
+
+func (a *API) saveChatFileToLibrary(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_chat_file", err.Error())
+		return
+	}
+	record, err := a.service.SaveChatFileToLibrary(r.Context(), r.PathValue("id"), r.PathValue("artifact_id"), body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "library_save_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, record)
 }
 
 func (a *API) deleteManagedArtifact(w http.ResponseWriter, r *http.Request) {

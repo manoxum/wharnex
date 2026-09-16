@@ -239,4 +239,16 @@ describe('attention center', () => {
     expect(items).toEqual([expect.objectContaining({ title: 'Candidata precisa de nova validação', tone: 'warning', action: 'retry-host-apply' })])
     expect(items.map((entry) => entry.title)).not.toContain('Alterações prontas para o host')
   })
+
+  it('offers one concrete authorization action for a pending host debug probe', () => {
+    const current = session('ses-chat-1')
+    current.state = 'debug_approval_required'
+    current.plan = {
+      protocol: 'harness.execution/v1', plan_id: 'debug-1', request_id: 'req-debug', status: 'ready', summary: 'Inspect host', risk: 'low', requires_approval: false,
+      debug: { protocol: 'harness.debug/v1', target: 'host', rationale: 'compare the live Go toolchain' }, operations: [], verification: [],
+    }
+    const items = collectAttentionItems([chat('chat-1', 'Debug')], { 'chat-1': current })
+    expect(items).toEqual([expect.objectContaining({ title: 'Debug aguarda autorização', target: 'plan', action: 'approve-debug' })])
+    expect(items[0].detail).toContain('host local')
+  })
 })

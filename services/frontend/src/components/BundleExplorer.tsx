@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ArtifactEntry, ArtifactPresentationGallery, ArtifactRecord, Session } from '../types'
+import type { ArtifactEntry, ArtifactPresentationGallery, ArtifactRecord, ChatFileRecord, Session } from '../types'
 import { api } from '../lib/api'
 import { formatBytes } from '../lib/desktop'
 import { parseBundleName, parseBundleNameWithDuplicateSuffix } from '../lib/bundlename'
 import { Icon } from './Icon'
+import { requestArtifactIndex } from '../lib/artifactIndexing'
 import { ArtifactPreview } from './ArtifactPreview'
 import { ArtifactViewerModal, type ArtifactViewerItem } from './ArtifactViewerModal'
 
@@ -34,6 +35,7 @@ export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }
   const [galleries, setGalleries] = useState<ArtifactPresentationGallery[]>([])
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
+  const [actionNotice, setActionNotice] = useState('')
   const [viewer, setViewer] = useState<{ items: ArtifactViewerItem[]; index: number }>()
   useEffect(() => {
     if (!bundle) { setGalleries([]); setWarning(''); setError(''); return }
@@ -51,6 +53,7 @@ export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }
   return <><section className="returned-artifact-gallery" aria-label="Artefactos devolvidos pelo ChatGPT">
     <header><span><Icon name="file" size={12}/></span><div><strong>Artefactos devolvidos</strong><small>{count} {count === 1 ? 'ficheiro renderizável' : 'ficheiros renderizáveis'}</small></div></header>
     {warning && <div className="artifact-presentation-warning" role="status">A apresentação declarada não pôde ser usada; foi aplicada a galeria segura automática.</div>}
+    {actionNotice && <div className="artifact-action-notice" role="status">{actionNotice}</div>}
     {error ? <div className="composer-error">{error}</div> : <div className="returned-artifact-galleries">{galleries.map((gallery) => <section className="returned-artifact-group" key={gallery.id}>
       {(gallery.title || gallery.description) && <header><div>{gallery.title && <strong>{gallery.title}</strong>}{gallery.description && <small>{gallery.description}</small>}</div></header>}
       <div className={`returned-artifact-list gallery-layout-${gallery.layout} gallery-sizing-${gallery.sizing}`}>{gallery.items.map((item, index) => {
@@ -59,7 +62,7 @@ export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }
           <button className="returned-artifact-open" type="button" onClick={() => setViewer({ items: gallery.items, index })} aria-label={`Abrir ${item.label || baseName(item.path)}`}>
             <div className="returned-artifact-preview"><ArtifactPreview sessionId={sessionId} path={previewPath} size={item.size} kind={item.kind} compact url={api.artifactEntryURL(sessionId, bundle.id, previewPath)}/></div>
           </button>
-          <div className="returned-artifact-heading"><div><strong>{item.label || baseName(item.path)}</strong>{item.description && <span>{item.description}</span>}<small>{formatBytes(item.size)} · {item.kind}</small></div><a href={api.artifactEntryURL(sessionId, bundle.id, item.path, true)} download title={`Descarregar ${item.path}`}><Icon name="download" size={12}/> Descarregar</a></div>
+          <div className="returned-artifact-heading"><div><strong>{item.label || baseName(item.path)}</strong>{item.description && <span>{item.description}</span>}<small>{formatBytes(item.size)} · {item.kind}</small></div><div className="returned-artifact-actions"><button type="button" onClick={() => requestArtifactIndex('chat', `entry|${bundle.id}|${item.path}`)} title="Indexar no próximo prompt"><Icon name="link" size={12}/> Indexar</button><button type="button" onClick={() => { setActionNotice(''); void api.saveChatFileToLibrary(sessionId, bundle.id, item.path).then(() => setActionNotice(`${item.label || baseName(item.path)} guardado na biblioteca.`)).catch((reason) => setActionNotice(reason instanceof Error ? reason.message : 'Não foi possível guardar na biblioteca.')) }} title="Guardar na biblioteca"><Icon name="save" size={12}/> Biblioteca</button><a href={api.artifactEntryURL(sessionId, bundle.id, item.path, true)} download title={`Descarregar ${item.path}`}><Icon name="download" size={12}/> Descarregar</a></div></div>
         </article>
       })}</div>
     </section>)}</div>}
@@ -67,72 +70,68 @@ export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }
 }
 
 
-type ReturnedArtifactRef = { bundle: ArtifactRecord; entry: ArtifactEntry }
+type ChatFileView = 'cards' | 'table'
 
 export function ChatArtifactLibrary({ sessionId, artifacts = EMPTY_ARTIFACTS, requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
   const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
-  const outputBundles = useMemo(() => bundles.filter((item) => item.direction === 'output'), [bundles])
-  const [returned, setReturned] = useState<ReturnedArtifactRef[]>([])
+  const [files, setFiles] = useState<ChatFileRecord[]>([])
+  const [query, setQuery] = useState('')
+  const [view, setView] = useState<ChatFileView>('cards')
   const [selectedBundle, setSelectedBundle] = useState<ArtifactRecord>()
-  const [selectedFile, setSelectedFile] = useState<ReturnedArtifactRef>()
-  const [viewer, setViewer] = useState<{ bundle: ArtifactRecord; items: ArtifactViewerItem[]; index: number }>()
+  const [viewer, setViewer] = useState<ChatFileRecord>()
   const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!outputBundles.length) {
-      setReturned([]); setSelectedFile(undefined); setLoading(false); setError('')
-      return
-    }
     let alive = true
     setLoading(true); setError('')
-    void Promise.all(outputBundles.map(async (bundle) => {
-      const result = await api.artifactEntries(sessionId, bundle.id)
-      return result.entries.filter(isReturnedArtifactEntry).map((entry) => ({ bundle, entry }))
-    })).then((groups) => {
-      if (!alive) return
-      const next = groups.flat()
-      setReturned(next)
-      setSelectedFile((current) => current ? next.find((item) => sameReturnedArtifact(item, current)) || next[0] : next[0])
-    }).catch((reason) => {
-      if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível carregar os ficheiros devolvidos pelo ChatGPT.')
-    }).finally(() => { if (alive) setLoading(false) })
+    void api.chatFiles(sessionId).then((result) => { if (alive) setFiles(result.files || []) })
+      .catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível carregar os ficheiros deste chat.') })
+      .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [outputBundles, sessionId])
+  }, [sessionId, artifacts])
 
-  const selectedPresentation = selectedFile ? bundlePresentation(selectedFile.bundle, requestLineages) : undefined
-  const selectedPath = selectedFile?.entry.path || ''
-  const selectedURL = selectedFile ? api.artifactEntryURL(sessionId, selectedFile.bundle.id, selectedFile.entry.path) : ''
+  const visible = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase('pt')
+    return files.filter((file) => !needle || `${file.name} ${file.path || ''} ${file.source} ${file.request_id || ''}`.toLocaleLowerCase('pt').includes(needle))
+  }, [files, query])
+  const visibleBundles = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase('pt')
+    return bundles.filter((bundle) => !needle || `${bundle.name} ${bundle.request_id || ''}`.toLocaleLowerCase('pt').includes(needle))
+  }, [bundles, query])
 
-  return <section className="chat-artifact-library" aria-label="Ficheiros e bundles do chat">
-    <header className="chat-artifact-library-header"><div><span><Icon name="folder" size={14}/></span><div><strong>Ficheiros e bundles</strong><small>Conteúdo trocado com o ChatGPT e artefactos locais devolvidos em artifacts/.</small></div></div><div className="chat-artifact-library-counts"><b>{bundles.length}</b><span>bundles</span><b>{returned.length}</b><span>ficheiros</span></div></header>
-    <div className="chat-artifact-library-layout">
-      <aside>
-        <section className="chat-artifact-library-section"><header><strong>Bundles</strong><span>{bundles.length}</span></header>{bundles.length ? <div className="chat-artifact-library-list">{bundles.map((bundle) => {
-          const presentation = bundlePresentation(bundle, requestLineages)
-          return <button key={bundle.id} className={`chat-artifact-bundle-row bundle-tone-${presentation.tone}`} type="button" onClick={() => setSelectedBundle(bundle)} title={`Explorar ${bundle.name}`}><span className="bundle-selector-mark">{bundle.direction === 'input' ? '↑' : '↓'}</span><span><em>{presentation.label}</em><b>{bundle.name}</b><small>{formatBytes(bundle.size)} · {formatDateTime(bundle.created_at)}</small></span><Icon name="chevron" size={10}/></button>
-        })}</div> : <div className="chat-artifact-library-empty">Nenhum bundle trocado neste chat.</div>}</section>
-        <section className="chat-artifact-library-section"><header><strong>Ficheiros do ChatGPT</strong><span>{returned.length}</span></header>{loading ? <div className="chat-artifact-library-empty"><span className="spinner"/> A carregar ficheiros…</div> : error ? <div className="chat-artifact-library-empty composer-error">{error}</div> : returned.length ? <div className="chat-artifact-library-list">{returned.map((item) => {
-          const active = selectedFile && sameReturnedArtifact(item, selectedFile)
-          const presentation = bundlePresentation(item.bundle, requestLineages)
-          return <button key={`${item.bundle.id}:${item.entry.path}`} className={`chat-artifact-file-row ${active ? 'active' : ''}`} type="button" onClick={() => setSelectedFile(item)} title={`Pré-visualizar ${item.entry.path}`}><Icon name="file" size={12}/><span><b>{baseName(item.entry.path)}</b><small>{presentation.label} · {formatBytes(item.entry.size)}</small></span></button>
-        })}</div> : <div className="chat-artifact-library-empty">O ChatGPT ainda não devolveu ficheiros em artifacts/.</div>}</section>
-      </aside>
-      <main className="chat-artifact-library-preview">{selectedFile ? <><header><div><span className={`bundle-kind-label bundle-tone-${selectedPresentation?.tone || 'response'}`}>{selectedPresentation?.label || 'Resposta'}</span><strong>{baseName(selectedPath)}</strong><small>{selectedPath} · {formatBytes(selectedFile.entry.size)}</small></div><div className="artifact-library-preview-actions"><button type="button" className="text-button" onClick={() => { const group = returned.filter((candidate) => candidate.bundle.id === selectedFile.bundle.id); setViewer({ bundle: selectedFile.bundle, items: group.map((candidate) => ({ path: candidate.entry.path, size: candidate.entry.size })), index: Math.max(0, group.findIndex((candidate) => sameReturnedArtifact(candidate, selectedFile))) }) }}>Abrir viewer</button><a href={api.artifactEntryURL(sessionId, selectedFile.bundle.id, selectedPath, true)} download title={`Descarregar ${selectedPath}`}><Icon name="download" size={12}/> Descarregar</a></div></header><div><ArtifactPreview sessionId={sessionId} path={selectedPath} size={selectedFile.entry.size} url={selectedURL}/></div></> : <div className="artifact-preview-empty"><Icon name="file" size={28}/><strong>Sem ficheiro selecionado</strong><span>Os artefactos devolvidos pelo ChatGPT aparecem aqui para pré-visualização e download.</span></div>}</main>
-    </div>
+  function indexFile(file: ChatFileRecord) {
+    requestArtifactIndex('chat', file.direct ? `artifact|${file.artifact_id}` : `entry|${file.artifact_id}|${file.path || ''}`)
+  }
+
+  async function saveToLibrary(file: ChatFileRecord) {
+    const key = chatFileKey(file); setSaving(key); setError('')
+    try { await api.saveChatFileToLibrary(sessionId, file.artifact_id, file.path || '') }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível guardar o ficheiro na biblioteca.') }
+    finally { setSaving('') }
+  }
+
+  return <section className="chat-artifact-library" aria-label="Ficheiros do chat">
+    <header className="chat-artifact-library-header"><div><span><Icon name="folder" size={14}/></span><div><strong>Ficheiros do chat</strong><small>Anexos enviados e ficheiros devolvidos pelo GPT numa única área. Os bundles do protocolo continuam disponíveis separadamente.</small></div></div><div className="chat-artifact-library-counts"><b>{visible.length}</b><span>ficheiros</span><b>{visibleBundles.length}</b><span>bundles</span></div></header>
+    <div className="chat-file-toolbar"><label className="panel-search-field"><Icon name="search" size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar ficheiros deste chat…" aria-label="Pesquisar ficheiros deste chat"/></label><div className="file-view-switch"><button type="button" className={view === 'cards' ? 'active' : ''} onClick={() => setView('cards')} title="Cards"><Icon name="package" size={13}/></button><button type="button" className={view === 'table' ? 'active' : ''} onClick={() => setView('table')} title="Tabela"><Icon name="list" size={13}/></button></div></div>
+    {error && <div className="composer-error">{error}</div>}
+    {loading && <p className="muted-copy">A carregar ficheiros do chat…</p>}
+    {view === 'cards' ? <div className="chat-file-grid">{visible.map((file) => <article className="chat-file-card" key={chatFileKey(file)}><button type="button" className="chat-file-preview" onClick={() => setViewer(file)}><ArtifactPreview sessionId={sessionId} path={file.name} size={file.size} compact url={chatFileURL(sessionId, file)}/></button><div className="chat-file-copy"><strong title={file.name}>{file.name}</strong><small>{chatFileSourceLabel(file)} · {formatBytes(file.size)}</small></div><div className="chat-file-actions"><button type="button" onClick={() => indexFile(file)} title="Indexar no próximo prompt"><Icon name="link" size={12}/> Indexar</button><button type="button" onClick={() => void saveToLibrary(file)} disabled={saving === chatFileKey(file)} title="Guardar na biblioteca"><Icon name="save" size={12}/></button><a href={chatFileDownloadURL(sessionId, file)} download={file.name} title="Descarregar"><Icon name="download" size={12}/></a></div></article>)}</div>
+      : <div className="chat-file-table"><div className="chat-file-table-head"><span>Nome</span><span>Origem</span><span>Tamanho</span><span>Data</span><span>Ações</span></div>{visible.map((file) => <div className="chat-file-table-row" key={chatFileKey(file)}><button type="button" onClick={() => setViewer(file)}><Icon name="file" size={13}/><span>{file.name}</span></button><span>{chatFileSourceLabel(file)}</span><span>{formatBytes(file.size)}</span><span>{formatDateTime(file.created_at)}</span><span><button type="button" onClick={() => indexFile(file)}>Indexar</button><button type="button" onClick={() => void saveToLibrary(file)} disabled={saving === chatFileKey(file)}>Biblioteca</button><a href={chatFileDownloadURL(sessionId, file)} download={file.name}>Descarregar</a></span></div>)}</div>}
+    {!loading && !visible.length && <div className="artifact-preview-empty"><Icon name="file" size={28}/><strong>Nenhum ficheiro neste chat</strong><span>Os anexos enviados e os ficheiros devolvidos pelo GPT aparecerão aqui.</span></div>}
+    {visibleBundles.length > 0 && <section className="chat-bundle-strip" aria-label="Bundles do protocolo"><header><strong>Bundles do protocolo</strong><small>Pedidos e respostas integrais para auditoria.</small></header><div>{visibleBundles.map((bundle) => { const presentation = bundlePresentation(bundle, requestLineages); return <button key={bundle.id} type="button" className={`bundle-card bundle-tone-${presentation.tone}`} onClick={() => setSelectedBundle(bundle)}><span className="bundle-kind-mark">{bundle.direction === 'input' ? '↑' : '↓'}</span><span><em>{presentation.label}</em><b>{bundle.name}</b><small>{formatBytes(bundle.size)} · {bundle.entry_count || 0} itens</small></span><Icon name="chevron" size={10}/></button> })}</div></section>}
     {selectedBundle && <BundleExplorer sessionId={sessionId} bundle={selectedBundle} bundles={bundles} requestLineages={requestLineages} onBundle={setSelectedBundle} onClose={() => setSelectedBundle(undefined)}/>}
-    {viewer && <ArtifactViewerModal sessionId={sessionId} bundleId={viewer.bundle.id} items={viewer.items} initialIndex={viewer.index} onClose={() => setViewer(undefined)}/>}
+    {viewer && (viewer.direct
+      ? <ArtifactViewerModal sessionId={sessionId} artifactId={viewer.artifact_id} items={[{ path: viewer.name, size: viewer.size, content_type: viewer.content_type }]} initialIndex={0} onClose={() => setViewer(undefined)}/>
+      : <ArtifactViewerModal sessionId={sessionId} bundleId={viewer.artifact_id} items={[{ path: viewer.path || viewer.name, size: viewer.size, content_type: viewer.content_type }]} initialIndex={0} onClose={() => setViewer(undefined)}/>)}
   </section>
 }
 
-function sameReturnedArtifact(left: ReturnedArtifactRef, right: ReturnedArtifactRef) {
-  return left.bundle.id === right.bundle.id && left.entry.path === right.entry.path
-}
-
-function isReturnedArtifactEntry(entry: ArtifactEntry) {
-  const clean = entry.path.replace(/^\/+/, '')
-  return !entry.dir && clean.startsWith('artifacts/') && clean.length > 'artifacts/'.length
-}
+function chatFileKey(file: ChatFileRecord) { return `${file.artifact_id}:${file.path || ''}` }
+function chatFileSourceLabel(file: ChatFileRecord) { if (file.source === 'attachment') return 'Anexo enviado'; if (file.source === 'returned') return 'Ficheiro devolvido'; return file.direction === 'input' ? 'Entrada' : 'Saída' }
+function chatFileURL(sessionId: string, file: ChatFileRecord) { return file.direct ? api.artifactURL(sessionId, file.artifact_id, true) : api.artifactEntryURL(sessionId, file.artifact_id, file.path || '') }
+function chatFileDownloadURL(sessionId: string, file: ChatFileRecord) { return file.direct ? api.artifactURL(sessionId, file.artifact_id) : api.artifactEntryURL(sessionId, file.artifact_id, file.path || '', true) }
 
 export function ComposerBundlePreviewExplorer({ sessionId, bundle, onClose }: { sessionId: string; bundle: ArtifactRecord; onClose: () => void }) {
   return <BundleExplorer sessionId={sessionId} bundle={bundle} bundles={[bundle]} requestLineages={{}} presentationOverride={{ tone: 'request-main', label: 'Pré-visualização · próximo bundle' }} onBundle={() => undefined} onClose={onClose}/>

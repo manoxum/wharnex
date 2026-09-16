@@ -3,6 +3,7 @@ import { Icon } from './Icon'
 
 const ACTION_ICON: Record<AttentionAction, 'play' | 'network' | 'apply'> = {
   'approve-execution': 'play',
+  'approve-debug': 'play',
   'retry-dependency-network': 'network',
   'repair-host-dependency': 'network',
   'repair-with-gpt': 'play',
