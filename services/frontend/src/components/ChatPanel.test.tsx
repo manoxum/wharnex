@@ -65,7 +65,7 @@ describe('ChatPanel', () => {
   // it open by design — leaves it for the next test to match. Cancelling rather
   // than dropping the node also settles its promise, which is what releases the
   // serialized dialog queue so the following test's dialog can still open.
-  afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
+  afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); vi.unstubAllGlobals(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
   it('positions the initial transcript at the latest messages without smooth scrolling', () => {
     const scrollIntoView = vi.fn(() => Promise.resolve())
@@ -207,6 +207,34 @@ describe('ChatPanel', () => {
 
     await waitFor(() => expect(screen.getByText('scroll alinhado 1')).toBeTruthy())
     expect(view.container.querySelectorAll('.chat-stream article.message').length).toBeLessThanOrEqual(60)
+  })
+
+  it('defers rich offscreen transcript entries until they approach the scroll viewport', async () => {
+    const observers: Array<{ callback: IntersectionObserverCallback; targets: Element[] }> = []
+    class TestIntersectionObserver {
+      readonly targets: Element[] = []
+      constructor(readonly callback: IntersectionObserverCallback) { observers.push(this) }
+      observe(target: Element) { this.targets.push(target) }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return [] }
+      readonly root = null
+      readonly rootMargin = '0px'
+      readonly thresholds = [0]
+    }
+    vi.stubGlobal('IntersectionObserver', TestIntersectionObserver)
+    const items = Array.from({ length: 8 }, (_, index) => ({
+      id: `deferred-rich-${index + 1}`, role: 'harness' as const, source: 'chatgpt' as const,
+      text: `## Markdown pesado ${index + 1}\n\n${'conteúdo renderizado '.repeat(300)}`,
+    }))
+    render(<ChatPanel session={session} items={items} chats={[]} activeChatId="deferred-rich" busy={false} onSend={async () => undefined} {...chatActions} />)
+
+    expect(screen.queryByText(/Markdown pesado 1/)).toBeNull()
+    expect(screen.getByText(/Markdown pesado 8/)).toBeTruthy()
+    expect(observers).toHaveLength(4)
+
+    observers[0].callback([{ isIntersecting: true, target: observers[0].targets[0] } as IntersectionObserverEntry], {} as IntersectionObserver)
+    await waitFor(() => expect(screen.getByText(/Markdown pesado 1/)).toBeTruthy())
   })
 
 

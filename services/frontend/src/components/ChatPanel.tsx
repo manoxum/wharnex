@@ -1,4 +1,4 @@
-import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ManagedArtifact, ChatFileRecord, QueuedChatRequest, Session } from '../types'
 import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
@@ -736,11 +736,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         <div className="chat-virtual-spacer" aria-hidden="true" style={{ height: beforeHeight }}/>
       )}
       {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar mensagens anteriores</button></div>}
-      {visibleItems.map((item) => {
+      {visibleItems.map((item, index) => {
         const previousNotices = whxNoticeRuns.previousByLatestId.get(item.id) || []
         if (whxNoticeRuns.hiddenIds.has(item.id)) return null
         const runExpanded = previousNotices.length > 0 && expandedWhxNoticeRunId === item.id
-        return <Fragment key={item.id}>
+        const entry = <Fragment>
           {previousNotices.length > 0 && <div className="whx-notice-run">
             <button type="button" className="whx-notice-stack-toggle" aria-expanded={runExpanded} aria-label={runExpanded ? 'Ocultar notificações WHX anteriores' : `Mostrar ${previousNotices.length} notificações WHX anteriores`} onClick={() => setExpandedWhxNoticeRunId((current) => current === item.id ? '' : item.id)}>
               <span aria-hidden="true">···</span><small>{runExpanded ? 'ocultar anteriores' : `${previousNotices.length} anterior${previousNotices.length === 1 ? '' : 'es'}`}</small>
@@ -749,6 +749,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </div>}
           {renderChatEntry(item)}
         </Fragment>
+        return <DeferredTranscriptEntry key={item.id} streamRef={streamRef} defer={isRichTranscriptEntry(item) && index < visibleItems.length - 4}>{entry}</DeferredTranscriptEntry>
       })}
       {hasNewer && <div className="chat-history-loader newer"><span>{hiddenNewerItemCount} mensagem(ns) mais recente(s)</span><button type="button" onClick={loadNewer}>Carregar mensagens mais recentes</button></div>}
       {afterHeight > 0 && (
@@ -915,6 +916,36 @@ function TodoPanel({ todos, onClose }: { todos: Array<{ text: string; done: bool
 
 function ArtifactInspector({ kind, content, onClose }: { kind: ChatArtifactKind; content: string; onClose: () => void }) {
   return <div className="artifact-inspector-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="artifact-inspector" role="dialog" aria-modal="true" aria-label={`Ver ${artifactLabel(kind)}`}><header><div><span>{artifactIcon(kind)}</span><div><strong>{artifactLabel(kind)}</strong><small>Conteúdo efetivamente associado à iteração atual</small></div></div><button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar conteúdo"><Icon name="close" size={13}/></button></header><div className="artifact-inspector-body"><MarkdownContent markdown={content}/></div></section></div>
+}
+
+function isRichTranscriptEntry(item: ChatItem) {
+  return item.role === 'harness' || Boolean(item.attachments?.length) || item.presentation === 'change'
+}
+
+function DeferredTranscriptEntry({ streamRef, defer, children }: { streamRef: RefObject<HTMLDivElement | null>; defer: boolean; children: ReactNode }) {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const [hydrated, setHydrated] = useState(!defer)
+
+  useEffect(() => {
+    if (!defer || hydrated) return
+    const host = hostRef.current
+    if (!host) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setHydrated(true)
+      return
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      setHydrated(true)
+      observer.disconnect()
+    }, { root: streamRef.current, rootMargin: '480px 0px' })
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [defer, hydrated, streamRef])
+
+  return <div ref={hostRef} className={hydrated ? 'chat-rich-entry' : 'chat-rich-entry deferred'} aria-busy={hydrated ? undefined : true}>
+    {hydrated ? children : <div className="chat-rich-entry-placeholder" aria-hidden="true"/>}
+  </div>
 }
 
 function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRejectPlan, onInspectArtifact, onInspectChange, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock, onRepairWithGPT, canRepairWithGPT, requiresOperatorGuidance, onRetryDependencyNetwork, canRetryDependencyNetwork, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, busy, taskInFlight, artifactContent }: { item: ChatItem; copied: boolean; onCopy: (item: ChatItem) => Promise<void>; onApprovePlan?: (item: ChatItem) => Promise<void>; onCorrectPlan?: (item: ChatItem, guidance: string) => Promise<void>; onRejectPlan?: (item: ChatItem) => void; onInspectArtifact: (kind: ChatArtifactKind) => void; onInspectChange: (file: ChatChangeFile) => void; onOpenFile?: (path: string) => void; onRevertChange?: (item: ChatItem) => Promise<void>; onReprocessPolicyBlock?: () => Promise<void>; canReprocessPolicyBlock: boolean; onRepairWithGPT?: (detail: string) => Promise<void>; canRepairWithGPT: boolean; requiresOperatorGuidance: boolean; onRetryDependencyNetwork?: () => Promise<void>; canRetryDependencyNetwork: boolean; onRetryTransportFailure?: (requestId: string) => Promise<void>; onResendPendingRequest?: (requestId: string) => Promise<void>; onCancelPendingRequest?: (requestId: string) => Promise<void>; busy: boolean; taskInFlight: boolean; artifactContent?: Partial<Record<ChatArtifactKind, string>> }) {
