@@ -100,6 +100,7 @@ func TestLocalCoordinationFailuresNeverClassifyAsSourceRepair(t *testing.T) {
 		{"host dependency state", errHostDependencyState, domain.FailureKindHostDependencyState},
 		{"stale host baseline", ErrStaleHostBaseline, domain.FailureKindStaleHostBaseline},
 		{"integration race", ErrHostIntegrationRace, domain.FailureKindHostIntegrationRace},
+		{"sandbox preparation timeout", sandbox.ErrCommandPreparationTimeout, domain.FailureKindSandboxPreparationTimeout},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
