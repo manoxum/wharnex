@@ -26,11 +26,16 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 		if current.LastTurn == nil || current.LastTurn.Kind != domain.TurnKindWorkflow || current.Plan == nil {
 			return result, errors.New("no workflow step is ready")
 		}
-		if current.AutomationMode != domain.AutomationModeAuto {
+		isDebug := current.Plan.Debug != nil
+		if !isDebug && current.AutomationMode != domain.AutomationModeAuto {
 			result.AutoError = "iterative workflow requires project Auto mode"
 			return result, nil
 		}
-		if current.ExecutionMode != domain.ExecutionModeProtected {
+		if isDebug && !debugAuthorized(current) {
+			result.AutoError = "debug flow requires one approval for this Main Request"
+			return result, nil
+		}
+		if !isDebug && current.ExecutionMode != domain.ExecutionModeProtected {
 			result.AutoError = "iterative workflow requires Protected execution mode"
 			return result, nil
 		}
@@ -118,16 +123,22 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 	}
 	result := domain.ExecutionResult{PlanID: plan.PlanID, StartedAt: time.Now().UTC(), Commands: []domain.CommandResult{}}
 	s.bus.Publish(sessionID, "workflow.started", map[string]any{"plan_id": plan.PlanID, "transport": transport, "round": current.WorkflowRound + 1})
-	workspace, err := s.runner.Prepare(ctx, current.ProjectPath)
+	runner := s.runner
+	target := "workflow-sandbox"
+	if plan.Debug != nil && plan.Debug.Target == "host" {
+		runner = s.hostRunner
+		target = "debug-host"
+	}
+	workspace, err := runner.Prepare(ctx, current.ProjectPath)
 	if err != nil {
 		result.Error = err.Error()
 		result.CompletedAt = time.Now().UTC()
 		return result, err
 	}
-	defer s.runner.Cleanup(workspace)
+	defer runner.Cleanup(workspace)
 
 	run := func(command domain.CommandSpec) error {
-		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, s.runner, workspace, command, "workflow-sandbox")
+		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, target)
 		result.Commands = append(result.Commands, commandResult)
 		if runErr != nil {
 			return runErr
@@ -158,7 +169,7 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
 	s.storeWorkflowObservation(sessionID, result, decision)
-	s.bus.Publish(sessionID, "workflow.completed", map[string]any{"plan_id": plan.PlanID, "commands": len(result.Commands), "transport": transport})
+	s.bus.Publish(sessionID, "workflow.completed", map[string]any{"plan_id": plan.PlanID, "commands": len(result.Commands), "transport": transport, "target": target})
 	return result, nil
 }
 
@@ -244,7 +255,11 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 			item.Plan = planned.Plan
 			item.Policy = &decision
 			if planned.Turn != nil && planned.Turn.Kind == domain.TurnKindWorkflow {
-				item.State = "workflow_planned"
+				if planned.Plan.Debug != nil && !debugAuthorized(*item) {
+					item.State = "debug_approval_required"
+				} else {
+					item.State = "workflow_planned"
+				}
 			} else {
 				item.State = "planned"
 			}

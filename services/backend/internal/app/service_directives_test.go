@@ -69,6 +69,13 @@ func TestDirectiveLegendExplainsSee(t *testing.T) {
 	}
 }
 
+func TestDirectiveLegendExplainsChatAndLibraryFiles(t *testing.T) {
+	legend := directiveLegend("compare @{[chat]diagram.png} with @{[lib]session|ses_123|artifact_456}", manifestWith("a.ts"))
+	if !strings.Contains(legend, "file already stored in this chat") || !strings.Contains(legend, "Wharnex library") {
+		t.Fatalf("legend must explain chat and library transports: %q", legend)
+	}
+}
+
 func TestDirectiveLegendResolvesQualifiedSeeToExactBundlePath(t *testing.T) {
 	context := domain.ContextBundle{
 		Manifest:        manifestWith("src/App.tsx"),

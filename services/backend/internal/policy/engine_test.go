@@ -112,6 +112,15 @@ func TestPackageMutationStillRequiresApproval(t *testing.T) {
 	}
 }
 
+func TestHostSystemToolMutationRequiresApproval(t *testing.T) {
+	plan := basePlan()
+	plan.SystemTools = []domain.PlanSystemTool{{Name: "docker-buildx", Target: "host", Action: "install", Reason: "required to build the requested image"}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("host tool installation must require explicit approval: %#v", decision)
+	}
+}
+
 func TestInteractiveTerminalAllowsDeveloperMutationsWithoutModelPlanRestrictions(t *testing.T) {
 	command := cmd("git", "add", "README.md")
 	decision := NewEngine().EvaluateInteractiveCommand(command)

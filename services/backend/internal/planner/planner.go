@@ -15,6 +15,7 @@ type Request struct {
 	ContextManifest    domain.ContextManifest
 	PreviousResponseID string
 	AutomationMode     domain.AutomationMode
+	DebugEnabled       bool
 	EffortLevel        domain.EffortLevel
 	SelfEvolution      bool
 	PlanningMode       string

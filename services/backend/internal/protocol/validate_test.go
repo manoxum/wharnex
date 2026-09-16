@@ -100,6 +100,39 @@ func TestValidateWorkflowPlanRejectsHostApproval(t *testing.T) {
 	}
 }
 
+func TestValidateDebugPlanAllowsBoundedHostInspection(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "debug", RequestID: "req_12345678", Status: "ready", Summary: "inspect host", Risk: "low",
+		Debug:      &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Rationale: "compare the live toolchain with the project requirement"},
+		Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"go", "env", "GOVERSION", "GOOS"}, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err != nil {
+		t.Fatalf("bounded host debug was rejected: %v", err)
+	}
+}
+
+func TestValidateDebugPlanRejectsHostMutationAndArbitraryReads(t *testing.T) {
+	for _, argv := range [][]string{{"git", "checkout", "main"}, {"go", "env", "GOPRIVATE"}, {"cat", "/etc/passwd"}, {"npm", "install"}} {
+		plan := domain.ExecutionPlan{
+			Protocol: domain.ProtocolV1, PlanID: "debug", RequestID: "req_12345678", Status: "ready", Summary: "inspect host", Risk: "low",
+			Debug:      &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Rationale: "inspect a local mismatch"},
+			Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}}},
+		}
+		if err := ValidateWorkflowPlan(plan); err == nil {
+			t.Fatalf("unsafe host debug command was accepted: %v", argv)
+		}
+	}
+}
+
+func TestValidateChangePlanRejectsDebugExtension(t *testing.T) {
+	plan := validPlan()
+	plan.VersionIncrement = &domain.VersionIncrement{Component: domain.VersionComponentPatch, Amount: 1}
+	plan.Debug = &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "sandbox", Rationale: "diagnose before changing"}
+	if err := ValidateChangePlan(plan); err == nil || !strings.Contains(err.Error(), "must not contain debug") {
+		t.Fatalf("change/debug ambiguity was not rejected: %v", err)
+	}
+}
+
 func TestValidateBaselineAndImpactMetadata(t *testing.T) {
 	plan := validPlan()
 	plan.BaseContextSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -122,6 +155,9 @@ func TestValidateBaselineAndImpactMetadata(t *testing.T) {
 
 func TestValidateChangePlanRequiresVersionIncrement(t *testing.T) {
 	plan := validPlan()
+	plan.Document = "# Execution contract"
+	plan.Dependencies = []domain.PlanDependency{}
+	plan.SystemTools = []domain.PlanSystemTool{}
 	if err := ValidateChangePlan(plan); err == nil || !strings.Contains(err.Error(), "requires version_increment") {
 		t.Fatalf("missing version increment was not rejected: %v", err)
 	}
@@ -136,6 +172,27 @@ func TestValidateChangePlanRequiresVersionIncrement(t *testing.T) {
 	plan.VersionIncrement = &domain.VersionIncrement{Component: "medion", Amount: 1}
 	if err := ValidateChangePlan(plan); err == nil {
 		t.Fatal("unknown version increment component must be rejected")
+	}
+}
+
+func TestValidateChangePlanRequiresExplicitExecutionContract(t *testing.T) {
+	plan := validPlan()
+	plan.Protocol = domain.ProtocolV2
+	plan.VersionIncrement = &domain.VersionIncrement{Component: domain.VersionComponentPatch, Amount: 1}
+	if err := ValidateChangePlan(plan); err == nil || !strings.Contains(err.Error(), "execution-contract document") {
+		t.Fatalf("missing plan document was accepted: %v", err)
+	}
+	plan.Document = "# Execution contract"
+	if err := ValidateChangePlan(plan); err == nil || !strings.Contains(err.Error(), "dependencies") {
+		t.Fatalf("omitted dependency disclosure was accepted: %v", err)
+	}
+	plan.Dependencies = []domain.PlanDependency{}
+	if err := ValidateChangePlan(plan); err == nil || !strings.Contains(err.Error(), "system_tools") {
+		t.Fatalf("omitted system-tool disclosure was accepted: %v", err)
+	}
+	plan.SystemTools = []domain.PlanSystemTool{}
+	if err := ValidateChangePlan(plan); err != nil {
+		t.Fatalf("explicit empty impact inventories were rejected: %v", err)
 	}
 }
 

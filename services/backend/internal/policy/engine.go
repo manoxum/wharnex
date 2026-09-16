@@ -26,6 +26,13 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 		decision.RequiresApproval = true
 		decision.Reasons = append(decision.Reasons, "planner requested explicit approval")
 	}
+	for _, tool := range plan.SystemTools {
+		if tool.Target == "host" && tool.Action != "use" {
+			decision.RequiresApproval = true
+			decision.Risk = maxRisk(decision.Risk, "high")
+			decision.Reasons = append(decision.Reasons, fmt.Sprintf("host tool %q requires explicit installation/configuration approval", tool.Name))
+		}
+	}
 	for _, op := range plan.Operations {
 		if op.Type == "apply_patch" {
 			decision.Risk = maxRisk(decision.Risk, "medium")

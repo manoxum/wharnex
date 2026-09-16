@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
-import type { BundleQuota, HarnessEvent, Session } from '../types'
+import { useEffect, useRef, useState, type ComponentProps } from 'react'
+import type { BundleQuota, Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import type { ChatViewportStore } from './useProgressiveChatHistory'
 import { Inspector, type InspectorTab } from './Inspector'
 import { Icon } from './Icon'
 import { desktopWindowScope } from '../lib/projectBindings'
-import { ATTENTION_ACTION_LABEL, sessionCanApplyHost, sessionHostResolutionBlocked, summarizeAttention, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
+import { summarizeAttention, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { AttentionPopover } from './AttentionPopover'
 import { api } from '../lib/api'
-import { sessionCanExecutePlan } from '../lib/executionRecovery'
 
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
 const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
@@ -67,8 +66,6 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   const [bundleQuota, setBundleQuota] = useState<BundleQuota>()
   const archived = chatProps.archivedChats || []
   const attentionSummary = summarizeAttention(attentionItems)
-  const activeCommandAttention = attentionItems.find((item) => item.chatId === chatProps.activeChatId && item.action && item.action !== 'apply-host')
-  const executionCommandRunning = useMemo(() => hasRunningExecutionCommand(inspectorProps.events), [inspectorProps.events])
   useEffect(() => {
     let alive = true
     const refresh = () => { void api.bundleQuota().then((value) => { if (alive) setBundleQuota(value) }).catch(() => {}) }
@@ -107,13 +104,6 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     if (!inspectorAttention?.nonce) return
     setInspectorTab(inspectorAttention.tab)
   }, [inspectorAttention])
-  const canExecute = sessionCanExecutePlan(session)
-  const needsApproval = Boolean(session.policy?.requires_approval)
-  const direct = session.execution_mode === 'unprotected'
-  const pendingCount = session.pending_host_changes?.length || 0
-  const canApply = sessionCanApplyHost(session)
-  const canReject = Boolean(!direct && pendingCount && (!sessionHostResolutionBlocked(session) || session.integration_conflict))
-
   function openInspector(tab: InspectorTab) {
     setInspectorTab(tab)
   }
@@ -148,8 +138,16 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
 
   function surfaceTabClass(target: AttentionTarget) {
     const tone = attentionTone(target)
-    const executionPulse = target === 'terminal' && inspectorTab !== 'terminal' && executionCommandRunning && !tone
-    return [inspectorTab === target ? 'active' : '', tone ? `attention-pulse attention-${tone}` : '', executionPulse ? 'execution-pulse' : ''].filter(Boolean).join(' ')
+    return [inspectorTab === target ? 'active' : '', tone ? `has-attention attention-${tone}` : ''].filter(Boolean).join(' ')
+  }
+
+  function surfaceAttention(target: AttentionTarget) {
+    return attentionItems.filter((item) => item.chatId === chatProps.activeChatId && item.target === target)
+  }
+
+  function surfaceTabTitle(target: AttentionTarget, fallback: string) {
+    const items = surfaceAttention(target)
+    return items.length ? `${fallback} · ${items.map((item) => item.title).join(' · ')}` : fallback
   }
 
   function beginChatDrag(event: React.DragEvent<HTMLDivElement>, chatId: string) {
@@ -196,8 +194,6 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     })
   }
 
-  const executeLabel = direct ? 'Executar plano diretamente no host' : needsApproval ? 'Aprovar e executar plano' : 'Executar plano na sandbox'
-
   // The chat width is published only once the operator has actually chosen it,
   // so an untouched layout falls through to the stylesheet's 60/40 default.
   return <section ref={workspaceRef} className="agent-workspace" style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
@@ -215,17 +211,12 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
           <button ref={attentionTriggerRef} type="button" className={`agent-attention-summary ${attentionSummary.urgent ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-controls="agent-attention-popover" aria-label={`Centro de notificações, ${attentionSummary.total} alerta(s), ${attentionSummary.urgent} urgente(s), ${attentionSummary.actionable} com ação`} title="Centro de Alertas · todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionSummary.total} {attentionSummary.total === 1 ? 'alerta' : 'alertas'}</b><small>{attentionSummary.urgent} {attentionSummary.urgent === 1 ? 'urgente' : 'urgentes'}</small></span></button>
           {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention} onClose={closeAttentionPopover}/>}
         </div>}
-        {session.policy && <span className={`agent-policy-icon ${session.policy.allowed ? '' : 'blocked'}`} title={session.policy.allowed ? `Policy autorizada · risco ${session.policy.risk}` : 'Policy bloqueada'} aria-label={session.policy.allowed ? `Policy autorizada, risco ${session.policy.risk}` : 'Policy bloqueada'}><Icon name="shield" size={14}/></span>}
-        {canExecute && !needsApproval && !busy && <button type="button" className={`agent-command-icon ${direct ? 'danger' : ''}`} disabled={busy} onClick={() => void inspectorProps.onExecute(direct)} aria-label={executeLabel} title={executeLabel}><Icon name="play" size={15}/></button>}
-        {canApply && activeCommandAttention?.action !== 'retry-host-apply' && <button type="button" className="agent-command-icon apply" disabled={busy} onClick={() => void inspectorProps.onApply()} aria-label="Aplicar alterações verificadas no host" title={`Aplicar ${pendingCount > 1 ? `${pendingCount} alterações verificadas` : 'alteração verificada'} no host`}><Icon name="apply" size={15}/>{pendingCount > 1 && <b>{pendingCount}</b>}</button>}
-        {activeCommandAttention?.action && <button type="button" className={`agent-command-icon attention ${activeCommandAttention.tone}`} disabled={busy} onClick={() => void runAttentionAction(activeCommandAttention)} aria-label={`Ação disponível: ${ATTENTION_ACTION_LABEL[activeCommandAttention.action]}`} title={`${activeCommandAttention.title} · ${ATTENTION_ACTION_LABEL[activeCommandAttention.action]}`}><Icon name={activeCommandAttention.action.includes('host') ? 'apply' : activeCommandAttention.action.includes('dependency') || activeCommandAttention.action === 'retry-transport' ? 'network' : 'play'} size={15}/></button>}
-        {canReject && <button type="button" className="agent-command-icon reject" disabled={busy} onClick={() => void inspectorProps.onRejectPendingChanges?.()} aria-label={session.integration_conflict ? 'Cancelar resolução e rejeitar alterações' : 'Rejeitar alterações verificadas'} title={session.integration_conflict ? 'Cancelar conflito e rejeitar a candidata' : 'Rejeitar alterações verificadas'}><Icon name="trash" size={14}/></button>}
       </div>
       <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
         <button className={inspectorTab === 'files' ? 'active' : ''} onClick={() => openInspector('files')} title="Ficheiros" aria-label="Ficheiros"><Icon name="folder" size={15}/></button>
-        <button className={surfaceTabClass('plan')} onClick={() => openInspector('plan')} title="Plano" aria-label="Plano"><Icon name="plan" size={15}/></button>
-        <button className={surfaceTabClass('terminal')} onClick={() => openInspector('terminal')} title="Execução" aria-label="Execução"><Icon name="terminal" size={15}/></button>
-        <button className={surfaceTabClass('chatgpt')} onClick={() => openInspector('chatgpt')} title={session.integration_conflict ? 'Conflito Engine' : 'Engine'} aria-label={session.integration_conflict ? 'Conflito Engine' : 'Engine'}><Icon name="agent" size={15}/></button>
+        <button className={surfaceTabClass('plan')} onClick={() => openInspector('plan')} title={surfaceTabTitle('plan', 'Plano')} aria-label={surfaceTabTitle('plan', 'Plano')}><Icon name="plan" size={15}/>{surfaceAttention('plan').length > 0 && <span className="surface-attention-count">{surfaceAttention('plan').length}</span>}</button>
+        <button className={surfaceTabClass('terminal')} onClick={() => openInspector('terminal')} title={surfaceTabTitle('terminal', 'Execução')} aria-label={surfaceTabTitle('terminal', 'Execução')}><Icon name="terminal" size={15}/>{surfaceAttention('terminal').length > 0 && <span className="surface-attention-count">{surfaceAttention('terminal').length}</span>}</button>
+        <button className={surfaceTabClass('chatgpt')} onClick={() => openInspector('chatgpt')} title={surfaceTabTitle('chatgpt', session.integration_conflict ? 'Conflito Engine' : 'Engine')} aria-label={surfaceTabTitle('chatgpt', session.integration_conflict ? 'Conflito Engine' : 'Engine')}><Icon name="agent" size={15}/>{surfaceAttention('chatgpt').length > 0 && <span className="surface-attention-count">{surfaceAttention('chatgpt').length}</span>}</button>
       </nav>
     </header>
 
@@ -261,18 +252,4 @@ function AgentBundleCounters({ quota }: { quota: BundleQuota }) {
     <span title="Bundles enviados"><i aria-hidden="true">↑</i><b>{quota.sent}</b></span>
     <span title="Bundles recebidos"><i aria-hidden="true">↓</i><b>{quota.received}</b></span>
   </div>
-}
-
-function hasRunningExecutionCommand(events: HarnessEvent[]) {
-  const running = new Set<string>()
-  for (const event of events) {
-    const started = event.type === 'command.started' || event.type === 'host_dependency_repair.command_started'
-    const completed = event.type === 'command.completed' || event.type === 'host_dependency_repair.command_completed'
-    if (!started && !completed) continue
-    const runID = typeof event.data.run_id === 'string' ? event.data.run_id : ''
-    if (!runID) continue
-    if (started) running.add(runID)
-    else running.delete(runID)
-  }
-  return running.size > 0
 }

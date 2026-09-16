@@ -1,16 +1,20 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ArtifactPresentation, ArtifactRecord } from '../types'
+import type { ArtifactPresentation, ArtifactRecord, ChatFileRecord } from '../types'
 import { BundleExchangeBar, ChatArtifactLibrary, ReturnedArtifactGallery } from './BundleExplorer'
 
 const mocks = vi.hoisted(() => ({
   artifactEntries: vi.fn(async () => ({ entries: [{ path: 'turn.json', size: 42, dir: false }] })),
   artifactPresentation: vi.fn(async (): Promise<ArtifactPresentation> => ({ protocol: 'harness.artifact-presentation/v1', fallback: true, galleries: [] as ArtifactPresentation['galleries'] })),
+  chatFiles: vi.fn(async () => ({ files: [] as ChatFileRecord[] })),
+  saveChatFileToLibrary: vi.fn(async () => ({})),
 }))
 vi.mock('../lib/api', () => ({ api: {
   artifactEntries: mocks.artifactEntries,
   artifactPresentation: mocks.artifactPresentation,
-  artifactURL: (_sessionId: string, artifactId: string) => `/artifact/${artifactId}`,
+  chatFiles: mocks.chatFiles,
+  saveChatFileToLibrary: mocks.saveChatFileToLibrary,
+  artifactURL: (_sessionId: string, artifactId: string, preview = false) => `/artifact/${artifactId}${preview ? '?preview=1' : ''}`,
   artifactEntryURL: (_sessionId: string, artifactId: string, path: string) => `/artifact/${artifactId}/entry?path=${encodeURIComponent(path)}`,
 } }))
 
@@ -18,6 +22,9 @@ afterEach(() => {
   cleanup()
   mocks.artifactEntries.mockClear()
   mocks.artifactPresentation.mockClear()
+  mocks.chatFiles.mockReset()
+  mocks.chatFiles.mockResolvedValue({ files: [] })
+  mocks.saveChatFileToLibrary.mockClear()
 })
 
 describe('BundleExchangeBar', () => {
@@ -101,32 +108,28 @@ describe('BundleExchangeBar', () => {
     expect(screen.getAllByText('Resumo final').length).toBeGreaterThan(0)
   })
 
-  it('aggregates transport bundles and returned artifacts in the chat file library', async () => {
+  it('shows chat files from the backend, keeps protocol bundles, and can save a file to the library', async () => {
     const requestId = 'req_20260905T225500_5555555555555555'
     const input: ArtifactRecord = {
       id: 'input-bundle', request_id: requestId, direction: 'input', kind: 'bundle', name: `whx_bundle_req_chat-1_${requestId}.zip`, content_type: 'application/zip',
       size: 2048, sha256: 'e'.repeat(64), created_at: '2026-09-05T22:55:00Z', expires_at: '2026-10-05T22:55:00Z', bundle: true, entry_count: 2,
     }
-    const output: ArtifactRecord = {
-      ...input, id: 'output-bundle', direction: 'output', name: `whx_bundle_res_chat-1_${requestId}.zip`, size: 4096, created_at: '2026-09-05T22:56:00Z', entry_count: 4,
-    }
-    mocks.artifactEntries.mockResolvedValueOnce({ entries: [
-      { path: 'turn.json', size: 42, dir: false },
-      { path: 'artifacts/chart.png', size: 512, dir: false },
-      { path: 'artifacts/report.md', size: 256, dir: false },
-    ] })
+    const output: ArtifactRecord = { ...input, id: 'output-bundle', direction: 'output', name: `whx_bundle_res_chat-1_${requestId}.zip`, created_at: '2026-09-05T22:56:00Z' }
+    mocks.chatFiles.mockResolvedValueOnce({ files: [
+      { artifact_id: 'attachment-1', request_id: requestId, direction: 'input', source: 'attachment', name: 'brief.pdf', content_type: 'application/pdf', size: 128, created_at: '2026-09-05T22:55:00Z', direct: true },
+      { artifact_id: 'output-bundle', request_id: requestId, direction: 'output', source: 'returned', name: 'chart.png', path: 'artifacts/chart.png', content_type: 'image/png', size: 512, created_at: '2026-09-05T22:56:00Z', direct: false },
+    ] satisfies ChatFileRecord[] })
 
     render(<ChatArtifactLibrary sessionId="ses_1" artifacts={[input, output]} />)
 
-    expect(screen.getByText('Ficheiros e bundles')).toBeTruthy()
-    expect(screen.getByText('whx_bundle_req_chat-1_req_20260905T225500_5555555555555555.zip')).toBeTruthy()
-    expect(screen.getByText('whx_bundle_res_chat-1_req_20260905T225500_5555555555555555.zip')).toBeTruthy()
-    const chartRow = await screen.findByTitle('Pré-visualizar artifacts/chart.png')
-    expect(chartRow.textContent).toContain('chart.png')
-    expect(screen.getByTitle('Descarregar artifacts/chart.png')).toBeTruthy()
-    expect(screen.getByText('report.md')).toBeTruthy()
-    expect(screen.queryByText('turn.json')).toBeNull()
-    await waitFor(() => expect(document.querySelector('img')?.getAttribute('src')).toContain('artifacts%2Fchart.png'))
+    expect(await screen.findByText('brief.pdf')).toBeTruthy()
+    expect(screen.getByText('chart.png')).toBeTruthy()
+    expect(screen.getByText(input.name)).toBeTruthy()
+    expect(screen.getByText(output.name)).toBeTruthy()
+    expect(mocks.chatFiles).toHaveBeenCalledWith('ses_1')
+    const libraryButtons = screen.getAllByTitle('Guardar na biblioteca')
+    fireEvent.click(libraryButtons[1])
+    await waitFor(() => expect(mocks.saveChatFileToLibrary).toHaveBeenCalledWith('ses_1', 'output-bundle', 'artifacts/chart.png'))
   })
 
   it('renders user-facing files from artifacts/ in the matching response bundle', async () => {

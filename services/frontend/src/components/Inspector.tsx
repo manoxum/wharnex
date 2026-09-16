@@ -15,13 +15,13 @@ import { buildExecutionTimeline } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
 import { sessionCanApplyHost, sessionHostResolutionBlocked } from '../lib/attentionCenter'
 import { activePendingRequestId } from '../lib/pendingRequest'
-import { sessionCanExecutePlan } from '../lib/executionRecovery'
+import { sessionCanExecutePlan, sessionNeedsExecutionConsent } from '../lib/executionRecovery'
 import { SignalCore } from './SignalCore'
 import { ChatArtifactLibrary } from './BundleExplorer'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApply, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onApply, onRejectExecutionPlan, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -40,9 +40,11 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   onCancelPendingRequest?: (requestId: string) => Promise<void>
   onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean) => Promise<void>
+  onApproveDebug?: () => Promise<void>
   onRetryDependencyNetwork?: () => Promise<void>
   onRetryHostDependencyRepair?: () => Promise<void>
   onApply: () => Promise<void>
+  onRejectExecutionPlan?: () => Promise<void>
   onRejectPendingChanges?: () => Promise<void>
   onManualPlan: (json: string) => Promise<void>
   onPlanFile: (json: string, requestId: string) => Promise<string>
@@ -59,7 +61,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   useEffect(() => { setManualJSON('') }, [chat?.id])
   const terminalEvents = useMemo(() => events.filter((e) => ['execution.queued', 'execution.dequeued', 'execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'execution.recovery_discarded', 'execution.recovery_reconciled', 'automation.execution_failed', 'automation.infrastructure_blocked', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'host.restore_started', 'host.restore_failed', 'host.restore_recovery_started', 'host.restored', 'self_evolution.host_build_started', 'self_evolution.host_build_output', 'self_evolution.host_build_completed', 'self_evolution.host_build_failed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed', 'changeset.base_restored', 'changeset.verified', 'changeset.replayed', 'changeset.integrated', 'bundle.incomplete_impact_files', 'integration.verification_started', 'integration.verification_completed', 'integration.verification_unsupported', 'integration.verification_baseline_unchanged', 'integration.verification_baseline_compare_failed', 'integration.race', 'self_evolution.transaction_aborted', 'conflict.prompt_ready', 'host_dependency_repair.started', 'host_dependency_repair.command_started', 'host_dependency_repair.command_completed', 'host_dependency_repair.completed', 'host_dependency_repair.failed', 'host_dependency_repair.reverify_failed'].includes(e.type)), [events])
   const canExecute = sessionCanExecutePlan(session)
-  const needsApproval = Boolean(session.policy?.requires_approval)
+  const needsApproval = sessionNeedsExecutionConsent(session)
   const direct = session.execution_mode === 'unprotected'
   const pendingCount = session.pending_host_changes?.length || 0
   const canApply = sessionCanApplyHost(session)
@@ -81,9 +83,6 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
           {direct && <StatusPill tone="warning">Unprotected</StatusPill>}
           {session.automation_mode === 'auto' && <StatusPill tone="success">Auto</StatusPill>}
           {session.chat_transport_mode === 'manual' && <StatusPill tone="warning">Manual (sem DOM)</StatusPill>}
-          {canExecute && !busy && <button className={direct ? 'danger-button' : 'secondary-button'} onClick={() => onExecute(needsApproval || direct)}><Icon name="play" size={15}/> {direct ? 'Executar no host' : (needsApproval ? 'Aprovar e executar' : 'Executar')}</button>}
-          {canReject && <button className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={14}/> {session.integration_conflict ? 'Cancelar conflito' : 'Rejeitar'}</button>}
-          {canApply && <button className="apply-button" disabled={busy} onClick={onApply}><Icon name="apply" size={16}/> Aplicar no host{pendingCount > 1 ? ` (${pendingCount})` : ''}</button>}
         </div>
       </header>}
 
@@ -97,7 +96,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
         {selectedTab === 'files' && <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
-        {selectedTab === 'plan' && <PlanView session={session} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}
+        {selectedTab === 'plan' && <PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canApply={canApply} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onApply={onApply} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
@@ -288,21 +287,57 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   </div>
 }
 
-export function PlanView({ session, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: { session: Session; conflictGuidance?: string; onConflictGuidance?: (value: string) => void; onResolveManually?: () => void; onResolveWithGPT?: () => void }) {
+export function PlanView({ session, busy = false, canExecute = false, needsApproval = false, canApply = false, canRejectPending = false, onExecute, onApproveDebug, onApply, onRejectExecutionPlan, onRejectPendingChanges, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: {
+  session: Session
+  busy?: boolean
+  canExecute?: boolean
+  needsApproval?: boolean
+  canApply?: boolean
+  canRejectPending?: boolean
+  onExecute?: (approved: boolean) => Promise<void>
+  onApproveDebug?: () => Promise<void>
+  onApply?: () => Promise<void>
+  onRejectExecutionPlan?: () => Promise<void>
+  onRejectPendingChanges?: () => Promise<void>
+  conflictGuidance?: string
+  onConflictGuidance?: (value: string) => void
+  onResolveManually?: () => void
+  onResolveWithGPT?: () => void
+}) {
 	const integration = <IntegrationQueue session={session} conflictGuidance={conflictGuidance} onConflictGuidance={onConflictGuidance} onResolveManually={onResolveManually} onResolveWithGPT={onResolveWithGPT} />
 	if (!session.plan) return <>{integration}<Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." /></>
   const plan = session.plan
   const workflow = session.last_turn?.kind === 'workflow'
   const operations = plan.operations || []
   const verification = plan.verification || []
+  const dependencies = plan.dependencies || []
+  const systemTools = plan.system_tools || []
+  const patches = operations.filter((operation) => operation.type === 'apply_patch')
+  const hostTools = systemTools.filter((tool) => tool.target === 'host' && tool.action !== 'use')
   const policyStatus = session.policy ? (session.policy.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado') : 'Histórico'
   const policyTone = session.policy ? (session.policy.allowed ? 'success' : 'danger') : 'neutral'
 	return <div className="plan-view">
 	{integration}
-    <div className="section-heading plan-heading"><div><span className="panel-kicker">{workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><MarkdownContent markdown={plan.summary} compact /></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
+    <div className="plan-command-deck">
+      <div><span className="panel-kicker">Contrato de execução</span><strong>{canExecute ? 'Aguardando a sua decisão' : canApply ? 'Verificado e pronto para integrar' : 'Plano registado'}</strong><span>{needsApproval ? 'Uma aprovação cobre a execução principal e as correções automáticas que não introduzam novo impacto no host.' : 'As decisões seguintes dependem apenas de novo impacto de segurança ou de host.'}</span></div>
+      <div className="plan-decision-actions">
+        {session.state === 'debug_approval_required' && session.plan.debug && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApproveDebug?.()}><Icon name="terminal" size={14}/> Autorizar debug {session.plan.debug.target}</button>}
+        {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className={session.execution_mode === 'unprotected' ? 'danger-button' : 'apply-button'} disabled={busy} onClick={() => void onExecute?.(true)}><Icon name="check" size={14}/> {session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
+        {canApply && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApply?.()}><Icon name="apply" size={14}/> Aplicar no host{(session.pending_host_changes?.length || 0) > 1 ? ` (${session.pending_host_changes?.length})` : ''}</button>}
+        {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
+      </div>
+    </div>
+    <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.debug ? `Debug ${plan.debug.target} · ${session.workflow_round || 0}/6` : workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><h3>{plan.summary}</h3></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
+    {plan.debug && <div className="policy-box"><Icon name="terminal" size={17}/><div><strong>Probe de debug · {plan.debug.target}</strong><span>{plan.debug.rationale}</span><span>Somente comandos validados, sem patches e sem rede.</span></div></div>}
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
-    <div className="metric-row"><Metric label={workflow ? 'Comandos locais' : 'Operações'} value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
+    <div className="metric-row plan-metrics"><Metric label="Ficheiros previstos" value={String(plan.impact_files?.length || patches.length)}/><Metric label="Dependências" value={String(dependencies.length)}/><Metric label="Ferramentas SO" value={String(systemTools.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
+    <section className="plan-document"><div className="plan-section-title"><span>01</span><div><strong>Plano de implementação</strong><small>O contrato que será executado</small></div></div><MarkdownContent markdown={plan.document || '_Plano legado: o documento detalhado não fazia parte deste protocolo. Consulte o resumo e as operações abaixo._'}/></section>
+    <section className="plan-impact-grid">
+      <div className="plan-impact-panel"><div className="plan-section-title"><span>02</span><div><strong>Dependências do projeto</strong><small>{dependencies.length ? `${dependencies.length} alteração(ões) declarada(s)` : 'Nenhuma alteração declarada'}</small></div></div>{dependencies.length ? <div className="plan-requirement-list">{dependencies.map((dependency, index) => <div className="plan-requirement" key={`${dependency.scope}-${dependency.manager}-${dependency.name}-${index}`}><span className={`requirement-action action-${dependency.action}`}>{dependency.action}</span><div><strong>{dependency.name}{dependency.version ? ` · ${dependency.version}` : ''}</strong><small>{dependency.scope} · {dependency.manager}</small><p>{dependency.reason}</p></div></div>)}</div> : <p className="plan-none">O plano não instala nem atualiza dependências do projeto.</p>}</div>
+      <div className={`plan-impact-panel${hostTools.length ? ' host-impact' : ''}`}><div className="plan-section-title"><span>03</span><div><strong>Ferramentas do sistema</strong><small>{hostTools.length ? 'Existe impacto no host' : `${systemTools.length} requisito(s) declarado(s)`}</small></div></div>{systemTools.length ? <div className="plan-requirement-list">{systemTools.map((tool, index) => <div className="plan-requirement" key={`${tool.target}-${tool.name}-${index}`}><span className={`requirement-target target-${tool.target}`}>{tool.target}</span><div><strong>{tool.name} · {tool.action}</strong><p>{tool.reason}</p></div></div>)}</div> : <p className="plan-none">Nenhuma ferramenta de SO será instalada ou configurada.</p>}</div>
+    </section>
     {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><TranslatableMarkdown sessionId={session.id} markdown={session.last_bundle.readme} /></div></details>}
+    <div className="plan-section-title plan-changes-title"><span>04</span><div><strong>Alterações previstas</strong><small>Diffs exatos incluídos no bundle</small></div></div>
     <div className="operation-list">
       {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <details><summary>Ver diff</summary><pre className="diff-view">{op.patch}</pre></details>}</div></div>)}
       {verification.map((command, index) => <div className="operation verification" key={`v-${index}`}><div className="operation-index"><Icon name="check" size={15}/></div><div className="operation-body"><strong>{(command.argv || []).join(' ')}</strong><span>Verification · {command.cwd || '.'}</span></div></div>)}

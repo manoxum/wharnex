@@ -810,6 +810,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			resetAttemptLedger(current, requestID)
 			current.AutomationAttempt = 1
 			current.ImprovementAttempt = 0
+			current.DebugApprovedRootID = ""
 			return nil
 		}); clearErr == nil {
 			item = refreshed
@@ -923,7 +924,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			current.Plan = result.Plan
 			current.Policy = &decision
 			if result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
-				current.State = "workflow_planned"
+				if result.Plan.Debug != nil && !debugAuthorized(*current) {
+					current.State = "debug_approval_required"
+				} else {
+					current.State = "workflow_planned"
+				}
 			} else {
 				current.State = "planned"
 			}
@@ -966,7 +971,12 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		}
 	}
 	if result.Plan != nil && result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
-		if updated.AutomationMode != domain.AutomationModeAuto {
+		isDebug := result.Plan.Debug != nil
+		if isDebug && !debugAuthorized(updated) {
+			s.bus.Publish(sessionID, "debug.approval_required", map[string]any{"plan_id": result.Plan.PlanID, "request_id": result.Plan.RequestID, "target": result.Plan.Debug.Target})
+			return result, updated, nil
+		}
+		if !isDebug && updated.AutomationMode != domain.AutomationModeAuto {
 			return planner.Result{}, updated, errors.New("workflow turn requires project Auto mode; return a terminal answer/investigation or enable Auto")
 		}
 		workflow, workflowErr := s.runWorkflowLoop(ctx, sessionID, "provider")
@@ -1272,10 +1282,11 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		}
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
-		if current.AutomationMode != domain.AutomationModeAuto {
+		isDebug := parsed.Plan != nil && parsed.Plan.Debug != nil
+		if !isDebug && current.AutomationMode != domain.AutomationModeAuto {
 			return BundleSubmission{}, errors.New("workflow bundle requires project Auto mode; return a terminal answer/investigation bundle or enable Auto")
 		}
-		if current.ExecutionMode != domain.ExecutionModeProtected {
+		if !isDebug && current.ExecutionMode != domain.ExecutionModeProtected {
 			return BundleSubmission{}, errors.New("workflow bundle requires Protected execution mode")
 		}
 		if current.WorkflowRound >= maxWorkflowRounds {
@@ -1288,14 +1299,19 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			return BundleSubmission{}, err
 		}
 		decision := s.policy.Evaluate(*parsed.Plan)
-		_, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+		debugApproved := current.DebugEnabled || current.DebugApprovedRootID == debugRootRequestID(current, parsed.Plan.RequestID)
+		updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
 			turn := parsed.Turn
 			item.LastTurn = &turn
 			item.Plan = parsed.Plan
 			item.Policy = &decision
 			item.LastExecution = nil
 			item.LastBundle = &parsed.Info
-			item.State = "workflow_planned"
+			if isDebug && !debugApproved {
+				item.State = "debug_approval_required"
+			} else {
+				item.State = "workflow_planned"
+			}
 			item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, parsed.Turn.RequestID)
 			return nil
 		})
@@ -1303,7 +1319,12 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			return BundleSubmission{}, updateErr
 		}
 		s.releaseRemoteInputLease(sessionID, parsed.Turn.RequestID)
+		s.recordPlanActivity(sessionID, parsed.Plan)
 		s.bus.Publish(sessionID, "workflow.received", map[string]any{"plan_id": parsed.Plan.PlanID, "request_id": parsed.Turn.RequestID, "allowed": decision.Allowed, "transport": "zip_bundle"})
+		if isDebug && !debugApproved {
+			s.bus.Publish(sessionID, "debug.approval_required", map[string]any{"plan_id": parsed.Plan.PlanID, "request_id": parsed.Turn.RequestID, "target": parsed.Plan.Debug.Target})
+			return BundleSubmission{Session: updated, AutoError: "debug flow requires one approval for this Main Request"}, nil
+		}
 		return s.runWorkflowLoop(ctx, sessionID, "zip_bundle")
 	}
 	if parsed.Plan == nil {
@@ -1613,6 +1634,12 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			return result
 		}
 		planID := current.Plan.PlanID
+		if planNeedsInitialConsent(current) {
+			result.AutoError = "automatic execution paused for the Main Request execution-contract consent"
+			s.bus.Publish(sessionID, "automation.approval_required", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": []string{"initial Main Request execution contract requires consent"}, "error": result.AutoError})
+			result.Session = current
+			return result
+		}
 		if current.Policy.RequiresApproval {
 			reason := strings.Join(current.Policy.Reasons, "; ")
 			if strings.TrimSpace(reason) == "" {
