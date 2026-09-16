@@ -30,7 +30,7 @@ import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
 import { desktopBridge } from '../lib/desktop'
 import { api } from '../lib/api'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
-import { BundleExchangeBar, ChatArtifactLibrary, ComposerBundlePreviewExplorer, ReturnedArtifactGallery } from './BundleExplorer'
+import { BundleExchangeBar, ComposerBundlePreviewExplorer, ReturnedArtifactGallery } from './BundleExplorer'
 import { useProgressiveChatHistory, type ChatViewportStore } from './useProgressiveChatHistory'
 import { promptDialog } from '../lib/appDialog'
 import { plannerDeclaredNonRetryable, promptGPTRepairDetail } from '../lib/plannerRecovery'
@@ -193,7 +193,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [copiedMessageId, setCopiedMessageId] = useState('')
   const [contextIdentityCopied, setContextIdentityCopied] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
-  const [contentView, setContentView] = useState<'conversation' | 'files'>('conversation')
   const [commentBusy, setCommentBusy] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
   const [editingQueueId, setEditingQueueId] = useState('')
@@ -303,7 +302,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     // already chosen.
     const migrated = fileDraft.projectFiles.map((path) => canonicalDirective({ kind: 'file', value: path })).join(' ')
     setMessage(migrated ? [draft.message.trim(), migrated].filter(Boolean).join(' ') : draft.message)
-    setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setContentView('conversation'); setExpandedWhxNoticeRunId('')
+    setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setExpandedWhxNoticeRunId('')
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
   useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
@@ -631,12 +630,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       </div>)}</div> : <div className="chat-archive-empty">Nenhum chat fechado.</div>}
     </div>}
 
-    {!composerOnly && <div className="chat-content-tabs" role="tablist" aria-label="Conteúdo do chat">
-      <button type="button" role="tab" aria-selected={contentView === 'conversation'} className={contentView === 'conversation' ? 'active' : ''} onClick={() => setContentView('conversation')}><Icon name="chatgpt" size={12}/> Conversa</button>
-      <button type="button" role="tab" aria-selected={contentView === 'files'} className={contentView === 'files' ? 'active' : ''} onClick={() => setContentView('files')}><Icon name="folder" size={12}/> Ficheiros</button>
-    </div>}
-
-    {!composerOnly && (contentView === 'conversation' ? <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
+    {!composerOnly && <div ref={streamRef} className="chat-stream" onScroll={onHistoryScroll}>
       {hasOlder && <div className="chat-history-loader"><span><Icon name="arrow-up" size={12}/> {hiddenItemCount} mensagem(ns) anterior(es)</span><button type="button" onClick={loadOlder}>Carregar mensagens anteriores</button></div>}
       {visibleItems.map((item) => {
         const previousNotices = whxNoticeRuns.previousByLatestId.get(item.id) || []
@@ -654,7 +648,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       })}
       {busy && !taskInFlight && <div className="chat-thought live"><span className="thought-mark"><Icon name="agent" size={13}/></span><div><strong>Wharnex</strong><div className="thinking"><span/><span/><span/> A processar o pedido</div></div></div>}
       <div ref={endRef}/>
-    </div> : <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>)}
+    </div>}
 
     {!composerOnly && <>
       {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery.kind === 'storage' ? 'Armazenamento local sem espaço' : failedPromptDelivery.kind === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery.kind === 'storage' ? 'O bundle foi preservado, mas o backend não consegue guardá-lo. Liberte espaço no disco e tente a ingestão novamente.' : failedPromptDelivery.kind === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.(failedPromptDelivery.requestId)}><Icon name="refresh" size={14}/> {failedPromptDelivery.kind === 'storage' ? 'Tentar após liberar espaço' : failedPromptDelivery.kind === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
