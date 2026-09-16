@@ -39,12 +39,23 @@ func pushSetup(t *testing.T, service *Service, conflicting bool) (root, sessionI
 	runGitForApp(t, peer, "push", "-q", "origin", "main")
 
 	sessionID = startGitSession(t, service, root)
+	if _, err := service.store.Update(sessionID, func(current *domain.Session) error { current.ChatID = "chat-git-conflict"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReplaceWorkspaceChatItems("chat-git-conflict", []domain.WorkspaceChatItem{{
+		ID: "user-local-change", Payload: map[string]any{
+			"role": "user", "text": "Preserve the local validation while changing the shared line.",
+			"iteration": map[string]any{"requestId": "req-local-change"},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
 	runGitForApp(t, root, "add", "-A")
 	runGitForApp(t, root, "commit", "-qm", "chore: project config")
 	if err := os.WriteFile(filepath.Join(root, "shared.txt"), []byte("mine\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runGitForApp(t, root, "commit", "-qam", "feat(shared): my own rewrite of the shared line")
+	runGitForApp(t, root, "commit", "-qam", "feat(shared): my own rewrite of the shared line", "-m", "Request-Id: req-local-change")
 	return root, sessionID, remote
 }
 
@@ -131,6 +142,15 @@ func TestPushConflictRequestsResolutionAndLeavesTheRepositoryUsable(t *testing.T
 	}
 	if !strings.Contains(string(capsuleRaw), "peer rewrites the shared line") {
 		t.Fatal("the incoming side's own purpose must travel with the conflict")
+	}
+	if !strings.Contains(string(capsuleRaw), `"local_diff":`) || !strings.Contains(string(capsuleRaw), `"incoming_diff":`) {
+		t.Fatal("the resolver must receive bounded diffs for both sides of the merge")
+	}
+	if !strings.Contains(string(capsuleRaw), `"request_id": "req-local-change"`) {
+		t.Fatal("Wharnex request provenance from commit trailers must travel when available")
+	}
+	if !strings.Contains(string(capsuleRaw), "Preserve the local validation while changing the shared line.") {
+		t.Fatal("the originating user prompt must travel when the durable chat transcript still has it")
 	}
 }
 

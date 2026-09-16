@@ -506,6 +506,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [embeddedProject, mode])
 
   useEffect(() => {
+    if (!embeddedProject) return
+    window.parent.postMessage({ type: 'wharness:project-session', projectPath: embeddedProject, sessionId: session?.id || '' }, window.location.origin)
+  }, [embeddedProject, session?.id])
+
+  useEffect(() => {
+    if (!embeddedProject || !session?.id) return
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'wharness:refresh-session') return
+      void api.getSession(session.id).then(setSession).catch((reason) => setError(messageOf(reason)))
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [embeddedProject, session?.id])
+
+  useEffect(() => {
     if (!session || !activeChatOwnsSession || !activeChatId || !items.length || !transcriptReadyRef.current.has(activeChatId)) return
     saveChat(session.project_path, activeChatId, items)
     void api.replaceWorkspaceChatItems(activeChatId, items).catch(() => undefined)

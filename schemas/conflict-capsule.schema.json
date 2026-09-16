@@ -44,7 +44,10 @@
             "required": ["commit", "purpose"],
             "properties": {
               "commit": {"type": "string"},
-              "purpose": {"type": "string"}
+              "purpose": {"type": "string"},
+              "message": {"type": "string", "description": "Bounded commit body when available."},
+              "request_id": {"type": "string", "description": "Wharnex Request-Id commit trailer when available."},
+              "prompt": {"type": "string", "description": "Original durable user prompt for request_id when still retained; omitted rather than guessed."}
             }
           }
         },
@@ -56,10 +59,17 @@
             "required": ["commit", "purpose"],
             "properties": {
               "commit": {"type": "string"},
-              "purpose": {"type": "string"}
+              "purpose": {"type": "string"},
+              "message": {"type": "string", "description": "Bounded commit body when available."},
+              "request_id": {"type": "string", "description": "Wharnex Request-Id commit trailer when available."},
+              "prompt": {"type": "string", "description": "Original durable user prompt for request_id when still retained; omitted rather than guessed."}
             }
           }
         },
+        "local_diff": {"type": "string", "description": "Bounded unified diff from BASE to LOCAL for the Git-origin side."},
+        "local_diff_truncated": {"type": "boolean"},
+        "incoming_diff": {"type": "string", "description": "Bounded unified diff from BASE to INCOMING for the Git-origin side."},
+        "incoming_diff_truncated": {"type": "boolean"},
         "user_guidance": {"type": "string"},
         "attempt": {"type": "integer", "minimum": 0},
         "max_attempts": {"type": "integer", "minimum": 0},

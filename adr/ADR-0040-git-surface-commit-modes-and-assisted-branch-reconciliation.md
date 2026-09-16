@@ -15,7 +15,7 @@ operations a human drives.
 
 The Git surface adds the operations that mode makes necessary — commit the
 queue in full or selectively, push, merge another branch, see the branches and
-the history — and routes a push or merge conflict into the same bounded
+the history — and routes a push, pull or merge conflict into the same bounded
 `harness.conflict/v1` resolution a Wharnex integration conflict already uses,
 extended so the capsule says which reconciliation is being asked for.
 
@@ -131,12 +131,14 @@ capsule showed the resolver.
 
 ### 7. Protocol evolution: one capsule, two destinations
 
-`harness.conflict/v1` gains `origin` (`integration` | `push` | `branch_merge`)
+`harness.conflict/v1` gains `origin` (`integration` | `push` | `pull` | `branch_merge`)
 and, for the Git origins, a `git` block naming the merge to replay. The
 question a resolver answers is identical in both cases — three versions of a
 file plus the intent behind each side — so a second conflict protocol would
 have been duplication. What differs is where the answer goes, and the capsule
 now says so.
+
+For Git-origin conflicts, `intent` additionally carries bounded BASE→LOCAL and BASE→INCOMING diffs and richer commit provenance for both sides. Commit bodies and `Request-Id` trailers are retained; when that request id can be matched to the durable workspace transcript, the original user prompt is attached as optional provenance. A missing transcript or request trailer is represented by omission, never by reconstructing or guessing a prompt. This gives an automatic resolver the same semantic evidence a human would gather from the graph, diffs and commit history while keeping the capsule bounded.
 
 A Git-origin resolution does **not** route through the Protected sandbox. Its
 product is a merge commit the operator explicitly asked for, on their own

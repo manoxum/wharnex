@@ -112,9 +112,22 @@ number of applied-but-uncommitted changes so that state is visible without
 opening the panel. The badge refreshes when an Apply could have changed it,
 never on a timer.
 
+The multi-project shell header uses the project Git identity in the operational
+slot before the mode selector: it shows the active project's current working
+branch and root project version, never the Wharnex instance id/version. The badge is
+interactive and exposes branch switching plus fetch, pull and push for the
+active embedded project's Session. A same-origin child publishes its Session id
+to the shell; after a mutating Git action the shell asks that child to refresh
+its Session so conflict state and branch metadata stay coherent in both
+surfaces. Missing root project version remains an Engine concern and is created by the
+project-version service before the Git overview is returned.
+
 The panel presents, in one read: the project's commit mode; the current branch
 with its ahead/behind counts; local and remote-tracking branches; the pending
-commit queue; and the recent history, marking each commit as Wharnex-originated
+commit queue; and the recent history. History scope may be the current branch,
+an explicit selection of several branches, or all branches; the graph keeps the
+selected refs visible together instead of forcing one-branch-at-a-time review.
+Each commit is marked as Wharnex-originated
 (decided by its `Request-Id` trailer, so a change the operator committed
 themselves is still recognised) and as pushed or still local. A repository that
 cannot be inspected states why rather than rendering an empty panel.
